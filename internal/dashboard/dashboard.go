@@ -13,11 +13,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/events"
 )
 
-//go:embed static/index.html static/style.css static/app.js
+//go:embed static/index.html static/style.css static/app.js static/config.html static/config.js
 var staticFiles embed.FS
 
 // Dashboard is the web dashboard server.
@@ -51,12 +52,16 @@ func New(eng *engine.Engine, store events.EventStore, apiKey string) *Dashboard 
 	d.mux.HandleFunc("GET /api/v1/stats", d.authWrap(d.handleGetStats))
 	d.mux.HandleFunc("GET /api/v1/events", d.authWrap(d.handleGetEvents))
 	d.mux.HandleFunc("GET /api/v1/events/{id}", d.authWrap(d.handleGetEvent))
+	d.mux.HandleFunc("GET /api/v1/config", d.authWrap(d.handleGetConfig))
+	d.mux.HandleFunc("PUT /api/v1/config", d.authWrap(d.handleUpdateConfig))
 	d.mux.HandleFunc("GET /api/v1/sse", d.authWrap(d.handleSSE))
 
 	// Protected static files
 	d.mux.HandleFunc("/", d.authWrap(d.handleIndex))
+	d.mux.HandleFunc("/config", d.authWrap(d.handleConfigPage))
 	d.mux.HandleFunc("/style.css", d.authWrap(d.handleStatic("static/style.css", "text/css; charset=utf-8")))
 	d.mux.HandleFunc("/app.js", d.authWrap(d.handleStatic("static/app.js", "application/javascript; charset=utf-8")))
+	d.mux.HandleFunc("/config.js", d.authWrap(d.handleStatic("static/config.js", "application/javascript; charset=utf-8")))
 
 	return d
 }
@@ -216,6 +221,251 @@ func (d *Dashboard) handleGetEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, evt)
+}
+
+// --- Config ---
+
+func (d *Dashboard) handleGetConfig(w http.ResponseWriter, r *http.Request) {
+	cfg := d.engine.Config()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"mode": cfg.Mode,
+		"waf": map[string]any{
+			"ip_acl": map[string]any{
+				"enabled":   cfg.WAF.IPACL.Enabled,
+				"whitelist": cfg.WAF.IPACL.Whitelist,
+				"blacklist": cfg.WAF.IPACL.Blacklist,
+				"auto_ban": map[string]any{
+					"enabled":     cfg.WAF.IPACL.AutoBan.Enabled,
+					"default_ttl": cfg.WAF.IPACL.AutoBan.DefaultTTL.String(),
+					"max_ttl":     cfg.WAF.IPACL.AutoBan.MaxTTL.String(),
+				},
+			},
+			"rate_limit": map[string]any{
+				"enabled": cfg.WAF.RateLimit.Enabled,
+				"rules":   cfg.WAF.RateLimit.Rules,
+			},
+			"sanitizer": map[string]any{
+				"enabled":            cfg.WAF.Sanitizer.Enabled,
+				"max_url_length":     cfg.WAF.Sanitizer.MaxURLLength,
+				"max_header_size":    cfg.WAF.Sanitizer.MaxHeaderSize,
+				"max_header_count":   cfg.WAF.Sanitizer.MaxHeaderCount,
+				"max_body_size":      cfg.WAF.Sanitizer.MaxBodySize,
+				"max_cookie_size":    cfg.WAF.Sanitizer.MaxCookieSize,
+				"block_null_bytes":   cfg.WAF.Sanitizer.BlockNullBytes,
+				"normalize_encoding": cfg.WAF.Sanitizer.NormalizeEncoding,
+			},
+			"detection": map[string]any{
+				"enabled": cfg.WAF.Detection.Enabled,
+				"threshold": map[string]any{
+					"block": cfg.WAF.Detection.Threshold.Block,
+					"log":   cfg.WAF.Detection.Threshold.Log,
+				},
+				"detectors": cfg.WAF.Detection.Detectors,
+			},
+			"bot_detection": map[string]any{
+				"enabled": cfg.WAF.BotDetection.Enabled,
+				"mode":    cfg.WAF.BotDetection.Mode,
+				"tls_fingerprint": map[string]any{
+					"enabled": cfg.WAF.BotDetection.TLSFingerprint.Enabled,
+				},
+				"user_agent": map[string]any{
+					"enabled":              cfg.WAF.BotDetection.UserAgent.Enabled,
+					"block_empty":          cfg.WAF.BotDetection.UserAgent.BlockEmpty,
+					"block_known_scanners": cfg.WAF.BotDetection.UserAgent.BlockKnownScanners,
+				},
+				"behavior": map[string]any{
+					"enabled":              cfg.WAF.BotDetection.Behavior.Enabled,
+					"window":               cfg.WAF.BotDetection.Behavior.Window.String(),
+					"rps_threshold":        cfg.WAF.BotDetection.Behavior.RPSThreshold,
+					"error_rate_threshold": cfg.WAF.BotDetection.Behavior.ErrorRateThreshold,
+				},
+			},
+			"challenge": map[string]any{
+				"enabled":     cfg.WAF.Challenge.Enabled,
+				"difficulty":  cfg.WAF.Challenge.Difficulty,
+				"cookie_ttl":  cfg.WAF.Challenge.CookieTTL.String(),
+				"cookie_name": cfg.WAF.Challenge.CookieName,
+			},
+			"response": map[string]any{
+				"security_headers": map[string]any{
+					"enabled":                cfg.WAF.Response.SecurityHeaders.Enabled,
+					"x_frame_options":        cfg.WAF.Response.SecurityHeaders.XFrameOptions,
+					"referrer_policy":        cfg.WAF.Response.SecurityHeaders.ReferrerPolicy,
+					"x_content_type_options": cfg.WAF.Response.SecurityHeaders.XContentTypeOptions,
+					"hsts": map[string]any{
+						"enabled":            cfg.WAF.Response.SecurityHeaders.HSTS.Enabled,
+						"max_age":            cfg.WAF.Response.SecurityHeaders.HSTS.MaxAge,
+						"include_subdomains": cfg.WAF.Response.SecurityHeaders.HSTS.IncludeSubDomains,
+					},
+				},
+				"data_masking": map[string]any{
+					"enabled":            cfg.WAF.Response.DataMasking.Enabled,
+					"mask_credit_cards":  cfg.WAF.Response.DataMasking.MaskCreditCards,
+					"mask_ssn":           cfg.WAF.Response.DataMasking.MaskSSN,
+					"mask_api_keys":      cfg.WAF.Response.DataMasking.MaskAPIKeys,
+					"strip_stack_traces": cfg.WAF.Response.DataMasking.StripStackTraces,
+				},
+			},
+		},
+	})
+}
+
+func (d *Dashboard) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
+	var patch map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid JSON: " + err.Error()})
+		return
+	}
+
+	cfg := d.engine.Config()
+
+	// Apply top-level mode
+	if v, ok := patch["mode"].(string); ok {
+		cfg.Mode = v
+	}
+
+	// Apply WAF section patches
+	if waf, ok := patch["waf"].(map[string]any); ok {
+		applyWAFPatch(cfg, waf)
+	}
+
+	if err := d.engine.Reload(cfg); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "message": "Configuration updated"})
+}
+
+func (d *Dashboard) handleConfigPage(w http.ResponseWriter, r *http.Request) {
+	data, err := staticFiles.ReadFile("static/config.html")
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write(data)
+}
+
+// applyWAFPatch applies partial config updates from a JSON patch object.
+func applyWAFPatch(cfg *config.Config, waf map[string]any) {
+	if det, ok := waf["detection"].(map[string]any); ok {
+		if v, ok := det["enabled"].(bool); ok {
+			cfg.WAF.Detection.Enabled = v
+		}
+		if th, ok := det["threshold"].(map[string]any); ok {
+			if v, ok := th["block"].(float64); ok {
+				cfg.WAF.Detection.Threshold.Block = int(v)
+			}
+			if v, ok := th["log"].(float64); ok {
+				cfg.WAF.Detection.Threshold.Log = int(v)
+			}
+		}
+		if detectors, ok := det["detectors"].(map[string]any); ok {
+			for name, raw := range detectors {
+				d, ok := raw.(map[string]any)
+				if !ok {
+					continue
+				}
+				dc := cfg.WAF.Detection.Detectors[name]
+				if v, ok := d["enabled"].(bool); ok {
+					dc.Enabled = v
+				}
+				if v, ok := d["multiplier"].(float64); ok {
+					dc.Multiplier = v
+				}
+				cfg.WAF.Detection.Detectors[name] = dc
+			}
+		}
+	}
+
+	if rl, ok := waf["rate_limit"].(map[string]any); ok {
+		if v, ok := rl["enabled"].(bool); ok {
+			cfg.WAF.RateLimit.Enabled = v
+		}
+	}
+
+	if san, ok := waf["sanitizer"].(map[string]any); ok {
+		if v, ok := san["enabled"].(bool); ok {
+			cfg.WAF.Sanitizer.Enabled = v
+		}
+		if v, ok := san["max_body_size"].(float64); ok {
+			cfg.WAF.Sanitizer.MaxBodySize = int64(v)
+		}
+		if v, ok := san["max_url_length"].(float64); ok {
+			cfg.WAF.Sanitizer.MaxURLLength = int(v)
+		}
+	}
+
+	if bd, ok := waf["bot_detection"].(map[string]any); ok {
+		if v, ok := bd["enabled"].(bool); ok {
+			cfg.WAF.BotDetection.Enabled = v
+		}
+		if v, ok := bd["mode"].(string); ok {
+			cfg.WAF.BotDetection.Mode = v
+		}
+		if ua, ok := bd["user_agent"].(map[string]any); ok {
+			if v, ok := ua["block_empty"].(bool); ok {
+				cfg.WAF.BotDetection.UserAgent.BlockEmpty = v
+			}
+			if v, ok := ua["block_known_scanners"].(bool); ok {
+				cfg.WAF.BotDetection.UserAgent.BlockKnownScanners = v
+			}
+		}
+		if beh, ok := bd["behavior"].(map[string]any); ok {
+			if v, ok := beh["rps_threshold"].(float64); ok {
+				cfg.WAF.BotDetection.Behavior.RPSThreshold = int(v)
+			}
+			if v, ok := beh["error_rate_threshold"].(float64); ok {
+				cfg.WAF.BotDetection.Behavior.ErrorRateThreshold = int(v)
+			}
+		}
+	}
+
+	if ch, ok := waf["challenge"].(map[string]any); ok {
+		if v, ok := ch["enabled"].(bool); ok {
+			cfg.WAF.Challenge.Enabled = v
+		}
+		if v, ok := ch["difficulty"].(float64); ok {
+			cfg.WAF.Challenge.Difficulty = int(v)
+		}
+	}
+
+	if ipacl, ok := waf["ip_acl"].(map[string]any); ok {
+		if v, ok := ipacl["enabled"].(bool); ok {
+			cfg.WAF.IPACL.Enabled = v
+		}
+		if ab, ok := ipacl["auto_ban"].(map[string]any); ok {
+			if v, ok := ab["enabled"].(bool); ok {
+				cfg.WAF.IPACL.AutoBan.Enabled = v
+			}
+		}
+	}
+
+	if resp, ok := waf["response"].(map[string]any); ok {
+		if sh, ok := resp["security_headers"].(map[string]any); ok {
+			if v, ok := sh["enabled"].(bool); ok {
+				cfg.WAF.Response.SecurityHeaders.Enabled = v
+			}
+		}
+		if dm, ok := resp["data_masking"].(map[string]any); ok {
+			if v, ok := dm["enabled"].(bool); ok {
+				cfg.WAF.Response.DataMasking.Enabled = v
+			}
+			if v, ok := dm["mask_credit_cards"].(bool); ok {
+				cfg.WAF.Response.DataMasking.MaskCreditCards = v
+			}
+			if v, ok := dm["mask_ssn"].(bool); ok {
+				cfg.WAF.Response.DataMasking.MaskSSN = v
+			}
+			if v, ok := dm["mask_api_keys"].(bool); ok {
+				cfg.WAF.Response.DataMasking.MaskAPIKeys = v
+			}
+			if v, ok := dm["strip_stack_traces"].(bool); ok {
+				cfg.WAF.Response.DataMasking.StripStackTraces = v
+			}
+		}
+	}
 }
 
 // --- Health ---

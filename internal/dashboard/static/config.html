@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Configuration — GuardianWAF</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+/* Config page specific styles */
+.config-nav{display:flex;gap:.5rem;margin-bottom:1.5rem;flex-wrap:wrap}
+.config-nav a{color:var(--text-secondary);text-decoration:none;padding:.5rem 1rem;border-radius:var(--radius);
+border:1px solid var(--border-subtle);font-size:.85rem;transition:all .15s}
+.config-nav a:hover{background:var(--bg-tertiary);color:var(--text-primary)}
+.config-nav a.active{background:var(--blue);color:#fff;border-color:var(--blue)}
+
+.config-section{background:var(--bg-secondary);border:1px solid var(--border-subtle);
+border-radius:var(--radius-lg);margin-bottom:1rem;overflow:hidden}
+.config-section.collapsed .section-body{display:none}
+.section-header{display:flex;align-items:center;justify-content:space-between;
+padding:1rem 1.25rem;cursor:pointer;user-select:none;transition:background .15s}
+.section-header:hover{background:var(--bg-tertiary)}
+.section-title{font-size:1rem;font-weight:600;display:flex;align-items:center;gap:.5rem}
+.section-badge{font-size:.7rem;padding:2px 8px;border-radius:10px;font-weight:500}
+.section-badge--on{background:rgba(34,197,94,.15);color:var(--green)}
+.section-badge--off{background:rgba(239,68,68,.15);color:var(--red)}
+.section-chevron{transition:transform .2s;color:var(--text-secondary);font-size:.8rem}
+.config-section.collapsed .section-chevron{transform:rotate(-90deg)}
+.section-body{padding:0 1.25rem 1.25rem;display:grid;gap:1rem}
+
+.field{display:flex;align-items:center;justify-content:space-between;
+padding:.75rem 0;border-bottom:1px solid var(--border-subtle)}
+.field:last-child{border-bottom:none}
+.field-label{font-size:.875rem;color:var(--text-secondary)}
+.field-label small{display:block;font-size:.75rem;color:var(--text-tertiary,#64748b);margin-top:2px}
+.field-value{display:flex;align-items:center;gap:.5rem}
+
+/* Toggle switch */
+.toggle{position:relative;width:44px;height:24px;flex-shrink:0}
+.toggle input{opacity:0;width:0;height:0}
+.toggle-slider{position:absolute;inset:0;background:#475569;border-radius:24px;cursor:pointer;transition:.2s}
+.toggle-slider::before{content:'';position:absolute;width:18px;height:18px;left:3px;bottom:3px;
+background:#fff;border-radius:50%;transition:.2s}
+.toggle input:checked+.toggle-slider{background:var(--blue)}
+.toggle input:checked+.toggle-slider::before{transform:translateX(20px)}
+
+/* Number input */
+.num-input{background:var(--bg-tertiary);border:1px solid var(--border-subtle);
+border-radius:var(--radius);padding:.4rem .6rem;color:var(--text-primary);
+font-size:.85rem;width:80px;text-align:right}
+.num-input:focus{outline:none;border-color:var(--blue)}
+.num-input--wide{width:120px}
+
+/* Select */
+.cfg-select{background:var(--bg-tertiary);border:1px solid var(--border-subtle);
+border-radius:var(--radius);padding:.4rem .6rem;color:var(--text-primary);
+font-size:.85rem;cursor:pointer;min-width:120px}
+.cfg-select:focus{outline:none;border-color:var(--blue)}
+
+/* Multiplier */
+.multiplier{display:flex;align-items:center;gap:.25rem}
+.multiplier .num-input{width:60px}
+
+/* Detectors grid */
+.detectors-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:.75rem}
+.detector-card{background:var(--bg-tertiary);border:1px solid var(--border-subtle);
+border-radius:var(--radius);padding:.75rem 1rem;display:flex;align-items:center;
+justify-content:space-between}
+.detector-name{font-size:.85rem;font-weight:500;text-transform:uppercase;letter-spacing:.03em}
+
+/* Save bar */
+.save-bar{position:fixed;bottom:0;left:0;right:0;background:var(--bg-secondary);
+border-top:1px solid var(--border-subtle);padding:1rem 2rem;display:flex;
+align-items:center;justify-content:flex-end;gap:1rem;z-index:100;
+transform:translateY(100%);transition:transform .3s ease}
+.save-bar.visible{transform:translateY(0)}
+.save-bar .status{color:var(--text-secondary);font-size:.85rem;margin-right:auto}
+.btn{padding:.5rem 1.25rem;border-radius:var(--radius);font-size:.85rem;font-weight:500;
+cursor:pointer;border:1px solid var(--border-subtle);background:var(--bg-tertiary);
+color:var(--text-primary);transition:all .15s}
+.btn:hover{background:var(--bg-secondary);border-color:var(--text-secondary)}
+.btn--primary{background:var(--blue);color:#fff;border-color:var(--blue)}
+.btn--primary:hover{opacity:.9}
+.btn--danger{background:var(--red);color:#fff;border-color:var(--red)}
+.btn--danger:hover{opacity:.9}
+
+/* Toast */
+.toast{position:fixed;top:1rem;right:1rem;padding:.75rem 1.25rem;border-radius:var(--radius);
+font-size:.85rem;z-index:200;animation:slideIn .3s ease}
+.toast--ok{background:rgba(34,197,94,.9);color:#fff}
+.toast--err{background:rgba(239,68,68,.9);color:#fff}
+@keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
+</style>
+</head>
+<body>
+<header class="header">
+    <div class="header-left">
+        <h1 class="logo">GuardianWAF</h1>
+        <span class="version">Configuration</span>
+    </div>
+    <div class="header-right">
+        <a href="/" class="btn" style="text-decoration:none">Dashboard</a>
+        <a href="/logout" class="btn" style="text-decoration:none">Logout</a>
+    </div>
+</header>
+
+<main class="main" style="padding-bottom:80px">
+    <!-- Mode selector -->
+    <div class="config-section" id="sec-general">
+        <div class="section-header" onclick="toggleSection(this)">
+            <span class="section-title">General</span>
+            <span class="section-chevron">&#9660;</span>
+        </div>
+        <div class="section-body">
+            <div class="field">
+                <span class="field-label">WAF Mode<small>enforce = block attacks, monitor = log only</small></span>
+                <select class="cfg-select" data-path="mode" onchange="markDirty()">
+                    <option value="enforce">Enforce</option>
+                    <option value="monitor">Monitor</option>
+                    <option value="disabled">Disabled</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <!-- Detection -->
+    <div class="config-section" id="sec-detection">
+        <div class="section-header" onclick="toggleSection(this)">
+            <span class="section-title">Detection Engine</span>
+            <span class="section-badge" id="badge-detection"></span>
+            <span class="section-chevron">&#9660;</span>
+        </div>
+        <div class="section-body">
+            <div class="field">
+                <span class="field-label">Enabled</span>
+                <label class="toggle"><input type="checkbox" data-path="waf.detection.enabled" onchange="markDirty()"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="field">
+                <span class="field-label">Block Threshold<small>Score at which requests are blocked</small></span>
+                <input type="number" class="num-input" data-path="waf.detection.threshold.block" min="1" max="100" onchange="markDirty()">
+            </div>
+            <div class="field">
+                <span class="field-label">Log Threshold<small>Score at which requests are logged</small></span>
+                <input type="number" class="num-input" data-path="waf.detection.threshold.log" min="1" max="100" onchange="markDirty()">
+            </div>
+            <div style="padding-top:.5rem">
+                <div class="field-label" style="margin-bottom:.75rem;font-weight:600">Detectors</div>
+                <div class="detectors-grid" id="detectors-grid"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Rate Limit -->
+    <div class="config-section" id="sec-ratelimit">
+        <div class="section-header" onclick="toggleSection(this)">
+            <span class="section-title">Rate Limiting</span>
+            <span class="section-badge" id="badge-ratelimit"></span>
+            <span class="section-chevron">&#9660;</span>
+        </div>
+        <div class="section-body">
+            <div class="field">
+                <span class="field-label">Enabled</span>
+                <label class="toggle"><input type="checkbox" data-path="waf.rate_limit.enabled" onchange="markDirty()"><span class="toggle-slider"></span></label>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bot Detection -->
+    <div class="config-section" id="sec-bot">
+        <div class="section-header" onclick="toggleSection(this)">
+            <span class="section-title">Bot Detection</span>
+            <span class="section-badge" id="badge-bot"></span>
+            <span class="section-chevron">&#9660;</span>
+        </div>
+        <div class="section-body">
+            <div class="field">
+                <span class="field-label">Enabled</span>
+                <label class="toggle"><input type="checkbox" data-path="waf.bot_detection.enabled" onchange="markDirty()"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="field">
+                <span class="field-label">Mode<small>enforce = block/challenge bots, monitor = log only</small></span>
+                <select class="cfg-select" data-path="waf.bot_detection.mode" onchange="markDirty()">
+                    <option value="enforce">Enforce</option>
+                    <option value="monitor">Monitor</option>
+                </select>
+            </div>
+            <div class="field">
+                <span class="field-label">Block Empty User-Agent</span>
+                <label class="toggle"><input type="checkbox" data-path="waf.bot_detection.user_agent.block_empty" onchange="markDirty()"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="field">
+                <span class="field-label">Block Known Scanners<small>sqlmap, nikto, nmap, burpsuite etc.</small></span>
+                <label class="toggle"><input type="checkbox" data-path="waf.bot_detection.user_agent.block_known_scanners" onchange="markDirty()"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="field">
+                <span class="field-label">RPS Threshold<small>Requests per second before flagging</small></span>
+                <input type="number" class="num-input" data-path="waf.bot_detection.behavior.rps_threshold" min="1" max="1000" onchange="markDirty()">
+            </div>
+            <div class="field">
+                <span class="field-label">Error Rate Threshold (%)<small>Error percentage before flagging</small></span>
+                <input type="number" class="num-input" data-path="waf.bot_detection.behavior.error_rate_threshold" min="1" max="100" onchange="markDirty()">
+            </div>
+        </div>
+    </div>
+
+    <!-- JS Challenge -->
+    <div class="config-section" id="sec-challenge">
+        <div class="section-header" onclick="toggleSection(this)">
+            <span class="section-title">JS Challenge (PoW)</span>
+            <span class="section-badge" id="badge-challenge"></span>
+            <span class="section-chevron">&#9660;</span>
+        </div>
+        <div class="section-body">
+            <div class="field">
+                <span class="field-label">Enabled<small>Serve SHA-256 proof-of-work for suspicious requests</small></span>
+                <label class="toggle"><input type="checkbox" data-path="waf.challenge.enabled" onchange="markDirty()"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="field">
+                <span class="field-label">Difficulty (bits)<small>16 = easy, 20 = normal, 24 = hard</small></span>
+                <input type="number" class="num-input" data-path="waf.challenge.difficulty" min="8" max="32" onchange="markDirty()">
+            </div>
+        </div>
+    </div>
+
+    <!-- IP ACL -->
+    <div class="config-section" id="sec-ipacl">
+        <div class="section-header" onclick="toggleSection(this)">
+            <span class="section-title">IP Access Control</span>
+            <span class="section-badge" id="badge-ipacl"></span>
+            <span class="section-chevron">&#9660;</span>
+        </div>
+        <div class="section-body">
+            <div class="field">
+                <span class="field-label">Enabled</span>
+                <label class="toggle"><input type="checkbox" data-path="waf.ip_acl.enabled" onchange="markDirty()"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="field">
+                <span class="field-label">Auto-Ban</span>
+                <label class="toggle"><input type="checkbox" data-path="waf.ip_acl.auto_ban.enabled" onchange="markDirty()"><span class="toggle-slider"></span></label>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sanitizer -->
+    <div class="config-section" id="sec-sanitizer">
+        <div class="section-header" onclick="toggleSection(this)">
+            <span class="section-title">Request Sanitizer</span>
+            <span class="section-badge" id="badge-sanitizer"></span>
+            <span class="section-chevron">&#9660;</span>
+        </div>
+        <div class="section-body">
+            <div class="field">
+                <span class="field-label">Enabled</span>
+                <label class="toggle"><input type="checkbox" data-path="waf.sanitizer.enabled" onchange="markDirty()"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="field">
+                <span class="field-label">Max URL Length</span>
+                <input type="number" class="num-input num-input--wide" data-path="waf.sanitizer.max_url_length" min="256" max="65536" onchange="markDirty()">
+            </div>
+            <div class="field">
+                <span class="field-label">Max Body Size (bytes)</span>
+                <input type="number" class="num-input num-input--wide" data-path="waf.sanitizer.max_body_size" min="1024" max="104857600" onchange="markDirty()">
+            </div>
+        </div>
+    </div>
+
+    <!-- Response -->
+    <div class="config-section" id="sec-response">
+        <div class="section-header" onclick="toggleSection(this)">
+            <span class="section-title">Response Protection</span>
+            <span class="section-badge" id="badge-response"></span>
+            <span class="section-chevron">&#9660;</span>
+        </div>
+        <div class="section-body">
+            <div class="field">
+                <span class="field-label">Security Headers</span>
+                <label class="toggle"><input type="checkbox" data-path="waf.response.security_headers.enabled" onchange="markDirty()"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="field">
+                <span class="field-label">Data Masking</span>
+                <label class="toggle"><input type="checkbox" data-path="waf.response.data_masking.enabled" onchange="markDirty()"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="field">
+                <span class="field-label">Mask Credit Cards</span>
+                <label class="toggle"><input type="checkbox" data-path="waf.response.data_masking.mask_credit_cards" onchange="markDirty()"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="field">
+                <span class="field-label">Mask SSN</span>
+                <label class="toggle"><input type="checkbox" data-path="waf.response.data_masking.mask_ssn" onchange="markDirty()"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="field">
+                <span class="field-label">Mask API Keys</span>
+                <label class="toggle"><input type="checkbox" data-path="waf.response.data_masking.mask_api_keys" onchange="markDirty()"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="field">
+                <span class="field-label">Strip Stack Traces</span>
+                <label class="toggle"><input type="checkbox" data-path="waf.response.data_masking.strip_stack_traces" onchange="markDirty()"><span class="toggle-slider"></span></label>
+            </div>
+        </div>
+    </div>
+</main>
+
+<!-- Sticky save bar -->
+<div class="save-bar" id="save-bar">
+    <span class="status" id="save-status">Unsaved changes</span>
+    <button class="btn" onclick="resetConfig()">Discard</button>
+    <button class="btn btn--primary" onclick="saveConfig()">Save &amp; Apply</button>
+</div>
+
+<script src="/config.js"></script>
+</body>
+</html>
