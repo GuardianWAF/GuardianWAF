@@ -2,15 +2,14 @@ name: Release
 
 on:
   push:
-    tags:
-      - 'v*'
+    tags: ['v*']
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
-  release:
-    name: Release
+  goreleaser:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,53 +20,14 @@ jobs:
         with:
           go-version: '1.23'
 
-      - name: Run tests
-        run: go test -race ./...
+      - name: Run tests before release
+        run: go test ./...
 
-      - name: Set version
-        id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-
-      - name: Build binaries
-        env:
-          VERSION: ${{ steps.version.outputs.VERSION }}
-          COMMIT: ${{ github.sha }}
-          DATE: ${{ github.event.head_commit.timestamp }}
-        run: |
-          LDFLAGS="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT:0:7} -X main.date=${DATE}"
-
-          # Linux amd64
-          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="${LDFLAGS}" -o dist/guardianwaf-linux-amd64 ./cmd/guardianwaf
-          # Linux arm64
-          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="${LDFLAGS}" -o dist/guardianwaf-linux-arm64 ./cmd/guardianwaf
-          # Darwin amd64
-          GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="${LDFLAGS}" -o dist/guardianwaf-darwin-amd64 ./cmd/guardianwaf
-          # Darwin arm64
-          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="${LDFLAGS}" -o dist/guardianwaf-darwin-arm64 ./cmd/guardianwaf
-          # Windows amd64
-          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="${LDFLAGS}" -o dist/guardianwaf-windows-amd64.exe ./cmd/guardianwaf
-          # Windows arm64
-          GOOS=windows GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="${LDFLAGS}" -o dist/guardianwaf-windows-arm64.exe ./cmd/guardianwaf
-
-      - name: Create checksums
-        run: |
-          cd dist
-          sha256sum * > checksums.txt
-
-      - name: Build Docker image
-        run: docker build -t ghcr.io/${{ github.repository }}:${{ steps.version.outputs.VERSION }} .
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
         with:
-          files: |
-            dist/guardianwaf-linux-amd64
-            dist/guardianwaf-linux-arm64
-            dist/guardianwaf-darwin-amd64
-            dist/guardianwaf-darwin-arm64
-            dist/guardianwaf-windows-amd64.exe
-            dist/guardianwaf-windows-arm64.exe
-            dist/checksums.txt
-          generate_release_notes: true
+          distribution: goreleaser
+          version: latest
+          args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

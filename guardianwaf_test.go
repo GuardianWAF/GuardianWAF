@@ -950,3 +950,83 @@ func TestNew_EmptyConfigDefaults(t *testing.T) {
 		}
 	}
 }
+
+// --- GoDoc Testable Examples ---
+
+func ExampleNew() {
+	waf, err := New(Config{
+		Mode:      ModeEnforce,
+		Threshold: ThresholdConfig{Block: 50, Log: 25},
+	})
+	if err != nil {
+		panic(err)
+	}
+	defer waf.Close()
+	fmt.Println("WAF created successfully")
+	// Output: WAF created successfully
+}
+
+func ExampleEngine_Middleware() {
+	waf, _ := New(Config{
+		Mode: ModeEnforce,
+	})
+	defer waf.Close()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, "Hello!")
+	})
+
+	protected := waf.Middleware(mux)
+	fmt.Printf("Handler type: %T\n", protected)
+	// Output: Handler type: http.HandlerFunc
+}
+
+func ExampleEngine_Check() {
+	waf, _ := New(Config{
+		Mode:      ModeEnforce,
+		Threshold: ThresholdConfig{Block: 50, Log: 25},
+	})
+	defer waf.Close()
+
+	// Check a clean request
+	req := httptest.NewRequest("GET", "/hello?name=world", nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+	result := waf.Check(req)
+	fmt.Printf("Clean request - Blocked: %v, Score: %d\n", result.Blocked, result.TotalScore)
+
+	// Check a malicious request
+	req2 := httptest.NewRequest("GET", "/search?q='+OR+1%3D1+--", nil)
+	req2.Header.Set("User-Agent", "Mozilla/5.0")
+	result2 := waf.Check(req2)
+	fmt.Printf("SQLi request - Blocked: %v, Score > 0: %v\n", result2.Blocked, result2.TotalScore > 0)
+	// Output:
+	// Clean request - Blocked: false, Score: 0
+	// SQLi request - Blocked: true, Score > 0: true
+}
+
+func ExampleNew_withOptions() {
+	waf, _ := New(Config{},
+		WithMode(ModeMonitor),
+		WithThreshold(60, 30),
+		WithDetector("sqli", true, 1.5),
+	)
+	defer waf.Close()
+	fmt.Println("WAF with options created")
+	// Output: WAF with options created
+}
+
+func ExampleEngine_OnEvent() {
+	waf, _ := New(Config{
+		Mode: ModeEnforce,
+	})
+	defer waf.Close()
+
+	// Register event callback
+	waf.OnEvent(func(event Event) {
+		// Handle WAF events (send to SIEM, alert, etc.)
+		_ = event.Score
+	})
+	fmt.Println("Event handler registered")
+	// Output: Event handler registered
+}

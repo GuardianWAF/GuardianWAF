@@ -1,17 +1,31 @@
-FROM golang:1.23-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.23-alpine AS builder
+
+ARG TARGETOS
+ARG TARGETARCH
+ARG VERSION=dev
+ARG COMMIT=none
+ARG DATE=unknown
+
 WORKDIR /app
 COPY go.mod ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w \
-    -X main.version=$(git describe --tags --always --dirty 2>/dev/null || echo dev) \
-    -X main.commit=$(git rev-parse --short HEAD 2>/dev/null || echo none) \
-    -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
+    -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" \
     -o guardianwaf ./cmd/guardianwaf
 
-FROM alpine:3.19
-RUN apk --no-cache add ca-certificates
+FROM alpine:3.20
+RUN apk --no-cache add ca-certificates tzdata && \
+    adduser -D -H -s /sbin/nologin guardianwaf
+
 COPY --from=builder /app/guardianwaf /usr/local/bin/guardianwaf
-EXPOSE 8080 9443
+
+USER guardianwaf
+EXPOSE 8080 8443 9443
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD ["/usr/local/bin/guardianwaf", "version"]
+
 ENTRYPOINT ["guardianwaf"]
 CMD ["serve"]
