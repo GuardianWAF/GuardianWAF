@@ -471,7 +471,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for full guidelines.
 
 ## Author
 
-**Ersin Koc** / [ECOSTACK TECHNOLOGY OU](https://ecostack.dev)
+**Ersin Koc** / [x.com/ersinkoc](https://x.com/ersinkoc)
 
 - GitHub: [@ersinkoc](https://github.com/ersinkoc)
-- Website: [guardianwaf.dev](https://guardianwaf.dev)
+- Website: [guardianwaf.com](https://guardianwaf.com)
