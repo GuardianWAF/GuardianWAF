@@ -131,8 +131,8 @@
     function actionBadge(action) {
         var cls = 'badge badge--passed';
         var label = action || 'passed';
-        if (action === 'blocked') cls = 'badge badge--blocked';
-        else if (action === 'logged') cls = 'badge badge--logged';
+        if (action === 'block') cls = 'badge badge--blocked';
+        else if (action === 'log') cls = 'badge badge--logged';
         return '<span class="' + cls + '">' + escapeHtml(label) + '</span>';
     }
 
@@ -325,7 +325,7 @@
         if (state.searchQuery) {
             var q = state.searchQuery.toLowerCase();
             var haystack = [
-                event.ip || '',
+                event.client_ip || '',
                 event.method || '',
                 event.path || '',
                 event.action || '',
@@ -351,7 +351,7 @@
         // IP
         var tdIp = document.createElement('td');
         tdIp.className = 'td-ip';
-        tdIp.textContent = event.ip || '-';
+        tdIp.textContent = event.client_ip || '-';
         tr.appendChild(tdIp);
 
         // Method
@@ -370,11 +370,11 @@
         // Action badge — uses escaped content via actionBadge()
         var tdAction = document.createElement('td');
         var actionSpan = document.createElement('span');
-        var actionVal = event.action || 'passed';
+        var actionVal = event.action || 'pass';
         actionSpan.className = 'badge badge--passed';
-        if (actionVal === 'blocked') actionSpan.className = 'badge badge--blocked';
-        else if (actionVal === 'logged') actionSpan.className = 'badge badge--logged';
-        actionSpan.textContent = actionVal;
+        if (actionVal === 'block') { actionSpan.className = 'badge badge--blocked'; actionSpan.textContent = 'BLOCKED'; }
+        else if (actionVal === 'log') { actionSpan.className = 'badge badge--logged'; actionSpan.textContent = 'LOGGED'; }
+        else { actionSpan.textContent = 'PASSED'; }
         tdAction.appendChild(actionSpan);
         tr.appendChild(tdAction);
 
@@ -569,7 +569,7 @@
             try {
                 var data = JSON.parse(e.data);
                 // Could be an event or stats update
-                if (data.action || data.ip) {
+                if (data.action || data.client_ip) {
                     prependEvent(data);
                     incrementStats(data);
                 } else if (data.total_requests !== undefined || data.totalRequests !== undefined) {
@@ -615,8 +615,8 @@
     function incrementStats(event) {
         var s = state.stats;
         s.total_requests++;
-        if (event.action === 'blocked') s.blocked++;
-        else if (event.action === 'logged') s.logged++;
+        if (event.action === 'block') s.blocked++;
+        else if (event.action === 'log') s.logged++;
         else s.passed++;
 
         // Accumulate attack types from detectors array

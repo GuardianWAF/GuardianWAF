@@ -31,14 +31,19 @@ func (s Severity) String() string {
 
 // Finding represents a single detection result from a layer or detector
 type Finding struct {
-	DetectorName string   // Name of the detector (e.g., "sqli", "xss")
-	Category     string   // Category: sqli, xss, lfi, cmdi, xxe, ssrf, bot, ratelimit, ipacl
-	Severity     Severity // Threat severity level
-	Score        int      // Raw score before multiplier (0-100)
-	Description  string   // Human-readable description
-	MatchedValue string   // Input fragment that triggered detection (truncated to 200 chars)
-	Location     string   // Where in request: query, body, header, cookie, path, uri
-	Confidence   float64  // Detection confidence (0.0-1.0)
+	DetectorName string   `json:"detector"`
+	Category     string   `json:"category"`
+	Severity     Severity `json:"severity"`
+	Score        int      `json:"score"`
+	Description  string   `json:"description"`
+	MatchedValue string   `json:"matched_value,omitempty"`
+	Location     string   `json:"location"`
+	Confidence   float64  `json:"confidence"`
+}
+
+// MarshalJSON for Severity so it serializes as string (e.g., "high") not number.
+func (s Severity) MarshalJSON() ([]byte, error) {
+	return []byte(`"` + s.String() + `"`), nil
 }
 
 // truncateEvidence truncates s if longer than maxLen, appending "..." to indicate truncation

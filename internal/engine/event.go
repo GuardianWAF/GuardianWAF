@@ -30,31 +30,31 @@ func getUAParser() UAParser {
 
 // Event represents a WAF event for logging and storage.
 type Event struct {
-	ID         string        // Unique event ID
-	Timestamp  time.Time     // When the event occurred
-	RequestID  string        // Corresponding request ID
-	ClientIP   string        // Client IP address
-	Method     string        // HTTP method
-	Path       string        // Request path
-	Query      string        // Query string
-	Action     Action        // WAF decision (pass/block/log)
-	Score      int           // Total accumulated score
-	Findings   []Finding     // All findings from detection
-	Duration   time.Duration // Processing duration
-	StatusCode int           // HTTP response status code
-	UserAgent  string        // User-Agent header
+	ID         string        `json:"id"`
+	Timestamp  time.Time     `json:"timestamp"`
+	RequestID  string        `json:"request_id"`
+	ClientIP   string        `json:"client_ip"`
+	Method     string        `json:"method"`
+	Path       string        `json:"path"`
+	Query      string        `json:"query"`
+	Action     Action        `json:"action"`
+	Score      int           `json:"score"`
+	Findings   []Finding     `json:"findings"`
+	Duration   time.Duration `json:"duration_ns"`
+	StatusCode int           `json:"status_code"`
+	UserAgent  string        `json:"user_agent"`
 
 	// Parsed User-Agent fields (populated by NewEvent)
-	Browser    string // Browser name (e.g., "Chrome", "Firefox")
-	BrVersion  string // Browser version (e.g., "120.0.6099.130")
-	OS         string // Operating system (e.g., "Windows 10/11", "macOS 10.15.7")
-	DeviceType string // Device type (e.g., "desktop", "mobile", "tablet", "bot", "cli")
-	IsBot      bool   // Whether the request appears to be from a bot/scanner
+	Browser    string `json:"browser"`
+	BrVersion  string `json:"browser_version"`
+	OS         string `json:"os"`
+	DeviceType string `json:"device_type"`
+	IsBot      bool   `json:"is_bot"`
 
 	// Request metadata
-	ContentType string // Content-Type header
-	Referer     string // Referer header
-	Host        string // Host header
+	ContentType string `json:"content_type,omitempty"`
+	Referer     string `json:"referer,omitempty"`
+	Host        string `json:"host,omitempty"`
 }
 
 // NewEvent creates an Event from a RequestContext after pipeline processing.

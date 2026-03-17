@@ -39,17 +39,24 @@ func New(eng *engine.Engine, store events.EventStore, apiKey string) *Dashboard 
 		apiKey:     apiKey,
 	}
 
-	// API routes
+	// Login/logout (always accessible)
+	d.mux.HandleFunc("GET /login", d.handleLoginPage)
+	d.mux.HandleFunc("POST /login", d.handleLoginSubmit)
+	d.mux.HandleFunc("GET /logout", d.handleLogout)
+
+	// Health check (always accessible, no sensitive data)
+	d.mux.HandleFunc("GET /api/v1/health", d.handleHealth)
+
+	// Protected API routes
 	d.mux.HandleFunc("GET /api/v1/stats", d.authWrap(d.handleGetStats))
 	d.mux.HandleFunc("GET /api/v1/events", d.authWrap(d.handleGetEvents))
 	d.mux.HandleFunc("GET /api/v1/events/{id}", d.authWrap(d.handleGetEvent))
-	d.mux.HandleFunc("GET /api/v1/health", d.handleHealth)
-	d.mux.HandleFunc("GET /api/v1/sse", d.handleSSE)
+	d.mux.HandleFunc("GET /api/v1/sse", d.authWrap(d.handleSSE))
 
-	// Static files
-	d.mux.HandleFunc("/", d.handleIndex)
-	d.mux.HandleFunc("/style.css", d.handleStatic("static/style.css", "text/css; charset=utf-8"))
-	d.mux.HandleFunc("/app.js", d.handleStatic("static/app.js", "application/javascript; charset=utf-8"))
+	// Protected static files
+	d.mux.HandleFunc("/", d.authWrap(d.handleIndex))
+	d.mux.HandleFunc("/style.css", d.authWrap(d.handleStatic("static/style.css", "text/css; charset=utf-8")))
+	d.mux.HandleFunc("/app.js", d.authWrap(d.handleStatic("static/app.js", "application/javascript; charset=utf-8")))
 
 	return d
 }
@@ -68,20 +75,57 @@ func (d *Dashboard) SSE() *SSEBroadcaster {
 
 func (d *Dashboard) authWrap(handler http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if d.apiKey != "" {
-			key := r.Header.Get("X-API-Key")
-			if key == "" {
-				key = r.URL.Query().Get("api_key")
+		if !d.isAuthenticated(r) {
+			// API requests get 401 JSON, browser requests get redirected to login
+			if strings.HasPrefix(r.URL.Path, "/api/") {
+				writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
+			} else {
+				http.Redirect(w, r, "/login", http.StatusFound)
 			}
-			if key != d.apiKey {
-				writeJSON(w, http.StatusUnauthorized, map[string]any{
-					"error": "unauthorized",
-				})
-				return
-			}
+			return
 		}
 		handler(w, r)
 	}
+}
+
+func (d *Dashboard) handleLoginPage(w http.ResponseWriter, r *http.Request) {
+	if d.apiKey == "" {
+		http.Redirect(w, r, "/", http.StatusFound)
+		return
+	}
+	if d.isAuthenticated(r) {
+		http.Redirect(w, r, "/", http.StatusFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write([]byte(loginPage("")))
+}
+
+func (d *Dashboard) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
+	if d.apiKey == "" {
+		http.Redirect(w, r, "/", http.StatusFound)
+		return
+	}
+	key := r.FormValue("key")
+	if key != d.apiKey {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte(loginPage("Invalid API key. Please try again.")))
+		return
+	}
+	setSessionCookie(w)
+	http.Redirect(w, r, "/", http.StatusFound)
+}
+
+func (d *Dashboard) handleLogout(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+	})
+	http.Redirect(w, r, "/login", http.StatusFound)
 }
 
 // --- Stats ---
@@ -261,30 +305,9 @@ func (b *SSEBroadcaster) HandleSSE(w http.ResponseWriter, r *http.Request) {
 }
 
 // BroadcastEvent serializes and broadcasts a WAF event to all SSE clients.
+// Uses json.Marshal on the Event struct directly (which has json tags).
 func (b *SSEBroadcaster) BroadcastEvent(event engine.Event) {
-	data, err := json.Marshal(map[string]any{
-		"type": "event",
-		"data": map[string]any{
-			"id":          event.ID,
-			"timestamp":   event.Timestamp.Format(time.RFC3339),
-			"client_ip":   event.ClientIP,
-			"method":      event.Method,
-			"path":        event.Path,
-			"query":       event.Query,
-			"action":      strings.ToLower(event.Action.String()),
-			"score":       event.Score,
-			"status_code": event.StatusCode,
-			"user_agent":  event.UserAgent,
-			"browser":     event.Browser,
-			"br_version":  event.BrVersion,
-			"os":          event.OS,
-			"device_type": event.DeviceType,
-			"is_bot":      event.IsBot,
-			"host":        event.Host,
-			"duration_us": event.Duration.Microseconds(),
-			"findings":    formatFindings(event.Findings),
-		},
-	})
+	data, err := json.Marshal(event)
 	if err != nil {
 		return
 	}
@@ -295,7 +318,6 @@ func (b *SSEBroadcaster) BroadcastEvent(event engine.Event) {
 		select {
 		case ch <- string(data):
 		default:
-			// Drop if client is slow
 		}
 	}
 }

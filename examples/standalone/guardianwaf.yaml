@@ -147,6 +147,7 @@ waf:
 dashboard:
   enabled: true
   listen: ":9443"
+  api_key: "guardianwaf-demo-2024"  # Change this! Set a strong key to protect dashboard
   tls: false
 
 mcp:

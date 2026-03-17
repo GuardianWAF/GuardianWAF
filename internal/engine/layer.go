@@ -30,6 +30,11 @@ func (a Action) String() string {
 	}
 }
 
+// MarshalJSON serializes Action as a JSON string (e.g., "block") instead of a number.
+func (a Action) MarshalJSON() ([]byte, error) {
+	return []byte(`"` + a.String() + `"`), nil
+}
+
 // LayerResult holds the outcome of a single layer's processing
 type LayerResult struct {
 	Action   Action
