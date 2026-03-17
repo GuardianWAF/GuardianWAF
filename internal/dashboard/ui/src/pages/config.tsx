@@ -28,7 +28,13 @@ function clone<T>(v: T): T {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function get(obj: Record<string, any>, path: string): any {
-  return path.split('.').reduce((o, k) => o?.[k], obj)
+  return path.split('.').reduce((o, k) => {
+    if (o === undefined || o === null) return undefined
+    // Try exact key first, then capitalized (Go JSON serialization)
+    if (o[k] !== undefined) return o[k]
+    const cap = k.charAt(0).toUpperCase() + k.slice(1)
+    return o[cap]
+  }, obj)
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -188,8 +194,8 @@ export default function ConfigPage() {
           <FieldRow label="Block Threshold">
             <Input
               type="number"
-              value={val('detection.block_threshold', 50) as number}
-              onChange={(e) => update('detection.block_threshold', Number(e.target.value))}
+              value={val('detection.threshold.block', 50) as number}
+              onChange={(e) => update('detection.threshold.block', Number(e.target.value))}
               className="w-24"
               min={0}
               max={100}
@@ -198,8 +204,8 @@ export default function ConfigPage() {
           <FieldRow label="Log Threshold">
             <Input
               type="number"
-              value={val('detection.log_threshold', 25) as number}
-              onChange={(e) => update('detection.log_threshold', Number(e.target.value))}
+              value={val('detection.threshold.log', 25) as number}
+              onChange={(e) => update('detection.threshold.log', Number(e.target.value))}
               className="w-24"
               min={0}
               max={100}
@@ -274,22 +280,22 @@ export default function ConfigPage() {
           </FieldRow>
           <FieldRow label="Block Empty User-Agent">
             <Switch
-              checked={val('bot_detection.block_empty_ua', false) as boolean}
-              onCheckedChange={(v) => update('bot_detection.block_empty_ua', v)}
+              checked={val('bot_detection.user_agent.block_empty', false) as boolean}
+              onCheckedChange={(v) => update('bot_detection.user_agent.block_empty', v)}
             />
           </FieldRow>
           <FieldRow label="Block Scanners">
             <Switch
-              checked={val('bot_detection.block_scanners', false) as boolean}
-              onCheckedChange={(v) => update('bot_detection.block_scanners', v)}
+              checked={val('bot_detection.user_agent.block_known_scanners', false) as boolean}
+              onCheckedChange={(v) => update('bot_detection.user_agent.block_known_scanners', v)}
             />
           </FieldRow>
           <FieldRow label="RPS Threshold">
             <Input
               type="number"
-              value={val('bot_detection.rps_threshold', 100) as number}
+              value={val('bot_detection.behavior.rps_threshold', 100) as number}
               onChange={(e) =>
-                update('bot_detection.rps_threshold', Number(e.target.value))
+                update('bot_detection.behavior.rps_threshold', Number(e.target.value))
               }
               className="w-24"
               min={1}
@@ -298,10 +304,10 @@ export default function ConfigPage() {
           <FieldRow label="Error Rate Threshold">
             <Input
               type="number"
-              value={val('bot_detection.error_rate_threshold', 0.5) as number}
+              value={val('bot_detection.behavior.error_rate_threshold', 0.5) as number}
               onChange={(e) =>
                 update(
-                  'bot_detection.error_rate_threshold',
+                  'bot_detection.behavior.error_rate_threshold',
                   parseFloat(e.target.value) || 0,
                 )
               }
@@ -316,22 +322,22 @@ export default function ConfigPage() {
 
       {/* JS Challenge */}
       <Section
-        title="JS Challenge"
-        badge={{ on: val('js_challenge.enabled', false) as boolean }}
+        title="JS Challenge (PoW)"
+        badge={{ on: val('challenge.enabled', false) as boolean }}
       >
         <div className="space-y-4">
           <FieldRow label="Enabled">
             <Switch
-              checked={val('js_challenge.enabled', false) as boolean}
-              onCheckedChange={(v) => update('js_challenge.enabled', v)}
+              checked={val('challenge.enabled', false) as boolean}
+              onCheckedChange={(v) => update('challenge.enabled', v)}
             />
           </FieldRow>
           <FieldRow label="Difficulty">
             <Input
               type="number"
-              value={val('js_challenge.difficulty', 16) as number}
+              value={val('challenge.difficulty', 16) as number}
               onChange={(e) =>
-                update('js_challenge.difficulty', Number(e.target.value))
+                update('challenge.difficulty', Number(e.target.value))
               }
               className="w-24"
               min={8}
@@ -371,8 +377,8 @@ export default function ConfigPage() {
             </FieldRow>
             <FieldRow label="Auto-Ban">
               <Switch
-                checked={val('ip_acl.auto_ban', false) as boolean}
-                onCheckedChange={(v) => update('ip_acl.auto_ban', v)}
+                checked={val('ip_acl.auto_ban.enabled', false) as boolean}
+                onCheckedChange={(v) => update('ip_acl.auto_ban.enabled', v)}
               />
             </FieldRow>
           </div>
@@ -487,43 +493,43 @@ export default function ConfigPage() {
       {/* Response Protection */}
       <Section
         title="Response Protection"
-        badge={{ on: val('response.security_headers', false) as boolean }}
+        badge={{ on: val('response.security_headers.enabled', false) as boolean }}
       >
         <div className="space-y-4">
           <FieldRow label="Security Headers">
             <Switch
-              checked={val('response.security_headers', false) as boolean}
-              onCheckedChange={(v) => update('response.security_headers', v)}
+              checked={val('response.security_headers.enabled', false) as boolean}
+              onCheckedChange={(v) => update('response.security_headers.enabled', v)}
             />
           </FieldRow>
           <FieldRow label="Data Masking">
             <Switch
-              checked={val('response.data_masking', false) as boolean}
-              onCheckedChange={(v) => update('response.data_masking', v)}
+              checked={val('response.data_masking.enabled', false) as boolean}
+              onCheckedChange={(v) => update('response.data_masking.enabled', v)}
             />
           </FieldRow>
           <FieldRow label="Mask Credit Cards">
             <Switch
-              checked={val('response.mask_credit_cards', false) as boolean}
-              onCheckedChange={(v) => update('response.mask_credit_cards', v)}
+              checked={val('response.data_masking.mask_credit_cards', false) as boolean}
+              onCheckedChange={(v) => update('response.data_masking.mask_credit_cards', v)}
             />
           </FieldRow>
           <FieldRow label="Mask SSN">
             <Switch
-              checked={val('response.mask_ssn', false) as boolean}
-              onCheckedChange={(v) => update('response.mask_ssn', v)}
+              checked={val('response.data_masking.mask_ssn', false) as boolean}
+              onCheckedChange={(v) => update('response.data_masking.mask_ssn', v)}
             />
           </FieldRow>
           <FieldRow label="Mask API Keys">
             <Switch
-              checked={val('response.mask_api_keys', false) as boolean}
-              onCheckedChange={(v) => update('response.mask_api_keys', v)}
+              checked={val('response.data_masking.mask_api_keys', false) as boolean}
+              onCheckedChange={(v) => update('response.data_masking.mask_api_keys', v)}
             />
           </FieldRow>
           <FieldRow label="Strip Stack Traces">
             <Switch
-              checked={val('response.strip_stack_traces', false) as boolean}
-              onCheckedChange={(v) => update('response.strip_stack_traces', v)}
+              checked={val('response.data_masking.strip_stack_traces', false) as boolean}
+              onCheckedChange={(v) => update('response.data_masking.strip_stack_traces', v)}
             />
           </FieldRow>
         </div>
