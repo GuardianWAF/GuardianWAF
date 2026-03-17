@@ -1,0 +1,55 @@
+name: Bug Report
+description: Report a bug in GuardianWAF
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for reporting a bug. Please fill out the form below.
+
+  - type: input
+    id: version
+    attributes:
+      label: GuardianWAF Version
+      description: Output of `guardianwaf version`
+      placeholder: "guardianwaf 0.1.0 (commit: abc123)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Deployment Mode
+      options:
+        - Standalone (reverse proxy)
+        - Library (Go middleware)
+        - Sidecar
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened? What did you expect?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to Reproduce
+      description: Minimal steps or config to reproduce the issue
+      render: bash
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Configuration (if relevant)
+      render: yaml
+
+  - type: input
+    id: os
+    attributes:
+      label: OS / Platform
+      placeholder: "Ubuntu 22.04 / Docker / Kubernetes 1.28"

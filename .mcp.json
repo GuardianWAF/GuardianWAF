@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "guardianwaf": {
+      "command": "guardianwaf",
+      "args": ["serve", "-c", "guardianwaf.yaml"],
+      "description": "GuardianWAF MCP server — manage WAF rules, monitor events, test requests"
+    }
+  }
+}

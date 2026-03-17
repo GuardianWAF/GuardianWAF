@@ -30,7 +30,8 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-        if: github.event_name == 'push'
+        if: secrets.DOCKERHUB_USERNAME != ''
+        continue-on-error: true
 
       - name: Extract metadata
         id: meta
@@ -38,7 +39,6 @@ jobs:
         with:
           images: |
             ghcr.io/guardianwaf/guardianwaf
-            guardianwaf/guardianwaf
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}

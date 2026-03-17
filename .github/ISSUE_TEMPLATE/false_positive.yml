@@ -1,0 +1,49 @@
+name: False Positive Report
+description: Report a legitimate request being blocked
+title: "[FP]: "
+labels: ["false-positive"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Help us improve detection accuracy by reporting false positives.
+
+  - type: input
+    id: detector
+    attributes:
+      label: Detector
+      description: Which detector triggered? (sqli, xss, lfi, cmdi, xxe, ssrf, botdetect)
+      placeholder: "sqli"
+    validations:
+      required: true
+
+  - type: textarea
+    id: input
+    attributes:
+      label: Input that was blocked
+      description: The request URL, body, or header value that triggered detection
+      render: text
+    validations:
+      required: true
+
+  - type: input
+    id: score
+    attributes:
+      label: Score
+      description: Total threat score (from verbose output or event log)
+      placeholder: "55"
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Why is this input legitimate? What is the use case?
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Detection config
+      description: Your detection thresholds and multipliers
+      render: yaml
