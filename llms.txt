@@ -1,0 +1,114 @@
+# GuardianWAF
+
+> Zero-dependency Web Application Firewall for Go. One binary. Total protection.
+
+GuardianWAF is a high-performance WAF written entirely in Go stdlib (no external dependencies). It protects web applications from SQL injection, XSS, path traversal, command injection, XXE, SSRF, and bot attacks using a tokenizer-based scoring engine.
+
+## Key Features
+
+- Zero external dependencies (Go stdlib only)
+- Tokenizer-based detection with scoring engine
+- 6 attack detectors: SQLi, XSS, LFI/path traversal, command injection, XXE, SSRF
+- IP ACL with radix tree and auto-ban
+- Token bucket rate limiting
+- Bot detection (JA3 fingerprint, User-Agent, behavioral analysis)
+- Request sanitization and normalization
+- Response protection (security headers, data masking)
+- Custom YAML parser (no gopkg.in/yaml.v3)
+- HTTP middleware or standalone reverse proxy
+- MCP (Model Context Protocol) server for AI integration
+- Real-time event bus with pub/sub
+
+## Architecture
+
+The WAF uses a layered pipeline architecture:
+
+1. IP ACL Layer (order 100) - Whitelist/blacklist/auto-ban
+2. Rate Limit Layer (order 200) - Token bucket rate limiting
+3. Sanitizer Layer (order 300) - Input normalization and validation
+4. Detection Layer (order 400) - Attack pattern detection (SQLi, XSS, etc.)
+5. Bot Detection Layer (order 500) - JA3, User-Agent, behavior analysis
+6. Response Layer (order 600) - Security headers, data masking
+
+Each layer produces findings with scores. Scores are accumulated and compared against thresholds to determine block/log/pass actions.
+
+## Quick Start (Library)
+
+```go
+import "github.com/ersinkoc/guardianwaf"
+
+waf, err := guardianwaf.New(guardianwaf.Config{
+    Mode: guardianwaf.ModeEnforce,
+    Threshold: guardianwaf.ThresholdConfig{Block: 50, Log: 25},
+})
+if err != nil {
+    log.Fatal(err)
+}
+defer waf.Close()
+
+http.ListenAndServe(":8080", waf.Middleware(myHandler))
+```
+
+## Quick Start (Binary)
+
+```bash
+guardianwaf serve -c guardianwaf.yaml
+guardianwaf sidecar --upstream http://localhost:3000
+guardianwaf check --url "/search?q=' OR 1=1 --"
+guardianwaf validate -c guardianwaf.yaml
+```
+
+## Public API
+
+- `guardianwaf.New(cfg Config, opts ...Option) (*Engine, error)` - Create engine programmatically
+- `guardianwaf.NewFromFile(path string, opts ...Option) (*Engine, error)` - Create from YAML
+- `guardianwaf.NewWithDefaults(opts ...Option) (*Engine, error)` - Create with defaults
+- `engine.Middleware(next http.Handler) http.Handler` - HTTP middleware
+- `engine.Check(r *http.Request) Result` - Check request without proxying
+- `engine.OnEvent(fn func(Event))` - Register event callback
+- `engine.Stats() Stats` - Get runtime statistics
+- `engine.Close() error` - Shut down
+
+### Functional Options
+
+- `WithMode(mode string)` - Set enforce/monitor/disabled
+- `WithThreshold(block, log int)` - Set score thresholds
+- `WithDetector(name string, enabled bool, multiplier float64)` - Configure detector
+- `WithMaxBodySize(size int64)` - Set max body size
+- `WithBotDetection(enabled bool)` - Toggle bot detection
+
+## Configuration
+
+YAML configuration with environment variable overrides (GWAF_* prefix).
+See `examples/standalone/guardianwaf.yaml` for complete example.
+
+## Module Path
+
+`github.com/ersinkoc/guardianwaf`
+
+## Project Structure
+
+```
+cmd/guardianwaf/         CLI entry point (serve, sidecar, check, validate)
+internal/
+  config/                YAML parsing, defaults, validation, env overlay
+  engine/                Core engine, pipeline, context pool, events, findings
+  events/                Event bus (pub/sub), memory store, file store
+  layers/
+    ipacl/               IP ACL with radix tree
+    ratelimit/           Token bucket rate limiter
+    sanitizer/           Input normalization and validation
+    detection/           Attack detection framework
+      sqli/              SQL injection tokenizer
+      xss/               XSS parser and pattern matcher
+      lfi/               Path traversal detector
+      cmdi/              Command injection detector
+      xxe/               XML entity injection detector
+      ssrf/              Server-side request forgery detector
+    botdetect/           Bot detection (JA3, UA, behavior)
+    response/            Security headers, data masking, error pages
+  proxy/                 Reverse proxy, load balancer, health checks
+  mcp/                   Model Context Protocol server
+  tls/                   TLS manager, ACME, SNI
+  analytics/             Analytics engine, top-K, ring buffer
+```

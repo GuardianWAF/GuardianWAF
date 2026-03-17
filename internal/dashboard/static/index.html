@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GuardianWAF Dashboard</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <header>
+        <div class="header-left">
+            <h1>GuardianWAF</h1>
+        </div>
+        <nav>
+            <button class="tab active" data-page="dashboard">Dashboard</button>
+            <button class="tab" data-page="events">Events</button>
+            <button class="tab" data-page="rules">Rules</button>
+            <button class="tab" data-page="config">Config</button>
+        </nav>
+        <div class="header-right">
+            <span id="sse-status" class="status-dot disconnected" title="SSE disconnected"></span>
+            <button id="theme-toggle" title="Toggle theme">&#9788;</button>
+        </div>
+    </header>
+
+    <main>
+        <!-- Dashboard Page -->
+        <section id="page-dashboard" class="page active">
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value" id="total-requests">0</div>
+                    <div class="stat-label">Total Requests</div>
+                </div>
+                <div class="stat-card blocked">
+                    <div class="stat-value" id="blocked-requests">0</div>
+                    <div class="stat-label">Blocked</div>
+                </div>
+                <div class="stat-card logged">
+                    <div class="stat-value" id="logged-requests">0</div>
+                    <div class="stat-label">Logged</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="passed-requests">0</div>
+                    <div class="stat-label">Passed</div>
+                </div>
+                <div class="stat-card latency">
+                    <div class="stat-value" id="avg-latency">0us</div>
+                    <div class="stat-label">Avg Latency</div>
+                </div>
+            </div>
+            <div class="recent-events">
+                <h2>Recent Events</h2>
+                <table id="recent-events-table">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>IP</th>
+                            <th>Method</th>
+                            <th>Path</th>
+                            <th>Score</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Events Page -->
+        <section id="page-events" class="page">
+            <div class="events-header">
+                <h2>WAF Events</h2>
+                <div class="filters">
+                    <select id="action-filter">
+                        <option value="">All Actions</option>
+                        <option value="blocked">Blocked</option>
+                        <option value="logged">Logged</option>
+                        <option value="passed">Passed</option>
+                    </select>
+                    <input type="text" id="ip-filter" placeholder="Filter by IP">
+                    <button id="refresh-events" class="btn">Refresh</button>
+                </div>
+            </div>
+            <table id="events-table">
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>IP</th>
+                        <th>Method</th>
+                        <th>Path</th>
+                        <th>Score</th>
+                        <th>Action</th>
+                        <th>Duration</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+            <div class="pagination">
+                <button id="prev-page" class="btn" disabled>Previous</button>
+                <span id="page-info">Page 1</span>
+                <button id="next-page" class="btn">Next</button>
+            </div>
+        </section>
+
+        <!-- Rules Page -->
+        <section id="page-rules" class="page">
+            <h2>Rules Management</h2>
+            <div class="rules-tabs">
+                <button class="rules-tab active" data-rules="whitelist">Whitelist</button>
+                <button class="rules-tab" data-rules="blacklist">Blacklist</button>
+                <button class="rules-tab" data-rules="ratelimit">Rate Limits</button>
+                <button class="rules-tab" data-rules="exclusions">Exclusions</button>
+            </div>
+            <div class="rules-content">
+                <div class="rules-add">
+                    <input type="text" id="rule-value" placeholder="Value (IP, CIDR, path...)">
+                    <input type="text" id="rule-reason" placeholder="Reason (optional)">
+                    <button id="add-rule" class="btn btn-primary">Add Rule</button>
+                </div>
+                <table id="rules-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Value</th>
+                            <th>Reason</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Config Page -->
+        <section id="page-config" class="page">
+            <div class="config-header">
+                <h2>Configuration</h2>
+                <button id="reload-config" class="btn btn-primary">Reload Config</button>
+            </div>
+            <pre id="config-display"></pre>
+        </section>
+    </main>
+
+    <script src="/app.js"></script>
+</body>
+</html>

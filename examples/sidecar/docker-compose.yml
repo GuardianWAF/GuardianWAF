@@ -1,0 +1,26 @@
+version: "3.9"
+
+services:
+  # GuardianWAF sidecar proxy
+  guardianwaf:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    command: ["sidecar", "--upstream", "http://app:3000", "--listen", ":8080"]
+    environment:
+      - GWAF_MODE=enforce
+    depends_on:
+      - app
+    restart: unless-stopped
+
+  # Your application
+  app:
+    image: golang:1.23-alpine
+    working_dir: /app
+    volumes:
+      - ../backend:/app
+    command: ["go", "run", "main.go"]
+    expose:
+      - "3000"

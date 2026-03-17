@@ -1,0 +1,42 @@
+# Binaries
+guardianwaf
+guardianwaf.exe
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Build output
+/dist/
+/bin/
+
+# Test output
+*.test
+*.out
+coverage.html
+coverage.txt
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# Logs
+*.log
+events.jsonl
+
+# ACME cache
+/acme/
+
+# Temporary
+tmp/

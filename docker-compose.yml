@@ -1,0 +1,26 @@
+version: "3.9"
+
+services:
+  guardianwaf:
+    build: .
+    ports:
+      - "8080:8080"
+      - "9443:9443"
+    volumes:
+      - ./examples/standalone/guardianwaf.yaml:/etc/guardianwaf/guardianwaf.yaml:ro
+    command: ["serve", "-c", "/etc/guardianwaf/guardianwaf.yaml"]
+    environment:
+      - GWAF_MODE=enforce
+      - GWAF_LOGGING_LEVEL=info
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  backend:
+    image: golang:1.23-alpine
+    working_dir: /app
+    volumes:
+      - ./examples/backend:/app
+    command: ["go", "run", "main.go"]
+    expose:
+      - "3000"

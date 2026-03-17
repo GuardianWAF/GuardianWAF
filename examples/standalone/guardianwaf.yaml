@@ -1,0 +1,166 @@
+# GuardianWAF - Complete Example Configuration
+# See SPECIFICATION.md for full documentation.
+
+mode: enforce
+listen: ":8080"
+
+tls:
+  enabled: false
+  listen: ":8443"
+
+upstreams:
+  - name: backend
+    targets:
+      - url: "http://backend:3000"
+        weight: 1
+    health_check:
+      enabled: true
+      interval: 10s
+      timeout: 2s
+      path: /healthz
+    load_balancer: round_robin
+
+routes:
+  - path: /
+    upstream: backend
+    strip_prefix: false
+
+waf:
+  ip_acl:
+    enabled: true
+    whitelist: []
+    blacklist: []
+    auto_ban:
+      enabled: true
+      default_ttl: 1h
+      max_ttl: 24h
+
+  rate_limit:
+    enabled: true
+    rules:
+      - id: global
+        scope: ip
+        limit: 1000
+        window: 1m
+        burst: 50
+        action: block
+      - id: login
+        scope: ip+path
+        paths:
+          - /api/login
+          - /api/auth/**
+        limit: 10
+        window: 1m
+        burst: 5
+        action: block
+        auto_ban_after: 3
+
+  sanitizer:
+    enabled: true
+    max_url_length: 8192
+    max_header_size: 8192
+    max_header_count: 100
+    max_body_size: 10485760
+    max_cookie_size: 4096
+    block_null_bytes: true
+    normalize_encoding: true
+    strip_hop_by_hop: true
+    allowed_methods:
+      - GET
+      - POST
+      - PUT
+      - PATCH
+      - DELETE
+      - HEAD
+      - OPTIONS
+
+  detection:
+    enabled: true
+    threshold:
+      block: 50
+      log: 25
+    detectors:
+      sqli:
+        enabled: true
+        multiplier: 1.0
+      xss:
+        enabled: true
+        multiplier: 1.0
+      lfi:
+        enabled: true
+        multiplier: 1.0
+      cmdi:
+        enabled: true
+        multiplier: 1.0
+      xxe:
+        enabled: true
+        multiplier: 1.0
+      ssrf:
+        enabled: true
+        multiplier: 1.0
+    exclusions:
+      - path: /api/webhook
+        detectors:
+          - sqli
+          - xss
+        reason: "Webhook payloads may contain code-like content"
+
+  bot_detection:
+    enabled: true
+    mode: monitor
+    tls_fingerprint:
+      enabled: true
+      known_bots_action: block
+      unknown_action: log
+      mismatch_action: log
+    user_agent:
+      enabled: true
+      block_empty: true
+      block_known_scanners: true
+    behavior:
+      enabled: true
+      window: 5m
+      rps_threshold: 10
+      error_rate_threshold: 30
+
+  response:
+    security_headers:
+      enabled: true
+      hsts:
+        enabled: true
+        max_age: 31536000
+        include_subdomains: true
+      x_content_type_options: true
+      x_frame_options: SAMEORIGIN
+      referrer_policy: strict-origin-when-cross-origin
+      permissions_policy: "camera=(), microphone=(), geolocation=()"
+    data_masking:
+      enabled: true
+      mask_credit_cards: true
+      mask_ssn: true
+      mask_api_keys: true
+      strip_stack_traces: true
+    error_pages:
+      enabled: true
+      mode: production
+
+dashboard:
+  enabled: true
+  listen: ":9443"
+  tls: false
+
+mcp:
+  enabled: false
+  transport: stdio
+
+logging:
+  level: info
+  format: json
+  output: stdout
+  log_allowed: false
+  log_blocked: true
+  log_body: false
+
+events:
+  storage: memory
+  max_events: 100000

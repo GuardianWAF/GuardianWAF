@@ -1,0 +1,323 @@
+package mcp
+
+import (
+	"encoding/json"
+	"fmt"
+)
+
+// RegisterAllTools registers all 15 GuardianWAF MCP tool handlers on the server.
+func (s *Server) RegisterAllTools() {
+	s.RegisterTool("guardianwaf_get_stats", s.handleGetStats)
+	s.RegisterTool("guardianwaf_get_events", s.handleGetEvents)
+	s.RegisterTool("guardianwaf_add_whitelist", s.handleAddWhitelist)
+	s.RegisterTool("guardianwaf_remove_whitelist", s.handleRemoveWhitelist)
+	s.RegisterTool("guardianwaf_add_blacklist", s.handleAddBlacklist)
+	s.RegisterTool("guardianwaf_remove_blacklist", s.handleRemoveBlacklist)
+	s.RegisterTool("guardianwaf_add_ratelimit", s.handleAddRateLimit)
+	s.RegisterTool("guardianwaf_remove_ratelimit", s.handleRemoveRateLimit)
+	s.RegisterTool("guardianwaf_add_exclusion", s.handleAddExclusion)
+	s.RegisterTool("guardianwaf_remove_exclusion", s.handleRemoveExclusion)
+	s.RegisterTool("guardianwaf_set_mode", s.handleSetMode)
+	s.RegisterTool("guardianwaf_get_config", s.handleGetConfig)
+	s.RegisterTool("guardianwaf_test_request", s.handleTestRequest)
+	s.RegisterTool("guardianwaf_get_top_ips", s.handleGetTopIPs)
+	s.RegisterTool("guardianwaf_get_detectors", s.handleGetDetectors)
+}
+
+func (s *Server) getEngine() (EngineInterface, error) {
+	s.mu.Lock()
+	eng := s.engine
+	s.mu.Unlock()
+	if eng == nil {
+		return nil, fmt.Errorf("engine not available")
+	}
+	return eng, nil
+}
+
+func (s *Server) handleGetStats(params json.RawMessage) (interface{}, error) {
+	eng, err := s.getEngine()
+	if err != nil {
+		return nil, err
+	}
+	return eng.GetStats(), nil
+}
+
+func (s *Server) handleGetEvents(params json.RawMessage) (interface{}, error) {
+	eng, err := s.getEngine()
+	if err != nil {
+		return nil, err
+	}
+	return eng.GetEvents(params)
+}
+
+type ipParam struct {
+	IP string `json:"ip"`
+}
+
+func (s *Server) handleAddWhitelist(params json.RawMessage) (interface{}, error) {
+	eng, err := s.getEngine()
+	if err != nil {
+		return nil, err
+	}
+	var p ipParam
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	if p.IP == "" {
+		return nil, fmt.Errorf("ip is required")
+	}
+	if err := eng.AddWhitelist(p.IP); err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{"status": "ok", "ip": p.IP, "action": "added to whitelist"}, nil
+}
+
+func (s *Server) handleRemoveWhitelist(params json.RawMessage) (interface{}, error) {
+	eng, err := s.getEngine()
+	if err != nil {
+		return nil, err
+	}
+	var p ipParam
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	if p.IP == "" {
+		return nil, fmt.Errorf("ip is required")
+	}
+	if err := eng.RemoveWhitelist(p.IP); err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{"status": "ok", "ip": p.IP, "action": "removed from whitelist"}, nil
+}
+
+func (s *Server) handleAddBlacklist(params json.RawMessage) (interface{}, error) {
+	eng, err := s.getEngine()
+	if err != nil {
+		return nil, err
+	}
+	var p ipParam
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	if p.IP == "" {
+		return nil, fmt.Errorf("ip is required")
+	}
+	if err := eng.AddBlacklist(p.IP); err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{"status": "ok", "ip": p.IP, "action": "added to blacklist"}, nil
+}
+
+func (s *Server) handleRemoveBlacklist(params json.RawMessage) (interface{}, error) {
+	eng, err := s.getEngine()
+	if err != nil {
+		return nil, err
+	}
+	var p ipParam
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	if p.IP == "" {
+		return nil, fmt.Errorf("ip is required")
+	}
+	if err := eng.RemoveBlacklist(p.IP); err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{"status": "ok", "ip": p.IP, "action": "removed from blacklist"}, nil
+}
+
+type rateLimitParam struct {
+	ID     string `json:"id"`
+	Scope  string `json:"scope"`
+	Limit  int    `json:"limit"`
+	Window string `json:"window"`
+	Action string `json:"action"`
+}
+
+func (s *Server) handleAddRateLimit(params json.RawMessage) (interface{}, error) {
+	eng, err := s.getEngine()
+	if err != nil {
+		return nil, err
+	}
+	var p rateLimitParam
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	if p.ID == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	if p.Limit <= 0 {
+		return nil, fmt.Errorf("limit must be > 0")
+	}
+	if p.Window == "" {
+		return nil, fmt.Errorf("window is required")
+	}
+	if p.Scope == "" {
+		p.Scope = "ip"
+	}
+	if p.Action == "" {
+		p.Action = "block"
+	}
+	if err := eng.AddRateLimit(p); err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{"status": "ok", "id": p.ID, "action": "rate limit rule added"}, nil
+}
+
+type removeRateLimitParam struct {
+	ID string `json:"id"`
+}
+
+func (s *Server) handleRemoveRateLimit(params json.RawMessage) (interface{}, error) {
+	eng, err := s.getEngine()
+	if err != nil {
+		return nil, err
+	}
+	var p removeRateLimitParam
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	if p.ID == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	if err := eng.RemoveRateLimit(p.ID); err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{"status": "ok", "id": p.ID, "action": "rate limit rule removed"}, nil
+}
+
+type exclusionParam struct {
+	Path      string   `json:"path"`
+	Detectors []string `json:"detectors"`
+	Reason    string   `json:"reason"`
+}
+
+func (s *Server) handleAddExclusion(params json.RawMessage) (interface{}, error) {
+	eng, err := s.getEngine()
+	if err != nil {
+		return nil, err
+	}
+	var p exclusionParam
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	if p.Path == "" {
+		return nil, fmt.Errorf("path is required")
+	}
+	if len(p.Detectors) == 0 {
+		return nil, fmt.Errorf("detectors is required")
+	}
+	if err := eng.AddExclusion(p.Path, p.Detectors, p.Reason); err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{"status": "ok", "path": p.Path, "action": "exclusion added"}, nil
+}
+
+type removeExclusionParam struct {
+	Path string `json:"path"`
+}
+
+func (s *Server) handleRemoveExclusion(params json.RawMessage) (interface{}, error) {
+	eng, err := s.getEngine()
+	if err != nil {
+		return nil, err
+	}
+	var p removeExclusionParam
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	if p.Path == "" {
+		return nil, fmt.Errorf("path is required")
+	}
+	if err := eng.RemoveExclusion(p.Path); err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{"status": "ok", "path": p.Path, "action": "exclusion removed"}, nil
+}
+
+type modeParam struct {
+	Mode string `json:"mode"`
+}
+
+func (s *Server) handleSetMode(params json.RawMessage) (interface{}, error) {
+	eng, err := s.getEngine()
+	if err != nil {
+		return nil, err
+	}
+	var p modeParam
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	if p.Mode == "" {
+		return nil, fmt.Errorf("mode is required")
+	}
+	switch p.Mode {
+	case "enforce", "monitor", "disabled":
+		// valid
+	default:
+		return nil, fmt.Errorf("mode must be one of: enforce, monitor, disabled")
+	}
+	if err := eng.SetMode(p.Mode); err != nil {
+		return nil, err
+	}
+	return map[string]interface{}{"status": "ok", "mode": p.Mode}, nil
+}
+
+func (s *Server) handleGetConfig(params json.RawMessage) (interface{}, error) {
+	eng, err := s.getEngine()
+	if err != nil {
+		return nil, err
+	}
+	return eng.GetConfig(), nil
+}
+
+type testRequestParam struct {
+	Method  string            `json:"method"`
+	URL     string            `json:"url"`
+	Headers map[string]string `json:"headers"`
+}
+
+func (s *Server) handleTestRequest(params json.RawMessage) (interface{}, error) {
+	eng, err := s.getEngine()
+	if err != nil {
+		return nil, err
+	}
+	var p testRequestParam
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	if p.URL == "" {
+		return nil, fmt.Errorf("url is required")
+	}
+	if p.Method == "" {
+		p.Method = "GET"
+	}
+	return eng.TestRequest(p.Method, p.URL, p.Headers)
+}
+
+type topIPsParam struct {
+	Count int `json:"count"`
+}
+
+func (s *Server) handleGetTopIPs(params json.RawMessage) (interface{}, error) {
+	eng, err := s.getEngine()
+	if err != nil {
+		return nil, err
+	}
+	var p topIPsParam
+	if params != nil && len(params) > 0 {
+		json.Unmarshal(params, &p)
+	}
+	if p.Count <= 0 {
+		p.Count = 10
+	}
+	return eng.GetTopIPs(p.Count), nil
+}
+
+func (s *Server) handleGetDetectors(params json.RawMessage) (interface{}, error) {
+	eng, err := s.getEngine()
+	if err != nil {
+		return nil, err
+	}
+	return eng.GetDetectors(), nil
+}
