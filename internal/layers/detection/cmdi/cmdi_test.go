@@ -649,6 +649,6 @@ func TestDetect_EncodedNewlineCROnlyWithCommand(t *testing.T) {
 		totalScore += f.Score
 	}
 	if totalScore == 0 {
-		t.Error("expected non-zero score for %0d with command")
+		t.Error("expected non-zero score for encoded newline with command")
 	}
 }

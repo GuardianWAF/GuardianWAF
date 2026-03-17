@@ -2,11 +2,11 @@
 # GuardianWAF .gitignore
 # ========================
 
-# Binaries
-guardianwaf
-guardianwaf.exe
-gwaf
-gwaf.exe
+# Binaries (root only, not cmd/guardianwaf/)
+/guardianwaf
+/guardianwaf.exe
+/gwaf
+/gwaf.exe
 *.exe
 *.exe~
 *.dll
