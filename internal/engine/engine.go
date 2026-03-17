@@ -161,24 +161,84 @@ func (e *Engine) Check(r *http.Request) *Event {
 }
 
 // Middleware returns standard Go HTTP middleware.
-// It calls Check() on each request and either passes to the next handler
-// or returns a 403 block response.
+// It processes requests through the WAF pipeline and either passes to the
+// next handler or returns a 403 block response. Security headers from the
+// response layer are applied to all responses (both blocked and passed).
 func (e *Engine) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		event := e.Check(r)
+		// Acquire context and run pipeline (inline, not via Check,
+		// so we can access metadata before the context is released)
+		ctx := AcquireContext(r, e.paranoiaLevel, e.maxBodySize)
 
-		if event.Action == ActionBlock {
+		result := e.currentPipeline().Execute(ctx)
+
+		// Determine final action
+		finalAction := ActionPass
+		if result.TotalScore >= e.blockThreshold {
+			finalAction = ActionBlock
+		} else if result.TotalScore >= e.logThreshold {
+			finalAction = ActionLog
+		}
+		if result.Action == ActionBlock {
+			finalAction = ActionBlock
+		}
+
+		// Create event
+		statusCode := 200
+		if finalAction == ActionBlock {
+			statusCode = 403
+		}
+		event := NewEvent(ctx, statusCode)
+		event.Action = finalAction
+		event.Score = result.TotalScore
+		event.Findings = result.Findings
+		event.Duration = result.Duration
+
+		// Apply security headers from response layer hook
+		applyResponseHook(w, ctx.Metadata)
+
+		// Release context back to pool
+		ReleaseContext(ctx)
+
+		// Update stats
+		e.totalRequests.Add(1)
+		e.totalLatencyUs.Add(result.Duration.Microseconds())
+		switch finalAction {
+		case ActionBlock:
+			e.blockedRequests.Add(1)
+		case ActionLog:
+			e.loggedRequests.Add(1)
+		default:
+			e.passedRequests.Add(1)
+		}
+
+		// Store and publish event
+		_ = e.eventStore.Store(event)
+		e.eventBus.Publish(event)
+
+		// Write response
+		w.Header().Set("X-GuardianWAF-RequestID", event.RequestID)
+
+		if finalAction == ActionBlock {
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-			w.Header().Set("X-GuardianWAF-RequestID", event.RequestID)
 			w.WriteHeader(http.StatusForbidden)
 			w.Write([]byte("403 Forbidden - Request blocked by GuardianWAF"))
 			return
 		}
 
-		// Add request ID header for downstream
-		w.Header().Set("X-GuardianWAF-RequestID", event.RequestID)
 		next.ServeHTTP(w, r)
 	})
+}
+
+// applyResponseHook calls the response hook function stored in context metadata.
+// The response layer registers this hook during Process() so that security
+// headers are applied without circular imports between engine and response packages.
+func applyResponseHook(w http.ResponseWriter, metadata map[string]any) {
+	if hook, ok := metadata["response_hook"]; ok {
+		if fn, ok := hook.(func(http.ResponseWriter)); ok {
+			fn(w)
+		}
+	}
 }
 
 // Reload hot-reloads the configuration.

@@ -94,15 +94,30 @@ jobs:
           CGO_ENABLED: '0'
         run: go build -ldflags="-s -w" -o guardianwaf-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/guardianwaf
 
-  docker:
-    name: Docker Build
+  smoke:
+    name: Smoke Test
     runs-on: ubuntu-latest
+    needs: test
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build Docker image
-        run: docker build -t guardianwaf:test .
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
 
-      - name: Test Docker image
-        run: |
-          docker run --rm guardianwaf:test version
+      - name: Run smoke tests
+        run: bash scripts/smoke-test.sh
+
+  docker:
+    name: Docker Integration Test
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and run Docker integration tests
+        run: docker compose -f docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from test-runner
+
+      - name: Cleanup
+        if: always()
+        run: docker compose -f docker-compose.test.yml down -v

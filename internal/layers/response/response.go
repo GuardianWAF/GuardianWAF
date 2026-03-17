@@ -1,6 +1,7 @@
 package response
 
 import (
+	"net/http"
 	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
@@ -47,14 +48,24 @@ func (l *Layer) Name() string {
 	return "response"
 }
 
-// Process stores the response configuration in context metadata for use
-// during response writing. The response layer is a post-processing layer
-// that does not block requests.
+// Process stores the response configuration and a header-application hook
+// in context metadata. The engine's Middleware calls the hook to inject
+// security headers into every response (both blocked and passed).
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	start := time.Now()
 
 	// Store the config in context metadata for use by the response writer
 	ctx.Metadata["response_config"] = l.config
+
+	// Register a hook that the engine middleware will call to apply headers.
+	// This avoids circular imports: the engine calls the hook via func type,
+	// without importing the response package.
+	if l.config.SecurityHeadersEnabled {
+		headers := l.config.Headers
+		ctx.Metadata["response_hook"] = func(w http.ResponseWriter) {
+			headers.Apply(w)
+		}
+	}
 
 	return engine.LayerResult{
 		Action:   engine.ActionPass,

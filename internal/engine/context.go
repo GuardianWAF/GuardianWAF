@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"io"
@@ -111,13 +112,15 @@ func AcquireContext(r *http.Request, paranoiaLevel int, maxBodySize int64) *Requ
 	// Client IP
 	ctx.ClientIP = extractClientIP(r)
 
-	// Body reading
+	// Body reading — read for inspection, then restore for downstream proxying
 	if r.Body != nil && !ctx.bodyRead {
 		limited := io.LimitReader(r.Body, maxBodySize)
 		data, err := io.ReadAll(limited)
 		if err == nil {
 			ctx.Body = data
 			ctx.BodyString = string(data)
+			// Restore body so reverse proxies can forward it
+			r.Body = io.NopCloser(bytes.NewReader(data))
 		}
 		ctx.bodyRead = true
 	}

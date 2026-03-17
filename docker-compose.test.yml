@@ -116,16 +116,10 @@ services:
         echo "--- Security Headers ---"
 
         HEADERS=$$(curl -sI "$$WAF/" -H "$$UA" 2>/dev/null || echo "")
-        if echo "$$HEADERS" | grep -qi "X-Content-Type-Options"; then
-          pass "X-Content-Type-Options present"
-        else
-          pass "X-Content-Type-Options (set via response layer metadata, not on proxy pass-through)"
-        fi
-        if echo "$$HEADERS" | grep -qi "X-Frame-Options"; then
-          pass "X-Frame-Options present"
-        else
-          pass "X-Frame-Options (set via response layer metadata, not on proxy pass-through)"
-        fi
+        if echo "$$HEADERS" | grep -qi "X-Content-Type-Options"; then pass "X-Content-Type-Options present"; else fail "X-Content-Type-Options" "missing"; fi
+        if echo "$$HEADERS" | grep -qi "X-Frame-Options"; then pass "X-Frame-Options present"; else fail "X-Frame-Options" "missing"; fi
+        if echo "$$HEADERS" | grep -qi "Strict-Transport-Security"; then pass "HSTS header present"; else fail "HSTS" "missing"; fi
+        if echo "$$HEADERS" | grep -qi "Referrer-Policy"; then pass "Referrer-Policy present"; else fail "Referrer-Policy" "missing"; fi
 
         # --- Response format ---
         echo ""
