@@ -57,11 +57,14 @@ func New(eng *engine.Engine, store events.EventStore, apiKey string) *Dashboard 
 	d.mux.HandleFunc("GET /api/v1/upstreams", d.authWrap(d.handleGetUpstreams))
 	d.mux.HandleFunc("GET /api/v1/config", d.authWrap(d.handleGetConfig))
 	d.mux.HandleFunc("PUT /api/v1/config", d.authWrap(d.handleUpdateConfig))
+	d.mux.HandleFunc("OPTIONS /api/v1/config", handleCORS)
 	d.mux.HandleFunc("GET /api/v1/routing", d.authWrap(d.handleGetRouting))
 	d.mux.HandleFunc("PUT /api/v1/routing", d.authWrap(d.handleUpdateRouting))
+	d.mux.HandleFunc("OPTIONS /api/v1/routing", handleCORS)
 	d.mux.HandleFunc("GET /api/v1/ipacl", d.authWrap(d.handleGetIPACL))
 	d.mux.HandleFunc("POST /api/v1/ipacl", d.authWrap(d.handleAddIPACL))
 	d.mux.HandleFunc("DELETE /api/v1/ipacl", d.authWrap(d.handleRemoveIPACL))
+	d.mux.HandleFunc("OPTIONS /api/v1/ipacl", handleCORS)
 	d.mux.HandleFunc("GET /api/v1/sse", d.authWrap(d.handleSSE))
 
 	// Protected static files
@@ -305,9 +308,9 @@ func (d *Dashboard) handleGetRouting(w http.ResponseWriter, r *http.Request) {
 
 func (d *Dashboard) handleUpdateRouting(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Upstreams    []config.UpstreamConfig    `json:"upstreams"`
-		VirtualHosts []config.VirtualHostConfig `json:"virtual_hosts"`
-		Routes       []config.RouteConfig       `json:"routes"`
+		Upstreams    []map[string]any `json:"upstreams"`
+		VirtualHosts []map[string]any `json:"virtual_hosts"`
+		Routes       []map[string]any `json:"routes"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid JSON: " + err.Error()})
@@ -316,15 +319,106 @@ func (d *Dashboard) handleUpdateRouting(w http.ResponseWriter, r *http.Request) 
 
 	cfg := d.engine.Config()
 
-	// Apply changes — only overwrite fields that were provided
+	// Parse upstreams from raw JSON maps
 	if body.Upstreams != nil {
-		cfg.Upstreams = body.Upstreams
+		var upstreams []config.UpstreamConfig
+		for _, raw := range body.Upstreams {
+			u := config.UpstreamConfig{}
+			if v, ok := raw["name"].(string); ok {
+				u.Name = v
+			}
+			if v, ok := raw["load_balancer"].(string); ok {
+				u.LoadBalancer = v
+			}
+			if targets, ok := raw["targets"].([]any); ok {
+				for _, t := range targets {
+					tm, ok := t.(map[string]any)
+					if !ok {
+						continue
+					}
+					tc := config.TargetConfig{Weight: 1}
+					if v, ok := tm["url"].(string); ok {
+						tc.URL = v
+					}
+					if v, ok := tm["weight"].(float64); ok {
+						tc.Weight = int(v)
+					}
+					u.Targets = append(u.Targets, tc)
+				}
+			}
+			// Preserve existing health check config if upstream name matches
+			for _, existing := range cfg.Upstreams {
+				if existing.Name == u.Name {
+					u.HealthCheck = existing.HealthCheck
+					break
+				}
+			}
+			upstreams = append(upstreams, u)
+		}
+		cfg.Upstreams = upstreams
 	}
+
+	// Parse virtual hosts
 	if body.VirtualHosts != nil {
-		cfg.VirtualHosts = body.VirtualHosts
+		var vhosts []config.VirtualHostConfig
+		for _, raw := range body.VirtualHosts {
+			vh := config.VirtualHostConfig{}
+			if domains, ok := raw["domains"].([]any); ok {
+				for _, d := range domains {
+					if s, ok := d.(string); ok {
+						vh.Domains = append(vh.Domains, s)
+					}
+				}
+			}
+			if tls, ok := raw["tls"].(map[string]any); ok {
+				if v, ok := tls["cert_file"].(string); ok {
+					vh.TLS.CertFile = v
+				}
+				if v, ok := tls["key_file"].(string); ok {
+					vh.TLS.KeyFile = v
+				}
+			}
+			if routes, ok := raw["routes"].([]any); ok {
+				for _, r := range routes {
+					rm, ok := r.(map[string]any)
+					if !ok {
+						continue
+					}
+					rc := config.RouteConfig{}
+					if v, ok := rm["path"].(string); ok {
+						rc.Path = v
+					}
+					if v, ok := rm["upstream"].(string); ok {
+						rc.Upstream = v
+					}
+					if v, ok := rm["strip_prefix"].(bool); ok {
+						rc.StripPrefix = v
+					}
+					vh.Routes = append(vh.Routes, rc)
+				}
+			}
+			vhosts = append(vhosts, vh)
+		}
+		cfg.VirtualHosts = vhosts
 	}
+
+	// Parse default routes
 	if body.Routes != nil {
-		cfg.Routes = body.Routes
+		var routes []config.RouteConfig
+		for _, raw := range body.Routes {
+			rc := config.RouteConfig{}
+			if v, ok := raw["path"].(string); ok {
+				rc.Path = v
+			}
+			if v, ok := raw["upstream"].(string); ok {
+				rc.Upstream = v
+			}
+			if v, ok := raw["strip_prefix"].(bool); ok {
+				rc.StripPrefix = v
+			}
+			routes = append(routes, rc)
+		}
+		cfg.Routes = routes
 	}
 
 	// Validate
@@ -858,6 +952,13 @@ func (b *SSEBroadcaster) removeClient(ch chan string) {
 }
 
 // --- Helpers ---
+
+func handleCORS(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, PUT, POST, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-API-Key")
+	w.WriteHeader(http.StatusNoContent)
+}
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
