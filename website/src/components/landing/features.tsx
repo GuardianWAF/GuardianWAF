@@ -8,6 +8,9 @@ import {
   Lock,
   Gauge,
   Search,
+  Globe,
+  Server,
+  Puzzle,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 
@@ -15,47 +18,62 @@ const features = [
   {
     icon: Shield,
     title: 'Multi-Layer Detection',
-    description: 'SQL injection, XSS, path traversal, command injection, protocol anomaly, and bot detection with tokenizer-based analysis.',
+    description: 'SQL injection, XSS, path traversal, command injection, XXE, SSRF, and bot detection with tokenizer-based scoring engine.',
   },
   {
     icon: Package,
     title: 'Zero Dependencies',
-    description: 'Built entirely in Go\'s standard library. No external modules, no supply chain risk, no dependency hell.',
+    description: 'Built entirely with Go\'s standard library. No external modules, no supply chain risk, no dependency hell. Single binary.',
   },
   {
-    icon: Rocket,
-    title: 'Three Deploy Modes',
-    description: 'Run as a standalone reverse proxy, embed as a Go library, or deploy as a sidecar. Your infrastructure, your choice.',
+    icon: Globe,
+    title: 'Multi-Domain Routing',
+    description: 'Virtual hosts with domain-based routing, wildcard support (*.example.com), and per-domain TLS certificates via SNI.',
   },
   {
-    icon: BarChart3,
-    title: 'Scoring Engine',
-    description: 'Intelligent threat scoring aggregates signals from all detectors. Configurable thresholds with per-rule weighting.',
+    icon: Server,
+    title: 'Load Balancing & Health Checks',
+    description: 'Four strategies (round-robin, weighted, least-conn, IP hash), active health checks, and circuit breaker per target.',
   },
   {
-    icon: Bot,
-    title: 'MCP Integration',
-    description: 'Built-in Model Context Protocol server for AI-powered analysis, automated tuning, and intelligent response.',
-  },
-  {
-    icon: Zap,
-    title: 'Sub-Millisecond Latency',
-    description: 'Optimized detection pipeline processes requests in under 1ms at p99. Zero-allocation hot path.',
+    icon: Puzzle,
+    title: 'JS Challenge (PoW)',
+    description: 'SHA-256 proof-of-work challenge for suspicious requests. Stops bots, passes real browsers. Configurable difficulty.',
   },
   {
     icon: Lock,
-    title: 'Auto TLS',
-    description: 'Built-in ACME client for automatic certificate management. Let\'s Encrypt integration with zero configuration.',
+    title: 'Auto TLS & ACME',
+    description: 'Built-in TLS termination with SNI, certificate hot-reload, ACME/Let\'s Encrypt client, and HTTP-to-HTTPS redirect.',
   },
   {
     icon: Gauge,
     title: 'Real-Time Dashboard',
-    description: 'Built-in web dashboard with live traffic metrics, threat visualization, and rule management. No external tools needed.',
+    description: 'Live monitoring, event details, upstream health, configuration editor, routing manager, and light/dark theme. No external tools.',
+  },
+  {
+    icon: Zap,
+    title: 'Sub-Millisecond Latency',
+    description: 'Optimized pipeline processes requests in under 1ms at p99. Zero-allocation hot path with sync.Pool and atomic counters.',
+  },
+  {
+    icon: Rocket,
+    title: 'Three Deploy Modes',
+    description: 'Standalone reverse proxy (replaces nginx), embeddable Go library middleware, or lightweight sidecar proxy.',
+  },
+  {
+    icon: BarChart3,
+    title: 'Scoring Engine',
+    description: 'Intelligent threat scoring with configurable block/log thresholds, per-detector multipliers, and graduated responses.',
+  },
+  {
+    icon: Bot,
+    title: 'MCP Integration',
+    description: 'Built-in Model Context Protocol server with 15 tools for AI-powered monitoring, analysis, and automated WAF management.',
   },
   {
     icon: Search,
     title: 'Deep Inspection',
-    description: 'Custom tokenizer breaks down payloads into semantic tokens. Pattern matching beyond simple regex for fewer false positives.',
+    description: 'Custom tokenizer decomposes payloads into semantic tokens. State-machine analysis beyond regex for fewer false positives.',
   },
 ]
 

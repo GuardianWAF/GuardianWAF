@@ -3,10 +3,10 @@ import { Button } from '@/components/ui/button'
 
 const stats = [
   { value: '0', label: 'Dependencies' },
-  { value: '7.2MB', label: 'Binary Size' },
   { value: '<1ms', label: 'p99 Latency' },
   { value: '6', label: 'Detectors' },
-  { value: '97.5%', label: 'Coverage' },
+  { value: '4', label: 'LB Strategies' },
+  { value: '15', label: 'MCP Tools' },
 ]
 
 export function Hero() {
@@ -37,9 +37,9 @@ export function Hero() {
 
           {/* Description */}
           <p className="mx-auto mt-6 max-w-2xl text-lg sm:text-xl text-muted leading-relaxed">
-            GuardianWAF is a production-grade Web Application Firewall written in pure Go.
-            No external dependencies. Single binary deployment. Three flexible modes.
-            Tokenizer-based detection with intelligent scoring.
+            Production-grade WAF and reverse proxy in pure Go. Multi-domain routing,
+            TLS termination, load balancing, JS challenge, and real-time dashboard.
+            Zero dependencies. Single binary. Three deployment modes.
           </p>
 
           {/* CTA Buttons */}

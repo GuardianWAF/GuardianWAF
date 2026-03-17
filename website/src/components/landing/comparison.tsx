@@ -15,16 +15,16 @@ interface ComparisonRow {
 const rows: ComparisonRow[] = [
   { feature: 'Zero Dependencies', guardianwaf: 'yes', safeline: 'no', coraza: 'no', modsecurity: 'no', naxsi: 'no' },
   { feature: 'Single Binary', guardianwaf: 'yes', safeline: 'no', coraza: 'partial', modsecurity: 'no', naxsi: 'no' },
+  { feature: 'Multi-Domain Routing', guardianwaf: 'yes', safeline: 'no', coraza: 'no', modsecurity: 'no', naxsi: 'no' },
+  { feature: 'Load Balancing (4 strategies)', guardianwaf: 'yes', safeline: 'no', coraza: 'no', modsecurity: 'no', naxsi: 'no' },
+  { feature: 'JS Challenge (PoW)', guardianwaf: 'yes', safeline: 'no', coraza: 'no', modsecurity: 'no', naxsi: 'no' },
+  { feature: 'Auto TLS + ACME', guardianwaf: 'yes', safeline: 'yes', coraza: 'no', modsecurity: 'no', naxsi: 'no' },
+  { feature: 'Circuit Breaker', guardianwaf: 'yes', safeline: 'no', coraza: 'no', modsecurity: 'no', naxsi: 'no' },
+  { feature: 'Dashboard + Config Editor', guardianwaf: 'yes', safeline: 'yes', coraza: 'no', modsecurity: 'no', naxsi: 'no' },
   { feature: 'Embeddable Library', guardianwaf: 'yes', safeline: 'no', coraza: 'yes', modsecurity: 'no', naxsi: 'no' },
-  { feature: 'Standalone Proxy', guardianwaf: 'yes', safeline: 'yes', coraza: 'partial', modsecurity: 'yes', naxsi: 'yes' },
-  { feature: 'Sidecar Mode', guardianwaf: 'yes', safeline: 'no', coraza: 'partial', modsecurity: 'no', naxsi: 'no' },
-  { feature: 'Scoring Engine', guardianwaf: 'yes', safeline: 'partial', coraza: 'yes', modsecurity: 'yes', naxsi: 'yes' },
-  { feature: 'Built-in Dashboard', guardianwaf: 'yes', safeline: 'yes', coraza: 'no', modsecurity: 'no', naxsi: 'no' },
-  { feature: 'Auto TLS (ACME)', guardianwaf: 'yes', safeline: 'yes', coraza: 'no', modsecurity: 'no', naxsi: 'no' },
-  { feature: 'MCP Integration', guardianwaf: 'yes', safeline: 'no', coraza: 'no', modsecurity: 'no', naxsi: 'no' },
-  { feature: 'Bot Detection', guardianwaf: 'yes', safeline: 'yes', coraza: 'partial', modsecurity: 'partial', naxsi: 'no' },
+  { feature: 'MCP / AI Integration', guardianwaf: 'yes', safeline: 'no', coraza: 'no', modsecurity: 'no', naxsi: 'no' },
+  { feature: 'Bot Detection (JA3 + UA + Behavior)', guardianwaf: 'yes', safeline: 'yes', coraza: 'partial', modsecurity: 'partial', naxsi: 'no' },
   { feature: '<1ms p99 Latency', guardianwaf: 'yes', safeline: 'no', coraza: 'partial', modsecurity: 'no', naxsi: 'yes' },
-  { feature: 'Go Native', guardianwaf: 'yes', safeline: 'no', coraza: 'yes', modsecurity: 'no', naxsi: 'no' },
 ]
 
 const products = [
