@@ -408,10 +408,10 @@ export default function ConfigPage() {
               </Button>
             </div>
             <div className="flex flex-wrap gap-2">
-              {ipacl.whitelist.map((ip) => (
+              {(ipacl.whitelist || []).map((ip) => (
                 <IPChip key={ip} ip={ip} onRemove={() => removeIP('whitelist', ip)} />
               ))}
-              {ipacl.whitelist.length === 0 && (
+              {(ipacl.whitelist || []).length === 0 && (
                 <span className="text-xs text-muted-foreground">No entries</span>
               )}
             </div>
@@ -442,10 +442,10 @@ export default function ConfigPage() {
               </Button>
             </div>
             <div className="flex flex-wrap gap-2">
-              {ipacl.blacklist.map((ip) => (
+              {(ipacl.blacklist || []).map((ip) => (
                 <IPChip key={ip} ip={ip} variant="destructive" onRemove={() => removeIP('blacklist', ip)} />
               ))}
-              {ipacl.blacklist.length === 0 && (
+              {(ipacl.blacklist || []).length === 0 && (
                 <span className="text-xs text-muted-foreground">No entries</span>
               )}
             </div>
