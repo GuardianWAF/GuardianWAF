@@ -18,6 +18,10 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/events"
 )
 
+//go:embed dist
+var distFS embed.FS
+
+// Legacy static files kept for backward compatibility
 //go:embed static/index.html static/style.css static/app.js static/config.html static/config.js static/routing.html static/routing.js
 var staticFiles embed.FS
 
@@ -67,14 +71,9 @@ func New(eng *engine.Engine, store events.EventStore, apiKey string) *Dashboard 
 	d.mux.HandleFunc("OPTIONS /api/v1/ipacl", handleCORS)
 	d.mux.HandleFunc("GET /api/v1/sse", d.authWrap(d.handleSSE))
 
-	// Protected static files
-	d.mux.HandleFunc("/", d.authWrap(d.handleIndex))
-	d.mux.HandleFunc("/config", d.authWrap(d.handleConfigPage))
-	d.mux.HandleFunc("/routing", d.authWrap(d.handleRoutingPage))
-	d.mux.HandleFunc("/style.css", d.authWrap(d.handleStatic("static/style.css", "text/css; charset=utf-8")))
-	d.mux.HandleFunc("/app.js", d.authWrap(d.handleStatic("static/app.js", "application/javascript; charset=utf-8")))
-	d.mux.HandleFunc("/config.js", d.authWrap(d.handleStatic("static/config.js", "application/javascript; charset=utf-8")))
-	d.mux.HandleFunc("/routing.js", d.authWrap(d.handleStatic("static/routing.js", "application/javascript; charset=utf-8")))
+	// SPA serving — React build output from dist/ with fallback to legacy static/
+	d.mux.HandleFunc("/assets/", d.authWrap(d.handleDistAssets))  // Vite hashed assets
+	d.mux.HandleFunc("/", d.authWrap(d.handleSPA))                // SPA catch-all
 
 	return d
 }
@@ -838,22 +837,57 @@ func (d *Dashboard) handleSSE(w http.ResponseWriter, r *http.Request) {
 	d.sse.HandleSSE(w, r)
 }
 
-// --- Static ---
+// --- SPA Serving (React dashboard) ---
 
-func (d *Dashboard) handleIndex(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" && r.URL.Path != "/index.html" {
-		http.NotFound(w, r)
-		return
-	}
-	data, err := staticFiles.ReadFile("static/index.html")
+// handleSPA serves the React SPA's index.html for all non-API, non-asset routes.
+// This enables client-side routing (React Router).
+func (d *Dashboard) handleSPA(w http.ResponseWriter, r *http.Request) {
+	// Try dist/index.html (React build)
+	data, err := distFS.ReadFile("dist/index.html")
 	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
+		// Fallback to legacy static/index.html
+		data, err = staticFiles.ReadFile("static/index.html")
+		if err != nil {
+			http.Error(w, "Dashboard not found", http.StatusInternalServerError)
+			return
+		}
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
 	w.Write(data)
 }
 
+// handleDistAssets serves Vite-built assets (JS/CSS with content hashes).
+// These are immutable and can be cached forever.
+func (d *Dashboard) handleDistAssets(w http.ResponseWriter, r *http.Request) {
+	// Serve from dist/ filesystem
+	filePath := "dist" + r.URL.Path
+	data, err := distFS.ReadFile(filePath)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Content-Type detection
+	ct := "application/octet-stream"
+	if strings.HasSuffix(r.URL.Path, ".js") {
+		ct = "application/javascript; charset=utf-8"
+	} else if strings.HasSuffix(r.URL.Path, ".css") {
+		ct = "text/css; charset=utf-8"
+	} else if strings.HasSuffix(r.URL.Path, ".svg") {
+		ct = "image/svg+xml"
+	} else if strings.HasSuffix(r.URL.Path, ".png") {
+		ct = "image/png"
+	} else if strings.HasSuffix(r.URL.Path, ".woff2") {
+		ct = "font/woff2"
+	}
+
+	w.Header().Set("Content-Type", ct)
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	w.Write(data)
+}
+
+// Legacy static handler (kept for backward compatibility)
 func (d *Dashboard) handleStatic(path, contentType string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		data, err := staticFiles.ReadFile(path)

@@ -103,3 +103,4 @@ website/dist/
 
 # Claude Code
 .claude/
+internal/dashboard/ui/node_modules/
