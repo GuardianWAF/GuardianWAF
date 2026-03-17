@@ -40,9 +40,9 @@ waf:
     rules:
       - id: global
         scope: ip
-        limit: 1000
+        limit: 30
         window: 1m
-        burst: 50
+        burst: 10
         action: block
       - id: login
         scope: ip+path
@@ -105,9 +105,15 @@ waf:
           - xss
         reason: "Webhook payloads may contain code-like content"
 
+  challenge:
+    enabled: true
+    difficulty: 18
+    cookie_ttl: 1h
+    cookie_name: __gwaf_challenge
+
   bot_detection:
     enabled: true
-    mode: monitor
+    mode: enforce
     tls_fingerprint:
       enabled: true
       known_bots_action: block

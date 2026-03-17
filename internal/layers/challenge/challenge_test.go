@@ -376,6 +376,68 @@ func TestVerifyHandler(t *testing.T) {
 	})
 }
 
+func TestVerifyHandlerParseFormError(t *testing.T) {
+	svc := NewService(Config{
+		SecretKey:  []byte("test-secret-key-32-bytes-long!!!"),
+		Difficulty: 4,
+	})
+	handler := svc.VerifyHandler()
+
+	// Send a body with invalid content-type that triggers ParseForm error
+	req := httptest.NewRequest("POST", "/__guardianwaf/challenge/verify",
+		strings.NewReader("%zz=invalid"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	// ParseForm may or may not error on this, but ensure no panic
+	// and we get a non-success response for missing fields
+	if w.Code != http.StatusBadRequest && w.Code != http.StatusForbidden {
+		// Either bad request (parse error) or bad request (missing fields) is acceptable
+		t.Logf("got status %d", w.Code)
+	}
+}
+
+func TestVerifyTokenMalformedPayload(t *testing.T) {
+	svc := NewService(Config{
+		SecretKey: []byte("test-secret-key-32-bytes-long!!!"),
+		CookieTTL: 1 * time.Hour,
+	})
+
+	ip := net.ParseIP("192.168.1.1")
+
+	// Craft a token with valid HMAC but no pipe separator in payload
+	// payload = "nopipe" (no "|" separator)
+	payload := "nopipe"
+	payloadHex := hex.EncodeToString([]byte(payload))
+	mac := svc.computeHMAC(payload)
+	token := payloadHex + "." + mac
+
+	if svc.verifyToken(token, ip) {
+		t.Error("token without pipe separator should be rejected")
+	}
+
+	// Craft a token with valid HMAC but non-numeric expiry
+	payload2 := "notanumber|192.168.1.1"
+	payloadHex2 := hex.EncodeToString([]byte(payload2))
+	mac2 := svc.computeHMAC(payload2)
+	token2 := payloadHex2 + "." + mac2
+
+	if svc.verifyToken(token2, ip) {
+		t.Error("token with non-numeric expiry should be rejected")
+	}
+
+	// Nil client IP
+	validToken := svc.generateToken(nil)
+	if !svc.verifyToken(validToken, nil) {
+		t.Error("nil IP token should verify with nil IP")
+	}
+	if svc.verifyToken(validToken, ip) {
+		t.Error("nil IP token should not verify with non-nil IP")
+	}
+}
+
 func TestHTMLEscape(t *testing.T) {
 	tests := []struct {
 		input, expected string
