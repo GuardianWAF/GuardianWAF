@@ -72,8 +72,10 @@ func New(eng *engine.Engine, store events.EventStore, apiKey string) *Dashboard 
 	d.mux.HandleFunc("GET /api/v1/sse", d.authWrap(d.handleSSE))
 
 	// SPA serving — React build output from dist/ with fallback to legacy static/
-	d.mux.HandleFunc("/assets/", d.authWrap(d.handleDistAssets))  // Vite hashed assets
-	d.mux.HandleFunc("/", d.authWrap(d.handleSPA))                // SPA catch-all
+	d.mux.HandleFunc("GET /assets/", d.authWrap(d.handleDistAssets)) // Vite hashed assets
+	d.mux.HandleFunc("GET /config", d.authWrap(d.handleSPA))        // SPA routes
+	d.mux.HandleFunc("GET /routing", d.authWrap(d.handleSPA))       // SPA routes
+	d.mux.HandleFunc("/", d.authWrap(d.handleSPA))                  // SPA catch-all
 
 	return d
 }
