@@ -91,7 +91,7 @@
             multInput.min = "0";
             multInput.max = "5";
             multInput.value = det.Multiplier || det.multiplier || 1;
-            multInput.style.width = "50px";
+            multInput.style.width = "70px";
             multInput.setAttribute("data-detector", name);
             multInput.setAttribute("data-field", "multiplier");
             multInput.addEventListener("change", markDirty);

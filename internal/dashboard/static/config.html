@@ -1,11 +1,21 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Configuration — GuardianWAF</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛡</text></svg>">
 <style>
+/* Header links */
+.cfg-header-link{color:var(--text-secondary);text-decoration:none;padding:.4rem .8rem;
+border:1px solid var(--border-subtle);border-radius:var(--radius);font-size:.8rem;
+transition:all .15s}
+.cfg-header-link:hover{background:var(--bg-tertiary);color:var(--text-primary)}
+
 /* Config page specific styles */
 .config-nav{display:flex;gap:.5rem;margin-bottom:1.5rem;flex-wrap:wrap}
 .config-nav a{color:var(--text-secondary);text-decoration:none;padding:.5rem 1rem;border-radius:var(--radius);
@@ -45,20 +55,22 @@ background:#fff;border-radius:50%;transition:.2s}
 
 /* Number input */
 .num-input{background:var(--bg-tertiary);border:1px solid var(--border-subtle);
-border-radius:var(--radius);padding:.4rem .6rem;color:var(--text-primary);
-font-size:.85rem;width:80px;text-align:right}
+border-radius:var(--radius);padding:.5rem .75rem;color:var(--text-primary);
+font-size:.875rem;width:100px;text-align:right;-moz-appearance:textfield}
+.num-input::-webkit-inner-spin-button,.num-input::-webkit-outer-spin-button{
+opacity:1;margin-left:6px}
 .num-input:focus{outline:none;border-color:var(--blue)}
-.num-input--wide{width:120px}
+.num-input--wide{width:140px}
 
 /* Select */
 .cfg-select{background:var(--bg-tertiary);border:1px solid var(--border-subtle);
-border-radius:var(--radius);padding:.4rem .6rem;color:var(--text-primary);
-font-size:.85rem;cursor:pointer;min-width:120px}
+border-radius:var(--radius);padding:.5rem .75rem;color:var(--text-primary);
+font-size:.875rem;cursor:pointer;min-width:140px;appearance:auto}
 .cfg-select:focus{outline:none;border-color:var(--blue)}
 
 /* Multiplier */
-.multiplier{display:flex;align-items:center;gap:.25rem}
-.multiplier .num-input{width:60px}
+.multiplier{display:flex;align-items:center;gap:.4rem}
+.multiplier .num-input{width:70px;padding:.4rem .5rem;font-size:.8rem}
 
 /* Detectors grid */
 .detectors-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:.75rem}
@@ -92,16 +104,20 @@ font-size:.85rem;z-index:200;animation:slideIn .3s ease}
 </style>
 </head>
 <body>
-<header class="header">
-    <div class="header-left">
-        <h1 class="logo">GuardianWAF</h1>
-        <span class="version">Configuration</span>
-    </div>
-    <div class="header-right">
-        <a href="/" class="btn" style="text-decoration:none">Dashboard</a>
-        <a href="/logout" class="btn" style="text-decoration:none">Logout</a>
-    </div>
-</header>
+    <!-- Header (same as dashboard) -->
+    <header class="header">
+        <div class="header-brand">
+            <svg class="header-logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+            <h1 class="header-title">GuardianWAF</h1>
+            <span class="header-badge">Configuration</span>
+        </div>
+        <div class="header-status">
+            <a href="/" class="cfg-header-link">Dashboard</a>
+            <a href="/logout" class="cfg-header-link">Logout</a>
+        </div>
+    </header>
 
 <main class="main" style="padding-bottom:80px">
     <!-- Mode selector -->
@@ -299,13 +315,25 @@ font-size:.85rem;z-index:200;animation:slideIn .3s ease}
     </div>
 </main>
 
-<!-- Sticky save bar -->
-<div class="save-bar" id="save-bar">
-    <span class="status" id="save-status">Unsaved changes</span>
-    <button class="btn" onclick="resetConfig()">Discard</button>
-    <button class="btn btn--primary" onclick="saveConfig()">Save &amp; Apply</button>
-</div>
+    <!-- Footer (same as dashboard) -->
+    <footer class="footer">
+        <div class="footer-content">
+            <span class="footer-brand">
+                <svg class="footer-logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                </svg>
+                Protected by <strong>GuardianWAF</strong>
+            </span>
+        </div>
+    </footer>
 
-<script src="/config.js"></script>
+    <!-- Sticky save bar -->
+    <div class="save-bar" id="save-bar">
+        <span class="status" id="save-status">Unsaved changes</span>
+        <button class="btn" onclick="resetConfig()">Discard</button>
+        <button class="btn btn--primary" onclick="saveConfig()">Save &amp; Apply</button>
+    </div>
+
+    <script src="/config.js"></script>
 </body>
 </html>
