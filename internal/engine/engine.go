@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -27,11 +28,19 @@ type EventPublisher interface {
 
 // Stats holds runtime statistics for the engine.
 type Stats struct {
-	TotalRequests   int64
-	BlockedRequests int64
-	LoggedRequests  int64
-	PassedRequests  int64
-	AvgLatencyUs    int64 // average latency in microseconds
+	TotalRequests      int64
+	BlockedRequests    int64
+	ChallengedRequests int64
+	LoggedRequests     int64
+	PassedRequests     int64
+	AvgLatencyUs       int64 // average latency in microseconds
+}
+
+// ChallengeChecker is the interface for the JS challenge service.
+// Implemented by challenge.Service to avoid circular imports.
+type ChallengeChecker interface {
+	HasValidCookie(r *http.Request, clientIP net.IP) bool
+	ServeChallengePage(w http.ResponseWriter, r *http.Request)
 }
 
 // Engine is the core WAF engine that processes requests through the detection pipeline.
@@ -41,12 +50,16 @@ type Engine struct {
 	eventStore EventStorer
 	eventBus   EventPublisher
 
+	// Challenge service (optional, injected via SetChallengeService)
+	challengeSvc ChallengeChecker
+
 	// Statistics (atomic for lock-free updates)
-	totalRequests   atomic.Int64
-	blockedRequests atomic.Int64
-	loggedRequests  atomic.Int64
-	passedRequests  atomic.Int64
-	totalLatencyUs  atomic.Int64
+	totalRequests      atomic.Int64
+	blockedRequests    atomic.Int64
+	challengedRequests atomic.Int64
+	loggedRequests     atomic.Int64
+	passedRequests     atomic.Int64
+	totalLatencyUs     atomic.Int64
 
 	// Configuration
 	paranoiaLevel  int
@@ -97,6 +110,11 @@ func NewEngine(cfg *config.Config, eventStore EventStorer, eventBus EventPublish
 	return e, nil
 }
 
+// SetChallengeService injects the JS challenge service into the engine.
+func (e *Engine) SetChallengeService(svc ChallengeChecker) {
+	e.challengeSvc = svc
+}
+
 // currentPipeline returns the current pipeline (from atomic.Value).
 func (e *Engine) currentPipeline() *Pipeline {
 	return e.pipeline.Load().(*Pipeline)
@@ -128,10 +146,17 @@ func (e *Engine) Check(r *http.Request) *Event {
 	if result.Action == ActionBlock {
 		finalAction = ActionBlock
 	}
+	// Promote challenge from pipeline if not already blocked
+	if result.Action == ActionChallenge && finalAction != ActionBlock {
+		finalAction = ActionChallenge
+	}
 
 	// Create event
 	statusCode := 200
-	if finalAction == ActionBlock {
+	switch finalAction {
+	case ActionBlock:
+		statusCode = 403
+	case ActionChallenge:
 		statusCode = 403
 	}
 
@@ -147,6 +172,8 @@ func (e *Engine) Check(r *http.Request) *Event {
 	switch finalAction {
 	case ActionBlock:
 		e.blockedRequests.Add(1)
+	case ActionChallenge:
+		e.challengedRequests.Add(1)
 	case ActionLog:
 		e.loggedRequests.Add(1)
 	default:
@@ -182,10 +209,23 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 		if result.Action == ActionBlock {
 			finalAction = ActionBlock
 		}
+		if result.Action == ActionChallenge && finalAction != ActionBlock {
+			finalAction = ActionChallenge
+		}
+
+		// If challenge, check for valid cookie first — if present, downgrade to pass
+		if finalAction == ActionChallenge && e.challengeSvc != nil {
+			if e.challengeSvc.HasValidCookie(r, ctx.ClientIP) {
+				finalAction = ActionPass
+			}
+		}
 
 		// Create event
 		statusCode := 200
-		if finalAction == ActionBlock {
+		switch finalAction {
+		case ActionBlock:
+			statusCode = 403
+		case ActionChallenge:
 			statusCode = 403
 		}
 		event := NewEvent(ctx, statusCode)
@@ -206,6 +246,8 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 		switch finalAction {
 		case ActionBlock:
 			e.blockedRequests.Add(1)
+		case ActionChallenge:
+			e.challengedRequests.Add(1)
 		case ActionLog:
 			e.loggedRequests.Add(1)
 		default:
@@ -219,7 +261,18 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 		// Write response
 		w.Header().Set("X-GuardianWAF-RequestID", event.RequestID)
 
-		if finalAction == ActionBlock {
+		switch finalAction {
+		case ActionBlock:
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.WriteHeader(http.StatusForbidden)
+			w.Write([]byte("403 Forbidden - Request blocked by GuardianWAF"))
+			return
+		case ActionChallenge:
+			if e.challengeSvc != nil {
+				e.challengeSvc.ServeChallengePage(w, r)
+				return
+			}
+			// Fallback if no challenge service: block
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 			w.WriteHeader(http.StatusForbidden)
 			w.Write([]byte("403 Forbidden - Request blocked by GuardianWAF"))
@@ -266,11 +319,12 @@ func (e *Engine) Stats() Stats {
 		avgLatency = e.totalLatencyUs.Load() / total
 	}
 	return Stats{
-		TotalRequests:   total,
-		BlockedRequests: e.blockedRequests.Load(),
-		LoggedRequests:  e.loggedRequests.Load(),
-		PassedRequests:  e.passedRequests.Load(),
-		AvgLatencyUs:    avgLatency,
+		TotalRequests:      total,
+		BlockedRequests:    e.blockedRequests.Load(),
+		ChallengedRequests: e.challengedRequests.Load(),
+		LoggedRequests:     e.loggedRequests.Load(),
+		PassedRequests:     e.passedRequests.Load(),
+		AvgLatencyUs:       avgLatency,
 	}
 }
 

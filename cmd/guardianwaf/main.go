@@ -22,6 +22,7 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/events"
 	"github.com/guardianwaf/guardianwaf/internal/layers/botdetect"
+	"github.com/guardianwaf/guardianwaf/internal/layers/challenge"
 	"github.com/guardianwaf/guardianwaf/internal/layers/detection"
 	"github.com/guardianwaf/guardianwaf/internal/layers/ipacl"
 	"github.com/guardianwaf/guardianwaf/internal/layers/ratelimit"
@@ -147,18 +148,43 @@ func cmdServe(args []string) {
 	// 6. Wire all layers
 	addLayers(eng, cfg)
 
-	// 7. Build handler
-	var handler http.Handler
+	// 7. Set up JS challenge service if enabled
+	var challengeSvc *challenge.Service
+	if cfg.WAF.Challenge.Enabled {
+		chCfg := challenge.Config{
+			Enabled:    true,
+			Difficulty: cfg.WAF.Challenge.Difficulty,
+			CookieTTL:  cfg.WAF.Challenge.CookieTTL,
+			CookieName: cfg.WAF.Challenge.CookieName,
+		}
+		if cfg.WAF.Challenge.SecretKey != "" {
+			chCfg.SecretKey = []byte(cfg.WAF.Challenge.SecretKey)
+		}
+		challengeSvc = challenge.NewService(chCfg)
+		eng.SetChallengeService(challengeSvc)
+	}
+
+	// 8. Build handler
+	serveMux := http.NewServeMux()
+
+	// Mount challenge verification endpoint
+	if challengeSvc != nil {
+		serveMux.Handle(challenge.VerifyPath, challengeSvc.VerifyHandler())
+	}
+
+	// Mount upstream proxy or default handler
+	var upstream http.Handler
 	if len(cfg.Upstreams) > 0 && len(cfg.Routes) > 0 {
-		handler = buildReverseProxy(cfg)
+		upstream = buildReverseProxy(cfg)
 	} else {
-		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstream = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "text/plain")
 			w.WriteHeader(http.StatusOK)
 			fmt.Fprintln(w, "GuardianWAF is running. No upstream configured.")
 		})
 	}
-	handler = eng.Middleware(handler)
+	serveMux.Handle("/", eng.Middleware(upstream))
+	handler := http.Handler(serveMux)
 
 	// 8. Start HTTP server
 	srv := &http.Server{
@@ -295,6 +321,21 @@ func cmdSidecar(args []string) {
 
 	// Wire layers
 	addLayers(eng, cfg)
+
+	// Set up JS challenge service if enabled
+	if cfg.WAF.Challenge.Enabled {
+		chCfg := challenge.Config{
+			Enabled:    true,
+			Difficulty: cfg.WAF.Challenge.Difficulty,
+			CookieTTL:  cfg.WAF.Challenge.CookieTTL,
+			CookieName: cfg.WAF.Challenge.CookieName,
+		}
+		if cfg.WAF.Challenge.SecretKey != "" {
+			chCfg.SecretKey = []byte(cfg.WAF.Challenge.SecretKey)
+		}
+		svc := challenge.NewService(chCfg)
+		eng.SetChallengeService(svc)
+	}
 
 	// Build handler with /healthz endpoint
 	mux := http.NewServeMux()

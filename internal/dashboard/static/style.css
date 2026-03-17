@@ -26,6 +26,7 @@
     --green-dim: rgba(34, 197, 94, 0.15);
     --purple: #a855f7;
     --purple-dim: rgba(168, 85, 247, 0.15);
+    --orange: #f97316;
     --cyan: #06b6d4;
 
     /* Borders */
@@ -157,7 +158,7 @@ body {
 /* --- Stats Grid --- */
 .stats-grid {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(6, 1fr);
     gap: 1rem;
 }
 
@@ -188,6 +189,7 @@ body {
 
 .stat-card--total::before { background: var(--blue); }
 .stat-card--blocked::before { background: var(--red); }
+.stat-card--challenged::before { background: var(--orange); }
 .stat-card--logged::before { background: var(--amber); }
 .stat-card--passed::before { background: var(--green); }
 .stat-card--latency::before { background: var(--purple); }
@@ -210,6 +212,7 @@ body {
 
 .stat-card--total .stat-value { color: var(--blue); }
 .stat-card--blocked .stat-value { color: var(--red); }
+.stat-card--challenged .stat-value { color: var(--orange); }
 .stat-card--logged .stat-value { color: var(--amber); }
 .stat-card--passed .stat-value { color: var(--green); }
 .stat-card--latency .stat-value { color: var(--purple); }

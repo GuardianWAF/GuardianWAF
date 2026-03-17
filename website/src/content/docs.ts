@@ -103,7 +103,7 @@ curl -sL https://github.com/GuardianWAF/GuardianWAF/releases/latest/download/gua
 # Make executable
 chmod +x guardianwaf` },
       { type: 'heading', level: 3, text: 'From Source' },
-      { type: 'code', language: 'bash', filename: 'Terminal', code: `go install github.com/ersinkoc/guardianwaf/cmd/guardianwaf@latest` },
+      { type: 'code', language: 'bash', filename: 'Terminal', code: `go install github.com/guardianwaf/guardianwaf/cmd/guardianwaf@latest` },
       { type: 'heading', level: 3, text: 'Docker' },
       { type: 'code', language: 'bash', filename: 'Terminal', code: `docker pull ghcr.io/guardianwaf/guardianwaf:latest` },
       { type: 'heading', level: 2, text: 'First Run', id: 'first-run' },
@@ -246,7 +246,7 @@ logging:
 
 import (
     "net/http"
-    "github.com/ersinkoc/guardianwaf"
+    "github.com/guardianwaf/guardianwaf"
 )
 
 func main() {

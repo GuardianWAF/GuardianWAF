@@ -15,7 +15,7 @@ const libraryCode = `package main
 
 import (
     "net/http"
-    "github.com/ersinkoc/guardianwaf"
+    "github.com/guardianwaf/guardianwaf"
 )
 
 func main() {

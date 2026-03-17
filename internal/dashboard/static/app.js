@@ -24,6 +24,7 @@
         stats: {
             total_requests: 0,
             blocked: 0,
+            challenged: 0,
             logged: 0,
             passed: 0,
             avg_latency_ms: 0,
@@ -44,11 +45,13 @@
     function cacheDom() {
         dom.statTotal = document.getElementById('stat-total');
         dom.statBlocked = document.getElementById('stat-blocked');
+        dom.statChallenged = document.getElementById('stat-challenged');
         dom.statLogged = document.getElementById('stat-logged');
         dom.statPassed = document.getElementById('stat-passed');
         dom.statLatency = document.getElementById('stat-latency');
         dom.statTotalRate = document.getElementById('stat-total-rate');
         dom.statBlockedPct = document.getElementById('stat-blocked-pct');
+        dom.statChallengedPct = document.getElementById('stat-challenged-pct');
         dom.statLoggedPct = document.getElementById('stat-logged-pct');
         dom.statPassedPct = document.getElementById('stat-passed-pct');
         dom.statLatencyP99 = document.getElementById('stat-latency-p99');
@@ -177,12 +180,14 @@
         var s = state.stats;
         dom.statTotal.textContent = formatNumber(s.total_requests);
         dom.statBlocked.textContent = formatNumber(s.blocked);
+        dom.statChallenged.textContent = formatNumber(s.challenged);
         dom.statLogged.textContent = formatNumber(s.logged);
         dom.statPassed.textContent = formatNumber(s.passed);
         dom.statLatency.textContent = formatDuration(s.avg_latency_ms);
 
         dom.statTotalRate.textContent = (s.requests_per_second || 0).toFixed(1) + ' req/s';
         dom.statBlockedPct.textContent = pct(s.blocked, s.total_requests);
+        dom.statChallengedPct.textContent = pct(s.challenged, s.total_requests);
         dom.statLoggedPct.textContent = pct(s.logged, s.total_requests);
         dom.statPassedPct.textContent = pct(s.passed, s.total_requests);
         dom.statLatencyP99.textContent = 'P99: ' + formatDuration(s.p99_latency_ms || 0);
@@ -498,6 +503,7 @@
                     var s = state.stats;
                     s.total_requests = data.total_requests || data.totalRequests || s.total_requests;
                     s.blocked = data.blocked || s.blocked;
+                    s.challenged = data.challenged || data.challenged_requests || s.challenged;
                     s.logged = data.logged || s.logged;
                     s.passed = data.passed || s.passed;
                     s.avg_latency_ms = data.avg_latency_ms || data.avgLatencyMs || s.avg_latency_ms;
@@ -577,6 +583,7 @@
                     var s = state.stats;
                     s.total_requests = data.total_requests || data.totalRequests || s.total_requests;
                     s.blocked = data.blocked || s.blocked;
+                    s.challenged = data.challenged || data.challenged_requests || s.challenged;
                     s.logged = data.logged || s.logged;
                     s.passed = data.passed || s.passed;
                     renderStats();
@@ -616,6 +623,7 @@
         var s = state.stats;
         s.total_requests++;
         if (event.action === 'block') s.blocked++;
+        else if (event.action === 'challenge') s.challenged++;
         else if (event.action === 'log') s.logged++;
         else s.passed++;
 

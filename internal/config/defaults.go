@@ -88,6 +88,12 @@ func DefaultConfig() *Config {
 					ErrorRateThreshold: 30,
 				},
 			},
+			Challenge: ChallengeConfig{
+				Enabled:    false,
+				Difficulty: 20,
+				CookieTTL:  1 * time.Hour,
+				CookieName: "__gwaf_challenge",
+			},
 			Response: ResponseConfig{
 				SecurityHeaders: SecurityHeadersConfig{
 					Enabled: true,
@@ -410,10 +416,49 @@ func populateWAF(waf *WAFConfig, n *Node) error {
 			return fmt.Errorf("bot_detection: %w", err)
 		}
 	}
+	if sub := n.Get("challenge"); sub != nil {
+		if err := populateChallenge(&waf.Challenge, sub); err != nil {
+			return fmt.Errorf("challenge: %w", err)
+		}
+	}
 	if sub := n.Get("response"); sub != nil {
 		if err := populateResponse(&waf.Response, sub); err != nil {
 			return fmt.Errorf("response: %w", err)
 		}
+	}
+	return nil
+}
+
+func populateChallenge(ch *ChallengeConfig, n *Node) error {
+	if n.Kind != MapNode {
+		return nil
+	}
+	if v := n.Get("enabled"); v != nil {
+		b, err := nodeBool(v)
+		if err != nil {
+			return fmt.Errorf("enabled: %w", err)
+		}
+		ch.Enabled = b
+	}
+	if v := n.Get("difficulty"); v != nil {
+		i, err := nodeInt(v)
+		if err != nil {
+			return fmt.Errorf("difficulty: %w", err)
+		}
+		ch.Difficulty = i
+	}
+	if v := n.Get("cookie_ttl"); v != nil && !v.IsNull {
+		d, err := parseDuration(v.String())
+		if err != nil {
+			return fmt.Errorf("cookie_ttl: %w", err)
+		}
+		ch.CookieTTL = d
+	}
+	if v := n.Get("cookie_name"); v != nil && !v.IsNull {
+		ch.CookieName = v.String()
+	}
+	if v := n.Get("secret_key"); v != nil && !v.IsNull {
+		ch.SecretKey = v.String()
 	}
 	return nil
 }

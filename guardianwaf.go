@@ -33,6 +33,7 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/events"
 	"github.com/guardianwaf/guardianwaf/internal/layers/botdetect"
+	"github.com/guardianwaf/guardianwaf/internal/layers/challenge"
 	"github.com/guardianwaf/guardianwaf/internal/layers/detection"
 	"github.com/guardianwaf/guardianwaf/internal/layers/ipacl"
 	"github.com/guardianwaf/guardianwaf/internal/layers/ratelimit"
@@ -56,6 +57,7 @@ type Config struct {
 	IPACL     IPACLConfig
 	RateLimit RateLimitConfig
 	Bot       BotConfig
+	Challenge ChallengeConfig
 	Response  ResponseConfig
 	Events    EventsConfig
 }
@@ -118,6 +120,15 @@ type BotConfig struct {
 	BlockKnownScanners bool
 }
 
+// ChallengeConfig controls JavaScript proof-of-work challenges.
+type ChallengeConfig struct {
+	Enabled    bool
+	Difficulty int           // leading zero bits (default: 20)
+	CookieTTL  time.Duration // challenge cookie lifetime (default: 1h)
+	CookieName string        // cookie name (default: "__gwaf_challenge")
+	SecretKey  string        // HMAC signing key (auto-generated if empty)
+}
+
 // ResponseConfig controls response protections.
 type ResponseConfig struct {
 	SecurityHeaders bool
@@ -175,6 +186,20 @@ func New(cfg Config, opts ...Option) (*Engine, error) {
 	}
 
 	addDefaultLayers(eng, internalCfg)
+
+	// Wire challenge service if enabled
+	if internalCfg.WAF.Challenge.Enabled {
+		chCfg := challenge.Config{
+			Enabled:    true,
+			Difficulty: internalCfg.WAF.Challenge.Difficulty,
+			CookieTTL:  internalCfg.WAF.Challenge.CookieTTL,
+			CookieName: internalCfg.WAF.Challenge.CookieName,
+		}
+		if internalCfg.WAF.Challenge.SecretKey != "" {
+			chCfg.SecretKey = []byte(internalCfg.WAF.Challenge.SecretKey)
+		}
+		eng.SetChallengeService(challenge.NewService(chCfg))
+	}
 
 	return &Engine{internal: eng, cfg: internalCfg}, nil
 }
@@ -236,21 +261,23 @@ func (e *Engine) OnEvent(fn func(Event)) {
 func (e *Engine) Stats() Stats {
 	s := e.internal.Stats()
 	return Stats{
-		TotalRequests:   s.TotalRequests,
-		BlockedRequests: s.BlockedRequests,
-		LoggedRequests:  s.LoggedRequests,
-		PassedRequests:  s.PassedRequests,
-		AvgLatencyUs:    s.AvgLatencyUs,
+		TotalRequests:      s.TotalRequests,
+		BlockedRequests:    s.BlockedRequests,
+		ChallengedRequests: s.ChallengedRequests,
+		LoggedRequests:     s.LoggedRequests,
+		PassedRequests:     s.PassedRequests,
+		AvgLatencyUs:       s.AvgLatencyUs,
 	}
 }
 
 // Stats holds runtime statistics for the engine.
 type Stats struct {
-	TotalRequests   int64
-	BlockedRequests int64
-	LoggedRequests  int64
-	PassedRequests  int64
-	AvgLatencyUs    int64
+	TotalRequests      int64
+	BlockedRequests    int64
+	ChallengedRequests int64
+	LoggedRequests     int64
+	PassedRequests     int64
+	AvgLatencyUs       int64
 }
 
 // Close shuts down the engine and releases resources.
@@ -328,6 +355,21 @@ func convertConfig(cfg Config) *config.Config {
 	}
 	c.WAF.BotDetection.UserAgent.BlockEmpty = cfg.Bot.BlockEmpty
 	c.WAF.BotDetection.UserAgent.BlockKnownScanners = cfg.Bot.BlockKnownScanners
+
+	// Challenge
+	if cfg.Challenge.Enabled {
+		c.WAF.Challenge.Enabled = true
+		if cfg.Challenge.Difficulty > 0 {
+			c.WAF.Challenge.Difficulty = cfg.Challenge.Difficulty
+		}
+		if cfg.Challenge.CookieTTL > 0 {
+			c.WAF.Challenge.CookieTTL = cfg.Challenge.CookieTTL
+		}
+		if cfg.Challenge.CookieName != "" {
+			c.WAF.Challenge.CookieName = cfg.Challenge.CookieName
+		}
+		c.WAF.Challenge.SecretKey = cfg.Challenge.SecretKey
+	}
 
 	// Response
 	c.WAF.Response.SecurityHeaders.Enabled = cfg.Response.SecurityHeaders

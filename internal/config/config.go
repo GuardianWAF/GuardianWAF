@@ -75,6 +75,7 @@ type WAFConfig struct {
 	Sanitizer    SanitizerConfig    `yaml:"sanitizer"`
 	Detection    DetectionConfig    `yaml:"detection"`
 	BotDetection BotDetectionConfig `yaml:"bot_detection"`
+	Challenge    ChallengeConfig    `yaml:"challenge"`
 	Response     ResponseConfig     `yaml:"response"`
 }
 
@@ -189,6 +190,15 @@ type BehaviorConfig struct {
 	Window             time.Duration `yaml:"window"`
 	RPSThreshold       int           `yaml:"rps_threshold"`
 	ErrorRateThreshold int           `yaml:"error_rate_threshold"`
+}
+
+// ChallengeConfig controls JavaScript proof-of-work challenges for bot mitigation.
+type ChallengeConfig struct {
+	Enabled    bool          `yaml:"enabled"`
+	Difficulty int           `yaml:"difficulty"`  // leading zero bits required (default: 20)
+	CookieTTL  time.Duration `yaml:"cookie_ttl"`  // challenge cookie lifetime
+	CookieName string        `yaml:"cookie_name"` // challenge cookie name
+	SecretKey  string        `yaml:"secret_key"`  // HMAC signing key (hex-encoded, auto-generated if empty)
 }
 
 // ResponseConfig groups all response-side protections.

@@ -133,11 +133,12 @@ func (d *Dashboard) handleLogout(w http.ResponseWriter, r *http.Request) {
 func (d *Dashboard) handleGetStats(w http.ResponseWriter, r *http.Request) {
 	stats := d.engine.Stats()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"total_requests":   stats.TotalRequests,
-		"blocked_requests": stats.BlockedRequests,
-		"logged_requests":  stats.LoggedRequests,
-		"passed_requests":  stats.PassedRequests,
-		"avg_latency_us":   stats.AvgLatencyUs,
+		"total_requests":      stats.TotalRequests,
+		"blocked_requests":    stats.BlockedRequests,
+		"challenged_requests": stats.ChallengedRequests,
+		"logged_requests":     stats.LoggedRequests,
+		"passed_requests":     stats.PassedRequests,
+		"avg_latency_us":      stats.AvgLatencyUs,
 	})
 }
 
