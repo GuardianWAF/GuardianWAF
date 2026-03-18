@@ -323,16 +323,23 @@ func cmdServe(args []string) {
 				return r.AllUpstreamStatus()
 			})
 		}
-		// Wire rules management
+		// Wire rules management — always create a rules layer for dashboard CRUD
 		if dash != nil {
+			// Find existing rules layer or create one
+			var rLayer *rules.Layer
 			if rl := eng.FindLayer("rules"); rl != nil {
-				if rulesLayer, ok := rl.(*rules.Layer); ok {
-					rLayer := rulesLayer
-					var gDB *geoip.DB
-					if cfg.WAF.GeoIP.Enabled && cfg.WAF.GeoIP.DBPath != "" {
-						gDB, _ = geoip.LoadCSV(cfg.WAF.GeoIP.DBPath)
-					}
-					dash.SetRulesFns(
+				rLayer, _ = rl.(*rules.Layer)
+			}
+			if rLayer == nil {
+				// Create an empty rules layer and add to pipeline
+				rLayer = rules.NewLayer(rules.Config{Enabled: true}, nil)
+				eng.AddLayer(engine.OrderedLayer{Layer: rLayer, Order: engine.OrderRules})
+			}
+			var gDB *geoip.DB
+			if cfg.WAF.GeoIP.Enabled && cfg.WAF.GeoIP.DBPath != "" {
+				gDB, _ = geoip.LoadCSV(cfg.WAF.GeoIP.DBPath)
+			}
+				dash.SetRulesFns(
 						func() any { return rLayer.Rules() },
 						func(raw map[string]any) error {
 							r := mapToRule(raw)
@@ -363,9 +370,7 @@ func cmdServe(args []string) {
 							code := gDB.Lookup(parsed)
 							return code, geoip.CountryName(code)
 						},
-					)
-				}
-			}
+			)
 		}
 
 		if dash != nil {
