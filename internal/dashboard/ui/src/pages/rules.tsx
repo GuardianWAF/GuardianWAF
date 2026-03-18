@@ -36,6 +36,8 @@ export default function RulesPage() {
   const [editing, setEditing] = useState<CustomRule | null>(null)
   const [isNew, setIsNew] = useState(false)
   const [toast, setToast] = useState<{msg: string; err: boolean} | null>(null)
+  const [sortKey, setSortKey] = useState<'priority' | 'name' | 'action' | 'score'>('priority')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const [geoIP, setGeoIP] = useState('')
   const [geoResult, setGeoResult] = useState<GeoIPResult | null>(null)
 
@@ -72,6 +74,29 @@ export default function RulesPage() {
     catch (e) { flash((e as Error).message, true) }
   }
 
+  const toggleSort = (key: typeof sortKey) => {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortKey(key); setSortDir('asc') }
+  }
+
+  const sorted = [...rules].sort((a, b) => {
+    let cmp = 0
+    switch (sortKey) {
+      case 'priority': cmp = a.priority - b.priority; break
+      case 'name': cmp = (a.name || a.id).localeCompare(b.name || b.id); break
+      case 'action': cmp = a.action.localeCompare(b.action); break
+      case 'score': cmp = a.score - b.score; break
+    }
+    return sortDir === 'desc' ? -cmp : cmp
+  })
+
+  const SortTh = ({k, children, className}: {k: typeof sortKey; children: React.ReactNode; className?: string}) => (
+    <th className={cn('text-left px-3 py-2 cursor-pointer select-none hover:text-foreground transition-colors', className)}
+      onClick={() => toggleSort(k)}>
+      {children} {sortKey === k && <span className="text-accent">{sortDir === 'asc' ? '\u25B2' : '\u25BC'}</span>}
+    </th>
+  )
+
   const Tog = ({on, onClick}: {on: boolean; onClick: () => void}) => (
     <button type="button" onClick={onClick} className={cn('h-5 w-9 rounded-full transition-colors relative', on ? 'bg-accent' : 'bg-border')}>
       <span className={cn('absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-transform', on && 'translate-x-4')} />
@@ -98,16 +123,16 @@ export default function RulesPage() {
         <table className="w-full text-sm">
           <thead><tr className="border-b border-border text-muted text-xs">
             <th className="text-left px-3 py-2 w-12">On</th>
-            <th className="text-left px-3 py-2 w-10">Pri</th>
-            <th className="text-left px-3 py-2">Name</th>
+            <SortTh k="priority" className="w-10">Pri</SortTh>
+            <SortTh k="name">Name</SortTh>
             <th className="text-left px-3 py-2 hidden md:table-cell">Conditions</th>
-            <th className="text-left px-3 py-2 w-24">Action</th>
-            <th className="text-left px-3 py-2 w-14">Score</th>
+            <SortTh k="action" className="w-24">Action</SortTh>
+            <SortTh k="score" className="w-14">Score</SortTh>
             <th className="w-10"></th>
           </tr></thead>
           <tbody>
-            {rules.length === 0 && <tr><td colSpan={7} className="text-center py-8 text-muted">No rules yet. Click Add Rule.</td></tr>}
-            {rules.map(r => (
+            {sorted.length === 0 && <tr><td colSpan={7} className="text-center py-8 text-muted">No rules yet. Click Add Rule.</td></tr>}
+            {sorted.map(r => (
               <tr key={r.id} className="border-b border-border hover:bg-card/80 cursor-pointer transition-colors"
                 onClick={() => { setEditing({...r, conditions: [...(r.conditions||[])]}); setIsNew(false) }}>
                 <td className="px-3 py-2" onClick={e => e.stopPropagation()}><Tog on={r.enabled} onClick={() => toggle(r.id, !r.enabled)} /></td>
