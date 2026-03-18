@@ -5,13 +5,18 @@ package geoip
 
 import (
 	"bufio"
+	"compress/gzip"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 // DB is a GeoIP database that maps IP addresses to country codes.
@@ -153,6 +158,79 @@ func CountryName(code string) string {
 		return name
 	}
 	return code
+}
+
+// AutoDownloadURL is the default URL for DB-IP Lite (free, no license key needed).
+const AutoDownloadURL = "https://download.db-ip.com/free/dbip-country-lite-2025-03.csv.gz"
+
+// LoadOrDownload tries to load from path. If file doesn't exist or is older than
+// maxAge, downloads from the given URL (or AutoDownloadURL if empty).
+func LoadOrDownload(path string, downloadURL string, maxAge time.Duration) (*DB, error) {
+	if path == "" {
+		path = "geoip.csv"
+	}
+
+	// Check if file exists and is fresh enough
+	if info, err := os.Stat(path); err == nil {
+		if maxAge <= 0 || time.Since(info.ModTime()) < maxAge {
+			return LoadCSV(path)
+		}
+	}
+
+	// Download
+	if downloadURL == "" {
+		downloadURL = AutoDownloadURL
+	}
+
+	if err := downloadDB(downloadURL, path); err != nil {
+		// If download fails but old file exists, use it
+		if _, statErr := os.Stat(path); statErr == nil {
+			return LoadCSV(path)
+		}
+		return nil, fmt.Errorf("downloading geoip db: %w", err)
+	}
+
+	return LoadCSV(path)
+}
+
+// downloadDB downloads a GeoIP CSV (optionally gzipped) from URL to path.
+func downloadDB(url, path string) error {
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("HTTP %d from %s", resp.StatusCode, url)
+	}
+
+	// Ensure parent directory exists
+	if dir := filepath.Dir(path); dir != "" && dir != "." {
+		os.MkdirAll(dir, 0700)
+	}
+
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	var reader io.Reader = resp.Body
+
+	// Auto-detect gzip by URL suffix or Content-Type
+	if strings.HasSuffix(url, ".gz") || strings.Contains(resp.Header.Get("Content-Type"), "gzip") {
+		gz, err := gzip.NewReader(resp.Body)
+		if err != nil {
+			return fmt.Errorf("gzip decode: %w", err)
+		}
+		defer gz.Close()
+		reader = gz
+	}
+
+	_, err = io.Copy(f, reader)
+	return err
 }
 
 // --- Helpers ---

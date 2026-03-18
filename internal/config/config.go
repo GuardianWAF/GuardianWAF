@@ -109,8 +109,10 @@ type RuleCondition struct {
 
 // GeoIPConfig controls GeoIP database loading.
 type GeoIPConfig struct {
-	Enabled  bool   `yaml:"enabled"`
-	DBPath   string `yaml:"db_path"` // path to CSV database
+	Enabled      bool   `yaml:"enabled"`
+	DBPath       string `yaml:"db_path"`       // path to CSV database
+	AutoDownload bool   `yaml:"auto_download"` // auto-download DB-IP Lite if missing
+	DownloadURL  string `yaml:"download_url"`  // custom download URL (default: DB-IP Lite)
 }
 
 // WAFConfig is the top-level container for all WAF protection settings.

@@ -336,8 +336,8 @@ func cmdServe(args []string) {
 				eng.AddLayer(engine.OrderedLayer{Layer: rLayer, Order: engine.OrderRules})
 			}
 			var gDB *geoip.DB
-			if cfg.WAF.GeoIP.Enabled && cfg.WAF.GeoIP.DBPath != "" {
-				gDB, _ = geoip.LoadCSV(cfg.WAF.GeoIP.DBPath)
+			if cfg.WAF.GeoIP.Enabled {
+				gDB = loadGeoIP(cfg, eng)
 			}
 				dash.SetRulesFns(
 						func() any { return rLayer.Rules() },
@@ -805,15 +805,8 @@ func addLayers(eng *engine.Engine, cfg *config.Config) {
 	// 1b. Custom Rules layer (Order 150)
 	if cfg.WAF.CustomRules.Enabled {
 		var geodb *geoip.DB
-		if cfg.WAF.GeoIP.Enabled && cfg.WAF.GeoIP.DBPath != "" {
-			var err error
-			geodb, err = geoip.LoadCSV(cfg.WAF.GeoIP.DBPath)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to load GeoIP DB: %v\n", err)
-				eng.Logs.Warnf("GeoIP DB load failed: %v", err)
-			} else {
-				eng.Logs.Infof("GeoIP DB loaded: %d ranges", geodb.Count())
-			}
+		if cfg.WAF.GeoIP.Enabled {
+			geodb = loadGeoIP(cfg, eng)
 		}
 
 		ruleList := make([]rules.Rule, len(cfg.WAF.CustomRules.Rules))
@@ -1275,6 +1268,37 @@ func collectACMEDomains(cfg *config.Config) [][]string {
 	}
 
 	return result
+}
+
+// loadGeoIP loads the GeoIP database from file or downloads it.
+func loadGeoIP(cfg *config.Config, eng *engine.Engine) *geoip.DB {
+	// Try loading from specified path
+	if cfg.WAF.GeoIP.DBPath != "" {
+		db, err := geoip.LoadCSV(cfg.WAF.GeoIP.DBPath)
+		if err == nil {
+			eng.Logs.Infof("GeoIP DB loaded: %d ranges from %s", db.Count(), cfg.WAF.GeoIP.DBPath)
+			return db
+		}
+		eng.Logs.Warnf("GeoIP DB load failed: %v", err)
+	}
+
+	// Auto-download if enabled
+	if cfg.WAF.GeoIP.AutoDownload {
+		path := cfg.WAF.GeoIP.DBPath
+		if path == "" {
+			path = "/var/lib/guardianwaf/geoip.csv"
+		}
+		eng.Logs.Info("Downloading GeoIP database...")
+		db, err := geoip.LoadOrDownload(path, cfg.WAF.GeoIP.DownloadURL, 30*24*time.Hour)
+		if err != nil {
+			eng.Logs.Warnf("GeoIP auto-download failed: %v", err)
+			return nil
+		}
+		eng.Logs.Infof("GeoIP DB ready: %d ranges", db.Count())
+		return db
+	}
+
+	return nil
 }
 
 // mapToRule converts a JSON map to a rules.Rule.
