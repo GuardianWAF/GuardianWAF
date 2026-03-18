@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { NavLink } from 'react-router'
-import { LayoutDashboard, Globe, Settings, Shield, PanelLeftClose, PanelLeft } from 'lucide-react'
+import { LayoutDashboard, Globe, Settings, ScrollText, Shield, PanelLeftClose, PanelLeft } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/routing', label: 'Routing', icon: Globe },
   { to: '/config', label: 'WAF Config', icon: Settings },
+  { to: '/logs', label: 'Logs', icon: ScrollText },
 ]
 
 export function Sidebar() {

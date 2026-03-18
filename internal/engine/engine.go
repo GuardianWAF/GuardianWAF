@@ -53,6 +53,9 @@ type Engine struct {
 	// Challenge service (optional, injected via SetChallengeService)
 	challengeSvc ChallengeChecker
 
+	// Application log buffer
+	Logs *LogBuffer
+
 	// Statistics (atomic for lock-free updates)
 	totalRequests      atomic.Int64
 	blockedRequests    atomic.Int64
@@ -86,6 +89,7 @@ func NewEngine(cfg *config.Config, eventStore EventStorer, eventBus EventPublish
 		cfg:            cfg,
 		eventStore:     eventStore,
 		eventBus:       eventBus,
+		Logs:           NewLogBuffer(2000),
 		paranoiaLevel:  2, // default
 		maxBodySize:    cfg.WAF.Sanitizer.MaxBodySize,
 		blockThreshold: cfg.WAF.Detection.Threshold.Block,

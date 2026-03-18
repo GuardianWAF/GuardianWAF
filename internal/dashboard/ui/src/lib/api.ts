@@ -35,6 +35,12 @@ export const api = {
   updateRouting: (data: RoutingConfig) =>
     request<ApiResult>('/api/v1/routing', { method: 'PUT', body: JSON.stringify(data) }),
 
+  // Logs
+  getLogs: (params?: Record<string, string>) => {
+    const qs = params ? '?' + new URLSearchParams(params).toString() : ''
+    return request<LogsResponse>('/api/v1/logs' + qs)
+  },
+
   // IP ACL
   getIPACL: () => request<IpAclData>('/api/v1/ipacl'),
   addIP: (list: string, ip: string) =>
@@ -149,6 +155,17 @@ export interface RouteConfig {
 export interface IpAclData {
   whitelist: string[]
   blacklist: string[]
+}
+
+export interface LogEntry {
+  time: string
+  level: string
+  message: string
+}
+
+export interface LogsResponse {
+  logs: LogEntry[]
+  total: number
 }
 
 export interface ApiResult {

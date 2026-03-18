@@ -69,12 +69,14 @@ func New(eng *engine.Engine, store events.EventStore, apiKey string) *Dashboard 
 	d.mux.HandleFunc("POST /api/v1/ipacl", d.authWrap(d.handleAddIPACL))
 	d.mux.HandleFunc("DELETE /api/v1/ipacl", d.authWrap(d.handleRemoveIPACL))
 	d.mux.HandleFunc("OPTIONS /api/v1/ipacl", handleCORS)
+	d.mux.HandleFunc("GET /api/v1/logs", d.authWrap(d.handleGetLogs))
 	d.mux.HandleFunc("GET /api/v1/sse", d.authWrap(d.handleSSE))
 
 	// SPA serving — React build output from dist/ with fallback to legacy static/
 	d.mux.HandleFunc("GET /assets/", d.authWrap(d.handleDistAssets)) // Vite hashed assets
 	d.mux.HandleFunc("GET /config", d.authWrap(d.handleSPA))        // SPA routes
 	d.mux.HandleFunc("GET /routing", d.authWrap(d.handleSPA))       // SPA routes
+	d.mux.HandleFunc("GET /logs", d.authWrap(d.handleSPA))          // SPA routes
 	d.mux.HandleFunc("/", d.authWrap(d.handleSPA))                  // SPA catch-all
 
 	return d
@@ -868,6 +870,35 @@ func applyWAFPatch(cfg *config.Config, waf map[string]any) {
 			}
 		}
 	}
+}
+
+// --- Logs ---
+
+func (d *Dashboard) handleGetLogs(w http.ResponseWriter, r *http.Request) {
+	n := 200
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if parsed, err := strconv.Atoi(v); err == nil && parsed > 0 {
+			n = min(parsed, 2000)
+		}
+	}
+	level := r.URL.Query().Get("level")
+
+	logs := d.engine.Logs.Recent(n)
+
+	if level != "" {
+		var filtered []engine.LogEntry
+		for _, l := range logs {
+			if l.Level == level {
+				filtered = append(filtered, l)
+			}
+		}
+		logs = filtered
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"logs":  logs,
+		"total": d.engine.Logs.Len(),
+	})
 }
 
 // --- Health ---

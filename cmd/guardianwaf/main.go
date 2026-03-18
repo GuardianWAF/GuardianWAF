@@ -149,6 +149,7 @@ func cmdServe(args []string) {
 
 	// 6. Wire all layers
 	addLayers(eng, cfg)
+	eng.Logs.Infof("Engine initialized in %s mode (block=%d, log=%d)", cfg.Mode, cfg.WAF.Detection.Threshold.Block, cfg.WAF.Detection.Threshold.Log)
 
 	// 7. Set up JS challenge service if enabled
 	var challengeSvc *challenge.Service
@@ -354,8 +355,11 @@ func cmdServe(args []string) {
 	signal.Notify(shutdown, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		fmt.Printf("GuardianWAF %s starting in %s mode on %s\n", version, cfg.Mode, cfg.Listen)
+		msg := fmt.Sprintf("GuardianWAF %s starting in %s mode on %s", version, cfg.Mode, cfg.Listen)
+		fmt.Println(msg)
+		eng.Logs.Info(msg)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			eng.Logs.Errorf("HTTP server error: %v", err)
 			fmt.Fprintf(os.Stderr, "HTTP server error: %v\n", err)
 			os.Exit(1)
 		}
@@ -364,14 +368,32 @@ func cmdServe(args []string) {
 	// Start TLS server if configured
 	if tlsSrv != nil {
 		go func() {
-			fmt.Printf("TLS server listening on %s\n", cfg.TLS.Listen)
+			msg := fmt.Sprintf("TLS server listening on %s", cfg.TLS.Listen)
+			fmt.Println(msg)
+			eng.Logs.Info(msg)
 			if err := tlsSrv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
+				eng.Logs.Errorf("TLS server error: %v", err)
 				fmt.Fprintf(os.Stderr, "TLS server error: %v\n", err)
 			}
 		}()
 	}
 
+	if cfg.Dashboard.Enabled {
+		eng.Logs.Infof("Dashboard listening on %s", cfg.Dashboard.Listen)
+	}
+	if cfg.WAF.Challenge.Enabled {
+		eng.Logs.Infof("JS Challenge enabled (difficulty: %d bits)", cfg.WAF.Challenge.Difficulty)
+	}
+	if cfg.WAF.BotDetection.Enabled {
+		eng.Logs.Infof("Bot detection enabled in %s mode", cfg.WAF.BotDetection.Mode)
+	}
+	eng.Logs.Infof("Upstreams: %d configured", len(cfg.Upstreams))
+	if len(cfg.VirtualHosts) > 0 {
+		eng.Logs.Infof("Virtual hosts: %d configured", len(cfg.VirtualHosts))
+	}
+
 	<-shutdown
+	eng.Logs.Info("Shutting down...")
 	fmt.Println("\nShutting down...")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
