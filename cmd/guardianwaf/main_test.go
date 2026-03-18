@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -139,6 +140,23 @@ func TestAddLayers_AllEnabled(t *testing.T) {
 	if event == nil {
 		t.Fatal("expected non-nil event")
 	}
+}
+
+func TestAddLayers_IPACLInvalidCIDR(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.WAF.IPACL.Enabled = true
+	cfg.WAF.IPACL.Blacklist = []string{"invalid-cidr-xyz"} // Invalid CIDR
+
+	store := events.NewMemoryStore(1000)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatalf("NewEngine error: %v", err)
+	}
+	defer eng.Close()
+
+	// This should log a warning but not crash
+	addLayers(eng, cfg)
 }
 
 func TestAddLayers_ResponseWithHSTS(t *testing.T) {
@@ -962,5 +980,1137 @@ func TestMCPAdapter_TestRequest_InvalidMethod(t *testing.T) {
 	_, err := a.TestRequest("BAD METHOD", "/test", nil)
 	if err == nil {
 		t.Fatal("expected error for invalid method")
+	}
+}
+
+// --- collectACMEDomains tests ---
+
+func TestCollectACMEDomains_ExplicitDomains(t *testing.T) {
+	cfg := &config.Config{
+		TLS: config.TLSConfig{
+			ACME: config.ACMEConfig{
+				Domains: []string{"example.com", "www.example.com"},
+			},
+		},
+	}
+	result := collectACMEDomains(cfg)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 domain group, got %d", len(result))
+	}
+	if result[0][0] != "example.com" || result[0][1] != "www.example.com" {
+		t.Errorf("expected example.com domains, got %v", result[0])
+	}
+}
+
+func TestCollectACMEDomains_VirtualHostWithManualCert(t *testing.T) {
+	cfg := &config.Config{
+		TLS: config.TLSConfig{
+			ACME: config.ACMEConfig{
+				Domains: []string{"explicit.com"},
+			},
+		},
+		VirtualHosts: []config.VirtualHostConfig{
+			{
+				Domains: []string{"vh1.com", "www.vh1.com"},
+				TLS: config.VHostTLSConfig{
+					CertFile: "/path/to/cert.pem", // Has manual cert - NOT included
+					KeyFile:  "/path/to/key.pem",
+				},
+			},
+		},
+	}
+	result := collectACMEDomains(cfg)
+	// Only the explicit ACME domain should be included, not the vhost with manual cert
+	if len(result) != 1 {
+		t.Fatalf("expected 1 domain group (vhost has manual cert), got %d", len(result))
+	}
+}
+
+func TestCollectACMEDomains_VirtualHostWildcard(t *testing.T) {
+	cfg := &config.Config{
+		VirtualHosts: []config.VirtualHostConfig{
+			{
+				Domains: []string{"*.wildcard.com", "regular.com"},
+				TLS: config.VHostTLSConfig{
+					// No manual cert - will be included
+				},
+			},
+		},
+	}
+	result := collectACMEDomains(cfg)
+	// Wildcard should be filtered out, only regular.com remains
+	if len(result) != 1 {
+		t.Fatalf("expected 1 domain group, got %d", len(result))
+	}
+	if len(result[0]) != 1 {
+		t.Errorf("expected 1 domain (wildcard filtered), got %d", len(result[0]))
+	}
+	if result[0][0] != "regular.com" {
+		t.Errorf("expected regular.com, got %v", result[0])
+	}
+}
+
+func TestCollectACMEDomains_EmptyConfig(t *testing.T) {
+	cfg := &config.Config{}
+	result := collectACMEDomains(cfg)
+	if len(result) != 0 {
+		t.Errorf("expected no domains for empty config, got %d", len(result))
+	}
+}
+
+// --- mapToRule tests ---
+
+func TestMapToRule_Complete(t *testing.T) {
+	raw := map[string]any{
+		"id":         "rule-1",
+		"name":       "Block SQLi",
+		"enabled":    true,
+		"priority":   float64(100), // JSON numbers become float64
+		"action":     "block",
+		"score":      float64(50),  // JSON numbers become float64
+		"conditions": []any{
+			map[string]any{"field": "path", "op": "contains", "value": "sql"},
+			map[string]any{"field": "method", "op": "equals", "value": "POST"},
+		},
+	}
+	r := mapToRule(raw)
+	if r.ID != "rule-1" {
+		t.Errorf("expected ID rule-1, got %s", r.ID)
+	}
+	if r.Name != "Block SQLi" {
+		t.Errorf("expected Name 'Block SQLi', got %s", r.Name)
+	}
+	if !r.Enabled {
+		t.Error("expected Enabled true")
+	}
+	if r.Priority != 100 {
+		t.Errorf("expected Priority 100, got %d", r.Priority)
+	}
+	if r.Action != "block" {
+		t.Errorf("expected Action block, got %s", r.Action)
+	}
+	if r.Score != 50 {
+		t.Errorf("expected Score 50, got %d", r.Score)
+	}
+	if len(r.Conditions) != 2 {
+		t.Errorf("expected 2 conditions, got %d", len(r.Conditions))
+	}
+}
+
+func TestMapToRule_PriorityFloat(t *testing.T) {
+	raw := map[string]any{
+		"id":       "rule-2",
+		"priority": 50.5, // float, should convert to int
+	}
+	r := mapToRule(raw)
+	if r.Priority != 50 {
+		t.Errorf("expected Priority 50 (int), got %d", r.Priority)
+	}
+}
+
+func TestMapToRule_ScoreFloat(t *testing.T) {
+	raw := map[string]any{
+		"id":    "rule-3",
+		"score": 25.5, // float, should convert to int
+	}
+	r := mapToRule(raw)
+	if r.Score != 25 {
+		t.Errorf("expected Score 25 (int), got %d", r.Score)
+	}
+}
+
+func TestMapToRule_InvalidCondition(t *testing.T) {
+	raw := map[string]any{
+		"id":         "rule-4",
+		"conditions": []any{
+			"not a map", // invalid condition
+			map[string]any{"field": "path", "op": "contains", "value": "test"},
+		},
+	}
+	r := mapToRule(raw)
+	if len(r.Conditions) != 1 {
+		t.Errorf("expected 1 valid condition, got %d", len(r.Conditions))
+	}
+	if r.Conditions[0].Field != "path" {
+		t.Errorf("expected field 'path', got %s", r.Conditions[0].Field)
+	}
+}
+
+func TestMapToRule_EmptyConditions(t *testing.T) {
+	raw := map[string]any{
+		"id":         "rule-5",
+		"conditions": []any{},
+	}
+	r := mapToRule(raw)
+	if len(r.Conditions) != 0 {
+		t.Errorf("expected 0 conditions, got %d", len(r.Conditions))
+	}
+}
+
+func TestMapToRule_MissingFields(t *testing.T) {
+	raw := map[string]any{} // empty map
+	r := mapToRule(raw)
+	if r.ID != "" {
+		t.Errorf("expected empty ID, got %s", r.ID)
+	}
+	if r.Name != "" {
+		t.Errorf("expected empty Name, got %s", r.Name)
+	}
+	if r.Enabled {
+		t.Error("expected Enabled false")
+	}
+}
+
+// --- loadGeoIP tests ---
+
+func TestLoadGeoIP_Disabled(t *testing.T) {
+	cfg := &config.Config{
+		WAF: config.WAFConfig{
+			GeoIP: config.GeoIPConfig{
+				Enabled:      false,
+				DBPath:       "",
+				AutoDownload: false,
+			},
+		},
+	}
+
+	eng, err := engine.NewEngine(cfg, events.NewMemoryStore(1000), events.NewEventBus())
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+	defer eng.Close()
+
+	db := loadGeoIP(cfg, eng)
+	if db != nil {
+		t.Error("expected nil when GeoIP disabled")
+	}
+}
+
+func TestLoadGeoIP_ValidDBPath(t *testing.T) {
+	// Create a valid GeoIP CSV file
+	dir := t.TempDir()
+	csvPath := filepath.Join(dir, "geoip.csv")
+	csvContent := "1.0.0.0,1.0.0.255,US\n2.0.0.0,2.0.0.255,DE\n"
+	os.WriteFile(csvPath, []byte(csvContent), 0644)
+
+	cfg := &config.Config{
+		WAF: config.WAFConfig{
+			GeoIP: config.GeoIPConfig{
+				Enabled: true,
+				DBPath:  csvPath,
+			},
+		},
+	}
+
+	eng, err := engine.NewEngine(cfg, events.NewMemoryStore(1000), events.NewEventBus())
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+	defer eng.Close()
+
+	db := loadGeoIP(cfg, eng)
+	if db == nil {
+		t.Error("expected non-nil DB when valid path provided")
+	} else if db.Count() != 2 {
+		t.Errorf("expected 2 ranges, got %d", db.Count())
+	}
+}
+
+func TestLoadGeoIP_InvalidDBPath(t *testing.T) {
+	cfg := &config.Config{
+		WAF: config.WAFConfig{
+			GeoIP: config.GeoIPConfig{
+				Enabled:      true,
+				DBPath:       "/nonexistent/path/geoip.csv",
+				AutoDownload: false,
+			},
+		},
+	}
+
+	eng, err := engine.NewEngine(cfg, events.NewMemoryStore(1000), events.NewEventBus())
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+	defer eng.Close()
+
+	db := loadGeoIP(cfg, eng)
+	// Should return nil when file doesn't exist and auto-download disabled
+	if db != nil {
+		t.Error("expected nil when file doesn't exist")
+	}
+}
+
+func TestLoadGeoIP_AutoDownloadEnabled(t *testing.T) {
+	// Test the auto-download path with a non-existent path
+	// This will fail but exercises the AutoDownload code path
+	cfg := &config.Config{
+		WAF: config.WAFConfig{
+			GeoIP: config.GeoIPConfig{
+				Enabled:      true,
+				DBPath:       "", // Empty path, should use default
+				AutoDownload: true,
+			},
+		},
+	}
+
+	eng, err := engine.NewEngine(cfg, events.NewMemoryStore(1000), events.NewEventBus())
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+	defer eng.Close()
+
+	// This will fail because /var/lib/guardianwaf/geoip.csv doesn't exist
+	// and network download will fail, but it exercises the code path
+	db := loadGeoIP(cfg, eng)
+	// On most systems this will return nil because download will fail
+	_ = db // Just exercising the path
+}
+
+func TestLoadGeoIP_AutoDownloadWithCustomPath(t *testing.T) {
+	dir := t.TempDir()
+	customPath := filepath.Join(dir, "custom-geoip.csv")
+
+	cfg := &config.Config{
+		WAF: config.WAFConfig{
+			GeoIP: config.GeoIPConfig{
+				Enabled:      true,
+				DBPath:       customPath,
+				AutoDownload: true,
+			},
+		},
+	}
+
+	eng, err := engine.NewEngine(cfg, events.NewMemoryStore(1000), events.NewEventBus())
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+	defer eng.Close()
+
+	// This will fail because customPath doesn't exist and download will fail
+	// but exercises the code path where DBPath is set but file doesn't exist
+	db := loadGeoIP(cfg, eng)
+	_ = db // Just exercising the path
+}
+
+// --- mapToRule with condition values ---
+
+func TestMapToRule_ConditionValues(t *testing.T) {
+	raw := map[string]any{
+		"id": "rule-cond",
+		"conditions": []any{
+			map[string]any{
+				"field": "path",
+				"op":    "in",
+				"value": []string{"/admin", "/login", "/api"},
+			},
+			map[string]any{
+				"field": "score",
+				"op":    "greater_than",
+				"value": 50.5,
+			},
+		},
+	}
+	r := mapToRule(raw)
+	if len(r.Conditions) != 2 {
+		t.Fatalf("expected 2 conditions, got %d", len(r.Conditions))
+	}
+	// First condition: "in" with array value
+	if r.Conditions[0].Op != "in" {
+		t.Errorf("expected op 'in', got %s", r.Conditions[0].Op)
+	}
+	// Second condition: "greater_than" with float value
+	if r.Conditions[1].Op != "greater_than" {
+		t.Errorf("expected op 'greater_than', got %s", r.Conditions[1].Op)
+	}
+}
+
+func TestMapToRule_ConditionMissingFields(t *testing.T) {
+	raw := map[string]any{
+		"id": "rule-missing",
+		"conditions": []any{
+			map[string]any{"field": "path"}, // missing op and value
+			map[string]any{"op": "contains"}, // missing field
+			map[string]any{"value": "test"}, // missing field and op
+		},
+	}
+	r := mapToRule(raw)
+	// Conditions with missing fields are still added but empty
+	if len(r.Conditions) != 3 {
+		t.Errorf("expected 3 conditions, got %d", len(r.Conditions))
+	}
+}
+
+// --- collectACMEDomains with mixed scenarios ---
+
+func TestCollectACMEDomains_MixedVirtualHosts(t *testing.T) {
+	cfg := &config.Config{
+		TLS: config.TLSConfig{
+			ACME: config.ACMEConfig{
+				Domains: []string{"explicit.com"},
+			},
+		},
+		VirtualHosts: []config.VirtualHostConfig{
+			{
+				// No manual cert - will be included
+				Domains: []string{"vh-no-cert.com"},
+			},
+			{
+				// Has manual cert - will NOT be included
+				Domains: []string{"vh-manual.com"},
+				TLS: config.VHostTLSConfig{
+					CertFile: "/cert.pem",
+					KeyFile:  "/key.pem",
+				},
+			},
+			{
+				// No domains - should not cause issues
+				Domains: []string{},
+			},
+		},
+	}
+	result := collectACMEDomains(cfg)
+	// Should have 2 groups: explicit + vh-no-cert
+	if len(result) != 2 {
+		t.Fatalf("expected 2 domain groups, got %d", len(result))
+	}
+}
+
+// --- upstreamSummary edge cases ---
+
+func TestUpstreamSummary_NilUpstreams(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Upstreams = nil
+	got := upstreamSummary(cfg)
+	if got != "(no upstream)" {
+		t.Errorf("expected '(no upstream)', got %q", got)
+	}
+}
+
+func TestUpstreamSummary_SingleTarget(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Upstreams = []config.UpstreamConfig{
+		{
+			Name:    "single",
+			Targets: []config.TargetConfig{
+				{URL: "http://localhost:3000"},
+			},
+		},
+	}
+	got := upstreamSummary(cfg)
+	if !strings.Contains(got, "http://localhost:3000") {
+		t.Errorf("expected target URL in summary, got %q", got)
+	}
+}
+
+// --- buildReverseProxy with VirtualHosts ---
+
+func TestBuildReverseProxy_VirtualHosts(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Upstreams = []config.UpstreamConfig{
+		{
+			Name:    "api",
+			Targets: []config.TargetConfig{{URL: "http://localhost:3000"}},
+		},
+		{
+			Name:    "web",
+			Targets: []config.TargetConfig{{URL: "http://localhost:8080"}},
+		},
+	}
+	cfg.VirtualHosts = []config.VirtualHostConfig{
+		{
+			Domains: []string{"api.example.com"},
+			Routes: []config.RouteConfig{
+				{Path: "/", Upstream: "api"},
+			},
+		},
+		{
+			Domains: []string{"www.example.com"},
+			Routes: []config.RouteConfig{
+				{Path: "/", Upstream: "web"},
+			},
+		},
+	}
+
+	handler, hcs := buildReverseProxy(cfg)
+	if handler == nil {
+		t.Fatal("expected non-nil handler")
+	}
+	if len(hcs) != 0 {
+		t.Errorf("expected no health checkers without health config, got %d", len(hcs))
+	}
+}
+
+func TestBuildReverseProxy_HealthChecks(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Upstreams = []config.UpstreamConfig{
+		{
+			Name:    "backend",
+			Targets: []config.TargetConfig{{URL: "http://localhost:3000"}},
+			HealthCheck: config.HealthCheckConfig{
+				Enabled:  true,
+				Interval: 5 * time.Second,
+				Timeout:  2 * time.Second,
+				Path:     "/health",
+			},
+		},
+	}
+	cfg.Routes = []config.RouteConfig{
+		{Path: "/", Upstream: "backend"},
+	}
+
+	handler, hcs := buildReverseProxy(cfg)
+	if handler == nil {
+		t.Fatal("expected non-nil handler")
+	}
+	if len(hcs) != 1 {
+		t.Fatalf("expected 1 health checker, got %d", len(hcs))
+	}
+	// Stop the health checker
+	hcs[0].Stop()
+}
+
+func TestBuildReverseProxy_EmptyTargets(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Upstreams = []config.UpstreamConfig{
+		{
+			Name:    "empty",
+			Targets: []config.TargetConfig{}, // Empty targets
+		},
+		{
+			Name:    "valid",
+			Targets: []config.TargetConfig{{URL: "http://localhost:3000"}},
+		},
+	}
+	cfg.Routes = []config.RouteConfig{
+		{Path: "/", Upstream: "valid"},
+	}
+
+	handler, _ := buildReverseProxy(cfg)
+	if handler == nil {
+		t.Fatal("expected non-nil handler")
+	}
+}
+
+func TestBuildReverseProxy_AllInvalidTargets(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Upstreams = []config.UpstreamConfig{
+		{
+			Name:    "all-bad",
+			Targets: []config.TargetConfig{{URL: "://invalid1"}, {URL: "://invalid2"}},
+		},
+	}
+	cfg.Routes = []config.RouteConfig{
+		{Path: "/", Upstream: "all-bad"},
+	}
+
+	handler, _ := buildReverseProxy(cfg)
+	if handler == nil {
+		t.Fatal("expected non-nil handler even with all invalid targets")
+	}
+}
+
+func TestBuildReverseProxy_LoadBalancerStrategies(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Upstreams = []config.UpstreamConfig{
+		{
+			Name:         "weighted",
+			LoadBalancer: "weighted",
+			Targets: []config.TargetConfig{
+				{URL: "http://localhost:3000", Weight: 3},
+				{URL: "http://localhost:3001", Weight: 1},
+			},
+		},
+		{
+			Name:         "least_conn",
+			LoadBalancer: "least_conn",
+			Targets: []config.TargetConfig{
+				{URL: "http://localhost:4000"},
+			},
+		},
+		{
+			Name:         "ip_hash",
+			LoadBalancer: "ip_hash",
+			Targets: []config.TargetConfig{
+				{URL: "http://localhost:5000"},
+			},
+		},
+	}
+	cfg.Routes = []config.RouteConfig{
+		{Path: "/w", Upstream: "weighted"},
+		{Path: "/l", Upstream: "least_conn"},
+		{Path: "/i", Upstream: "ip_hash"},
+	}
+
+	handler, _ := buildReverseProxy(cfg)
+	if handler == nil {
+		t.Fatal("expected non-nil handler")
+	}
+}
+
+func TestBuildReverseProxy_VirtualHostMissingUpstream(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Upstreams = []config.UpstreamConfig{
+		{
+			Name:    "backend",
+			Targets: []config.TargetConfig{{URL: "http://localhost:3000"}},
+		},
+	}
+	cfg.VirtualHosts = []config.VirtualHostConfig{
+		{
+			Domains: []string{"example.com"},
+			Routes: []config.RouteConfig{
+				{Path: "/", Upstream: "nonexistent"}, // Missing upstream
+			},
+		},
+	}
+
+	handler, _ := buildReverseProxy(cfg)
+	if handler == nil {
+		t.Fatal("expected non-nil handler")
+	}
+}
+
+// --- addLayers with Custom Rules + GeoIP ---
+
+func TestAddLayers_CustomRulesWithGeoIP(t *testing.T) {
+	// Create a valid GeoIP CSV file
+	dir := t.TempDir()
+	csvPath := filepath.Join(dir, "geoip.csv")
+	csvContent := "1.0.0.0,1.0.0.255,US\n"
+	os.WriteFile(csvPath, []byte(csvContent), 0644)
+
+	cfg := config.DefaultConfig()
+	cfg.WAF.CustomRules.Enabled = true
+	cfg.WAF.CustomRules.Rules = []config.CustomRule{
+		{
+			ID:         "rule-1",
+			Name:       "Block country",
+			Enabled:    true,
+			Priority:   1,
+			Conditions: []config.RuleCondition{{Field: "country", Op: "equals", Value: "XX"}},
+			Action:     "block",
+			Score:      10,
+		},
+	}
+	cfg.WAF.GeoIP.Enabled = true
+	cfg.WAF.GeoIP.DBPath = csvPath
+
+	store := events.NewMemoryStore(1000)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatalf("NewEngine error: %v", err)
+	}
+	defer eng.Close()
+
+	addLayers(eng, cfg)
+}
+
+// --- addLayers with Data Masking ---
+
+func TestAddLayers_DataMasking(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.WAF.Response.DataMasking.Enabled = true
+	cfg.WAF.Response.DataMasking.MaskCreditCards = true
+	cfg.WAF.Response.DataMasking.MaskSSN = true
+	cfg.WAF.Response.DataMasking.MaskAPIKeys = true
+	cfg.WAF.Response.DataMasking.StripStackTraces = true
+	cfg.WAF.Response.ErrorPages.Mode = "production"
+
+	store := events.NewMemoryStore(1000)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatalf("NewEngine error: %v", err)
+	}
+	defer eng.Close()
+
+	addLayers(eng, cfg)
+}
+
+// --- addLayers with Bot Detection TLS Fingerprint ---
+
+func TestAddLayers_BotDetectionTLS(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.WAF.BotDetection.Enabled = true
+	cfg.WAF.BotDetection.Mode = "challenge"
+	cfg.WAF.BotDetection.TLSFingerprint.Enabled = true
+	cfg.WAF.BotDetection.TLSFingerprint.KnownBotsAction = "allow"
+	cfg.WAF.BotDetection.TLSFingerprint.UnknownAction = "challenge"
+	cfg.WAF.BotDetection.TLSFingerprint.MismatchAction = "block"
+	cfg.WAF.BotDetection.UserAgent.Enabled = true
+	cfg.WAF.BotDetection.UserAgent.BlockEmpty = true
+	cfg.WAF.BotDetection.UserAgent.BlockKnownScanners = true
+	cfg.WAF.BotDetection.Behavior.Enabled = true
+	cfg.WAF.BotDetection.Behavior.Window = 60 * time.Second
+	cfg.WAF.BotDetection.Behavior.RPSThreshold = 100
+	cfg.WAF.BotDetection.Behavior.ErrorRateThreshold = 50
+
+	store := events.NewMemoryStore(1000)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatalf("NewEngine error: %v", err)
+	}
+	defer eng.Close()
+
+	addLayers(eng, cfg)
+}
+
+// --- addLayers with Detection Exclusions ---
+
+func TestAddLayers_DetectionWithExclusions(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.WAF.Detection.Enabled = true
+	cfg.WAF.Detection.Threshold.Block = 50
+	cfg.WAF.Detection.Threshold.Log = 25
+	cfg.WAF.Detection.Detectors = map[string]config.DetectorConfig{
+		"sqli": {Enabled: true, Multiplier: 1.0},
+		"xss":  {Enabled: true, Multiplier: 1.5},
+	}
+	cfg.WAF.Detection.Exclusions = []config.ExclusionConfig{
+		{Path: "/api/webhook", Detectors: []string{"sqli"}, Reason: "Webhook SQL patterns"},
+		{Path: "/admin/sql", Detectors: []string{"sqli", "xss"}, Reason: "Admin panel"},
+	}
+
+	store := events.NewMemoryStore(1000)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatalf("NewEngine error: %v", err)
+	}
+	defer eng.Close()
+
+	addLayers(eng, cfg)
+}
+
+// --- addLayers with Rate Limit AutoBan ---
+
+func TestAddLayers_RateLimitWithAutoBan(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.WAF.RateLimit.Enabled = true
+	cfg.WAF.RateLimit.Rules = []config.RateLimitRule{
+		{
+			ID:           "api-limit",
+			Scope:        "ip",
+			Paths:        []string{"/api/"},
+			Limit:        100,
+			Window:       60 * time.Second,
+			Burst:        20,
+			Action:       "block",
+			AutoBanAfter: 3,
+		},
+	}
+
+	store := events.NewMemoryStore(1000)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatalf("NewEngine error: %v", err)
+	}
+	defer eng.Close()
+
+	addLayers(eng, cfg)
+}
+
+// --- addLayers with Sanitizer Path Overrides ---
+
+func TestAddLayers_SanitizerPathOverrides(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.WAF.Sanitizer.Enabled = true
+	cfg.WAF.Sanitizer.MaxBodySize = 1048576
+	cfg.WAF.Sanitizer.MaxURLLength = 2048
+	cfg.WAF.Sanitizer.MaxHeaderSize = 8192
+	cfg.WAF.Sanitizer.MaxHeaderCount = 50
+	cfg.WAF.Sanitizer.MaxCookieSize = 4096
+	cfg.WAF.Sanitizer.BlockNullBytes = true
+	cfg.WAF.Sanitizer.NormalizeEncoding = true
+	cfg.WAF.Sanitizer.StripHopByHop = true
+	cfg.WAF.Sanitizer.AllowedMethods = []string{"GET", "POST", "PUT", "DELETE"}
+	cfg.WAF.Sanitizer.PathOverrides = []config.PathOverride{
+		{Path: "/upload", MaxBodySize: 104857600},
+		{Path: "/api/big", MaxBodySize: 52428800},
+	}
+
+	store := events.NewMemoryStore(1000)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatalf("NewEngine error: %v", err)
+	}
+	defer eng.Close()
+
+	addLayers(eng, cfg)
+}
+
+// --- startDashboard tests ---
+
+func TestStartDashboard_Basic(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Dashboard.Enabled = true
+	cfg.Dashboard.Listen = "127.0.0.1:0" // Use port 0 for random available port
+
+	store := events.NewMemoryStore(1000)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatalf("NewEngine error: %v", err)
+	}
+	defer eng.Close()
+
+	srv, sse, dash := startDashboard(cfg, eng)
+	if srv == nil {
+		t.Fatal("expected non-nil server")
+	}
+	if sse == nil {
+		t.Fatal("expected non-nil SSE broadcaster")
+	}
+	if dash == nil {
+		t.Fatal("expected non-nil dashboard")
+	}
+
+	// Clean up
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	srv.Shutdown(ctx)
+}
+
+// minimalEventStore only implements engine.EventStorer, not events.EventStore
+type minimalEventStore struct{}
+
+func (m *minimalEventStore) Store(e engine.Event) error { return nil }
+func (m *minimalEventStore) Close() error               { return nil }
+
+func TestStartDashboard_EventStoreNotQueryable(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Dashboard.Enabled = true
+	cfg.Dashboard.Listen = "127.0.0.1:0"
+
+	// Use a minimal store that doesn't implement events.EventStore
+	store := &minimalEventStore{}
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatalf("NewEngine error: %v", err)
+	}
+	defer eng.Close()
+
+	srv, sse, dash := startDashboard(cfg, eng)
+	if srv == nil {
+		t.Fatal("expected non-nil server")
+	}
+	if sse == nil {
+		t.Fatal("expected non-nil SSE broadcaster")
+	}
+	if dash == nil {
+		t.Fatal("expected non-nil dashboard")
+	}
+
+	// Clean up
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	srv.Shutdown(ctx)
+}
+
+// --- TestRequest tests ---
+
+func TestTestRequest_Basic(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.WAF.Detection.Enabled = true
+
+	store := events.NewMemoryStore(1000)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatalf("NewEngine error: %v", err)
+	}
+	defer eng.Close()
+
+	adapter := &mcpEngineAdapter{engine: eng, cfg: cfg}
+
+	result, err := adapter.TestRequest("GET", "/test", nil)
+	if err != nil {
+		t.Fatalf("TestRequest error: %v", err)
+	}
+
+	resultMap, ok := result.(map[string]interface{})
+	if !ok {
+		t.Fatal("expected map result")
+	}
+
+	if resultMap["action"] == "" {
+		t.Error("expected action in result")
+	}
+}
+
+func TestTestRequest_WithHeaders(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.WAF.Detection.Enabled = true
+
+	store := events.NewMemoryStore(1000)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatalf("NewEngine error: %v", err)
+	}
+	defer eng.Close()
+
+	adapter := &mcpEngineAdapter{engine: eng, cfg: cfg}
+
+	headers := map[string]string{
+		"User-Agent": "test-client",
+		"X-Custom":   "value",
+	}
+
+	result, err := adapter.TestRequest("POST", "/api/data", headers)
+	if err != nil {
+		t.Fatalf("TestRequest error: %v", err)
+	}
+
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+}
+
+func TestTestRequest_FullURL(t *testing.T) {
+	cfg := config.DefaultConfig()
+
+	store := events.NewMemoryStore(1000)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatalf("NewEngine error: %v", err)
+	}
+	defer eng.Close()
+
+	adapter := &mcpEngineAdapter{engine: eng, cfg: cfg}
+
+	// Test with full URL
+	result, err := adapter.TestRequest("GET", "https://example.com/path", nil)
+	if err != nil {
+		t.Fatalf("TestRequest error: %v", err)
+	}
+
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+}
+
+func TestTestRequest_InvalidURL(t *testing.T) {
+	cfg := config.DefaultConfig()
+
+	store := events.NewMemoryStore(1000)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatalf("NewEngine error: %v", err)
+	}
+	defer eng.Close()
+
+	adapter := &mcpEngineAdapter{engine: eng, cfg: cfg}
+
+	// Test with invalid URL that causes http.NewRequest to fail
+	_, err = adapter.TestRequest("INVALID METHOD", "http://example.com/path", nil)
+	if err == nil {
+		t.Fatal("expected error for invalid method")
+	}
+}
+
+// --- validateConfigFile tests ---
+
+func TestValidateConfigFile_Valid(t *testing.T) {
+	// Create a valid config file
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "valid.yaml")
+	content := "mode: enforce\nlisten: \":8080\"\n"
+	os.WriteFile(cfgPath, []byte(content), 0644)
+
+	cfg, summary, err := validateConfigFile(cfgPath)
+	if err != nil {
+		t.Fatalf("validateConfigFile: %v", err)
+	}
+	if cfg == nil {
+		t.Fatal("expected non-nil config")
+	}
+	if summary == nil {
+		t.Fatal("expected non-nil summary")
+	}
+	if cfg.Mode != "enforce" {
+		t.Errorf("expected mode 'enforce', got %q", cfg.Mode)
+	}
+}
+
+func TestValidateConfigFile_NonExistent(t *testing.T) {
+	_, _, err := validateConfigFile("/nonexistent/path.yaml")
+	if err == nil {
+		t.Fatal("expected error for non-existent file")
+	}
+	if !strings.Contains(err.Error(), "loading config") {
+		t.Errorf("expected 'loading config' error, got: %v", err)
+	}
+}
+
+func TestValidateConfigFile_InvalidYAML(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "invalid.yaml")
+	content := "mode: [invalid\n  unclosed"
+	os.WriteFile(cfgPath, []byte(content), 0644)
+
+	_, _, err := validateConfigFile(cfgPath)
+	if err == nil {
+		t.Fatal("expected error for invalid YAML")
+	}
+}
+
+func TestValidateConfigFile_WithUpstreams(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "with-upstreams.yaml")
+	content := `
+mode: enforce
+listen: ":8080"
+upstreams:
+  - name: backend
+    targets:
+      - url: http://localhost:3000
+routes:
+  - path: /api
+    upstream: backend
+`
+	os.WriteFile(cfgPath, []byte(content), 0644)
+
+	_, summary, err := validateConfigFile(cfgPath)
+	if err != nil {
+		t.Fatalf("validateConfigFile: %v", err)
+	}
+	if summary.Upstreams != 1 {
+		t.Errorf("expected 1 upstream, got %d", summary.Upstreams)
+	}
+	if summary.Routes != 1 {
+		t.Errorf("expected 1 route, got %d", summary.Routes)
+	}
+}
+
+func TestValidateConfigFile_WithDetection(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "with-detection.yaml")
+	content := `
+mode: enforce
+listen: ":8080"
+waf:
+  detection:
+    enabled: true
+    detectors:
+      sqli:
+        enabled: true
+        multiplier: 1.0
+      xss:
+        enabled: true
+        multiplier: 1.5
+`
+	os.WriteFile(cfgPath, []byte(content), 0644)
+
+	cfg, summary, err := validateConfigFile(cfgPath)
+	if err != nil {
+		t.Fatalf("validateConfigFile: %v", err)
+	}
+	if !cfg.WAF.Detection.Enabled {
+		t.Error("expected detection to be enabled")
+	}
+	// DefaultConfig has 6 detectors that get merged with YAML-specified ones
+	// We just verify at least 2 detectors exist (sqli and xss from YAML + defaults)
+	if summary.Detectors < 2 {
+		t.Errorf("expected at least 2 detectors, got %d", summary.Detectors)
+	}
+	// Verify specific detectors from YAML are present
+	if _, ok := cfg.WAF.Detection.Detectors["sqli"]; !ok {
+		t.Error("expected sqli detector to be present")
+	}
+	if _, ok := cfg.WAF.Detection.Detectors["xss"]; !ok {
+		t.Error("expected xss detector to be present")
+	}
+}
+
+func TestValidateConfigFile_WithRateLimit(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "with-ratelimit.yaml")
+	content := `
+mode: enforce
+listen: ":8080"
+waf:
+  rate_limit:
+    enabled: true
+    rules:
+      - id: api-limit
+        scope: ip
+        limit: 100
+        window: 60s
+        action: block
+`
+	os.WriteFile(cfgPath, []byte(content), 0644)
+
+	cfg, summary, err := validateConfigFile(cfgPath)
+	if err != nil {
+		t.Fatalf("validateConfigFile: %v", err)
+	}
+	if !cfg.WAF.RateLimit.Enabled {
+		t.Error("expected rate limit to be enabled")
+	}
+	if summary.RateLimitRules != 1 {
+		t.Errorf("expected 1 rate limit rule, got %d", summary.RateLimitRules)
+	}
+}
+
+// --- loadConfig with existing default path ---
+
+func TestLoadConfig_ExistingDefaultPath(t *testing.T) {
+	// Save current directory
+	origDir, _ := os.Getwd()
+	defer os.Chdir(origDir)
+
+	// Create temp directory with a guardianwaf.yaml file
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "guardianwaf.yaml")
+	content := "mode: enforce\nlisten: \":9090\"\n"
+	os.WriteFile(cfgPath, []byte(content), 0644)
+
+	os.Chdir(dir)
+
+	// loadConfig should load the existing file
+	cfg := loadConfig("guardianwaf.yaml")
+	if cfg == nil {
+		t.Fatal("expected non-nil config")
+	}
+	if cfg.Mode != "enforce" {
+		t.Errorf("expected mode 'enforce', got %q", cfg.Mode)
+	}
+	if cfg.Listen != ":9090" {
+		t.Errorf("expected listen ':9090', got %q", cfg.Listen)
+	}
+}
+
+// --- validateConfigFile with validation error ---
+
+func TestValidateConfigFile_ValidationError(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "invalid-config.yaml")
+	// Invalid threshold (block < log should fail validation)
+	content := `
+mode: enforce
+listen: ":8080"
+waf:
+  detection:
+    enabled: true
+    threshold:
+      block: 10
+      log: 50
+`
+	os.WriteFile(cfgPath, []byte(content), 0644)
+
+	_, _, err := validateConfigFile(cfgPath)
+	if err == nil {
+		t.Fatal("expected validation error for block < log threshold")
+	}
+	if !strings.Contains(err.Error(), "validation") {
+		t.Errorf("expected validation error, got: %v", err)
 	}
 }

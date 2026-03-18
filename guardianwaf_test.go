@@ -1320,3 +1320,144 @@ func TestNew_SecurityHeadersEnabled_PopulatesResponseHeaders(t *testing.T) {
 		t.Errorf("expected status 200, got %d", rr.Code)
 	}
 }
+
+// --- Challenge Config Tests ---
+
+func TestNew_WithChallengeEnabled(t *testing.T) {
+	eng, err := New(Config{
+		Challenge: ChallengeConfig{
+			Enabled:     true,
+			Difficulty:  20,
+			CookieTTL:   10 * time.Minute,
+			CookieName:  "gowaf_challenge",
+			SecretKey:   "test-secret-key-12345",
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	defer eng.Close()
+
+	// Verify the challenge config is set
+	if !eng.cfg.WAF.Challenge.Enabled {
+		t.Error("expected challenge to be enabled")
+	}
+	if eng.cfg.WAF.Challenge.Difficulty != 20 {
+		t.Errorf("expected difficulty 20, got %d", eng.cfg.WAF.Challenge.Difficulty)
+	}
+	if eng.cfg.WAF.Challenge.SecretKey != "test-secret-key-12345" {
+		t.Error("expected secret key to be set")
+	}
+}
+
+func TestNew_WithChallengeEnabled_NoSecretKey(t *testing.T) {
+	eng, err := New(Config{
+		Challenge: ChallengeConfig{
+			Enabled:     true,
+			Difficulty:  15,
+			CookieTTL:   5 * time.Minute,
+			CookieName:  "gowaf_challenge",
+			SecretKey:   "",
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	defer eng.Close()
+
+	// Verify the challenge config is set
+	if !eng.cfg.WAF.Challenge.Enabled {
+		t.Error("expected challenge to be enabled")
+	}
+	// SecretKey should be empty (auto-generated internally)
+	if eng.cfg.WAF.Challenge.SecretKey != "" {
+		t.Error("expected secret key to be empty in config")
+	}
+}
+
+func TestNew_WithChallengeDisabled(t *testing.T) {
+	eng, err := New(Config{
+		Challenge: ChallengeConfig{
+			Enabled: false,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	defer eng.Close()
+
+	// Verify the challenge config is disabled
+	if eng.cfg.WAF.Challenge.Enabled {
+		t.Error("expected challenge to be disabled")
+	}
+}
+
+func TestNew_ChallengeWithSecretKey(t *testing.T) {
+	eng, err := New(Config{
+		Challenge: ChallengeConfig{
+			Enabled:    true,
+			Difficulty: 5,
+			CookieTTL:  10 * time.Minute,
+			CookieName: "gwaf_test",
+			SecretKey:  "test-secret-key",
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	defer eng.Close()
+
+	if !eng.cfg.WAF.Challenge.Enabled {
+		t.Error("expected challenge enabled")
+	}
+	if eng.cfg.WAF.Challenge.Difficulty != 5 {
+		t.Errorf("expected difficulty 5, got %d", eng.cfg.WAF.Challenge.Difficulty)
+	}
+	if eng.cfg.WAF.Challenge.CookieName != "gwaf_test" {
+		t.Errorf("expected cookie name 'gwaf_test', got %q", eng.cfg.WAF.Challenge.CookieName)
+	}
+}
+
+func TestNew_ChallengeDefaultSecret(t *testing.T) {
+	eng, err := New(Config{
+		Challenge: ChallengeConfig{
+			Enabled: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	defer eng.Close()
+
+	if !eng.cfg.WAF.Challenge.Enabled {
+		t.Error("expected challenge enabled")
+	}
+}
+
+func TestConvertConfig_ChallengeAllFields(t *testing.T) {
+	cfg := Config{
+		Challenge: ChallengeConfig{
+			Enabled:    true,
+			Difficulty: 8,
+			CookieTTL:  30 * time.Minute,
+			CookieName: "custom_cookie",
+			SecretKey:  "my-secret",
+		},
+	}
+	internal := convertConfig(cfg)
+	if !internal.WAF.Challenge.Enabled {
+		t.Error("expected challenge enabled")
+	}
+	if internal.WAF.Challenge.Difficulty != 8 {
+		t.Errorf("expected difficulty 8, got %d", internal.WAF.Challenge.Difficulty)
+	}
+	if internal.WAF.Challenge.CookieTTL != 30*time.Minute {
+		t.Errorf("expected 30m cookie TTL, got %v", internal.WAF.Challenge.CookieTTL)
+	}
+	if internal.WAF.Challenge.CookieName != "custom_cookie" {
+		t.Errorf("expected 'custom_cookie', got %q", internal.WAF.Challenge.CookieName)
+	}
+	if internal.WAF.Challenge.SecretKey != "my-secret" {
+		t.Errorf("expected 'my-secret', got %q", internal.WAF.Challenge.SecretKey)
+	}
+}

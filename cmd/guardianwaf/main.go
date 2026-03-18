@@ -735,15 +735,8 @@ func cmdValidate(args []string) {
 	fs.StringVar(configPath, "c", "guardianwaf.yaml", "Path to config file (short)")
 	fs.Parse(args)
 
-	cfg, err := config.LoadFile(*configPath)
+	cfg, summary, err := validateConfigFile(*configPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
-		os.Exit(1)
-	}
-
-	config.LoadEnv(cfg)
-
-	if err := config.Validate(cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "Validation failed:\n%v\n", err)
 		os.Exit(1)
 	}
@@ -751,14 +744,45 @@ func cmdValidate(args []string) {
 	fmt.Printf("Configuration %s is valid.\n", *configPath)
 	fmt.Printf("  Mode:       %s\n", cfg.Mode)
 	fmt.Printf("  Listen:     %s\n", cfg.Listen)
-	fmt.Printf("  Upstreams:  %d\n", len(cfg.Upstreams))
-	fmt.Printf("  Routes:     %d\n", len(cfg.Routes))
-	fmt.Printf("  Detection:  %v (%d detectors)\n", cfg.WAF.Detection.Enabled, len(cfg.WAF.Detection.Detectors))
-	fmt.Printf("  Rate Limit: %v (%d rules)\n", cfg.WAF.RateLimit.Enabled, len(cfg.WAF.RateLimit.Rules))
+	fmt.Printf("  Upstreams:  %d\n", summary.Upstreams)
+	fmt.Printf("  Routes:     %d\n", summary.Routes)
+	fmt.Printf("  Detection:  %v (%d detectors)\n", cfg.WAF.Detection.Enabled, summary.Detectors)
+	fmt.Printf("  Rate Limit: %v (%d rules)\n", cfg.WAF.RateLimit.Enabled, summary.RateLimitRules)
 	fmt.Printf("  IP ACL:     %v\n", cfg.WAF.IPACL.Enabled)
 	fmt.Printf("  Bot Detect: %v\n", cfg.WAF.BotDetection.Enabled)
 	fmt.Printf("  Dashboard:  %v (%s)\n", cfg.Dashboard.Enabled, cfg.Dashboard.Listen)
 	fmt.Printf("  MCP:        %v (%s)\n", cfg.MCP.Enabled, cfg.MCP.Transport)
+}
+
+// ConfigSummary holds summary information about a loaded config.
+type ConfigSummary struct {
+	Upstreams      int
+	Routes         int
+	Detectors      int
+	RateLimitRules int
+}
+
+// validateConfigFile loads and validates a config file, returning the config and summary.
+func validateConfigFile(path string) (*config.Config, *ConfigSummary, error) {
+	cfg, err := config.LoadFile(path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("loading config: %w", err)
+	}
+
+	config.LoadEnv(cfg)
+
+	if err := config.Validate(cfg); err != nil {
+		return nil, nil, fmt.Errorf("validation: %w", err)
+	}
+
+	summary := &ConfigSummary{
+		Upstreams:      len(cfg.Upstreams),
+		Routes:         len(cfg.Routes),
+		Detectors:      len(cfg.WAF.Detection.Detectors),
+		RateLimitRules: len(cfg.WAF.RateLimit.Rules),
+	}
+
+	return cfg, summary, nil
 }
 
 // --------------------------------------------------------------------------

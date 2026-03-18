@@ -5,6 +5,7 @@ package dashboard
 
 import (
 	"embed"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -143,7 +144,7 @@ func (d *Dashboard) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	key := r.FormValue("key")
-	if key != d.apiKey {
+	if subtle.ConstantTimeCompare([]byte(key), []byte(d.apiKey)) != 1 {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusUnauthorized)
 		w.Write([]byte(loginPage("Invalid API key. Please try again.")))
@@ -636,26 +637,6 @@ func (d *Dashboard) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "message": "Configuration updated"})
 }
 
-func (d *Dashboard) handleRoutingPage(w http.ResponseWriter, r *http.Request) {
-	data, err := staticFiles.ReadFile("static/routing.html")
-	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write(data)
-}
-
-func (d *Dashboard) handleConfigPage(w http.ResponseWriter, r *http.Request) {
-	data, err := staticFiles.ReadFile("static/config.html")
-	if err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write(data)
-}
-
 // --- IP ACL ---
 
 // ipaclLayer is the interface we need from the ipacl layer (avoids circular import).
@@ -1142,19 +1123,6 @@ func (d *Dashboard) handleDistAssets(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", ct)
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	w.Write(data)
-}
-
-// Legacy static handler (kept for backward compatibility)
-func (d *Dashboard) handleStatic(path, contentType string) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		data, err := staticFiles.ReadFile(path)
-		if err != nil {
-			http.Error(w, "Not Found", http.StatusNotFound)
-			return
-		}
-		w.Header().Set("Content-Type", contentType)
-		w.Write(data)
-	}
 }
 
 // --- SSE Broadcaster ---

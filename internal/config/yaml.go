@@ -700,7 +700,7 @@ func (p *parser) parseFoldedBlock(parentIndent int, lineNum int, indicator strin
 			result += "\n"
 		}
 		// Add back trailing empty lines
-		for i := 0; i < trailingEmpties; i++ {
+		for range trailingEmpties {
 			result += "\n"
 		}
 	}

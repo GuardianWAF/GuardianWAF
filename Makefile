@@ -1,4 +1,4 @@
-.PHONY: build test lint bench fuzz clean run docker-build smoke docker-test ui ui-dev
+.PHONY: build test lint bench fuzz clean run docker-build smoke docker-test ui ui-dev help fmt tidy
 
 BINARY=guardianwaf
 VERSION?=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -61,3 +61,28 @@ smoke: build
 docker-test:
 	docker compose -f docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from test-runner
 	@docker compose -f docker-compose.test.yml down -v
+
+fmt:
+	gofmt -s -w .
+
+tidy:
+	go mod tidy
+
+help:
+	@echo "GuardianWAF build targets:"
+	@echo "  build        Build dashboard UI + Go binary"
+	@echo "  ui           Build React dashboard"
+	@echo "  ui-dev       Dashboard dev mode (hot reload :5173)"
+	@echo "  test         Run all tests with race detector"
+	@echo "  lint         Run golangci-lint"
+	@echo "  bench        Run benchmarks with memory stats"
+	@echo "  fuzz         Run fuzz tests (30s each)"
+	@echo "  cover        Generate coverage report (HTML)"
+	@echo "  vet          Run go vet"
+	@echo "  fmt          Format code with gofmt -s"
+	@echo "  tidy         Run go mod tidy"
+	@echo "  run          Build and run (serve mode)"
+	@echo "  smoke        Build and run smoke tests"
+	@echo "  clean        Remove binaries and coverage files"
+	@echo "  docker-build Build Docker image"
+	@echo "  docker-test  Run integration tests via Docker Compose"

@@ -47,10 +47,7 @@ type BehaviorTracker struct {
 
 // newBehaviorTracker creates a new tracker with the given window duration.
 func newBehaviorTracker(window time.Duration) *BehaviorTracker {
-	size := int(window.Seconds())
-	if size < 1 {
-		size = 1
-	}
+	size := max(int(window.Seconds()), 1)
 	buckets := make([]bucket, size)
 	now := time.Now()
 	for i := range buckets {
@@ -76,7 +73,7 @@ func (bt *BehaviorTracker) advance(now time.Time) {
 	if ticks > bt.size {
 		ticks = bt.size
 	}
-	for i := 0; i < ticks; i++ {
+	for range ticks {
 		bt.current = (bt.current + 1) % bt.size
 		bt.buckets[bt.current].requests = 0
 		bt.buckets[bt.current].errors = 0

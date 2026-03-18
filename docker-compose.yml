@@ -1,10 +1,8 @@
-version: "3.9"
-
 services:
   guardianwaf:
     build: .
     ports:
-      - "8080:8080"
+      - "18080:8080"
       - "9443:9443"
     volumes:
       - ./examples/standalone/guardianwaf.yaml:/etc/guardianwaf/guardianwaf.yaml:ro

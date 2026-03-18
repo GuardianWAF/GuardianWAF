@@ -30,6 +30,12 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
 
 # Stage 3: Runtime
 FROM alpine:3.20
+
+LABEL org.opencontainers.image.title="GuardianWAF" \
+      org.opencontainers.image.description="Zero-dependency Web Application Firewall written in Go" \
+      org.opencontainers.image.source="https://github.com/guardianwaf/guardianwaf" \
+      org.opencontainers.image.licenses="MIT"
+
 RUN apk --no-cache add ca-certificates tzdata && \
     adduser -D -H -s /sbin/nologin guardianwaf
 

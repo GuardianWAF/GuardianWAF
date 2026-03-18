@@ -5,7 +5,7 @@ RUN go mod download
 COPY ../.. .
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o guardianwaf ./cmd/guardianwaf
 
-FROM alpine:3.19
+FROM alpine:3.20
 RUN apk --no-cache add ca-certificates
 COPY --from=builder /app/guardianwaf /usr/local/bin/guardianwaf
 EXPOSE 8080

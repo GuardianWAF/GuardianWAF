@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
 	"net/http"
@@ -14,7 +15,6 @@ import (
 const (
 	sessionCookieName = "gwaf_session"
 	sessionMaxAge     = 24 * time.Hour
-	loginPath         = "/login"
 )
 
 // sessionSecret is generated once at startup for HMAC signing.
@@ -67,10 +67,11 @@ func (d *Dashboard) isAuthenticated(r *http.Request) bool {
 	}
 
 	// Check API key header (for programmatic access)
-	if key := r.Header.Get("X-API-Key"); key == d.apiKey {
+	// Use constant-time comparison to prevent timing attacks.
+	if key := r.Header.Get("X-API-Key"); len(key) > 0 && subtle.ConstantTimeCompare([]byte(key), []byte(d.apiKey)) == 1 {
 		return true
 	}
-	if key := r.URL.Query().Get("api_key"); key == d.apiKey {
+	if key := r.URL.Query().Get("api_key"); len(key) > 0 && subtle.ConstantTimeCompare([]byte(key), []byte(d.apiKey)) == 1 {
 		return true
 	}
 
