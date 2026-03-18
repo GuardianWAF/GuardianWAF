@@ -1,6 +1,9 @@
 .git
 .github
 dist
+**/node_modules
+internal/dashboard/ui/dist
+website/dist
 *.exe
 *.test
 coverage.*
