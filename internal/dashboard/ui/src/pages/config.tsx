@@ -79,6 +79,9 @@ export default function ConfigPage() {
       const next = clone(prev)
       if (path === 'mode') {
         next.mode = value as string
+      } else if (path.startsWith('tls.')) {
+        if (!next.tls) next.tls = {}
+        set(next.tls, path.slice(4), value)
       } else {
         set(next.waf, path, value)
       }
@@ -89,6 +92,7 @@ export default function ConfigPage() {
   const val = (path: string, fallback: unknown = '') => {
     if (!config) return fallback
     if (path === 'mode') return config.mode
+    if (path.startsWith('tls.')) return get(config.tls || {}, path.slice(4)) ?? fallback
     return get(config.waf, path) ?? fallback
   }
 
@@ -175,6 +179,81 @@ export default function ConfigPage() {
               <SelectOption value="disabled">Disabled</SelectOption>
             </Select>
           </FieldRow>
+        </div>
+      </Section>
+
+      {/* TLS / SSL */}
+      <Section
+        title="TLS / SSL"
+        badge={{ on: val('tls.enabled', false) as boolean }}
+      >
+        <div className="space-y-4">
+          <FieldRow label="TLS Enabled">
+            <Switch
+              checked={val('tls.enabled', false) as boolean}
+              onCheckedChange={(v) => update('tls.enabled', v)}
+            />
+          </FieldRow>
+          <FieldRow label="HTTPS Listen Address">
+            <Input
+              value={val('tls.listen', ':8443') as string}
+              onChange={(e) => update('tls.listen', e.target.value)}
+              className="w-32 font-mono"
+              placeholder=":8443"
+            />
+          </FieldRow>
+          <FieldRow label="Certificate File">
+            <Input
+              value={val('tls.cert_file', '') as string}
+              onChange={(e) => update('tls.cert_file', e.target.value)}
+              className="w-64 font-mono"
+              placeholder="/etc/certs/cert.pem"
+            />
+          </FieldRow>
+          <FieldRow label="Key File">
+            <Input
+              value={val('tls.key_file', '') as string}
+              onChange={(e) => update('tls.key_file', e.target.value)}
+              className="w-64 font-mono"
+              placeholder="/etc/certs/key.pem"
+            />
+          </FieldRow>
+          <FieldRow label="HTTP → HTTPS Redirect">
+            <Switch
+              checked={val('tls.http_redirect', true) as boolean}
+              onCheckedChange={(v) => update('tls.http_redirect', v)}
+            />
+          </FieldRow>
+
+          <div className="border-t border-border pt-4 mt-4">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+              ACME / Let&apos;s Encrypt
+            </h4>
+            <div className="space-y-4">
+              <FieldRow label="ACME Enabled">
+                <Switch
+                  checked={val('tls.acme.enabled', false) as boolean}
+                  onCheckedChange={(v) => update('tls.acme.enabled', v)}
+                />
+              </FieldRow>
+              <FieldRow label="Email">
+                <Input
+                  value={val('tls.acme.email', '') as string}
+                  onChange={(e) => update('tls.acme.email', e.target.value)}
+                  className="w-64"
+                  placeholder="admin@example.com"
+                />
+              </FieldRow>
+              <FieldRow label="Cache Directory">
+                <Input
+                  value={val('tls.acme.cache_dir', '') as string}
+                  onChange={(e) => update('tls.acme.cache_dir', e.target.value)}
+                  className="w-64 font-mono"
+                  placeholder="/var/lib/guardianwaf/acme"
+                />
+              </FieldRow>
+            </div>
+          </div>
         </div>
       </Section>
 

@@ -468,6 +468,19 @@ func (d *Dashboard) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 	cfg := d.engine.Config()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"mode": cfg.Mode,
+		"tls": map[string]any{
+			"enabled":       cfg.TLS.Enabled,
+			"listen":        cfg.TLS.Listen,
+			"cert_file":     cfg.TLS.CertFile,
+			"key_file":      cfg.TLS.KeyFile,
+			"http_redirect": cfg.TLS.HTTPRedirect,
+			"acme": map[string]any{
+				"enabled":   cfg.TLS.ACME.Enabled,
+				"email":     cfg.TLS.ACME.Email,
+				"domains":   cfg.TLS.ACME.Domains,
+				"cache_dir": cfg.TLS.ACME.CacheDir,
+			},
+		},
 		"waf": map[string]any{
 			"ip_acl": map[string]any{
 				"enabled":   cfg.WAF.IPACL.Enabled,
@@ -561,6 +574,36 @@ func (d *Dashboard) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	// Apply top-level mode
 	if v, ok := patch["mode"].(string); ok {
 		cfg.Mode = v
+	}
+
+	// Apply TLS section patches
+	if tls, ok := patch["tls"].(map[string]any); ok {
+		if v, ok := tls["enabled"].(bool); ok {
+			cfg.TLS.Enabled = v
+		}
+		if v, ok := tls["listen"].(string); ok {
+			cfg.TLS.Listen = v
+		}
+		if v, ok := tls["cert_file"].(string); ok {
+			cfg.TLS.CertFile = v
+		}
+		if v, ok := tls["key_file"].(string); ok {
+			cfg.TLS.KeyFile = v
+		}
+		if v, ok := tls["http_redirect"].(bool); ok {
+			cfg.TLS.HTTPRedirect = v
+		}
+		if acme, ok := tls["acme"].(map[string]any); ok {
+			if v, ok := acme["enabled"].(bool); ok {
+				cfg.TLS.ACME.Enabled = v
+			}
+			if v, ok := acme["email"].(string); ok {
+				cfg.TLS.ACME.Email = v
+			}
+			if v, ok := acme["cache_dir"].(string); ok {
+				cfg.TLS.ACME.CacheDir = v
+			}
+		}
 	}
 
 	// Apply WAF section patches

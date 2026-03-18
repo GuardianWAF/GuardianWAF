@@ -115,6 +115,9 @@ export interface TargetStatus {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export interface WafConfig {
   mode: string
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  tls: Record<string, any>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   waf: Record<string, any>
 }
 
