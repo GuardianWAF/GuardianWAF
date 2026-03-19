@@ -13,7 +13,7 @@ import (
 // JSONRPCRequest represents a JSON-RPC 2.0 request.
 type JSONRPCRequest struct {
 	JSONRPC string          `json:"jsonrpc"`
-	ID      interface{}     `json:"id,omitempty"`
+	ID      any     `json:"id,omitempty"`
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params,omitempty"`
 }
@@ -21,8 +21,8 @@ type JSONRPCRequest struct {
 // JSONRPCResponse represents a JSON-RPC 2.0 response.
 type JSONRPCResponse struct {
 	JSONRPC string      `json:"jsonrpc"`
-	ID      interface{} `json:"id,omitempty"`
-	Result  interface{} `json:"result,omitempty"`
+	ID      any `json:"id,omitempty"`
+	Result  any `json:"result,omitempty"`
 	Error   *RPCError   `json:"error,omitempty"`
 }
 
@@ -30,7 +30,7 @@ type JSONRPCResponse struct {
 type RPCError struct {
 	Code    int         `json:"code"`
 	Message string      `json:"message"`
-	Data    interface{} `json:"data,omitempty"`
+	Data    any `json:"data,omitempty"`
 }
 
 // Standard JSON-RPC 2.0 error codes.
@@ -43,27 +43,27 @@ const (
 )
 
 // ToolHandler handles a single MCP tool invocation.
-type ToolHandler func(params json.RawMessage) (interface{}, error)
+type ToolHandler func(params json.RawMessage) (any, error)
 
 // EngineInterface defines what the MCP server needs from the WAF engine.
 // This interface avoids circular imports between the mcp and engine packages.
 type EngineInterface interface {
-	GetStats() interface{}
-	GetConfig() interface{}
+	GetStats() any
+	GetConfig() any
 	GetMode() string
 	SetMode(mode string) error
 	AddWhitelist(ip string) error
 	RemoveWhitelist(ip string) error
 	AddBlacklist(ip string) error
 	RemoveBlacklist(ip string) error
-	AddRateLimit(rule interface{}) error
+	AddRateLimit(rule any) error
 	RemoveRateLimit(id string) error
 	AddExclusion(path string, detectors []string, reason string) error
 	RemoveExclusion(path string) error
-	GetEvents(params json.RawMessage) (interface{}, error)
-	GetTopIPs(n int) interface{}
-	GetDetectors() interface{}
-	TestRequest(method, url string, headers map[string]string) (interface{}, error)
+	GetEvents(params json.RawMessage) (any, error)
+	GetTopIPs(n int) any
+	GetDetectors() any
+	TestRequest(method, url string, headers map[string]string) (any, error)
 }
 
 // Server is a JSON-RPC 2.0 MCP server that communicates over stdio.
@@ -174,12 +174,12 @@ func (s *Server) handleInitialize(req JSONRPCRequest) {
 	ver := s.serverVersion
 	s.mu.Unlock()
 
-	result := map[string]interface{}{
+	result := map[string]any{
 		"protocolVersion": "2024-11-05",
-		"capabilities": map[string]interface{}{
-			"tools": map[string]interface{}{},
+		"capabilities": map[string]any{
+			"tools": map[string]any{},
 		},
-		"serverInfo": map[string]interface{}{
+		"serverInfo": map[string]any{
 			"name":    name,
 			"version": ver,
 		},
@@ -190,7 +190,7 @@ func (s *Server) handleInitialize(req JSONRPCRequest) {
 // handleToolsList returns the list of all registered tool definitions.
 func (s *Server) handleToolsList(req JSONRPCRequest) {
 	tools := AllTools()
-	result := map[string]interface{}{
+	result := map[string]any{
 		"tools": tools,
 	}
 	s.sendResult(req.ID, result)
@@ -222,8 +222,8 @@ func (s *Server) handleToolsCall(req JSONRPCRequest) {
 	result, err := handler(params.Arguments)
 	if err != nil {
 		// Return as tool error content, not JSON-RPC error
-		s.sendResult(req.ID, map[string]interface{}{
-			"content": []map[string]interface{}{
+		s.sendResult(req.ID, map[string]any{
+			"content": []map[string]any{
 				{
 					"type": "text",
 					"text": fmt.Sprintf("Error: %v", err),
@@ -236,8 +236,8 @@ func (s *Server) handleToolsCall(req JSONRPCRequest) {
 
 	// Marshal result to text for MCP content
 	resultJSON, _ := json.Marshal(result)
-	s.sendResult(req.ID, map[string]interface{}{
-		"content": []map[string]interface{}{
+	s.sendResult(req.ID, map[string]any{
+		"content": []map[string]any{
 			{
 				"type": "text",
 				"text": string(resultJSON),
@@ -247,7 +247,7 @@ func (s *Server) handleToolsCall(req JSONRPCRequest) {
 }
 
 // sendResult writes a successful JSON-RPC response.
-func (s *Server) sendResult(id interface{}, result interface{}) {
+func (s *Server) sendResult(id any, result any) {
 	resp := JSONRPCResponse{
 		JSONRPC: "2.0",
 		ID:      id,
@@ -257,7 +257,7 @@ func (s *Server) sendResult(id interface{}, result interface{}) {
 }
 
 // sendError writes an error JSON-RPC response.
-func (s *Server) sendError(id interface{}, code int, message string, data interface{}) {
+func (s *Server) sendError(id any, code int, message string, data any) {
 	resp := JSONRPCResponse{
 		JSONRPC: "2.0",
 		ID:      id,

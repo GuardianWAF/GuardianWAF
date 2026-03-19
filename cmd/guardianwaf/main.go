@@ -408,7 +408,7 @@ func cmdServe(args []string) {
 			}
 			var gDB *geoip.DB
 			if cfg.WAF.GeoIP.Enabled {
-				gDB = loadGeoIP(cfg, eng)
+				gDB, _ = loadGeoIP(cfg, eng)
 			}
 				dash.SetRulesFns(
 						func() any { return rLayer.Rules() },
@@ -590,6 +590,7 @@ func cmdSidecar(args []string) {
 	fs.StringVar(listenAddr, "l", ":8080", "Listen address (short)")
 	mode := fs.String("mode", "", "Override WAF mode")
 	fs.StringVar(mode, "m", "", "Override WAF mode (short)")
+	logLevel := fs.String("log-level", "", "Override log level")
 	fs.Parse(args)
 
 	// Load config or build from flags
@@ -654,6 +655,37 @@ func cmdSidecar(args []string) {
 	// Wire layers
 	addLayers(eng, cfg)
 
+	// Apply log level and access logging
+	if *logLevel != "" {
+		cfg.Logging.Level = *logLevel
+	}
+	if cfg.Logging.Level != "" {
+		eng.Logs.SetLevel(cfg.Logging.Level)
+	}
+	if cfg.Logging.LogBlocked || cfg.Logging.LogAllowed {
+		logBlocked := cfg.Logging.LogBlocked
+		logAllowed := cfg.Logging.LogAllowed
+		eng.SetAccessLog(func(entry engine.AccessLogEntry) {
+			isBlocked := entry.Action == "block" || entry.Action == "challenge"
+			if isBlocked && !logBlocked {
+				return
+			}
+			if !isBlocked && !logAllowed {
+				return
+			}
+			if cfg.Logging.Format == "json" {
+				fmt.Fprintf(os.Stdout, `{"ts":%q,"ip":%q,"method":%q,"path":%q,"status":%d,"action":%q,"score":%d,"dur_us":%s,"ua":%q,"findings":%d}`+"\n",
+					entry.Timestamp, entry.ClientIP, entry.Method, entry.Path,
+					entry.StatusCode, entry.Action, entry.Score, entry.Duration,
+					entry.UserAgent, entry.Findings)
+			} else {
+				fmt.Fprintf(os.Stdout, "%s %s %s %s %d %s score=%d dur=%sus findings=%d\n",
+					entry.Timestamp, entry.ClientIP, entry.Method, entry.Path,
+					entry.StatusCode, entry.Action, entry.Score, entry.Duration, entry.Findings)
+			}
+		})
+	}
+
 	// Set up JS challenge service if enabled
 	if cfg.WAF.Challenge.Enabled {
 		chCfg := challenge.Config{
@@ -669,12 +701,28 @@ func cmdSidecar(args []string) {
 		eng.SetChallengeService(svc)
 	}
 
-	// Build handler with /healthz endpoint
+	// Build handler with /healthz and /metrics endpoints
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, "ok")
+	})
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+		s := eng.Stats()
+		fmt.Fprintf(w, "# HELP guardianwaf_requests_total Total number of requests processed.\n")
+		fmt.Fprintf(w, "# TYPE guardianwaf_requests_total counter\n")
+		fmt.Fprintf(w, "guardianwaf_requests_total %d\n", s.TotalRequests)
+		fmt.Fprintf(w, "# HELP guardianwaf_requests_blocked_total Total number of blocked requests.\n")
+		fmt.Fprintf(w, "# TYPE guardianwaf_requests_blocked_total counter\n")
+		fmt.Fprintf(w, "guardianwaf_requests_blocked_total %d\n", s.BlockedRequests)
+		fmt.Fprintf(w, "# HELP guardianwaf_requests_passed_total Total number of passed requests.\n")
+		fmt.Fprintf(w, "# TYPE guardianwaf_requests_passed_total counter\n")
+		fmt.Fprintf(w, "guardianwaf_requests_passed_total %d\n", s.PassedRequests)
+		fmt.Fprintf(w, "# HELP guardianwaf_latency_avg_microseconds Average request latency in microseconds.\n")
+		fmt.Fprintf(w, "# TYPE guardianwaf_latency_avg_microseconds gauge\n")
+		fmt.Fprintf(w, "guardianwaf_latency_avg_microseconds %d\n", s.AvgLatencyUs)
 	})
 
 	var proxyHandler http.Handler
@@ -1057,7 +1105,7 @@ func addLayers(eng *engine.Engine, cfg *config.Config) {
 	if cfg.WAF.CustomRules.Enabled {
 		var geodb *geoip.DB
 		if cfg.WAF.GeoIP.Enabled {
-			geodb = loadGeoIP(cfg, eng)
+			geodb, _ = loadGeoIP(cfg, eng)
 		}
 
 		ruleList := make([]rules.Rule, len(cfg.WAF.CustomRules.Rules))
@@ -1430,9 +1478,9 @@ type mcpEngineAdapter struct {
 	eventStore events.EventStore
 }
 
-func (a *mcpEngineAdapter) GetStats() interface{} {
+func (a *mcpEngineAdapter) GetStats() any {
 	s := a.engine.Stats()
-	return map[string]interface{}{
+	return map[string]any{
 		"total_requests":   s.TotalRequests,
 		"blocked_requests": s.BlockedRequests,
 		"logged_requests":  s.LoggedRequests,
@@ -1441,12 +1489,12 @@ func (a *mcpEngineAdapter) GetStats() interface{} {
 	}
 }
 
-func (a *mcpEngineAdapter) GetConfig() interface{} {
+func (a *mcpEngineAdapter) GetConfig() any {
 	cfg := a.engine.Config()
-	return map[string]interface{}{
+	return map[string]any{
 		"mode":   cfg.Mode,
 		"listen": cfg.Listen,
-		"waf": map[string]interface{}{
+		"waf": map[string]any{
 			"ip_acl_enabled":     cfg.WAF.IPACL.Enabled,
 			"rate_limit_enabled": cfg.WAF.RateLimit.Enabled,
 			"sanitizer_enabled":  cfg.WAF.Sanitizer.Enabled,
@@ -1455,11 +1503,11 @@ func (a *mcpEngineAdapter) GetConfig() interface{} {
 			"threshold_block":    cfg.WAF.Detection.Threshold.Block,
 			"threshold_log":      cfg.WAF.Detection.Threshold.Log,
 		},
-		"dashboard": map[string]interface{}{
+		"dashboard": map[string]any{
 			"enabled": cfg.Dashboard.Enabled,
 			"listen":  cfg.Dashboard.Listen,
 		},
-		"mcp": map[string]interface{}{
+		"mcp": map[string]any{
 			"enabled":   cfg.MCP.Enabled,
 			"transport": cfg.MCP.Transport,
 		},
@@ -1518,7 +1566,7 @@ func (a *mcpEngineAdapter) RemoveBlacklist(ip string) error {
 	return ipaclLayer.RemoveBlacklist(ip)
 }
 
-func (a *mcpEngineAdapter) AddRateLimit(rule interface{}) error {
+func (a *mcpEngineAdapter) AddRateLimit(rule any) error {
 	layer := a.engine.FindLayer("ratelimit")
 	if layer == nil {
 		return fmt.Errorf("rate limit layer not available")
@@ -1594,7 +1642,7 @@ func (a *mcpEngineAdapter) RemoveExclusion(path string) error {
 	return nil
 }
 
-func (a *mcpEngineAdapter) GetEvents(params json.RawMessage) (interface{}, error) {
+func (a *mcpEngineAdapter) GetEvents(params json.RawMessage) (any, error) {
 	if a.eventStore == nil {
 		return map[string]any{"events": []any{}, "total": 0}, nil
 	}
@@ -1645,7 +1693,7 @@ func (a *mcpEngineAdapter) GetEvents(params json.RawMessage) (interface{}, error
 	return map[string]any{"events": items, "total": total}, nil
 }
 
-func (a *mcpEngineAdapter) GetTopIPs(n int) interface{} {
+func (a *mcpEngineAdapter) GetTopIPs(n int) any {
 	if a.eventStore == nil {
 		return []any{}
 	}
@@ -1683,11 +1731,11 @@ func (a *mcpEngineAdapter) GetTopIPs(n int) interface{} {
 	return stats
 }
 
-func (a *mcpEngineAdapter) GetDetectors() interface{} {
+func (a *mcpEngineAdapter) GetDetectors() any {
 	cfg := a.engine.Config()
-	var detectors []map[string]interface{}
+	var detectors []map[string]any
 	for name, dc := range cfg.WAF.Detection.Detectors {
-		detectors = append(detectors, map[string]interface{}{
+		detectors = append(detectors, map[string]any{
 			"name":       name,
 			"enabled":    dc.Enabled,
 			"multiplier": dc.Multiplier,
@@ -1696,7 +1744,7 @@ func (a *mcpEngineAdapter) GetDetectors() interface{} {
 	return detectors
 }
 
-func (a *mcpEngineAdapter) TestRequest(method, urlStr string, headers map[string]string) (interface{}, error) {
+func (a *mcpEngineAdapter) TestRequest(method, urlStr string, headers map[string]string) (any, error) {
 	fullURL := urlStr
 	if !strings.HasPrefix(fullURL, "http://") && !strings.HasPrefix(fullURL, "https://") {
 		fullURL = "http://localhost" + fullURL
@@ -1713,9 +1761,9 @@ func (a *mcpEngineAdapter) TestRequest(method, urlStr string, headers map[string
 	req.RemoteAddr = "127.0.0.1:0"
 
 	event := a.engine.Check(req)
-	var findings []map[string]interface{}
+	var findings []map[string]any
 	for _, f := range event.Findings {
-		findings = append(findings, map[string]interface{}{
+		findings = append(findings, map[string]any{
 			"detector":    f.DetectorName,
 			"category":    f.Category,
 			"severity":    f.Severity.String(),
@@ -1725,7 +1773,7 @@ func (a *mcpEngineAdapter) TestRequest(method, urlStr string, headers map[string
 		})
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"action":   event.Action.String(),
 		"score":    event.Score,
 		"findings": findings,
@@ -1763,19 +1811,20 @@ func collectACMEDomains(cfg *config.Config) [][]string {
 }
 
 // loadGeoIP loads the GeoIP database from file or downloads it.
-func loadGeoIP(cfg *config.Config, eng *engine.Engine) *geoip.DB {
+func loadGeoIP(cfg *config.Config, eng *engine.Engine) (*geoip.DB, func()) {
+	noop := func() {}
+
 	// Try loading from specified path
 	if cfg.WAF.GeoIP.DBPath != "" {
 		db, err := geoip.LoadCSV(cfg.WAF.GeoIP.DBPath)
 		if err == nil {
 			eng.Logs.Infof("GeoIP DB loaded: %d ranges from %s", db.Count(), cfg.WAF.GeoIP.DBPath)
-			// Start auto-refresh if auto-download is enabled
 			if cfg.WAF.GeoIP.AutoDownload {
 				stopFn := db.StartAutoRefresh(cfg.WAF.GeoIP.DBPath, cfg.WAF.GeoIP.DownloadURL, 7*24*time.Hour)
-				_ = stopFn // runs until process exits
 				eng.Logs.Info("GeoIP auto-refresh enabled (7 day interval)")
+				return db, stopFn
 			}
-			return db
+			return db, noop
 		}
 		eng.Logs.Warnf("GeoIP DB load failed: %v", err)
 	}
@@ -1790,17 +1839,15 @@ func loadGeoIP(cfg *config.Config, eng *engine.Engine) *geoip.DB {
 		db, err := geoip.LoadOrDownload(path, cfg.WAF.GeoIP.DownloadURL, 30*24*time.Hour)
 		if err != nil {
 			eng.Logs.Warnf("GeoIP auto-download failed: %v", err)
-			return nil
+			return nil, noop
 		}
 		eng.Logs.Infof("GeoIP DB ready: %d ranges", db.Count())
-		// Start auto-refresh
 		stopFn := db.StartAutoRefresh(path, cfg.WAF.GeoIP.DownloadURL, 7*24*time.Hour)
-		_ = stopFn
 		eng.Logs.Info("GeoIP auto-refresh enabled (7 day interval)")
-		return db
+		return db, stopFn
 	}
 
-	return nil
+	return nil, noop
 }
 
 // mapToRule converts a JSON map to a rules.Rule.

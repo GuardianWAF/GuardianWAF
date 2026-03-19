@@ -265,3 +265,94 @@ func TestSetUAParser(t *testing.T) {
 	})
 	defer SetUAParser(nil)
 }
+
+func TestLogBuffer_SetLevel_FilterDebug(t *testing.T) {
+	lb := NewLogBuffer(100)
+	// Default level is info — debug messages should be filtered
+	lb.Debug("debug msg")
+	lb.Info("info msg")
+	lb.Warn("warn msg")
+	lb.Error("error msg")
+
+	entries := lb.Recent(100)
+	if len(entries) != 3 {
+		t.Fatalf("expected 3 entries (debug filtered), got %d", len(entries))
+	}
+	for _, e := range entries {
+		if e.Level == "debug" {
+			t.Error("debug message should have been filtered at info level")
+		}
+	}
+}
+
+func TestLogBuffer_SetLevel_WarnOnly(t *testing.T) {
+	lb := NewLogBuffer(100)
+	lb.SetLevel("warn")
+
+	lb.Debug("d")
+	lb.Debugf("d%d", 1)
+	lb.Info("i")
+	lb.Infof("i%d", 1)
+	lb.Warn("w")
+	lb.Warnf("w%d", 1)
+	lb.Error("e")
+	lb.Errorf("e%d", 1)
+
+	entries := lb.Recent(100)
+	if len(entries) != 4 {
+		t.Fatalf("expected 4 entries (warn+error only), got %d", len(entries))
+	}
+	for _, e := range entries {
+		if e.Level == "debug" || e.Level == "info" {
+			t.Errorf("unexpected level %q at warn minimum", e.Level)
+		}
+	}
+}
+
+func TestLogBuffer_SetLevel_ErrorOnly(t *testing.T) {
+	lb := NewLogBuffer(100)
+	lb.SetLevel("error")
+
+	lb.Info("i")
+	lb.Warn("w")
+	lb.Error("e")
+
+	if lb.Len() != 1 {
+		t.Errorf("expected 1 entry (error only), got %d", lb.Len())
+	}
+}
+
+func TestLogBuffer_SetLevel_DebugAll(t *testing.T) {
+	lb := NewLogBuffer(100)
+	lb.SetLevel("debug")
+
+	lb.Debug("d")
+	lb.Info("i")
+	lb.Warn("w")
+	lb.Error("e")
+
+	if lb.Len() != 4 {
+		t.Errorf("expected 4 entries (all levels), got %d", lb.Len())
+	}
+}
+
+func TestParseLogLevel(t *testing.T) {
+	tests := []struct {
+		input string
+		want  LogLevel
+	}{
+		{"debug", LogLevelDebug},
+		{"info", LogLevelInfo},
+		{"warn", LogLevelWarn},
+		{"warning", LogLevelWarn},
+		{"error", LogLevelError},
+		{"", LogLevelInfo},
+		{"unknown", LogLevelInfo},
+	}
+	for _, tt := range tests {
+		got := ParseLogLevel(tt.input)
+		if got != tt.want {
+			t.Errorf("ParseLogLevel(%q) = %d, want %d", tt.input, got, tt.want)
+		}
+	}
+}

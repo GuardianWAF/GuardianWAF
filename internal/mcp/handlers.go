@@ -34,7 +34,7 @@ func (s *Server) getEngine() (EngineInterface, error) {
 	return eng, nil
 }
 
-func (s *Server) handleGetStats(params json.RawMessage) (interface{}, error) {
+func (s *Server) handleGetStats(params json.RawMessage) (any, error) {
 	eng, err := s.getEngine()
 	if err != nil {
 		return nil, err
@@ -42,7 +42,7 @@ func (s *Server) handleGetStats(params json.RawMessage) (interface{}, error) {
 	return eng.GetStats(), nil
 }
 
-func (s *Server) handleGetEvents(params json.RawMessage) (interface{}, error) {
+func (s *Server) handleGetEvents(params json.RawMessage) (any, error) {
 	eng, err := s.getEngine()
 	if err != nil {
 		return nil, err
@@ -54,7 +54,7 @@ type ipParam struct {
 	IP string `json:"ip"`
 }
 
-func (s *Server) handleAddWhitelist(params json.RawMessage) (interface{}, error) {
+func (s *Server) handleAddWhitelist(params json.RawMessage) (any, error) {
 	eng, err := s.getEngine()
 	if err != nil {
 		return nil, err
@@ -69,10 +69,10 @@ func (s *Server) handleAddWhitelist(params json.RawMessage) (interface{}, error)
 	if err := eng.AddWhitelist(p.IP); err != nil {
 		return nil, err
 	}
-	return map[string]interface{}{"status": "ok", "ip": p.IP, "action": "added to whitelist"}, nil
+	return map[string]any{"status": "ok", "ip": p.IP, "action": "added to whitelist"}, nil
 }
 
-func (s *Server) handleRemoveWhitelist(params json.RawMessage) (interface{}, error) {
+func (s *Server) handleRemoveWhitelist(params json.RawMessage) (any, error) {
 	eng, err := s.getEngine()
 	if err != nil {
 		return nil, err
@@ -87,10 +87,10 @@ func (s *Server) handleRemoveWhitelist(params json.RawMessage) (interface{}, err
 	if err := eng.RemoveWhitelist(p.IP); err != nil {
 		return nil, err
 	}
-	return map[string]interface{}{"status": "ok", "ip": p.IP, "action": "removed from whitelist"}, nil
+	return map[string]any{"status": "ok", "ip": p.IP, "action": "removed from whitelist"}, nil
 }
 
-func (s *Server) handleAddBlacklist(params json.RawMessage) (interface{}, error) {
+func (s *Server) handleAddBlacklist(params json.RawMessage) (any, error) {
 	eng, err := s.getEngine()
 	if err != nil {
 		return nil, err
@@ -105,10 +105,10 @@ func (s *Server) handleAddBlacklist(params json.RawMessage) (interface{}, error)
 	if err := eng.AddBlacklist(p.IP); err != nil {
 		return nil, err
 	}
-	return map[string]interface{}{"status": "ok", "ip": p.IP, "action": "added to blacklist"}, nil
+	return map[string]any{"status": "ok", "ip": p.IP, "action": "added to blacklist"}, nil
 }
 
-func (s *Server) handleRemoveBlacklist(params json.RawMessage) (interface{}, error) {
+func (s *Server) handleRemoveBlacklist(params json.RawMessage) (any, error) {
 	eng, err := s.getEngine()
 	if err != nil {
 		return nil, err
@@ -123,7 +123,7 @@ func (s *Server) handleRemoveBlacklist(params json.RawMessage) (interface{}, err
 	if err := eng.RemoveBlacklist(p.IP); err != nil {
 		return nil, err
 	}
-	return map[string]interface{}{"status": "ok", "ip": p.IP, "action": "removed from blacklist"}, nil
+	return map[string]any{"status": "ok", "ip": p.IP, "action": "removed from blacklist"}, nil
 }
 
 type rateLimitParam struct {
@@ -134,7 +134,7 @@ type rateLimitParam struct {
 	Action string `json:"action"`
 }
 
-func (s *Server) handleAddRateLimit(params json.RawMessage) (interface{}, error) {
+func (s *Server) handleAddRateLimit(params json.RawMessage) (any, error) {
 	eng, err := s.getEngine()
 	if err != nil {
 		return nil, err
@@ -161,14 +161,14 @@ func (s *Server) handleAddRateLimit(params json.RawMessage) (interface{}, error)
 	if err := eng.AddRateLimit(p); err != nil {
 		return nil, err
 	}
-	return map[string]interface{}{"status": "ok", "id": p.ID, "action": "rate limit rule added"}, nil
+	return map[string]any{"status": "ok", "id": p.ID, "action": "rate limit rule added"}, nil
 }
 
 type removeRateLimitParam struct {
 	ID string `json:"id"`
 }
 
-func (s *Server) handleRemoveRateLimit(params json.RawMessage) (interface{}, error) {
+func (s *Server) handleRemoveRateLimit(params json.RawMessage) (any, error) {
 	eng, err := s.getEngine()
 	if err != nil {
 		return nil, err
@@ -183,7 +183,7 @@ func (s *Server) handleRemoveRateLimit(params json.RawMessage) (interface{}, err
 	if err := eng.RemoveRateLimit(p.ID); err != nil {
 		return nil, err
 	}
-	return map[string]interface{}{"status": "ok", "id": p.ID, "action": "rate limit rule removed"}, nil
+	return map[string]any{"status": "ok", "id": p.ID, "action": "rate limit rule removed"}, nil
 }
 
 type exclusionParam struct {
@@ -192,7 +192,7 @@ type exclusionParam struct {
 	Reason    string   `json:"reason"`
 }
 
-func (s *Server) handleAddExclusion(params json.RawMessage) (interface{}, error) {
+func (s *Server) handleAddExclusion(params json.RawMessage) (any, error) {
 	eng, err := s.getEngine()
 	if err != nil {
 		return nil, err
@@ -210,14 +210,14 @@ func (s *Server) handleAddExclusion(params json.RawMessage) (interface{}, error)
 	if err := eng.AddExclusion(p.Path, p.Detectors, p.Reason); err != nil {
 		return nil, err
 	}
-	return map[string]interface{}{"status": "ok", "path": p.Path, "action": "exclusion added"}, nil
+	return map[string]any{"status": "ok", "path": p.Path, "action": "exclusion added"}, nil
 }
 
 type removeExclusionParam struct {
 	Path string `json:"path"`
 }
 
-func (s *Server) handleRemoveExclusion(params json.RawMessage) (interface{}, error) {
+func (s *Server) handleRemoveExclusion(params json.RawMessage) (any, error) {
 	eng, err := s.getEngine()
 	if err != nil {
 		return nil, err
@@ -232,14 +232,14 @@ func (s *Server) handleRemoveExclusion(params json.RawMessage) (interface{}, err
 	if err := eng.RemoveExclusion(p.Path); err != nil {
 		return nil, err
 	}
-	return map[string]interface{}{"status": "ok", "path": p.Path, "action": "exclusion removed"}, nil
+	return map[string]any{"status": "ok", "path": p.Path, "action": "exclusion removed"}, nil
 }
 
 type modeParam struct {
 	Mode string `json:"mode"`
 }
 
-func (s *Server) handleSetMode(params json.RawMessage) (interface{}, error) {
+func (s *Server) handleSetMode(params json.RawMessage) (any, error) {
 	eng, err := s.getEngine()
 	if err != nil {
 		return nil, err
@@ -260,10 +260,10 @@ func (s *Server) handleSetMode(params json.RawMessage) (interface{}, error) {
 	if err := eng.SetMode(p.Mode); err != nil {
 		return nil, err
 	}
-	return map[string]interface{}{"status": "ok", "mode": p.Mode}, nil
+	return map[string]any{"status": "ok", "mode": p.Mode}, nil
 }
 
-func (s *Server) handleGetConfig(params json.RawMessage) (interface{}, error) {
+func (s *Server) handleGetConfig(params json.RawMessage) (any, error) {
 	eng, err := s.getEngine()
 	if err != nil {
 		return nil, err
@@ -277,7 +277,7 @@ type testRequestParam struct {
 	Headers map[string]string `json:"headers"`
 }
 
-func (s *Server) handleTestRequest(params json.RawMessage) (interface{}, error) {
+func (s *Server) handleTestRequest(params json.RawMessage) (any, error) {
 	eng, err := s.getEngine()
 	if err != nil {
 		return nil, err
@@ -299,7 +299,7 @@ type topIPsParam struct {
 	Count int `json:"count"`
 }
 
-func (s *Server) handleGetTopIPs(params json.RawMessage) (interface{}, error) {
+func (s *Server) handleGetTopIPs(params json.RawMessage) (any, error) {
 	eng, err := s.getEngine()
 	if err != nil {
 		return nil, err
@@ -316,7 +316,7 @@ func (s *Server) handleGetTopIPs(params json.RawMessage) (interface{}, error) {
 	return eng.GetTopIPs(p.Count), nil
 }
 
-func (s *Server) handleGetDetectors(params json.RawMessage) (interface{}, error) {
+func (s *Server) handleGetDetectors(params json.RawMessage) (any, error) {
 	eng, err := s.getEngine()
 	if err != nil {
 		return nil, err

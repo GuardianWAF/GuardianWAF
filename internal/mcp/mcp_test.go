@@ -11,41 +11,41 @@ import (
 
 // mockEngine implements EngineInterface for testing.
 type mockEngine struct {
-	stats     interface{}
-	config    interface{}
+	stats     any
+	config    any
 	mode      string
-	detectors interface{}
-	events    interface{}
-	topIPs    interface{}
+	detectors any
+	events    any
+	topIPs    any
 }
 
 func newMockEngine() *mockEngine {
 	return &mockEngine{
-		stats: map[string]interface{}{
+		stats: map[string]any{
 			"total_requests":   int64(100),
 			"blocked_requests": int64(5),
 			"passed_requests":  int64(95),
 			"avg_latency_us":   int64(150),
 		},
-		config: map[string]interface{}{
+		config: map[string]any{
 			"mode":   "enforce",
 			"listen": ":8080",
 		},
 		mode: "enforce",
-		detectors: []map[string]interface{}{
+		detectors: []map[string]any{
 			{"name": "sqli", "enabled": true, "multiplier": 1.0},
 			{"name": "xss", "enabled": true, "multiplier": 1.0},
 		},
-		events: map[string]interface{}{
-			"events": []interface{}{},
+		events: map[string]any{
+			"events": []any{},
 			"total":  0,
 		},
-		topIPs: []map[string]interface{}{},
+		topIPs: []map[string]any{},
 	}
 }
 
-func (m *mockEngine) GetStats() interface{}       { return m.stats }
-func (m *mockEngine) GetConfig() interface{}       { return m.config }
+func (m *mockEngine) GetStats() any       { return m.stats }
+func (m *mockEngine) GetConfig() any       { return m.config }
 func (m *mockEngine) GetMode() string              { return m.mode }
 func (m *mockEngine) SetMode(mode string) error    { m.mode = mode; return nil }
 func (m *mockEngine) AddWhitelist(ip string) error { return nil }
@@ -54,7 +54,7 @@ func (m *mockEngine) RemoveWhitelist(ip string) error {
 }
 func (m *mockEngine) AddBlacklist(ip string) error    { return nil }
 func (m *mockEngine) RemoveBlacklist(ip string) error { return nil }
-func (m *mockEngine) AddRateLimit(rule interface{}) error {
+func (m *mockEngine) AddRateLimit(rule any) error {
 	return nil
 }
 func (m *mockEngine) RemoveRateLimit(id string) error { return nil }
@@ -62,21 +62,21 @@ func (m *mockEngine) AddExclusion(path string, detectors []string, reason string
 	return nil
 }
 func (m *mockEngine) RemoveExclusion(path string) error { return nil }
-func (m *mockEngine) GetEvents(params json.RawMessage) (interface{}, error) {
+func (m *mockEngine) GetEvents(params json.RawMessage) (any, error) {
 	return m.events, nil
 }
-func (m *mockEngine) GetTopIPs(n int) interface{} { return m.topIPs }
-func (m *mockEngine) GetDetectors() interface{}   { return m.detectors }
-func (m *mockEngine) TestRequest(method, url string, headers map[string]string) (interface{}, error) {
-	return map[string]interface{}{
+func (m *mockEngine) GetTopIPs(n int) any { return m.topIPs }
+func (m *mockEngine) GetDetectors() any   { return m.detectors }
+func (m *mockEngine) TestRequest(method, url string, headers map[string]string) (any, error) {
+	return map[string]any{
 		"score":  0,
 		"action": "pass",
 	}, nil
 }
 
 // sendRequest encodes a JSON-RPC request and returns the written bytes.
-func sendRequest(id interface{}, method string, params interface{}) string {
-	req := map[string]interface{}{
+func sendRequest(id any, method string, params any) string {
+	req := map[string]any{
 		"jsonrpc": "2.0",
 		"id":      id,
 		"method":  method,
@@ -145,7 +145,7 @@ func TestNewServer(t *testing.T) {
 func TestRegisterTool(t *testing.T) {
 	s := NewServer(strings.NewReader(""), &bytes.Buffer{})
 
-	handler := func(params json.RawMessage) (interface{}, error) {
+	handler := func(params json.RawMessage) (any, error) {
 		return "ok", nil
 	}
 
@@ -260,10 +260,10 @@ func TestInvalidJSONRPCVersion(t *testing.T) {
 }
 
 func TestInitializeHandshake(t *testing.T) {
-	input := sendRequest(1, "initialize", map[string]interface{}{
+	input := sendRequest(1, "initialize", map[string]any{
 		"protocolVersion": "2024-11-05",
-		"capabilities":    map[string]interface{}{},
-		"clientInfo": map[string]interface{}{
+		"capabilities":    map[string]any{},
+		"clientInfo": map[string]any{
 			"name":    "test-client",
 			"version": "1.0.0",
 		},
@@ -282,12 +282,12 @@ func TestInitializeHandshake(t *testing.T) {
 		t.Fatalf("expected id 1, got %v", resp.ID)
 	}
 
-	result, ok := resp.Result.(map[string]interface{})
+	result, ok := resp.Result.(map[string]any)
 	if !ok {
 		t.Fatal("result is not a map")
 	}
 
-	serverInfo, ok := result["serverInfo"].(map[string]interface{})
+	serverInfo, ok := result["serverInfo"].(map[string]any)
 	if !ok {
 		t.Fatal("serverInfo missing or not a map")
 	}
@@ -317,12 +317,12 @@ func TestToolsList(t *testing.T) {
 		t.Fatalf("unexpected error: %v", resp.Error)
 	}
 
-	result, ok := resp.Result.(map[string]interface{})
+	result, ok := resp.Result.(map[string]any)
 	if !ok {
 		t.Fatal("result is not a map")
 	}
 
-	tools, ok := result["tools"].([]interface{})
+	tools, ok := result["tools"].([]any)
 	if !ok {
 		t.Fatal("tools is not an array")
 	}
@@ -333,9 +333,9 @@ func TestToolsList(t *testing.T) {
 }
 
 func TestToolsCallDispatch(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_get_stats",
-		"arguments": map[string]interface{}{},
+		"arguments": map[string]any{},
 	})
 	output := &bytes.Buffer{}
 	s := NewServer(strings.NewReader(input), output)
@@ -350,11 +350,11 @@ func TestToolsCallDispatch(t *testing.T) {
 		t.Fatalf("unexpected error: %v", resp.Error)
 	}
 
-	result, ok := resp.Result.(map[string]interface{})
+	result, ok := resp.Result.(map[string]any)
 	if !ok {
 		t.Fatal("result is not a map")
 	}
-	content, ok := result["content"].([]interface{})
+	content, ok := result["content"].([]any)
 	if !ok {
 		t.Fatal("content is not an array")
 	}
@@ -364,9 +364,9 @@ func TestToolsCallDispatch(t *testing.T) {
 }
 
 func TestToolsCallUnknownTool(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "nonexistent_tool",
-		"arguments": map[string]interface{}{},
+		"arguments": map[string]any{},
 	})
 	output := &bytes.Buffer{}
 	s := NewServer(strings.NewReader(input), output)
@@ -442,10 +442,10 @@ func TestIOPipeRoundTrip(t *testing.T) {
 	}()
 
 	// Send initialize
-	initReq := sendRequest(1, "initialize", map[string]interface{}{
+	initReq := sendRequest(1, "initialize", map[string]any{
 		"protocolVersion": "2024-11-05",
-		"capabilities":    map[string]interface{}{},
-		"clientInfo":      map[string]interface{}{"name": "test", "version": "1.0"},
+		"capabilities":    map[string]any{},
+		"clientInfo":      map[string]any{"name": "test", "version": "1.0"},
 	})
 	pw.Write([]byte(initReq))
 
@@ -454,9 +454,9 @@ func TestIOPipeRoundTrip(t *testing.T) {
 	pw.Write([]byte(listReq))
 
 	// Send tools/call
-	callReq := sendRequest(3, "tools/call", map[string]interface{}{
+	callReq := sendRequest(3, "tools/call", map[string]any{
 		"name":      "guardianwaf_get_stats",
-		"arguments": map[string]interface{}{},
+		"arguments": map[string]any{},
 	})
 	pw.Write([]byte(callReq))
 
@@ -493,7 +493,7 @@ func TestMultipleRequestsSequential(t *testing.T) {
 	var input strings.Builder
 
 	// Initialize
-	input.WriteString(sendRequest(1, "initialize", map[string]interface{}{
+	input.WriteString(sendRequest(1, "initialize", map[string]any{
 		"protocolVersion": "2024-11-05",
 	}))
 
@@ -504,15 +504,15 @@ func TestMultipleRequestsSequential(t *testing.T) {
 	input.WriteString(sendRequest(2, "tools/list", nil))
 
 	// Get stats via tools/call
-	input.WriteString(sendRequest(3, "tools/call", map[string]interface{}{
+	input.WriteString(sendRequest(3, "tools/call", map[string]any{
 		"name":      "guardianwaf_get_stats",
-		"arguments": map[string]interface{}{},
+		"arguments": map[string]any{},
 	}))
 
 	// Set mode via tools/call
-	input.WriteString(sendRequest(4, "tools/call", map[string]interface{}{
+	input.WriteString(sendRequest(4, "tools/call", map[string]any{
 		"name":      "guardianwaf_set_mode",
-		"arguments": map[string]interface{}{"mode": "monitor"},
+		"arguments": map[string]any{"mode": "monitor"},
 	}))
 
 	output := &bytes.Buffer{}
@@ -538,9 +538,9 @@ func TestMultipleRequestsSequential(t *testing.T) {
 
 func TestToolCallWithEngineError(t *testing.T) {
 	// Test calling a tool when engine is nil
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_get_stats",
-		"arguments": map[string]interface{}{},
+		"arguments": map[string]any{},
 	})
 	output := &bytes.Buffer{}
 	s := NewServer(strings.NewReader(input), output)
@@ -554,7 +554,7 @@ func TestToolCallWithEngineError(t *testing.T) {
 		// JSON-RPC level error is not expected; tool errors are returned as content
 		t.Fatalf("unexpected JSON-RPC error: %v", resp.Error)
 	}
-	result, ok := resp.Result.(map[string]interface{})
+	result, ok := resp.Result.(map[string]any)
 	if !ok {
 		t.Fatal("result is not a map")
 	}
@@ -565,9 +565,9 @@ func TestToolCallWithEngineError(t *testing.T) {
 }
 
 func TestHandlerAddWhitelist(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_add_whitelist",
-		"arguments": map[string]interface{}{"ip": "10.0.0.1"},
+		"arguments": map[string]any{"ip": "10.0.0.1"},
 	})
 	output := &bytes.Buffer{}
 	s := NewServer(strings.NewReader(input), output)
@@ -583,9 +583,9 @@ func TestHandlerAddWhitelist(t *testing.T) {
 }
 
 func TestHandlerAddWhitelistMissingIP(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_add_whitelist",
-		"arguments": map[string]interface{}{},
+		"arguments": map[string]any{},
 	})
 	output := &bytes.Buffer{}
 	s := NewServer(strings.NewReader(input), output)
@@ -598,7 +598,7 @@ func TestHandlerAddWhitelistMissingIP(t *testing.T) {
 	if resp.Error != nil {
 		t.Fatalf("unexpected JSON-RPC error: %v", resp.Error)
 	}
-	result, ok := resp.Result.(map[string]interface{})
+	result, ok := resp.Result.(map[string]any)
 	if !ok {
 		t.Fatal("result not a map")
 	}
@@ -609,9 +609,9 @@ func TestHandlerAddWhitelistMissingIP(t *testing.T) {
 }
 
 func TestHandlerSetMode(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_set_mode",
-		"arguments": map[string]interface{}{"mode": "monitor"},
+		"arguments": map[string]any{"mode": "monitor"},
 	})
 	output := &bytes.Buffer{}
 	mock := newMockEngine()
@@ -631,9 +631,9 @@ func TestHandlerSetMode(t *testing.T) {
 }
 
 func TestHandlerSetModeInvalid(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_set_mode",
-		"arguments": map[string]interface{}{"mode": "invalid"},
+		"arguments": map[string]any{"mode": "invalid"},
 	})
 	output := &bytes.Buffer{}
 	s := NewServer(strings.NewReader(input), output)
@@ -646,7 +646,7 @@ func TestHandlerSetModeInvalid(t *testing.T) {
 	if resp.Error != nil {
 		t.Fatalf("unexpected JSON-RPC error: %v", resp.Error)
 	}
-	result, ok := resp.Result.(map[string]interface{})
+	result, ok := resp.Result.(map[string]any)
 	if !ok {
 		t.Fatal("result not a map")
 	}
@@ -657,9 +657,9 @@ func TestHandlerSetModeInvalid(t *testing.T) {
 }
 
 func TestHandlerTestRequest(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name": "guardianwaf_test_request",
-		"arguments": map[string]interface{}{
+		"arguments": map[string]any{
 			"method": "GET",
 			"url":    "/search?q=test",
 			"headers": map[string]string{
@@ -681,9 +681,9 @@ func TestHandlerTestRequest(t *testing.T) {
 }
 
 func TestHandlerGetDetectors(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_get_detectors",
-		"arguments": map[string]interface{}{},
+		"arguments": map[string]any{},
 	})
 	output := &bytes.Buffer{}
 	s := NewServer(strings.NewReader(input), output)
@@ -699,9 +699,9 @@ func TestHandlerGetDetectors(t *testing.T) {
 }
 
 func TestHandlerAddRateLimit(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name": "guardianwaf_add_ratelimit",
-		"arguments": map[string]interface{}{
+		"arguments": map[string]any{
 			"id":     "test-rule",
 			"scope":  "ip",
 			"limit":  100,
@@ -723,9 +723,9 @@ func TestHandlerAddRateLimit(t *testing.T) {
 }
 
 func TestHandlerAddExclusion(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name": "guardianwaf_add_exclusion",
-		"arguments": map[string]interface{}{
+		"arguments": map[string]any{
 			"path":      "/api/webhook",
 			"detectors": []string{"sqli", "xss"},
 			"reason":    "webhook endpoint",
@@ -746,7 +746,7 @@ func TestHandlerAddExclusion(t *testing.T) {
 
 func TestEmptyLines(t *testing.T) {
 	// Server should skip empty lines without error
-	input := "\n\n" + sendRequest(1, "initialize", map[string]interface{}{}) + "\n\n"
+	input := "\n\n" + sendRequest(1, "initialize", map[string]any{}) + "\n\n"
 	output := &bytes.Buffer{}
 	s := NewServer(strings.NewReader(input), output)
 
@@ -785,28 +785,28 @@ func TestBulkToolCallsAllTools(t *testing.T) {
 	// Test that each of the 15 tools can be called successfully
 	toolCalls := []struct {
 		name string
-		args map[string]interface{}
+		args map[string]any
 	}{
-		{"guardianwaf_get_stats", map[string]interface{}{}},
-		{"guardianwaf_get_events", map[string]interface{}{}},
-		{"guardianwaf_add_whitelist", map[string]interface{}{"ip": "1.2.3.4"}},
-		{"guardianwaf_remove_whitelist", map[string]interface{}{"ip": "1.2.3.4"}},
-		{"guardianwaf_add_blacklist", map[string]interface{}{"ip": "5.6.7.8"}},
-		{"guardianwaf_remove_blacklist", map[string]interface{}{"ip": "5.6.7.8"}},
-		{"guardianwaf_add_ratelimit", map[string]interface{}{"id": "r1", "limit": 100, "window": "1m"}},
-		{"guardianwaf_remove_ratelimit", map[string]interface{}{"id": "r1"}},
-		{"guardianwaf_add_exclusion", map[string]interface{}{"path": "/test", "detectors": []string{"sqli"}}},
-		{"guardianwaf_remove_exclusion", map[string]interface{}{"path": "/test"}},
-		{"guardianwaf_set_mode", map[string]interface{}{"mode": "enforce"}},
-		{"guardianwaf_get_config", map[string]interface{}{}},
-		{"guardianwaf_test_request", map[string]interface{}{"url": "/test"}},
-		{"guardianwaf_get_top_ips", map[string]interface{}{"count": 5}},
-		{"guardianwaf_get_detectors", map[string]interface{}{}},
+		{"guardianwaf_get_stats", map[string]any{}},
+		{"guardianwaf_get_events", map[string]any{}},
+		{"guardianwaf_add_whitelist", map[string]any{"ip": "1.2.3.4"}},
+		{"guardianwaf_remove_whitelist", map[string]any{"ip": "1.2.3.4"}},
+		{"guardianwaf_add_blacklist", map[string]any{"ip": "5.6.7.8"}},
+		{"guardianwaf_remove_blacklist", map[string]any{"ip": "5.6.7.8"}},
+		{"guardianwaf_add_ratelimit", map[string]any{"id": "r1", "limit": 100, "window": "1m"}},
+		{"guardianwaf_remove_ratelimit", map[string]any{"id": "r1"}},
+		{"guardianwaf_add_exclusion", map[string]any{"path": "/test", "detectors": []string{"sqli"}}},
+		{"guardianwaf_remove_exclusion", map[string]any{"path": "/test"}},
+		{"guardianwaf_set_mode", map[string]any{"mode": "enforce"}},
+		{"guardianwaf_get_config", map[string]any{}},
+		{"guardianwaf_test_request", map[string]any{"url": "/test"}},
+		{"guardianwaf_get_top_ips", map[string]any{"count": 5}},
+		{"guardianwaf_get_detectors", map[string]any{}},
 	}
 
 	var input strings.Builder
 	for i, tc := range toolCalls {
-		input.WriteString(sendRequest(i+1, "tools/call", map[string]interface{}{
+		input.WriteString(sendRequest(i+1, "tools/call", map[string]any{
 			"name":      tc.name,
 			"arguments": tc.args,
 		}))
@@ -829,7 +829,7 @@ func TestBulkToolCallsAllTools(t *testing.T) {
 			t.Errorf("tool %s (response %d) returned JSON-RPC error: %v", toolCalls[i].name, i, resp.Error)
 			continue
 		}
-		result, ok := resp.Result.(map[string]interface{})
+		result, ok := resp.Result.(map[string]any)
 		if !ok {
 			t.Errorf("tool %s (response %d) result is not a map", toolCalls[i].name, i)
 			continue
@@ -842,9 +842,9 @@ func TestBulkToolCallsAllTools(t *testing.T) {
 }
 
 func TestHandlerGetTopIPs(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_get_top_ips",
-		"arguments": map[string]interface{}{"count": 5},
+		"arguments": map[string]any{"count": 5},
 	})
 	output := &bytes.Buffer{}
 	s := NewServer(strings.NewReader(input), output)
@@ -861,9 +861,9 @@ func TestHandlerGetTopIPs(t *testing.T) {
 
 func TestToolCallResultFormat(t *testing.T) {
 	// Verify the MCP result format includes content array with text type
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_get_stats",
-		"arguments": map[string]interface{}{},
+		"arguments": map[string]any{},
 	})
 	output := &bytes.Buffer{}
 	s := NewServer(strings.NewReader(input), output)
@@ -877,12 +877,12 @@ func TestToolCallResultFormat(t *testing.T) {
 		t.Fatalf("unexpected error: %v", resp.Error)
 	}
 
-	result, ok := resp.Result.(map[string]interface{})
+	result, ok := resp.Result.(map[string]any)
 	if !ok {
 		t.Fatal("result is not a map")
 	}
 
-	content, ok := result["content"].([]interface{})
+	content, ok := result["content"].([]any)
 	if !ok {
 		t.Fatal("content is not an array")
 	}
@@ -891,7 +891,7 @@ func TestToolCallResultFormat(t *testing.T) {
 		t.Fatalf("expected 1 content item, got %d", len(content))
 	}
 
-	item, ok := content[0].(map[string]interface{})
+	item, ok := content[0].(map[string]any)
 	if !ok {
 		t.Fatal("content item is not a map")
 	}
@@ -906,7 +906,7 @@ func TestToolCallResultFormat(t *testing.T) {
 	}
 
 	// The text should be valid JSON
-	var parsed interface{}
+	var parsed any
 	if err := json.Unmarshal([]byte(text), &parsed); err != nil {
 		t.Fatalf("content text is not valid JSON: %v\ntext: %s", err, text)
 	}
@@ -916,9 +916,9 @@ func BenchmarkServerRequestHandling(b *testing.B) {
 	mock := newMockEngine()
 
 	for i := 0; i < b.N; i++ {
-		input := sendRequest(i, "tools/call", map[string]interface{}{
+		input := sendRequest(i, "tools/call", map[string]any{
 			"name":      "guardianwaf_get_stats",
-			"arguments": map[string]interface{}{},
+			"arguments": map[string]any{},
 		})
 		output := &bytes.Buffer{}
 		s := NewServer(strings.NewReader(input), output)
@@ -929,9 +929,9 @@ func BenchmarkServerRequestHandling(b *testing.B) {
 }
 
 func TestHandlerRemoveRateLimit(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_remove_ratelimit",
-		"arguments": map[string]interface{}{"id": "test-rule"},
+		"arguments": map[string]any{"id": "test-rule"},
 	})
 	output := &bytes.Buffer{}
 	s := NewServer(strings.NewReader(input), output)
@@ -947,9 +947,9 @@ func TestHandlerRemoveRateLimit(t *testing.T) {
 }
 
 func TestHandlerRemoveExclusion(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_remove_exclusion",
-		"arguments": map[string]interface{}{"path": "/api/webhook"},
+		"arguments": map[string]any{"path": "/api/webhook"},
 	})
 	output := &bytes.Buffer{}
 	s := NewServer(strings.NewReader(input), output)
@@ -965,9 +965,9 @@ func TestHandlerRemoveExclusion(t *testing.T) {
 }
 
 func TestHandlerAddBlacklist(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_add_blacklist",
-		"arguments": map[string]interface{}{"ip": "192.168.1.100"},
+		"arguments": map[string]any{"ip": "192.168.1.100"},
 	})
 	output := &bytes.Buffer{}
 	s := NewServer(strings.NewReader(input), output)
@@ -983,9 +983,9 @@ func TestHandlerAddBlacklist(t *testing.T) {
 }
 
 func TestHandlerRemoveBlacklist(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_remove_blacklist",
-		"arguments": map[string]interface{}{"ip": "192.168.1.100"},
+		"arguments": map[string]any{"ip": "192.168.1.100"},
 	})
 	output := &bytes.Buffer{}
 	s := NewServer(strings.NewReader(input), output)
@@ -1006,9 +1006,9 @@ var _ = fmt.Sprintf
 // --- Additional tests for uncovered handler error paths ---
 
 func TestHandlerRemoveWhitelistMissingIP(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_remove_whitelist",
-		"arguments": map[string]interface{}{},
+		"arguments": map[string]any{},
 	})
 	output := &bytes.Buffer{}
 	s := NewServer(strings.NewReader(input), output)
@@ -1017,7 +1017,7 @@ func TestHandlerRemoveWhitelistMissingIP(t *testing.T) {
 	s.Run()
 
 	resp := readResponse(t, output.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected isError=true for missing ip on remove_whitelist")
@@ -1025,9 +1025,9 @@ func TestHandlerRemoveWhitelistMissingIP(t *testing.T) {
 }
 
 func TestHandlerAddBlacklistMissingIP(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_add_blacklist",
-		"arguments": map[string]interface{}{},
+		"arguments": map[string]any{},
 	})
 	output := &bytes.Buffer{}
 	s := NewServer(strings.NewReader(input), output)
@@ -1036,7 +1036,7 @@ func TestHandlerAddBlacklistMissingIP(t *testing.T) {
 	s.Run()
 
 	resp := readResponse(t, output.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected isError=true for missing ip on add_blacklist")
@@ -1044,9 +1044,9 @@ func TestHandlerAddBlacklistMissingIP(t *testing.T) {
 }
 
 func TestHandlerRemoveBlacklistMissingIP(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_remove_blacklist",
-		"arguments": map[string]interface{}{},
+		"arguments": map[string]any{},
 	})
 	output := &bytes.Buffer{}
 	s := NewServer(strings.NewReader(input), output)
@@ -1055,7 +1055,7 @@ func TestHandlerRemoveBlacklistMissingIP(t *testing.T) {
 	s.Run()
 
 	resp := readResponse(t, output.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected isError=true for missing ip on remove_blacklist")
@@ -1063,9 +1063,9 @@ func TestHandlerRemoveBlacklistMissingIP(t *testing.T) {
 }
 
 func TestHandlerAddRateLimitMissingID(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_add_ratelimit",
-		"arguments": map[string]interface{}{"limit": 100, "window": "1m"},
+		"arguments": map[string]any{"limit": 100, "window": "1m"},
 	})
 	output := &bytes.Buffer{}
 	s := NewServer(strings.NewReader(input), output)
@@ -1074,7 +1074,7 @@ func TestHandlerAddRateLimitMissingID(t *testing.T) {
 	s.Run()
 
 	resp := readResponse(t, output.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected isError=true for missing id on add_ratelimit")
@@ -1082,9 +1082,9 @@ func TestHandlerAddRateLimitMissingID(t *testing.T) {
 }
 
 func TestHandlerAddRateLimitZeroLimit(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_add_ratelimit",
-		"arguments": map[string]interface{}{"id": "r1", "limit": 0, "window": "1m"},
+		"arguments": map[string]any{"id": "r1", "limit": 0, "window": "1m"},
 	})
 	output := &bytes.Buffer{}
 	s := NewServer(strings.NewReader(input), output)
@@ -1093,7 +1093,7 @@ func TestHandlerAddRateLimitZeroLimit(t *testing.T) {
 	s.Run()
 
 	resp := readResponse(t, output.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected isError=true for zero limit on add_ratelimit")
@@ -1101,9 +1101,9 @@ func TestHandlerAddRateLimitZeroLimit(t *testing.T) {
 }
 
 func TestHandlerAddRateLimitMissingWindow(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_add_ratelimit",
-		"arguments": map[string]interface{}{"id": "r1", "limit": 100},
+		"arguments": map[string]any{"id": "r1", "limit": 100},
 	})
 	output := &bytes.Buffer{}
 	s := NewServer(strings.NewReader(input), output)
@@ -1112,7 +1112,7 @@ func TestHandlerAddRateLimitMissingWindow(t *testing.T) {
 	s.Run()
 
 	resp := readResponse(t, output.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected isError=true for missing window on add_ratelimit")
@@ -1120,9 +1120,9 @@ func TestHandlerAddRateLimitMissingWindow(t *testing.T) {
 }
 
 func TestHandlerRemoveRateLimitMissingID(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_remove_ratelimit",
-		"arguments": map[string]interface{}{},
+		"arguments": map[string]any{},
 	})
 	output := &bytes.Buffer{}
 	s := NewServer(strings.NewReader(input), output)
@@ -1131,7 +1131,7 @@ func TestHandlerRemoveRateLimitMissingID(t *testing.T) {
 	s.Run()
 
 	resp := readResponse(t, output.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected isError=true for missing id on remove_ratelimit")
@@ -1139,9 +1139,9 @@ func TestHandlerRemoveRateLimitMissingID(t *testing.T) {
 }
 
 func TestHandlerAddExclusionMissingPath(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_add_exclusion",
-		"arguments": map[string]interface{}{"detectors": []string{"sqli"}},
+		"arguments": map[string]any{"detectors": []string{"sqli"}},
 	})
 	output := &bytes.Buffer{}
 	s := NewServer(strings.NewReader(input), output)
@@ -1150,7 +1150,7 @@ func TestHandlerAddExclusionMissingPath(t *testing.T) {
 	s.Run()
 
 	resp := readResponse(t, output.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected isError=true for missing path on add_exclusion")
@@ -1158,9 +1158,9 @@ func TestHandlerAddExclusionMissingPath(t *testing.T) {
 }
 
 func TestHandlerAddExclusionMissingDetectors(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_add_exclusion",
-		"arguments": map[string]interface{}{"path": "/test"},
+		"arguments": map[string]any{"path": "/test"},
 	})
 	output := &bytes.Buffer{}
 	s := NewServer(strings.NewReader(input), output)
@@ -1169,7 +1169,7 @@ func TestHandlerAddExclusionMissingDetectors(t *testing.T) {
 	s.Run()
 
 	resp := readResponse(t, output.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected isError=true for missing detectors on add_exclusion")
@@ -1177,9 +1177,9 @@ func TestHandlerAddExclusionMissingDetectors(t *testing.T) {
 }
 
 func TestHandlerRemoveExclusionMissingPath(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_remove_exclusion",
-		"arguments": map[string]interface{}{},
+		"arguments": map[string]any{},
 	})
 	output := &bytes.Buffer{}
 	s := NewServer(strings.NewReader(input), output)
@@ -1188,7 +1188,7 @@ func TestHandlerRemoveExclusionMissingPath(t *testing.T) {
 	s.Run()
 
 	resp := readResponse(t, output.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected isError=true for missing path on remove_exclusion")
@@ -1196,9 +1196,9 @@ func TestHandlerRemoveExclusionMissingPath(t *testing.T) {
 }
 
 func TestHandlerSetModeMissing(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_set_mode",
-		"arguments": map[string]interface{}{},
+		"arguments": map[string]any{},
 	})
 	output := &bytes.Buffer{}
 	s := NewServer(strings.NewReader(input), output)
@@ -1207,7 +1207,7 @@ func TestHandlerSetModeMissing(t *testing.T) {
 	s.Run()
 
 	resp := readResponse(t, output.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected isError=true for missing mode")
@@ -1215,9 +1215,9 @@ func TestHandlerSetModeMissing(t *testing.T) {
 }
 
 func TestHandlerTestRequestMissingURL(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_test_request",
-		"arguments": map[string]interface{}{"method": "GET"},
+		"arguments": map[string]any{"method": "GET"},
 	})
 	output := &bytes.Buffer{}
 	s := NewServer(strings.NewReader(input), output)
@@ -1226,7 +1226,7 @@ func TestHandlerTestRequestMissingURL(t *testing.T) {
 	s.Run()
 
 	resp := readResponse(t, output.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected isError=true for missing url on test_request")
@@ -1234,9 +1234,9 @@ func TestHandlerTestRequestMissingURL(t *testing.T) {
 }
 
 func TestHandlerTestRequestDefaultMethod(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_test_request",
-		"arguments": map[string]interface{}{"url": "/test"},
+		"arguments": map[string]any{"url": "/test"},
 	})
 	output := &bytes.Buffer{}
 	s := NewServer(strings.NewReader(input), output)
@@ -1248,7 +1248,7 @@ func TestHandlerTestRequestDefaultMethod(t *testing.T) {
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %v", resp.Error)
 	}
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if isError {
 		t.Fatal("expected success for test_request with default method")
@@ -1256,9 +1256,9 @@ func TestHandlerTestRequestDefaultMethod(t *testing.T) {
 }
 
 func TestHandlerGetTopIPsDefaultCount(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_get_top_ips",
-		"arguments": map[string]interface{}{},
+		"arguments": map[string]any{},
 	})
 	output := &bytes.Buffer{}
 	s := NewServer(strings.NewReader(input), output)
@@ -1273,7 +1273,7 @@ func TestHandlerGetTopIPsDefaultCount(t *testing.T) {
 }
 
 func TestHandlerGetTopIPsNilParams(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name": "guardianwaf_get_top_ips",
 	})
 	output := &bytes.Buffer{}
@@ -1289,9 +1289,9 @@ func TestHandlerGetTopIPsNilParams(t *testing.T) {
 }
 
 func TestHandlerGetEvents(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_get_events",
-		"arguments": map[string]interface{}{},
+		"arguments": map[string]any{},
 	})
 	output := &bytes.Buffer{}
 	s := NewServer(strings.NewReader(input), output)
@@ -1306,9 +1306,9 @@ func TestHandlerGetEvents(t *testing.T) {
 }
 
 func TestHandlerGetConfig(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_get_config",
-		"arguments": map[string]interface{}{},
+		"arguments": map[string]any{},
 	})
 	output := &bytes.Buffer{}
 	s := NewServer(strings.NewReader(input), output)
@@ -1356,7 +1356,7 @@ func TestHandlerInvalidJSON(t *testing.T) {
 				// Some may fail at JSON-RPC level
 				return
 			}
-			result, ok := resp.Result.(map[string]interface{})
+			result, ok := resp.Result.(map[string]any)
 			if !ok {
 				return
 			}
@@ -1372,28 +1372,28 @@ func TestHandlerNoEngineAllTools(t *testing.T) {
 	// Test each handler returns error when engine is nil
 	tools := []struct {
 		name string
-		args map[string]interface{}
+		args map[string]any
 	}{
-		{"guardianwaf_get_stats", map[string]interface{}{}},
-		{"guardianwaf_get_events", map[string]interface{}{}},
-		{"guardianwaf_get_config", map[string]interface{}{}},
-		{"guardianwaf_get_detectors", map[string]interface{}{}},
-		{"guardianwaf_get_top_ips", map[string]interface{}{"count": 5}},
-		{"guardianwaf_add_whitelist", map[string]interface{}{"ip": "1.2.3.4"}},
-		{"guardianwaf_remove_whitelist", map[string]interface{}{"ip": "1.2.3.4"}},
-		{"guardianwaf_add_blacklist", map[string]interface{}{"ip": "1.2.3.4"}},
-		{"guardianwaf_remove_blacklist", map[string]interface{}{"ip": "1.2.3.4"}},
-		{"guardianwaf_set_mode", map[string]interface{}{"mode": "enforce"}},
-		{"guardianwaf_add_ratelimit", map[string]interface{}{"id": "r1", "limit": 100, "window": "1m"}},
-		{"guardianwaf_remove_ratelimit", map[string]interface{}{"id": "r1"}},
-		{"guardianwaf_add_exclusion", map[string]interface{}{"path": "/test", "detectors": []string{"sqli"}}},
-		{"guardianwaf_remove_exclusion", map[string]interface{}{"path": "/test"}},
-		{"guardianwaf_test_request", map[string]interface{}{"url": "/test"}},
+		{"guardianwaf_get_stats", map[string]any{}},
+		{"guardianwaf_get_events", map[string]any{}},
+		{"guardianwaf_get_config", map[string]any{}},
+		{"guardianwaf_get_detectors", map[string]any{}},
+		{"guardianwaf_get_top_ips", map[string]any{"count": 5}},
+		{"guardianwaf_add_whitelist", map[string]any{"ip": "1.2.3.4"}},
+		{"guardianwaf_remove_whitelist", map[string]any{"ip": "1.2.3.4"}},
+		{"guardianwaf_add_blacklist", map[string]any{"ip": "1.2.3.4"}},
+		{"guardianwaf_remove_blacklist", map[string]any{"ip": "1.2.3.4"}},
+		{"guardianwaf_set_mode", map[string]any{"mode": "enforce"}},
+		{"guardianwaf_add_ratelimit", map[string]any{"id": "r1", "limit": 100, "window": "1m"}},
+		{"guardianwaf_remove_ratelimit", map[string]any{"id": "r1"}},
+		{"guardianwaf_add_exclusion", map[string]any{"path": "/test", "detectors": []string{"sqli"}}},
+		{"guardianwaf_remove_exclusion", map[string]any{"path": "/test"}},
+		{"guardianwaf_test_request", map[string]any{"url": "/test"}},
 	}
 
 	for _, tt := range tools {
 		t.Run(tt.name, func(t *testing.T) {
-			input := sendRequest(1, "tools/call", map[string]interface{}{
+			input := sendRequest(1, "tools/call", map[string]any{
 				"name":      tt.name,
 				"arguments": tt.args,
 			})
@@ -1407,7 +1407,7 @@ func TestHandlerNoEngineAllTools(t *testing.T) {
 			if resp.Error != nil {
 				return
 			}
-			result, ok := resp.Result.(map[string]interface{})
+			result, ok := resp.Result.(map[string]any)
 			if !ok {
 				t.Fatal("result is not a map")
 			}
@@ -1421,9 +1421,9 @@ func TestHandlerNoEngineAllTools(t *testing.T) {
 
 func TestHandlerAddRateLimitDefaults(t *testing.T) {
 	// Test that scope and action default values are applied
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name": "guardianwaf_add_ratelimit",
-		"arguments": map[string]interface{}{
+		"arguments": map[string]any{
 			"id":     "test",
 			"limit":  100,
 			"window": "1m",
@@ -1440,7 +1440,7 @@ func TestHandlerAddRateLimitDefaults(t *testing.T) {
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %v", resp.Error)
 	}
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if isError {
 		t.Fatal("expected success for add_ratelimit with defaults")
@@ -1450,9 +1450,9 @@ func TestHandlerAddRateLimitDefaults(t *testing.T) {
 // --- Empty IP validation ---
 
 func TestHandleAddWhitelist_EmptyIP(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_add_whitelist",
-		"arguments": map[string]interface{}{"ip": ""},
+		"arguments": map[string]any{"ip": ""},
 	})
 	var out bytes.Buffer
 	srv := NewServer(strings.NewReader(input), &out)
@@ -1463,7 +1463,7 @@ func TestHandleAddWhitelist_EmptyIP(t *testing.T) {
 	if resp.Error != nil {
 		t.Fatalf("unexpected protocol error: %v", resp.Error)
 	}
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected error for empty IP")
@@ -1471,9 +1471,9 @@ func TestHandleAddWhitelist_EmptyIP(t *testing.T) {
 }
 
 func TestHandleRemoveWhitelist_EmptyIP(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_remove_whitelist",
-		"arguments": map[string]interface{}{"ip": ""},
+		"arguments": map[string]any{"ip": ""},
 	})
 	var out bytes.Buffer
 	srv := NewServer(strings.NewReader(input), &out)
@@ -1481,7 +1481,7 @@ func TestHandleRemoveWhitelist_EmptyIP(t *testing.T) {
 	srv.RegisterAllTools()
 	srv.Run()
 	resp := readResponse(t, out.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected error for empty IP")
@@ -1489,9 +1489,9 @@ func TestHandleRemoveWhitelist_EmptyIP(t *testing.T) {
 }
 
 func TestHandleAddBlacklist_EmptyIP(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_add_blacklist",
-		"arguments": map[string]interface{}{"ip": ""},
+		"arguments": map[string]any{"ip": ""},
 	})
 	var out bytes.Buffer
 	srv := NewServer(strings.NewReader(input), &out)
@@ -1499,7 +1499,7 @@ func TestHandleAddBlacklist_EmptyIP(t *testing.T) {
 	srv.RegisterAllTools()
 	srv.Run()
 	resp := readResponse(t, out.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected error for empty IP on add_blacklist")
@@ -1507,9 +1507,9 @@ func TestHandleAddBlacklist_EmptyIP(t *testing.T) {
 }
 
 func TestHandleRemoveBlacklist_EmptyIP(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_remove_blacklist",
-		"arguments": map[string]interface{}{"ip": ""},
+		"arguments": map[string]any{"ip": ""},
 	})
 	var out bytes.Buffer
 	srv := NewServer(strings.NewReader(input), &out)
@@ -1517,7 +1517,7 @@ func TestHandleRemoveBlacklist_EmptyIP(t *testing.T) {
 	srv.RegisterAllTools()
 	srv.Run()
 	resp := readResponse(t, out.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected error for empty IP on remove_blacklist")
@@ -1525,9 +1525,9 @@ func TestHandleRemoveBlacklist_EmptyIP(t *testing.T) {
 }
 
 func TestHandleRemoveRateLimit_EmptyID(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_remove_ratelimit",
-		"arguments": map[string]interface{}{"id": ""},
+		"arguments": map[string]any{"id": ""},
 	})
 	var out bytes.Buffer
 	srv := NewServer(strings.NewReader(input), &out)
@@ -1535,7 +1535,7 @@ func TestHandleRemoveRateLimit_EmptyID(t *testing.T) {
 	srv.RegisterAllTools()
 	srv.Run()
 	resp := readResponse(t, out.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected error for empty ID on remove_ratelimit")
@@ -1543,9 +1543,9 @@ func TestHandleRemoveRateLimit_EmptyID(t *testing.T) {
 }
 
 func TestHandleAddExclusion_EmptyDetectors(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_add_exclusion",
-		"arguments": map[string]interface{}{"path": "/api", "detectors": []string{}},
+		"arguments": map[string]any{"path": "/api", "detectors": []string{}},
 	})
 	var out bytes.Buffer
 	srv := NewServer(strings.NewReader(input), &out)
@@ -1553,7 +1553,7 @@ func TestHandleAddExclusion_EmptyDetectors(t *testing.T) {
 	srv.RegisterAllTools()
 	srv.Run()
 	resp := readResponse(t, out.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected error for empty detectors on add_exclusion")
@@ -1561,9 +1561,9 @@ func TestHandleAddExclusion_EmptyDetectors(t *testing.T) {
 }
 
 func TestHandleRemoveExclusion_EmptyPath(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_remove_exclusion",
-		"arguments": map[string]interface{}{"path": ""},
+		"arguments": map[string]any{"path": ""},
 	})
 	var out bytes.Buffer
 	srv := NewServer(strings.NewReader(input), &out)
@@ -1571,7 +1571,7 @@ func TestHandleRemoveExclusion_EmptyPath(t *testing.T) {
 	srv.RegisterAllTools()
 	srv.Run()
 	resp := readResponse(t, out.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected error for empty path on remove_exclusion")
@@ -1579,9 +1579,9 @@ func TestHandleRemoveExclusion_EmptyPath(t *testing.T) {
 }
 
 func TestHandleSetMode_EmptyMode(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_set_mode",
-		"arguments": map[string]interface{}{"mode": ""},
+		"arguments": map[string]any{"mode": ""},
 	})
 	var out bytes.Buffer
 	srv := NewServer(strings.NewReader(input), &out)
@@ -1589,7 +1589,7 @@ func TestHandleSetMode_EmptyMode(t *testing.T) {
 	srv.RegisterAllTools()
 	srv.Run()
 	resp := readResponse(t, out.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected error for empty mode on set_mode")
@@ -1642,7 +1642,7 @@ func (m *failEngine) AddWhitelist(ip string) error        { return fmt.Errorf("f
 func (m *failEngine) RemoveWhitelist(ip string) error      { return fmt.Errorf("fail") }
 func (m *failEngine) AddBlacklist(ip string) error         { return fmt.Errorf("fail") }
 func (m *failEngine) RemoveBlacklist(ip string) error      { return fmt.Errorf("fail") }
-func (m *failEngine) AddRateLimit(rule interface{}) error   { return fmt.Errorf("fail") }
+func (m *failEngine) AddRateLimit(rule any) error   { return fmt.Errorf("fail") }
 func (m *failEngine) RemoveRateLimit(id string) error       { return fmt.Errorf("fail") }
 func (m *failEngine) AddExclusion(path string, detectors []string, reason string) error {
 	return fmt.Errorf("fail")
@@ -1651,9 +1651,9 @@ func (m *failEngine) RemoveExclusion(path string) error { return fmt.Errorf("fai
 func (m *failEngine) SetMode(mode string) error         { return fmt.Errorf("fail") }
 
 func TestHandleAddWhitelist_EngineError(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_add_whitelist",
-		"arguments": map[string]interface{}{"ip": "10.0.0.1"},
+		"arguments": map[string]any{"ip": "10.0.0.1"},
 	})
 	var out bytes.Buffer
 	srv := NewServer(strings.NewReader(input), &out)
@@ -1661,7 +1661,7 @@ func TestHandleAddWhitelist_EngineError(t *testing.T) {
 	srv.RegisterAllTools()
 	srv.Run()
 	resp := readResponse(t, out.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected error from engine")
@@ -1669,9 +1669,9 @@ func TestHandleAddWhitelist_EngineError(t *testing.T) {
 }
 
 func TestHandleRemoveWhitelist_EngineError(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_remove_whitelist",
-		"arguments": map[string]interface{}{"ip": "10.0.0.1"},
+		"arguments": map[string]any{"ip": "10.0.0.1"},
 	})
 	var out bytes.Buffer
 	srv := NewServer(strings.NewReader(input), &out)
@@ -1679,7 +1679,7 @@ func TestHandleRemoveWhitelist_EngineError(t *testing.T) {
 	srv.RegisterAllTools()
 	srv.Run()
 	resp := readResponse(t, out.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected error from engine")
@@ -1687,9 +1687,9 @@ func TestHandleRemoveWhitelist_EngineError(t *testing.T) {
 }
 
 func TestHandleAddBlacklist_EngineError(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_add_blacklist",
-		"arguments": map[string]interface{}{"ip": "10.0.0.1"},
+		"arguments": map[string]any{"ip": "10.0.0.1"},
 	})
 	var out bytes.Buffer
 	srv := NewServer(strings.NewReader(input), &out)
@@ -1697,7 +1697,7 @@ func TestHandleAddBlacklist_EngineError(t *testing.T) {
 	srv.RegisterAllTools()
 	srv.Run()
 	resp := readResponse(t, out.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected error from engine")
@@ -1705,9 +1705,9 @@ func TestHandleAddBlacklist_EngineError(t *testing.T) {
 }
 
 func TestHandleRemoveBlacklist_EngineError(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_remove_blacklist",
-		"arguments": map[string]interface{}{"ip": "10.0.0.1"},
+		"arguments": map[string]any{"ip": "10.0.0.1"},
 	})
 	var out bytes.Buffer
 	srv := NewServer(strings.NewReader(input), &out)
@@ -1715,7 +1715,7 @@ func TestHandleRemoveBlacklist_EngineError(t *testing.T) {
 	srv.RegisterAllTools()
 	srv.Run()
 	resp := readResponse(t, out.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected error from engine")
@@ -1723,9 +1723,9 @@ func TestHandleRemoveBlacklist_EngineError(t *testing.T) {
 }
 
 func TestHandleAddRateLimit_EngineError(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_add_ratelimit",
-		"arguments": map[string]interface{}{"id": "r1", "limit": 10, "window": "1m"},
+		"arguments": map[string]any{"id": "r1", "limit": 10, "window": "1m"},
 	})
 	var out bytes.Buffer
 	srv := NewServer(strings.NewReader(input), &out)
@@ -1733,7 +1733,7 @@ func TestHandleAddRateLimit_EngineError(t *testing.T) {
 	srv.RegisterAllTools()
 	srv.Run()
 	resp := readResponse(t, out.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected error from engine")
@@ -1741,9 +1741,9 @@ func TestHandleAddRateLimit_EngineError(t *testing.T) {
 }
 
 func TestHandleRemoveRateLimit_EngineError(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_remove_ratelimit",
-		"arguments": map[string]interface{}{"id": "r1"},
+		"arguments": map[string]any{"id": "r1"},
 	})
 	var out bytes.Buffer
 	srv := NewServer(strings.NewReader(input), &out)
@@ -1751,7 +1751,7 @@ func TestHandleRemoveRateLimit_EngineError(t *testing.T) {
 	srv.RegisterAllTools()
 	srv.Run()
 	resp := readResponse(t, out.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected error from engine")
@@ -1759,9 +1759,9 @@ func TestHandleRemoveRateLimit_EngineError(t *testing.T) {
 }
 
 func TestHandleAddExclusion_EngineError(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_add_exclusion",
-		"arguments": map[string]interface{}{"path": "/api", "detectors": []string{"sqli"}, "reason": "test"},
+		"arguments": map[string]any{"path": "/api", "detectors": []string{"sqli"}, "reason": "test"},
 	})
 	var out bytes.Buffer
 	srv := NewServer(strings.NewReader(input), &out)
@@ -1769,7 +1769,7 @@ func TestHandleAddExclusion_EngineError(t *testing.T) {
 	srv.RegisterAllTools()
 	srv.Run()
 	resp := readResponse(t, out.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected error from engine")
@@ -1777,9 +1777,9 @@ func TestHandleAddExclusion_EngineError(t *testing.T) {
 }
 
 func TestHandleRemoveExclusion_EngineError(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_remove_exclusion",
-		"arguments": map[string]interface{}{"path": "/api"},
+		"arguments": map[string]any{"path": "/api"},
 	})
 	var out bytes.Buffer
 	srv := NewServer(strings.NewReader(input), &out)
@@ -1787,7 +1787,7 @@ func TestHandleRemoveExclusion_EngineError(t *testing.T) {
 	srv.RegisterAllTools()
 	srv.Run()
 	resp := readResponse(t, out.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected error from engine")
@@ -1795,9 +1795,9 @@ func TestHandleRemoveExclusion_EngineError(t *testing.T) {
 }
 
 func TestHandleSetMode_EngineError(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_set_mode",
-		"arguments": map[string]interface{}{"mode": "enforce"},
+		"arguments": map[string]any{"mode": "enforce"},
 	})
 	var out bytes.Buffer
 	srv := NewServer(strings.NewReader(input), &out)
@@ -1805,7 +1805,7 @@ func TestHandleSetMode_EngineError(t *testing.T) {
 	srv.RegisterAllTools()
 	srv.Run()
 	resp := readResponse(t, out.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected error from engine")
@@ -1815,7 +1815,7 @@ func TestHandleSetMode_EngineError(t *testing.T) {
 // --- Invalid JSON params for handlers ---
 
 func TestHandleAddWhitelist_InvalidJSON(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_add_whitelist",
 		"arguments": "not-json",
 	})
@@ -1825,7 +1825,7 @@ func TestHandleAddWhitelist_InvalidJSON(t *testing.T) {
 	srv.RegisterAllTools()
 	srv.Run()
 	resp := readResponse(t, out.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected error for invalid JSON params")
@@ -1833,7 +1833,7 @@ func TestHandleAddWhitelist_InvalidJSON(t *testing.T) {
 }
 
 func TestHandleRemoveWhitelist_InvalidJSON(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_remove_whitelist",
 		"arguments": "not-json",
 	})
@@ -1843,7 +1843,7 @@ func TestHandleRemoveWhitelist_InvalidJSON(t *testing.T) {
 	srv.RegisterAllTools()
 	srv.Run()
 	resp := readResponse(t, out.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected error for invalid JSON params")
@@ -1851,7 +1851,7 @@ func TestHandleRemoveWhitelist_InvalidJSON(t *testing.T) {
 }
 
 func TestHandleAddBlacklist_InvalidJSON(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_add_blacklist",
 		"arguments": "not-json",
 	})
@@ -1861,7 +1861,7 @@ func TestHandleAddBlacklist_InvalidJSON(t *testing.T) {
 	srv.RegisterAllTools()
 	srv.Run()
 	resp := readResponse(t, out.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected error for invalid JSON params")
@@ -1869,7 +1869,7 @@ func TestHandleAddBlacklist_InvalidJSON(t *testing.T) {
 }
 
 func TestHandleRemoveBlacklist_InvalidJSON(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_remove_blacklist",
 		"arguments": "not-json",
 	})
@@ -1879,7 +1879,7 @@ func TestHandleRemoveBlacklist_InvalidJSON(t *testing.T) {
 	srv.RegisterAllTools()
 	srv.Run()
 	resp := readResponse(t, out.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected error for invalid JSON params")
@@ -1887,7 +1887,7 @@ func TestHandleRemoveBlacklist_InvalidJSON(t *testing.T) {
 }
 
 func TestHandleAddRateLimit_InvalidJSON(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_add_ratelimit",
 		"arguments": "bad",
 	})
@@ -1897,7 +1897,7 @@ func TestHandleAddRateLimit_InvalidJSON(t *testing.T) {
 	srv.RegisterAllTools()
 	srv.Run()
 	resp := readResponse(t, out.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected error for invalid JSON params")
@@ -1905,7 +1905,7 @@ func TestHandleAddRateLimit_InvalidJSON(t *testing.T) {
 }
 
 func TestHandleRemoveRateLimit_InvalidJSON(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_remove_ratelimit",
 		"arguments": "bad",
 	})
@@ -1915,7 +1915,7 @@ func TestHandleRemoveRateLimit_InvalidJSON(t *testing.T) {
 	srv.RegisterAllTools()
 	srv.Run()
 	resp := readResponse(t, out.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected error for invalid JSON params")
@@ -1923,7 +1923,7 @@ func TestHandleRemoveRateLimit_InvalidJSON(t *testing.T) {
 }
 
 func TestHandleAddExclusion_InvalidJSON(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_add_exclusion",
 		"arguments": "bad",
 	})
@@ -1933,7 +1933,7 @@ func TestHandleAddExclusion_InvalidJSON(t *testing.T) {
 	srv.RegisterAllTools()
 	srv.Run()
 	resp := readResponse(t, out.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected error for invalid JSON params")
@@ -1941,7 +1941,7 @@ func TestHandleAddExclusion_InvalidJSON(t *testing.T) {
 }
 
 func TestHandleRemoveExclusion_InvalidJSON(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_remove_exclusion",
 		"arguments": "bad",
 	})
@@ -1951,7 +1951,7 @@ func TestHandleRemoveExclusion_InvalidJSON(t *testing.T) {
 	srv.RegisterAllTools()
 	srv.Run()
 	resp := readResponse(t, out.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected error for invalid JSON params")
@@ -1959,7 +1959,7 @@ func TestHandleRemoveExclusion_InvalidJSON(t *testing.T) {
 }
 
 func TestHandleSetMode_InvalidJSON(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_set_mode",
 		"arguments": "bad",
 	})
@@ -1969,7 +1969,7 @@ func TestHandleSetMode_InvalidJSON(t *testing.T) {
 	srv.RegisterAllTools()
 	srv.Run()
 	resp := readResponse(t, out.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected error for invalid JSON params")
@@ -1977,9 +1977,9 @@ func TestHandleSetMode_InvalidJSON(t *testing.T) {
 }
 
 func TestHandleSetMode_InvalidModeValue(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_set_mode",
-		"arguments": map[string]interface{}{"mode": "invalid_mode"},
+		"arguments": map[string]any{"mode": "invalid_mode"},
 	})
 	var out bytes.Buffer
 	srv := NewServer(strings.NewReader(input), &out)
@@ -1987,7 +1987,7 @@ func TestHandleSetMode_InvalidModeValue(t *testing.T) {
 	srv.RegisterAllTools()
 	srv.Run()
 	resp := readResponse(t, out.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected error for invalid mode value")
@@ -1995,9 +1995,9 @@ func TestHandleSetMode_InvalidModeValue(t *testing.T) {
 }
 
 func TestHandleAddExclusion_EmptyPath(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_add_exclusion",
-		"arguments": map[string]interface{}{"path": "", "detectors": []string{"sqli"}},
+		"arguments": map[string]any{"path": "", "detectors": []string{"sqli"}},
 	})
 	var out bytes.Buffer
 	srv := NewServer(strings.NewReader(input), &out)
@@ -2005,7 +2005,7 @@ func TestHandleAddExclusion_EmptyPath(t *testing.T) {
 	srv.RegisterAllTools()
 	srv.Run()
 	resp := readResponse(t, out.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected error for empty path on add_exclusion")
@@ -2014,9 +2014,9 @@ func TestHandleAddExclusion_EmptyPath(t *testing.T) {
 
 func TestHandleAddRateLimit_MissingFields(t *testing.T) {
 	// Missing window
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_add_ratelimit",
-		"arguments": map[string]interface{}{"id": "test", "limit": 10},
+		"arguments": map[string]any{"id": "test", "limit": 10},
 	})
 	var out bytes.Buffer
 	srv := NewServer(strings.NewReader(input), &out)
@@ -2024,7 +2024,7 @@ func TestHandleAddRateLimit_MissingFields(t *testing.T) {
 	srv.RegisterAllTools()
 	srv.Run()
 	resp := readResponse(t, out.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected error for missing window")
@@ -2032,9 +2032,9 @@ func TestHandleAddRateLimit_MissingFields(t *testing.T) {
 }
 
 func TestHandleAddRateLimit_ZeroLimit(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_add_ratelimit",
-		"arguments": map[string]interface{}{"id": "test", "limit": 0, "window": "1m"},
+		"arguments": map[string]any{"id": "test", "limit": 0, "window": "1m"},
 	})
 	var out bytes.Buffer
 	srv := NewServer(strings.NewReader(input), &out)
@@ -2042,7 +2042,7 @@ func TestHandleAddRateLimit_ZeroLimit(t *testing.T) {
 	srv.RegisterAllTools()
 	srv.Run()
 	resp := readResponse(t, out.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected error for zero limit")
@@ -2050,9 +2050,9 @@ func TestHandleAddRateLimit_ZeroLimit(t *testing.T) {
 }
 
 func TestHandleAddRateLimit_EmptyID(t *testing.T) {
-	input := sendRequest(1, "tools/call", map[string]interface{}{
+	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_add_ratelimit",
-		"arguments": map[string]interface{}{"id": "", "limit": 10, "window": "1m"},
+		"arguments": map[string]any{"id": "", "limit": 10, "window": "1m"},
 	})
 	var out bytes.Buffer
 	srv := NewServer(strings.NewReader(input), &out)
@@ -2060,7 +2060,7 @@ func TestHandleAddRateLimit_EmptyID(t *testing.T) {
 	srv.RegisterAllTools()
 	srv.Run()
 	resp := readResponse(t, out.String())
-	result, _ := resp.Result.(map[string]interface{})
+	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
 	if !isError {
 		t.Fatal("expected error for empty ID")

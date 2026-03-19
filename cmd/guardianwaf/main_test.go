@@ -310,7 +310,7 @@ func newTestAdapter(t *testing.T) *mcpEngineAdapter {
 func TestMCPAdapter_GetStats(t *testing.T) {
 	a := newTestAdapter(t)
 	stats := a.GetStats()
-	m, ok := stats.(map[string]interface{})
+	m, ok := stats.(map[string]any)
 	if !ok {
 		t.Fatal("expected map result")
 	}
@@ -322,7 +322,7 @@ func TestMCPAdapter_GetStats(t *testing.T) {
 func TestMCPAdapter_GetConfig(t *testing.T) {
 	a := newTestAdapter(t)
 	cfg := a.GetConfig()
-	m, ok := cfg.(map[string]interface{})
+	m, ok := cfg.(map[string]any)
 	if !ok {
 		t.Fatal("expected map result")
 	}
@@ -400,7 +400,7 @@ func TestMCPAdapter_GetEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetEvents error: %v", err)
 	}
-	m, ok := result.(map[string]interface{})
+	m, ok := result.(map[string]any)
 	if !ok {
 		t.Fatal("expected map result")
 	}
@@ -420,7 +420,7 @@ func TestMCPAdapter_GetTopIPs(t *testing.T) {
 func TestMCPAdapter_GetDetectors(t *testing.T) {
 	a := newTestAdapter(t)
 	result := a.GetDetectors()
-	detectors, ok := result.([]map[string]interface{})
+	detectors, ok := result.([]map[string]any)
 	if !ok {
 		t.Fatal("expected slice result")
 	}
@@ -437,7 +437,7 @@ func TestMCPAdapter_TestRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TestRequest error: %v", err)
 	}
-	m, ok := result.(map[string]interface{})
+	m, ok := result.(map[string]any)
 	if !ok {
 		t.Fatal("expected map result")
 	}
@@ -465,8 +465,8 @@ func TestMCPAdapter_TestRequest_Attack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TestRequest error: %v", err)
 	}
-	m := result.(map[string]interface{})
-	findings, ok := m["findings"].([]map[string]interface{})
+	m := result.(map[string]any)
+	findings, ok := m["findings"].([]map[string]any)
 	if ok && len(findings) > 0 {
 		// Attack was detected — verify finding has expected fields
 		if findings[0]["detector"] == nil {
@@ -1202,7 +1202,7 @@ func TestLoadGeoIP_Disabled(t *testing.T) {
 	}
 	defer eng.Close()
 
-	db := loadGeoIP(cfg, eng)
+	db, _ := loadGeoIP(cfg, eng)
 	if db != nil {
 		t.Error("expected nil when GeoIP disabled")
 	}
@@ -1230,7 +1230,7 @@ func TestLoadGeoIP_ValidDBPath(t *testing.T) {
 	}
 	defer eng.Close()
 
-	db := loadGeoIP(cfg, eng)
+	db, _ := loadGeoIP(cfg, eng)
 	if db == nil {
 		t.Error("expected non-nil DB when valid path provided")
 	} else if db.Count() != 2 {
@@ -1255,7 +1255,7 @@ func TestLoadGeoIP_InvalidDBPath(t *testing.T) {
 	}
 	defer eng.Close()
 
-	db := loadGeoIP(cfg, eng)
+	db, _ := loadGeoIP(cfg, eng)
 	// Should return nil when file doesn't exist and auto-download disabled
 	if db != nil {
 		t.Error("expected nil when file doesn't exist")
@@ -1283,7 +1283,7 @@ func TestLoadGeoIP_AutoDownloadEnabled(t *testing.T) {
 
 	// This will fail because /var/lib/guardianwaf/geoip.csv doesn't exist
 	// and network download will fail, but it exercises the code path
-	db := loadGeoIP(cfg, eng)
+	db, _ := loadGeoIP(cfg, eng)
 	// On most systems this will return nil because download will fail
 	_ = db // Just exercising the path
 }
@@ -1310,7 +1310,7 @@ func TestLoadGeoIP_AutoDownloadWithCustomPath(t *testing.T) {
 
 	// This will fail because customPath doesn't exist and download will fail
 	// but exercises the code path where DBPath is set but file doesn't exist
-	db := loadGeoIP(cfg, eng)
+	db, _ := loadGeoIP(cfg, eng)
 	_ = db // Just exercising the path
 }
 
@@ -1855,7 +1855,7 @@ func TestTestRequest_Basic(t *testing.T) {
 		t.Fatalf("TestRequest error: %v", err)
 	}
 
-	resultMap, ok := result.(map[string]interface{})
+	resultMap, ok := result.(map[string]any)
 	if !ok {
 		t.Fatal("expected map result")
 	}
@@ -2540,5 +2540,81 @@ func TestMCPEngineAdapter_GetTopIPs(t *testing.T) {
 	result := adapter.GetTopIPs(10)
 	if result == nil {
 		t.Fatal("expected non-nil result")
+	}
+}
+
+func TestHealthzEndpoint(t *testing.T) {
+	cfg := config.DefaultConfig()
+	store := events.NewMemoryStore(1000)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatalf("NewEngine error: %v", err)
+	}
+	defer eng.Close()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		s := eng.Stats()
+		fmt.Fprintf(w, `{"status":"ok","mode":%q,"total_requests":%d,"blocked_requests":%d}`,
+			cfg.Mode, s.TotalRequests, s.BlockedRequests)
+	})
+
+	req := httptest.NewRequest("GET", "/healthz", nil)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, `"status":"ok"`) {
+		t.Errorf("expected status ok in body, got: %s", body)
+	}
+	if !strings.Contains(body, `"mode"`) {
+		t.Errorf("expected mode in body, got: %s", body)
+	}
+}
+
+func TestMetricsEndpoint(t *testing.T) {
+	cfg := config.DefaultConfig()
+	store := events.NewMemoryStore(1000)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatalf("NewEngine error: %v", err)
+	}
+	defer eng.Close()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+		s := eng.Stats()
+		fmt.Fprintf(w, "# HELP guardianwaf_requests_total Total number of requests processed.\n")
+		fmt.Fprintf(w, "# TYPE guardianwaf_requests_total counter\n")
+		fmt.Fprintf(w, "guardianwaf_requests_total %d\n", s.TotalRequests)
+		fmt.Fprintf(w, "# HELP guardianwaf_requests_blocked_total Total number of blocked requests.\n")
+		fmt.Fprintf(w, "# TYPE guardianwaf_requests_blocked_total counter\n")
+		fmt.Fprintf(w, "guardianwaf_requests_blocked_total %d\n", s.BlockedRequests)
+	})
+
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "guardianwaf_requests_total") {
+		t.Errorf("expected guardianwaf_requests_total in body, got: %s", body)
+	}
+	if !strings.Contains(body, "# TYPE guardianwaf_requests_total counter") {
+		t.Errorf("expected Prometheus TYPE annotation, got: %s", body)
+	}
+	if !strings.Contains(body, "guardianwaf_requests_blocked_total") {
+		t.Errorf("expected blocked_total metric, got: %s", body)
 	}
 }

@@ -30,6 +30,7 @@ type CertStore struct {
 	entries     []CertEntry                 // all entries for reload tracking
 
 	stopReload chan struct{}
+	stopOnce   sync.Once
 	wg         sync.WaitGroup
 }
 
@@ -163,7 +164,9 @@ func (cs *CertStore) StartReload(interval time.Duration) {
 
 // StopReload stops the background certificate reload goroutine.
 func (cs *CertStore) StopReload() {
-	close(cs.stopReload)
+	cs.stopOnce.Do(func() {
+		close(cs.stopReload)
+	})
 	cs.wg.Wait()
 }
 
