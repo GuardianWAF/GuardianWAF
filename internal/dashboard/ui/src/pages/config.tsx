@@ -701,6 +701,264 @@ export default function ConfigPage() {
         </div>
       </Section>
 
+      {/* CORS Security */}
+      <Section
+        title="CORS Security"
+        badge={{ on: val('cors.enabled', false) as boolean }}
+      >
+        <div className="space-y-4">
+          <FieldRow label="Enabled">
+            <Switch
+              checked={val('cors.enabled', false) as boolean}
+              onCheckedChange={(v) => update('cors.enabled', v)}
+            />
+          </FieldRow>
+          <FieldRow label="Strict Mode">
+            <Switch
+              checked={val('cors.strict_mode', false) as boolean}
+              onCheckedChange={(v) => update('cors.strict_mode', v)}
+            />
+          </FieldRow>
+          <FieldRow label="Allow Credentials">
+            <Switch
+              checked={val('cors.allow_credentials', false) as boolean}
+              onCheckedChange={(v) => update('cors.allow_credentials', v)}
+            />
+          </FieldRow>
+          <div className="text-xs text-muted-foreground mt-2">
+            Configure allowed origins, methods, and headers in guardianwaf.yaml
+          </div>
+        </div>
+      </Section>
+
+      {/* Threat Intelligence */}
+      <Section
+        title="Threat Intelligence"
+        badge={{ on: val('threat_intel.enabled', false) as boolean }}
+      >
+        <div className="space-y-4">
+          <FieldRow label="Enabled">
+            <Switch
+              checked={val('threat_intel.enabled', false) as boolean}
+              onCheckedChange={(v) => update('threat_intel.enabled', v)}
+            />
+          </FieldRow>
+
+          <div className="border-t border-border pt-4 mt-4">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+              IP Reputation
+            </h4>
+            <div className="space-y-3">
+              <FieldRow label="IP Reputation Enabled">
+                <Switch
+                  checked={val('threat_intel.ip_reputation.enabled', false) as boolean}
+                  onCheckedChange={(v) => update('threat_intel.ip_reputation.enabled', v)}
+                />
+              </FieldRow>
+              <FieldRow label="Block Malicious IPs">
+                <Switch
+                  checked={val('threat_intel.ip_reputation.block_malicious', false) as boolean}
+                  onCheckedChange={(v) => update('threat_intel.ip_reputation.block_malicious', v)}
+                />
+              </FieldRow>
+              <FieldRow label="Score Threshold">
+                <Input
+                  type="number"
+                  value={val('threat_intel.ip_reputation.score_threshold', 70) as number}
+                  onChange={(e) => update('threat_intel.ip_reputation.score_threshold', Number(e.target.value))}
+                  className="w-20"
+                  min={0}
+                  max={100}
+                />
+              </FieldRow>
+            </div>
+          </div>
+
+          <div className="border-t border-border pt-4">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+              Domain Reputation
+            </h4>
+            <div className="space-y-3">
+              <FieldRow label="Domain Reputation Enabled">
+                <Switch
+                  checked={val('threat_intel.domain_reputation.enabled', false) as boolean}
+                  onCheckedChange={(v) => update('threat_intel.domain_reputation.enabled', v)}
+                />
+              </FieldRow>
+              <FieldRow label="Block Malicious Domains">
+                <Switch
+                  checked={val('threat_intel.domain_reputation.block_malicious', false) as boolean}
+                  onCheckedChange={(v) => update('threat_intel.domain_reputation.block_malicious', v)}
+                />
+              </FieldRow>
+            </div>
+          </div>
+        </div>
+      </Section>
+
+      {/* ATO Protection */}
+      <Section
+        title="ATO Protection"
+        badge={{ on: val('ato_protection.enabled', false) as boolean }}
+      >
+        <div className="space-y-4">
+          <FieldRow label="Enabled">
+            <Switch
+              checked={val('ato_protection.enabled', false) as boolean}
+              onCheckedChange={(v) => update('ato_protection.enabled', v)}
+            />
+          </FieldRow>
+
+          <div className="border-t border-border pt-4 mt-4">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+              Brute Force Detection
+            </h4>
+            <div className="space-y-3">
+              <FieldRow label="Brute Force Enabled">
+                <Switch
+                  checked={val('ato_protection.brute_force.enabled', false) as boolean}
+                  onCheckedChange={(v) => update('ato_protection.brute_force.enabled', v)}
+                />
+              </FieldRow>
+              <FieldRow label="Max Attempts Per IP">
+                <Input
+                  type="number"
+                  value={val('ato_protection.brute_force.max_attempts_per_ip', 10) as number}
+                  onChange={(e) => update('ato_protection.brute_force.max_attempts_per_ip', Number(e.target.value))}
+                  className="w-20"
+                  min={1}
+                />
+              </FieldRow>
+              <FieldRow label="Max Attempts Per Email">
+                <Input
+                  type="number"
+                  value={val('ato_protection.brute_force.max_attempts_per_email', 5) as number}
+                  onChange={(e) => update('ato_protection.brute_force.max_attempts_per_email', Number(e.target.value))}
+                  className="w-20"
+                  min={1}
+                />
+              </FieldRow>
+            </div>
+          </div>
+
+          <div className="border-t border-border pt-4">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+              Credential Stuffing
+            </h4>
+            <div className="space-y-3">
+              <FieldRow label="Credential Stuffing Enabled">
+                <Switch
+                  checked={val('ato_protection.credential_stuffing.enabled', false) as boolean}
+                  onCheckedChange={(v) => update('ato_protection.credential_stuffing.enabled', v)}
+                />
+              </FieldRow>
+              <FieldRow label="Distributed Threshold">
+                <Input
+                  type="number"
+                  value={val('ato_protection.credential_stuffing.distributed_threshold', 5) as number}
+                  onChange={(e) => update('ato_protection.credential_stuffing.distributed_threshold', Number(e.target.value))}
+                  className="w-20"
+                  min={2}
+                />
+              </FieldRow>
+            </div>
+          </div>
+
+          <div className="border-t border-border pt-4">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+              Impossible Travel
+            </h4>
+            <div className="space-y-3">
+              <FieldRow label="Impossible Travel Enabled">
+                <Switch
+                  checked={val('ato_protection.impossible_travel.enabled', false) as boolean}
+                  onCheckedChange={(v) => update('ato_protection.impossible_travel.enabled', v)}
+                />
+              </FieldRow>
+              <FieldRow label="Max Distance (km)">
+                <Input
+                  type="number"
+                  value={val('ato_protection.impossible_travel.max_distance_km', 500) as number}
+                  onChange={(e) => update('ato_protection.impossible_travel.max_distance_km', Number(e.target.value))}
+                  className="w-24"
+                  min={1}
+                />
+              </FieldRow>
+            </div>
+          </div>
+        </div>
+      </Section>
+
+      {/* API Security */}
+      <Section
+        title="API Security"
+        badge={{ on: val('api_security.enabled', false) as boolean }}
+      >
+        <div className="space-y-4">
+          <FieldRow label="Enabled">
+            <Switch
+              checked={val('api_security.enabled', false) as boolean}
+              onCheckedChange={(v) => update('api_security.enabled', v)}
+            />
+          </FieldRow>
+
+          <div className="border-t border-border pt-4 mt-4">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+              JWT Validation
+            </h4>
+            <div className="space-y-3">
+              <FieldRow label="JWT Enabled">
+                <Switch
+                  checked={val('api_security.jwt.enabled', false) as boolean}
+                  onCheckedChange={(v) => update('api_security.jwt.enabled', v)}
+                />
+              </FieldRow>
+              <FieldRow label="Issuer">
+                <Input
+                  value={val('api_security.jwt.issuer', '') as string}
+                  onChange={(e) => update('api_security.jwt.issuer', e.target.value)}
+                  className="w-64"
+                  placeholder="https://auth.example.com"
+                />
+              </FieldRow>
+              <FieldRow label="Audience">
+                <Input
+                  value={val('api_security.jwt.audience', '') as string}
+                  onChange={(e) => update('api_security.jwt.audience', e.target.value)}
+                  className="w-64"
+                  placeholder="api.example.com"
+                />
+              </FieldRow>
+            </div>
+          </div>
+
+          <div className="border-t border-border pt-4">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+              API Keys
+            </h4>
+            <div className="space-y-3">
+              <FieldRow label="API Keys Enabled">
+                <Switch
+                  checked={val('api_security.api_keys.enabled', false) as boolean}
+                  onCheckedChange={(v) => update('api_security.api_keys.enabled', v)}
+                />
+              </FieldRow>
+              <FieldRow label="Header Name">
+                <Input
+                  value={val('api_security.api_keys.header_name', 'X-API-Key') as string}
+                  onChange={(e) => update('api_security.api_keys.header_name', e.target.value)}
+                  className="w-40"
+                  placeholder="X-API-Key"
+                />
+              </FieldRow>
+              <div className="text-xs text-muted-foreground">
+                Configured API Keys: {val('api_security.api_keys.key_count', 0) as number}
+              </div>
+            </div>
+          </div>
+        </div>
+      </Section>
+
       {/* Sticky Save Bar */}
       {dirty && (
         <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-card/95 backdrop-blur-sm">
