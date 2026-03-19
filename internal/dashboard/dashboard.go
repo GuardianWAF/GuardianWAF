@@ -576,6 +576,59 @@ func (d *Dashboard) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 					"strip_stack_traces": cfg.WAF.Response.DataMasking.StripStackTraces,
 				},
 			},
+			"cors": map[string]any{
+				"enabled":          cfg.WAF.CORS.Enabled,
+				"allow_origins":    cfg.WAF.CORS.AllowOrigins,
+				"allow_methods":    cfg.WAF.CORS.AllowMethods,
+				"allow_headers":    cfg.WAF.CORS.AllowHeaders,
+				"allow_credentials": cfg.WAF.CORS.AllowCredentials,
+				"strict_mode":      cfg.WAF.CORS.StrictMode,
+			},
+			"threat_intel": map[string]any{
+				"enabled":     cfg.WAF.ThreatIntel.Enabled,
+				"cache_size":  cfg.WAF.ThreatIntel.CacheSize,
+				"ip_reputation": map[string]any{
+					"enabled":         cfg.WAF.ThreatIntel.IPReputation.Enabled,
+					"block_malicious": cfg.WAF.ThreatIntel.IPReputation.BlockMalicious,
+					"score_threshold": cfg.WAF.ThreatIntel.IPReputation.ScoreThreshold,
+				},
+				"domain_reputation": map[string]any{
+					"enabled":         cfg.WAF.ThreatIntel.DomainRep.Enabled,
+					"block_malicious": cfg.WAF.ThreatIntel.DomainRep.BlockMalicious,
+				},
+			},
+			"ato_protection": map[string]any{
+				"enabled":      cfg.WAF.ATOProtection.Enabled,
+				"login_paths":  cfg.WAF.ATOProtection.LoginPaths,
+				"brute_force": map[string]any{
+					"enabled":               cfg.WAF.ATOProtection.BruteForce.Enabled,
+					"max_attempts_per_ip":   cfg.WAF.ATOProtection.BruteForce.MaxAttemptsPerIP,
+					"max_attempts_per_email": cfg.WAF.ATOProtection.BruteForce.MaxAttemptsPerEmail,
+				},
+				"credential_stuffing": map[string]any{
+					"enabled":               cfg.WAF.ATOProtection.CredStuffing.Enabled,
+					"distributed_threshold": cfg.WAF.ATOProtection.CredStuffing.DistributedThreshold,
+				},
+				"impossible_travel": map[string]any{
+					"enabled":         cfg.WAF.ATOProtection.Travel.Enabled,
+					"max_distance_km": cfg.WAF.ATOProtection.Travel.MaxDistanceKm,
+				},
+			},
+			"api_security": map[string]any{
+				"enabled": cfg.WAF.APISecurity.Enabled,
+				"jwt": map[string]any{
+					"enabled":        cfg.WAF.APISecurity.JWT.Enabled,
+					"issuer":         cfg.WAF.APISecurity.JWT.Issuer,
+					"audience":       cfg.WAF.APISecurity.JWT.Audience,
+					"algorithms":     cfg.WAF.APISecurity.JWT.Algorithms,
+					"jwks_url":       cfg.WAF.APISecurity.JWT.JWKSURL,
+				},
+				"api_keys": map[string]any{
+					"enabled":    cfg.WAF.APISecurity.APIKeys.Enabled,
+					"header_name": cfg.WAF.APISecurity.APIKeys.HeaderName,
+					"key_count":  len(cfg.WAF.APISecurity.APIKeys.Keys),
+				},
+			},
 		},
 	})
 }
@@ -944,6 +997,105 @@ func applyWAFPatch(cfg *config.Config, waf map[string]any) {
 			}
 			if v, ok := dm["strip_stack_traces"].(bool); ok {
 				cfg.WAF.Response.DataMasking.StripStackTraces = v
+			}
+		}
+	}
+
+	// CORS Security
+	if cors, ok := waf["cors"].(map[string]any); ok {
+		if v, ok := cors["enabled"].(bool); ok {
+			cfg.WAF.CORS.Enabled = v
+		}
+		if v, ok := cors["strict_mode"].(bool); ok {
+			cfg.WAF.CORS.StrictMode = v
+		}
+		if v, ok := cors["allow_credentials"].(bool); ok {
+			cfg.WAF.CORS.AllowCredentials = v
+		}
+	}
+
+	// Threat Intelligence
+	if ti, ok := waf["threat_intel"].(map[string]any); ok {
+		if v, ok := ti["enabled"].(bool); ok {
+			cfg.WAF.ThreatIntel.Enabled = v
+		}
+		if ipr, ok := ti["ip_reputation"].(map[string]any); ok {
+			if v, ok := ipr["enabled"].(bool); ok {
+				cfg.WAF.ThreatIntel.IPReputation.Enabled = v
+			}
+			if v, ok := ipr["block_malicious"].(bool); ok {
+				cfg.WAF.ThreatIntel.IPReputation.BlockMalicious = v
+			}
+			if v, ok := ipr["score_threshold"].(float64); ok {
+				cfg.WAF.ThreatIntel.IPReputation.ScoreThreshold = int(v)
+			}
+		}
+		if dr, ok := ti["domain_reputation"].(map[string]any); ok {
+			if v, ok := dr["enabled"].(bool); ok {
+				cfg.WAF.ThreatIntel.DomainRep.Enabled = v
+			}
+			if v, ok := dr["block_malicious"].(bool); ok {
+				cfg.WAF.ThreatIntel.DomainRep.BlockMalicious = v
+			}
+		}
+	}
+
+	// ATO Protection
+	if ato, ok := waf["ato_protection"].(map[string]any); ok {
+		if v, ok := ato["enabled"].(bool); ok {
+			cfg.WAF.ATOProtection.Enabled = v
+		}
+		if bf, ok := ato["brute_force"].(map[string]any); ok {
+			if v, ok := bf["enabled"].(bool); ok {
+				cfg.WAF.ATOProtection.BruteForce.Enabled = v
+			}
+			if v, ok := bf["max_attempts_per_ip"].(float64); ok {
+				cfg.WAF.ATOProtection.BruteForce.MaxAttemptsPerIP = int(v)
+			}
+			if v, ok := bf["max_attempts_per_email"].(float64); ok {
+				cfg.WAF.ATOProtection.BruteForce.MaxAttemptsPerEmail = int(v)
+			}
+		}
+		if cs, ok := ato["credential_stuffing"].(map[string]any); ok {
+			if v, ok := cs["enabled"].(bool); ok {
+				cfg.WAF.ATOProtection.CredStuffing.Enabled = v
+			}
+			if v, ok := cs["distributed_threshold"].(float64); ok {
+				cfg.WAF.ATOProtection.CredStuffing.DistributedThreshold = int(v)
+			}
+		}
+		if tr, ok := ato["impossible_travel"].(map[string]any); ok {
+			if v, ok := tr["enabled"].(bool); ok {
+				cfg.WAF.ATOProtection.Travel.Enabled = v
+			}
+			if v, ok := tr["max_distance_km"].(float64); ok {
+				cfg.WAF.ATOProtection.Travel.MaxDistanceKm = v
+			}
+		}
+	}
+
+	// API Security
+	if api, ok := waf["api_security"].(map[string]any); ok {
+		if v, ok := api["enabled"].(bool); ok {
+			cfg.WAF.APISecurity.Enabled = v
+		}
+		if jwt, ok := api["jwt"].(map[string]any); ok {
+			if v, ok := jwt["enabled"].(bool); ok {
+				cfg.WAF.APISecurity.JWT.Enabled = v
+			}
+			if v, ok := jwt["issuer"].(string); ok {
+				cfg.WAF.APISecurity.JWT.Issuer = v
+			}
+			if v, ok := jwt["audience"].(string); ok {
+				cfg.WAF.APISecurity.JWT.Audience = v
+			}
+		}
+		if keys, ok := api["api_keys"].(map[string]any); ok {
+			if v, ok := keys["enabled"].(bool); ok {
+				cfg.WAF.APISecurity.APIKeys.Enabled = v
+			}
+			if v, ok := keys["header_name"].(string); ok {
+				cfg.WAF.APISecurity.APIKeys.HeaderName = v
 			}
 		}
 	}

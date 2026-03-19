@@ -3,60 +3,100 @@ import { cn } from '@/lib/utils'
 
 const steps = [
   {
-    id: 'ingress',
-    label: 'Ingress',
-    shortLabel: 'IN',
-    description: 'Incoming HTTP request enters the WAF pipeline. Connection metadata, headers, and body are captured for analysis.',
-    color: 'text-blue-400',
-    bgColor: 'bg-blue-400/10',
-    borderColor: 'border-blue-400/30',
-    activeColor: 'bg-blue-400/20 border-blue-400/60',
+    id: 'ipacl',
+    label: 'IP ACL',
+    shortLabel: 'IP',
+    description: 'IP allowlist/blocklist with CIDR matching. Auto-ban for repeated violations. Radix tree for sub-microsecond lookups.',
+    color: 'text-slate-400',
+    bgColor: 'bg-slate-400/10',
+    borderColor: 'border-slate-400/30',
+    activeColor: 'bg-slate-400/20 border-slate-400/60',
   },
   {
-    id: 'tokenizer',
-    label: 'Tokenizer',
-    shortLabel: 'TK',
-    description: 'Custom tokenizer breaks URI, headers, and body into semantic tokens. Context-aware parsing identifies payload boundaries.',
-    color: 'text-purple-400',
-    bgColor: 'bg-purple-400/10',
-    borderColor: 'border-purple-400/30',
-    activeColor: 'bg-purple-400/20 border-purple-400/60',
+    id: 'threatintel',
+    label: 'Threat Intel',
+    shortLabel: 'TI',
+    description: 'IP and domain reputation checking against threat feeds. LRU cache for fast lookups. JSONL/CSV/JSON feed support.',
+    color: 'text-rose-400',
+    bgColor: 'bg-rose-400/10',
+    borderColor: 'border-rose-400/30',
+    activeColor: 'bg-rose-400/20 border-rose-400/60',
   },
   {
-    id: 'detectors',
-    label: 'Detectors',
+    id: 'cors',
+    label: 'CORS',
+    shortLabel: 'CO',
+    description: 'Cross-Origin Resource Sharing validation with wildcard patterns. Origin allowlist, preflight handling, strict mode.',
+    color: 'text-cyan-400',
+    bgColor: 'bg-cyan-400/10',
+    borderColor: 'border-cyan-400/30',
+    activeColor: 'bg-cyan-400/20 border-cyan-400/60',
+  },
+  {
+    id: 'ratelimit',
+    label: 'Rate Limit',
+    shortLabel: 'RL',
+    description: 'Token bucket rate limiting per IP or IP+path. Configurable windows, burst allowances, auto-ban triggers.',
+    color: 'text-indigo-400',
+    bgColor: 'bg-indigo-400/10',
+    borderColor: 'border-indigo-400/30',
+    activeColor: 'bg-indigo-400/20 border-indigo-400/60',
+  },
+  {
+    id: 'ato',
+    label: 'ATO Protection',
+    shortLabel: 'AT',
+    description: 'Account takeover prevention: brute force detection, credential stuffing, password spray, impossible travel.',
+    color: 'text-pink-400',
+    bgColor: 'bg-pink-400/10',
+    borderColor: 'border-pink-400/30',
+    activeColor: 'bg-pink-400/20 border-pink-400/60',
+  },
+  {
+    id: 'apisecurity',
+    label: 'API Security',
+    shortLabel: 'AP',
+    description: 'JWT validation (RS256/ES256/HS256), JWKS endpoint support, API key authentication with path-based authorization.',
+    color: 'text-teal-400',
+    bgColor: 'bg-teal-400/10',
+    borderColor: 'border-teal-400/30',
+    activeColor: 'bg-teal-400/20 border-teal-400/60',
+  },
+  {
+    id: 'sanitizer',
+    label: 'Sanitizer',
+    shortLabel: 'SA',
+    description: 'Request normalization and validation: URL/header/body size limits, null byte blocking, encoding normalization.',
+    color: 'text-amber-400',
+    bgColor: 'bg-amber-400/10',
+    borderColor: 'border-amber-400/30',
+    activeColor: 'bg-amber-400/20 border-amber-400/60',
+  },
+  {
+    id: 'detection',
+    label: 'Detection',
     shortLabel: 'DT',
-    description: 'Six parallel detectors analyze tokens: SQLi, XSS, Path Traversal, Command Injection, XXE, SSRF. Plus JA3/UA/behavioral bot detection.',
+    description: 'Six tokenizer-based detectors: SQLi, XSS, Path Traversal, Command Injection, XXE, SSRF. State-machine analysis.',
     color: 'text-orange-400',
     bgColor: 'bg-orange-400/10',
     borderColor: 'border-orange-400/30',
     activeColor: 'bg-orange-400/20 border-orange-400/60',
   },
   {
-    id: 'scoring',
-    label: 'Scoring',
-    shortLabel: 'SC',
-    description: 'Scoring engine aggregates detector signals with per-rule weights. Composite score determines threat level.',
-    color: 'text-yellow-400',
-    bgColor: 'bg-yellow-400/10',
-    borderColor: 'border-yellow-400/30',
-    activeColor: 'bg-yellow-400/20 border-yellow-400/60',
-  },
-  {
-    id: 'decision',
-    label: 'Decision',
-    shortLabel: 'DC',
-    description: 'Action engine applies configurable thresholds. Routes to ALLOW, LOG, JS CHALLENGE (PoW), or BLOCK based on final score.',
-    color: 'text-red-400',
-    bgColor: 'bg-red-400/10',
-    borderColor: 'border-red-400/30',
-    activeColor: 'bg-red-400/20 border-red-400/60',
+    id: 'botdetect',
+    label: 'Bot Detection',
+    shortLabel: 'BD',
+    description: 'JA3/JA4 TLS fingerprinting, User-Agent analysis, behavioral analysis. JS Challenge (SHA-256 PoW) for suspicious clients.',
+    color: 'text-purple-400',
+    bgColor: 'bg-purple-400/10',
+    borderColor: 'border-purple-400/30',
+    activeColor: 'bg-purple-400/20 border-purple-400/60',
   },
   {
     id: 'response',
     label: 'Response',
     shortLabel: 'RS',
-    description: 'Clean requests are load-balanced to upstream targets (4 strategies, health checks, circuit breaker). Blocked requests get branded HTML error pages.',
+    description: 'Security headers injection (HSTS, X-Frame-Options, CSP), data masking (credit cards, SSN, API keys), error pages.',
     color: 'text-green-400',
     bgColor: 'bg-green-400/10',
     borderColor: 'border-green-400/30',
@@ -72,45 +112,84 @@ export function Architecture() {
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-12 sm:mb-16">
           <h2 id="architecture-heading" className="text-3xl sm:text-4xl font-bold text-foreground">
-            Detection Pipeline
+            10-Layer Security Pipeline
           </h2>
           <p className="mt-4 text-lg text-muted max-w-2xl mx-auto">
-            Every request flows through a six-stage pipeline. Each stage is modular, configurable, and designed for sub-millisecond processing.
+            Every request flows through ten modular layers, each designed for sub-millisecond processing. Zero external dependencies.
           </p>
         </div>
 
         {/* Pipeline visualization */}
         <div className="relative">
-          {/* Desktop: horizontal pipeline */}
-          <div className="hidden lg:flex items-center justify-center gap-2">
-            {steps.map((step, i) => (
-              <div key={step.id} className="flex items-center">
-                <button
-                  className={cn(
-                    'relative flex flex-col items-center gap-2 px-6 py-4 rounded-xl border-2 transition-all duration-300 cursor-pointer min-w-[130px]',
-                    activeStep === step.id
-                      ? step.activeColor
-                      : `${step.bgColor} ${step.borderColor} hover:scale-105`
+          {/* Desktop: two-row horizontal pipeline */}
+          <div className="hidden lg:flex flex-col items-center gap-6">
+            {/* First row: layers 1-5 */}
+            <div className="flex items-center justify-center gap-2">
+              {steps.slice(0, 5).map((step, i) => (
+                <div key={step.id} className="flex items-center">
+                  <button
+                    className={cn(
+                      'relative flex flex-col items-center gap-2 px-4 py-3 rounded-xl border-2 transition-all duration-300 cursor-pointer min-w-[110px]',
+                      activeStep === step.id
+                        ? step.activeColor
+                        : `${step.bgColor} ${step.borderColor} hover:scale-105`
+                    )}
+                    onMouseEnter={() => setActiveStep(step.id)}
+                    onMouseLeave={() => setActiveStep(null)}
+                    onFocus={() => setActiveStep(step.id)}
+                    onBlur={() => setActiveStep(null)}
+                    aria-label={`Pipeline step: ${step.label}`}
+                  >
+                    <span className={cn('text-xs font-mono font-bold', step.color)}>
+                      {String(i + 1).padStart(2, '0')}
+                    </span>
+                    <span className="text-xs font-semibold text-foreground">{step.label}</span>
+                  </button>
+                  {i < 4 && (
+                    <div className="flex items-center px-1">
+                      <div className="w-4 h-px bg-border" />
+                      <div className="w-0 h-0 border-t-[4px] border-t-transparent border-b-[4px] border-b-transparent border-l-[5px] border-l-border" />
+                    </div>
                   )}
-                  onMouseEnter={() => setActiveStep(step.id)}
-                  onMouseLeave={() => setActiveStep(null)}
-                  onFocus={() => setActiveStep(step.id)}
-                  onBlur={() => setActiveStep(null)}
-                  aria-label={`Pipeline step: ${step.label}`}
-                >
-                  <span className={cn('text-xs font-mono font-bold', step.color)}>
-                    {String(i + 1).padStart(2, '0')}
-                  </span>
-                  <span className="text-sm font-semibold text-foreground">{step.label}</span>
-                </button>
-                {i < steps.length - 1 && (
-                  <div className="flex items-center px-1">
-                    <div className="w-6 h-px bg-border" />
-                    <div className="w-0 h-0 border-t-[5px] border-t-transparent border-b-[5px] border-b-transparent border-l-[6px] border-l-border" />
-                  </div>
-                )}
-              </div>
-            ))}
+                </div>
+              ))}
+            </div>
+            {/* Arrow down */}
+            <div className="flex items-center">
+              <div className="h-6 w-px bg-border" />
+              <div className="w-0 h-0 border-l-[5px] border-l-transparent border-r-[5px] border-r-transparent border-t-[6px] border-t-border ml-[-5px]" />
+            </div>
+            {/* Second row: layers 6-10 */}
+            <div className="flex items-center justify-center gap-2">
+              {steps.slice(5).map((step, i) => (
+                <div key={step.id} className="flex items-center">
+                  <button
+                    className={cn(
+                      'relative flex flex-col items-center gap-2 px-4 py-3 rounded-xl border-2 transition-all duration-300 cursor-pointer min-w-[110px]',
+                      activeStep === step.id
+                        ? step.activeColor
+                        : `${step.bgColor} ${step.borderColor} hover:scale-105`
+                    )}
+                    onMouseEnter={() => setActiveStep(step.id)}
+                    onMouseLeave={() => setActiveStep(null)}
+                    onFocus={() => setActiveStep(step.id)}
+                    onBlur={() => setActiveStep(null)}
+                    aria-label={`Pipeline step: ${step.label}`}
+                  >
+                    <span className={cn('text-xs font-mono font-bold', step.color)}>
+                      {String(i + 6).padStart(2, '0')}
+                    </span>
+                    <span className="text-xs font-semibold text-foreground">{step.label}</span>
+                  </button>
+                  {i < 4 && (
+                    <div className="flex items-center px-1">
+                      <div className="w-4 h-px bg-border" />
+                      <div className="w-0 h-0 border-t-[4px] border-t-transparent border-b-[4px] border-b-transparent border-l-[5px] border-l-border" />
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* Mobile: vertical pipeline */}
@@ -158,7 +237,7 @@ export function Architecture() {
               </div>
             ) : (
               <p className="text-muted/60 text-sm">
-                Hover over a stage to learn more
+                Hover over a layer to learn more
               </p>
             )}
           </div>

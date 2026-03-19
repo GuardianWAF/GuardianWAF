@@ -24,6 +24,10 @@ const rows: ComparisonRow[] = [
   { feature: 'Embeddable Library', guardianwaf: 'yes', safeline: 'no', coraza: 'yes', modsecurity: 'no', naxsi: 'no' },
   { feature: 'MCP / AI Integration', guardianwaf: 'yes', safeline: 'no', coraza: 'no', modsecurity: 'no', naxsi: 'no' },
   { feature: 'Bot Detection (JA3 + UA + Behavior)', guardianwaf: 'yes', safeline: 'yes', coraza: 'partial', modsecurity: 'partial', naxsi: 'no' },
+  { feature: 'Threat Intelligence Feeds', guardianwaf: 'yes', safeline: 'no', coraza: 'no', modsecurity: 'partial', naxsi: 'no' },
+  { feature: 'CORS Security Layer', guardianwaf: 'yes', safeline: 'no', coraza: 'no', modsecurity: 'no', naxsi: 'no' },
+  { feature: 'ATO Protection', guardianwaf: 'yes', safeline: 'no', coraza: 'no', modsecurity: 'no', naxsi: 'no' },
+  { feature: 'API Security (JWT + API Keys)', guardianwaf: 'yes', safeline: 'no', coraza: 'no', modsecurity: 'no', naxsi: 'no' },
   { feature: '<1ms p99 Latency', guardianwaf: 'yes', safeline: 'no', coraza: 'partial', modsecurity: 'no', naxsi: 'yes' },
 ]
 
