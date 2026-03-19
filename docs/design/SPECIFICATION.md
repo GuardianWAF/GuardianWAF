@@ -727,12 +727,25 @@ Captured via `tls.Config.GetConfigForClient` callback.
 
 **JA3:** `MD5(SSLVersion,Ciphers,Extensions,EllipticCurves,ECPointFormats)`
 
+**JA4:** FoxIO's modern TLS fingerprinting standard. Format:
+```
+{protocol}{version}{sni}{cipher_count}{ext_count}{alpn}_{cipher_hash}_{ext_hash}
+```
+Example: `t13d1516h2_8daaf6152771_e5627efa2ab1`
+
+JA4 advantages over JA3:
+- QUIC/DTLS protocol support (`q`, `d`, `t` prefix)
+- Truncated SHA256 instead of MD5 (12 chars)
+- GREASE value filtering per RFC 8701
+- ALPN consideration in fingerprint
+- Lower collision rate
+
 | Category | Examples | Score |
 |----------|---------|-------|
 | Known good browsers | Chrome 120+, Firefox 120+, Safari 17+, Edge 120+ | 0 |
 | Known scanners | Python requests, Go net/http, curl, sqlmap, nikto, nmap, masscan, nuclei, httpx, gobuster, ffuf, wfuzz | 80 |
 | Suspicious automation | Headless Chrome, Selenium, Puppeteer, PhantomJS, playwright | 50 |
-| Unknown | JA3 not in database | 20 |
+| Unknown | JA3/JA4 not in database | 20 |
 
 **Mismatch detection:** JA3 says Chrome but UA says otherwise -> Score 65.
 **No TLS:** Score 10 (many setups terminate TLS at load balancer).

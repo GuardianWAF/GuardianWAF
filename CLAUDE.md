@@ -28,7 +28,7 @@ go vet ./...        # Vet all packages
 2. Rate Limit (200) — token bucket per IP/path
 3. Sanitizer (300) — normalize + validate requests
 4. Detection (400) — 6 detectors: sqli, xss, lfi, cmdi, xxe, ssrf
-5. Bot Detection (500) — JA3, UA, behavioral analysis
+5. Bot Detection (500) — JA3/JA4 TLS fingerprinting, UA, behavioral analysis
 6. JS Challenge — SHA-256 proof-of-work for suspicious requests (score 40-79)
 7. Response (600) — security headers, data masking
 
