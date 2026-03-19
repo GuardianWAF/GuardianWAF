@@ -138,6 +138,13 @@ func DefaultConfig() *Config {
 			Listen:  ":9443",
 			TLS:     true,
 		},
+		Docker: DockerConfig{
+			Enabled:      false,
+			SocketPath:   "/var/run/docker.sock",
+			LabelPrefix:  "gwaf",
+			PollInterval: 5 * time.Second,
+			Network:      "bridge",
+		},
 		MCP: MCPConfig{
 			Enabled:   true,
 			Transport: "stdio",

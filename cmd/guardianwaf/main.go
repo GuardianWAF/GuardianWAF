@@ -19,6 +19,7 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/acme"
 	"github.com/guardianwaf/guardianwaf/internal/ai"
 	"github.com/guardianwaf/guardianwaf/internal/config"
+	dkr "github.com/guardianwaf/guardianwaf/internal/docker"
 	"github.com/guardianwaf/guardianwaf/internal/dashboard"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/events"
@@ -529,7 +530,41 @@ func cmdServe(args []string) {
 		}
 	}
 
-	// 10c. Wire SSE broadcaster to event bus for real-time dashboard updates
+	// 10c. Start Docker auto-discovery if enabled
+	var dockerWatcher *dkr.Watcher
+	if cfg.Docker.Enabled {
+		dockerClient := dkr.NewClient(cfg.Docker.SocketPath)
+		if err := dockerClient.Ping(); err != nil {
+			eng.Logs.Warnf("Docker: connection failed: %v (auto-discovery disabled)", err)
+		} else {
+			dockerWatcher = dkr.NewWatcher(dockerClient, cfg.Docker.LabelPrefix, cfg.Docker.Network, cfg.Docker.PollInterval)
+			dockerWatcher.SetLogger(eng.Logs.Add)
+			dockerWatcher.SetOnChange(func() {
+				services := dockerWatcher.Services()
+				mergedCfg := dkr.BuildConfig(services, cfg)
+				newHandler, _ := buildReverseProxy(mergedCfg)
+				newRouter, ok := newHandler.(*proxy.Router)
+				if ok && newRouter != nil {
+					proxyRouter = newRouter
+					if dash != nil {
+						rr := newRouter
+						dash.SetUpstreamsFn(func() any { return rr.AllUpstreamStatus() })
+					}
+				}
+				upstreamHandler.Store(eng.Middleware(newHandler))
+				eng.Logs.Infof("Docker: proxy rebuilt (%d services discovered)", len(services))
+			})
+			dockerWatcher.Start()
+			eng.Logs.Infof("Docker auto-discovery enabled (socket: %s, prefix: %s)", cfg.Docker.SocketPath, cfg.Docker.LabelPrefix)
+
+			// Wire dashboard endpoint
+			if dash != nil {
+				dash.SetDockerWatcher(dockerWatcher)
+			}
+		}
+	}
+
+	// 10d. Wire SSE broadcaster to event bus for real-time dashboard updates
 	if sseBroadcaster != nil {
 		eventCh := make(chan engine.Event, 256)
 		eventBus.Subscribe(eventCh)
@@ -611,7 +646,10 @@ func cmdServe(args []string) {
 		}
 	}
 
-	// 4. Stop AI analyzer
+	// 4. Stop Docker watcher and AI analyzer
+	if dockerWatcher != nil {
+		dockerWatcher.Stop()
+	}
 	if aiAnalyzer != nil {
 		aiAnalyzer.Stop()
 	}

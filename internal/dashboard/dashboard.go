@@ -43,6 +43,7 @@ type Dashboard struct {
 	toggleRuleFn  func(string, bool) bool
 	geoLookupFn   func(string) (string, string) // ip -> (country_code, country_name)
 	aiAnalyzer    aiAnalyzerInterface          // AI threat analyzer (optional)
+	dockerWatcher dockerWatcherInterface       // Docker auto-discovery (optional)
 }
 
 // New creates a new Dashboard wired to the given engine and event store.
@@ -97,6 +98,9 @@ func New(eng *engine.Engine, store events.EventStore, apiKey string) *Dashboard 
 	d.mux.HandleFunc("GET /api/v1/ai/stats", d.authWrap(d.handleAIStats))
 	d.mux.HandleFunc("POST /api/v1/ai/analyze", d.authWrap(d.handleAIAnalyze))
 	d.mux.HandleFunc("POST /api/v1/ai/test", d.authWrap(d.handleAITest))
+
+	// Docker auto-discovery endpoints
+	d.mux.HandleFunc("GET /api/v1/docker/services", d.authWrap(d.handleDockerServices))
 
 	// SPA serving — React build output from dist/ with fallback to legacy static/
 	d.mux.HandleFunc("GET /assets/", d.authWrap(d.handleDistAssets)) // Vite hashed assets

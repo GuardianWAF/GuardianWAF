@@ -6,6 +6,7 @@ services:
       - "9443:9443"
     volumes:
       - ./examples/standalone/guardianwaf.yaml:/etc/guardianwaf/guardianwaf.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro  # Docker auto-discovery
     command: ["serve", "-c", "/etc/guardianwaf/guardianwaf.yaml"]
     environment:
       - GWAF_MODE=enforce
@@ -15,7 +16,7 @@ services:
       - backend2
     restart: unless-stopped
 
-  # Primary backend (weight: 3)
+  # Primary backend (weight: 3) — auto-discovered via labels
   backend:
     image: golang:1.23-alpine
     working_dir: /app
@@ -24,8 +25,16 @@ services:
     command: ["go", "run", "main.go"]
     expose:
       - "3000"
+    labels:
+      gwaf.enable: "true"
+      gwaf.host: "app.localhost"
+      gwaf.upstream: "app-pool"
+      gwaf.port: "3000"
+      gwaf.weight: "3"
+      gwaf.health.path: "/healthz"
+      gwaf.lb: "weighted"
 
-  # Secondary backend for load balancing demo (weight: 1)
+  # Secondary backend for load balancing demo (weight: 1) — auto-discovered
   backend2:
     image: golang:1.23-alpine
     working_dir: /app
@@ -34,3 +43,11 @@ services:
     command: ["go", "run", "main.go"]
     expose:
       - "3000"
+    labels:
+      gwaf.enable: "true"
+      gwaf.host: "app.localhost"
+      gwaf.upstream: "app-pool"
+      gwaf.port: "3000"
+      gwaf.weight: "1"
+      gwaf.health.path: "/healthz"
+      gwaf.lb: "weighted"

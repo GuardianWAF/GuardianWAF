@@ -18,8 +18,18 @@ type Config struct {
 	WAF       WAFConfig       `yaml:"waf"`
 	Dashboard DashboardConfig `yaml:"dashboard"`
 	MCP       MCPConfig       `yaml:"mcp"`
+	Docker    DockerConfig    `yaml:"docker"`
 	Logging   LogConfig       `yaml:"logging"`
 	Events    EventsConfig    `yaml:"events"`
+}
+
+// DockerConfig controls Docker container auto-discovery.
+type DockerConfig struct {
+	Enabled      bool          `yaml:"enabled"`
+	SocketPath   string        `yaml:"socket_path"`   // default: /var/run/docker.sock
+	LabelPrefix  string        `yaml:"label_prefix"`  // default: gwaf
+	PollInterval time.Duration `yaml:"poll_interval"` // default: 5s
+	Network      string        `yaml:"network"`       // default: bridge
 }
 
 // TLSConfig holds TLS/SSL settings including optional ACME auto-certificate.
