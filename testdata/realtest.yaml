@@ -1,0 +1,128 @@
+mode: enforce
+listen: ":8080"
+
+upstreams:
+  - name: backend
+    targets:
+      - url: http://localhost:3000
+        weight: 1
+    health_check:
+      enabled: true
+      interval: 10s
+      timeout: 3s
+      path: /healthz
+
+routes:
+  - path: /
+    upstream: backend
+
+waf:
+  ip_acl:
+    enabled: true
+    whitelist: []
+    blacklist: []
+    auto_ban:
+      enabled: true
+      default_ttl: 5m
+      max_ttl: 1h
+
+  rate_limit:
+    enabled: true
+    rules:
+      - id: global
+        scope: ip
+        limit: 100
+        window: 10s
+        burst: 120
+        action: block
+
+  sanitizer:
+    enabled: true
+    max_url_length: 4096
+    max_header_size: 8192
+    max_header_count: 50
+    max_body_size: 1048576
+    max_cookie_size: 4096
+    block_null_bytes: true
+    strip_hop_by_hop: true
+    allowed_methods:
+      - GET
+      - POST
+      - PUT
+      - DELETE
+      - PATCH
+      - HEAD
+      - OPTIONS
+
+  detection:
+    enabled: true
+    threshold:
+      block: 50
+      log: 25
+    detectors:
+      sqli:
+        enabled: true
+        multiplier: 1.0
+      xss:
+        enabled: true
+        multiplier: 1.0
+      lfi:
+        enabled: true
+        multiplier: 1.0
+      cmdi:
+        enabled: true
+        multiplier: 1.0
+      xxe:
+        enabled: true
+        multiplier: 1.0
+      ssrf:
+        enabled: true
+        multiplier: 1.0
+
+  bot_detection:
+    enabled: true
+    mode: enforce
+    user_agent:
+      enabled: true
+      block_empty: true
+      block_known_scanners: true
+    behavior:
+      enabled: true
+      window: 30s
+      rps_threshold: 50
+      error_rate_threshold: 80
+
+  challenge:
+    enabled: false
+
+  response:
+    security_headers:
+      enabled: true
+      x_frame_options: DENY
+      referrer_policy: strict-origin-when-cross-origin
+      hsts:
+        enabled: false
+    data_masking:
+      enabled: true
+      mask_credit_cards: true
+      mask_ssn: true
+      mask_api_keys: true
+      strip_stack_traces: true
+
+dashboard:
+  enabled: true
+  listen: ":9443"
+  api_key: test-api-key-2024
+
+mcp:
+  enabled: false
+
+logging:
+  level: info
+  format: text
+  log_blocked: true
+  log_allowed: false
+
+events:
+  storage: memory
+  max_events: 10000
