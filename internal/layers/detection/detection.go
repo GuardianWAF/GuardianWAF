@@ -2,6 +2,7 @@ package detection
 
 import (
 	"strings"
+	"sync"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/layers/detection/cmdi"
@@ -34,6 +35,7 @@ type Exclusion struct {
 
 // Layer implements engine.Layer and runs all attack detectors.
 type Layer struct {
+	mu        sync.RWMutex
 	config    Config
 	detectors []engine.Detector
 }
@@ -67,6 +69,33 @@ func NewLayer(cfg Config) *Layer {
 
 func (l *Layer) Name() string { return "detection" }
 
+// AddExclusion adds a detection exclusion dynamically at runtime.
+func (l *Layer) AddExclusion(exc Exclusion) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	// Replace if same path prefix exists
+	for i, e := range l.config.Exclusions {
+		if e.PathPrefix == exc.PathPrefix {
+			l.config.Exclusions[i] = exc
+			return
+		}
+	}
+	l.config.Exclusions = append(l.config.Exclusions, exc)
+}
+
+// RemoveExclusion removes a detection exclusion by path prefix. Returns true if found.
+func (l *Layer) RemoveExclusion(pathPrefix string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for i, e := range l.config.Exclusions {
+		if e.PathPrefix == pathPrefix {
+			l.config.Exclusions = append(l.config.Exclusions[:i], l.config.Exclusions[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	if !l.config.Enabled {
 		return engine.LayerResult{Action: engine.ActionPass}
@@ -99,7 +128,12 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 }
 
 func (l *Layer) isExcluded(detectorName, path string) bool {
-	for _, exc := range l.config.Exclusions {
+	l.mu.RLock()
+	exclusions := make([]Exclusion, len(l.config.Exclusions))
+	copy(exclusions, l.config.Exclusions)
+	l.mu.RUnlock()
+
+	for _, exc := range exclusions {
 		if strings.HasPrefix(path, exc.PathPrefix) {
 			for _, d := range exc.Detectors {
 				if d == detectorName {

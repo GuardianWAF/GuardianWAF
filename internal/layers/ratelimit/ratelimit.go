@@ -29,6 +29,7 @@ type Config struct {
 
 // Layer implements engine.Layer for rate limiting.
 type Layer struct {
+	mu         sync.RWMutex
 	config     Config
 	buckets    sync.Map // key -> *TokenBucket
 	violations sync.Map // key -> *int64 (violation count for auto-ban)
@@ -47,6 +48,40 @@ func NewLayer(cfg Config) *Layer {
 // Name returns the layer name.
 func (l *Layer) Name() string { return "ratelimit" }
 
+// AddRule adds a rate limit rule dynamically at runtime.
+func (l *Layer) AddRule(rule Rule) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	// Replace if rule with same ID exists
+	for i, r := range l.config.Rules {
+		if r.ID == rule.ID {
+			l.config.Rules[i] = rule
+			return
+		}
+	}
+	l.config.Rules = append(l.config.Rules, rule)
+}
+
+// RemoveRule removes a rate limit rule by ID. Returns true if found and removed.
+func (l *Layer) RemoveRule(id string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for i, r := range l.config.Rules {
+		if r.ID == id {
+			l.config.Rules = append(l.config.Rules[:i], l.config.Rules[i+1:]...)
+			// Clean up buckets associated with this rule
+			l.buckets.Range(func(key, _ any) bool {
+				if strings.HasPrefix(key.(string), id+":") {
+					l.buckets.Delete(key)
+				}
+				return true
+			})
+			return true
+		}
+	}
+	return false
+}
+
 // Process checks the request against all rate limit rules.
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	if !l.config.Enabled {
@@ -63,8 +98,13 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	totalScore := 0
 	blocked := false
 
-	for i := range l.config.Rules {
-		rule := &l.config.Rules[i]
+	l.mu.RLock()
+	rules := make([]Rule, len(l.config.Rules))
+	copy(rules, l.config.Rules)
+	l.mu.RUnlock()
+
+	for i := range rules {
+		rule := &rules[i]
 
 		if !l.matchesRule(rule, reqPath) {
 			continue

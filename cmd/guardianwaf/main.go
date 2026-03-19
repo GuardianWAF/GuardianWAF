@@ -155,7 +155,37 @@ func cmdServe(args []string) {
 
 	// 6. Wire all layers
 	addLayers(eng, cfg)
+	// Apply log level filtering
+	if cfg.Logging.Level != "" {
+		eng.Logs.SetLevel(cfg.Logging.Level)
+	}
 	eng.Logs.Infof("Engine initialized in %s mode (block=%d, log=%d)", cfg.Mode, cfg.WAF.Detection.Threshold.Block, cfg.WAF.Detection.Threshold.Log)
+
+	// 6b. Set up structured access logging
+	if cfg.Logging.LogBlocked || cfg.Logging.LogAllowed {
+		logBlocked := cfg.Logging.LogBlocked
+		logAllowed := cfg.Logging.LogAllowed
+		eng.SetAccessLog(func(entry engine.AccessLogEntry) {
+			isBlocked := entry.Action == "block" || entry.Action == "challenge"
+			if isBlocked && !logBlocked {
+				return
+			}
+			if !isBlocked && !logAllowed {
+				return
+			}
+			if cfg.Logging.Format == "json" {
+				fmt.Fprintf(os.Stdout, `{"ts":%q,"ip":%q,"method":%q,"path":%q,"status":%d,"action":%q,"score":%d,"dur_us":%s,"ua":%q,"findings":%d}`+"\n",
+					entry.Timestamp, entry.ClientIP, entry.Method, entry.Path,
+					entry.StatusCode, entry.Action, entry.Score, entry.Duration,
+					entry.UserAgent, entry.Findings)
+			} else {
+				fmt.Fprintf(os.Stdout, "%s %s %s %s %d %s score=%d dur=%sus findings=%d\n",
+					entry.Timestamp, entry.ClientIP, entry.Method, entry.Path,
+					entry.StatusCode, entry.Action, entry.Score, entry.Duration, entry.Findings)
+			}
+		})
+		eng.Logs.Infof("Access logging enabled (blocked=%v, allowed=%v, format=%s)", logBlocked, logAllowed, cfg.Logging.Format)
+	}
 
 	// 7. Set up JS challenge service if enabled
 	var challengeSvc *challenge.Service
@@ -175,6 +205,39 @@ func cmdServe(args []string) {
 
 	// 8. Build handler
 	serveMux := http.NewServeMux()
+
+	// Health check endpoint for Kubernetes liveness/readiness probes
+	serveMux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		s := eng.Stats()
+		fmt.Fprintf(w, `{"status":"ok","mode":%q,"total_requests":%d,"blocked_requests":%d}`,
+			cfg.Mode, s.TotalRequests, s.BlockedRequests)
+	})
+
+	// Prometheus-compatible metrics endpoint
+	serveMux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+		s := eng.Stats()
+		fmt.Fprintf(w, "# HELP guardianwaf_requests_total Total number of requests processed.\n")
+		fmt.Fprintf(w, "# TYPE guardianwaf_requests_total counter\n")
+		fmt.Fprintf(w, "guardianwaf_requests_total %d\n", s.TotalRequests)
+		fmt.Fprintf(w, "# HELP guardianwaf_requests_blocked_total Total number of blocked requests.\n")
+		fmt.Fprintf(w, "# TYPE guardianwaf_requests_blocked_total counter\n")
+		fmt.Fprintf(w, "guardianwaf_requests_blocked_total %d\n", s.BlockedRequests)
+		fmt.Fprintf(w, "# HELP guardianwaf_requests_challenged_total Total number of challenged requests.\n")
+		fmt.Fprintf(w, "# TYPE guardianwaf_requests_challenged_total counter\n")
+		fmt.Fprintf(w, "guardianwaf_requests_challenged_total %d\n", s.ChallengedRequests)
+		fmt.Fprintf(w, "# HELP guardianwaf_requests_logged_total Total number of logged (suspicious) requests.\n")
+		fmt.Fprintf(w, "# TYPE guardianwaf_requests_logged_total counter\n")
+		fmt.Fprintf(w, "guardianwaf_requests_logged_total %d\n", s.LoggedRequests)
+		fmt.Fprintf(w, "# HELP guardianwaf_requests_passed_total Total number of passed requests.\n")
+		fmt.Fprintf(w, "# TYPE guardianwaf_requests_passed_total counter\n")
+		fmt.Fprintf(w, "guardianwaf_requests_passed_total %d\n", s.PassedRequests)
+		fmt.Fprintf(w, "# HELP guardianwaf_latency_avg_microseconds Average request latency in microseconds.\n")
+		fmt.Fprintf(w, "# TYPE guardianwaf_latency_avg_microseconds gauge\n")
+		fmt.Fprintf(w, "guardianwaf_latency_avg_microseconds %d\n", s.AvgLatencyUs)
+	})
 
 	// Mount challenge verification endpoint
 	if challengeSvc != nil {
@@ -311,13 +374,17 @@ func cmdServe(args []string) {
 
 	// 10. Start MCP server if enabled
 	if cfg.MCP.Enabled && cfg.MCP.Transport == "stdio" {
-		go startMCPServer(eng, cfg)
+		go startMCPServer(eng, cfg, eventStore)
 	}
 
 	// 10. Start dashboard if enabled
 	var dashSrv *http.Server
 	var sseBroadcaster *dashboard.SSEBroadcaster
 	if cfg.Dashboard.Enabled && cfg.Dashboard.Listen != "" {
+		// Use API key as persistent session secret so sessions survive restarts
+		if cfg.Dashboard.APIKey != "" {
+			dashboard.SetSessionSecret(cfg.Dashboard.APIKey)
+		}
 		var dash *dashboard.Dashboard
 		dashSrv, sseBroadcaster, dash = startDashboard(cfg, eng)
 		// Inject upstream status provider and rebuild function
@@ -392,6 +459,33 @@ func cmdServe(args []string) {
 				upstreamHandler.Store(eng.Middleware(newHandler))
 				return nil
 			})
+			// Persist config changes to disk
+			cfgPath := *configPath
+			dash.SetSaveFn(func() error {
+				c := eng.Config()
+				// Sync custom rules from rules layer back to config
+				if rl := eng.FindLayer("rules"); rl != nil {
+					type rulesGetter interface{ Rules() []rules.Rule }
+					if rg, ok := rl.(rulesGetter); ok {
+						liveRules := rg.Rules()
+						cfgRules := make([]config.CustomRule, len(liveRules))
+						for i, r := range liveRules {
+							conds := make([]config.RuleCondition, len(r.Conditions))
+							for j, cond := range r.Conditions {
+								conds[j] = config.RuleCondition{Field: cond.Field, Op: cond.Op, Value: cond.Value}
+							}
+							cfgRules[i] = config.CustomRule{
+								ID: r.ID, Name: r.Name, Enabled: r.Enabled,
+								Priority: r.Priority, Conditions: conds,
+								Action: r.Action, Score: r.Score,
+							}
+						}
+						c.WAF.CustomRules.Enabled = len(cfgRules) > 0
+						c.WAF.CustomRules.Rules = cfgRules
+					}
+				}
+				return config.SaveFile(cfgPath, c)
+			})
 		}
 	}
 
@@ -455,16 +549,29 @@ func cmdServe(args []string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
+	// 1. Stop accepting new requests
 	srv.Shutdown(ctx)
 	if tlsSrv != nil {
 		tlsSrv.Shutdown(ctx)
 	}
+
+	// 2. Stop background services
 	if certStore != nil {
 		certStore.StopReload()
 	}
 	if dashSrv != nil {
 		dashSrv.Shutdown(ctx)
 	}
+
+	// 3. Stop threat intel feed refresh loops
+	if tiLayer := eng.FindLayer("threat_intel"); tiLayer != nil {
+		type stopper interface{ Stop() }
+		if s, ok := tiLayer.(stopper); ok {
+			s.Stop()
+		}
+	}
+
+	// 4. Close engine (flushes pending events, closes event bus and store)
 	eng.Close()
 	fmt.Println("GuardianWAF stopped.")
 }
@@ -920,6 +1027,7 @@ func addLayers(eng *engine.Engine, cfg *config.Config) {
 			fmt.Fprintf(os.Stderr, "Warning: failed to create threat intel layer: %v\n", err)
 		} else {
 			eng.AddLayer(engine.OrderedLayer{Layer: tiLayer, Order: engine.OrderThreatIntel})
+			tiLayer.Start()
 			eng.Logs.Info("Threat intelligence layer enabled")
 		}
 	}
@@ -1286,10 +1394,10 @@ func startDashboard(cfg *config.Config, eng *engine.Engine) (*http.Server, *dash
 
 // startMCPServer starts the MCP JSON-RPC server over stdio.
 // It runs in a goroutine and blocks until stdin is closed.
-func startMCPServer(eng *engine.Engine, cfg *config.Config) {
+func startMCPServer(eng *engine.Engine, cfg *config.Config, store events.EventStore) {
 	mcpSrv := mcp.NewServer(os.Stdin, os.Stdout)
 	mcpSrv.SetServerInfo("guardianwaf", version)
-	mcpSrv.SetEngine(&mcpEngineAdapter{engine: eng, cfg: cfg})
+	mcpSrv.SetEngine(&mcpEngineAdapter{engine: eng, cfg: cfg, eventStore: store})
 	mcpSrv.RegisterAllTools()
 
 	if err := mcpSrv.Run(); err != nil {
@@ -1317,8 +1425,9 @@ func upstreamSummary(cfg *config.Config) string {
 
 // mcpEngineAdapter adapts the engine.Engine to the mcp.EngineInterface.
 type mcpEngineAdapter struct {
-	engine *engine.Engine
-	cfg    *config.Config
+	engine     *engine.Engine
+	cfg        *config.Config
+	eventStore events.EventStore
 }
 
 func (a *mcpEngineAdapter) GetStats() interface{} {
@@ -1410,30 +1519,168 @@ func (a *mcpEngineAdapter) RemoveBlacklist(ip string) error {
 }
 
 func (a *mcpEngineAdapter) AddRateLimit(rule interface{}) error {
+	layer := a.engine.FindLayer("ratelimit")
+	if layer == nil {
+		return fmt.Errorf("rate limit layer not available")
+	}
+	rlLayer := layer.(*ratelimit.Layer)
+
+	// Parse the rule from the MCP params
+	data, err := json.Marshal(rule)
+	if err != nil {
+		return fmt.Errorf("invalid rule: %w", err)
+	}
+	var p struct {
+		ID     string `json:"id"`
+		Scope  string `json:"scope"`
+		Limit  int    `json:"limit"`
+		Window string `json:"window"`
+		Action string `json:"action"`
+	}
+	if err := json.Unmarshal(data, &p); err != nil {
+		return fmt.Errorf("invalid rule format: %w", err)
+	}
+
+	window, err := time.ParseDuration(p.Window)
+	if err != nil {
+		return fmt.Errorf("invalid window duration: %w", err)
+	}
+
+	rlLayer.AddRule(ratelimit.Rule{
+		ID:     p.ID,
+		Scope:  p.Scope,
+		Limit:  p.Limit,
+		Window: window,
+		Action: p.Action,
+	})
 	return nil
 }
 
 func (a *mcpEngineAdapter) RemoveRateLimit(id string) error {
+	layer := a.engine.FindLayer("ratelimit")
+	if layer == nil {
+		return fmt.Errorf("rate limit layer not available")
+	}
+	rlLayer := layer.(*ratelimit.Layer)
+	if !rlLayer.RemoveRule(id) {
+		return fmt.Errorf("rate limit rule %s not found", id)
+	}
 	return nil
 }
 
 func (a *mcpEngineAdapter) AddExclusion(path string, detectors []string, reason string) error {
+	layer := a.engine.FindLayer("detection")
+	if layer == nil {
+		return fmt.Errorf("detection layer not available")
+	}
+	detLayer := layer.(*detection.Layer)
+	detLayer.AddExclusion(detection.Exclusion{
+		PathPrefix: path,
+		Detectors:  detectors,
+		Reason:     reason,
+	})
 	return nil
 }
 
 func (a *mcpEngineAdapter) RemoveExclusion(path string) error {
+	layer := a.engine.FindLayer("detection")
+	if layer == nil {
+		return fmt.Errorf("detection layer not available")
+	}
+	detLayer := layer.(*detection.Layer)
+	if !detLayer.RemoveExclusion(path) {
+		return fmt.Errorf("exclusion for path %s not found", path)
+	}
 	return nil
 }
 
 func (a *mcpEngineAdapter) GetEvents(params json.RawMessage) (interface{}, error) {
-	return map[string]interface{}{
-		"events": []interface{}{},
-		"total":  0,
-	}, nil
+	if a.eventStore == nil {
+		return map[string]any{"events": []any{}, "total": 0}, nil
+	}
+
+	// Parse query params
+	var p struct {
+		Limit    int    `json:"limit"`
+		Offset   int    `json:"offset"`
+		Action   string `json:"action"`
+		ClientIP string `json:"client_ip"`
+		MinScore int    `json:"min_score"`
+		Path     string `json:"path"`
+	}
+	if params != nil && len(params) > 0 {
+		json.Unmarshal(params, &p)
+	}
+	if p.Limit <= 0 {
+		p.Limit = 50
+	}
+
+	evts, total, err := a.eventStore.Query(events.EventFilter{
+		Limit:    p.Limit,
+		Offset:   p.Offset,
+		Action:   p.Action,
+		ClientIP: p.ClientIP,
+		MinScore: p.MinScore,
+		Path:     p.Path,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("querying events: %w", err)
+	}
+
+	// Convert to serializable format
+	items := make([]map[string]any, len(evts))
+	for i, ev := range evts {
+		items[i] = map[string]any{
+			"id":        ev.ID,
+			"timestamp": ev.Timestamp,
+			"client_ip": ev.ClientIP,
+			"method":    ev.Method,
+			"path":      ev.Path,
+			"action":    ev.Action.String(),
+			"score":     ev.Score,
+			"findings":  len(ev.Findings),
+		}
+	}
+
+	return map[string]any{"events": items, "total": total}, nil
 }
 
 func (a *mcpEngineAdapter) GetTopIPs(n int) interface{} {
-	return []interface{}{}
+	if a.eventStore == nil {
+		return []any{}
+	}
+
+	// Get recent events and aggregate by IP
+	evts, _ := a.eventStore.Recent(10000)
+	ipCounts := make(map[string]int)
+	ipScores := make(map[string]int)
+	for _, ev := range evts {
+		ipCounts[ev.ClientIP]++
+		ipScores[ev.ClientIP] += ev.Score
+	}
+
+	// Sort by count
+	type ipStat struct {
+		IP       string `json:"ip"`
+		Requests int    `json:"requests"`
+		Score    int    `json:"total_score"`
+	}
+	var stats []ipStat
+	for ip, count := range ipCounts {
+		stats = append(stats, ipStat{IP: ip, Requests: count, Score: ipScores[ip]})
+	}
+	// Sort descending by request count
+	for i := 0; i < len(stats); i++ {
+		for j := i + 1; j < len(stats); j++ {
+			if stats[j].Requests > stats[i].Requests {
+				stats[i], stats[j] = stats[j], stats[i]
+			}
+		}
+	}
+	if n > 0 && n < len(stats) {
+		stats = stats[:n]
+	}
+	return stats
 }
 
 func (a *mcpEngineAdapter) GetDetectors() interface{} {
@@ -1522,6 +1769,12 @@ func loadGeoIP(cfg *config.Config, eng *engine.Engine) *geoip.DB {
 		db, err := geoip.LoadCSV(cfg.WAF.GeoIP.DBPath)
 		if err == nil {
 			eng.Logs.Infof("GeoIP DB loaded: %d ranges from %s", db.Count(), cfg.WAF.GeoIP.DBPath)
+			// Start auto-refresh if auto-download is enabled
+			if cfg.WAF.GeoIP.AutoDownload {
+				stopFn := db.StartAutoRefresh(cfg.WAF.GeoIP.DBPath, cfg.WAF.GeoIP.DownloadURL, 7*24*time.Hour)
+				_ = stopFn // runs until process exits
+				eng.Logs.Info("GeoIP auto-refresh enabled (7 day interval)")
+			}
 			return db
 		}
 		eng.Logs.Warnf("GeoIP DB load failed: %v", err)
@@ -1540,6 +1793,10 @@ func loadGeoIP(cfg *config.Config, eng *engine.Engine) *geoip.DB {
 			return nil
 		}
 		eng.Logs.Infof("GeoIP DB ready: %d ranges", db.Count())
+		// Start auto-refresh
+		stopFn := db.StartAutoRefresh(path, cfg.WAF.GeoIP.DownloadURL, 7*24*time.Hour)
+		_ = stopFn
+		eng.Logs.Info("GeoIP auto-refresh enabled (7 day interval)")
 		return db
 	}
 

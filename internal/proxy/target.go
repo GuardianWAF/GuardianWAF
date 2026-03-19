@@ -51,6 +51,8 @@ func NewTarget(rawURL string, weight int) (*Target, error) {
 		IdleConnTimeout:     90 * time.Second,
 	}
 	t.proxy.Transport = transport
+	// Enable immediate flushing for streaming (SSE, WebSocket upgrade, chunked)
+	t.proxy.FlushInterval = -1
 
 	// Wire error handler for circuit breaker
 	t.proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {

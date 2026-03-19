@@ -129,10 +129,12 @@ func (cs *CertStore) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificat
 }
 
 // TLSConfig returns a tls.Config using this store for certificate selection.
+// HTTP/2 is enabled by default via NextProtos negotiation.
 func (cs *CertStore) TLSConfig() *tls.Config {
 	return &tls.Config{
 		MinVersion:     tls.VersionTLS12,
 		GetCertificate: cs.GetCertificate,
+		NextProtos:     []string{"h2", "http/1.1"},
 	}
 }
 

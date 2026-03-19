@@ -20,7 +20,9 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/events"
+	"github.com/guardianwaf/guardianwaf/internal/layers/detection"
 	"github.com/guardianwaf/guardianwaf/internal/layers/ipacl"
+	"github.com/guardianwaf/guardianwaf/internal/layers/ratelimit"
 )
 
 // --- isValidIPOrCIDR ---
@@ -276,6 +278,7 @@ func newTestAdapter(t *testing.T) *mcpEngineAdapter {
 		"sqli": {Enabled: true, Multiplier: 1.0},
 		"xss":  {Enabled: true, Multiplier: 1.0},
 	}
+	cfg.WAF.RateLimit.Enabled = true
 	store := events.NewMemoryStore(1000)
 	bus := events.NewEventBus()
 	eng, err := engine.NewEngine(cfg, store, bus)
@@ -288,8 +291,20 @@ func newTestAdapter(t *testing.T) *mcpEngineAdapter {
 		t.Fatalf("NewLayer ipacl error: %v", err)
 	}
 	eng.AddLayer(engine.OrderedLayer{Layer: ipaclLayer, Order: 100})
+	// Add rate limit layer for testing
+	rlLayer := ratelimit.NewLayer(ratelimit.Config{Enabled: true})
+	eng.AddLayer(engine.OrderedLayer{Layer: rlLayer, Order: 200})
+	// Add detection layer for testing
+	detLayer := detection.NewLayer(detection.Config{
+		Enabled:   true,
+		Detectors: map[string]detection.DetectorConfig{
+			"sqli": {Enabled: true, Multiplier: 1.0},
+			"xss":  {Enabled: true, Multiplier: 1.0},
+		},
+	})
+	eng.AddLayer(engine.OrderedLayer{Layer: detLayer, Order: 400})
 	t.Cleanup(func() { eng.Close() })
-	return &mcpEngineAdapter{engine: eng, cfg: cfg}
+	return &mcpEngineAdapter{engine: eng, cfg: cfg, eventStore: store}
 }
 
 func TestMCPAdapter_GetStats(t *testing.T) {
@@ -361,7 +376,7 @@ func TestMCPAdapter_WhitelistBlacklist(t *testing.T) {
 
 func TestMCPAdapter_RateLimit(t *testing.T) {
 	a := newTestAdapter(t)
-	if err := a.AddRateLimit(map[string]any{"limit": 10}); err != nil {
+	if err := a.AddRateLimit(map[string]any{"id": "r1", "scope": "ip", "limit": 10, "window": "1m", "action": "block"}); err != nil {
 		t.Errorf("AddRateLimit error: %v", err)
 	}
 	if err := a.RemoveRateLimit("r1"); err != nil {
@@ -2412,6 +2427,7 @@ func TestMCPEngineAdapter_GetConfig(t *testing.T) {
 
 func TestMCPEngineAdapter_AddRateLimit(t *testing.T) {
 	cfg := config.DefaultConfig()
+	cfg.WAF.RateLimit.Enabled = true
 	store := events.NewMemoryStore(1000)
 	bus := events.NewEventBus()
 	eng, err := engine.NewEngine(cfg, store, bus)
@@ -2419,9 +2435,10 @@ func TestMCPEngineAdapter_AddRateLimit(t *testing.T) {
 		t.Fatalf("NewEngine error: %v", err)
 	}
 	defer eng.Close()
+	eng.AddLayer(engine.OrderedLayer{Layer: ratelimit.NewLayer(ratelimit.Config{Enabled: true}), Order: 200})
 
-	adapter := &mcpEngineAdapter{engine: eng, cfg: cfg}
-	err = adapter.AddRateLimit(map[string]any{"limit": 10})
+	adapter := &mcpEngineAdapter{engine: eng, cfg: cfg, eventStore: store}
+	err = adapter.AddRateLimit(map[string]any{"id": "r1", "scope": "ip", "limit": 10, "window": "1m", "action": "block"})
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -2429,6 +2446,7 @@ func TestMCPEngineAdapter_AddRateLimit(t *testing.T) {
 
 func TestMCPEngineAdapter_RemoveRateLimit(t *testing.T) {
 	cfg := config.DefaultConfig()
+	cfg.WAF.RateLimit.Enabled = true
 	store := events.NewMemoryStore(1000)
 	bus := events.NewEventBus()
 	eng, err := engine.NewEngine(cfg, store, bus)
@@ -2436,8 +2454,12 @@ func TestMCPEngineAdapter_RemoveRateLimit(t *testing.T) {
 		t.Fatalf("NewEngine error: %v", err)
 	}
 	defer eng.Close()
+	rlLayer := ratelimit.NewLayer(ratelimit.Config{Enabled: true})
+	eng.AddLayer(engine.OrderedLayer{Layer: rlLayer, Order: 200})
 
-	adapter := &mcpEngineAdapter{engine: eng, cfg: cfg}
+	adapter := &mcpEngineAdapter{engine: eng, cfg: cfg, eventStore: store}
+	// Add a rule first, then remove it
+	_ = adapter.AddRateLimit(map[string]any{"id": "test-id", "scope": "ip", "limit": 10, "window": "1m", "action": "block"})
 	err = adapter.RemoveRateLimit("test-id")
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -2446,6 +2468,7 @@ func TestMCPEngineAdapter_RemoveRateLimit(t *testing.T) {
 
 func TestMCPEngineAdapter_AddExclusion(t *testing.T) {
 	cfg := config.DefaultConfig()
+	cfg.WAF.Detection.Enabled = true
 	store := events.NewMemoryStore(1000)
 	bus := events.NewEventBus()
 	eng, err := engine.NewEngine(cfg, store, bus)
@@ -2453,8 +2476,9 @@ func TestMCPEngineAdapter_AddExclusion(t *testing.T) {
 		t.Fatalf("NewEngine error: %v", err)
 	}
 	defer eng.Close()
+	eng.AddLayer(engine.OrderedLayer{Layer: detection.NewLayer(detection.Config{Enabled: true}), Order: 400})
 
-	adapter := &mcpEngineAdapter{engine: eng, cfg: cfg}
+	adapter := &mcpEngineAdapter{engine: eng, cfg: cfg, eventStore: store}
 	err = adapter.AddExclusion("/api", []string{"sqli"}, "test reason")
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -2463,6 +2487,7 @@ func TestMCPEngineAdapter_AddExclusion(t *testing.T) {
 
 func TestMCPEngineAdapter_RemoveExclusion(t *testing.T) {
 	cfg := config.DefaultConfig()
+	cfg.WAF.Detection.Enabled = true
 	store := events.NewMemoryStore(1000)
 	bus := events.NewEventBus()
 	eng, err := engine.NewEngine(cfg, store, bus)
@@ -2470,8 +2495,11 @@ func TestMCPEngineAdapter_RemoveExclusion(t *testing.T) {
 		t.Fatalf("NewEngine error: %v", err)
 	}
 	defer eng.Close()
+	eng.AddLayer(engine.OrderedLayer{Layer: detection.NewLayer(detection.Config{Enabled: true}), Order: 400})
 
-	adapter := &mcpEngineAdapter{engine: eng, cfg: cfg}
+	adapter := &mcpEngineAdapter{engine: eng, cfg: cfg, eventStore: store}
+	// Add first, then remove
+	_ = adapter.AddExclusion("/api", []string{"sqli"}, "test reason")
 	err = adapter.RemoveExclusion("/api")
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)

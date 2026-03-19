@@ -152,6 +152,48 @@ func (db *DB) Count() int {
 	return len(db.ranges)
 }
 
+// Reload reloads the database from a CSV file, atomically swapping the data.
+func (db *DB) Reload(path string) error {
+	fresh, err := LoadCSV(path)
+	if err != nil {
+		return err
+	}
+	db.mu.Lock()
+	db.ranges = fresh.ranges
+	db.mu.Unlock()
+	return nil
+}
+
+// StartAutoRefresh starts a background goroutine that periodically checks
+// and refreshes the GeoIP database from disk or URL.
+// Returns a stop function.
+func (db *DB) StartAutoRefresh(path, downloadURL string, interval time.Duration) func() {
+	if interval <= 0 {
+		interval = 24 * time.Hour
+	}
+	stop := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				// Try to download fresh data
+				if downloadURL != "" {
+					if err := downloadDB(downloadURL, path); err == nil {
+						db.Reload(path)
+					}
+				} else {
+					db.Reload(path)
+				}
+			case <-stop:
+				return
+			}
+		}
+	}()
+	return func() { close(stop) }
+}
+
 // CountryName returns the full name for a country code.
 func CountryName(code string) string {
 	if name, ok := countryNames[strings.ToUpper(code)]; ok {

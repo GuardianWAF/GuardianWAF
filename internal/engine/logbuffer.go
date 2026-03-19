@@ -13,13 +13,53 @@ type LogEntry struct {
 	Message string    `json:"message"`
 }
 
+// LogLevel represents a log severity level.
+type LogLevel int
+
+const (
+	LogLevelDebug LogLevel = iota
+	LogLevelInfo
+	LogLevelWarn
+	LogLevelError
+)
+
+// ParseLogLevel converts a string to a LogLevel.
+func ParseLogLevel(s string) LogLevel {
+	switch s {
+	case "debug":
+		return LogLevelDebug
+	case "warn", "warning":
+		return LogLevelWarn
+	case "error":
+		return LogLevelError
+	default:
+		return LogLevelInfo
+	}
+}
+
+func levelToInt(level string) LogLevel {
+	switch level {
+	case "debug":
+		return LogLevelDebug
+	case "info":
+		return LogLevelInfo
+	case "warn":
+		return LogLevelWarn
+	case "error":
+		return LogLevelError
+	default:
+		return LogLevelInfo
+	}
+}
+
 // LogBuffer is a thread-safe ring buffer for capturing log messages.
 type LogBuffer struct {
-	mu      sync.RWMutex
-	entries []LogEntry
-	maxSize int
-	pos     int
-	full    bool
+	mu       sync.RWMutex
+	entries  []LogEntry
+	maxSize  int
+	pos      int
+	full     bool
+	minLevel LogLevel
 }
 
 // NewLogBuffer creates a log buffer with the given max entries.
@@ -28,15 +68,27 @@ func NewLogBuffer(maxSize int) *LogBuffer {
 		maxSize = 1000
 	}
 	return &LogBuffer{
-		entries: make([]LogEntry, maxSize),
-		maxSize: maxSize,
+		entries:  make([]LogEntry, maxSize),
+		maxSize:  maxSize,
+		minLevel: LogLevelInfo, // default: info
 	}
 }
 
-// Add appends a log entry to the buffer.
+// SetLevel sets the minimum log level. Messages below this level are discarded.
+func (lb *LogBuffer) SetLevel(level string) {
+	lb.mu.Lock()
+	defer lb.mu.Unlock()
+	lb.minLevel = ParseLogLevel(level)
+}
+
+// Add appends a log entry to the buffer if it meets the minimum level.
 func (lb *LogBuffer) Add(level, message string) {
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
+
+	if levelToInt(level) < lb.minLevel {
+		return
+	}
 
 	lb.entries[lb.pos] = LogEntry{
 		Time:    time.Now(),
@@ -47,6 +99,16 @@ func (lb *LogBuffer) Add(level, message string) {
 	if lb.pos == 0 {
 		lb.full = true
 	}
+}
+
+// Debug logs a debug message.
+func (lb *LogBuffer) Debug(msg string) {
+	lb.Add("debug", msg)
+}
+
+// Debugf logs a formatted debug message.
+func (lb *LogBuffer) Debugf(format string, args ...any) {
+	lb.Add("debug", fmt.Sprintf(format, args...))
 }
 
 // Info logs an info message.

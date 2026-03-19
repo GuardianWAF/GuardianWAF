@@ -17,12 +17,29 @@ const (
 	sessionMaxAge     = 24 * time.Hour
 )
 
-// sessionSecret is generated once at startup for HMAC signing.
+// sessionSecret is the HMAC signing key for session tokens.
+// Initialized at startup, can be set from config via SetSessionSecret.
 var sessionSecret []byte
 
 func init() {
 	sessionSecret = make([]byte, 32)
 	rand.Read(sessionSecret)
+}
+
+// SetSessionSecret sets a persistent session secret from config.
+// This allows sessions to survive server restarts when a secret_key is configured.
+// The key is hex-decoded; if decoding fails, the raw bytes are used.
+func SetSessionSecret(key string) {
+	if key == "" {
+		return
+	}
+	if decoded, err := hex.DecodeString(key); err == nil && len(decoded) >= 16 {
+		sessionSecret = decoded
+	} else {
+		// Use SHA-256 hash of the raw key as secret
+		h := sha256.Sum256([]byte(key))
+		sessionSecret = h[:]
+	}
 }
 
 // signSession creates an HMAC-signed session token: timestamp.signature

@@ -43,6 +43,23 @@ type ChallengeChecker interface {
 	ServeChallengePage(w http.ResponseWriter, r *http.Request)
 }
 
+// AccessLogFunc is called for every request with structured access log data.
+type AccessLogFunc func(entry AccessLogEntry)
+
+// AccessLogEntry holds structured access log data for a single request.
+type AccessLogEntry struct {
+	Timestamp  string `json:"timestamp"`
+	ClientIP   string `json:"client_ip"`
+	Method     string `json:"method"`
+	Path       string `json:"path"`
+	StatusCode int    `json:"status_code"`
+	Action     string `json:"action"`
+	Score      int    `json:"score"`
+	Duration   string `json:"duration_us"`
+	UserAgent  string `json:"user_agent"`
+	Findings   int    `json:"findings"`
+}
+
 // Engine is the core WAF engine that processes requests through the detection pipeline.
 type Engine struct {
 	cfg        *config.Config
@@ -55,6 +72,9 @@ type Engine struct {
 
 	// Application log buffer
 	Logs *LogBuffer
+
+	// Access log callback (optional)
+	accessLogFn AccessLogFunc
 
 	// Statistics (atomic for lock-free updates)
 	totalRequests      atomic.Int64
@@ -117,6 +137,11 @@ func NewEngine(cfg *config.Config, eventStore EventStorer, eventBus EventPublish
 // SetChallengeService injects the JS challenge service into the engine.
 func (e *Engine) SetChallengeService(svc ChallengeChecker) {
 	e.challengeSvc = svc
+}
+
+// SetAccessLog sets a callback for structured access logging.
+func (e *Engine) SetAccessLog(fn AccessLogFunc) {
+	e.accessLogFn = fn
 }
 
 // currentPipeline returns the current pipeline (from atomic.Value).
@@ -207,6 +232,15 @@ func (e *Engine) Check(r *http.Request) *Event {
 // response layer are applied to all responses (both blocked and passed).
 func (e *Engine) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Panic recovery — prevent a single request from crashing the server
+		defer func() {
+			if rv := recover(); rv != nil {
+				e.Logs.Errorf("PANIC recovered in WAF middleware: %v", rv)
+				// Best-effort error response — may fail if headers already sent
+				http.Error(w, "500 Internal Server Error", http.StatusInternalServerError)
+			}
+		}()
+
 		// Acquire context and run pipeline (inline, not via Check,
 		// so we can access metadata before the context is released)
 		ctx := AcquireContext(r, e.paranoiaLevel, e.maxBodySize)
@@ -271,6 +305,22 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 		// Store and publish event
 		_ = e.eventStore.Store(event)
 		e.eventBus.Publish(event)
+
+		// Structured access log
+		if e.accessLogFn != nil {
+			e.accessLogFn(AccessLogEntry{
+				Timestamp:  event.Timestamp.Format("2006-01-02T15:04:05.000Z07:00"),
+				ClientIP:   event.ClientIP,
+				Method:     event.Method,
+				Path:       event.Path,
+				StatusCode: statusCode,
+				Action:     finalAction.String(),
+				Score:      result.TotalScore,
+				Duration:   fmt.Sprintf("%d", result.Duration.Microseconds()),
+				UserAgent:  event.UserAgent,
+				Findings:   len(result.Findings),
+			})
+		}
 
 		// Write response
 		w.Header().Set("X-GuardianWAF-RequestID", event.RequestID)

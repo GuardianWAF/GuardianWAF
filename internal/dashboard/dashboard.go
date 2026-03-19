@@ -35,6 +35,7 @@ type Dashboard struct {
 	apiKey        string
 	upstreamsFn   func() any // returns upstream status (injected to avoid circular imports)
 	rebuildFn     func() error // rebuilds proxy after config change
+	saveFn        func() error // persists current config to disk
 	rulesFn       func() any // returns rules list
 	addRuleFn     func(map[string]any) error
 	updateRuleFn  func(string, map[string]any) error
@@ -262,6 +263,11 @@ func (d *Dashboard) SetRebuildFn(fn func() error) {
 	d.rebuildFn = fn
 }
 
+// SetSaveFn sets the function used to persist config changes to disk.
+func (d *Dashboard) SetSaveFn(fn func() error) {
+	d.saveFn = fn
+}
+
 // --- Routing (Upstreams + Virtual Hosts + Routes) ---
 
 func (d *Dashboard) handleGetRouting(w http.ResponseWriter, r *http.Request) {
@@ -464,7 +470,15 @@ func (d *Dashboard) handleUpdateRouting(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "message": "Routing updated"})
+	// Persist to disk
+	if d.saveFn != nil {
+		if err := d.saveFn(); err != nil {
+			writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "message": "Routing updated (save to disk failed: " + err.Error() + ")"})
+			return
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "message": "Routing updated and saved"})
 }
 
 // SetUpstreamsFn sets the function that returns upstream health status.
@@ -687,7 +701,15 @@ func (d *Dashboard) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "message": "Configuration updated"})
+	// Persist to disk
+	if d.saveFn != nil {
+		if err := d.saveFn(); err != nil {
+			writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "message": "Configuration updated (save to disk failed: " + err.Error() + ")"})
+			return
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "message": "Configuration updated and saved"})
 }
 
 // --- IP ACL ---
