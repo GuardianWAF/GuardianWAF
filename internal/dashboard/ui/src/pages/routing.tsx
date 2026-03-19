@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '@/lib/api'
-import type { RoutingConfig, UpstreamConfig, VirtualHostConfig, RouteConfig } from '@/lib/api'
+import type { RoutingConfig, UpstreamConfig, UpstreamStatus, VirtualHostConfig, RouteConfig, WafConfig } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { Section } from '@/components/config/section'
 import { Input } from '@/components/ui/input'
 import { Select, SelectOption } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
-import { Plus, Trash2, Loader2, Server, Globe, Route, X } from 'lucide-react'
+import { Plus, Trash2, Loader2, Server, Globe, Route, X, GitBranch, Settings2 } from 'lucide-react'
+import { RoutingGraph } from '@/components/routing/routing-graph'
 
 // Deep clone helper
 function clone<T>(v: T): T {
@@ -36,9 +37,12 @@ function emptyRoute(): RouteConfig {
 
 export default function RoutingPage() {
   const [routing, setRouting] = useState<RoutingConfig | null>(null)
+  const [upstreamHealth, setUpstreamHealth] = useState<UpstreamStatus[]>([])
+  const [wafConfig, setWafConfig] = useState<WafConfig | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const [view, setView] = useState<'form' | 'graph'>('graph')
 
   // Domain add input per vhost
   const [domainInputs, setDomainInputs] = useState<Record<number, string>>({})
@@ -52,6 +56,8 @@ export default function RoutingPage() {
         setRouting(data)
       })
       .catch(() => setError('Failed to load routing configuration'))
+    api.getUpstreams().then(setUpstreamHealth).catch(() => {})
+    api.getConfig().then(setWafConfig).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -244,6 +250,32 @@ export default function RoutingPage() {
     <div className="space-y-4 pb-20">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold text-foreground">Routing Management</h1>
+        <div className="flex gap-1 rounded-lg border border-border bg-muted/50 p-0.5">
+          <button
+            onClick={() => setView('graph')}
+            className={cn(
+              'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+              view === 'graph'
+                ? 'bg-primary text-primary-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            )}
+          >
+            <GitBranch size={14} />
+            Topology
+          </button>
+          <button
+            onClick={() => setView('form')}
+            className={cn(
+              'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+              view === 'form'
+                ? 'bg-primary text-primary-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            )}
+          >
+            <Settings2 size={14} />
+            Configure
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -256,6 +288,14 @@ export default function RoutingPage() {
           {success}
         </div>
       )}
+
+      {/* ==================== Graph View ==================== */}
+      {view === 'graph' && routing && (
+        <RoutingGraph routing={routing} upstreams={upstreamHealth} wafConfig={wafConfig ?? undefined} />
+      )}
+
+      {/* ==================== Form View ==================== */}
+      {view !== 'graph' && <>
 
       {/* ==================== Upstreams ==================== */}
       <Section title="Upstreams" defaultOpen>
@@ -512,6 +552,8 @@ export default function RoutingPage() {
           </Button>
         </div>
       </div>
+
+      </>}
     </div>
   )
 }
