@@ -198,7 +198,7 @@ export default function AIPage() {
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           <StatCard icon={Zap} label="Requests / Hour" value={stats.requests_hour} max="/ 30" />
           <StatCard icon={Activity} label="Tokens / Hour" value={stats.tokens_used_hour.toLocaleString()} max="/ 50K" />
-          <StatCard icon={DollarSign} label="Total Cost" value={`$${stats.total_cost_usd.toFixed(4)}`} />
+          <StatCard icon={DollarSign} label="Total Cost" value={`$${(stats.total_cost_usd ?? 0).toFixed(4)}`} />
           <StatCard icon={Ban} label="AI Blocks" value={stats.blocks_triggered} sub={`${stats.monitors_triggered} monitors`} />
           <StatCard icon={Brain} label="Total Analyses" value={stats.total_requests} sub={`${stats.total_tokens_used.toLocaleString()} tokens`} />
         </div>
@@ -245,7 +245,7 @@ export default function AIPage() {
             {analyzeResult.verdicts?.map((v, i) => <VerdictRow key={i} verdict={v} />)}
             <div className="flex gap-4 text-[10px] text-muted-foreground">
               <span>{analyzeResult.tokens_used} tokens</span>
-              <span>${analyzeResult.cost_usd.toFixed(4)}</span>
+              <span>${(analyzeResult.cost_usd ?? 0).toFixed(4)}</span>
               <span>{analyzeResult.duration_ms}ms</span>
               <span>{analyzeResult.event_count} events analyzed</span>
             </div>
@@ -400,7 +400,7 @@ function VerdictRow({ verdict }: { verdict: Verdict }) {
       </span>
       <span className="text-xs font-mono text-foreground">{verdict.ip}</span>
       <span className="text-xs text-muted-foreground flex-1 truncate">{verdict.reason}</span>
-      <span className="text-[10px] text-muted-foreground">{(verdict.confidence * 100).toFixed(0)}%</span>
+      <span className="text-[10px] text-muted-foreground">{((verdict.confidence ?? 0) * 100).toFixed(0)}%</span>
     </div>
   )
 }
@@ -420,7 +420,7 @@ function HistoryItem({ result }: { result: AnalysisResult }) {
         {blockCount > 0 && <span className="text-[9px] px-1.5 rounded bg-red-900/40 text-red-300">{blockCount} blocks</span>}
         {monitorCount > 0 && <span className="text-[9px] px-1.5 rounded bg-yellow-900/40 text-yellow-300">{monitorCount} monitors</span>}
         {hasError && <span className="text-[9px] px-1.5 rounded bg-red-900/40 text-red-400">error</span>}
-        <span className="text-[10px] text-muted-foreground ml-auto shrink-0">{result.tokens_used} tok / ${result.cost_usd.toFixed(4)} / {result.duration_ms}ms</span>
+        <span className="text-[10px] text-muted-foreground ml-auto shrink-0">{result.tokens_used ?? 0} tok / ${(result.cost_usd ?? 0).toFixed(4)} / {result.duration_ms ?? 0}ms</span>
         <ChevronDown size={14} className={cn('text-muted-foreground transition-transform shrink-0', open && 'rotate-180')} />
       </button>
       {open && (
