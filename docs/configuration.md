@@ -28,7 +28,7 @@ Each layer overrides the previous. If you set `mode: monitor` in the YAML file a
 mode: enforce                    # Default: enforce
 
 # HTTP listen address.
-listen: ":8080"                  # Default: :8080
+listen: ":8088"                  # Default: :8088
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TLS
@@ -312,7 +312,7 @@ guardianwaf sidecar [options]
 
   -c, --config      Path to config file (optional)
   -u, --upstream    Upstream URL (required if no config)
-  -l, --listen      Listen address (default: :8080)
+  -l, --listen      Listen address (default: :8088)
   -m, --mode        Override WAF mode
 ```
 
@@ -366,7 +366,7 @@ When no config file is provided, GuardianWAF uses production-safe defaults:
 | Setting | Default |
 |---|---|
 | Mode | `enforce` |
-| Listen | `:8080` |
+| Listen | `:8088` |
 | Block threshold | `50` |
 | Log threshold | `25` |
 | All 6 detectors | Enabled, multiplier `1.0` |

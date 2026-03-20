@@ -11,7 +11,7 @@ import (
 func DefaultConfig() *Config {
 	return &Config{
 		Mode:   "enforce",
-		Listen: ":8080",
+		Listen: ":8088",
 		TLS: TLSConfig{
 			Listen:       ":8443",
 			HTTPRedirect: true,
@@ -122,7 +122,7 @@ func DefaultConfig() *Config {
 			},
 			AIAnalysis: AIAnalysisConfig{
 				Enabled:          false,
-				StorePath:        "data/ai",  // relative to CWD; Dockerfile sets CWD to /var/lib/guardianwaf
+				StorePath:        "data/ai", // relative to CWD; Dockerfile sets CWD to /var/lib/guardianwaf
 				BatchSize:        20,
 				BatchInterval:    60 * time.Second,
 				MinScore:         25,

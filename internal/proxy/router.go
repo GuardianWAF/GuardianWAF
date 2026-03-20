@@ -215,7 +215,7 @@ func stripPort(host string) string {
 	if idx < 0 {
 		return host
 	}
-	// IPv6: [::1]:8080
+	// IPv6: [::1]:8088
 	if strings.Contains(host, "]") {
 		bracket := strings.LastIndex(host, "]")
 		if idx > bracket {

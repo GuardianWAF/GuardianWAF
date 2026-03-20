@@ -736,7 +736,7 @@ func TestDetect_MultipleURLsInInput(t *testing.T) {
 }
 
 func TestDetect_URLWithPort(t *testing.T) {
-	findings := Detect("http://10.0.0.1:8080/internal", "query")
+	findings := Detect("http://10.0.0.1:8088/internal", "query")
 	totalScore := 0
 	for _, f := range findings {
 		totalScore += f.Score

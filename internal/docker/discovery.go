@@ -12,21 +12,21 @@ const defaultLabelPrefix = "gwaf"
 
 // DiscoveredService represents a container discovered via Docker labels.
 type DiscoveredService struct {
-	ContainerID   string        `json:"container_id"`
-	ContainerName string        `json:"container_name"`
-	Image         string        `json:"image"`
-	Host          string        `json:"host"`           // gwaf.host
-	Path          string        `json:"path"`           // gwaf.path
-	Port          int           `json:"port"`           // gwaf.port
-	Weight        int           `json:"weight"`         // gwaf.weight
-	StripPrefix   bool          `json:"strip_prefix"`   // gwaf.strip_prefix
-	LBStrategy    string        `json:"lb_strategy"`    // gwaf.lb
-	UpstreamName  string        `json:"upstream_name"`  // gwaf.upstream
-	TLS           string        `json:"tls"`            // gwaf.tls
-	HealthPath    string        `json:"health_path"`    // gwaf.health.path
+	ContainerID    string        `json:"container_id"`
+	ContainerName  string        `json:"container_name"`
+	Image          string        `json:"image"`
+	Host           string        `json:"host"`            // gwaf.host
+	Path           string        `json:"path"`            // gwaf.path
+	Port           int           `json:"port"`            // gwaf.port
+	Weight         int           `json:"weight"`          // gwaf.weight
+	StripPrefix    bool          `json:"strip_prefix"`    // gwaf.strip_prefix
+	LBStrategy     string        `json:"lb_strategy"`     // gwaf.lb
+	UpstreamName   string        `json:"upstream_name"`   // gwaf.upstream
+	TLS            string        `json:"tls"`             // gwaf.tls
+	HealthPath     string        `json:"health_path"`     // gwaf.health.path
 	HealthInterval time.Duration `json:"health_interval"` // gwaf.health.interval
-	IPAddress     string        `json:"ip_address"`     // from Docker network
-	Status        string        `json:"status"`         // running, stopped
+	IPAddress      string        `json:"ip_address"`      // from Docker network
+	Status         string        `json:"status"`          // running, stopped
 }
 
 // TargetURL builds the backend URL for this service.
@@ -54,12 +54,12 @@ func ParseLabels(labels map[string]string, prefix string) *DiscoveredService {
 	}
 
 	svc := &DiscoveredService{
-		Host:     get("host"),
-		Path:     get("path"),
-		TLS:      get("tls"),
-		LBStrategy: get("lb"),
+		Host:         get("host"),
+		Path:         get("path"),
+		TLS:          get("tls"),
+		LBStrategy:   get("lb"),
 		UpstreamName: get("upstream"),
-		HealthPath: get("health.path"),
+		HealthPath:   get("health.path"),
 	}
 
 	if svc.Path == "" {
@@ -263,7 +263,7 @@ func autoDetectPort(c Container) int {
 		}
 	}
 	// Common web ports
-	commonPorts := []int{80, 8080, 3000, 5000, 8000, 443, 8443}
+	commonPorts := []int{80, 8088, 3000, 5000, 8000, 443, 8443}
 	for _, port := range commonPorts {
 		key := fmt.Sprintf("%d/tcp", port)
 		for _, p := range c.Ports {

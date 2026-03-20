@@ -418,7 +418,7 @@ func TestUpdateRouting_ValidUpstreams(t *testing.T) {
 			{
 				"name": "backend",
 				"load_balancer": "round_robin",
-				"targets": [{"url": "http://localhost:8080", "weight": 1}]
+				"targets": [{"url": "http://localhost:8088", "weight": 1}]
 			}
 		],
 		"routes": [{"path": "/", "upstream": "backend"}]
@@ -464,7 +464,7 @@ func TestUpdateRouting_InvalidUpstream(t *testing.T) {
 	d := newTestDashboard(t, "k")
 	// Route references non-existent upstream
 	body := `{
-		"upstreams": [{"name": "backend", "targets": [{"url": "http://localhost:8080"}]}],
+		"upstreams": [{"name": "backend", "targets": [{"url": "http://localhost:8088"}]}],
 		"routes": [{"path": "/", "upstream": "nonexistent"}]
 	}`
 
@@ -531,7 +531,7 @@ func TestGetRouting_WithUpstreamsAndVHosts(t *testing.T) {
 		{
 			Name:         "backend",
 			LoadBalancer: "round_robin",
-			Targets:      []config.TargetConfig{{URL: "http://localhost:8080", Weight: 1}},
+			Targets:      []config.TargetConfig{{URL: "http://localhost:8088", Weight: 1}},
 		},
 	}
 	cfg.VirtualHosts = []config.VirtualHostConfig{

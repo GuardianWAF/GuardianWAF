@@ -1861,13 +1861,13 @@ Create comprehensive test fixture datasets. Attack payloads: curate from public 
 **Dependencies:** Task 70
 
 **Description:**
-Create production Docker configuration. `Dockerfile`: multi-stage build — stage 1 (`builder`): use `golang:1.22-alpine`, copy source, run `go build` with `-ldflags` for version info, static linking (`CGO_ENABLED=0`). Stage 2 (`runtime`): use `alpine:3.19` (or `scratch` for absolute minimum), copy binary from builder, copy default config, create non-root user (`guardianwaf`), expose ports 8080 (HTTP), 8443 (HTTPS), 9090 (dashboard), set entrypoint to binary. Labels: maintainer, description, version. `docker-compose.yml`: GuardianWAF service with volume mount for config and certs, environment variable overrides, health check (`/healthz`), resource limits (256MB memory, 0.5 CPU). Optional services: example backend (nginx), second backend (for load balancing demo). Networks: `waf-net` bridge network.
+Create production Docker configuration. `Dockerfile`: multi-stage build — stage 1 (`builder`): use `golang:1.22-alpine`, copy source, run `go build` with `-ldflags` for version info, static linking (`CGO_ENABLED=0`). Stage 2 (`runtime`): use `alpine:3.19` (or `scratch` for absolute minimum), copy binary from builder, copy default config, create non-root user (`guardianwaf`), expose ports 8088 (HTTP), 8443 (HTTPS), 9090 (dashboard), set entrypoint to binary. Labels: maintainer, description, version. `docker-compose.yml`: GuardianWAF service with volume mount for config and certs, environment variable overrides, health check (`/healthz`), resource limits (256MB memory, 0.5 CPU). Optional services: example backend (nginx), second backend (for load balancing demo). Networks: `waf-net` bridge network.
 
 **Acceptance Criteria:**
 - [ ] Multi-stage build (builder + runtime)
 - [ ] Static binary with version info
 - [ ] Non-root user in runtime image
-- [ ] Ports exposed: 8080, 8443, 9090
+- [ ] Ports exposed: 8088, 8443, 9090
 - [ ] docker-compose with WAF service
 - [ ] Volume mounts for config and certs
 - [ ] Environment variable support

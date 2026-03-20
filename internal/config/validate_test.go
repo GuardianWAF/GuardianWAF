@@ -182,8 +182,8 @@ func TestLoadEnv_EmptyVarsIgnored(t *testing.T) {
 	if cfg.Mode != "enforce" {
 		t.Fatalf("expected mode 'enforce' (default), got %q", cfg.Mode)
 	}
-	if cfg.Listen != ":8080" {
-		t.Fatalf("expected listen ':8080' (default), got %q", cfg.Listen)
+	if cfg.Listen != ":8088" {
+		t.Fatalf("expected listen ':8088' (default), got %q", cfg.Listen)
 	}
 }
 
@@ -372,13 +372,13 @@ func TestValidate_InvalidUpstream(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Upstreams = []UpstreamConfig{
 		{
-			Name:    "",     // empty name
-			Targets: nil,    // empty targets
+			Name:    "",  // empty name
+			Targets: nil, // empty targets
 		},
 		{
 			Name: "backend",
 			Targets: []TargetConfig{
-				{URL: "", Weight: 0},        // empty URL, zero weight
+				{URL: "", Weight: 0},                       // empty URL, zero weight
 				{URL: "http://localhost:3000", Weight: -1}, // negative weight
 			},
 		},
@@ -419,10 +419,10 @@ func TestValidate_InvalidRoutes(t *testing.T) {
 		},
 	}
 	cfg.Routes = []RouteConfig{
-		{Path: "", Upstream: "backend"},                     // empty path
-		{Path: "no-slash", Upstream: "backend"},             // no leading /
-		{Path: "/api", Upstream: "nonexistent"},             // unknown upstream
-		{Path: "/health", Upstream: ""},                     // empty upstream
+		{Path: "", Upstream: "backend"},         // empty path
+		{Path: "no-slash", Upstream: "backend"}, // no leading /
+		{Path: "/api", Upstream: "nonexistent"}, // unknown upstream
+		{Path: "/health", Upstream: ""},         // empty upstream
 	}
 
 	err := Validate(cfg)
@@ -455,11 +455,11 @@ func TestValidate_InvalidRateLimit(t *testing.T) {
 	cfg.WAF.RateLimit.Enabled = true
 	cfg.WAF.RateLimit.Rules = []RateLimitRule{
 		{
-			ID:     "",         // empty id
-			Scope:  "invalid",  // invalid scope
-			Limit:  0,          // zero limit
-			Window: 0,          // zero window
-			Action: "invalid",  // invalid action
+			ID:     "",        // empty id
+			Scope:  "invalid", // invalid scope
+			Limit:  0,         // zero limit
+			Window: 0,         // zero window
+			Action: "invalid", // invalid action
 		},
 		{
 			ID:     "valid",

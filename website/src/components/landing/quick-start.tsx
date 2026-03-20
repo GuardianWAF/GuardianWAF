@@ -6,7 +6,7 @@ curl -sL https://github.com/GuardianWAF/GuardianWAF/releases/latest/download/gua
 chmod +x guardianwaf
 
 # Run with default config
-./guardianwaf serve --listen :8080 --upstream http://localhost:3000
+./guardianwaf serve --listen :8088 --upstream http://localhost:3000
 
 # Or with a config file
 ./guardianwaf serve --config guardianwaf.yaml`
@@ -32,7 +32,7 @@ func main() {
     mux := http.NewServeMux()
     mux.HandleFunc("/", handler)
 
-    http.ListenAndServe(":8080", waf.Handler(mux))
+    http.ListenAndServe(":8088", waf.Handler(mux))
 }`
 
 const sidecarCode = `# docker-compose.yaml
@@ -41,7 +41,7 @@ services:
   guardianwaf:
     image: ghcr.io/guardianwaf/guardianwaf:latest
     ports:
-      - "8080:8080"
+      - "8088:8088"
     environment:
       - GUARDIANWAF_UPSTREAM=http://app:3000
       - GUARDIANWAF_BLOCK_SCORE=80
@@ -55,7 +55,7 @@ services:
 
 const dryRunCode = `# Enable dry-run mode to monitor without blocking
 ./guardianwaf serve \\
-  --listen :8080 \\
+  --listen :8088 \\
   --upstream http://localhost:3000 \\
   --dry-run \\
   --dashboard :9090

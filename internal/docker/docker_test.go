@@ -15,7 +15,7 @@ func TestParseLabels_Full(t *testing.T) {
 		"gwaf.enable":          "true",
 		"gwaf.host":            "api.example.com",
 		"gwaf.path":            "/api",
-		"gwaf.port":            "8080",
+		"gwaf.port":            "8088",
 		"gwaf.weight":          "3",
 		"gwaf.strip_prefix":    "true",
 		"gwaf.lb":              "weighted",
@@ -35,7 +35,7 @@ func TestParseLabels_Full(t *testing.T) {
 	if svc.Path != "/api" {
 		t.Errorf("path: got %q", svc.Path)
 	}
-	if svc.Port != 8080 {
+	if svc.Port != 8088 {
 		t.Errorf("port: got %d", svc.Port)
 	}
 	if svc.Weight != 3 {
@@ -108,13 +108,13 @@ func TestParseLabels_CustomPrefix(t *testing.T) {
 }
 
 func TestDiscoveredService_TargetURL(t *testing.T) {
-	svc := &DiscoveredService{IPAddress: "172.17.0.2", Port: 8080}
-	if svc.TargetURL() != "http://172.17.0.2:8080" {
+	svc := &DiscoveredService{IPAddress: "172.17.0.2", Port: 8088}
+	if svc.TargetURL() != "http://172.17.0.2:8088" {
 		t.Errorf("got %q", svc.TargetURL())
 	}
 
 	svc.TLS = "auto"
-	if svc.TargetURL() != "https://172.17.0.2:8080" {
+	if svc.TargetURL() != "https://172.17.0.2:8088" {
 		t.Errorf("got %q", svc.TargetURL())
 	}
 }
@@ -189,13 +189,13 @@ func TestBuildConfig(t *testing.T) {
 	services := []DiscoveredService{
 		{
 			ContainerID: "abc123", ContainerName: "api",
-			Host: "api.example.com", Path: "/api", Port: 8080,
+			Host: "api.example.com", Path: "/api", Port: 8088,
 			Weight: 1, LBStrategy: "round_robin", UpstreamName: "api-pool",
 			IPAddress: "172.17.0.2", HealthPath: "/health", HealthInterval: 10 * time.Second,
 		},
 		{
 			ContainerID: "def456", ContainerName: "api2",
-			Host: "api.example.com", Path: "/api", Port: 8080,
+			Host: "api.example.com", Path: "/api", Port: 8088,
 			Weight: 2, LBStrategy: "round_robin", UpstreamName: "api-pool",
 			IPAddress: "172.17.0.3",
 		},
@@ -232,7 +232,7 @@ func TestBuildConfig(t *testing.T) {
 func TestServiceSummary(t *testing.T) {
 	services := []DiscoveredService{
 		{ContainerID: "abc123def456", ContainerName: "api", Host: "api.example.com",
-			Path: "/", Port: 8080, Weight: 1, IPAddress: "172.17.0.2", UpstreamName: "api"},
+			Path: "/", Port: 8088, Weight: 1, IPAddress: "172.17.0.2", UpstreamName: "api"},
 	}
 	summaries := ServiceSummary(services)
 	if len(summaries) != 1 {
@@ -262,7 +262,7 @@ func TestClient_ListContainers_MockServer(t *testing.T) {
 			{
 				ID: "test123", Names: []string{"/test-app"}, State: "running",
 				Labels: map[string]string{"gwaf.enable": "true", "gwaf.host": "test.com"},
-				Ports:  []ContainerPort{{PrivatePort: 8080, Type: "tcp"}},
+				Ports:  []ContainerPort{{PrivatePort: 8088, Type: "tcp"}},
 			},
 		}
 		containers[0].NetworkSettings.Networks = map[string]NetworkInfo{
@@ -297,12 +297,12 @@ func TestClient_ListContainers_MockServer(t *testing.T) {
 func TestAutoDetectPort(t *testing.T) {
 	c := Container{
 		Ports: []ContainerPort{
-			{PrivatePort: 8080, Type: "tcp"},
+			{PrivatePort: 8088, Type: "tcp"},
 			{PrivatePort: 443, Type: "tcp"},
 		},
 	}
-	if autoDetectPort(c) != 8080 {
-		t.Errorf("expected 8080, got %d", autoDetectPort(c))
+	if autoDetectPort(c) != 8088 {
+		t.Errorf("expected 8088, got %d", autoDetectPort(c))
 	}
 
 	// No ports → default 80

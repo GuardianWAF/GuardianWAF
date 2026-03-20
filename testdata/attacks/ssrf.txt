@@ -13,11 +13,11 @@ http://100.100.100.200/latest/meta-data/
 # === Localhost / Loopback ===
 http://127.0.0.1
 http://127.0.0.1:80
-http://127.0.0.1:8080
+http://127.0.0.1:8088
 http://127.0.0.1:443
 http://127.0.0.1:22
 http://localhost
-http://localhost:8080
+http://localhost:8088
 http://0.0.0.0
 http://[::1]
 http://[0:0:0:0:0:0:0:1]
@@ -29,7 +29,7 @@ http://127.0.1
 
 # === Internal Network Ranges ===
 http://10.0.0.1
-http://10.0.0.1:8080
+http://10.0.0.1:8088
 http://172.16.0.1
 http://192.168.0.1
 http://192.168.1.1

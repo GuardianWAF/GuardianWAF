@@ -133,7 +133,7 @@ GuardianWAF is built as a **layered architecture** where the core detection engi
 - Configuration via Go API or YAML file
 - This is the Coraza-equivalent mode
 
-**Mode 3: Sidecar Proxy** (`guardianwaf sidecar --upstream localhost:8080`)
+**Mode 3: Sidecar Proxy** (`guardianwaf sidecar --upstream localhost:8088`)
 - Minimal reverse proxy without dashboard/MCP
 - Designed for Docker/K8s sidecar deployment
 - Tiny memory footprint (< 20MB)
@@ -609,7 +609,7 @@ engine, err := guardianwaf.New(guardianwaf.Config{
 // Use as HTTP middleware
 mux := http.NewServeMux()
 mux.HandleFunc("/api/", apiHandler)
-http.ListenAndServe(":8080", engine.Middleware(mux))
+http.ListenAndServe(":8088", engine.Middleware(mux))
 
 // Manual request checking
 result := engine.Check(guardianwaf.Request{
@@ -648,13 +648,13 @@ Zero allocations on hot path:            Target (use sync.Pool for request conte
 
 ```bash
 # Minimal sidecar proxy
-guardianwaf sidecar --upstream localhost:8080 --listen :9090
+guardianwaf sidecar --upstream localhost:8088 --listen :9090
 
 # With config file
 guardianwaf sidecar --config guardianwaf.yaml
 
 # With environment variables
-GWAF_UPSTREAM=localhost:8080 GWAF_LISTEN=:9090 guardianwaf sidecar
+GWAF_UPSTREAM=localhost:8088 GWAF_LISTEN=:9090 guardianwaf sidecar
 ```
 
 ### 6.2 Constraints
@@ -677,7 +677,7 @@ GWAF_UPSTREAM=localhost:8080 GWAF_LISTEN=:9090 guardianwaf sidecar
 
 # General
 mode: "enforce"                      # "enforce", "monitor", "disabled"
-listen: ":8080"                      # Listen address
+listen: ":8088"                      # Listen address
 tls:
   enabled: false
   listen: ":8443"

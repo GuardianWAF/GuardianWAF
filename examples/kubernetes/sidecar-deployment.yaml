@@ -19,13 +19,13 @@ spec:
             - containerPort: 3000
         - name: guardianwaf
           image: guardianwaf/guardianwafwaf:latest
-          args: ["sidecar", "--upstream", "http://localhost:3000", "--listen", ":8080"]
+          args: ["sidecar", "--upstream", "http://localhost:3000", "--listen", ":8088"]
           ports:
-            - containerPort: 8080
+            - containerPort: 8088
           livenessProbe:
             httpGet:
               path: /healthz
-              port: 8080
+              port: 8088
             initialDelaySeconds: 3
           resources:
             limits:

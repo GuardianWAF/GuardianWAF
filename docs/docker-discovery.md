@@ -39,7 +39,7 @@ services:
   guardianwaf:
     image: guardianwaf/guardianwaf:latest
     ports:
-      - "80:8080"
+      - "80:8088"
       - "443:8443"
       - "9443:9443"
     volumes:
@@ -54,7 +54,7 @@ services:
       gwaf.enable: "true"
       gwaf.host: "api.example.com"
       gwaf.upstream: "api-pool"
-      gwaf.port: "8080"
+      gwaf.port: "8088"
       gwaf.health.path: "/healthz"
 
   # Frontend — automatically discovered!
@@ -99,7 +99,7 @@ All labels use the configurable prefix (default: `gwaf`).
 | `gwaf.host` | Virtual host domain | *(default route)* | `"api.example.com"` |
 | `gwaf.path` | Route path prefix | `"/"` | `"/api"` |
 | `gwaf.upstream` | Upstream pool name | *container name* | `"api-pool"` |
-| `gwaf.port` | Container port to proxy to | *auto-detect* | `"8080"` |
+| `gwaf.port` | Container port to proxy to | *auto-detect* | `"8088"` |
 | `gwaf.strip_prefix` | Strip path prefix before forwarding | `"false"` | `"true"` |
 
 ### Load Balancing Labels
@@ -178,7 +178,7 @@ GuardianWAF detects all 5 `api` instances and adds them to the upstream pool.
 If `gwaf.port` is not specified, GuardianWAF auto-detects the port:
 
 1. First exposed TCP port from the container
-2. Common ports: 80, 8080, 3000, 5000, 8000
+2. Common ports: 80, 8088, 3000, 5000, 8000
 3. Fallback: port 80
 
 ## Static + Dynamic Routing
@@ -190,7 +190,7 @@ Docker-discovered services are **merged** with static config. Static upstreams t
 upstreams:
   - name: legacy-backend          # This is preserved
     targets:
-      - url: http://10.0.0.5:8080
+      - url: http://10.0.0.5:8088
 
 routes:
   - path: /legacy
@@ -220,7 +220,7 @@ curl -H "X-API-Key: $KEY" http://localhost:9443/api/v1/docker/services
       "container_name": "api-1",
       "image": "my-api:latest",
       "host": "api.example.com",
-      "target": "http://172.17.0.2:8080",
+      "target": "http://172.17.0.2:8088",
       "upstream": "api-pool",
       "weight": 1,
       "health_path": "/healthz",

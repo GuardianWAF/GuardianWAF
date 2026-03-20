@@ -2,7 +2,7 @@
 # See SPECIFICATION.md for full documentation.
 
 mode: enforce
-listen: ":8080"
+listen: ":8088"
 
 tls:
   enabled: false

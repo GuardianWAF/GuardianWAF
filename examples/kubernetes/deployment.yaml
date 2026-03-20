@@ -19,7 +19,7 @@ spec:
           image: guardianwaf/guardianwafwaf:latest
           args: ["serve", "-c", "/etc/guardianwaf/guardianwaf.yaml"]
           ports:
-            - containerPort: 8080
+            - containerPort: 8088
               name: http
             - containerPort: 9443
               name: dashboard

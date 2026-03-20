@@ -10,7 +10,7 @@
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
-//	http.ListenAndServe(":8080", engine.Middleware(myHandler))
+//	http.ListenAndServe(":8088", engine.Middleware(myHandler))
 //
 // Using the programmatic API:
 //
@@ -22,7 +22,7 @@
 //	    log.Fatal(err)
 //	}
 //	defer waf.Close()
-//	http.ListenAndServe(":8080", waf.Middleware(myHandler))
+//	http.ListenAndServe(":8088", waf.Middleware(myHandler))
 package guardianwaf
 
 import (

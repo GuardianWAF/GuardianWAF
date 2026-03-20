@@ -245,7 +245,7 @@ export function RoutingGraph({ routing, upstreams, wafConfig }: Props) {
     // Extract TLS info from WAF config
     const tlsEnabled = wafConfig?.tls?.enabled === true
     const httpsPort = tlsEnabled ? extractPort(wafConfig?.tls?.listen || ':8443') : ''
-    const listenPort = extractPort(':8080')
+    const listenPort = extractPort(':8088')
 
     // Client node — shows inbound ports
     nodes.push({

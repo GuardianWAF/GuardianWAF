@@ -108,7 +108,7 @@ go install github.com/guardianwaf/guardianwaf/cmd/guardianwaf@latest
 # Create minimal config
 cat > guardianwaf.yaml <<EOF
 mode: enforce
-listen: ":8080"
+listen: ":8088"
 upstreams:
   - name: app
     targets:
@@ -129,7 +129,7 @@ guardianwaf serve
 ### Multi-Domain with TLS
 
 ```yaml
-listen: ":8080"
+listen: ":8088"
 
 tls:
   enabled: true
@@ -191,13 +191,13 @@ if err != nil {
 }
 defer waf.Close()
 
-http.ListenAndServe(":8080", waf.Middleware(myHandler))
+http.ListenAndServe(":8088", waf.Middleware(myHandler))
 ```
 
 ### Sidecar (Docker / Kubernetes)
 
 ```bash
-docker run -d -p 8080:8080 \
+docker run -d -p 8088:8088 \
   guardianwaf/guardianwaf:latest \
   sidecar --upstream http://app:3000
 ```
@@ -211,7 +211,7 @@ services:
   guardianwaf:
     image: guardianwaf/guardianwaf:latest
     ports:
-      - "80:8080"
+      - "80:8088"
       - "9443:9443"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -260,11 +260,11 @@ A) Standalone (replaces nginx):
                                         --> backend-web:8000
 
 B) Behind CDN:
-   Cloudflare --> GuardianWAF(:8080) --> backends
+   Cloudflare --> GuardianWAF(:8088) --> backends
    (TLS handled by Cloudflare)
 
 C) Kubernetes Sidecar:
-   Ingress --> GuardianWAF(:8080) --> app(:3000)
+   Ingress --> GuardianWAF(:8088) --> app(:3000)
 
 D) Embedded Library:
    Go app --> waf.Middleware(handler)
@@ -419,7 +419,7 @@ Minimal `guardianwaf.yaml` to protect a backend:
 
 ```yaml
 mode: enforce
-listen: ":8080"
+listen: ":8088"
 
 upstreams:
   - name: backend
@@ -524,7 +524,7 @@ if err != nil {
 }
 defer waf.Close()
 
-http.ListenAndServe(":8080", waf.Middleware(myHandler))
+http.ListenAndServe(":8088", waf.Middleware(myHandler))
 ```
 
 ### Advanced (Functional Options)

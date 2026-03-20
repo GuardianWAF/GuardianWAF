@@ -329,7 +329,7 @@ func TestSanitizeDomain(t *testing.T) {
 		{"example.com", "example.com"},
 		{"*.example.com", "_wildcard_.example.com"},
 		{"SUB.Example.COM", "sub.example.com"},
-		{"host:8080", "host_8080"},
+		{"host:8088", "host_8088"},
 		{"path/domain", "path_domain"},
 	}
 	for _, tt := range tests {
@@ -948,7 +948,7 @@ func TestRenewIfNeeded_NeedsRenewalWithMockClient(t *testing.T) {
 		w.WriteHeader(200)
 	})
 	mux.HandleFunc("/account", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Location", srv.URL + "/acct/1")
+		w.Header().Set("Location", srv.URL+"/acct/1")
 		w.WriteHeader(201)
 		json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
 	})
@@ -1047,7 +1047,7 @@ func TestRenewIfNeeded_NoCertFileWithMockClient(t *testing.T) {
 		w.WriteHeader(200)
 	})
 	mux.HandleFunc("/account", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Location", srv.URL + "/acct/1")
+		w.Header().Set("Location", srv.URL+"/acct/1")
 		w.WriteHeader(201)
 		json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
 	})
@@ -1230,7 +1230,7 @@ func TestObtainCertificate_CompleteFlow(t *testing.T) {
 		w.WriteHeader(200)
 	})
 	mux.HandleFunc("/account", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Location", srv.URL + "/account/1")
+		w.Header().Set("Location", srv.URL+"/account/1")
 		w.Header().Set("Replay-Nonce", "nonce-acct")
 		w.WriteHeader(201)
 		json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
@@ -1347,7 +1347,7 @@ func TestObtainCertificate_CreateOrderError(t *testing.T) {
 		w.WriteHeader(200)
 	})
 	mux.HandleFunc("/account", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Location", srv.URL + "/acct/1")
+		w.Header().Set("Location", srv.URL+"/acct/1")
 		w.WriteHeader(201)
 		json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
 	})
@@ -1385,7 +1385,7 @@ func TestObtainCertificate_FinalizeError(t *testing.T) {
 		w.WriteHeader(200)
 	})
 	mux.HandleFunc("/account", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Location", srv.URL + "/acct/1")
+		w.Header().Set("Location", srv.URL+"/acct/1")
 		w.WriteHeader(201)
 		json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
 	})
@@ -1731,12 +1731,12 @@ func TestCertPath_SpecialChars(t *testing.T) {
 	store := NewCertDiskStore("/cache", nil, nil)
 
 	tests := []struct {
-		domain   string
-		suffix   string
+		domain string
+		suffix string
 	}{
 		{"example.com", "example.com.crt"},
 		{"*.example.com", "_wildcard_.example.com.crt"},
-		{"test:8080", "test_8080.crt"},
+		{"test:8088", "test_8088.crt"},
 		{"a/b", "a_b.crt"},
 	}
 
@@ -1788,7 +1788,7 @@ func TestLoadOrObtain_CacheMissWithClient(t *testing.T) {
 		w.WriteHeader(200)
 	})
 	mux.HandleFunc("/account", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Location", srv.URL + "/acct/1")
+		w.Header().Set("Location", srv.URL+"/acct/1")
 		w.WriteHeader(201)
 		json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
 	})

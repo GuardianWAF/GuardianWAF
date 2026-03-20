@@ -23,14 +23,14 @@ func TestYAMLParser(t *testing.T) {
 		},
 		{
 			name:  "integer value",
-			input: "port: 8080",
+			input: "port: 8088",
 			check: func(t *testing.T, n *Node) {
 				v, err := n.Get("port").Int()
 				if err != nil {
 					t.Fatal(err)
 				}
-				if v != 8080 {
-					t.Fatalf("expected 8080, got %d", v)
+				if v != 8088 {
+					t.Fatalf("expected 8088, got %d", v)
 				}
 			},
 		},
@@ -220,7 +220,7 @@ port: 80`,
 			name: "sequence of maps",
 			input: `servers:
   - host: alpha
-    port: 8080
+    port: 8088
   - host: beta
     port: 9090`,
 			check: func(t *testing.T, n *Node) {
@@ -230,8 +230,8 @@ port: 80`,
 				}
 				assertEqual(t, servers[0].Get("host").String(), "alpha")
 				p, _ := servers[0].Get("port").Int()
-				if p != 8080 {
-					t.Fatalf("expected 8080, got %d", p)
+				if p != 8088 {
+					t.Fatalf("expected 8088, got %d", p)
 				}
 				assertEqual(t, servers[1].Get("host").String(), "beta")
 				p2, _ := servers[1].Get("port").Int()
@@ -462,7 +462,7 @@ key2: value2`,
 			input: `# GuardianWAF Configuration
 server:
   listen: 0.0.0.0
-  port: 8080
+  port: 8088
   tls:
     enabled: true
     cert_file: /etc/ssl/cert.pem
@@ -499,9 +499,9 @@ rate_limit:
 
 proxy:
   backends:
-    - url: http://backend1:8080
+    - url: http://backend1:8088
       weight: 3
-    - url: http://backend2:8080
+    - url: http://backend2:8088
       weight: 1
   health_check_interval: 30
 
@@ -513,8 +513,8 @@ logging:
 				// Server
 				assertEqual(t, n.GetPath("server", "listen").String(), "0.0.0.0")
 				port, _ := n.GetPath("server", "port").Int()
-				if port != 8080 {
-					t.Fatalf("expected 8080, got %d", port)
+				if port != 8088 {
+					t.Fatalf("expected 8088, got %d", port)
 				}
 				tlsEnabled, _ := n.GetPath("server", "tls", "enabled").Bool()
 				if !tlsEnabled {
@@ -558,7 +558,7 @@ logging:
 				if len(backends) != 2 {
 					t.Fatalf("expected 2 backends, got %d", len(backends))
 				}
-				assertEqual(t, backends[0].Get("url").String(), "http://backend1:8080")
+				assertEqual(t, backends[0].Get("url").String(), "http://backend1:8088")
 				w, _ := backends[0].Get("weight").Int()
 				if w != 3 {
 					t.Fatalf("expected weight 3, got %d", w)
@@ -631,9 +631,9 @@ tilde_null: ~`,
 		// === Colons in values ===
 		{
 			name:  "colon in value URL",
-			input: "url: http://example.com:8080/path",
+			input: "url: http://example.com:8088/path",
 			check: func(t *testing.T, n *Node) {
-				assertEqual(t, n.Get("url").String(), "http://example.com:8080/path")
+				assertEqual(t, n.Get("url").String(), "http://example.com:8088/path")
 			},
 		},
 
@@ -1199,14 +1199,14 @@ func TestParseKeyValueQuotedKey(t *testing.T) {
 
 func TestParseKeyValueEscapedColon(t *testing.T) {
 	// Colon not followed by space should not be treated as separator
-	key, val, ok := parseKeyValue("url: http://example.com:8080")
+	key, val, ok := parseKeyValue("url: http://example.com:8088")
 	if !ok {
 		t.Fatal("expected valid key-value pair")
 	}
 	if key != "url" {
 		t.Fatalf("expected 'url', got %q", key)
 	}
-	if val != "http://example.com:8080" {
+	if val != "http://example.com:8088" {
 		t.Fatalf("expected URL value, got %q", val)
 	}
 }
@@ -1440,7 +1440,7 @@ func TestBlockSequenceItemWithMultipleMapKeys(t *testing.T) {
 	// extra mapping keys inside a sequence item.
 	input := `servers:
   - host: alpha
-    port: 8080
+    port: 8088
     weight: 3
   - host: beta
     port: 9090
@@ -1933,7 +1933,7 @@ func TestComplexNestedMappingsAndSequences(t *testing.T) {
       retries: 3
   - name: api
     ports:
-      - 8080
+      - 8088
     config:
       timeout: 60
       retries: 5`

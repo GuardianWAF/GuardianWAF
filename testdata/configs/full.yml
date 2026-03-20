@@ -1,6 +1,6 @@
 # Full GuardianWAF configuration - every option specified
 mode: enforce
-listen: ":8080"
+listen: ":8088"
 
 tls:
   enabled: true

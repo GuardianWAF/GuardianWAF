@@ -20,8 +20,8 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/ai"
 	"github.com/guardianwaf/guardianwaf/internal/alerting"
 	"github.com/guardianwaf/guardianwaf/internal/config"
-	dkr "github.com/guardianwaf/guardianwaf/internal/docker"
 	"github.com/guardianwaf/guardianwaf/internal/dashboard"
+	dkr "github.com/guardianwaf/guardianwaf/internal/docker"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/events"
 	"github.com/guardianwaf/guardianwaf/internal/geoip"
@@ -414,37 +414,37 @@ func cmdServe(args []string) {
 			if cfg.WAF.GeoIP.Enabled {
 				gDB, _ = loadGeoIP(cfg, eng)
 			}
-				dash.SetRulesFns(
-						func() any { return rLayer.Rules() },
-						func(raw map[string]any) error {
-							r := mapToRule(raw)
-							if r.ID == "" {
-								return fmt.Errorf("rule id is required")
-							}
-							rLayer.AddRule(r)
-							return nil
-						},
-						func(id string, raw map[string]any) error {
-							r := mapToRule(raw)
-							r.ID = id
-							if !rLayer.UpdateRule(r) {
-								return fmt.Errorf("rule %s not found", id)
-							}
-							return nil
-						},
-						func(id string) bool { return rLayer.RemoveRule(id) },
-						func(id string, enabled bool) bool { return rLayer.ToggleRule(id, enabled) },
-						func(ip string) (string, string) {
-							if gDB == nil {
-								return "", "GeoIP not loaded"
-							}
-							parsed := net.ParseIP(ip)
-							if parsed == nil {
-								return "", "invalid IP"
-							}
-							code := gDB.Lookup(parsed)
-							return code, geoip.CountryName(code)
-						},
+			dash.SetRulesFns(
+				func() any { return rLayer.Rules() },
+				func(raw map[string]any) error {
+					r := mapToRule(raw)
+					if r.ID == "" {
+						return fmt.Errorf("rule id is required")
+					}
+					rLayer.AddRule(r)
+					return nil
+				},
+				func(id string, raw map[string]any) error {
+					r := mapToRule(raw)
+					r.ID = id
+					if !rLayer.UpdateRule(r) {
+						return fmt.Errorf("rule %s not found", id)
+					}
+					return nil
+				},
+				func(id string) bool { return rLayer.RemoveRule(id) },
+				func(id string, enabled bool) bool { return rLayer.ToggleRule(id, enabled) },
+				func(ip string) (string, string) {
+					if gDB == nil {
+						return "", "GeoIP not loaded"
+					}
+					parsed := net.ParseIP(ip)
+					if parsed == nil {
+						return "", "invalid IP"
+					}
+					code := gDB.Lookup(parsed)
+					return code, geoip.CountryName(code)
+				},
 			)
 		}
 
@@ -730,8 +730,8 @@ func cmdSidecar(args []string) {
 	fs.StringVar(configPath, "c", "", "Path to config file (short)")
 	upstream := fs.String("upstream", "", "Upstream URL (required if no config)")
 	fs.StringVar(upstream, "u", "", "Upstream URL (short)")
-	listenAddr := fs.String("listen", ":8080", "Listen address")
-	fs.StringVar(listenAddr, "l", ":8080", "Listen address (short)")
+	listenAddr := fs.String("listen", ":8088", "Listen address")
+	fs.StringVar(listenAddr, "l", ":8088", "Listen address (short)")
 	mode := fs.String("mode", "", "Override WAF mode")
 	fs.StringVar(mode, "m", "", "Override WAF mode (short)")
 	logLevel := fs.String("log-level", "", "Override log level")
@@ -1192,11 +1192,11 @@ func addLayers(eng *engine.Engine, cfg *config.Config) {
 		feeds := make([]threatintel.FeedConfig, len(cfg.WAF.ThreatIntel.Feeds))
 		for i, f := range cfg.WAF.ThreatIntel.Feeds {
 			feeds[i] = threatintel.FeedConfig{
-				Type:     f.Type,
-				Path:     f.Path,
-				URL:      f.URL,
-				Refresh:  f.Refresh,
-				Format:   f.Format,
+				Type:    f.Type,
+				Path:    f.Path,
+				URL:     f.URL,
+				Refresh: f.Refresh,
+				Format:  f.Format,
 			}
 		}
 		tiLayer, err := threatintel.NewLayer(threatintel.Config{

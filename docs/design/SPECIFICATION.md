@@ -109,7 +109,7 @@ http.Handle("/", waf.Wrap(myHandler))
 #### Mode 3: Sidecar Proxy
 
 ```
-Command:  guardianwaf sidecar --upstream localhost:8080
+Command:  guardianwaf sidecar --upstream localhost:8088
 ```
 
 **Capabilities:**
@@ -1110,7 +1110,7 @@ engine, err := guardianwaf.New(guardianwaf.Config{
 // Use as HTTP middleware
 mux := http.NewServeMux()
 mux.HandleFunc("/api/", apiHandler)
-http.ListenAndServe(":8080", engine.Middleware(mux))
+http.ListenAndServe(":8088", engine.Middleware(mux))
 
 // Manual request checking
 result := engine.Check(guardianwaf.Request{
@@ -1148,9 +1148,9 @@ engine, err := guardianwaf.New(config,
 
 ### 12.1 CLI
 ```bash
-guardianwaf sidecar --upstream localhost:8080 --listen :9090
+guardianwaf sidecar --upstream localhost:8088 --listen :9090
 guardianwaf sidecar --config guardianwaf.yaml
-GWAF_UPSTREAM=localhost:8080 GWAF_LISTEN=:9090 guardianwaf sidecar
+GWAF_UPSTREAM=localhost:8088 GWAF_LISTEN=:9090 guardianwaf sidecar
 ```
 
 ### 12.2 Constraints
@@ -1169,7 +1169,7 @@ Full YAML configuration with every field shown with defaults:
 
 # General
 mode: "enforce"                      # "enforce", "monitor", "disabled"
-listen: ":8080"
+listen: ":8088"
 
 tls:
   enabled: false

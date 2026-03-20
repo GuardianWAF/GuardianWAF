@@ -4,7 +4,7 @@
 
 set -e
 
-TARGET="${TARGET:-http://localhost:8080}"
+TARGET="${TARGET:-http://localhost:8088}"
 DURATION="${DURATION:-30s}"
 WORKERS="${WORKERS:-10}"
 RATE="${RATE:-50}"
@@ -244,7 +244,7 @@ show_help() {
     echo "  help               Show this help"
     echo ""
     echo "Environment Variables:"
-    echo "  TARGET      Target URL (default: http://localhost:8080)"
+    echo "  TARGET      Target URL (default: http://localhost:8088)"
     echo "  DURATION    Test duration (default: 30s)"
     echo "  WORKERS     Number of workers (default: 10)"
     echo "  RATE        Requests per second per worker (default: 50)"

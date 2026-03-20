@@ -1,5 +1,5 @@
 mode: enforce
-listen: ":8080"
+listen: ":8088"
 
 upstreams:
   - name: backend

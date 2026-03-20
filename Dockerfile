@@ -45,7 +45,7 @@ COPY --from=builder /app/guardianwaf /usr/local/bin/guardianwaf
 
 WORKDIR /var/lib/guardianwaf
 USER guardianwaf
-EXPOSE 8080 8443 9443
+EXPOSE 8088 8443 9443
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD ["/usr/local/bin/guardianwaf", "version"]

@@ -282,7 +282,7 @@ Get the current WAF configuration.
 ```json
 {
   "mode": "enforce",
-  "listen": ":8080",
+  "listen": ":8088",
   "waf": {
     "ip_acl_enabled": true,
     "rate_limit_enabled": true,

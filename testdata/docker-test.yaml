@@ -1,7 +1,7 @@
 # docker-test.yaml — Config for Docker-based smoke tests
 # Used by docker-compose.test.yml
 mode: enforce
-listen: ":8080"
+listen: ":8088"
 
 upstreams:
   - name: backend

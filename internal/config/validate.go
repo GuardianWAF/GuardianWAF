@@ -183,7 +183,7 @@ func validateListenAddr(addr, field string, ve *ValidationError) {
 		ve.addError(field, "must not be empty")
 		return
 	}
-	// net.SplitHostPort handles ":8080", "0.0.0.0:8080", "[::1]:8080", etc.
+	// net.SplitHostPort handles ":8088", "0.0.0.0:8088", "[::1]:8088", etc.
 	_, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		ve.addError(field, fmt.Sprintf("invalid host:port format %q: %v", addr, err))

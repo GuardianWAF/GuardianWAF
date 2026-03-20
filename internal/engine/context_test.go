@@ -115,7 +115,7 @@ func TestExtractClientIP_RemoteAddr(t *testing.T) {
 func TestExtractClientIP_IPv6(t *testing.T) {
 	// IPv6 with port (bracket notation used by net/http)
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
-	r.RemoteAddr = "[::1]:8080"
+	r.RemoteAddr = "[::1]:8088"
 
 	ctx := AcquireContext(r, 1, 1024)
 	defer ReleaseContext(ctx)

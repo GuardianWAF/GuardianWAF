@@ -125,15 +125,15 @@ chmod +x guardianwaf` },
       { type: 'code', language: 'bash', filename: 'Terminal', code: `docker pull ghcr.io/guardianwaf/guardianwaf:latest` },
       { type: 'heading', level: 2, text: 'First Run', id: 'first-run' },
       { type: 'paragraph', text: 'Start GuardianWAF as a reverse proxy in front of your application:' },
-      { type: 'code', language: 'bash', filename: 'Terminal', code: `./guardianwaf serve --listen :8080 --upstream http://localhost:3000` },
-      { type: 'paragraph', text: 'GuardianWAF will start listening on port 8080 and forward clean requests to your application on port 3000. All requests are analyzed in real-time.' },
+      { type: 'code', language: 'bash', filename: 'Terminal', code: `./guardianwaf serve --listen :8088 --upstream http://localhost:3000` },
+      { type: 'paragraph', text: 'GuardianWAF will start listening on port 8088 and forward clean requests to your application on port 3000. All requests are analyzed in real-time.' },
       { type: 'heading', level: 2, text: 'Verify Installation', id: 'verify' },
       { type: 'paragraph', text: 'Test that GuardianWAF is properly intercepting malicious requests:' },
       { type: 'code', language: 'bash', filename: 'Terminal', code: `# This should be blocked (SQL injection)
-curl -i "http://localhost:8080/?id=1' OR 1=1--"
+curl -i "http://localhost:8088/?id=1' OR 1=1--"
 
 # This should pass through
-curl -i "http://localhost:8080/api/health"` },
+curl -i "http://localhost:8088/api/health"` },
       { type: 'callout', variant: 'tip', text: 'Use --dry-run mode during initial deployment to monitor threats without blocking any traffic.' },
     ],
   },
@@ -145,7 +145,7 @@ curl -i "http://localhost:8080/api/health"` },
       { type: 'heading', level: 2, text: 'Config File', id: 'config-file' },
       { type: 'paragraph', text: 'Create a guardianwaf.yaml file:' },
       { type: 'code', language: 'yaml', filename: 'guardianwaf.yaml', code: `server:
-  listen: ":8080"
+  listen: ":8088"
   upstream: "http://localhost:3000"
   read_timeout: 30s
   write_timeout: 30s
@@ -180,7 +180,7 @@ logging:
       { type: 'heading', level: 2, text: 'Environment Variables', id: 'environment-vars' },
       { type: 'paragraph', text: 'All configuration options can be set via environment variables with the GUARDIANWAF_ prefix:' },
       { type: 'table', headers: ['Variable', 'Description', 'Default'], rows: [
-        ['GUARDIANWAF_LISTEN', 'Listen address', ':8080'],
+        ['GUARDIANWAF_LISTEN', 'Listen address', ':8088'],
         ['GUARDIANWAF_UPSTREAM', 'Upstream server URL', '(required)'],
         ['GUARDIANWAF_BLOCK_SCORE', 'Score threshold for blocking', '80'],
         ['GUARDIANWAF_LOG_SCORE', 'Score threshold for logging', '40'],
@@ -192,7 +192,7 @@ logging:
       { type: 'heading', level: 2, text: 'CLI Flags', id: 'cli-flags' },
       { type: 'code', language: 'bash', filename: 'Terminal', code: `./guardianwaf serve \\
   --config guardianwaf.yaml \\
-  --listen :8080 \\
+  --listen :8088 \\
   --upstream http://localhost:3000 \\
   --block-score 80 \\
   --log-score 40 \\
@@ -250,7 +250,7 @@ logging:
       { type: 'paragraph', text: 'GuardianWAF supports three deployment modes to fit any architecture. Each mode uses the same detection engine and scoring system.' },
       { type: 'heading', level: 2, text: 'Standalone Proxy', id: 'standalone-proxy' },
       { type: 'paragraph', text: 'Run GuardianWAF as a reverse proxy in front of your application. This is the simplest deployment mode and requires no code changes.' },
-      { type: 'code', language: 'bash', filename: 'Terminal', code: `./guardianwaf serve --listen :8080 --upstream http://localhost:3000` },
+      { type: 'code', language: 'bash', filename: 'Terminal', code: `./guardianwaf serve --listen :8088 --upstream http://localhost:3000` },
       { type: 'list', items: [
         'Zero code changes required',
         'Works with any backend language/framework',
@@ -282,7 +282,7 @@ func main() {
         w.Write([]byte("Hello, protected world!"))
     })
 
-    http.ListenAndServe(":8080", waf.Handler(mux))
+    http.ListenAndServe(":8088", waf.Handler(mux))
 }` },
       { type: 'callout', variant: 'tip', text: 'Library mode adds virtually zero overhead since requests are analyzed in-process without network hops.' },
       { type: 'heading', level: 2, text: 'Sidecar Proxy', id: 'sidecar-proxy' },
@@ -296,7 +296,7 @@ spec:
     - name: guardianwaf
       image: ghcr.io/guardianwaf/guardianwaf:latest
       ports:
-        - containerPort: 8080
+        - containerPort: 8088
       env:
         - name: GUARDIANWAF_UPSTREAM
           value: "http://localhost:3000"
@@ -454,7 +454,7 @@ mux := http.NewServeMux()
 mux.HandleFunc("/", handler)
 
 protected := waf.Handler(mux)
-http.ListenAndServe(":8080", protected)
+http.ListenAndServe(":8088", protected)
 
 // Or use the HandlerFunc adapter
 http.HandleFunc("/api/", waf.HandlerFunc(apiHandler))` },

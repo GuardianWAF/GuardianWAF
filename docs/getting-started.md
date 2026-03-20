@@ -58,7 +58,7 @@ Create `guardianwaf.yaml`:
 
 ```yaml
 mode: enforce
-listen: ":8080"
+listen: ":8088"
 
 upstreams:
   - name: backend
@@ -89,7 +89,7 @@ Start the WAF:
 guardianwaf serve -c guardianwaf.yaml
 ```
 
-GuardianWAF now proxies all traffic on `:8080` to your backend on `:3000`, inspecting every request. The dashboard is available on `:9443`.
+GuardianWAF now proxies all traffic on `:8088` to your backend on `:3000`, inspecting every request. The dashboard is available on `:9443`.
 
 ### 2. Library Mode (Go Middleware)
 
@@ -120,7 +120,7 @@ func main() {
         fmt.Fprintln(w, "Hello, protected world!")
     })
 
-    http.ListenAndServe(":8080", waf.Middleware(mux))
+    http.ListenAndServe(":8088", waf.Middleware(mux))
 }
 ```
 
@@ -132,14 +132,14 @@ Lightweight proxy without dashboard or MCP. Ideal for container environments.
 # Docker
 docker run -d \
   --name guardianwaf \
-  -p 8080:8080 \
+  -p 8088:8088 \
   guardianwaf/guardianwafwaf:latest \
   sidecar --upstream http://app:3000
 
 # Or with a config file
 docker run -d \
   -v ./guardianwaf.yaml:/etc/guardianwaf/guardianwaf.yaml:ro \
-  -p 8080:8080 \
+  -p 8088:8088 \
   guardianwaf/guardianwafwaf:latest \
   sidecar -c /etc/guardianwaf/guardianwaf.yaml
 ```
@@ -159,9 +159,9 @@ spec:
         - containerPort: 3000
     - name: waf
       image: guardianwaf/guardianwafwaf:latest
-      args: ["sidecar", "--upstream", "http://localhost:3000", "--listen", ":8080"]
+      args: ["sidecar", "--upstream", "http://localhost:3000", "--listen", ":8088"]
       ports:
-        - containerPort: 8080
+        - containerPort: 8088
 ```
 
 ---
@@ -172,7 +172,7 @@ GuardianWAF ships with production-safe defaults. This minimal config is enough:
 
 ```yaml
 mode: enforce
-listen: ":8080"
+listen: ":8088"
 
 upstreams:
   - name: app
@@ -240,7 +240,7 @@ Output:
 ```
 Configuration guardianwaf.yaml is valid.
   Mode:       enforce
-  Listen:     :8080
+  Listen:     :8088
   Upstreams:  1
   Routes:     1
   Detection:  true (6 detectors)
@@ -258,11 +258,11 @@ Configuration guardianwaf.yaml is valid.
 1. Start GuardianWAF in front of your app.
 2. Send a normal request to confirm traffic flows:
    ```bash
-   curl http://localhost:8080/
+   curl http://localhost:8088/
    ```
 3. Send a test attack to confirm detection:
    ```bash
-   curl "http://localhost:8080/search?q=%27%20OR%201%3D1%20--"
+   curl "http://localhost:8088/search?q=%27%20OR%201%3D1%20--"
    # Expected: 403 Forbidden - Request blocked by GuardianWAF
    ```
 4. Check the response header for the request ID:

@@ -1,5 +1,5 @@
 // Package main provides a load testing and attack simulation tool for GuardianWAF.
-// Run: go run main.go -target http://localhost:8080 -attacks attacks.json
+// Run: go run main.go -target http://localhost:8088 -attacks attacks.json
 package main
 
 import (
@@ -43,7 +43,7 @@ var (
 )
 
 func main() {
-	target := flag.String("target", "http://localhost:8080", "Target WAF URL")
+	target := flag.String("target", "http://localhost:8088", "Target WAF URL")
 	duration := flag.Duration("duration", 30*time.Second, "Test duration")
 	workers := flag.Int("workers", 10, "Number of concurrent workers")
 	rate := flag.Int("rate", 50, "Requests per second per worker")

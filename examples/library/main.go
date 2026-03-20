@@ -42,8 +42,8 @@ func main() {
 		fmt.Fprintln(w, `{"users": [{"id": 1, "name": "Alice"}]}`)
 	})
 
-	fmt.Println("Server starting on :8080 (protected by GuardianWAF)")
-	if err := http.ListenAndServe(":8080", waf.Middleware(mux)); err != nil {
+	fmt.Println("Server starting on :8088 (protected by GuardianWAF)")
+	if err := http.ListenAndServe(":8088", waf.Middleware(mux)); err != nil {
 		panic(err)
 	}
 }

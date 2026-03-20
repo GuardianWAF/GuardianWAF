@@ -2,7 +2,7 @@
 # GuardianWAF Real E2E Test Script
 # Usage: ./scripts/realtest.sh [waf_url] [dashboard_url]
 
-WAF="${1:-http://localhost:8080}"
+WAF="${1:-http://localhost:8088}"
 DASH="${2:-http://localhost:9443}"
 API_KEY="test-api-key-2024"
 UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0"

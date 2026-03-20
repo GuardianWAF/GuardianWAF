@@ -29,7 +29,7 @@ func newMockEngine() *mockEngine {
 		},
 		config: map[string]any{
 			"mode":   "enforce",
-			"listen": ":8080",
+			"listen": ":8088",
 		},
 		mode: "enforce",
 		detectors: []map[string]any{
@@ -44,8 +44,8 @@ func newMockEngine() *mockEngine {
 	}
 }
 
-func (m *mockEngine) GetStats() any       { return m.stats }
-func (m *mockEngine) GetConfig() any       { return m.config }
+func (m *mockEngine) GetStats() any                { return m.stats }
+func (m *mockEngine) GetConfig() any               { return m.config }
 func (m *mockEngine) GetMode() string              { return m.mode }
 func (m *mockEngine) SetMode(mode string) error    { m.mode = mode; return nil }
 func (m *mockEngine) AddWhitelist(ip string) error { return nil }
@@ -1638,12 +1638,12 @@ func newFailEngine() *failEngine {
 	return &failEngine{mockEngine: *newMockEngine()}
 }
 
-func (m *failEngine) AddWhitelist(ip string) error        { return fmt.Errorf("fail") }
-func (m *failEngine) RemoveWhitelist(ip string) error      { return fmt.Errorf("fail") }
-func (m *failEngine) AddBlacklist(ip string) error         { return fmt.Errorf("fail") }
-func (m *failEngine) RemoveBlacklist(ip string) error      { return fmt.Errorf("fail") }
-func (m *failEngine) AddRateLimit(rule any) error   { return fmt.Errorf("fail") }
-func (m *failEngine) RemoveRateLimit(id string) error       { return fmt.Errorf("fail") }
+func (m *failEngine) AddWhitelist(ip string) error    { return fmt.Errorf("fail") }
+func (m *failEngine) RemoveWhitelist(ip string) error { return fmt.Errorf("fail") }
+func (m *failEngine) AddBlacklist(ip string) error    { return fmt.Errorf("fail") }
+func (m *failEngine) RemoveBlacklist(ip string) error { return fmt.Errorf("fail") }
+func (m *failEngine) AddRateLimit(rule any) error     { return fmt.Errorf("fail") }
+func (m *failEngine) RemoveRateLimit(id string) error { return fmt.Errorf("fail") }
 func (m *failEngine) AddExclusion(path string, detectors []string, reason string) error {
 	return fmt.Errorf("fail")
 }

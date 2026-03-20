@@ -1,20 +1,20 @@
 # Legitimate traffic targets for Vegeta load testing
 # Usage: vegeta attack -targets=vegeta.targets -rate=100 -duration=30s | vegeta report
 
-GET http://localhost:8080/
-GET http://localhost:8080/api/products
-GET http://localhost:8080/api/health
-GET http://localhost:8080/search?q=laptop
-GET http://localhost:8080/category/electronics
-GET http://localhost:8080/about
-GET http://localhost:8080/static/js/app.js
-GET http://localhost:8080/static/css/style.css
+GET http://localhost:8088/
+GET http://localhost:8088/api/products
+GET http://localhost:8088/api/health
+GET http://localhost:8088/search?q=laptop
+GET http://localhost:8088/category/electronics
+GET http://localhost:8088/about
+GET http://localhost:8088/static/js/app.js
+GET http://localhost:8088/static/css/style.css
 
 # API endpoints with headers
-GET http://localhost:8080/api/users/profile
+GET http://localhost:8088/api/users/profile
 X-API-Key: test-key-123
 Accept: application/json
 
-GET http://localhost:8080/api/orders
+GET http://localhost:8088/api/orders
 Authorization: Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.test
 Accept: application/json

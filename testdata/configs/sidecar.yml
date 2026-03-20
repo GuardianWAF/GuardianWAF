@@ -1,7 +1,7 @@
 # Sidecar mode configuration
 # WAF runs alongside a single backend, minimal overhead
 mode: enforce
-listen: ":8080"
+listen: ":8088"
 
 upstreams:
   - name: app

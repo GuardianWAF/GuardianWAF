@@ -3,7 +3,7 @@ package config
 import "testing"
 
 func FuzzYAMLParser(f *testing.F) {
-	f.Add([]byte("mode: enforce\nlisten: \":8080\""))
+	f.Add([]byte("mode: enforce\nlisten: \":8088\""))
 	f.Add([]byte(""))
 	f.Add([]byte("key: value"))
 	f.Add([]byte("list:\n  - item1\n  - item2"))
@@ -40,11 +40,11 @@ func FuzzYAMLParser(f *testing.F) {
 }
 
 func FuzzYAMLParserWithValidation(f *testing.F) {
-	minimal := []byte("mode: enforce\nlisten: \":8080\"")
+	minimal := []byte("mode: enforce\nlisten: \":8088\"")
 	f.Add(minimal)
 
 	full := []byte(`mode: enforce
-listen: ":8080"
+listen: ":8088"
 waf:
   detection:
     enabled: true

@@ -28,7 +28,7 @@ Full-featured reverse proxy with integrated dashboard and MCP server. Sits in fr
 ```
                     ┌─────────────────────┐
    Client ─────────│    GuardianWAF       │─────────── Backend
-    :8080          │  (reverse proxy)     │            :3000
+    :8088          │  (reverse proxy)     │            :3000
                     │                     │
                     │  Dashboard  :9443   │
                     │  MCP server (stdio) │
@@ -39,7 +39,7 @@ Full-featured reverse proxy with integrated dashboard and MCP server. Sits in fr
 
 ```yaml
 mode: enforce
-listen: ":8080"
+listen: ":8088"
 
 upstreams:
   - name: api
@@ -57,7 +57,7 @@ upstreams:
 
   - name: static
     targets:
-      - url: "http://cdn:8080"
+      - url: "http://cdn:8088"
 
 routes:
   - path: /api
@@ -87,7 +87,7 @@ guardianwaf serve -c guardianwaf.yaml --mode monitor --log-level debug
 
 # Docker
 docker run -d \
-  -p 8080:8080 -p 9443:9443 \
+  -p 8088:8088 -p 9443:9443 \
   -v ./guardianwaf.yaml:/etc/guardianwaf/guardianwaf.yaml:ro \
   guardianwaf/guardianwafwaf:latest \
   serve -c /etc/guardianwaf/guardianwaf.yaml
@@ -111,7 +111,7 @@ Embed GuardianWAF directly as Go middleware. No separate process. Ideal when you
 
 ```
    Client ──────── Your Go Application ──────── (no separate proxy)
-    :8080         ┌──────────────────┐
+    :8088         ┌──────────────────┐
                   │  guardianwaf     │
                   │  .Middleware()   │
                   │       ↓          │
@@ -146,7 +146,7 @@ func main() {
         fmt.Fprintln(w, "Protected!")
     })
 
-    http.ListenAndServe(":8080", waf.Middleware(mux))
+    http.ListenAndServe(":8088", waf.Middleware(mux))
 }
 ```
 
@@ -159,7 +159,7 @@ if err != nil {
 }
 defer waf.Close()
 
-http.ListenAndServe(":8080", waf.Middleware(myHandler))
+http.ListenAndServe(":8088", waf.Middleware(myHandler))
 ```
 
 ### Using Functional Options
@@ -224,7 +224,7 @@ Lightweight proxy designed for container environments. No dashboard, no MCP -- j
   │  ┌──────────────┐  ┌──────────────┐ │
   │  │ GuardianWAF  │→ │  Your App    │ │
   │  │  (sidecar)   │  │  :3000       │ │
-  │  │  :8080       │  │              │ │
+  │  │  :8088       │  │              │ │
   │  └──────────────┘  └──────────────┘ │
   └──────────────────────────────────────┘
 ```
@@ -239,7 +239,7 @@ guardianwaf sidecar --upstream http://localhost:3000
 guardianwaf sidecar -c guardianwaf.yaml --upstream http://localhost:3000
 
 # Override mode
-guardianwaf sidecar --upstream http://app:3000 --mode monitor --listen :8080
+guardianwaf sidecar --upstream http://app:3000 --mode monitor --listen :8088
 ```
 
 ### Docker Compose
@@ -251,7 +251,7 @@ services:
     image: guardianwaf/guardianwafwaf:latest
     command: ["sidecar", "--upstream", "http://app:3000"]
     ports:
-      - "8080:8080"
+      - "8088:8088"
     environment:
       - GWAF_MODE=enforce
     depends_on:
@@ -282,13 +282,13 @@ spec:
 
         - name: waf
           image: guardianwaf/guardianwafwaf:latest
-          args: ["sidecar", "--upstream", "http://localhost:3000", "--listen", ":8080"]
+          args: ["sidecar", "--upstream", "http://localhost:3000", "--listen", ":8088"]
           ports:
-            - containerPort: 8080
+            - containerPort: 8088
           livenessProbe:
             httpGet:
               path: /healthz
-              port: 8080
+              port: 8088
             initialDelaySeconds: 5
             periodSeconds: 10
           resources:
@@ -305,7 +305,7 @@ spec:
 Sidecar mode exposes `/healthz` on the listen address:
 
 ```bash
-curl http://localhost:8080/healthz
+curl http://localhost:8088/healthz
 # ok
 ```
 

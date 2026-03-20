@@ -15,8 +15,8 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Mode != "enforce" {
 		t.Fatalf("expected mode 'enforce', got %q", cfg.Mode)
 	}
-	if cfg.Listen != ":8080" {
-		t.Fatalf("expected listen ':8080', got %q", cfg.Listen)
+	if cfg.Listen != ":8088" {
+		t.Fatalf("expected listen ':8088', got %q", cfg.Listen)
 	}
 
 	// TLS defaults
@@ -778,9 +778,9 @@ upstreams:
   - name: api
     load_balancer: least_conn
     targets:
-      - url: http://api1:8080
+      - url: http://api1:8088
         weight: 2
-      - url: http://api2:8080
+      - url: http://api2:8088
         weight: 1
     health_check:
       enabled: true
@@ -2800,9 +2800,9 @@ upstreams:
   - name: web
     load_balancer: weighted
     targets:
-      - url: http://web1:8080
+      - url: http://web1:8088
         weight: 3
-      - url: http://web2:8080
+      - url: http://web2:8088
         weight: 1
     health_check:
       enabled: true
@@ -3043,7 +3043,7 @@ func TestValidateVirtualHostsExported(t *testing.T) {
 
 func TestValidateUpstreamsExported(t *testing.T) {
 	upstreams := []UpstreamConfig{
-		{Name: "api", Targets: []TargetConfig{{URL: "http://localhost:8080"}}, LoadBalancer: "round_robin"},
+		{Name: "api", Targets: []TargetConfig{{URL: "http://localhost:8088"}}, LoadBalancer: "round_robin"},
 		{Name: "", Targets: []TargetConfig{{URL: "http://localhost:8081"}}}, // Invalid: empty name
 	}
 	ve := &ValidationError{}

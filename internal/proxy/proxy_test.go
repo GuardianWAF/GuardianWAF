@@ -363,7 +363,7 @@ func TestRouterVirtualHosts(t *testing.T) {
 		expected string
 	}{
 		{"api.example.com", "api"},
-		{"api.example.com:8080", "api"},
+		{"api.example.com:8088", "api"},
 		{"www.example.com", "web"},
 		{"example.com", "web"},
 		{"unknown.example.com", "fallback"},
@@ -480,8 +480,8 @@ func TestStripPort(t *testing.T) {
 		input, expected string
 	}{
 		{"example.com", "example.com"},
-		{"example.com:8080", "example.com"},
-		{"[::1]:8080", "[::1]"},
+		{"example.com:8088", "example.com"},
+		{"[::1]:8088", "[::1]"},
 		{"127.0.0.1:443", "127.0.0.1"},
 	}
 	for _, tt := range tests {

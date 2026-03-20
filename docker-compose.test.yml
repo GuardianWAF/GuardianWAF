@@ -26,7 +26,7 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "18080:8080"
+      - "18088:8088"
     volumes:
       - ./testdata/docker-test.yaml:/etc/guardianwaf/guardianwaf.yaml:ro
     command: serve -c /etc/guardianwaf/guardianwaf.yaml
@@ -36,7 +36,7 @@ services:
       backend:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8088/"]
       interval: 2s
       timeout: 2s
       retries: 10
@@ -56,7 +56,7 @@ services:
 
         PASS=0
         FAIL=0
-        WAF="http://guardianwaf:8080"
+        WAF="http://guardianwaf:8088"
         UA="User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0"
 
         pass() { PASS=$$((PASS + 1)); echo "  PASS $$1"; }

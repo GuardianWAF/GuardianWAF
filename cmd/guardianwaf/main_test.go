@@ -296,7 +296,7 @@ func newTestAdapter(t *testing.T) *mcpEngineAdapter {
 	eng.AddLayer(engine.OrderedLayer{Layer: rlLayer, Order: 200})
 	// Add detection layer for testing
 	detLayer := detection.NewLayer(detection.Config{
-		Enabled:   true,
+		Enabled: true,
 		Detectors: map[string]detection.DetectorConfig{
 			"sqli": {Enabled: true, Multiplier: 1.0},
 			"xss":  {Enabled: true, Multiplier: 1.0},
@@ -532,7 +532,7 @@ func TestCmdValidate_ValidConfig(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.yaml")
 	content := `mode: enforce
-listen: ":8080"
+listen: ":8088"
 waf:
   detection:
     enabled: true
@@ -605,7 +605,7 @@ func writeTestConfig(t *testing.T) string {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "guardianwaf.yaml")
 	content := `mode: enforce
-listen: ":18080"
+listen: ":18088"
 waf:
   detection:
     enabled: true
@@ -1053,7 +1053,7 @@ func TestCollectACMEDomains_VirtualHostWildcard(t *testing.T) {
 		VirtualHosts: []config.VirtualHostConfig{
 			{
 				Domains: []string{"*.wildcard.com", "regular.com"},
-				TLS: config.VHostTLSConfig{
+				TLS:     config.VHostTLSConfig{
 					// No manual cert - will be included
 				},
 			},
@@ -1084,12 +1084,12 @@ func TestCollectACMEDomains_EmptyConfig(t *testing.T) {
 
 func TestMapToRule_Complete(t *testing.T) {
 	raw := map[string]any{
-		"id":         "rule-1",
-		"name":       "Block SQLi",
-		"enabled":    true,
-		"priority":   float64(100), // JSON numbers become float64
-		"action":     "block",
-		"score":      float64(50),  // JSON numbers become float64
+		"id":       "rule-1",
+		"name":     "Block SQLi",
+		"enabled":  true,
+		"priority": float64(100), // JSON numbers become float64
+		"action":   "block",
+		"score":    float64(50), // JSON numbers become float64
 		"conditions": []any{
 			map[string]any{"field": "path", "op": "contains", "value": "sql"},
 			map[string]any{"field": "method", "op": "equals", "value": "POST"},
@@ -1143,7 +1143,7 @@ func TestMapToRule_ScoreFloat(t *testing.T) {
 
 func TestMapToRule_InvalidCondition(t *testing.T) {
 	raw := map[string]any{
-		"id":         "rule-4",
+		"id": "rule-4",
 		"conditions": []any{
 			"not a map", // invalid condition
 			map[string]any{"field": "path", "op": "contains", "value": "test"},
@@ -1350,9 +1350,9 @@ func TestMapToRule_ConditionMissingFields(t *testing.T) {
 	raw := map[string]any{
 		"id": "rule-missing",
 		"conditions": []any{
-			map[string]any{"field": "path"}, // missing op and value
+			map[string]any{"field": "path"},  // missing op and value
 			map[string]any{"op": "contains"}, // missing field
-			map[string]any{"value": "test"}, // missing field and op
+			map[string]any{"value": "test"},  // missing field and op
 		},
 	}
 	r := mapToRule(raw)
@@ -1412,7 +1412,7 @@ func TestUpstreamSummary_SingleTarget(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Upstreams = []config.UpstreamConfig{
 		{
-			Name:    "single",
+			Name: "single",
 			Targets: []config.TargetConfig{
 				{URL: "http://localhost:3000"},
 			},
@@ -1435,7 +1435,7 @@ func TestBuildReverseProxy_VirtualHosts(t *testing.T) {
 		},
 		{
 			Name:    "web",
-			Targets: []config.TargetConfig{{URL: "http://localhost:8080"}},
+			Targets: []config.TargetConfig{{URL: "http://localhost:8088"}},
 		},
 	}
 	cfg.VirtualHosts = []config.VirtualHostConfig{
@@ -1944,7 +1944,7 @@ func TestValidateConfigFile_Valid(t *testing.T) {
 	// Create a valid config file
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "valid.yaml")
-	content := "mode: enforce\nlisten: \":8080\"\n"
+	content := "mode: enforce\nlisten: \":8088\"\n"
 	os.WriteFile(cfgPath, []byte(content), 0644)
 
 	cfg, summary, err := validateConfigFile(cfgPath)
@@ -1989,7 +1989,7 @@ func TestValidateConfigFile_WithUpstreams(t *testing.T) {
 	cfgPath := filepath.Join(dir, "with-upstreams.yaml")
 	content := `
 mode: enforce
-listen: ":8080"
+listen: ":8088"
 upstreams:
   - name: backend
     targets:
@@ -2017,7 +2017,7 @@ func TestValidateConfigFile_WithDetection(t *testing.T) {
 	cfgPath := filepath.Join(dir, "with-detection.yaml")
 	content := `
 mode: enforce
-listen: ":8080"
+listen: ":8088"
 waf:
   detection:
     enabled: true
@@ -2057,7 +2057,7 @@ func TestValidateConfigFile_WithRateLimit(t *testing.T) {
 	cfgPath := filepath.Join(dir, "with-ratelimit.yaml")
 	content := `
 mode: enforce
-listen: ":8080"
+listen: ":8088"
 waf:
   rate_limit:
     enabled: true
@@ -2118,7 +2118,7 @@ func TestValidateConfigFile_ValidationError(t *testing.T) {
 	// Invalid threshold (block < log should fail validation)
 	content := `
 mode: enforce
-listen: ":8080"
+listen: ":8088"
 waf:
   detection:
     enabled: true
@@ -2142,7 +2142,7 @@ waf:
 func TestRunValidate_ValidConfig(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "valid.yaml")
-	content := "mode: enforce\nlisten: \":8080\"\n"
+	content := "mode: enforce\nlisten: \":8088\"\n"
 	os.WriteFile(cfgPath, []byte(content), 0644)
 
 	result, err := runValidate(cfgPath)
@@ -2207,7 +2207,7 @@ func TestRunCheck_ValidRequest(t *testing.T) {
 	cfgPath := filepath.Join(dir, "test.yaml")
 	content := `
 mode: enforce
-listen: ":8080"
+listen: ":8088"
 waf:
   detection:
     enabled: true
@@ -2233,7 +2233,7 @@ waf:
 func TestRunCheck_WithHeaders(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "test.yaml")
-	content := "mode: monitor\nlisten: \":8080\"\n"
+	content := "mode: monitor\nlisten: \":8088\"\n"
 	os.WriteFile(cfgPath, []byte(content), 0644)
 
 	result, err := runCheck(CheckOptions{
@@ -2254,7 +2254,7 @@ func TestRunCheck_WithHeaders(t *testing.T) {
 func TestRunCheck_FullURL(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "test.yaml")
-	content := "mode: monitor\nlisten: \":8080\"\n"
+	content := "mode: monitor\nlisten: \":8088\"\n"
 	os.WriteFile(cfgPath, []byte(content), 0644)
 
 	result, err := runCheck(CheckOptions{
@@ -2273,7 +2273,7 @@ func TestRunCheck_FullURL(t *testing.T) {
 func TestRunCheck_InvalidMethod(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "test.yaml")
-	content := "mode: monitor\nlisten: \":8080\"\n"
+	content := "mode: monitor\nlisten: \":8088\"\n"
 	os.WriteFile(cfgPath, []byte(content), 0644)
 
 	_, err := runCheck(CheckOptions{
@@ -2291,7 +2291,7 @@ func TestRunCheck_SQLInjection(t *testing.T) {
 	cfgPath := filepath.Join(dir, "test.yaml")
 	content := `
 mode: enforce
-listen: ":8080"
+listen: ":8088"
 waf:
   detection:
     enabled: true
@@ -2348,7 +2348,7 @@ func TestRunCheck_XSSDetection(t *testing.T) {
 	cfgPath := filepath.Join(dir, "test.yaml")
 	content := `
 mode: enforce
-listen: ":8080"
+listen: ":8088"
 waf:
   detection:
     enabled: true
@@ -2377,7 +2377,7 @@ func TestRunCheck_LFIDetection(t *testing.T) {
 	cfgPath := filepath.Join(dir, "test.yaml")
 	content := `
 mode: enforce
-listen: ":8080"
+listen: ":8088"
 waf:
   detection:
     enabled: true

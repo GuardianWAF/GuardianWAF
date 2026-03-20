@@ -8,7 +8,7 @@ import "time"
 // Config is the top-level configuration for GuardianWAF.
 type Config struct {
 	Mode   string    `yaml:"mode"`   // "enforce", "monitor", "disabled"
-	Listen string    `yaml:"listen"` // Listen address (e.g., ":8080")
+	Listen string    `yaml:"listen"` // Listen address (e.g., ":8088")
 	TLS    TLSConfig `yaml:"tls"`
 
 	Upstreams    []UpstreamConfig    `yaml:"upstreams"`
@@ -26,16 +26,16 @@ type Config struct {
 
 // AlertingConfig controls webhook-based alert delivery.
 type AlertingConfig struct {
-	Enabled  bool                `yaml:"enabled"`
-	Webhooks []WebhookConfig     `yaml:"webhooks"`
+	Enabled  bool            `yaml:"enabled"`
+	Webhooks []WebhookConfig `yaml:"webhooks"`
 }
 
 // WebhookConfig defines a single webhook target.
 type WebhookConfig struct {
 	Name     string            `yaml:"name"`
 	URL      string            `yaml:"url"`
-	Type     string            `yaml:"type"`     // "slack", "discord", "generic"
-	Events   []string          `yaml:"events"`   // "block", "challenge", "log", "all"
+	Type     string            `yaml:"type"`   // "slack", "discord", "generic"
+	Events   []string          `yaml:"events"` // "block", "challenge", "log", "all"
 	MinScore int               `yaml:"min_score"`
 	Cooldown time.Duration     `yaml:"cooldown"`
 	Headers  map[string]string `yaml:"headers"`
@@ -113,19 +113,19 @@ type VHostTLSConfig struct {
 
 // CustomRulesConfig controls the custom rule engine.
 type CustomRulesConfig struct {
-	Enabled bool             `yaml:"enabled"`
-	Rules   []CustomRule     `yaml:"rules"`
+	Enabled bool         `yaml:"enabled"`
+	Rules   []CustomRule `yaml:"rules"`
 }
 
 // CustomRule defines a single custom WAF rule.
 type CustomRule struct {
-	ID         string            `yaml:"id"`
-	Name       string            `yaml:"name"`
-	Enabled    bool              `yaml:"enabled"`
-	Priority   int               `yaml:"priority"`
-	Conditions []RuleCondition   `yaml:"conditions"`
-	Action     string            `yaml:"action"` // "block", "log", "challenge", "pass"
-	Score      int               `yaml:"score"`
+	ID         string          `yaml:"id"`
+	Name       string          `yaml:"name"`
+	Enabled    bool            `yaml:"enabled"`
+	Priority   int             `yaml:"priority"`
+	Conditions []RuleCondition `yaml:"conditions"`
+	Action     string          `yaml:"action"` // "block", "log", "challenge", "pass"
+	Score      int             `yaml:"score"`
 }
 
 // RuleCondition defines a match condition for a custom rule.
@@ -370,12 +370,12 @@ type EventsConfig struct {
 
 // ThreatIntelConfig controls threat intelligence feed checking.
 type ThreatIntelConfig struct {
-	Enabled        bool              `yaml:"enabled"`
-	IPReputation   IPReputationConfig   `yaml:"ip_reputation"`
-	DomainRep      DomainReputationConfig `yaml:"domain_reputation"`
-	CacheSize      int               `yaml:"cache_size"`
-	CacheTTL       time.Duration     `yaml:"cache_ttl"`
-	Feeds          []ThreatFeedConfig `yaml:"feeds"`
+	Enabled      bool                   `yaml:"enabled"`
+	IPReputation IPReputationConfig     `yaml:"ip_reputation"`
+	DomainRep    DomainReputationConfig `yaml:"domain_reputation"`
+	CacheSize    int                    `yaml:"cache_size"`
+	CacheTTL     time.Duration          `yaml:"cache_ttl"`
+	Feeds        []ThreatFeedConfig     `yaml:"feeds"`
 }
 
 // IPReputationConfig controls IP reputation checking.
@@ -394,11 +394,11 @@ type DomainReputationConfig struct {
 
 // ThreatFeedConfig configures a threat intelligence feed source.
 type ThreatFeedConfig struct {
-	Type     string        `yaml:"type"`     // "file" or "url"
-	Path     string        `yaml:"path"`     // File path for type="file"
-	URL      string        `yaml:"url"`      // URL for type="url"
-	Refresh  time.Duration `yaml:"refresh"`  // Refresh interval
-	Format   string        `yaml:"format"`   // "json", "jsonl", "csv"
+	Type    string        `yaml:"type"`    // "file" or "url"
+	Path    string        `yaml:"path"`    // File path for type="file"
+	URL     string        `yaml:"url"`     // URL for type="url"
+	Refresh time.Duration `yaml:"refresh"` // Refresh interval
+	Format  string        `yaml:"format"`  // "json", "jsonl", "csv"
 }
 
 // CORSConfig controls Cross-Origin Resource Sharing validation.
@@ -416,13 +416,13 @@ type CORSConfig struct {
 
 // ATOProtectionConfig controls Account Takeover Protection.
 type ATOProtectionConfig struct {
-	Enabled        bool                    `yaml:"enabled"`
-	LoginPaths     []string                `yaml:"login_paths"`
-	BruteForce     BruteForceConfig        `yaml:"brute_force"`
-	CredStuffing   CredentialStuffingConfig `yaml:"credential_stuffing"`
-	PasswordSpray  PasswordSprayConfig     `yaml:"password_spray"`
-	Travel         ImpossibleTravelConfig  `yaml:"impossible_travel"`
-	GeoDBPath      string                  `yaml:"geodb_path"`
+	Enabled       bool                     `yaml:"enabled"`
+	LoginPaths    []string                 `yaml:"login_paths"`
+	BruteForce    BruteForceConfig         `yaml:"brute_force"`
+	CredStuffing  CredentialStuffingConfig `yaml:"credential_stuffing"`
+	PasswordSpray PasswordSprayConfig      `yaml:"password_spray"`
+	Travel        ImpossibleTravelConfig   `yaml:"impossible_travel"`
+	GeoDBPath     string                   `yaml:"geodb_path"`
 }
 
 // BruteForceConfig controls brute force detection.
@@ -460,12 +460,12 @@ type ImpossibleTravelConfig struct {
 
 // APISecurityConfig controls API authentication and authorization.
 type APISecurityConfig struct {
-	Enabled     bool            `yaml:"enabled"`
-	JWT         JWTConfig       `yaml:"jwt"`
-	APIKeys     APIKeysConfig   `yaml:"api_keys"`
-	SkipPaths   []string        `yaml:"skip_paths"`
-	HeaderName  string          `yaml:"header_name"`
-	QueryParam  string          `yaml:"query_param"`
+	Enabled    bool          `yaml:"enabled"`
+	JWT        JWTConfig     `yaml:"jwt"`
+	APIKeys    APIKeysConfig `yaml:"api_keys"`
+	SkipPaths  []string      `yaml:"skip_paths"`
+	HeaderName string        `yaml:"header_name"`
+	QueryParam string        `yaml:"query_param"`
 }
 
 // JWTConfig controls JWT validation.

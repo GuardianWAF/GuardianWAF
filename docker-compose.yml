@@ -2,7 +2,7 @@ services:
   guardianwaf:
     build: .
     ports:
-      - "18080:8080"
+      - "18088:8088"
       - "9443:9443"
     volumes:
       - ./examples/standalone/guardianwaf.yaml:/etc/guardianwaf/guardianwaf.yaml:ro
