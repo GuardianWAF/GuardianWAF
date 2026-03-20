@@ -19,8 +19,26 @@ type Config struct {
 	Dashboard DashboardConfig `yaml:"dashboard"`
 	MCP       MCPConfig       `yaml:"mcp"`
 	Docker    DockerConfig    `yaml:"docker"`
+	Alerting  AlertingConfig  `yaml:"alerting"`
 	Logging   LogConfig       `yaml:"logging"`
 	Events    EventsConfig    `yaml:"events"`
+}
+
+// AlertingConfig controls webhook-based alert delivery.
+type AlertingConfig struct {
+	Enabled  bool                `yaml:"enabled"`
+	Webhooks []WebhookConfig     `yaml:"webhooks"`
+}
+
+// WebhookConfig defines a single webhook target.
+type WebhookConfig struct {
+	Name     string            `yaml:"name"`
+	URL      string            `yaml:"url"`
+	Type     string            `yaml:"type"`     // "slack", "discord", "generic"
+	Events   []string          `yaml:"events"`   // "block", "challenge", "log", "all"
+	MinScore int               `yaml:"min_score"`
+	Cooldown time.Duration     `yaml:"cooldown"`
+	Headers  map[string]string `yaml:"headers"`
 }
 
 // DockerConfig controls Docker container auto-discovery.

@@ -2,6 +2,8 @@ package engine
 
 import (
 	"bytes"
+	"compress/flate"
+	"compress/gzip"
 	"crypto/rand"
 	"encoding/hex"
 	"io"
@@ -122,15 +124,35 @@ func AcquireContext(r *http.Request, paranoiaLevel int, maxBodySize int64) *Requ
 	// Client IP
 	ctx.ClientIP = extractClientIP(r)
 
-	// Body reading — read for inspection, then restore for downstream proxying
+	// Body reading — read for inspection, then restore for downstream proxying.
+	// Decompresses gzip/deflate bodies so detectors can inspect actual content.
 	if r.Body != nil && !ctx.bodyRead {
 		limited := io.LimitReader(r.Body, maxBodySize)
-		data, err := io.ReadAll(limited)
+		rawData, err := io.ReadAll(limited)
 		if err == nil {
-			ctx.Body = data
-			ctx.BodyString = string(data)
-			// Restore body so reverse proxies can forward it
-			r.Body = io.NopCloser(bytes.NewReader(data))
+			// Restore original body for proxying (always raw/compressed)
+			r.Body = io.NopCloser(bytes.NewReader(rawData))
+
+			// Decompress for WAF inspection based on Content-Encoding
+			inspectData := rawData
+			switch strings.ToLower(r.Header.Get("Content-Encoding")) {
+			case "gzip":
+				if gr, err := gzip.NewReader(bytes.NewReader(rawData)); err == nil {
+					if decompressed, err := io.ReadAll(io.LimitReader(gr, maxBodySize)); err == nil {
+						inspectData = decompressed
+					}
+					gr.Close()
+				}
+			case "deflate":
+				fr := flate.NewReader(bytes.NewReader(rawData))
+				if decompressed, err := io.ReadAll(io.LimitReader(fr, maxBodySize)); err == nil {
+					inspectData = decompressed
+				}
+				fr.Close()
+			}
+
+			ctx.Body = inspectData
+			ctx.BodyString = string(inspectData)
 		}
 		ctx.bodyRead = true
 	}

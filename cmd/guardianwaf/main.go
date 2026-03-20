@@ -18,6 +18,7 @@ import (
 
 	"github.com/guardianwaf/guardianwaf/internal/acme"
 	"github.com/guardianwaf/guardianwaf/internal/ai"
+	"github.com/guardianwaf/guardianwaf/internal/alerting"
 	"github.com/guardianwaf/guardianwaf/internal/config"
 	dkr "github.com/guardianwaf/guardianwaf/internal/docker"
 	"github.com/guardianwaf/guardianwaf/internal/dashboard"
@@ -530,7 +531,31 @@ func cmdServe(args []string) {
 		}
 	}
 
-	// 10c. Start Docker auto-discovery if enabled
+	// 10c. Start alerting/webhooks if enabled
+	if cfg.Alerting.Enabled && len(cfg.Alerting.Webhooks) > 0 {
+		var targets []alerting.WebhookTarget
+		for _, wc := range cfg.Alerting.Webhooks {
+			targets = append(targets, alerting.WebhookTarget{
+				Name: wc.Name, URL: wc.URL, Type: wc.Type,
+				Events: wc.Events, MinScore: wc.MinScore,
+				Cooldown: wc.Cooldown, Headers: wc.Headers,
+			})
+		}
+		alertMgr := alerting.NewManager(targets)
+		alertMgr.SetLogger(eng.Logs.Add)
+
+		// Subscribe to event bus
+		alertCh := make(chan engine.Event, 256)
+		eventBus.Subscribe(alertCh)
+		go func() {
+			for event := range alertCh {
+				alertMgr.HandleEvent(event)
+			}
+		}()
+		eng.Logs.Infof("Alerting enabled (%d webhooks)", len(targets))
+	}
+
+	// 10d. Start Docker auto-discovery if enabled
 	var dockerWatcher *dkr.Watcher
 	if cfg.Docker.Enabled {
 		dockerClient := dkr.NewClient(cfg.Docker.SocketPath)
