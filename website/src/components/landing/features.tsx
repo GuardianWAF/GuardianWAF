@@ -97,7 +97,7 @@ const features = [
   {
     icon: Bot,
     title: 'MCP Integration',
-    description: 'Built-in Model Context Protocol server with 15 tools for AI-powered monitoring, analysis, and automated WAF management.',
+    description: '15 MCP tools over stdio + SSE transports. Remote access via HTTP with API key auth. Claude Desktop, VS Code, and CLI support.',
   },
   {
     icon: Search,

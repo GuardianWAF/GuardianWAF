@@ -86,7 +86,7 @@ GuardianWAF is a production-grade Web Application Firewall written in pure Go wi
 - In-memory or file-based event storage (up to 100K events)
 
 **Developer Experience**
-- MCP server for AI agent integration (Claude Code, etc.) with 15 structured tools
+- MCP server with 15 tools over stdio + SSE transports (Claude Code, Claude Desktop, VS Code)
 - Functional options API for library mode
 - Event callbacks for custom alerting
 - `check` command for dry-run request testing
@@ -565,7 +565,7 @@ fmt.Printf("Score: %d, Blocked: %v, Findings: %d\n",
 
 ## MCP Integration
 
-GuardianWAF includes a built-in [Model Context Protocol](https://modelcontextprotocol.io) server that enables AI agents to monitor, query, and manage the WAF through structured tool calls.
+GuardianWAF includes a built-in [Model Context Protocol](https://modelcontextprotocol.io) server that enables AI agents to monitor, query, and manage the WAF through structured tool calls. Two transports: **stdio** (local CLI) and **SSE** (remote HTTP with API key auth).
 
 **15 MCP tools:**
 
@@ -578,7 +578,7 @@ GuardianWAF includes a built-in [Model Context Protocol](https://modelcontextpro
 | Detection Tuning | `add_exclusion`, `remove_exclusion` |
 | Testing | `test_request` |
 
-**Claude Code integration:**
+**Claude Code (stdio):**
 
 ```json
 {
@@ -591,9 +591,22 @@ GuardianWAF includes a built-in [Model Context Protocol](https://modelcontextpro
 }
 ```
 
+**Claude Desktop / VS Code (SSE — remote):**
+
+```json
+{
+  "mcpServers": {
+    "guardianwaf": {
+      "url": "http://your-waf-host:9443/mcp/sse",
+      "headers": { "X-API-Key": "your-api-key" }
+    }
+  }
+}
+```
+
 Then ask: *"Show me the latest blocked requests and blacklist the top attacking IP."*
 
-See [MCP Integration docs](docs/mcp-integration.md) for the complete tool reference with parameters and examples.
+See [MCP Integration docs](docs/mcp-integration.md) for the complete tool reference, SSE protocol details, and curl examples.
 
 ---
 

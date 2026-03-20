@@ -22,27 +22,110 @@ mcp:
   transport: stdio
 ```
 
-The MCP server communicates over **stdio** (JSON-RPC over stdin/stdout), which is the standard transport for Claude Code and similar tools.
+The MCP server supports two transports:
+
+- **stdio** — JSON-RPC over stdin/stdout (local process, for Claude Code CLI)
+- **SSE** — Server-Sent Events over HTTP (remote, for Claude Desktop, VS Code, web clients)
+
+Both transports expose the same 15 tools.
 
 ---
 
-## Claude Code Integration
+## Transport: stdio (Local)
 
-Add GuardianWAF as an MCP server in your Claude Code configuration:
+For Claude Code CLI and local AI agents:
+
+```yaml
+mcp:
+  enabled: true
+  transport: stdio
+```
 
 ```json
+// Claude Code .claude.json
 {
   "mcpServers": {
     "guardianwaf": {
       "command": "guardianwaf",
-      "args": ["serve", "-c", "/path/to/guardianwaf.yaml"],
-      "env": {
-        "GWAF_MODE": "enforce"
+      "args": ["serve", "-c", "/path/to/guardianwaf.yaml"]
+    }
+  }
+}
+```
+
+---
+
+## Transport: SSE (Remote)
+
+For Claude Desktop, VS Code, or any remote MCP client. SSE runs on the dashboard port, protected by the same API key:
+
+```yaml
+mcp:
+  enabled: true
+  transport: stdio   # stdio still works locally; SSE is always available on dashboard port
+
+dashboard:
+  enabled: true
+  listen: ":9443"
+  api_key: "your-secret-key"
+```
+
+**Endpoints:**
+- `GET /mcp/sse` — Establishes SSE stream (server → client events)
+- `POST /mcp/message` — Receives JSON-RPC requests (client → server)
+
+**Authentication:** `X-API-Key` header or `?api_key` query parameter (same as dashboard API).
+
+**Claude Desktop / VS Code config:**
+```json
+{
+  "mcpServers": {
+    "guardianwaf": {
+      "url": "http://localhost:9443/mcp/sse",
+      "headers": {
+        "X-API-Key": "your-secret-key"
       }
     }
   }
 }
 ```
+
+**SSE Protocol Flow:**
+```
+Client                          GuardianWAF
+  |                                  |
+  |--- GET /mcp/sse --------------->|  (opens SSE stream)
+  |<-- event: endpoint              |  (returns POST URL)
+  |    data: http://host/mcp/message|
+  |                                  |
+  |--- POST /mcp/message ---------->|  (JSON-RPC request)
+  |    {"jsonrpc":"2.0","id":1,     |
+  |     "method":"tools/call",...}  |
+  |                                  |
+  |<-- event: message               |  (JSON-RPC response via SSE)
+  |    data: {"jsonrpc":"2.0",...}  |
+  |                                  |
+```
+
+**curl example:**
+```bash
+# Open SSE stream in background
+curl -N -H "X-API-Key: your-key" http://localhost:9443/mcp/sse &
+
+# Send a tool call
+curl -X POST -H "X-API-Key: your-key" \
+  -H "Content-Type: application/json" \
+  http://localhost:9443/mcp/message \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"guardianwaf_get_stats","arguments":{}}}'
+
+# Response arrives on the SSE stream:
+# event: message
+# data: {"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{...stats...}"}]}}
+```
+
+---
+
+## Example Prompts
 
 Once configured, you can ask Claude natural language questions like:
 - "Show me the latest blocked requests"
@@ -51,6 +134,8 @@ Once configured, you can ask Claude natural language questions like:
 - "Test if this URL would be blocked: `/search?q=' OR 1=1 --`"
 - "Switch to monitor mode"
 - "What detectors are enabled?"
+- "Add a rate limit: 5 requests per minute on /api/login"
+- "Exclude /webhook from SQL injection detection"
 
 ---
 
