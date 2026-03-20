@@ -600,7 +600,40 @@ func cmdServe(args []string) {
 		}()
 	}
 
-	// 11. Graceful shutdown handling
+	// 11. Start periodic cleanup goroutine for layer state (rate limit buckets, bot trackers, etc.)
+	cleanupStop := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if rl := eng.FindLayer("ratelimit"); rl != nil {
+					type cleaner interface{ CleanupExpired(time.Duration) }
+					if c, ok := rl.(cleaner); ok {
+						c.CleanupExpired(30 * time.Minute)
+					}
+				}
+				if acl := eng.FindLayer("ipacl"); acl != nil {
+					type cleaner interface{ CleanupExpired() }
+					if c, ok := acl.(cleaner); ok {
+						c.CleanupExpired()
+					}
+				}
+				if atoL := eng.FindLayer("ato"); atoL != nil {
+					type cleaner interface{ Cleanup() }
+					if c, ok := atoL.(cleaner); ok {
+						c.Cleanup()
+					}
+				}
+				eng.Logs.Debug("Periodic cleanup completed")
+			case <-cleanupStop:
+				return
+			}
+		}
+	}()
+
+	// 12. Graceful shutdown handling
 	shutdown := make(chan os.Signal, 1)
 	signal.Notify(shutdown, syscall.SIGINT, syscall.SIGTERM)
 
@@ -671,7 +704,10 @@ func cmdServe(args []string) {
 		}
 	}
 
-	// 4. Stop Docker watcher and AI analyzer
+	// 4. Stop cleanup goroutine
+	close(cleanupStop)
+
+	// 5. Stop Docker watcher and AI analyzer
 	if dockerWatcher != nil {
 		dockerWatcher.Stop()
 	}

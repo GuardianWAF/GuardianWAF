@@ -59,10 +59,14 @@ func (eb *EventBus) Publish(event engine.Event) {
 }
 
 // Close closes all subscriber channels and marks the bus as closed.
+// Safe to call multiple times.
 func (eb *EventBus) Close() {
 	eb.mu.Lock()
 	defer eb.mu.Unlock()
 
+	if eb.closed {
+		return
+	}
 	eb.closed = true
 	for _, ch := range eb.subscribers {
 		close(ch)

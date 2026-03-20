@@ -166,7 +166,7 @@ func (d *Dashboard) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(loginPage("Invalid API key. Please try again.")))
 		return
 	}
-	setSessionCookie(w)
+	setSessionCookie(w, r)
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 

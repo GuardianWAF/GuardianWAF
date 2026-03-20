@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -17,35 +18,40 @@ const (
 	sessionMaxAge     = 24 * time.Hour
 )
 
-// sessionSecret is the HMAC signing key for session tokens.
-// Initialized at startup, can be set from config via SetSessionSecret.
-var sessionSecret []byte
+// secretHolder holds the HMAC signing key atomically for thread safety.
+// Reads and writes are safe for concurrent use.
+var secretHolder atomic.Value
 
 func init() {
-	sessionSecret = make([]byte, 32)
-	rand.Read(sessionSecret)
+	secret := make([]byte, 32)
+	rand.Read(secret)
+	secretHolder.Store(secret)
+}
+
+func loadSecret() []byte {
+	return secretHolder.Load().([]byte)
 }
 
 // SetSessionSecret sets a persistent session secret from config.
 // This allows sessions to survive server restarts when a secret_key is configured.
 // The key is hex-decoded; if decoding fails, the raw bytes are used.
+// Thread-safe via atomic.Value.
 func SetSessionSecret(key string) {
 	if key == "" {
 		return
 	}
 	if decoded, err := hex.DecodeString(key); err == nil && len(decoded) >= 16 {
-		sessionSecret = decoded
+		secretHolder.Store(decoded)
 	} else {
-		// Use SHA-256 hash of the raw key as secret
 		h := sha256.Sum256([]byte(key))
-		sessionSecret = h[:]
+		secretHolder.Store(h[:])
 	}
 }
 
 // signSession creates an HMAC-signed session token: timestamp.signature
 func signSession() string {
 	ts := fmt.Sprintf("%d", time.Now().Unix())
-	mac := hmac.New(sha256.New, sessionSecret)
+	mac := hmac.New(sha256.New, loadSecret())
 	mac.Write([]byte(ts))
 	sig := hex.EncodeToString(mac.Sum(nil))
 	return ts + "." + sig
@@ -61,7 +67,7 @@ func verifySession(token string) bool {
 	sig := parts[1]
 
 	// Verify HMAC
-	mac := hmac.New(sha256.New, sessionSecret)
+	mac := hmac.New(sha256.New, loadSecret())
 	mac.Write([]byte(ts))
 	expected := hex.EncodeToString(mac.Sum(nil))
 	if !hmac.Equal([]byte(sig), []byte(expected)) {
@@ -84,7 +90,6 @@ func (d *Dashboard) isAuthenticated(r *http.Request) bool {
 	}
 
 	// Check API key header (for programmatic access)
-	// Use constant-time comparison to prevent timing attacks.
 	if key := r.Header.Get("X-API-Key"); len(key) > 0 && subtle.ConstantTimeCompare([]byte(key), []byte(d.apiKey)) == 1 {
 		return true
 	}
@@ -100,13 +105,14 @@ func (d *Dashboard) isAuthenticated(r *http.Request) bool {
 	return verifySession(cookie.Value)
 }
 
-// setSessionCookie sets the session cookie on the response.
-func setSessionCookie(w http.ResponseWriter) {
+// setSessionCookie sets the session cookie on the response with proper security flags.
+func setSessionCookie(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    signSession(),
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   r.TLS != nil, // Set Secure flag when served over HTTPS
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   int(sessionMaxAge.Seconds()),
 	})

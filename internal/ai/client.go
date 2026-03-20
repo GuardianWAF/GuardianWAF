@@ -150,9 +150,5 @@ func (c *Client) TestConnection(ctx context.Context) error {
 	return err
 }
 
-// UpdateConfig updates the client's API key, model, and base URL.
-func (c *Client) UpdateConfig(baseURL, apiKey, model string) {
-	c.baseURL = baseURL
-	c.apiKey = apiKey
-	c.model = model
-}
+// Note: Client is immutable after creation. Use Analyzer.UpdateProvider()
+// to swap the entire client atomically for thread safety.
