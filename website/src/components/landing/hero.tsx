@@ -21,7 +21,7 @@ export function Hero() {
           {/* Badge */}
           <div className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-1.5 text-sm text-muted mb-8">
             <Shield className="h-4 w-4 text-accent" />
-            <span>Production-ready WAF for Go applications</span>
+            <span>Production-ready WAF — protect any backend, any language</span>
           </div>
 
           {/* Heading */}

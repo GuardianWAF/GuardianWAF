@@ -13,7 +13,7 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/guardianwaf/guardianwaf.svg)](https://pkg.go.dev/github.com/guardianwaf/guardianwaf)
 [![Security Headers](https://img.shields.io/security-headers?url=https%3A%2F%2Fguardianwaf.com&style=flat-square)](https://securityheaders.com/?q=guardianwaf.com)
 
-GuardianWAF is a production-grade Web Application Firewall written in pure Go with zero external dependencies. It ships as a single binary supporting three deployment modes: standalone reverse proxy, embeddable library, and sidecar proxy. Its tokenizer-based scoring engine provides accurate threat detection with minimal false positives.
+GuardianWAF is a production-grade Web Application Firewall written in pure Go with zero external dependencies. It protects any HTTP backend — Node.js, Python, Java, PHP, Ruby, .NET, or any other language — as a standalone reverse proxy, sidecar, or embeddable Go library. Docker auto-discovery, AI-powered threat analysis, and real-time dashboard included. Single binary, zero config required.
 
 ---
 
