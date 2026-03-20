@@ -2,6 +2,7 @@ package ai
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -73,33 +74,61 @@ type Store struct {
 }
 
 // NewStore creates or loads an AI store from the given directory.
+// Always succeeds — creates the directory and empty config if needed.
+// Converts relative paths to absolute to avoid working directory issues.
 func NewStore(dirPath string) *Store {
 	if dirPath == "" {
 		dirPath = "data/ai"
 	}
-	s := &Store{path: dirPath}
-	s.load()
-	return s
-}
-
-// load reads stored data from disk.
-func (s *Store) load() {
-	data, err := os.ReadFile(filepath.Join(s.path, "ai_config.json"))
-	if err != nil {
-		return // fresh start
+	// Convert to absolute path to avoid CWD issues
+	if !filepath.IsAbs(dirPath) {
+		if abs, err := filepath.Abs(dirPath); err == nil {
+			dirPath = abs
+		}
 	}
-	json.Unmarshal(data, &s.data)
+
+	// Ensure directory exists
+	os.MkdirAll(dirPath, 0700)
+
+	s := &Store{path: dirPath}
+
+	// Try loading existing config
+	configFile := filepath.Join(dirPath, "ai_config.json")
+	if data, err := os.ReadFile(configFile); err == nil {
+		json.Unmarshal(data, &s.data)
+	} else {
+		// First run — write empty config so file always exists
+		empty, _ := json.MarshalIndent(s.data, "", "  ")
+		os.WriteFile(configFile, empty, 0600)
+	}
+	return s
 }
 
 // save writes stored data to disk.
 func (s *Store) save() error {
-	os.MkdirAll(s.path, 0700)
+	dir := s.path
+	// Always resolve to absolute path
+	if !filepath.IsAbs(dir) {
+		if abs, err := filepath.Abs(dir); err == nil {
+			dir = abs
+		}
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("mkdir %s: %w", dir, err)
+	}
 	data, err := json.MarshalIndent(s.data, "", "  ")
 	if err != nil {
-		return err
+		return fmt.Errorf("marshal: %w", err)
 	}
-	return os.WriteFile(filepath.Join(s.path, "ai_config.json"), data, 0600)
+	target := filepath.Join(dir, "ai_config.json")
+	if err := os.WriteFile(target, data, 0600); err != nil {
+		return fmt.Errorf("save to %s: %w", target, err)
+	}
+	return nil
 }
+
+// Path returns the store directory path for debugging.
+func (s *Store) Path() string { return s.path }
 
 // GetConfig returns the current provider configuration.
 func (s *Store) GetConfig() ProviderConfig {
@@ -108,7 +137,7 @@ func (s *Store) GetConfig() ProviderConfig {
 	return s.data.Config
 }
 
-// SetConfig updates the provider configuration.
+// SetConfig updates the provider configuration and persists to disk.
 func (s *Store) SetConfig(cfg ProviderConfig) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -124,6 +153,7 @@ func (s *Store) HasConfig() bool {
 }
 
 // AddResult appends an analysis result to history (ring buffer).
+// AddResult appends an analysis result. Disk persistence is best-effort.
 func (s *Store) AddResult(result AnalysisResult) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

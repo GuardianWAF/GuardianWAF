@@ -45,23 +45,44 @@ GuardianWAF is a production-grade Web Application Firewall written in pure Go wi
 - HTTP to HTTPS redirect (automatic when TLS enabled)
 - Path-based routing with optional prefix stripping
 
+**Docker Auto-Discovery**
+- Automatic backend discovery from Docker container labels (`gwaf.*`)
+- Zero-config service mesh: label your containers, GuardianWAF does the rest
+- Event-driven: instant detection of container start/stop/scale
+- Upstream pooling: multiple containers with same label = load-balanced pool
+- Supports all LB strategies, health checks, weights via labels
+- Platform-agnostic: Linux (Unix socket), Windows (named pipe), remote (Docker CLI)
+- See [Docker Discovery Guide](docs/docker-discovery.md) for full label reference
+
+**AI-Powered Threat Analysis**
+- Background batch AI analysis of suspicious events using LLMs
+- 400+ AI providers synced from [models.dev](https://models.dev) (OpenAI, Groq, DeepSeek, Anthropic, etc.)
+- Dashboard UI for provider/model selection, API key management, analysis history
+- Auto-block malicious IPs based on AI verdict (configurable confidence threshold)
+- Hard cost limits: tokens/hour, tokens/day, requests/hour to prevent runaway API costs
+- See [AI Analysis Guide](docs/ai-analysis.md) for setup and configuration
+
 **Deployment**
 - Three deployment modes: standalone reverse proxy, Go library middleware, sidecar proxy
-- Single static binary with zero external dependencies -- no CGO, no shared libraries
+- Single static binary with zero external Go dependencies -- no CGO, no shared libraries
 - Docker image based on Alpine (< 20 MB)
-- Graceful shutdown with connection draining
+- Graceful shutdown with connection draining and event flushing
 
 **Dashboard & Operations**
-- Built-in web dashboard with real-time monitoring via SSE
+- Built-in web dashboard with real-time monitoring via SSE (React + Vite + Tailwind)
+- **Routing Topology Graph**: interactive React Flow visualization with TLS/SSL, ports, health status
+- **Backends View**: discovered Docker containers + static upstreams in a single table
+- **AI Analysis Page**: provider catalog, model selection, analysis history, cost tracking
 - Configuration editor with live toggles for all WAF settings
 - Upstream/domain/route management -- add backends, domains, and routing from the UI
 - IP ACL management -- add/remove whitelist and blacklist entries in real-time
 - Upstream health panel -- live backend status, circuit breaker state, active connections
 - Event detail view -- click any event to see full findings, matched patterns, scores
-- REST API for programmatic control (stats, events, config, routing, IP ACL)
-- Structured JSON logging with configurable levels
-- Hot-reload of configuration without restart
-- Health check endpoints for Kubernetes liveness probes
+- REST API for programmatic control (stats, events, config, routing, IP ACL, AI, Docker)
+- Prometheus-compatible `/metrics` endpoint for Grafana/monitoring integration
+- Structured access logging (JSON or text) with configurable levels
+- Hot-reload of configuration with persistence to disk
+- `/healthz` endpoint for Kubernetes liveness/readiness probes
 - In-memory or file-based event storage (up to 100K events)
 
 **Developer Experience**
@@ -70,6 +91,8 @@ GuardianWAF is a production-grade Web Application Firewall written in pure Go wi
 - Event callbacks for custom alerting
 - `check` command for dry-run request testing
 - `validate` command for config file verification
+- HTTP/2 support with ALPN negotiation
+- WebSocket proxy support (transparent Upgrade forwarding)
 - < 1ms p99 latency overhead target
 
 ---
@@ -179,31 +202,53 @@ docker run -d -p 8080:8080 \
   sidecar --upstream http://app:3000
 ```
 
-### Docker Compose (Multi-Backend)
+### Docker Compose with Auto-Discovery
+
+No upstream config needed -- just add `gwaf.*` labels to your containers:
 
 ```yaml
-version: "3.9"
 services:
   guardianwaf:
-    build: .
+    image: guardianwaf/guardianwaf:latest
     ports:
-      - "8080:8080"
+      - "80:8080"
       - "9443:9443"
     volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./guardianwaf.yaml:/etc/guardianwaf/guardianwaf.yaml:ro
     command: ["serve", "-c", "/etc/guardianwaf/guardianwaf.yaml"]
-    depends_on:
-      - backend
-      - backend2
 
-  backend:
+  # Auto-discovered backend (weight: 3)
+  api:
     image: myapp:latest
-    expose: ["3000"]
+    labels:
+      gwaf.enable: "true"
+      gwaf.host: "api.example.com"
+      gwaf.upstream: "api-pool"
+      gwaf.port: "3000"
+      gwaf.weight: "3"
+      gwaf.health.path: "/healthz"
 
-  backend2:
+  # Same upstream pool (weight: 1) = load balanced
+  api-2:
     image: myapp:latest
-    expose: ["3000"]
+    labels:
+      gwaf.enable: "true"
+      gwaf.host: "api.example.com"
+      gwaf.upstream: "api-pool"
+      gwaf.port: "3000"
+      gwaf.weight: "1"
+      gwaf.health.path: "/healthz"
+
+  # Different service on different domain
+  web:
+    image: nginx:alpine
+    labels:
+      gwaf.enable: "true"
+      gwaf.host: "www.example.com"
 ```
+
+Scale instantly: `docker compose up -d --scale api=5` -- GuardianWAF detects all 5 instances automatically.
 
 ---
 
@@ -246,7 +291,10 @@ GuardianWAF was built to eliminate the trade-offs other WAF solutions force: com
 | **Circuit breaker** | Built-in | No | No | No | No |
 | **Web dashboard** | Built-in (config + monitoring) | Built-in | No (third-party) | No (third-party) | No |
 | **Single binary** | Yes | No | No | No | No |
+| **Docker auto-discovery** | Label-based (`gwaf.*`) | No | No | No | No |
+| **AI threat analysis** | Built-in (400+ providers) | No | No | No | No |
 | **MCP / AI integration** | Built-in MCP server | No | No | No | No |
+| **Prometheus metrics** | Built-in `/metrics` | No | No | No | No |
 | **Threat Intelligence** | IP/domain reputation feeds | No | No | Partial (external) | No |
 | **CORS Security** | Built-in layer | No | No | No | No |
 | **ATO Protection** | Brute force + credential stuffing | No | No | No | No |
@@ -424,6 +472,19 @@ GuardianWAF includes a built-in web dashboard accessible on the configured liste
 - IP ACL: add/remove whitelist and blacklist entries in real-time
 - Rate limiting, sanitizer, response protection toggles
 
+**Routing (`/routing`)**
+- **Topology Graph** -- interactive React Flow visualization of the full request path: Clients -> WAF -> VHosts -> Routes -> Upstreams -> Targets, with TLS/SSL indicators, ports, health status, circuit breaker state
+- **Backends** -- Docker-discovered services table + static upstreams, with container name, image, target URL, upstream pool, weight, health check path
+- **Configure** -- form-based upstream/route/vhost management with save & rebuild
+
+**AI Analysis (`/ai`)**
+- Provider catalog (400+ from models.dev) with search and model details
+- Model selection with context window, cost, reasoning/tool_call capabilities
+- API key management with connection testing
+- Manual "Analyze Now" trigger with instant verdict display
+- Analysis history with expandable results, threats, verdicts, costs
+- Usage stats: tokens/hour, requests/hour, total cost, AI blocks
+
 **REST API:** The dashboard exposes a full [REST API](docs/api-reference.md) for programmatic management, protected by API key authentication.
 
 | Endpoint | Description |
@@ -434,6 +495,15 @@ GuardianWAF includes a built-in web dashboard accessible on the configured liste
 | `GET/PUT /api/v1/config` | WAF configuration |
 | `GET/PUT /api/v1/routing` | Upstreams, virtual hosts, routes |
 | `GET/POST/DELETE /api/v1/ipacl` | IP whitelist/blacklist |
+| `GET/POST/DELETE /api/v1/rules` | Custom WAF rules |
+| `GET /api/v1/docker/services` | Docker-discovered backends |
+| `GET/PUT /api/v1/ai/config` | AI provider configuration |
+| `GET /api/v1/ai/providers` | Models.dev provider catalog |
+| `POST /api/v1/ai/analyze` | Trigger AI analysis |
+| `GET /api/v1/ai/history` | AI analysis history |
+| `GET /api/v1/ai/stats` | AI usage & cost stats |
+| `GET /metrics` | Prometheus metrics |
+| `GET /healthz` | Health check (K8s probes) |
 | `GET /api/v1/sse` | Server-Sent Events stream |
 
 Access at `http://localhost:9443` (enabled by default in standalone mode).
@@ -565,6 +635,8 @@ Design choices for performance:
 | [Configuration Reference](docs/configuration.md) | Full YAML schema with every field |
 | [Detection Engine](docs/detection-engine.md) | Scoring system, detectors, pattern tables |
 | [Deployment Modes](docs/deployment-modes.md) | Standalone, library, sidecar comparison |
+| [Docker Auto-Discovery](docs/docker-discovery.md) | Label-based container discovery and routing |
+| [AI Threat Analysis](docs/ai-analysis.md) | AI-powered threat analysis setup and configuration |
 | [API Reference](docs/api-reference.md) | REST API endpoints with request/response examples |
 | [MCP Integration](docs/mcp-integration.md) | AI agent tools and Claude Code setup |
 | [Tuning Guide](docs/tuning-guide.md) | False positive reduction and threshold tuning |
@@ -579,33 +651,39 @@ Full documentation site: [guardianwaf.com/docs](https://guardianwaf.com/docs)
 guardianwaf/
 ├── cmd/guardianwaf/       # CLI entry point (serve, sidecar, check, validate)
 ├── internal/
-│   ├── engine/            # Core WAF engine, pipeline, scoring, block page
-│   ├── config/            # YAML parser, config structs, env loading, validation
+│   ├── engine/            # Core WAF engine, pipeline, scoring, access logging, panic recovery
+│   ├── config/            # YAML parser + serializer, config structs, env loading, validation
 │   ├── layers/
-│   │   ├── ipacl/         # IP whitelist/blacklist (radix tree, runtime add/remove)
+│   │   ├── ipacl/         # IP whitelist/blacklist (radix tree, runtime add/remove, auto-ban)
 │   │   ├── threatintel/   # Threat intelligence feeds (IP/domain reputation, LRU cache)
 │   │   ├── cors/          # CORS validation (origin allowlist, preflight handling)
-│   │   ├── ratelimit/     # Token bucket rate limiter
+│   │   ├── ratelimit/     # Token bucket rate limiter (dynamic rule add/remove)
 │   │   ├── ato/           # Account takeover protection (brute force, credential stuffing)
 │   │   ├── apisecurity/   # API authentication (JWT validation, API keys)
 │   │   ├── sanitizer/     # Request normalization and validation
-│   │   ├── detection/     # Attack detectors (sqli/xss/lfi/cmdi/xxe/ssrf)
+│   │   ├── detection/     # Attack detectors (sqli/xss/lfi/cmdi/xxe/ssrf) with dynamic exclusions
 │   │   ├── botdetect/     # Bot detection (JA3/JA4, UA, behavior)
 │   │   ├── challenge/     # JS proof-of-work challenge (SHA-256 PoW)
-│   │   └── response/      # Response protection (headers, masking, error pages)
-│   ├── proxy/             # Reverse proxy, load balancer, circuit breaker, router
-│   ├── tls/               # TLS cert store, SNI selection, hot-reload
+│   │   ├── response/      # Response protection (headers, masking, error pages)
+│   │   └── rules/         # Custom rule engine (geo-aware, dashboard CRUD)
+│   ├── proxy/             # Reverse proxy, load balancer, circuit breaker, router, WebSocket
+│   ├── tls/               # TLS cert store, SNI selection, hot-reload, HTTP/2
 │   ├── acme/              # ACME client (RFC 8555), HTTP-01 challenge, cert cache
-│   ├── dashboard/         # Web UI, REST API, SSE, config editor, routing manager
-│   ├── mcp/               # MCP JSON-RPC server and tool definitions
-│   └── events/            # Event storage (memory ring buffer, JSONL file)
+│   ├── dashboard/         # React UI, REST API, SSE, routing graph, AI page, Docker services
+│   ├── ai/                # AI threat analysis (models.dev catalog, OpenAI client, batch analyzer)
+│   ├── docker/            # Docker auto-discovery (socket client, label parser, event watcher)
+│   ├── mcp/               # MCP JSON-RPC server and 15 tool definitions
+│   ├── geoip/             # GeoIP database with auto-download and runtime refresh
+│   └── events/            # Event storage (memory ring buffer, JSONL file, event bus)
 ├── guardianwaf.go         # Public API for library mode
 ├── options.go             # Functional options (WithMode, WithThreshold, etc.)
 ├── examples/              # Library and backend examples
-├── docs/                  # Documentation
+├── docs/                  # Documentation (docker-discovery, ai-analysis, etc.)
+├── testdata/              # Test configs and attack payloads
+├── scripts/               # Attack simulation, smoke tests, real E2E tests
 ├── Dockerfile             # Multi-stage Alpine build
-├── docker-compose.yml     # Standalone + multi-backend example
-└── Makefile               # build, test, lint, bench, fuzz, cover
+├── docker-compose.yml     # Standalone + auto-discovery example with gwaf.* labels
+└── Makefile               # build, test, lint, bench, fuzz, cover, docker-test
 ```
 
 ---

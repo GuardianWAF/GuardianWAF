@@ -242,6 +242,13 @@ func PopulateFromNode(cfg *Config, node *Node) error {
 		}
 	}
 
+	// Docker
+	if n := node.Get("docker"); n != nil {
+		if err := populateDocker(&cfg.Docker, n); err != nil {
+			return fmt.Errorf("docker: %w", err)
+		}
+	}
+
 	// Logging
 	if n := node.Get("logging"); n != nil {
 		if err := populateLogging(&cfg.Logging, n); err != nil {
@@ -493,6 +500,87 @@ func populateWAF(waf *WAFConfig, n *Node) error {
 		if err := populateResponse(&waf.Response, sub); err != nil {
 			return fmt.Errorf("response: %w", err)
 		}
+	}
+	if sub := n.Get("ai_analysis"); sub != nil {
+		if err := populateAIAnalysis(&waf.AIAnalysis, sub); err != nil {
+			return fmt.Errorf("ai_analysis: %w", err)
+		}
+	}
+	return nil
+}
+
+func populateAIAnalysis(ai *AIAnalysisConfig, n *Node) error {
+	if n.Kind != MapNode {
+		return nil
+	}
+	if v := n.Get("enabled"); v != nil {
+		b, err := nodeBool(v)
+		if err != nil {
+			return fmt.Errorf("enabled: %w", err)
+		}
+		ai.Enabled = b
+	}
+	if v := n.Get("store_path"); v != nil && !v.IsNull {
+		ai.StorePath = v.String()
+	}
+	if v := n.Get("catalog_url"); v != nil && !v.IsNull {
+		ai.CatalogURL = v.String()
+	}
+	if v := n.Get("batch_size"); v != nil {
+		i, err := nodeInt(v)
+		if err != nil {
+			return fmt.Errorf("batch_size: %w", err)
+		}
+		ai.BatchSize = i
+	}
+	if v := n.Get("batch_interval"); v != nil && !v.IsNull {
+		d, err := parseDuration(v.String())
+		if err != nil {
+			return fmt.Errorf("batch_interval: %w", err)
+		}
+		ai.BatchInterval = d
+	}
+	if v := n.Get("min_score"); v != nil {
+		i, err := nodeInt(v)
+		if err != nil {
+			return fmt.Errorf("min_score: %w", err)
+		}
+		ai.MinScore = i
+	}
+	if v := n.Get("max_tokens_per_hour"); v != nil {
+		i, err := nodeInt(v)
+		if err != nil {
+			return fmt.Errorf("max_tokens_per_hour: %w", err)
+		}
+		ai.MaxTokensPerHour = int64(i)
+	}
+	if v := n.Get("max_tokens_per_day"); v != nil {
+		i, err := nodeInt(v)
+		if err != nil {
+			return fmt.Errorf("max_tokens_per_day: %w", err)
+		}
+		ai.MaxTokensPerDay = int64(i)
+	}
+	if v := n.Get("max_requests_per_hour"); v != nil {
+		i, err := nodeInt(v)
+		if err != nil {
+			return fmt.Errorf("max_requests_per_hour: %w", err)
+		}
+		ai.MaxRequestsHour = i
+	}
+	if v := n.Get("auto_block"); v != nil {
+		b, err := nodeBool(v)
+		if err != nil {
+			return fmt.Errorf("auto_block: %w", err)
+		}
+		ai.AutoBlock = b
+	}
+	if v := n.Get("auto_block_ttl"); v != nil && !v.IsNull {
+		d, err := parseDuration(v.String())
+		if err != nil {
+			return fmt.Errorf("auto_block_ttl: %w", err)
+		}
+		ai.AutoBlockTTL = d
 	}
 	return nil
 }
@@ -1066,6 +1154,38 @@ func populateMCP(mcp *MCPConfig, n *Node) error {
 	}
 	if v := n.Get("transport"); v != nil && !v.IsNull {
 		mcp.Transport = v.String()
+	}
+	return nil
+}
+
+// --- Docker ---
+
+func populateDocker(dock *DockerConfig, n *Node) error {
+	if n.Kind != MapNode {
+		return nil
+	}
+	if v := n.Get("enabled"); v != nil {
+		b, err := nodeBool(v)
+		if err != nil {
+			return fmt.Errorf("enabled: %w", err)
+		}
+		dock.Enabled = b
+	}
+	if v := n.Get("socket_path"); v != nil && !v.IsNull {
+		dock.SocketPath = v.String()
+	}
+	if v := n.Get("label_prefix"); v != nil && !v.IsNull {
+		dock.LabelPrefix = v.String()
+	}
+	if v := n.Get("poll_interval"); v != nil && !v.IsNull {
+		d, err := parseDuration(v.String())
+		if err != nil {
+			return fmt.Errorf("poll_interval: %w", err)
+		}
+		dock.PollInterval = d
+	}
+	if v := n.Get("network"); v != nil && !v.IsNull {
+		dock.Network = v.String()
 	}
 	return nil
 }

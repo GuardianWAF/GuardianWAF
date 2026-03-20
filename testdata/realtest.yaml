@@ -109,6 +109,18 @@ waf:
       mask_api_keys: true
       strip_stack_traces: true
 
+  ai_analysis:
+    enabled: true
+    store_path: data/ai
+    batch_size: 20
+    batch_interval: 60s
+    min_score: 25
+    max_tokens_per_hour: 50000
+    max_tokens_per_day: 500000
+    max_requests_per_hour: 30
+    auto_block: false
+    auto_block_ttl: 1h
+
 dashboard:
   enabled: true
   listen: ":9443"
@@ -117,6 +129,13 @@ dashboard:
 
 mcp:
   enabled: false
+
+docker:
+  enabled: true
+  socket_path: /var/run/docker.sock
+  label_prefix: gwaf
+  poll_interval: 5s
+  network: bridge
 
 logging:
   level: info

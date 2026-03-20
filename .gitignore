@@ -106,3 +106,4 @@ website/dist/
 internal/dashboard/ui/node_modules/
 internal/dashboard/ui/dist/
 internal/dashboard/ui/tsconfig.tsbuildinfo
+data/

@@ -25,15 +25,33 @@ func (d *Dashboard) SetAIAnalyzer(analyzer aiAnalyzerInterface) {
 	d.aiAnalyzer = analyzer
 }
 
+// catalogCache is a standalone catalog cache for the providers endpoint.
+// Works even when the AI analyzer is not enabled.
+var catalogCache *ai.CatalogCache
+
+func init() {
+	catalogCache = ai.NewCatalogCache("")
+}
+
 // handleAIProviders returns the models.dev provider catalog.
+// Always works — doesn't require AI analyzer to be enabled.
 func (d *Dashboard) handleAIProviders(w http.ResponseWriter, r *http.Request) {
-	if d.aiAnalyzer == nil {
-		writeJSON(w, http.StatusOK, map[string]any{"providers": []any{}, "message": "AI analysis not enabled"})
+	// Use analyzer's catalog if available, otherwise standalone cache
+	if d.aiAnalyzer != nil {
+		// Get from analyzer (shares cache)
+		providers, err := d.aiAnalyzer.GetCatalog()
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "failed to fetch providers: " + err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"providers": providers, "count": len(providers)})
 		return
 	}
-	providers, err := d.aiAnalyzer.GetCatalog()
+
+	// Standalone fetch — AI not enabled but we still show providers
+	providers, err := catalogCache.Summaries()
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "failed to fetch providers: " + err.Error()})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "failed to fetch catalog: " + err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"providers": providers, "count": len(providers)})
@@ -138,8 +156,10 @@ func (d *Dashboard) handleAIStats(w http.ResponseWriter, r *http.Request) {
 
 	store := d.aiAnalyzer.GetStore()
 	usage := store.GetUsage()
+	storePath := store.Path()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"enabled":            true,
+		"store_path":         storePath,
 		"tokens_used_hour":   usage.TokensUsedHour,
 		"tokens_used_day":    usage.TokensUsedDay,
 		"requests_hour":      usage.RequestsHour,

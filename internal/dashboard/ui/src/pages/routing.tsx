@@ -6,7 +6,7 @@ import { Section } from '@/components/config/section'
 import { Input } from '@/components/ui/input'
 import { Select, SelectOption } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
-import { Plus, Trash2, Loader2, Server, Globe, Route, X, GitBranch, Settings2 } from 'lucide-react'
+import { Plus, Trash2, Loader2, Server, Globe, Route, X, GitBranch, Settings2, Container, RefreshCw } from 'lucide-react'
 import { RoutingGraph } from '@/components/routing/routing-graph'
 
 // Deep clone helper
@@ -42,7 +42,9 @@ export default function RoutingPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
-  const [view, setView] = useState<'form' | 'graph'>('graph')
+  const [view, setView] = useState<'form' | 'graph' | 'services'>('graph')
+  const [dockerServices, setDockerServices] = useState<any[]>([])
+  const [dockerEnabled, setDockerEnabled] = useState(false)
 
   // Domain add input per vhost
   const [domainInputs, setDomainInputs] = useState<Record<number, string>>({})
@@ -58,6 +60,10 @@ export default function RoutingPage() {
       .catch(() => setError('Failed to load routing configuration'))
     api.getUpstreams().then(setUpstreamHealth).catch(() => {})
     api.getConfig().then(setWafConfig).catch(() => {})
+    fetch('/api/v1/docker/services').then(r => r.json()).then(data => {
+      setDockerEnabled(data.enabled ?? false)
+      setDockerServices(data.services ?? [])
+    }).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -264,6 +270,21 @@ export default function RoutingPage() {
             Topology
           </button>
           <button
+            onClick={() => setView('services')}
+            className={cn(
+              'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+              view === 'services'
+                ? 'bg-primary text-primary-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            )}
+          >
+            <Container size={14} />
+            Backends
+            {dockerServices.length > 0 && (
+              <span className="ml-0.5 text-[9px] bg-accent/20 px-1 rounded-full">{dockerServices.length}</span>
+            )}
+          </button>
+          <button
             onClick={() => setView('form')}
             className={cn(
               'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
@@ -294,8 +315,122 @@ export default function RoutingPage() {
         <RoutingGraph routing={routing} upstreams={upstreamHealth} wafConfig={wafConfig ?? undefined} />
       )}
 
+      {/* ==================== Backends View ==================== */}
+      {view === 'services' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">
+              All backends: {(routing?.upstreams?.length || 0)} upstream pool(s), {upstreamHealth.reduce((a, u) => a + u.total_count, 0)} target(s)
+              {dockerEnabled && `, ${dockerServices.length} Docker discovered`}
+            </span>
+            <Button size="sm" variant="outline" onClick={fetchData}>
+              <RefreshCw size={14} className="mr-1" /> Refresh
+            </Button>
+          </div>
+
+          {/* === Upstream Pools with Live Health === */}
+          <Section title={`Upstream Pools (${upstreamHealth.length})`} defaultOpen>
+            {upstreamHealth.length === 0 && (routing?.upstreams?.length || 0) === 0 ? (
+              <p className="text-sm text-muted-foreground py-4 text-center">No upstreams configured. Add backends via config, Docker labels, or the Configure tab.</p>
+            ) : (
+              <div className="space-y-2">
+                {(upstreamHealth.length > 0 ? upstreamHealth : (routing?.upstreams || []).map(u => ({
+                  name: u.name, strategy: u.load_balancer || 'round_robin',
+                  targets: u.targets.map(t => ({ url: t.url, healthy: true, circuit_state: 'closed', active_conns: 0, weight: t.weight })),
+                  healthy_count: u.targets.length, total_count: u.targets.length,
+                }))).map((u: any, ui: number) => (
+                  <div key={ui} className="rounded-lg border border-border bg-card/30 overflow-hidden">
+                    <div className="flex items-center gap-3 px-3 py-2 bg-muted/20">
+                      <Server size={14} className={u.healthy_count === u.total_count ? 'text-cyan-400' : 'text-red-400'} />
+                      <span className="text-sm font-medium text-foreground">{u.name}</span>
+                      <span className="text-[10px] px-1.5 rounded bg-slate-800 text-slate-400">{u.strategy}</span>
+                      <span className={cn('text-[10px] font-medium', u.healthy_count === u.total_count ? 'text-cyan-400' : 'text-red-400')}>
+                        {u.healthy_count}/{u.total_count} healthy
+                      </span>
+                    </div>
+                    <table className="w-full text-xs">
+                      <tbody>
+                        {(u.targets || []).map((t: any, ti: number) => (
+                          <tr key={ti} className="border-t border-border/30 hover:bg-muted/10">
+                            <td className="px-3 py-1.5 font-mono text-cyan-300 w-1/3">{t.url}</td>
+                            <td className="px-3 py-1.5">
+                              <span className={cn('text-[9px] px-1 rounded', t.healthy ? 'bg-green-900/40 text-green-400' : 'bg-red-900/40 text-red-400')}>
+                                {t.healthy ? 'healthy' : 'down'}
+                              </span>
+                            </td>
+                            <td className="px-3 py-1.5 text-muted-foreground">cb: {t.circuit_state}</td>
+                            <td className="px-3 py-1.5 text-muted-foreground">w: {t.weight}</td>
+                            <td className="px-3 py-1.5 text-muted-foreground">{t.active_conns > 0 ? `${t.active_conns} conn` : ''}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Section>
+
+          {/* === Docker Discovered === */}
+          <Section title={`Docker Discovery ${dockerEnabled ? `(${dockerServices.length} found)` : '(disabled)'}`} defaultOpen={dockerServices.length > 0}>
+            {!dockerEnabled ? (
+              <div className="text-center py-4">
+                <Container size={24} className="mx-auto mb-2 text-muted-foreground" />
+                <p className="text-xs text-muted-foreground">
+                  Enable <code className="px-1 bg-muted rounded text-[10px]">docker.enabled: true</code> in config and mount <code className="px-1 bg-muted rounded text-[10px]">/var/run/docker.sock</code>
+                </p>
+              </div>
+            ) : dockerServices.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4 text-center">No containers with <code className="px-1 bg-muted rounded text-[10px]">gwaf.enable=true</code> label found.</p>
+            ) : (
+              <div className="rounded-lg border border-border overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/30">
+                      <th className="text-left px-3 py-2 font-medium text-muted-foreground">Container</th>
+                      <th className="text-left px-3 py-2 font-medium text-muted-foreground">Target</th>
+                      <th className="text-left px-3 py-2 font-medium text-muted-foreground">Domain</th>
+                      <th className="text-left px-3 py-2 font-medium text-muted-foreground">Upstream Pool</th>
+                      <th className="text-left px-3 py-2 font-medium text-muted-foreground">Health</th>
+                      <th className="text-left px-3 py-2 font-medium text-muted-foreground">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dockerServices.map((svc: any, i: number) => (
+                      <tr key={i} className="border-b border-border/30 hover:bg-muted/10">
+                        <td className="px-3 py-1.5">
+                          <div className="flex items-center gap-1">
+                            <Container size={11} className="text-blue-400 shrink-0" />
+                            <span className="font-medium text-foreground">{svc.container_name}</span>
+                          </div>
+                          <div className="text-[9px] text-muted-foreground font-mono">{svc.image}</div>
+                        </td>
+                        <td className="px-3 py-1.5 font-mono text-cyan-300">{svc.target}</td>
+                        <td className="px-3 py-1.5">
+                          {svc.host ? <span className="px-1 rounded bg-violet-900/40 text-violet-300">{svc.host}{svc.path !== '/' ? svc.path : ''}</span> : <span className="text-muted-foreground">—</span>}
+                        </td>
+                        <td className="px-3 py-1.5">
+                          <span className="px-1 rounded bg-cyan-900/40 text-cyan-300">{svc.upstream}</span>
+                          <span className="text-muted-foreground ml-1">w:{svc.weight}</span>
+                        </td>
+                        <td className="px-3 py-1.5 text-muted-foreground font-mono">{svc.health_path || '—'}</td>
+                        <td className="px-3 py-1.5">
+                          <span className={cn('text-[9px] px-1 rounded', svc.status === 'running' ? 'bg-green-900/40 text-green-400' : 'bg-red-900/40 text-red-400')}>
+                            {svc.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Section>
+        </div>
+      )}
+
       {/* ==================== Form View ==================== */}
-      {view !== 'graph' && <>
+      {view === 'form' && <>
 
       {/* ==================== Upstreams ==================== */}
       <Section title="Upstreams" defaultOpen>
