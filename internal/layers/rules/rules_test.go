@@ -32,7 +32,7 @@ func TestRuleMatchPath(t *testing.T) {
 		Rules: []Rule{{
 			ID: "r1", Name: "Block /admin", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "path", Op: "starts_with", Value: "/admin"}},
-			Action: "block", Score: 100,
+			Action:     "block", Score: 100,
 		}},
 	}, nil)
 
@@ -59,7 +59,7 @@ func TestRuleMatchMethod(t *testing.T) {
 		Rules: []Rule{{
 			ID: "r2", Name: "Log DELETE", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "method", Op: "equals", Value: "DELETE"}},
-			Action: "log", Score: 20,
+			Action:     "log", Score: 20,
 		}},
 	}, nil)
 
@@ -76,7 +76,7 @@ func TestRuleMatchUserAgent(t *testing.T) {
 		Rules: []Rule{{
 			ID: "r3", Name: "Challenge bots", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "user_agent", Op: "contains", Value: "bot"}},
-			Action: "challenge", Score: 40,
+			Action:     "challenge", Score: 40,
 		}},
 	}, nil)
 
@@ -95,7 +95,7 @@ func TestRuleMatchHeader(t *testing.T) {
 		Rules: []Rule{{
 			ID: "r4", Name: "Block bad referer", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "header:Referer", Op: "contains", Value: "evil.com"}},
-			Action: "block", Score: 80,
+			Action:     "block", Score: 80,
 		}},
 	}, nil)
 
@@ -114,7 +114,7 @@ func TestRuleMatchIPCIDR(t *testing.T) {
 		Rules: []Rule{{
 			ID: "r5", Name: "Block internal", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "ip", Op: "in_cidr", Value: "10.0.0.0/8"}},
-			Action: "block", Score: 100,
+			Action:     "block", Score: 100,
 		}},
 	}, nil)
 
@@ -165,7 +165,7 @@ func TestRuleDisabled(t *testing.T) {
 		Rules: []Rule{{
 			ID: "r7", Name: "Disabled rule", Enabled: false, Priority: 1,
 			Conditions: []Condition{{Field: "path", Op: "equals", Value: "/"}},
-			Action: "block", Score: 100,
+			Action:     "block", Score: 100,
 		}},
 	}, nil)
 
@@ -182,11 +182,11 @@ func TestRulePassAction(t *testing.T) {
 		Rules: []Rule{
 			{ID: "whitelist", Name: "Whitelist /health", Enabled: true, Priority: 1,
 				Conditions: []Condition{{Field: "path", Op: "equals", Value: "/health"}},
-				Action: "pass", Score: 0,
+				Action:     "pass", Score: 0,
 			},
 			{ID: "block-all", Name: "Block all", Enabled: true, Priority: 2,
 				Conditions: []Condition{{Field: "path", Op: "starts_with", Value: "/"}},
-				Action: "block", Score: 100,
+				Action:     "block", Score: 100,
 			},
 		},
 	}, nil)
@@ -212,7 +212,7 @@ func TestRuleRegexMatch(t *testing.T) {
 		Rules: []Rule{{
 			ID: "regex", Name: "Regex test", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "path", Op: "matches", Value: `^/api/v[0-9]+/`}},
-			Action: "log", Score: 10,
+			Action:     "log", Score: 10,
 		}},
 	}, nil)
 
@@ -235,7 +235,7 @@ func TestRuleInList(t *testing.T) {
 		Rules: []Rule{{
 			ID: "methods", Name: "Block unsafe methods", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "method", Op: "in", Value: []string{"DELETE", "PATCH"}}},
-			Action: "block", Score: 50,
+			Action:     "block", Score: 50,
 		}},
 	}, nil)
 
@@ -296,7 +296,7 @@ func BenchmarkRuleEvaluation(b *testing.B) {
 		Rules: []Rule{
 			{ID: "r1", Enabled: true, Priority: 1,
 				Conditions: []Condition{{Field: "path", Op: "starts_with", Value: "/api"}},
-				Action: "log", Score: 10},
+				Action:     "log", Score: 10},
 			{ID: "r2", Enabled: true, Priority: 2,
 				Conditions: []Condition{
 					{Field: "method", Op: "equals", Value: "POST"},

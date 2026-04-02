@@ -221,7 +221,7 @@ func (bm *BehaviorManager) getOrCreate(ip string) *BehaviorTracker {
 }
 
 // Record records a request for the given IP.
-func (bm *BehaviorManager) Record(ip string, path string, isError bool, latency time.Duration) {
+func (bm *BehaviorManager) Record(ip, path string, isError bool, latency time.Duration) {
 	tracker := bm.getOrCreate(ip)
 	tracker.record(path, isError, latency)
 }

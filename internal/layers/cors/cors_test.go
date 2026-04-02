@@ -14,7 +14,7 @@ func TestNewLayer(t *testing.T) {
 		AllowCredentials: true,
 	}
 
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatalf("NewLayer failed: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestIsOriginAllowed(t *testing.T) {
 		},
 	}
 
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatalf("NewLayer failed: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestIsOriginAllowed(t *testing.T) {
 
 func TestProcess_Disabled(t *testing.T) {
 	cfg := Config{Enabled: false}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	ctx := &engine.RequestContext{
 		Method:  "GET",
@@ -88,7 +88,7 @@ func TestProcess_Disabled(t *testing.T) {
 
 func TestProcess_NoOrigin(t *testing.T) {
 	cfg := Config{Enabled: true}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	ctx := &engine.RequestContext{
 		Method:  "GET",
@@ -107,7 +107,7 @@ func TestProcess_AllowedOrigin(t *testing.T) {
 		AllowOrigins:     []string{"https://example.com"},
 		AllowCredentials: true,
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	ctx := &engine.RequestContext{
 		Method:  "GET",
@@ -136,7 +136,7 @@ func TestProcess_BlockedOrigin_StrictMode(t *testing.T) {
 		AllowOrigins:  []string{"https://example.com"},
 		StrictMode:    true,
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	ctx := &engine.RequestContext{
 		Method:  "GET",
@@ -159,7 +159,7 @@ func TestProcess_BlockedOrigin_NonStrict(t *testing.T) {
 		AllowOrigins: []string{"https://example.com"},
 		StrictMode:   false,
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	ctx := &engine.RequestContext{
 		Method:  "GET",
@@ -181,7 +181,7 @@ func TestProcess_Preflight_Allowed(t *testing.T) {
 		AllowHeaders:  []string{"Content-Type", "Authorization"},
 		MaxAgeSeconds: 3600,
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	ctx := &engine.RequestContext{
 		Method: "OPTIONS",
@@ -214,7 +214,7 @@ func TestProcess_Preflight_BlockedMethod(t *testing.T) {
 		AllowMethods: []string{"GET", "POST"},
 		StrictMode:   true,
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	ctx := &engine.RequestContext{
 		Method: "OPTIONS",
@@ -264,7 +264,7 @@ func TestUpdateConfig(t *testing.T) {
 		Enabled:      true,
 		AllowOrigins: []string{"https://example.com"},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	// Update with new origins
 	newCfg := Config{
@@ -296,7 +296,7 @@ func BenchmarkProcess(b *testing.B) {
 		AllowMethods:     []string{"GET", "POST"},
 		AllowCredentials: true,
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	ctx := &engine.RequestContext{
 		Method: "GET",

@@ -329,8 +329,9 @@ func populateACME(acme *ACMEConfig, n *Node) error {
 // --- Upstreams ---
 
 func populateUpstreams(n *Node) ([]UpstreamConfig, error) {
-	var result []UpstreamConfig
-	for _, item := range n.Slice() {
+	items := n.Slice()
+	result := make([]UpstreamConfig, 0, len(items))
+	for _, item := range items {
 		if item.Kind != MapNode {
 			continue
 		}
@@ -401,8 +402,9 @@ func populateHealthCheck(hc *HealthCheckConfig, n *Node) error {
 // --- Routes ---
 
 func populateRoutes(n *Node) ([]RouteConfig, error) {
-	var result []RouteConfig
-	for _, item := range n.Slice() {
+	items := n.Slice()
+	result := make([]RouteConfig, 0, len(items))
+	for _, item := range items {
 		if item.Kind != MapNode {
 			continue
 		}
@@ -431,8 +433,9 @@ func populateRoutes(n *Node) ([]RouteConfig, error) {
 // --- Virtual Hosts ---
 
 func populateVirtualHosts(n *Node) ([]VirtualHostConfig, error) {
-	var result []VirtualHostConfig
-	for _, item := range n.Slice() {
+	items := n.Slice()
+	result := make([]VirtualHostConfig, 0, len(items))
+	for _, item := range items {
 		if item.Kind != MapNode {
 			continue
 		}

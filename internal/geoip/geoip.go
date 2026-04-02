@@ -5,6 +5,7 @@ package geoip
 
 import (
 	"bufio"
+	"context"
 	"compress/gzip"
 	"encoding/binary"
 	"fmt"
@@ -181,10 +182,10 @@ func (db *DB) StartAutoRefresh(path, downloadURL string, interval time.Duration)
 				// Try to download fresh data
 				if downloadURL != "" {
 					if err := downloadDB(downloadURL, path); err == nil {
-						db.Reload(path)
+						_ = db.Reload(path)
 					}
 				} else {
-					db.Reload(path)
+					_ = db.Reload(path)
 				}
 			case <-stop:
 				return
@@ -238,7 +239,12 @@ func LoadOrDownload(path string, downloadURL string, maxAge time.Duration) (*DB,
 // downloadDB downloads a GeoIP CSV (optionally gzipped) from URL to path.
 func downloadDB(url, path string) error {
 	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Get(url)
+	ctx := context.Background()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+	if err != nil {
+		return err
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}

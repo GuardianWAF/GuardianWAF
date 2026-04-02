@@ -16,7 +16,7 @@ type JA3Fingerprint struct {
 // ComputeJA3 computes the JA3 fingerprint from TLS ClientHello parameters.
 // Format: SSLVersion,Ciphers,Extensions,EllipticCurves,ECPointFormats
 // Each group is a dash-separated list of decimal values; groups are separated by commas.
-func ComputeJA3(tlsVersion uint16, cipherSuites []uint16, extensions []uint16, curves []uint16, points []uint8) JA3Fingerprint {
+func ComputeJA3(tlsVersion uint16, cipherSuites, extensions, curves []uint16, points []uint8) JA3Fingerprint {
 	parts := make([]string, 5)
 	parts[0] = fmt.Sprintf("%d", tlsVersion)
 	parts[1] = joinUint16(cipherSuites)

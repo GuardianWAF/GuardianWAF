@@ -63,8 +63,8 @@ type mockDetector struct {
 }
 
 func (d *mockDetector) Name() string         { return d.name }
-func (d *mockDetector) DetectorName() string  { return d.detName }
-func (d *mockDetector) Patterns() []string    { return nil }
+func (d *mockDetector) DetectorName() string { return d.detName }
+func (d *mockDetector) Patterns() []string   { return nil }
 func (d *mockDetector) Process(ctx *RequestContext) LayerResult {
 	return LayerResult{
 		Action:   ActionLog,

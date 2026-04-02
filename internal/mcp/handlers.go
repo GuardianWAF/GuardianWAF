@@ -305,7 +305,7 @@ func (s *Server) handleGetTopIPs(params json.RawMessage) (any, error) {
 		return nil, err
 	}
 	var p topIPsParam
-	if params != nil && len(params) > 0 {
+	if len(params) > 0 {
 		if err := json.Unmarshal(params, &p); err != nil {
 			return nil, fmt.Errorf("invalid params: %w", err)
 		}

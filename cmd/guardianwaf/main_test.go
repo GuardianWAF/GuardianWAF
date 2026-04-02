@@ -495,7 +495,7 @@ func TestCmdCheck_MissingURL(t *testing.T) {
 	addLayers(eng, cfg)
 
 	// Simulate the check logic
-	req, _ := http.NewRequest("GET", "http://localhost/search?q=test", nil)
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", "http://localhost/search?q=test", nil)
 	req.RemoteAddr = "127.0.0.1:0"
 	event := eng.Check(req)
 	if event.Action.String() == "" {
@@ -576,9 +576,7 @@ func TestBuildReverseProxy_StripPrefix(t *testing.T) {
 	req := httptest.NewRequest("GET", "/api/users", nil)
 	handler.ServeHTTP(rr, req)
 	// The reverse proxy should have forwarded the request
-	if rr.Code == http.StatusNotFound {
-		// Route matched — the proxy attempted forwarding
-	}
+		_ = rr.Code // proxy attempted forwarding
 }
 
 // --- Subprocess CLI tests for os.Exit-calling commands ---
@@ -800,7 +798,8 @@ mcp:
 	}
 
 	// Send a request
-	resp, err := http.Get(fmt.Sprintf("http://%s/api/v1/health", addr))
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", fmt.Sprintf("http://%s/api/v1/health", addr), nil)
+	resp, err := http.DefaultClient.Do(req)
 	if err == nil {
 		resp.Body.Close()
 	}
@@ -855,7 +854,8 @@ func TestCLI_Sidecar_Startup(t *testing.T) {
 	}
 
 	// Hit the healthz endpoint
-	resp, err := http.Get(fmt.Sprintf("http://%s/api/v1/health", addr))
+	r, _ := http.NewRequestWithContext(context.Background(), "GET", fmt.Sprintf("http://%s/api/v1/health", addr), nil)
+	resp, err := http.DefaultClient.Do(r)
 	if err != nil {
 		cmd.Process.Kill()
 		cmd.Wait()
@@ -867,7 +867,8 @@ func TestCLI_Sidecar_Startup(t *testing.T) {
 	}
 
 	// Hit a proxied endpoint
-	resp2, err := http.Get(fmt.Sprintf("http://%s/test", addr))
+	reqProxy, _ := http.NewRequestWithContext(context.Background(), "GET", fmt.Sprintf("http://%s/test", addr), nil)
+	resp2, err := http.DefaultClient.Do(reqProxy)
 	if err == nil {
 		resp2.Body.Close()
 	}
@@ -912,7 +913,8 @@ func TestStartDashboard_Endpoints(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Test /healthz
-	resp, err := http.Get(fmt.Sprintf("http://%s/api/v1/health", addr))
+	r, _ := http.NewRequestWithContext(context.Background(), "GET", fmt.Sprintf("http://%s/api/v1/health", addr), nil)
+	resp, err := http.DefaultClient.Do(r)
 	if err != nil {
 		t.Fatalf("healthz request failed: %v", err)
 	}
@@ -922,7 +924,8 @@ func TestStartDashboard_Endpoints(t *testing.T) {
 	}
 
 	// Test /api/stats
-	resp2, err := http.Get(fmt.Sprintf("http://%s/api/v1/stats", addr))
+	req2, _ := http.NewRequestWithContext(context.Background(), "GET", fmt.Sprintf("http://%s/api/v1/stats", addr), nil)
+	resp2, err := http.DefaultClient.Do(req2)
 	if err != nil {
 		t.Fatalf("stats request failed: %v", err)
 	}
@@ -958,7 +961,8 @@ func TestStartDashboard_WithAPIKey(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Without key — should get 401
-	resp, err := http.Get(fmt.Sprintf("http://%s/api/v1/stats", addr))
+	r, _ := http.NewRequestWithContext(context.Background(), "GET", fmt.Sprintf("http://%s/api/v1/stats", addr), nil)
+	resp, err := http.DefaultClient.Do(r)
 	if err != nil {
 		t.Fatalf("stats request failed: %v", err)
 	}
@@ -968,7 +972,7 @@ func TestStartDashboard_WithAPIKey(t *testing.T) {
 	}
 
 	// With correct key
-	req, _ := http.NewRequest("GET", fmt.Sprintf("http://%s/api/v1/stats", addr), nil)
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", fmt.Sprintf("http://%s/api/v1/stats", addr), nil)
 	req.Header.Set("X-API-Key", "secret-key")
 	resp2, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -2188,7 +2192,7 @@ func TestRunValidate_InvalidYAML(t *testing.T) {
 // --- runCheck tests ---
 
 func TestRunCheck_MissingURL(t *testing.T) {
-	_, err := runCheck(CheckOptions{
+	_, err := runCheck(&CheckOptions{
 		ConfigPath: "guardianwaf.yaml",
 		URL:        "", // Missing URL
 		Method:     "GET",
@@ -2214,7 +2218,7 @@ waf:
 `
 	os.WriteFile(cfgPath, []byte(content), 0644)
 
-	result, err := runCheck(CheckOptions{
+	result, err := runCheck(&CheckOptions{
 		ConfigPath: cfgPath,
 		URL:        "/test",
 		Method:     "GET",
@@ -2236,7 +2240,7 @@ func TestRunCheck_WithHeaders(t *testing.T) {
 	content := "mode: monitor\nlisten: \":8088\"\n"
 	os.WriteFile(cfgPath, []byte(content), 0644)
 
-	result, err := runCheck(CheckOptions{
+	result, err := runCheck(&CheckOptions{
 		ConfigPath: cfgPath,
 		URL:        "/api/test",
 		Method:     "POST",
@@ -2257,7 +2261,7 @@ func TestRunCheck_FullURL(t *testing.T) {
 	content := "mode: monitor\nlisten: \":8088\"\n"
 	os.WriteFile(cfgPath, []byte(content), 0644)
 
-	result, err := runCheck(CheckOptions{
+	result, err := runCheck(&CheckOptions{
 		ConfigPath: cfgPath,
 		URL:        "https://example.com/api/test",
 		Method:     "GET",
@@ -2276,7 +2280,7 @@ func TestRunCheck_InvalidMethod(t *testing.T) {
 	content := "mode: monitor\nlisten: \":8088\"\n"
 	os.WriteFile(cfgPath, []byte(content), 0644)
 
-	_, err := runCheck(CheckOptions{
+	_, err := runCheck(&CheckOptions{
 		ConfigPath: cfgPath,
 		URL:        "/test",
 		Method:     "BAD METHOD", // Invalid method
@@ -2302,7 +2306,7 @@ waf:
 `
 	os.WriteFile(cfgPath, []byte(content), 0644)
 
-	result, err := runCheck(CheckOptions{
+	result, err := runCheck(&CheckOptions{
 		ConfigPath: cfgPath,
 		URL:        "/search?q=' OR '1'='1",
 		Method:     "GET",
@@ -2329,7 +2333,7 @@ func TestRunCheck_InvalidHeader(t *testing.T) {
 	cfgPath := filepath.Join(dir, "test.yaml")
 	os.WriteFile(cfgPath, []byte("mode: monitor\n"), 0644)
 
-	result, err := runCheck(CheckOptions{
+	result, err := runCheck(&CheckOptions{
 		ConfigPath: cfgPath,
 		URL:        "/test",
 		Method:     "GET",
@@ -2359,7 +2363,7 @@ waf:
 `
 	os.WriteFile(cfgPath, []byte(content), 0644)
 
-	result, err := runCheck(CheckOptions{
+	result, err := runCheck(&CheckOptions{
 		ConfigPath: cfgPath,
 		URL:        "/search?q=<script>alert(1)</script>",
 		Method:     "GET",
@@ -2388,7 +2392,7 @@ waf:
 `
 	os.WriteFile(cfgPath, []byte(content), 0644)
 
-	result, err := runCheck(CheckOptions{
+	result, err := runCheck(&CheckOptions{
 		ConfigPath: cfgPath,
 		URL:        "/file?path=../../../etc/passwd",
 		Method:     "GET",

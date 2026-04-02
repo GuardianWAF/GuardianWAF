@@ -188,9 +188,9 @@ func (d *Dashboard) handleAIAnalyze(w http.ResponseWriter, r *http.Request) {
 	}
 
 	evts, _, err := d.eventStore.Query(events.EventFilter{
-		Limit:    n,
-		MinScore: 25,
-		SortBy:   "timestamp",
+		Limit:     n,
+		MinScore:  25,
+		SortBy:    "timestamp",
 		SortOrder: "desc",
 	})
 	if err != nil {

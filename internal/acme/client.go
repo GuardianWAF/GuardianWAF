@@ -4,6 +4,7 @@ package acme
 
 import (
 	"bytes"
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -196,7 +197,12 @@ func (c *Client) ObtainCertificate(domains []string, challengeHandler *HTTP01Han
 // --- Internal methods ---
 
 func (c *Client) fetchDirectory() (*directory, error) {
-	resp, err := c.httpClient.Get(c.directoryURL)
+	ctx := context.Background()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.directoryURL, http.NoBody)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -371,7 +377,12 @@ func (c *Client) getNonce() (string, error) {
 	}
 	c.mu.Unlock()
 
-	resp, err := c.httpClient.Head(c.directory.NewNonce)
+	ctx := context.Background()
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, c.directory.NewNonce, http.NoBody)
+	if err != nil {
+		return "", err
+	}
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -441,7 +452,7 @@ func (c *Client) signedPost(url string, payload any, useJWK bool) (*http.Respons
 	}
 	body, _ := json.Marshal(jws)
 
-	req, err := http.NewRequest("POST", url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}

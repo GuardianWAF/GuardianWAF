@@ -11,7 +11,7 @@ import (
 // SaveFile serializes the config to YAML and writes it to the given path.
 func SaveFile(path string, cfg *Config) error {
 	data := MarshalYAML(cfg)
-	return os.WriteFile(path, []byte(data), 0644)
+	return os.WriteFile(path, []byte(data), 0o644)
 }
 
 // MarshalYAML serializes a Config struct to a YAML string using yaml struct tags.

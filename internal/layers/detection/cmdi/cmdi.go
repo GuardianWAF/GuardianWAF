@@ -95,8 +95,8 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 }
 
 // Detect scans a single input string for command injection patterns.
-func Detect(input string, location string) []engine.Finding {
-	if len(input) == 0 {
+func Detect(input, location string) []engine.Finding {
+	if input == "" {
 		return nil
 	}
 
@@ -145,7 +145,7 @@ func makeFinding(score int, severity engine.Severity, desc, matched, location st
 }
 
 // checkShellMetachars detects shell metacharacters followed by commands.
-func checkShellMetachars(input, lower string, location string) []engine.Finding {
+func checkShellMetachars(_, lower, location string) []engine.Finding {
 	var findings []engine.Finding
 
 	// Check each metacharacter separator
@@ -177,20 +177,14 @@ func checkShellMetachars(input, lower string, location string) []engine.Finding 
 			}
 
 			if isReconCommand(cmd) {
-				score := s.score
-				if score < 65 {
-					score = 65
-				}
+				score := max(s.score, 65)
 				findings = append(findings, makeFinding(score, engine.SeverityHigh,
 					s.desc+" (recon: "+cmd+")",
 					extractContext(lower, s.sep), location, 0.85))
 				break
 			}
 			if isNetworkCommand(cmd) {
-				score := s.score
-				if score < 75 {
-					score = 75
-				}
+				score := max(s.score, 75)
 				findings = append(findings, makeFinding(score, engine.SeverityCritical,
 					s.desc+" (network: "+cmd+")",
 					extractContext(lower, s.sep), location, 0.90))
@@ -209,7 +203,7 @@ func checkShellMetachars(input, lower string, location string) []engine.Finding 
 }
 
 // checkCommandSubstitution detects $(...) and backtick command substitution.
-func checkCommandSubstitution(input, lower string, location string) []engine.Finding {
+func checkCommandSubstitution(input, lower, location string) []engine.Finding {
 	var findings []engine.Finding
 
 	// $( ... ) pattern
@@ -251,7 +245,7 @@ func checkCommandSubstitution(input, lower string, location string) []engine.Fin
 }
 
 // checkShellPaths detects references to shell interpreters.
-func checkShellPaths(lower string, location string) []engine.Finding {
+func checkShellPaths(lower, location string) []engine.Finding {
 	var findings []engine.Finding
 
 	shellPaths := []string{
@@ -274,7 +268,7 @@ func checkShellPaths(lower string, location string) []engine.Finding {
 }
 
 // checkInterpreterFlags detects interpreter invocations with -c or -e flags.
-func checkInterpreterFlags(lower string, location string) []engine.Finding {
+func checkInterpreterFlags(lower, location string) []engine.Finding {
 	var findings []engine.Finding
 
 	interpreters := []string{
@@ -301,7 +295,7 @@ func checkInterpreterFlags(lower string, location string) []engine.Finding {
 }
 
 // checkBase64Pipe detects base64 decode piped to shell.
-func checkBase64Pipe(lower string, location string) []engine.Finding {
+func checkBase64Pipe(lower, location string) []engine.Finding {
 	var findings []engine.Finding
 
 	// Patterns like: base64 -d | sh, echo ... | base64 -d | bash
@@ -315,7 +309,7 @@ func checkBase64Pipe(lower string, location string) []engine.Finding {
 }
 
 // checkEncodedNewline detects URL-encoded newline injection.
-func checkEncodedNewline(lower string, location string) []engine.Finding {
+func checkEncodedNewline(lower, location string) []engine.Finding {
 	var findings []engine.Finding
 
 	if strings.Contains(lower, "%0a") || strings.Contains(lower, "%0d") {
@@ -345,47 +339,48 @@ func checkEncodedNewline(lower string, location string) []engine.Finding {
 }
 
 // checkRedirection detects output redirection operators.
-func checkRedirection(input, lower string, location string) []engine.Finding {
+func checkRedirection(input, lower, location string) []engine.Finding {
 	var findings []engine.Finding
 
 	// Check for > or >> but not inside URLs (like https://)
 	for i := 0; i < len(input); i++ {
-		if input[i] == '>' {
-			// Skip if preceded by / (likely a URL closing tag or similar)
-			if i > 0 && input[i-1] == '/' {
-				continue
-			}
-			// Skip if part of => (arrow operator)
-			if i > 0 && input[i-1] == '=' {
-				continue
-			}
-			// Skip HTML tags like <tag>
-			if i > 0 {
-				// Check if this is part of an HTML tag
-				isHTMLTag := false
-				for j := i - 1; j >= 0; j-- {
-					if input[j] == '<' {
-						isHTMLTag = true
-						break
-					}
-					if input[j] == '>' || input[j] == ' ' {
-						break
-					}
-				}
-				if isHTMLTag {
-					continue
-				}
-			}
-
-			score := 45
-			desc := "Output redirection operator detected"
-			if i+1 < len(input) && input[i+1] == '>' {
-				desc = "Append redirection operator detected"
-			}
-			findings = append(findings, makeFinding(score, engine.SeverityMedium,
-				desc, extractContext(lower, ">"), location, 0.60))
-			break
+		if input[i] != '>' {
+			continue
 		}
+		// Skip if preceded by / (likely a URL closing tag or similar)
+		if i > 0 && input[i-1] == '/' {
+			continue
+		}
+		// Skip if part of => (arrow operator)
+		if i > 0 && input[i-1] == '=' {
+			continue
+		}
+		// Skip HTML tags like <tag>
+		if i > 0 {
+			// Check if this is part of an HTML tag
+			isHTMLTag := false
+			for j := i - 1; j >= 0; j-- {
+				if input[j] == '<' {
+					isHTMLTag = true
+					break
+				}
+				if input[j] == '>' || input[j] == ' ' {
+					break
+				}
+			}
+			if isHTMLTag {
+				continue
+			}
+		}
+
+		score := 45
+		desc := "Output redirection operator detected"
+		if i+1 < len(input) && input[i+1] == '>' {
+			desc = "Append redirection operator detected"
+		}
+		findings = append(findings, makeFinding(score, engine.SeverityMedium,
+			desc, extractContext(lower, ">"), location, 0.60))
+		break
 	}
 
 	return findings
@@ -413,14 +408,8 @@ func extractContext(input, pattern string) string {
 		}
 		return input
 	}
-	start := idx - 20
-	if start < 0 {
-		start = 0
-	}
-	end := idx + len(pattern) + 30
-	if end > len(input) {
-		end = len(input)
-	}
+	start := max(idx-20, 0)
+	end := min(idx+len(pattern)+30, len(input))
 	result := input[start:end]
 	if len(result) > 200 {
 		result = result[:197] + "..."

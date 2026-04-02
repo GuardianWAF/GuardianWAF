@@ -138,7 +138,7 @@ func hasEventHandler(attrs map[string]string) (string, bool) {
 
 // hasJavaScriptProtocol checks if any attribute value contains "javascript:" or
 // "data:text/html" protocol.
-func hasJavaScriptProtocol(attrs map[string]string) (string, string, bool) {
+func hasJavaScriptProtocol(attrs map[string]string) (attrName, protocol string, found bool) {
 	for name, val := range attrs {
 		lower := strings.ToLower(val)
 		if strings.Contains(lower, "javascript:") {

@@ -1326,11 +1326,11 @@ func TestNew_SecurityHeadersEnabled_PopulatesResponseHeaders(t *testing.T) {
 func TestNew_WithChallengeEnabled(t *testing.T) {
 	eng, err := New(Config{
 		Challenge: ChallengeConfig{
-			Enabled:     true,
-			Difficulty:  20,
-			CookieTTL:   10 * time.Minute,
-			CookieName:  "gowaf_challenge",
-			SecretKey:   "test-secret-key-12345",
+			Enabled:    true,
+			Difficulty: 20,
+			CookieTTL:  10 * time.Minute,
+			CookieName: "gowaf_challenge",
+			SecretKey:  "test-secret-key-12345",
 		},
 	})
 	if err != nil {
@@ -1353,11 +1353,11 @@ func TestNew_WithChallengeEnabled(t *testing.T) {
 func TestNew_WithChallengeEnabled_NoSecretKey(t *testing.T) {
 	eng, err := New(Config{
 		Challenge: ChallengeConfig{
-			Enabled:     true,
-			Difficulty:  15,
-			CookieTTL:   5 * time.Minute,
-			CookieName:  "gowaf_challenge",
-			SecretKey:   "",
+			Enabled:    true,
+			Difficulty: 15,
+			CookieTTL:  5 * time.Minute,
+			CookieName: "gowaf_challenge",
+			SecretKey:  "",
 		},
 	})
 	if err != nil {

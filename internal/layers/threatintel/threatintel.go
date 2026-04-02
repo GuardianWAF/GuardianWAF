@@ -4,6 +4,7 @@
 package threatintel
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"strings"
@@ -15,12 +16,12 @@ import (
 
 // Config holds the configuration for the Threat Intelligence layer.
 type Config struct {
-	Enabled      bool           `yaml:"enabled"`
-	IPReputation IPRepConfig    `yaml:"ip_reputation"`
+	Enabled      bool            `yaml:"enabled"`
+	IPReputation IPRepConfig     `yaml:"ip_reputation"`
 	DomainRep    DomainRepConfig `yaml:"domain_reputation"`
-	CacheSize    int            `yaml:"cache_size"`
-	CacheTTL     time.Duration  `yaml:"cache_ttl"`
-	Feeds        []FeedConfig   `yaml:"feeds"`
+	CacheSize    int             `yaml:"cache_size"`
+	CacheTTL     time.Duration   `yaml:"cache_ttl"`
+	Feeds        []FeedConfig    `yaml:"feeds"`
 }
 
 // IPRepConfig configures IP reputation checking.
@@ -76,7 +77,7 @@ func NewLayer(cfg Config) (*Layer, error) {
 
 	// Load initial data
 	for _, fm := range l.feeds {
-		entries, err := fm.LoadOnce()
+		entries, err := fm.LoadOnce(context.Background())
 		if err == nil {
 			l.updateEntries(entries)
 		}
@@ -276,23 +277,24 @@ func (l *Layer) updateEntries(entries []ThreatEntry) {
 }
 
 // AddIP manually adds an IP to the threat cache.
+// Used for runtime threat feed management and advanced integrations.
+// Note: Not currently exposed via dashboard API.
 func (l *Layer) AddIP(ip string, info *ThreatInfo) {
 	l.ipCache.Set(ip, info)
 }
 
 // AddDomain manually adds a domain to the threat cache.
+// Used for runtime threat feed management and advanced integrations.
+// Note: Not currently exposed via dashboard API.
 func (l *Layer) AddDomain(domain string, info *ThreatInfo) {
 	l.domainCache.Set(strings.ToLower(domain), info)
 }
 
 // RemoveIP removes an IP from the cache.
+// Used for runtime threat feed management and advanced integrations.
+// Note: Not currently exposed via dashboard API.
 func (l *Layer) RemoveIP(ip string) {
 	l.ipCache.Delete(ip)
-}
-
-// RemoveDomain removes a domain from the cache.
-func (l *Layer) RemoveDomain(domain string) {
-	l.domainCache.Delete(strings.ToLower(domain))
 }
 
 // Stats returns cache statistics.
@@ -307,7 +309,7 @@ func (l *Layer) Stats() map[string]int {
 // Helper function
 func getHost(headers map[string][]string) string {
 	for k, v := range headers {
-		if strings.ToLower(k) == "host" && len(v) > 0 {
+		if strings.EqualFold(k, "host") && len(v) > 0 {
 			return v[0]
 		}
 	}

@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -229,7 +230,7 @@ func generateAttackRequest(target string) *http.Request {
 		// Inject in POST body
 		method = "POST"
 		path = "/api/exec"
-		req, _ := http.NewRequest(method, target+path, bytes.NewBufferString(fmt.Sprintf(`{"command":"%s"}`, payload.Payload)))
+		req, _ := http.NewRequestWithContext(context.Background(), method, target+path, bytes.NewBufferString(fmt.Sprintf(`{"command":"%q"}`, payload.Payload)))
 		req.Header.Set("Content-Type", "application/json")
 		return req
 	case "ssrf":
@@ -239,18 +240,19 @@ func generateAttackRequest(target string) *http.Request {
 		// Inject as XML body
 		method = "POST"
 		path = "/api/upload"
-		req, _ := http.NewRequest(method, target+path, bytes.NewBufferString(payload.Payload))
+		req, _ := http.NewRequestWithContext(context.Background(), method, target+path, bytes.NewBufferString(payload.Payload))
 		req.Header.Set("Content-Type", "application/xml")
 		return req
 	case "brute_force_single_ip", "credential_stuffing":
 		method = "POST"
 		path = "/login"
-		req, _ := http.NewRequest(method, target+path, bytes.NewBufferString(payload.Payload))
+		req, _ := http.NewRequestWithContext(context.Background(), method, target+path, bytes.NewBufferString(payload.Payload))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		return req
 	}
 
-	req, _ := http.NewRequest(method, target+path, nil)
+	ctx := context.Background()
+	req, _ := http.NewRequestWithContext(ctx, method, target+path, http.NoBody)
 	addBrowserHeaders(req)
 	return req
 }
@@ -270,7 +272,7 @@ func generateLegitimateRequest(target string) *http.Request {
 	}
 
 	path := paths[rand.Intn(len(paths))]
-	req, _ := http.NewRequest("GET", target+path, nil)
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", target+path, http.NoBody)
 	addBrowserHeaders(req)
 
 	// Sometimes add session cookie
@@ -284,14 +286,14 @@ func generateLegitimateRequest(target string) *http.Request {
 	return req
 }
 
-func generateBruteForceRequest(target string, workerID, attempt int) *http.Request {
+func generateBruteForceRequest(target string, _, attempt int) *http.Request {
 	// Same target email, different passwords - triggers brute force detection
 	passwords := []string{"password123", "letmein", "qwerty", "123456", "admin", "welcome", "Password1!"}
 	data := url.Values{}
 	data.Set("email", "admin@example.com")
 	data.Set("password", passwords[attempt%len(passwords)])
 
-	req, _ := http.NewRequest("POST", target+"/login", bytes.NewBufferString(data.Encode()))
+	req, _ := http.NewRequestWithContext(context.Background(), "POST", target+"/login", bytes.NewBufferString(data.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	return req
 }
@@ -306,7 +308,7 @@ func generateCredentialStuffingRequest(target string) *http.Request {
 	data.Set("email", emails[rand.Intn(len(emails))])
 	data.Set("password", "password123")
 
-	req, _ := http.NewRequest("POST", target+"/login", bytes.NewBufferString(data.Encode()))
+	req, _ := http.NewRequestWithContext(context.Background(), "POST", target+"/login", bytes.NewBufferString(data.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	return req
 }
@@ -333,18 +335,19 @@ func executeRequest(req *http.Request) {
 	latency := time.Since(start)
 
 	stats.TotalRequests.Add(1)
-	stats.TotalLatency.Add(int64(latency.Microseconds()))
+	us := latency.Microseconds()
+	stats.TotalLatency.Add(us)
 
 	// Update min/max
 	for {
 		current := stats.MinLatency.Load()
-		if int64(latency.Microseconds()) >= current || !stats.MinLatency.CompareAndSwap(current, int64(latency.Microseconds())) {
+		if us >= current || !stats.MinLatency.CompareAndSwap(current, us) {
 			break
 		}
 	}
 	for {
 		current := stats.MaxLatency.Load()
-		if int64(latency.Microseconds()) <= current || !stats.MaxLatency.CompareAndSwap(current, int64(latency.Microseconds())) {
+		if us <= current || !stats.MaxLatency.CompareAndSwap(current, us) {
 			break
 		}
 	}
@@ -354,7 +357,7 @@ func executeRequest(req *http.Request) {
 		return
 	}
 	defer resp.Body.Close()
-	io.Copy(io.Discard, resp.Body)
+	_, _ = io.Copy(io.Discard, resp.Body)
 
 	// Categorize response
 	switch resp.StatusCode {

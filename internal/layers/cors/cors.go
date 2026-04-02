@@ -32,9 +32,9 @@ type Layer struct {
 }
 
 // NewLayer creates a new CORS layer from the given config.
-func NewLayer(cfg Config) (*Layer, error) {
+func NewLayer(cfg *Config) (*Layer, error) {
 	l := &Layer{
-		config:       cfg,
+		config:       *cfg,
 		originRegex:  make([]*regexp.Regexp, 0),
 		exactOrigins: make(map[string]bool),
 	}
@@ -270,7 +270,7 @@ func (l *Layer) setPreflightHeaders(ctx *engine.RequestContext, origin string) {
 func getHeader(headers map[string][]string, name string) string {
 	key := strings.ToLower(name)
 	for k, v := range headers {
-		if strings.ToLower(k) == key && len(v) > 0 {
+		if strings.EqualFold(k, key) && len(v) > 0 {
 			return v[0]
 		}
 	}
@@ -293,7 +293,7 @@ func contains(slice []string, item string) bool {
 func containsFold(slice []string, item string) bool {
 	itemLower := strings.ToLower(item)
 	for _, s := range slice {
-		if strings.ToLower(s) == itemLower {
+		if strings.EqualFold(s, itemLower) {
 			return true
 		}
 	}

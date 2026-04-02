@@ -31,7 +31,7 @@ func ParseIPv4(s string) IPv4 {
 // ParseDecimalIP parses a decimal-encoded IP address (e.g., 2130706433 -> 127.0.0.1).
 // Returns nil if the input is not a valid decimal IP.
 func ParseDecimalIP(s string) IPv4 {
-	if len(s) == 0 || len(s) > 10 {
+	if s == "" || len(s) > 10 {
 		return nil
 	}
 	// Must be all digits
@@ -188,7 +188,7 @@ func IsMetadataEndpoint(ip IPv4) bool {
 
 // parseDecUint8 parses a decimal string as a uint8 (0-255).
 func parseDecUint8(s string) (byte, bool) {
-	if len(s) == 0 || len(s) > 3 {
+	if s == "" || len(s) > 3 {
 		return 0, false
 	}
 	var n int
@@ -206,7 +206,7 @@ func parseDecUint8(s string) (byte, bool) {
 
 // parseOctalUint8 parses an octal string (with leading 0) as a uint8.
 func parseOctalUint8(s string) (byte, bool) {
-	if len(s) == 0 {
+	if s == "" {
 		return 0, false
 	}
 	var n int
@@ -224,7 +224,7 @@ func parseOctalUint8(s string) (byte, bool) {
 
 // parseHexUint8 parses a hex string (without 0x prefix) as a uint8.
 func parseHexUint8(s string) (byte, bool) {
-	if len(s) == 0 || len(s) > 2 {
+	if s == "" || len(s) > 2 {
 		return 0, false
 	}
 	var n int

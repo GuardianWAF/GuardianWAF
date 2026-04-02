@@ -35,9 +35,9 @@ type Layer struct {
 }
 
 // NewLayer creates a new API Security layer.
-func NewLayer(cfg Config) (*Layer, error) {
+func NewLayer(cfg *Config) (*Layer, error) {
 	l := &Layer{
-		config:      cfg,
+		config:      *cfg,
 		skipPathMap: make(map[string]bool),
 	}
 
@@ -200,7 +200,7 @@ func (l *Layer) extractBearerToken(headers map[string][]string) string {
 	return auth
 }
 
-func (l *Layer) extractAPIKey(headers map[string][]string, queryParams map[string][]string) string {
+func (l *Layer) extractAPIKey(headers, queryParams map[string][]string) string {
 	// Try header first
 	headerName := l.config.APIKeys.HeaderName
 	if headerName == "" {
@@ -225,7 +225,7 @@ func (l *Layer) extractAPIKey(headers map[string][]string, queryParams map[strin
 func getHeaderValue(headers map[string][]string, name string) string {
 	nameLower := strings.ToLower(name)
 	for k, v := range headers {
-		if strings.ToLower(k) == nameLower && len(v) > 0 {
+		if strings.EqualFold(k, nameLower) && len(v) > 0 {
 			return v[0]
 		}
 	}

@@ -16,7 +16,7 @@ func TestNewLayer(t *testing.T) {
 		},
 	}
 
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatalf("NewLayer failed: %v", err)
 	}
@@ -28,7 +28,7 @@ func TestNewLayer(t *testing.T) {
 
 func TestProcess_Disabled(t *testing.T) {
 	cfg := Config{Enabled: false}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	ctx := &engine.RequestContext{
 		Path:    "/api/test",
@@ -47,7 +47,7 @@ func TestProcess_SkipPath(t *testing.T) {
 		SkipPaths: []string{"/health", "/public/*"},
 		JWT:       JWTConfig{Enabled: true},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	// Exact match
 	ctx := &engine.RequestContext{
@@ -85,7 +85,7 @@ func TestProcess_APIKey_Valid(t *testing.T) {
 			},
 		},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	ctx := &engine.RequestContext{
 		Path:    "/api/users",
@@ -116,7 +116,7 @@ func TestProcess_APIKey_Invalid(t *testing.T) {
 			},
 		},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	ctx := &engine.RequestContext{
 		Path:    "/api/test",
@@ -144,7 +144,7 @@ func TestProcess_APIKey_UnauthorizedPath(t *testing.T) {
 			},
 		},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	ctx := &engine.RequestContext{
 		Path:    "/admin/users",
@@ -260,7 +260,7 @@ func TestMatchPath(t *testing.T) {
 
 func TestAddSkipPath(t *testing.T) {
 	cfg := Config{Enabled: true}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	layer.AddSkipPath("/new-skip-path")
 
@@ -286,7 +286,7 @@ func TestStats(t *testing.T) {
 			},
 		},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	stats := layer.Stats()
 	if stats["api_key_count"].(int) != 2 {
@@ -309,7 +309,7 @@ func BenchmarkProcess_APIKey(b *testing.B) {
 			},
 		},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	ctx := &engine.RequestContext{
 		Path:    "/api/test",

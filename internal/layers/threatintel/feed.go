@@ -2,6 +2,7 @@ package threatintel
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,11 +15,11 @@ import (
 
 // FeedConfig configures a threat intelligence feed source.
 type FeedConfig struct {
-	Type          string        `yaml:"type"`           // "file" or "url"
-	Path          string        `yaml:"path"`           // File path for type="file"
-	URL           string        `yaml:"url"`            // URL for type="url"
-	Refresh       time.Duration `yaml:"refresh"`        // Refresh interval
-	Format        string        `yaml:"format"`         // "json", "jsonl", "csv"
+	Type          string        `yaml:"type"`    // "file" or "url"
+	Path          string        `yaml:"path"`    // File path for type="file"
+	URL           string        `yaml:"url"`     // URL for type="url"
+	Refresh       time.Duration `yaml:"refresh"` // Refresh interval
+	Format        string        `yaml:"format"`  // "json", "jsonl", "csv"
 	SkipSSLVerify bool          `yaml:"skip_ssl_verify"`
 }
 
@@ -32,10 +33,10 @@ type FeedManager struct {
 
 // ThreatEntry represents a single threat intelligence entry.
 type ThreatEntry struct {
-	IP     string       `json:"ip,omitempty"`
-	CIDR   string       `json:"cidr,omitempty"`
-	Domain string       `json:"domain,omitempty"`
-	Info   *ThreatInfo  `json:"info"`
+	IP     string      `json:"ip,omitempty"`
+	CIDR   string      `json:"cidr,omitempty"`
+	Domain string      `json:"domain,omitempty"`
+	Info   *ThreatInfo `json:"info"`
 }
 
 // ThreatInfo contains metadata about a threat.
@@ -63,12 +64,12 @@ func (f *FeedManager) SetUpdateCallback(fn func([]ThreatEntry)) {
 }
 
 // LoadOnce loads the feed once without starting a refresh loop.
-func (f *FeedManager) LoadOnce() ([]ThreatEntry, error) {
+func (f *FeedManager) LoadOnce(ctx context.Context) ([]ThreatEntry, error) {
 	switch f.config.Type {
 	case "file":
 		return f.loadFile()
 	case "url":
-		return f.loadURL()
+		return f.loadURL(ctx)
 	default:
 		return nil, fmt.Errorf("unknown feed type: %s", f.config.Type)
 	}
@@ -77,7 +78,7 @@ func (f *FeedManager) LoadOnce() ([]ThreatEntry, error) {
 // Start begins the refresh loop.
 func (f *FeedManager) Start() {
 	// Initial load
-	entries, err := f.LoadOnce()
+	entries, err := f.LoadOnce(context.Background())
 	if err == nil && f.onUpdate != nil {
 		f.onUpdate(entries)
 	}
@@ -102,7 +103,7 @@ func (f *FeedManager) refreshLoop() {
 		case <-f.stopCh:
 			return
 		case <-ticker.C:
-			entries, err := f.LoadOnce()
+			entries, err := f.LoadOnce(context.Background())
 			if err == nil && f.onUpdate != nil {
 				f.onUpdate(entries)
 			}
@@ -120,8 +121,8 @@ func (f *FeedManager) loadFile() ([]ThreatEntry, error) {
 	return f.parseReader(file)
 }
 
-func (f *FeedManager) loadURL() ([]ThreatEntry, error) {
-	req, err := http.NewRequest("GET", f.config.URL, nil)
+func (f *FeedManager) loadURL(ctx context.Context) ([]ThreatEntry, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, f.config.URL, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -304,11 +305,12 @@ func (f *FeedManager) parseCSV(r io.Reader) ([]ThreatEntry, error) {
 		}
 
 		// Determine if IP or CIDR
-		if strings.Contains(ip, "/") {
+		switch {
+		case strings.Contains(ip, "/"):
 			entry.CIDR = ip
-		} else if net.ParseIP(ip) != nil {
+		case net.ParseIP(ip) != nil:
 			entry.IP = ip
-		} else {
+		default:
 			// Treat as domain
 			entry.Domain = ip
 		}

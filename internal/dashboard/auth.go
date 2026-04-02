@@ -24,7 +24,7 @@ var secretHolder atomic.Value
 
 func init() {
 	secret := make([]byte, 32)
-	rand.Read(secret)
+	_, _ = rand.Read(secret)
 	secretHolder.Store(secret)
 }
 
@@ -90,10 +90,10 @@ func (d *Dashboard) isAuthenticated(r *http.Request) bool {
 	}
 
 	// Check API key header (for programmatic access)
-	if key := r.Header.Get("X-API-Key"); len(key) > 0 && subtle.ConstantTimeCompare([]byte(key), []byte(d.apiKey)) == 1 {
+	if key := r.Header.Get("X-API-Key"); key != "" && subtle.ConstantTimeCompare([]byte(key), []byte(d.apiKey)) == 1 {
 		return true
 	}
-	if key := r.URL.Query().Get("api_key"); len(key) > 0 && subtle.ConstantTimeCompare([]byte(key), []byte(d.apiKey)) == 1 {
+	if key := r.URL.Query().Get("api_key"); key != "" && subtle.ConstantTimeCompare([]byte(key), []byte(d.apiKey)) == 1 {
 		return true
 	}
 

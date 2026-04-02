@@ -13,12 +13,12 @@ const maxHistorySize = 100
 
 // ProviderConfig holds the user's selected AI provider configuration.
 type ProviderConfig struct {
-	ProviderID string `json:"provider_id"`
+	ProviderID   string `json:"provider_id"`
 	ProviderName string `json:"provider_name"`
-	ModelID    string `json:"model_id"`
-	ModelName  string `json:"model_name"`
-	APIKey     string `json:"api_key"`
-	BaseURL    string `json:"base_url"`
+	ModelID      string `json:"model_id"`
+	ModelName    string `json:"model_name"`
+	APIKey       string `json:"api_key"`
+	BaseURL      string `json:"base_url"`
 }
 
 // Verdict is an AI-generated threat assessment for a specific IP.
@@ -31,17 +31,17 @@ type Verdict struct {
 
 // AnalysisResult holds the outcome of a single batch AI analysis.
 type AnalysisResult struct {
-	ID              string        `json:"id"`
-	Timestamp       time.Time     `json:"timestamp"`
-	EventCount      int           `json:"event_count"`
-	Verdicts        []Verdict     `json:"verdicts"`
-	Summary         string        `json:"summary"`
-	ThreatsDetected []string      `json:"threats_detected"`
-	TokensUsed      int           `json:"tokens_used"`
-	CostUSD         float64       `json:"cost_usd"`
-	DurationMs      int64         `json:"duration_ms"`
-	Model           string        `json:"model"`
-	Error           string        `json:"error,omitempty"`
+	ID              string    `json:"id"`
+	Timestamp       time.Time `json:"timestamp"`
+	EventCount      int       `json:"event_count"`
+	Verdicts        []Verdict `json:"verdicts"`
+	Summary         string    `json:"summary"`
+	ThreatsDetected []string  `json:"threats_detected"`
+	TokensUsed      int       `json:"tokens_used"`
+	CostUSD         float64   `json:"cost_usd"`
+	DurationMs      int64     `json:"duration_ms"`
+	Model           string    `json:"model"`
+	Error           string    `json:"error,omitempty"`
 }
 
 // UsageStats tracks AI API usage for cost control.
@@ -68,9 +68,9 @@ type storeData struct {
 
 // Store manages persistent storage for AI configuration and analysis history.
 type Store struct {
-	mu      sync.RWMutex
-	path    string // directory path
-	data    storeData
+	mu   sync.RWMutex
+	path string // directory path
+	data storeData
 }
 
 // NewStore creates or loads an AI store from the given directory.
@@ -89,9 +89,9 @@ func NewStore(dirPath string) *Store {
 	}
 
 	// Try creating the directory; fallback to temp if permission denied
-	if err := os.MkdirAll(dirPath, 0700); err != nil {
+	if err := os.MkdirAll(dirPath, 0o700); err != nil {
 		fallback := filepath.Join(os.TempDir(), "guardianwaf", "ai")
-		os.MkdirAll(fallback, 0700)
+		_ = os.MkdirAll(fallback, 0o700)
 		dirPath = fallback
 	}
 
@@ -100,11 +100,11 @@ func NewStore(dirPath string) *Store {
 	// Try loading existing config
 	configFile := filepath.Join(dirPath, "ai_config.json")
 	if data, err := os.ReadFile(configFile); err == nil {
-		json.Unmarshal(data, &s.data)
+		_ = json.Unmarshal(data, &s.data)
 	} else {
 		// First run — write empty config so file always exists
 		empty, _ := json.MarshalIndent(s.data, "", "  ")
-		os.WriteFile(configFile, empty, 0600)
+		_ = os.WriteFile(configFile, empty, 0o600)
 	}
 	return s
 }
@@ -118,7 +118,7 @@ func (s *Store) save() error {
 			dir = abs
 		}
 	}
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("mkdir %s: %w", dir, err)
 	}
 	data, err := json.MarshalIndent(s.data, "", "  ")
@@ -126,7 +126,7 @@ func (s *Store) save() error {
 		return fmt.Errorf("marshal: %w", err)
 	}
 	target := filepath.Join(dir, "ai_config.json")
-	if err := os.WriteFile(target, data, 0600); err != nil {
+	if err := os.WriteFile(target, data, 0o600); err != nil {
 		return fmt.Errorf("save to %s: %w", target, err)
 	}
 	return nil

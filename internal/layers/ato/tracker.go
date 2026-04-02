@@ -12,12 +12,12 @@ import (
 
 // AttemptTracker tracks login attempts per IP and per email.
 type AttemptTracker struct {
-	mu            sync.RWMutex
-	ipAttempts    map[string]*AttemptRecord    // IP -> attempts
-	emailAttempts map[string]*AttemptRecord    // Email -> attempts
-	ipToEmails    map[string]map[string]bool   // IP -> set of emails tried
-	emailToIPs    map[string]map[string]bool   // Email -> set of IPs used
-	passwordHashes map[string]*PasswordRecord  // Password hash -> record
+	mu             sync.RWMutex
+	ipAttempts     map[string]*AttemptRecord  // IP -> attempts
+	emailAttempts  map[string]*AttemptRecord  // Email -> attempts
+	ipToEmails     map[string]map[string]bool // IP -> set of emails tried
+	emailToIPs     map[string]map[string]bool // Email -> set of IPs used
+	passwordHashes map[string]*PasswordRecord // Password hash -> record
 }
 
 // AttemptRecord tracks failed login attempts.
@@ -30,11 +30,11 @@ type AttemptRecord struct {
 
 // PasswordRecord tracks password usage for spray detection.
 type PasswordRecord struct {
-	mu         sync.RWMutex
-	Count      int
-	FirstSeen  time.Time
-	LastSeen   time.Time
-	SourceIPs  map[string]bool
+	mu        sync.RWMutex
+	Count     int
+	FirstSeen time.Time
+	LastSeen  time.Time
+	SourceIPs map[string]bool
 }
 
 // GeoLocation represents a geographic location.
@@ -241,7 +241,7 @@ func (t *AttemptTracker) BlockEmail(email string, until time.Time, reason string
 }
 
 // IsIPBlocked checks if an IP is currently blocked.
-func (t *AttemptTracker) IsIPBlocked(ip net.IP) (bool, string) {
+func (t *AttemptTracker) IsIPBlocked(ip net.IP) (blocked bool, reason string) {
 	t.mu.RLock()
 	rec, ok := t.ipAttempts[ip.String()]
 	t.mu.RUnlock()
@@ -260,7 +260,7 @@ func (t *AttemptTracker) IsIPBlocked(ip net.IP) (bool, string) {
 }
 
 // IsEmailBlocked checks if an email is currently blocked.
-func (t *AttemptTracker) IsEmailBlocked(email string) (bool, string) {
+func (t *AttemptTracker) IsEmailBlocked(email string) (blocked bool, reason string) {
 	t.mu.RLock()
 	rec, ok := t.emailAttempts[email]
 	t.mu.RUnlock()
@@ -367,11 +367,11 @@ func (t *AttemptTracker) Stats() map[string]int {
 	}
 
 	return map[string]int{
-		"tracked_ips":      len(t.ipAttempts),
-		"tracked_emails":   len(t.emailAttempts),
+		"tracked_ips":       len(t.ipAttempts),
+		"tracked_emails":    len(t.emailAttempts),
 		"tracked_passwords": len(t.passwordHashes),
-		"blocked_ips":      blockedIPs,
-		"blocked_emails":   blockedEmails,
+		"blocked_ips":       blockedIPs,
+		"blocked_emails":    blockedEmails,
 	}
 }
 

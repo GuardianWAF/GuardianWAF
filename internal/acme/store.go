@@ -144,7 +144,7 @@ func (s *CertDiskStore) renewIfNeeded() {
 
 		if !fileExists(certFile) {
 			// No cert yet, obtain
-			s.LoadOrObtain(domains)
+			_, _ = s.LoadOrObtain(domains)
 			continue
 		}
 
@@ -166,7 +166,7 @@ func (s *CertDiskStore) renewIfNeeded() {
 			renewAt := cert.Leaf.NotAfter.Add(-30 * 24 * time.Hour) // 30 days before expiry
 			if time.Now().After(renewAt) {
 				// Renew
-				s.LoadOrObtain(domains)
+				_, _ = s.LoadOrObtain(domains)
 			}
 		}
 	}

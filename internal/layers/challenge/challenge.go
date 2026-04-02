@@ -14,7 +14,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -22,7 +21,7 @@ import (
 type Config struct {
 	Enabled    bool
 	Difficulty int           // number of leading zero bits required (default: 20 ≈ ~1M hashes)
-	CookieTTL time.Duration // how long the challenge cookie is valid
+	CookieTTL  time.Duration // how long the challenge cookie is valid
 	CookieName string
 	SecretKey  []byte // HMAC signing key
 }
@@ -44,7 +43,6 @@ func DefaultConfig() Config {
 // Service handles challenge page serving and solution verification.
 type Service struct {
 	config Config
-	mu     sync.RWMutex
 }
 
 // NewService creates a new challenge service.

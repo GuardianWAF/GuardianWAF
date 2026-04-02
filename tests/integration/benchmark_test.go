@@ -134,7 +134,7 @@ func BenchmarkRadixTree_Insert(b *testing.B) {
 		tree := ipacl.NewRadixTree()
 		for i := 0; i < 100; i++ {
 			cidr := fmt.Sprintf("10.%d.%d.0/24", i/10, i%10)
-			tree.Insert(cidr, true)
+			_ = tree.Insert(cidr, true)
 		}
 	}
 }
@@ -229,7 +229,7 @@ func BenchmarkEventStore(b *testing.B) {
 			Score:      0,
 			StatusCode: 200,
 		}
-		store.Store(ev)
+		_ = store.Store(ev)
 	}
 }
 

@@ -4,10 +4,12 @@
 package ai
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"sync"
 	"time"
 )
@@ -63,7 +65,7 @@ type LimitInfo struct {
 // Catalog holds the full provider/model catalog from models.dev.
 type Catalog struct {
 	Providers map[string]*ProviderInfo `json:"providers"`
-	FetchedAt time.Time               `json:"fetched_at"`
+	FetchedAt time.Time                `json:"fetched_at"`
 }
 
 // ProviderSummary is a lightweight view for the dashboard.
@@ -78,15 +80,15 @@ type ProviderSummary struct {
 
 // ModelSummary is a lightweight model view for the dashboard.
 type ModelSummary struct {
-	ID        string   `json:"id"`
-	Name      string   `json:"name"`
-	Family    string   `json:"family"`
-	Reasoning bool     `json:"reasoning"`
-	ToolCall  bool     `json:"tool_call"`
-	CostIn    float64  `json:"cost_input_per_m"`
-	CostOut   float64  `json:"cost_output_per_m"`
-	Context   int      `json:"context_window"`
-	MaxOutput int      `json:"max_output"`
+	ID        string  `json:"id"`
+	Name      string  `json:"name"`
+	Family    string  `json:"family"`
+	Reasoning bool    `json:"reasoning"`
+	ToolCall  bool    `json:"tool_call"`
+	CostIn    float64 `json:"cost_input_per_m"`
+	CostOut   float64 `json:"cost_output_per_m"`
+	Context   int     `json:"context_window"`
+	MaxOutput int     `json:"max_output"`
 }
 
 // CatalogCache caches the models.dev catalog with TTL.
@@ -187,8 +189,14 @@ func (cc *CatalogCache) Summaries() ([]ProviderSummary, error) {
 
 // FetchCatalog fetches the models.dev catalog from the given URL.
 func FetchCatalog(url string) (*Catalog, error) {
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Get(url)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+	client := &http.Client{}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("fetching catalog: %w", err)
 	}
@@ -231,10 +239,8 @@ func FetchCatalog(url string) (*Catalog, error) {
 }
 
 func hasText(modalities []string) bool {
-	for _, m := range modalities {
-		if m == "text" {
-			return true
-		}
+	if len(modalities) == 0 {
+		return true // empty = assume text
 	}
-	return len(modalities) == 0 // empty = assume text
+	return slices.Contains(modalities, "text")
 }

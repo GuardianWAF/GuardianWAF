@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"sync"
@@ -55,7 +56,7 @@ func (hc *HealthChecker) Start() {
 		defer hc.wg.Done()
 
 		// Initial check
-		hc.checkAll()
+		hc.checkAll(context.Background())
 
 		ticker := time.NewTicker(hc.interval)
 		defer ticker.Stop()
@@ -63,7 +64,7 @@ func (hc *HealthChecker) Start() {
 		for {
 			select {
 			case <-ticker.C:
-				hc.checkAll()
+				hc.checkAll(context.Background())
 			case <-hc.stopCh:
 				return
 			}
@@ -78,19 +79,23 @@ func (hc *HealthChecker) Stop() {
 }
 
 // checkAll checks all targets in the balancer.
-func (hc *HealthChecker) checkAll() {
+func (hc *HealthChecker) checkAll(ctx context.Context) {
 	targets := hc.balancer.Targets()
 	for _, t := range targets {
-		healthy := hc.check(t)
+		healthy := hc.check(ctx, t)
 		t.SetHealthy(healthy)
 		t.lastCheck.Store(time.Now())
 	}
 }
 
 // check performs a single health check against a target.
-func (hc *HealthChecker) check(t *Target) bool {
+func (hc *HealthChecker) check(ctx context.Context, t *Target) bool {
 	checkURL := fmt.Sprintf("%s://%s%s", t.URL.Scheme, t.URL.Host, hc.path)
-	resp, err := hc.client.Get(checkURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, checkURL, http.NoBody)
+	if err != nil {
+		return false
+	}
+	resp, err := hc.client.Do(req)
 	if err != nil {
 		return false
 	}

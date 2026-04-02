@@ -148,7 +148,7 @@ func (l *Layer) BlacklistEntries() []string {
 }
 
 // AddAutoBan adds an IP to the auto-ban list with TTL.
-func (l *Layer) AddAutoBan(ip string, reason string, ttl time.Duration) {
+func (l *Layer) AddAutoBan(ip, reason string, ttl time.Duration) {
 	if l.config.AutoBan.MaxTTL > 0 && ttl > l.config.AutoBan.MaxTTL {
 		ttl = l.config.AutoBan.MaxTTL
 	}

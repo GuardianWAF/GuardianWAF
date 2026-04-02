@@ -152,23 +152,25 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	// Determine action based on score and mode
 	action := engine.ActionPass
 	if totalScore > 0 {
-		if l.config.Mode == "enforce" {
-			if totalScore >= 80 {
+		switch l.config.Mode {
+		case "enforce":
+			switch {
+			case totalScore >= 80:
 				action = engine.ActionBlock
-			} else if totalScore >= 40 {
+			case totalScore >= 40:
 				action = engine.ActionChallenge
-			} else {
+			default:
 				action = engine.ActionLog
 			}
-		} else {
+		default:
 			// Monitor mode: log only
 			action = engine.ActionLog
 		}
 	}
 
 	// Add findings to the request context accumulator
-	for _, f := range findings {
-		ctx.Accumulator.Add(f)
+	for i := range findings {
+		ctx.Accumulator.Add(&findings[i])
 	}
 
 	return engine.LayerResult{

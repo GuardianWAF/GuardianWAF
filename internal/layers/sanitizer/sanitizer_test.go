@@ -27,7 +27,7 @@ func newTestContext(method, uri, path, body string) *engine.RequestContext {
 }
 
 func TestSanitizerLayer_Normalize(t *testing.T) {
-	cfg := SanitizerConfig{
+	cfg := Config{
 		MaxURLLength:   2048,
 		MaxHeaderSize:  8192,
 		MaxHeaderCount: 50,
@@ -70,7 +70,7 @@ func TestSanitizerLayer_Normalize(t *testing.T) {
 }
 
 func TestSanitizerLayer_ValidateURLLength(t *testing.T) {
-	cfg := SanitizerConfig{
+	cfg := Config{
 		MaxURLLength:   50,
 		AllowedMethods: []string{"GET"},
 	}
@@ -103,7 +103,7 @@ func TestSanitizerLayer_ValidateURLLength(t *testing.T) {
 }
 
 func TestSanitizerLayer_ValidateMethod(t *testing.T) {
-	cfg := SanitizerConfig{
+	cfg := Config{
 		AllowedMethods: []string{"GET", "POST"},
 	}
 	layer := NewLayer(cfg)
@@ -132,7 +132,7 @@ func TestSanitizerLayer_ValidateMethod(t *testing.T) {
 }
 
 func TestSanitizerLayer_ValidateNullBytes(t *testing.T) {
-	cfg := SanitizerConfig{
+	cfg := Config{
 		BlockNullBytes: true,
 		AllowedMethods: []string{"GET"},
 	}
@@ -157,7 +157,7 @@ func TestSanitizerLayer_ValidateNullBytes(t *testing.T) {
 }
 
 func TestSanitizerLayer_HopByHopStripping(t *testing.T) {
-	cfg := SanitizerConfig{
+	cfg := Config{
 		StripHopByHop:  true,
 		AllowedMethods: []string{"GET"},
 	}
@@ -189,7 +189,7 @@ func TestSanitizerLayer_HopByHopStripping(t *testing.T) {
 }
 
 func TestSanitizerLayer_Disabled(t *testing.T) {
-	cfg := SanitizerConfig{
+	cfg := Config{
 		MaxURLLength:   10,
 		AllowedMethods: []string{"GET"},
 	}
@@ -215,7 +215,7 @@ func TestSanitizerLayer_Disabled(t *testing.T) {
 }
 
 func TestSanitizerLayer_BlockOnHighScore(t *testing.T) {
-	cfg := SanitizerConfig{
+	cfg := Config{
 		MaxURLLength:   50,
 		BlockNullBytes: true,
 		AllowedMethods: []string{"GET"},
@@ -237,7 +237,7 @@ func TestSanitizerLayer_BlockOnHighScore(t *testing.T) {
 }
 
 func TestValidateRequest_HeaderCount(t *testing.T) {
-	cfg := SanitizerConfig{
+	cfg := Config{
 		MaxHeaderCount: 3,
 	}
 
@@ -267,7 +267,7 @@ func TestValidateRequest_HeaderCount(t *testing.T) {
 }
 
 func TestValidateRequest_BodySize(t *testing.T) {
-	cfg := SanitizerConfig{
+	cfg := Config{
 		MaxBodySize: 10,
 	}
 
@@ -294,7 +294,7 @@ func TestValidateRequest_BodySize(t *testing.T) {
 }
 
 func TestValidateRequest_CookieSize(t *testing.T) {
-	cfg := SanitizerConfig{
+	cfg := Config{
 		MaxCookieSize: 10,
 	}
 
@@ -321,7 +321,7 @@ func TestValidateRequest_CookieSize(t *testing.T) {
 }
 
 func TestValidateRequest_HeaderSize(t *testing.T) {
-	cfg := SanitizerConfig{
+	cfg := Config{
 		MaxHeaderSize: 50,
 	}
 
@@ -345,7 +345,7 @@ func TestValidateRequest_HeaderSize(t *testing.T) {
 }
 
 func TestSanitizerLayer_ImplementsInterface(t *testing.T) {
-	cfg := SanitizerConfig{}
+	cfg := Config{}
 	layer := NewLayer(cfg)
 
 	// Verify it satisfies engine.Layer
@@ -357,7 +357,7 @@ func TestSanitizerLayer_ImplementsInterface(t *testing.T) {
 }
 
 func TestSanitizerLayer_LogOnLowScore(t *testing.T) {
-	cfg := SanitizerConfig{
+	cfg := Config{
 		MaxCookieSize:  10,
 		AllowedMethods: []string{"GET"},
 	}
@@ -394,7 +394,7 @@ func TestStripHopByHopHeaders(t *testing.T) {
 }
 
 func TestSanitizerLayer_WithRealHTTPRequest(t *testing.T) {
-	cfg := SanitizerConfig{
+	cfg := Config{
 		MaxURLLength:   2048,
 		MaxHeaderSize:  8192,
 		MaxHeaderCount: 50,
@@ -437,7 +437,7 @@ func TestSanitizerLayer_WithRealHTTPRequest(t *testing.T) {
 }
 
 func TestValidateRequest_NullByteInBody(t *testing.T) {
-	cfg := SanitizerConfig{
+	cfg := Config{
 		BlockNullBytes: true,
 	}
 
@@ -457,7 +457,7 @@ func TestValidateRequest_NullByteInBody(t *testing.T) {
 }
 
 func TestValidateRequest_NullByteInHeader(t *testing.T) {
-	cfg := SanitizerConfig{
+	cfg := Config{
 		BlockNullBytes: true,
 	}
 

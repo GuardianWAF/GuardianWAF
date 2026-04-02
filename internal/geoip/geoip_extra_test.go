@@ -15,7 +15,7 @@ import (
 func TestLoadCSV_EmptyLines(t *testing.T) {
 	dir := t.TempDir()
 	csv := filepath.Join(dir, "geo.csv")
-	os.WriteFile(csv, []byte(`
+	_ = os.WriteFile(csv, []byte(`
 # comment
 1.0.0.0,1.0.0.255,AU
 
@@ -37,7 +37,7 @@ short
 func TestLoadCSV_InvalidIPs(t *testing.T) {
 	dir := t.TempDir()
 	csv := filepath.Join(dir, "geo.csv")
-	os.WriteFile(csv, []byte(`notanip,alsonotanip,XX
+	_ = os.WriteFile(csv, []byte(`notanip,alsonotanip,XX
 1.0.0.0,1.0.0.255,AU
 bad,1.0.0.255,US
 1.0.0.0,bad,US
@@ -57,7 +57,7 @@ bad,1.0.0.255,US
 func TestLoadCSV_InvalidCIDR(t *testing.T) {
 	dir := t.TempDir()
 	csv := filepath.Join(dir, "geo.csv")
-	os.WriteFile(csv, []byte(`not-a-cidr,US
+	_ = os.WriteFile(csv, []byte(`not-a-cidr,US
 10.0.0.0/8,TR
 300.0.0.0/8,XX
 `), 0644)
@@ -90,7 +90,7 @@ func TestCountryName_Lowercase(t *testing.T) {
 func TestLookup_BoundaryIPs(t *testing.T) {
 	dir := t.TempDir()
 	csv := filepath.Join(dir, "geo.csv")
-	os.WriteFile(csv, []byte(`10.0.0.0,10.0.0.255,US
+	_ = os.WriteFile(csv, []byte(`10.0.0.0,10.0.0.255,US
 10.0.1.0,10.0.1.255,TR
 `), 0644)
 
@@ -121,7 +121,7 @@ func TestLookup_BoundaryIPs(t *testing.T) {
 func TestLoadOrDownload_ExistingFile(t *testing.T) {
 	dir := t.TempDir()
 	csv := filepath.Join(dir, "geo.csv")
-	os.WriteFile(csv, []byte(`1.0.0.0,1.0.0.255,AU
+	_ = os.WriteFile(csv, []byte(`1.0.0.0,1.0.0.255,AU
 `), 0644)
 
 	db, err := LoadOrDownload(csv, "", 0)
@@ -175,7 +175,7 @@ func TestDownloadDB_MockServer(t *testing.T) {
 	// Serve a plain CSV (not gzipped)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
-		w.Write([]byte("1.0.0.0,1.0.0.255,AU\n8.8.8.0,8.8.8.255,US\n"))
+		_, _ = w.Write([]byte("1.0.0.0,1.0.0.255,AU\n8.8.8.0,8.8.8.255,US\n"))
 	}))
 	defer srv.Close()
 
@@ -200,13 +200,13 @@ func TestDownloadDB_MockServerGzipped(t *testing.T) {
 	// Serve a gzipped CSV
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
-	gz.Write([]byte("10.0.0.0,10.0.0.255,TR\n"))
+	_, _ = gz.Write([]byte("10.0.0.0,10.0.0.255,TR\n"))
 	gz.Close()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/gzip")
 		w.WriteHeader(200)
-		w.Write(buf.Bytes())
+		_, _ = w.Write(buf.Bytes())
 	}))
 	defer srv.Close()
 
@@ -235,12 +235,12 @@ func TestDownloadDB_GzURL(t *testing.T) {
 	// Serve gzipped content via .gz URL
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
-	gz.Write([]byte("192.168.0.0/16,DE\n"))
+	_, _ = gz.Write([]byte("192.168.0.0/16,DE\n"))
 	gz.Close()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
-		w.Write(buf.Bytes())
+		_, _ = w.Write(buf.Bytes())
 	}))
 	defer srv.Close()
 
@@ -277,7 +277,7 @@ func TestDownloadDB_HTTPError(t *testing.T) {
 func TestLoadOrDownload_FreshFile(t *testing.T) {
 	dir := t.TempDir()
 	csv := filepath.Join(dir, "geo.csv")
-	os.WriteFile(csv, []byte("1.0.0.0,1.0.0.255,AU\n"), 0644)
+	_ = os.WriteFile(csv, []byte("1.0.0.0,1.0.0.255,AU\n"), 0644)
 
 	// maxAge > 0 and file is fresh
 	db, err := LoadOrDownload(csv, "", 24*time.Hour)
@@ -292,7 +292,7 @@ func TestLoadOrDownload_FreshFile(t *testing.T) {
 func TestLoadOrDownload_DownloadWithMock(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
-		w.Write([]byte("8.8.8.0,8.8.8.255,US\n"))
+		_, _ = w.Write([]byte("8.8.8.0,8.8.8.255,US\n"))
 	}))
 	defer srv.Close()
 
@@ -312,7 +312,7 @@ func TestLoadCSV_ExtraFieldsFormat(t *testing.T) {
 	dir := t.TempDir()
 	csv := filepath.Join(dir, "geo.csv")
 	// Format with extra columns (like MaxMind)
-	os.WriteFile(csv, []byte(`1.0.0.0,1.0.0.255,AU,extra1,extra2
+	_ = os.WriteFile(csv, []byte(`1.0.0.0,1.0.0.255,AU,extra1,extra2
 8.8.8.0,8.8.8.255,US,extra
 `), 0644)
 

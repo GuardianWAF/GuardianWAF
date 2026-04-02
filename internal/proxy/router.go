@@ -81,20 +81,21 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	routes := rt.lookupRoutes(r.Host)
 
 	for _, route := range routes {
-		if strings.HasPrefix(r.URL.Path, route.PathPrefix) {
-			target := route.Balancer.Next(r)
-			if target == nil {
-				http.Error(w, "503 Service Unavailable - No healthy backends", http.StatusServiceUnavailable)
-				return
-			}
-
-			stripPrefix := ""
-			if route.StripPrefix {
-				stripPrefix = route.PathPrefix
-			}
-			target.ServeHTTP(w, r, stripPrefix)
+		if !strings.HasPrefix(r.URL.Path, route.PathPrefix) {
+			continue
+		}
+		target := route.Balancer.Next(r)
+		if target == nil {
+			http.Error(w, "503 Service Unavailable - No healthy backends", http.StatusServiceUnavailable)
 			return
 		}
+
+		stripPrefix := ""
+		if route.StripPrefix {
+			stripPrefix = route.PathPrefix
+		}
+		target.ServeHTTP(w, r, stripPrefix)
+		return
 	}
 
 	http.Error(w, "404 Not Found - No route matched", http.StatusNotFound)

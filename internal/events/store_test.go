@@ -106,7 +106,7 @@ func TestMemoryStore_Recent(t *testing.T) {
 
 	for i := range 5 {
 		ev := makeEvent("evt-"+intToStr(i), engine.ActionPass, 0, "/", "10.0.0.1", now.Add(time.Duration(i)*time.Second))
-		ms.Store(ev)
+		_ = ms.Store(ev)
 	}
 
 	recent, err := ms.Recent(3)
@@ -133,8 +133,8 @@ func TestMemoryStore_RecentMoreThanStored(t *testing.T) {
 	ms := NewMemoryStore(100)
 	now := time.Now()
 
-	ms.Store(makeEvent("evt-0", engine.ActionPass, 0, "/", "10.0.0.1", now))
-	ms.Store(makeEvent("evt-1", engine.ActionPass, 0, "/", "10.0.0.1", now.Add(time.Second)))
+	_ = ms.Store(makeEvent("evt-0", engine.ActionPass, 0, "/", "10.0.0.1", now))
+	_ = ms.Store(makeEvent("evt-1", engine.ActionPass, 0, "/", "10.0.0.1", now.Add(time.Second)))
 
 	recent, err := ms.Recent(10)
 	if err != nil {
@@ -160,10 +160,10 @@ func TestMemoryStore_QueryByAction(t *testing.T) {
 	ms := NewMemoryStore(100)
 	now := time.Now()
 
-	ms.Store(makeEvent("evt-pass", engine.ActionPass, 0, "/", "10.0.0.1", now))
-	ms.Store(makeEvent("evt-block", engine.ActionBlock, 50, "/", "10.0.0.1", now.Add(time.Second)))
-	ms.Store(makeEvent("evt-log", engine.ActionLog, 30, "/", "10.0.0.1", now.Add(2*time.Second)))
-	ms.Store(makeEvent("evt-block2", engine.ActionBlock, 60, "/", "10.0.0.1", now.Add(3*time.Second)))
+	_ = ms.Store(makeEvent("evt-pass", engine.ActionPass, 0, "/", "10.0.0.1", now))
+	_ = ms.Store(makeEvent("evt-block", engine.ActionBlock, 50, "/", "10.0.0.1", now.Add(time.Second)))
+	_ = ms.Store(makeEvent("evt-log", engine.ActionLog, 30, "/", "10.0.0.1", now.Add(2*time.Second)))
+	_ = ms.Store(makeEvent("evt-block2", engine.ActionBlock, 60, "/", "10.0.0.1", now.Add(3*time.Second)))
 
 	results, total, err := ms.Query(EventFilter{Action: "blocked"})
 	if err != nil {
@@ -183,7 +183,7 @@ func TestMemoryStore_QueryByTimeRange(t *testing.T) {
 
 	for i := range 10 {
 		ev := makeEvent("evt-"+intToStr(i), engine.ActionPass, 0, "/", "10.0.0.1", base.Add(time.Duration(i)*time.Hour))
-		ms.Store(ev)
+		_ = ms.Store(ev)
 	}
 
 	// Query events between hours 3 and 7
@@ -206,9 +206,9 @@ func TestMemoryStore_QueryByScore(t *testing.T) {
 	ms := NewMemoryStore(100)
 	now := time.Now()
 
-	ms.Store(makeEvent("evt-low", engine.ActionPass, 10, "/", "10.0.0.1", now))
-	ms.Store(makeEvent("evt-med", engine.ActionLog, 50, "/", "10.0.0.1", now.Add(time.Second)))
-	ms.Store(makeEvent("evt-high", engine.ActionBlock, 90, "/", "10.0.0.1", now.Add(2*time.Second)))
+	_ = ms.Store(makeEvent("evt-low", engine.ActionPass, 10, "/", "10.0.0.1", now))
+	_ = ms.Store(makeEvent("evt-med", engine.ActionLog, 50, "/", "10.0.0.1", now.Add(time.Second)))
+	_ = ms.Store(makeEvent("evt-high", engine.ActionBlock, 90, "/", "10.0.0.1", now.Add(2*time.Second)))
 
 	results, total, err := ms.Query(EventFilter{MinScore: 50})
 	if err != nil {
@@ -226,9 +226,9 @@ func TestMemoryStore_QueryByPath(t *testing.T) {
 	ms := NewMemoryStore(100)
 	now := time.Now()
 
-	ms.Store(makeEvent("evt-api1", engine.ActionPass, 0, "/api/users", "10.0.0.1", now))
-	ms.Store(makeEvent("evt-api2", engine.ActionPass, 0, "/api/orders", "10.0.0.1", now.Add(time.Second)))
-	ms.Store(makeEvent("evt-web", engine.ActionPass, 0, "/web/page", "10.0.0.1", now.Add(2*time.Second)))
+	_ = ms.Store(makeEvent("evt-api1", engine.ActionPass, 0, "/api/users", "10.0.0.1", now))
+	_ = ms.Store(makeEvent("evt-api2", engine.ActionPass, 0, "/api/orders", "10.0.0.1", now.Add(time.Second)))
+	_ = ms.Store(makeEvent("evt-web", engine.ActionPass, 0, "/web/page", "10.0.0.1", now.Add(2*time.Second)))
 
 	results, total, err := ms.Query(EventFilter{Path: "/api/"})
 	if err != nil {
@@ -248,7 +248,7 @@ func TestMemoryStore_QueryLimitOffset(t *testing.T) {
 
 	for i := range 10 {
 		ev := makeEvent("evt-"+intToStr(i), engine.ActionPass, i*10, "/", "10.0.0.1", now.Add(time.Duration(i)*time.Second))
-		ms.Store(ev)
+		_ = ms.Store(ev)
 	}
 
 	results, total, err := ms.Query(EventFilter{
@@ -275,9 +275,9 @@ func TestMemoryStore_QuerySortByScore(t *testing.T) {
 	ms := NewMemoryStore(100)
 	now := time.Now()
 
-	ms.Store(makeEvent("evt-low", engine.ActionPass, 10, "/", "10.0.0.1", now))
-	ms.Store(makeEvent("evt-high", engine.ActionBlock, 90, "/", "10.0.0.1", now.Add(time.Second)))
-	ms.Store(makeEvent("evt-med", engine.ActionLog, 50, "/", "10.0.0.1", now.Add(2*time.Second)))
+	_ = ms.Store(makeEvent("evt-low", engine.ActionPass, 10, "/", "10.0.0.1", now))
+	_ = ms.Store(makeEvent("evt-high", engine.ActionBlock, 90, "/", "10.0.0.1", now.Add(time.Second)))
+	_ = ms.Store(makeEvent("evt-med", engine.ActionLog, 50, "/", "10.0.0.1", now.Add(2*time.Second)))
 
 	results, _, err := ms.Query(EventFilter{SortBy: "score", SortOrder: "desc"})
 	if err != nil {
@@ -301,9 +301,9 @@ func TestMemoryStore_QueryByClientIP(t *testing.T) {
 	ms := NewMemoryStore(100)
 	now := time.Now()
 
-	ms.Store(makeEvent("evt-1", engine.ActionPass, 0, "/", "10.0.0.1", now))
-	ms.Store(makeEvent("evt-2", engine.ActionPass, 0, "/", "10.0.0.2", now.Add(time.Second)))
-	ms.Store(makeEvent("evt-3", engine.ActionPass, 0, "/", "10.0.0.1", now.Add(2*time.Second)))
+	_ = ms.Store(makeEvent("evt-1", engine.ActionPass, 0, "/", "10.0.0.1", now))
+	_ = ms.Store(makeEvent("evt-2", engine.ActionPass, 0, "/", "10.0.0.2", now.Add(time.Second)))
+	_ = ms.Store(makeEvent("evt-3", engine.ActionPass, 0, "/", "10.0.0.1", now.Add(2*time.Second)))
 
 	results, total, err := ms.Query(EventFilter{ClientIP: "10.0.0.1"})
 	if err != nil {
@@ -321,10 +321,10 @@ func TestMemoryStore_Count(t *testing.T) {
 	ms := NewMemoryStore(100)
 	now := time.Now()
 
-	ms.Store(makeEvent("evt-1", engine.ActionBlock, 60, "/", "10.0.0.1", now))
-	ms.Store(makeEvent("evt-2", engine.ActionPass, 0, "/", "10.0.0.1", now.Add(time.Second)))
-	ms.Store(makeEvent("evt-3", engine.ActionBlock, 80, "/", "10.0.0.1", now.Add(2*time.Second)))
-	ms.Store(makeEvent("evt-4", engine.ActionLog, 40, "/", "10.0.0.1", now.Add(3*time.Second)))
+	_ = ms.Store(makeEvent("evt-1", engine.ActionBlock, 60, "/", "10.0.0.1", now))
+	_ = ms.Store(makeEvent("evt-2", engine.ActionPass, 0, "/", "10.0.0.1", now.Add(time.Second)))
+	_ = ms.Store(makeEvent("evt-3", engine.ActionBlock, 80, "/", "10.0.0.1", now.Add(2*time.Second)))
+	_ = ms.Store(makeEvent("evt-4", engine.ActionLog, 40, "/", "10.0.0.1", now.Add(3*time.Second)))
 
 	count, err := ms.Count(EventFilter{Action: "blocked"})
 	if err != nil {
@@ -484,7 +484,7 @@ func TestFileStore_MultipleEvents(t *testing.T) {
 	now := time.Now()
 	for i := range 10 {
 		ev := makeEvent("multi-evt-"+intToStr(i), engine.ActionPass, i*10, "/path"+intToStr(i), "10.0.0.1", now.Add(time.Duration(i)*time.Second))
-		fs.Store(ev)
+		_ = fs.Store(ev)
 	}
 
 	fs.Close()
@@ -516,7 +516,7 @@ func TestFileStore_Rotation(t *testing.T) {
 	// Write enough events to exceed the small max size
 	for i := range 20 {
 		ev := makeEvent("rot-evt-"+intToStr(i), engine.ActionPass, 0, "/", "10.0.0.1", now.Add(time.Duration(i)*time.Second))
-		fs.Store(ev)
+		_ = fs.Store(ev)
 	}
 
 	fs.Close()
@@ -551,7 +551,7 @@ func TestFileStore_CloseDrainsEvents(t *testing.T) {
 	// Store events rapidly
 	for i := range 50 {
 		ev := makeEvent("drain-evt-"+intToStr(i), engine.ActionPass, 0, "/", "10.0.0.1", now)
-		fs.Store(ev)
+		_ = fs.Store(ev)
 	}
 
 	// Close should drain all pending events
@@ -617,7 +617,7 @@ func TestFileStore_JSONEscaping(t *testing.T) {
 	ev := makeEvent("esc-evt", engine.ActionPass, 0, "/path?a=\"b\"&c=d\\e", "10.0.0.1", now)
 	ev.UserAgent = "Agent with \"quotes\" and \\backslashes\\"
 
-	fs.Store(ev)
+	_ = fs.Store(ev)
 	fs.Close()
 
 	data, err := os.ReadFile(tmpFile)
@@ -826,7 +826,7 @@ func TestFileStore_FlushTimerTrigger(t *testing.T) {
 	now := time.Now()
 	// Store a single event (below flushEventCount threshold)
 	ev := makeEvent("flush-timer-evt", engine.ActionPass, 0, "/", "10.0.0.1", now)
-	fs.Store(ev)
+	_ = fs.Store(ev)
 
 	// Wait longer than flushInterval (1 second) to trigger the ticker flush
 	time.Sleep(1500 * time.Millisecond)
@@ -835,6 +835,7 @@ func TestFileStore_FlushTimerTrigger(t *testing.T) {
 	data, _ := os.ReadFile(tmpFile)
 	if !strings.Contains(string(data), "flush-timer-evt") {
 		// Might not be flushed yet, that's ok - we'll verify after close
+		_ = data
 	}
 
 	fs.Close()
@@ -860,7 +861,7 @@ func TestFileStore_FlushEventCountThreshold(t *testing.T) {
 	// Write more events than flushEventCount (100) to trigger count-based flush
 	for i := range 150 {
 		ev := makeEvent("count-evt-"+intToStr(i), engine.ActionPass, 0, "/", "10.0.0.1", now)
-		fs.Store(ev)
+		_ = fs.Store(ev)
 	}
 
 	fs.Close()
@@ -901,7 +902,7 @@ func TestFileStore_RotationWithExtension(t *testing.T) {
 				Confidence:   0.9,
 			},
 		}
-		fs.Store(ev)
+		_ = fs.Store(ev)
 	}
 	fs.Close()
 
@@ -939,7 +940,7 @@ func TestFileStore_WriteJSONSpecialChars(t *testing.T) {
 	ev := makeEvent("special-evt", engine.ActionPass, 0, "/path\twith\ttabs", "10.0.0.1", now)
 	ev.UserAgent = "Agent\nwith\nnewlines\rand\rreturns"
 	ev.Query = "q=test\bwith\bbackspace\fand\fformfeed"
-	fs.Store(ev)
+	_ = fs.Store(ev)
 	fs.Close()
 
 	data, err := os.ReadFile(tmpFile)
@@ -975,7 +976,7 @@ func TestFileStore_WriteJSONControlChars(t *testing.T) {
 	// Event with control characters below 0x20 that aren't common escapes
 	ev := makeEvent("ctrl-evt", engine.ActionPass, 0, "/path", "10.0.0.1", now)
 	ev.UserAgent = "Agent\x01with\x02control\x03chars"
-	fs.Store(ev)
+	_ = fs.Store(ev)
 	fs.Close()
 
 	data, err := os.ReadFile(tmpFile)
@@ -1000,7 +1001,7 @@ func TestFileStore_WriteJSONNegativeInt64(t *testing.T) {
 
 	now := time.Now()
 	ev := makeEvent("neg-evt", engine.ActionPass, -10, "/", "10.0.0.1", now)
-	fs.Store(ev)
+	_ = fs.Store(ev)
 	fs.Close()
 
 	data, err := os.ReadFile(tmpFile)
@@ -1036,7 +1037,7 @@ func TestFileStore_WriteJSONNegativeFloat(t *testing.T) {
 			Confidence:   -0.5,
 		},
 	}
-	fs.Store(ev)
+	_ = fs.Store(ev)
 	fs.Close()
 
 	data, err := os.ReadFile(tmpFile)
@@ -1071,7 +1072,7 @@ func TestFileStore_WriteJSONZeroFloat(t *testing.T) {
 			Confidence:   0.0,
 		},
 	}
-	fs.Store(ev)
+	_ = fs.Store(ev)
 	fs.Close()
 
 	// Just verify it doesn't crash and produces valid output
@@ -1088,11 +1089,11 @@ func TestMemoryStore_QueryAllFilters(t *testing.T) {
 	ms := NewMemoryStore(100)
 	base := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
 
-	ms.Store(makeEvent("af-1", engine.ActionBlock, 80, "/api/users", "10.0.0.1", base.Add(1*time.Hour)))
-	ms.Store(makeEvent("af-2", engine.ActionBlock, 90, "/api/orders", "10.0.0.2", base.Add(2*time.Hour)))
-	ms.Store(makeEvent("af-3", engine.ActionPass, 10, "/api/users", "10.0.0.1", base.Add(3*time.Hour)))
-	ms.Store(makeEvent("af-4", engine.ActionBlock, 70, "/web/page", "10.0.0.1", base.Add(4*time.Hour)))
-	ms.Store(makeEvent("af-5", engine.ActionBlock, 95, "/api/users", "10.0.0.1", base.Add(5*time.Hour)))
+	_ = ms.Store(makeEvent("af-1", engine.ActionBlock, 80, "/api/users", "10.0.0.1", base.Add(1*time.Hour)))
+	_ = ms.Store(makeEvent("af-2", engine.ActionBlock, 90, "/api/orders", "10.0.0.2", base.Add(2*time.Hour)))
+	_ = ms.Store(makeEvent("af-3", engine.ActionPass, 10, "/api/users", "10.0.0.1", base.Add(3*time.Hour)))
+	_ = ms.Store(makeEvent("af-4", engine.ActionBlock, 70, "/web/page", "10.0.0.1", base.Add(4*time.Hour)))
+	_ = ms.Store(makeEvent("af-5", engine.ActionBlock, 95, "/api/users", "10.0.0.1", base.Add(5*time.Hour)))
 
 	// Query with all filters combined
 	results, total, err := ms.Query(EventFilter{
@@ -1124,7 +1125,7 @@ func TestMemoryStore_QueryEmptyResults(t *testing.T) {
 	ms := NewMemoryStore(100)
 	now := time.Now()
 
-	ms.Store(makeEvent("empty-1", engine.ActionPass, 0, "/", "10.0.0.1", now))
+	_ = ms.Store(makeEvent("empty-1", engine.ActionPass, 0, "/", "10.0.0.1", now))
 
 	// Query that matches nothing
 	results, total, err := ms.Query(EventFilter{Action: "blocked"})
@@ -1143,8 +1144,8 @@ func TestMemoryStore_QueryOffsetBeyondResults(t *testing.T) {
 	ms := NewMemoryStore(100)
 	now := time.Now()
 
-	ms.Store(makeEvent("off-1", engine.ActionPass, 0, "/", "10.0.0.1", now))
-	ms.Store(makeEvent("off-2", engine.ActionPass, 0, "/", "10.0.0.1", now.Add(time.Second)))
+	_ = ms.Store(makeEvent("off-1", engine.ActionPass, 0, "/", "10.0.0.1", now))
+	_ = ms.Store(makeEvent("off-2", engine.ActionPass, 0, "/", "10.0.0.1", now.Add(time.Second)))
 
 	results, total, err := ms.Query(EventFilter{Offset: 10})
 	if err != nil {
@@ -1170,7 +1171,7 @@ func TestMemoryStore_ConcurrentQueryAndStore(t *testing.T) {
 		defer wg.Done()
 		for i := range 200 {
 			ev := makeEvent("cq-"+intToStr(i), engine.ActionPass, i, "/", "10.0.0.1", now.Add(time.Duration(i)*time.Millisecond))
-			ms.Store(ev)
+			_ = ms.Store(ev)
 		}
 	}()
 
@@ -1180,9 +1181,9 @@ func TestMemoryStore_ConcurrentQueryAndStore(t *testing.T) {
 		go func(qid int) {
 			defer wg.Done()
 			for range 20 {
-				ms.Query(EventFilter{MinScore: qid * 10})
-				ms.Recent(5)
-				ms.Count(EventFilter{})
+				_, _, _ = ms.Query(EventFilter{MinScore: qid * 10})
+				_, _ = ms.Recent(5)
+				_, _ = ms.Count(EventFilter{})
 			}
 		}(q)
 	}
@@ -1194,9 +1195,9 @@ func TestMemoryStore_QuerySortByTimestampAsc(t *testing.T) {
 	ms := NewMemoryStore(100)
 	now := time.Now()
 
-	ms.Store(makeEvent("ts-3", engine.ActionPass, 0, "/", "10.0.0.1", now.Add(3*time.Second)))
-	ms.Store(makeEvent("ts-1", engine.ActionPass, 0, "/", "10.0.0.1", now.Add(1*time.Second)))
-	ms.Store(makeEvent("ts-2", engine.ActionPass, 0, "/", "10.0.0.1", now.Add(2*time.Second)))
+	_ = ms.Store(makeEvent("ts-3", engine.ActionPass, 0, "/", "10.0.0.1", now.Add(3*time.Second)))
+	_ = ms.Store(makeEvent("ts-1", engine.ActionPass, 0, "/", "10.0.0.1", now.Add(1*time.Second)))
+	_ = ms.Store(makeEvent("ts-2", engine.ActionPass, 0, "/", "10.0.0.1", now.Add(2*time.Second)))
 
 	results, _, err := ms.Query(EventFilter{SortBy: "timestamp", SortOrder: "asc"})
 	if err != nil {
@@ -1217,9 +1218,9 @@ func TestMemoryStore_QuerySortByScoreAsc(t *testing.T) {
 	ms := NewMemoryStore(100)
 	now := time.Now()
 
-	ms.Store(makeEvent("sa-high", engine.ActionBlock, 90, "/", "10.0.0.1", now))
-	ms.Store(makeEvent("sa-low", engine.ActionPass, 10, "/", "10.0.0.1", now.Add(time.Second)))
-	ms.Store(makeEvent("sa-med", engine.ActionLog, 50, "/", "10.0.0.1", now.Add(2*time.Second)))
+	_ = ms.Store(makeEvent("sa-high", engine.ActionBlock, 90, "/", "10.0.0.1", now))
+	_ = ms.Store(makeEvent("sa-low", engine.ActionPass, 10, "/", "10.0.0.1", now.Add(time.Second)))
+	_ = ms.Store(makeEvent("sa-med", engine.ActionLog, 50, "/", "10.0.0.1", now.Add(2*time.Second)))
 
 	results, _, err := ms.Query(EventFilter{SortBy: "score", SortOrder: "asc"})
 	if err != nil {
@@ -1237,8 +1238,8 @@ func TestMemoryStore_QueryByActionChallenge(t *testing.T) {
 	ms := NewMemoryStore(100)
 	now := time.Now()
 
-	ms.Store(makeEvent("ch-1", engine.ActionChallenge, 40, "/", "10.0.0.1", now))
-	ms.Store(makeEvent("ch-2", engine.ActionPass, 0, "/", "10.0.0.1", now.Add(time.Second)))
+	_ = ms.Store(makeEvent("ch-1", engine.ActionChallenge, 40, "/", "10.0.0.1", now))
+	_ = ms.Store(makeEvent("ch-2", engine.ActionPass, 0, "/", "10.0.0.1", now.Add(time.Second)))
 
 	results, total, err := ms.Query(EventFilter{Action: "challenge"})
 	if err != nil {
@@ -1256,8 +1257,8 @@ func TestMemoryStore_QueryByActionLogged(t *testing.T) {
 	ms := NewMemoryStore(100)
 	now := time.Now()
 
-	ms.Store(makeEvent("log-1", engine.ActionLog, 30, "/", "10.0.0.1", now))
-	ms.Store(makeEvent("log-2", engine.ActionPass, 0, "/", "10.0.0.1", now.Add(time.Second)))
+	_ = ms.Store(makeEvent("log-1", engine.ActionLog, 30, "/", "10.0.0.1", now))
+	_ = ms.Store(makeEvent("log-2", engine.ActionPass, 0, "/", "10.0.0.1", now.Add(time.Second)))
 
 	results, total, err := ms.Query(EventFilter{Action: "logged"})
 	if err != nil {
@@ -1275,8 +1276,8 @@ func TestMemoryStore_QueryByActionPassed(t *testing.T) {
 	ms := NewMemoryStore(100)
 	now := time.Now()
 
-	ms.Store(makeEvent("pass-1", engine.ActionPass, 0, "/", "10.0.0.1", now))
-	ms.Store(makeEvent("pass-2", engine.ActionBlock, 80, "/", "10.0.0.1", now.Add(time.Second)))
+	_ = ms.Store(makeEvent("pass-1", engine.ActionPass, 0, "/", "10.0.0.1", now))
+	_ = ms.Store(makeEvent("pass-2", engine.ActionBlock, 80, "/", "10.0.0.1", now.Add(time.Second)))
 
 	results, total, err := ms.Query(EventFilter{Action: "passed"})
 	if err != nil {
@@ -1308,9 +1309,9 @@ func TestMemoryStore_QueryDefaultSort(t *testing.T) {
 	ms := NewMemoryStore(100)
 	now := time.Now()
 
-	ms.Store(makeEvent("ds-1", engine.ActionPass, 0, "/", "10.0.0.1", now.Add(2*time.Second)))
-	ms.Store(makeEvent("ds-2", engine.ActionPass, 0, "/", "10.0.0.1", now.Add(1*time.Second)))
-	ms.Store(makeEvent("ds-3", engine.ActionPass, 0, "/", "10.0.0.1", now.Add(3*time.Second)))
+	_ = ms.Store(makeEvent("ds-1", engine.ActionPass, 0, "/", "10.0.0.1", now.Add(2*time.Second)))
+	_ = ms.Store(makeEvent("ds-2", engine.ActionPass, 0, "/", "10.0.0.1", now.Add(1*time.Second)))
+	_ = ms.Store(makeEvent("ds-3", engine.ActionPass, 0, "/", "10.0.0.1", now.Add(3*time.Second)))
 
 	// Default sort (no SortBy specified) should sort by timestamp desc
 	results, _, err := ms.Query(EventFilter{})
@@ -1500,7 +1501,7 @@ func TestFileStore_StoreAndClose(t *testing.T) {
 			Score:     0,
 			Timestamp: time.Now(),
 		}
-		fs.Store(ev)
+		_ = fs.Store(ev)
 	}
 
 	// Close should drain remaining events
@@ -1530,7 +1531,7 @@ func TestFileStore_DrainOnClose(t *testing.T) {
 
 	// Fill the channel with events before closing
 	for i := range 50 {
-		fs.Store(engine.Event{
+		_ = fs.Store(engine.Event{
 			ID:        "drain-" + intToStr(i),
 			RequestID: "r-" + intToStr(i),
 			Method:    "GET",
@@ -1567,7 +1568,7 @@ func TestFileStore_RotationSmallMax(t *testing.T) {
 
 	// Write enough events to exceed 200 bytes
 	for i := range 20 {
-		fs.Store(engine.Event{
+		_ = fs.Store(engine.Event{
 			ID:        "rot-" + intToStr(i),
 			RequestID: "req-" + intToStr(i),
 			ClientIP:  "10.0.0.1",
@@ -1634,7 +1635,7 @@ func TestFileStore_FlushOnTick(t *testing.T) {
 	}
 
 	// Store a single event
-	fs.Store(engine.Event{
+	_ = fs.Store(engine.Event{
 		ID:        "tick-1",
 		RequestID: "r-1",
 		Method:    "GET",

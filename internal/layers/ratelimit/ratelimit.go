@@ -231,7 +231,7 @@ func (l *Layer) trackViolation(ip string, rule *Rule) {
 	l.violations.Store(key, &countCopy)
 
 	if int(count) >= rule.AutoBanAfter && l.OnAutoBan != nil {
-		l.OnAutoBan(ip, "rate limit exceeded: "+rule.ID+" ("+strings.Repeat("x", 0)+string(rune('0'+min(count, 9)))+" violations)")
+		l.OnAutoBan(ip, "rate limit exceeded: "+rule.ID+" ("+string(rune('0'+min(count, 9)))+" violations)")
 	}
 }
 

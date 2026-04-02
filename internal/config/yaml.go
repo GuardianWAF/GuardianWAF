@@ -221,7 +221,7 @@ func (p *parser) parseDocument() (*Node, error) {
 }
 
 // parseMapping parses a YAML mapping at the given indentation level.
-func (p *parser) parseMapping(indent int, depth int) (*Node, error) {
+func (p *parser) parseMapping(indent, depth int) (*Node, error) {
 	if depth > p.maxNest {
 		return nil, &ParseError{Line: p.lineNum(), Message: "maximum nesting depth exceeded"}
 	}
@@ -292,7 +292,7 @@ func (p *parser) parseMapping(indent int, depth int) (*Node, error) {
 
 // resolveValue determines the Node for a given value string, which may be
 // a scalar, a block scalar, or a nested structure on subsequent lines.
-func (p *parser) resolveValue(val string, parentIndent int, lineNum int, depth int) (*Node, error) {
+func (p *parser) resolveValue(val string, parentIndent, lineNum, depth int) (*Node, error) {
 	// Block scalar indicators
 	if val == "|" || val == "|-" || val == "|+" {
 		return p.parseLiteralBlock(parentIndent, lineNum, val)
@@ -349,7 +349,7 @@ func (p *parser) resolveValue(val string, parentIndent int, lineNum int, depth i
 }
 
 // parseBlockSequence parses a YAML block sequence at the given indentation.
-func (p *parser) parseBlockSequence(indent int, depth int) (*Node, error) {
+func (p *parser) parseBlockSequence(indent, depth int) (*Node, error) {
 	if depth > p.maxNest {
 		return nil, &ParseError{Line: p.lineNum(), Message: "maximum nesting depth exceeded"}
 	}
@@ -538,7 +538,7 @@ func (p *parser) parseBlockSequence(indent int, depth int) (*Node, error) {
 }
 
 // parseLiteralBlock parses a literal block scalar (|).
-func (p *parser) parseLiteralBlock(parentIndent int, lineNum int, indicator string) (*Node, error) {
+func (p *parser) parseLiteralBlock(parentIndent, lineNum int, indicator string) (*Node, error) {
 	// Determine chomping mode
 	chomp := "clip" // default
 	if strings.HasSuffix(indicator, "-") {
@@ -617,7 +617,7 @@ func (p *parser) parseLiteralBlock(parentIndent int, lineNum int, indicator stri
 }
 
 // parseFoldedBlock parses a folded block scalar (>).
-func (p *parser) parseFoldedBlock(parentIndent int, lineNum int, indicator string) (*Node, error) {
+func (p *parser) parseFoldedBlock(parentIndent, lineNum int, indicator string) (*Node, error) {
 	// Determine chomping mode
 	chomp := "clip"
 	if strings.HasSuffix(indicator, "-") {
@@ -868,7 +868,7 @@ func splitFlowItems(s string) []string {
 
 // parseKeyValue splits a line into key and value parts.
 // Returns key, value, and whether it was a valid key: value pair.
-func parseKeyValue(line string) (string, string, bool) {
+func parseKeyValue(line string) (key, value string, ok bool) {
 	// Find the colon that separates key from value.
 	// The colon must be followed by a space, end of line, or is the last char.
 	// Must handle quoted keys.
@@ -1080,13 +1080,14 @@ func unescapeSingleQuoted(s string) string {
 func countIndent(line string) int {
 	count := 0
 	for _, r := range line {
-		if r == ' ' {
+		switch r {
+		case ' ':
 			count++
-		} else if r == '\t' {
+		case '\t':
 			// Tabs are not recommended in YAML, but count as 1
 			count++
-		} else {
-			break
+		default:
+			return count
 		}
 	}
 	return count

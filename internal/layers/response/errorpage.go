@@ -18,7 +18,7 @@ func ErrorPage(statusCode int, mode string) string {
 
 // ErrorPageWithDetails generates an error page with optional detail text.
 // Details are only shown in development mode.
-func ErrorPageWithDetails(statusCode int, mode string, details string) string {
+func ErrorPageWithDetails(statusCode int, mode, details string) string {
 	if mode == "production" {
 		return productionErrorPage(statusCode)
 	}

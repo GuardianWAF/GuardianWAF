@@ -3,6 +3,7 @@
 package apisecurity
 
 import (
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
@@ -43,7 +44,6 @@ type JWTValidator struct {
 	publicKey crypto.PublicKey
 	jwksCache *sync.Map // kid -> crypto.PublicKey
 	client    *http.Client
-	mu        sync.RWMutex
 }
 
 // JWTClaims represents the standard JWT claims.
@@ -116,7 +116,7 @@ func (v *JWTValidator) Validate(tokenString string) (*JWTClaims, error) {
 		Typ string `json:"typ"`
 		Kid string `json:"kid"`
 	}
-	if err := json.Unmarshal(header, &jwtHeader); err != nil {
+	if err = json.Unmarshal(header, &jwtHeader); err != nil {
 		return nil, fmt.Errorf("invalid header JSON: %w", err)
 	}
 
@@ -132,7 +132,7 @@ func (v *JWTValidator) Validate(tokenString string) (*JWTClaims, error) {
 	}
 
 	var claims JWTClaims
-	if err := json.Unmarshal(payload, &claims); err != nil {
+	if err = json.Unmarshal(payload, &claims); err != nil {
 		return nil, fmt.Errorf("invalid payload JSON: %w", err)
 	}
 
@@ -316,7 +316,14 @@ func (v *JWTValidator) fetchJWKS() {
 		return
 	}
 
-	resp, err := v.client.Get(v.config.JWKSURL)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, v.config.JWKSURL, http.NoBody)
+	if err != nil {
+		return
+	}
+	resp, err := v.client.Do(req)
 	if err != nil {
 		return
 	}
@@ -522,39 +529,42 @@ func parsePublicKey(pemData []byte) (crypto.PublicKey, error) {
 
 	// Try parsing as various key types
 	// RSA SubjectPublicKeyInfo
-	if key, err := parseRSAPublicKey(der); err == nil {
+	if key := parseRSAPublicKey(der); key != nil {
 		return key, nil
 	}
 
 	// ECDSA SubjectPublicKeyInfo
-	if key, err := parseECDSAPublicKey(der); err == nil {
+	if key := parseECDSAPublicKey(der); key != nil {
 		return key, nil
 	}
 
 	// Ed25519
-	if key, err := parseEd25519PublicKey(der); err == nil {
+	if key := parseEd25519PublicKey(der); key != nil {
 		return key, nil
 	}
 
 	return nil, fmt.Errorf("could not parse public key")
 }
 
-func parseRSAPublicKey(der []byte) (*rsa.PublicKey, error) {
+func parseRSAPublicKey(der []byte) *rsa.PublicKey {
+	_ = der // Not used in zero-dependency mode
 	// Simplified parsing - just try to extract RSA key
 	if len(der) < 30 {
-		return nil, fmt.Errorf("too short")
+		return nil
 	}
 
-	// Try PKIX format
-	return nil, fmt.Errorf("not implemented - use x509 for full support")
+	// Try PKIX format - not implemented in zero-dependency mode
+	return nil
 }
 
-func parseECDSAPublicKey(der []byte) (*ecdsa.PublicKey, error) {
-	return nil, fmt.Errorf("not implemented - use x509 for full support")
+func parseECDSAPublicKey(der []byte) *ecdsa.PublicKey {
+	// Not implemented in zero-dependency mode
+	return nil
 }
 
-func parseEd25519PublicKey(der []byte) (ed25519.PublicKey, error) {
-	return nil, fmt.Errorf("not implemented - use x509 for full support")
+func parseEd25519PublicKey(der []byte) ed25519.PublicKey {
+	// Not implemented in zero-dependency mode
+	return nil
 }
 
 func loadPublicKeyFromFile(path string) (crypto.PublicKey, error) {

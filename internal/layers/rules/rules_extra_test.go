@@ -16,7 +16,7 @@ func TestRuleNotEquals(t *testing.T) {
 		Rules: []Rule{{
 			ID: "r1", Name: "Non-GET", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "method", Op: "not_equals", Value: "GET"}},
-			Action: "log", Score: 10,
+			Action:     "log", Score: 10,
 		}},
 	}, nil)
 
@@ -37,7 +37,7 @@ func TestRuleNotContains(t *testing.T) {
 		Rules: []Rule{{
 			ID: "r1", Name: "No api", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "path", Op: "not_contains", Value: "api"}},
-			Action: "log", Score: 10,
+			Action:     "log", Score: 10,
 		}},
 	}, nil)
 
@@ -58,7 +58,7 @@ func TestRuleEndsWith(t *testing.T) {
 		Rules: []Rule{{
 			ID: "r1", Name: "PHP files", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "path", Op: "ends_with", Value: ".php"}},
-			Action: "block", Score: 50,
+			Action:     "block", Score: 50,
 		}},
 	}, nil)
 
@@ -79,7 +79,7 @@ func TestRuleNotIn(t *testing.T) {
 		Rules: []Rule{{
 			ID: "r1", Name: "Block non-standard", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "method", Op: "not_in", Value: []string{"GET", "POST", "PUT"}}},
-			Action: "block", Score: 100,
+			Action:     "block", Score: 100,
 		}},
 	}, nil)
 
@@ -100,7 +100,7 @@ func TestRuleGreaterThan(t *testing.T) {
 		Rules: []Rule{{
 			ID: "r1", Name: "Large body", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "body_size", Op: "greater_than", Value: "100"}},
-			Action: "log", Score: 20,
+			Action:     "log", Score: 20,
 		}},
 	}, nil)
 
@@ -123,7 +123,7 @@ func TestRuleLessThan(t *testing.T) {
 		Rules: []Rule{{
 			ID: "r1", Name: "Tiny body", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "body_size", Op: "less_than", Value: "10"}},
-			Action: "log", Score: 5,
+			Action:     "log", Score: 5,
 		}},
 	}, nil)
 
@@ -140,7 +140,7 @@ func TestRuleMatchHost(t *testing.T) {
 		Rules: []Rule{{
 			ID: "r1", Name: "Admin host", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "host", Op: "equals", Value: "admin.example.com"}},
-			Action: "block", Score: 100,
+			Action:     "block", Score: 100,
 		}},
 	}, nil)
 
@@ -167,7 +167,7 @@ func TestRuleMatchContentType(t *testing.T) {
 		Rules: []Rule{{
 			ID: "r1", Name: "Block XML", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "content_type", Op: "contains", Value: "xml"}},
-			Action: "block", Score: 80,
+			Action:     "block", Score: 80,
 		}},
 	}, nil)
 
@@ -184,7 +184,7 @@ func TestRuleMatchQuery(t *testing.T) {
 		Rules: []Rule{{
 			ID: "r1", Name: "Block debug", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "query", Op: "contains", Value: "debug=true"}},
-			Action: "block", Score: 50,
+			Action:     "block", Score: 50,
 		}},
 	}, nil)
 
@@ -211,7 +211,7 @@ func TestRuleMatchCookie(t *testing.T) {
 		Rules: []Rule{{
 			ID: "r1", Name: "Admin cookie", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "cookie:role", Op: "equals", Value: "admin"}},
-			Action: "log", Score: 10,
+			Action:     "log", Score: 10,
 		}},
 	}, nil)
 
@@ -234,18 +234,18 @@ func TestRuleMatchScore(t *testing.T) {
 		Rules: []Rule{{
 			ID: "r1", Name: "High score", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "score", Op: "greater_than", Value: "50"}},
-			Action: "block", Score: 100,
+			Action:     "block", Score: 100,
 		}},
 	}, nil)
 
 	ctx := testCtx("GET", "/", "1.2.3.4", nil)
-	ctx.Accumulator.Add(engine.Finding{DetectorName: "test", Score: 60})
+	ctx.Accumulator.Add(&engine.Finding{DetectorName: "test", Score: 60})
 	if result := layer.Process(ctx); result.Action != engine.ActionBlock {
 		t.Errorf("expected block for high score, got %s", result.Action)
 	}
 
 	ctx2 := testCtx("GET", "/", "1.2.3.4", nil)
-	ctx2.Accumulator.Add(engine.Finding{DetectorName: "test", Score: 10})
+	ctx2.Accumulator.Add(&engine.Finding{DetectorName: "test", Score: 10})
 	if result := layer.Process(ctx2); result.Action != engine.ActionPass {
 		t.Errorf("expected pass for low score, got %s", result.Action)
 	}
@@ -257,7 +257,7 @@ func TestRuleMatchIP(t *testing.T) {
 		Rules: []Rule{{
 			ID: "r1", Name: "Match IP", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "ip", Op: "equals", Value: "10.0.0.1"}},
-			Action: "block", Score: 100,
+			Action:     "block", Score: 100,
 		}},
 	}, nil)
 
@@ -273,7 +273,7 @@ func TestRuleMatchNilIP(t *testing.T) {
 		Rules: []Rule{{
 			ID: "r1", Name: "Match empty IP", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "ip", Op: "equals", Value: ""}},
-			Action: "log", Score: 10,
+			Action:     "log", Score: 10,
 		}},
 	}, nil)
 
@@ -290,7 +290,7 @@ func TestRuleInvalidRegex(t *testing.T) {
 		Rules: []Rule{{
 			ID: "r1", Name: "Bad regex", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "path", Op: "matches", Value: "[invalid"}},
-			Action: "block", Score: 100,
+			Action:     "block", Score: 100,
 		}},
 	}, nil)
 
@@ -306,7 +306,7 @@ func TestRuleInCIDR_PlainIP(t *testing.T) {
 		Rules: []Rule{{
 			ID: "r1", Name: "Match exact IP", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "ip", Op: "in_cidr", Value: "10.0.0.1"}},
-			Action: "block", Score: 100,
+			Action:     "block", Score: 100,
 		}},
 	}, nil)
 
@@ -327,7 +327,7 @@ func TestRuleInCIDR_NilIP(t *testing.T) {
 		Rules: []Rule{{
 			ID: "r1", Name: "CIDR nil", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "ip", Op: "in_cidr", Value: "10.0.0.0/8"}},
-			Action: "block", Score: 100,
+			Action:     "block", Score: 100,
 		}},
 	}, nil)
 
@@ -344,7 +344,7 @@ func TestRuleInList_StringValue(t *testing.T) {
 		Rules: []Rule{{
 			ID: "r1", Name: "Single value in", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "method", Op: "in", Value: "DELETE"}},
-			Action: "block", Score: 100,
+			Action:     "block", Score: 100,
 		}},
 	}, nil)
 
@@ -360,7 +360,7 @@ func TestRuleInList_AnySlice(t *testing.T) {
 		Rules: []Rule{{
 			ID: "r1", Name: "Any slice in", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "method", Op: "in", Value: []any{"GET", "POST"}}},
-			Action: "log", Score: 10,
+			Action:     "log", Score: 10,
 		}},
 	}, nil)
 
@@ -377,10 +377,10 @@ func TestRuleActionPromotion(t *testing.T) {
 		Rules: []Rule{
 			{ID: "r1", Name: "Log rule", Enabled: true, Priority: 1,
 				Conditions: []Condition{{Field: "path", Op: "starts_with", Value: "/"}},
-				Action: "log", Score: 10},
+				Action:     "log", Score: 10},
 			{ID: "r2", Name: "Challenge rule", Enabled: true, Priority: 2,
 				Conditions: []Condition{{Field: "path", Op: "starts_with", Value: "/"}},
-				Action: "challenge", Score: 20},
+				Action:     "challenge", Score: 20},
 		},
 	}, nil)
 
@@ -400,10 +400,10 @@ func TestRuleBlockPromotesOverChallenge(t *testing.T) {
 		Rules: []Rule{
 			{ID: "r1", Name: "Challenge", Enabled: true, Priority: 1,
 				Conditions: []Condition{{Field: "path", Op: "starts_with", Value: "/"}},
-				Action: "challenge", Score: 20},
+				Action:     "challenge", Score: 20},
 			{ID: "r2", Name: "Block", Enabled: true, Priority: 2,
 				Conditions: []Condition{{Field: "path", Op: "starts_with", Value: "/"}},
-				Action: "block", Score: 80},
+				Action:     "block", Score: 80},
 		},
 	}, nil)
 
@@ -420,7 +420,7 @@ func TestRuleUnknownOperator(t *testing.T) {
 		Rules: []Rule{{
 			ID: "r1", Name: "Unknown op", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "path", Op: "fizzbuzz", Value: "test"}},
-			Action: "block", Score: 100,
+			Action:     "block", Score: 100,
 		}},
 	}, nil)
 
@@ -436,7 +436,7 @@ func TestRuleUnknownField(t *testing.T) {
 		Rules: []Rule{{
 			ID: "r1", Name: "Unknown field", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "nonexistent", Op: "equals", Value: "anything"}},
-			Action: "block", Score: 100,
+			Action:     "block", Score: 100,
 		}},
 	}, nil)
 
@@ -453,7 +453,7 @@ func TestRuleUnknownAction(t *testing.T) {
 		Rules: []Rule{{
 			ID: "r1", Name: "Unknown action", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "path", Op: "equals", Value: "/"}},
-			Action: "unknown_action", Score: 10,
+			Action:     "unknown_action", Score: 10,
 		}},
 	}, nil)
 
@@ -475,7 +475,7 @@ func TestRuleWithGeoIP(t *testing.T) {
 		Rules: []Rule{{
 			ID: "r1", Name: "Block country", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "country", Op: "equals", Value: ""}},
-			Action: "log", Score: 10,
+			Action:     "log", Score: 10,
 		}},
 	}, db)
 
@@ -491,7 +491,7 @@ func TestRuleCountryNilGeoDB(t *testing.T) {
 		Rules: []Rule{{
 			ID: "r1", Name: "Country nil", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "country", Op: "equals", Value: ""}},
-			Action: "log", Score: 10,
+			Action:     "log", Score: 10,
 		}},
 	}, nil)
 
@@ -531,7 +531,7 @@ func TestRuleSetRulesClearsCache(t *testing.T) {
 		Rules: []Rule{{
 			ID: "r1", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "path", Op: "matches", Value: `^/api`}},
-			Action: "log", Score: 10,
+			Action:     "log", Score: 10,
 		}},
 	}, nil)
 
@@ -543,7 +543,7 @@ func TestRuleSetRulesClearsCache(t *testing.T) {
 	layer.SetRules([]Rule{{
 		ID: "r2", Enabled: true, Priority: 1,
 		Conditions: []Condition{{Field: "path", Op: "matches", Value: `^/new`}},
-		Action: "log", Score: 10,
+		Action:     "log", Score: 10,
 	}})
 
 	layer.mu.RLock()
@@ -614,7 +614,7 @@ func TestRuleEmptyConditions(t *testing.T) {
 		Rules: []Rule{{
 			ID: "r1", Name: "Empty conds", Enabled: true, Priority: 1,
 			Conditions: []Condition{},
-			Action: "log", Score: 5,
+			Action:     "log", Score: 5,
 		}},
 	}, nil)
 
@@ -630,7 +630,7 @@ func TestRuleMissingHeader(t *testing.T) {
 		Rules: []Rule{{
 			ID: "r1", Name: "Check missing header", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "header:X-Custom", Op: "equals", Value: ""}},
-			Action: "log", Score: 10,
+			Action:     "log", Score: 10,
 		}},
 	}, nil)
 
@@ -646,7 +646,7 @@ func TestRuleMissingCookie(t *testing.T) {
 		Rules: []Rule{{
 			ID: "r1", Name: "Check missing cookie", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "cookie:session", Op: "equals", Value: ""}},
-			Action: "log", Score: 10,
+			Action:     "log", Score: 10,
 		}},
 	}, nil)
 
@@ -662,10 +662,10 @@ func TestRuleScoreAccumulation(t *testing.T) {
 		Rules: []Rule{
 			{ID: "r1", Enabled: true, Priority: 1,
 				Conditions: []Condition{{Field: "path", Op: "starts_with", Value: "/"}},
-				Action: "log", Score: 15},
+				Action:     "log", Score: 15},
 			{ID: "r2", Enabled: true, Priority: 2,
 				Conditions: []Condition{{Field: "method", Op: "equals", Value: "POST"}},
-				Action: "log", Score: 25},
+				Action:     "log", Score: 25},
 		},
 	}, nil)
 
@@ -685,7 +685,7 @@ func TestRuleFindingFields(t *testing.T) {
 		Rules: []Rule{{
 			ID: "test-rule", Name: "Test Rule Name", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "path", Op: "equals", Value: "/"}},
-			Action: "block", Score: 42,
+			Action:     "block", Score: 42,
 		}},
 	}, nil)
 
@@ -718,7 +718,7 @@ func TestRuleNilRequest(t *testing.T) {
 		Rules: []Rule{{
 			ID: "r1", Name: "Query check", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "query", Op: "equals", Value: ""}},
-			Action: "log", Score: 5,
+			Action:     "log", Score: 5,
 		}},
 	}, nil)
 
@@ -744,7 +744,7 @@ func TestRuleNilAccumulator(t *testing.T) {
 		Rules: []Rule{{
 			ID: "r1", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "score", Op: "equals", Value: "0"}},
-			Action: "log", Score: 5,
+			Action:     "log", Score: 5,
 		}},
 	}, nil)
 
@@ -769,7 +769,7 @@ func BenchmarkRuleWithRegex(b *testing.B) {
 		Rules: []Rule{{
 			ID: "regex", Enabled: true, Priority: 1,
 			Conditions: []Condition{{Field: "path", Op: "matches", Value: `^/api/v[0-9]+/users/[0-9]+$`}},
-			Action: "log", Score: 10,
+			Action:     "log", Score: 10,
 		}},
 	}, nil)
 

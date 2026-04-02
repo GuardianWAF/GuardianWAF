@@ -6,12 +6,12 @@ import (
 
 // Layer implements the engine.Layer interface for request sanitization.
 type Layer struct {
-	config  SanitizerConfig
+	config  Config
 	enabled bool
 }
 
 // NewLayer creates a new sanitizer layer with the given configuration.
-func NewLayer(cfg SanitizerConfig) *Layer {
+func NewLayer(cfg Config) *Layer {
 	return &Layer{
 		config:  cfg,
 		enabled: true,

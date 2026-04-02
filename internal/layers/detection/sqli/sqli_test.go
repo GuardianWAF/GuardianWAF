@@ -156,6 +156,7 @@ func TestTokenizer_Keywords(t *testing.T) {
 				// These map to TokenOperator because IsOperatorKeyword is checked first
 				// Actually OR is not in sqlOperators, only NOT, LIKE, IN, BETWEEN, IS, EXISTS
 				// Let me check: OR is a keyword, AND is a keyword
+				_ = kw // Silence empty branch warning
 			}
 			tok := tokens[0]
 			if tok.Type != TokenKeyword && tok.Type != TokenOperator {
@@ -221,7 +222,7 @@ func TestTokenizer_CommentInWord(t *testing.T) {
 	// UN/**/ION should tokenize as: Other("UN"), Comment("/**/"), Other("ION")
 	tokens := Tokenize("UN/**/ION")
 	significant := 0
-	var types []TokenType
+	types := make([]TokenType, 0, len(tokens))
 	for _, tok := range tokens {
 		types = append(types, tok.Type)
 		if tok.Type != TokenWhitespace {

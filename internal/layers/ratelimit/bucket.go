@@ -16,7 +16,7 @@ type TokenBucket struct {
 }
 
 // NewTokenBucket creates a new token bucket starting full.
-func NewTokenBucket(maxTokens float64, refillRate float64) *TokenBucket {
+func NewTokenBucket(maxTokens, refillRate float64) *TokenBucket {
 	now := time.Now()
 	return &TokenBucket{
 		tokens:     maxTokens,

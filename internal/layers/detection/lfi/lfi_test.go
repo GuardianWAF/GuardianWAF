@@ -403,9 +403,6 @@ func TestDetect_ZipWrapper(t *testing.T) {
 	for _, f := range findings {
 		totalScore += f.Score
 	}
-	if totalScore >= 60 {
-		// zip:// should be detected
-	}
 	if totalScore < 60 {
 		t.Errorf("expected score >= 60 for zip:// wrapper, got %d", totalScore)
 	}

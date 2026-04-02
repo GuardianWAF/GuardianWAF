@@ -97,7 +97,7 @@ func alpnCode(alpn string) string {
 
 	// Otherwise, use hex representation of the entire ALPN
 	hexStr := hex.EncodeToString([]byte(alpn))
-	if len(hexStr) == 0 {
+	if hexStr == "" {
 		return "00"
 	}
 	if len(hexStr) == 1 {
@@ -203,11 +203,12 @@ func ComputeJA4(params JA4Params) JA4Fingerprint {
 	sigAlgList := formatHexList(sigAlgs)
 
 	var extData string
-	if extList != "" && sigAlgList != "" {
+	switch {
+	case extList != "" && sigAlgList != "":
 		extData = extList + "_" + sigAlgList
-	} else if extList != "" {
+	case extList != "":
 		extData = extList
-	} else if sigAlgList != "" {
+	case sigAlgList != "":
 		extData = "_" + sigAlgList
 	}
 	partC := truncateHash(extData)

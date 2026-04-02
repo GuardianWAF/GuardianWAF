@@ -95,8 +95,8 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 }
 
 // Detect scans a single input string for SSRF patterns.
-func Detect(input string, location string) []engine.Finding {
-	if len(input) == 0 {
+func Detect(input, location string) []engine.Finding {
+	if input == "" {
 		return nil
 	}
 
@@ -139,7 +139,7 @@ func makeFinding(score int, severity engine.Severity, desc, matched, location st
 }
 
 // checkLocalhostPatterns detects localhost and loopback access.
-func checkLocalhostPatterns(lower string, location string) []engine.Finding {
+func checkLocalhostPatterns(lower, location string) []engine.Finding {
 	var findings []engine.Finding
 
 	patterns := []struct {
@@ -170,7 +170,7 @@ func checkLocalhostPatterns(lower string, location string) []engine.Finding {
 }
 
 // checkMetadataEndpoints detects cloud metadata endpoint access.
-func checkMetadataEndpoints(lower string, location string) []engine.Finding {
+func checkMetadataEndpoints(lower, location string) []engine.Finding {
 	var findings []engine.Finding
 
 	endpoints := []struct {
@@ -196,7 +196,7 @@ func checkMetadataEndpoints(lower string, location string) []engine.Finding {
 }
 
 // checkPrivateIPs detects access to private IP ranges in URL-like contexts.
-func checkPrivateIPs(lower string, location string) []engine.Finding {
+func checkPrivateIPs(lower, location string) []engine.Finding {
 	var findings []engine.Finding
 
 	// Extract URL-like patterns and check for private IPs
@@ -245,7 +245,7 @@ func checkPrivateIPs(lower string, location string) []engine.Finding {
 }
 
 // checkEncodedIPs detects decimal, octal, and hex encoded IPs in URLs.
-func checkEncodedIPs(lower string, location string) []engine.Finding {
+func checkEncodedIPs(lower, location string) []engine.Finding {
 	var findings []engine.Finding
 
 	// Look for URL-like patterns with potential encoded IPs
@@ -305,7 +305,7 @@ func checkEncodedIPs(lower string, location string) []engine.Finding {
 }
 
 // checkURLCredential detects URLs with @ sign (credential/redirect injection).
-func checkURLCredential(lower string, location string) []engine.Finding {
+func checkURLCredential(lower, location string) []engine.Finding {
 	var findings []engine.Finding
 
 	urlPrefixes := []string{"http://", "https://"}
@@ -344,14 +344,8 @@ func extractContext(input, pattern string) string {
 		}
 		return input
 	}
-	start := idx - 20
-	if start < 0 {
-		start = 0
-	}
-	end := idx + len(pattern) + 20
-	if end > len(input) {
-		end = len(input)
-	}
+	start := max(idx-20, 0)
+	end := min(idx+len(pattern)+20, len(input))
 	result := input[start:end]
 	if len(result) > 200 {
 		result = result[:197] + "..."

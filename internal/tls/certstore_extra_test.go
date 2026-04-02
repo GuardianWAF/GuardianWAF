@@ -111,8 +111,8 @@ func TestReloadIfChanged(t *testing.T) {
 	// Copy new cert to old paths
 	certData, _ := os.ReadFile(certFile2)
 	keyData, _ := os.ReadFile(keyFile2)
-	os.WriteFile(certFile, certData, 0600)
-	os.WriteFile(keyFile, keyData, 0600)
+	_ = os.WriteFile(certFile, certData, 0600)
+	_ = os.WriteFile(keyFile, keyData, 0600)
 
 	cs.reloadIfChanged()
 
@@ -125,7 +125,7 @@ func TestReloadIfChanged_NoChange(t *testing.T) {
 	certFile, keyFile := generateTestCert(t, "stable.com")
 
 	cs := NewCertStore()
-	cs.LoadCert([]string{"stable.com"}, certFile, keyFile)
+	_ = cs.LoadCert([]string{"stable.com"}, certFile, keyFile)
 
 	// No changes
 	cs.reloadIfChanged()
@@ -139,7 +139,7 @@ func TestReloadIfChanged_MissingFile(t *testing.T) {
 	certFile, keyFile := generateTestCert(t, "gone.com")
 
 	cs := NewCertStore()
-	cs.LoadCert([]string{"gone.com"}, certFile, keyFile)
+	_ = cs.LoadCert([]string{"gone.com"}, certFile, keyFile)
 
 	// Delete cert file
 	os.Remove(certFile)
@@ -171,8 +171,8 @@ func TestReloadIfChanged_WildcardReload(t *testing.T) {
 	keyData, _ := os.ReadFile(newKeyFile)
 	_ = certFile2
 	_ = keyFile2
-	os.WriteFile(certFile, certData, 0600)
-	os.WriteFile(keyFile, keyData, 0600)
+	_ = os.WriteFile(certFile, certData, 0600)
+	_ = os.WriteFile(keyFile, keyData, 0600)
 
 	cs.reloadIfChanged()
 

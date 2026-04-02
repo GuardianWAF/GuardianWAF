@@ -35,14 +35,14 @@ func NewClient(socketPath string) *Client {
 
 // Container represents a Docker container from the list API.
 type Container struct {
-	ID      string            `json:"Id"`
-	Names   []string          `json:"Names"`
-	Image   string            `json:"Image"`
-	State   string            `json:"State"`
-	Status  string            `json:"Status"`
-	Labels  map[string]string `json:"Labels"`
-	Ports   []ContainerPort   `json:"Ports"`
-	Created int64             `json:"Created"`
+	ID              string            `json:"Id"`
+	Names           []string          `json:"Names"`
+	Image           string            `json:"Image"`
+	State           string            `json:"State"`
+	Status          string            `json:"Status"`
+	Labels          map[string]string `json:"Labels"`
+	Ports           []ContainerPort   `json:"Ports"`
+	Created         int64             `json:"Created"`
 	NetworkSettings struct {
 		Networks map[string]NetworkInfo `json:"Networks"`
 	} `json:"NetworkSettings"`
@@ -72,7 +72,7 @@ type ContainerDetail struct {
 		ExposedPorts map[string]any    `json:"ExposedPorts"`
 	} `json:"Config"`
 	NetworkSettings struct {
-		Networks map[string]NetworkInfo `json:"Networks"`
+		Networks map[string]NetworkInfo   `json:"Networks"`
 		Ports    map[string][]PortBinding `json:"Ports"`
 	} `json:"NetworkSettings"`
 	State struct {
@@ -87,8 +87,8 @@ type PortBinding struct {
 	HostPort string `json:"HostPort"`
 }
 
-// DockerEvent represents a Docker daemon event.
-type DockerEvent struct {
+// Event represents a Docker daemon event.
+type Event struct {
 	Type   string `json:"Type"`
 	Action string `json:"Action"`
 	Actor  struct {
@@ -138,7 +138,7 @@ func (c *Client) ListContainers(labelPrefix string) ([]Container, error) {
 		var row struct {
 			ID string `json:"ID"`
 		}
-		if err := json.Unmarshal([]byte(line), &row); err == nil && row.ID != "" {
+		if unmarshalErr := json.Unmarshal([]byte(line), &row); unmarshalErr == nil && row.ID != "" {
 			ids = append(ids, row.ID)
 		}
 	}
@@ -155,17 +155,17 @@ func (c *Client) ListContainers(labelPrefix string) ([]Container, error) {
 	}
 
 	var details []ContainerDetail
-	if err := json.Unmarshal([]byte(inspectOut), &details); err != nil {
-		return nil, fmt.Errorf("parsing inspect: %w", err)
+	if unmarshalErr := json.Unmarshal([]byte(inspectOut), &details); unmarshalErr != nil {
+		return nil, fmt.Errorf("parsing inspect: %w", unmarshalErr)
 	}
 
 	// Convert to Container format
 	containers := make([]Container, 0, len(details))
 	for _, d := range details {
 		c := Container{
-			ID:    d.ID,
-			Names: []string{d.Name},
-			State: d.State.Status,
+			ID:     d.ID,
+			Names:  []string{d.Name},
+			State:  d.State.Status,
 			Labels: d.Config.Labels,
 		}
 		c.NetworkSettings.Networks = d.NetworkSettings.Networks
@@ -175,7 +175,7 @@ func (c *Client) ListContainers(labelPrefix string) ([]Container, error) {
 			parts := strings.SplitN(portKey, "/", 2)
 			if len(parts) >= 1 {
 				var port int
-				fmt.Sscanf(parts[0], "%d", &port)
+				_, _ = fmt.Sscanf(parts[0], "%d", &port)
 				proto := "tcp"
 				if len(parts) == 2 {
 					proto = parts[1]
@@ -204,8 +204,8 @@ func (c *Client) InspectContainer(id string) (*ContainerDetail, error) {
 	}
 
 	var details []ContainerDetail
-	if err := json.Unmarshal([]byte(out), &details); err != nil {
-		return nil, fmt.Errorf("parsing inspect: %w", err)
+	if unmarshalErr := json.Unmarshal([]byte(out), &details); unmarshalErr != nil {
+		return nil, fmt.Errorf("parsing inspect: %w", unmarshalErr)
 	}
 	if len(details) == 0 {
 		return nil, fmt.Errorf("container %s not found", id)
@@ -215,8 +215,8 @@ func (c *Client) InspectContainer(id string) (*ContainerDetail, error) {
 
 // StreamEvents opens a long-lived `docker events` subprocess.
 // Sends container start/stop/die events to the channel.
-// Blocks until ctx is cancelled or the process exits.
-func (c *Client) StreamEvents(ctx context.Context, labelPrefix string, ch chan<- DockerEvent) error {
+// Blocks until ctx is canceled or the process exits.
+func (c *Client) StreamEvents(ctx context.Context, labelPrefix string, ch chan<- Event) error {
 	filter := fmt.Sprintf("label=%s.enable=true", labelPrefix)
 	args := []string{"events", "--filter", "type=container",
 		"--filter", "event=start", "--filter", "event=stop",
@@ -233,16 +233,16 @@ func (c *Client) StreamEvents(ctx context.Context, labelPrefix string, ch chan<-
 		return fmt.Errorf("creating pipe: %w", err)
 	}
 
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("starting docker events: %w", err)
+	if startErr := cmd.Start(); startErr != nil {
+		return fmt.Errorf("starting docker events: %w", startErr)
 	}
 
 	decoder := json.NewDecoder(stdout)
 	go func() {
-		defer cmd.Wait()
+		defer func() { _ = cmd.Wait() }()
 		for {
-			var event DockerEvent
-			if err := decoder.Decode(&event); err != nil {
+			var event Event
+			if decodeErr := decoder.Decode(&event); decodeErr != nil {
 				return
 			}
 			select {

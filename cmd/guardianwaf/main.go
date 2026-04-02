@@ -119,7 +119,7 @@ func cmdServe(args []string) {
 	fs.StringVar(mode, "m", "", "Override WAF mode (short)")
 	dashboardAddr := fs.String("dashboard", "", "Override dashboard listen address")
 	logLevel := fs.String("log-level", "", "Override log level")
-	fs.Parse(args)
+	_ = fs.Parse(args)
 
 	// 1. Load config
 	cfg := loadConfig(*configPath)
@@ -309,8 +309,8 @@ func cmdServe(args []string) {
 			} else {
 				// Save account key
 				if keyPEM, err := acmeClient.AccountKeyPEM(); err == nil {
-					os.MkdirAll(cfg.TLS.ACME.CacheDir, 0700)
-					os.WriteFile(accountKeyPath, keyPEM, 0600)
+					_ = os.MkdirAll(cfg.TLS.ACME.CacheDir, 0o700)
+					_ = os.WriteFile(accountKeyPath, keyPEM, 0o600)
 				}
 				// Register account
 				if err := acmeClient.Register(cfg.TLS.ACME.Email); err != nil {
@@ -565,7 +565,7 @@ func cmdServe(args []string) {
 		eventBus.Subscribe(alertCh)
 		go func() {
 			for event := range alertCh {
-				alertMgr.HandleEvent(event)
+				alertMgr.HandleEvent(&event)
 			}
 		}()
 		eng.Logs.Infof("Alerting enabled (%d webhooks)", len(targets))
@@ -699,9 +699,9 @@ func cmdServe(args []string) {
 	defer cancel()
 
 	// 1. Stop accepting new requests
-	srv.Shutdown(ctx)
+	_ = srv.Shutdown(ctx)
 	if tlsSrv != nil {
-		tlsSrv.Shutdown(ctx)
+		_ = tlsSrv.Shutdown(ctx)
 	}
 
 	// 2. Stop background services
@@ -709,7 +709,7 @@ func cmdServe(args []string) {
 		certStore.StopReload()
 	}
 	if dashSrv != nil {
-		dashSrv.Shutdown(ctx)
+		_ = dashSrv.Shutdown(ctx)
 	}
 
 	// 3. Stop threat intel feed refresh loops
@@ -751,7 +751,7 @@ func cmdSidecar(args []string) {
 	mode := fs.String("mode", "", "Override WAF mode")
 	fs.StringVar(mode, "m", "", "Override WAF mode (short)")
 	logLevel := fs.String("log-level", "", "Override log level")
-	fs.Parse(args)
+	_ = fs.Parse(args)
 
 	// Load config or build from flags
 	var cfg *config.Config
@@ -921,7 +921,7 @@ func cmdSidecar(args []string) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	srv.Shutdown(ctx)
+	_ = srv.Shutdown(ctx)
 	eng.Close()
 	fmt.Println("GuardianWAF sidecar stopped.")
 }
@@ -959,7 +959,7 @@ type CheckResult struct {
 
 // runCheck executes a request check against the WAF engine.
 // This is the testable version of cmdCheck.
-func runCheck(opts CheckOptions) (*CheckResult, error) {
+func runCheck(opts *CheckOptions) (*CheckResult, error) {
 	if opts.URL == "" {
 		return nil, fmt.Errorf("--url is required")
 	}
@@ -993,7 +993,7 @@ func runCheck(opts CheckOptions) (*CheckResult, error) {
 		bodyReader = strings.NewReader("")
 	}
 
-	req, err := http.NewRequest(opts.Method, fullURL, bodyReader)
+	req, err := http.NewRequestWithContext(context.Background(), opts.Method, fullURL, bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -1031,9 +1031,9 @@ func cmdCheck(args []string) {
 	var headers headerSlice
 	fs.Var(&headers, "H", "HTTP header in 'Name: Value' format (repeatable)")
 	body := fs.String("body", "", "Request body content")
-	fs.Parse(args)
+	_ = fs.Parse(args)
 
-	result, err := runCheck(CheckOptions{
+	result, err := runCheck(&CheckOptions{
 		ConfigPath: *configPath,
 		URL:        *urlStr,
 		Method:     *method,
@@ -1052,11 +1052,12 @@ func cmdCheck(args []string) {
 	fmt.Printf("Score:    %d\n", result.Score)
 	fmt.Printf("Duration: %s\n", result.Duration)
 
-	if result.Action == "block" {
+	switch result.Action {
+	case "block":
 		fmt.Println("Result:   BLOCKED")
-	} else if result.Action == "log" {
+	case "log":
 		fmt.Println("Result:   LOGGED (suspicious)")
-	} else {
+	default:
 		fmt.Println("Result:   PASSED")
 	}
 
@@ -1107,7 +1108,7 @@ func cmdValidate(args []string) {
 	fs := flag.NewFlagSet("validate", flag.ExitOnError)
 	configPath := fs.String("config", "guardianwaf.yaml", "Path to config file")
 	fs.StringVar(configPath, "c", "guardianwaf.yaml", "Path to config file (short)")
-	fs.Parse(args)
+	_ = fs.Parse(args)
 
 	result, err := runValidate(*configPath)
 	if err != nil {
@@ -1242,7 +1243,7 @@ func addLayers(eng *engine.Engine, cfg *config.Config) {
 
 	// 1c. CORS Security layer (Order 150)
 	if cfg.WAF.CORS.Enabled {
-		corsLayer, err := cors.NewLayer(cors.Config{
+		corsLayer, err := cors.NewLayer(&cors.Config{
 			Enabled:               cfg.WAF.CORS.Enabled,
 			AllowOrigins:          cfg.WAF.CORS.AllowOrigins,
 			AllowMethods:          cfg.WAF.CORS.AllowMethods,
@@ -1361,7 +1362,7 @@ func addLayers(eng *engine.Engine, cfg *config.Config) {
 				Enabled:      k.Enabled,
 			}
 		}
-		apiLayer, err := apisecurity.NewLayer(apisecurity.Config{
+		apiLayer, err := apisecurity.NewLayer(&apisecurity.Config{
 			Enabled:    cfg.WAF.APISecurity.Enabled,
 			SkipPaths:  cfg.WAF.APISecurity.SkipPaths,
 			HeaderName: cfg.WAF.APISecurity.HeaderName,
@@ -1393,7 +1394,7 @@ func addLayers(eng *engine.Engine, cfg *config.Config) {
 
 	// 3. Sanitizer layer (Order 300)
 	if cfg.WAF.Sanitizer.Enabled {
-		sanLayer := sanitizer.NewLayer(sanitizer.SanitizerConfig{
+		sanLayer := sanitizer.NewLayer(sanitizer.Config{
 			MaxURLLength:   cfg.WAF.Sanitizer.MaxURLLength,
 			MaxHeaderSize:  cfg.WAF.Sanitizer.MaxHeaderSize,
 			MaxHeaderCount: cfg.WAF.Sanitizer.MaxHeaderCount,
@@ -1529,7 +1530,7 @@ func buildReverseProxy(cfg *config.Config) (http.Handler, []*proxy.HealthChecker
 	}
 
 	// Build default routes (flat routes array — fallback)
-	var defaultRoutes []proxy.Route
+	defaultRoutes := make([]proxy.Route, 0, len(cfg.Routes))
 	for _, route := range cfg.Routes {
 		lb, ok := balancerMap[route.Upstream]
 		if !ok {
@@ -1745,8 +1746,8 @@ func (a *mcpEngineAdapter) AddRateLimit(rule any) error {
 		Window string `json:"window"`
 		Action string `json:"action"`
 	}
-	if err := json.Unmarshal(data, &p); err != nil {
-		return fmt.Errorf("invalid rule format: %w", err)
+	if unmarshalErr := json.Unmarshal(data, &p); unmarshalErr != nil {
+		return fmt.Errorf("invalid rule format: %w", unmarshalErr)
 	}
 
 	window, err := time.ParseDuration(p.Window)
@@ -1816,8 +1817,8 @@ func (a *mcpEngineAdapter) GetEvents(params json.RawMessage) (any, error) {
 		MinScore int    `json:"min_score"`
 		Path     string `json:"path"`
 	}
-	if params != nil && len(params) > 0 {
-		json.Unmarshal(params, &p)
+	if len(params) > 0 {
+		_ = json.Unmarshal(params, &p)
 	}
 	if p.Limit <= 0 {
 		p.Limit = 50
@@ -1873,7 +1874,7 @@ func (a *mcpEngineAdapter) GetTopIPs(n int) any {
 		Requests int    `json:"requests"`
 		Score    int    `json:"total_score"`
 	}
-	var stats []ipStat
+	stats := make([]ipStat, 0, len(ipCounts))
 	for ip, count := range ipCounts {
 		stats = append(stats, ipStat{IP: ip, Requests: count, Score: ipScores[ip]})
 	}
@@ -1893,7 +1894,7 @@ func (a *mcpEngineAdapter) GetTopIPs(n int) any {
 
 func (a *mcpEngineAdapter) GetDetectors() any {
 	cfg := a.engine.Config()
-	var detectors []map[string]any
+	detectors := make([]map[string]any, 0, len(cfg.WAF.Detection.Detectors))
 	for name, dc := range cfg.WAF.Detection.Detectors {
 		detectors = append(detectors, map[string]any{
 			"name":       name,
@@ -1910,7 +1911,7 @@ func (a *mcpEngineAdapter) TestRequest(method, urlStr string, headers map[string
 		fullURL = "http://localhost" + fullURL
 	}
 
-	req, err := http.NewRequest(method, fullURL, nil)
+	req, err := http.NewRequestWithContext(context.Background(), method, fullURL, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -1921,7 +1922,7 @@ func (a *mcpEngineAdapter) TestRequest(method, urlStr string, headers map[string
 	req.RemoteAddr = "127.0.0.1:0"
 
 	event := a.engine.Check(req)
-	var findings []map[string]any
+	findings := make([]map[string]any, 0, len(event.Findings))
 	for _, f := range event.Findings {
 		findings = append(findings, map[string]any{
 			"detector":    f.DetectorName,

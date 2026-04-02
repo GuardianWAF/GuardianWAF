@@ -5,6 +5,21 @@ import (
 	"testing"
 )
 
+// test helpers for accessing internal state
+func (sa *ScoreAccumulator) testRawTotal() int {
+	return sa.totalScore
+}
+
+func (sa *ScoreAccumulator) testHighestSeverity() Severity {
+	highest := SeverityInfo
+	for _, f := range sa.findings {
+		if f.Severity > highest {
+			highest = f.Severity
+		}
+	}
+	return highest
+}
+
 func TestTruncateEvidence(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -76,9 +91,9 @@ func TestScoreAccumulatorAdd(t *testing.T) {
 		Confidence:   0.9,
 	}
 
-	sa.Add(f1)
-	if sa.RawTotal() != 40 {
-		t.Errorf("RawTotal after first Add = %d, want 40", sa.RawTotal())
+	sa.Add(&f1)
+	if sa.testRawTotal() != 40 {
+		t.Errorf("RawTotal after first Add = %d, want 40", sa.testRawTotal())
 	}
 	if sa.Total() != 40 {
 		t.Errorf("Total after first Add = %d, want 40", sa.Total())
@@ -97,10 +112,10 @@ func TestScoreAccumulatorAdd(t *testing.T) {
 		Location:     "body",
 		Confidence:   0.8,
 	}
-	sa.Add(f2)
+	sa.Add(&f2)
 
-	if sa.RawTotal() != 70 {
-		t.Errorf("RawTotal after second Add = %d, want 70", sa.RawTotal())
+	if sa.testRawTotal() != 70 {
+		t.Errorf("RawTotal after second Add = %d, want 70", sa.testRawTotal())
 	}
 	if sa.Total() != 70 {
 		t.Errorf("Total after second Add = %d, want 70", sa.Total())
@@ -119,8 +134,8 @@ func TestScoreAccumulatorAddMultiple(t *testing.T) {
 	}
 	sa.AddMultiple(findings)
 
-	if sa.RawTotal() != 60 {
-		t.Errorf("RawTotal = %d, want 60", sa.RawTotal())
+	if sa.testRawTotal() != 60 {
+		t.Errorf("RawTotal = %d, want 60", sa.testRawTotal())
 	}
 	if len(sa.Findings()) != 3 {
 		t.Errorf("Findings count = %d, want 3", len(sa.Findings()))
@@ -144,12 +159,12 @@ func TestScoreAccumulatorTotalWithParanoiaLevels(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			sa := NewScoreAccumulator(tt.paranoiaLevel)
-			sa.Add(Finding{Score: tt.rawScore})
+			sa.Add(&Finding{Score: tt.rawScore})
 			if sa.Total() != tt.wantTotal {
 				t.Errorf("Total() = %d, want %d", sa.Total(), tt.wantTotal)
 			}
-			if sa.RawTotal() != tt.rawScore {
-				t.Errorf("RawTotal() = %d, want %d", sa.RawTotal(), tt.rawScore)
+			if sa.testRawTotal() != tt.rawScore {
+				t.Errorf("RawTotal() = %d, want %d", sa.testRawTotal(), tt.rawScore)
 			}
 		})
 	}
@@ -157,7 +172,7 @@ func TestScoreAccumulatorTotalWithParanoiaLevels(t *testing.T) {
 
 func TestScoreAccumulatorExceeds(t *testing.T) {
 	sa := NewScoreAccumulator(2) // multiplier = 1.0
-	sa.Add(Finding{Score: 50})
+	sa.Add(&Finding{Score: 50})
 
 	if sa.Exceeds(50) {
 		t.Error("Exceeds(50) = true, want false (score equals threshold)")
@@ -171,7 +186,7 @@ func TestScoreAccumulatorExceeds(t *testing.T) {
 
 	// With paranoia 4 (multiplier 2.0), raw score 50 -> total 100
 	sa2 := NewScoreAccumulator(4)
-	sa2.Add(Finding{Score: 50})
+	sa2.Add(&Finding{Score: 50})
 	if !sa2.Exceeds(99) {
 		t.Error("paranoia 4: Exceeds(99) = false, want true (total=100)")
 	}
@@ -183,52 +198,52 @@ func TestScoreAccumulatorExceeds(t *testing.T) {
 func TestScoreAccumulatorHighestSeverity(t *testing.T) {
 	t.Run("empty accumulator returns info", func(t *testing.T) {
 		sa := NewScoreAccumulator(2)
-		if sa.HighestSeverity() != SeverityInfo {
-			t.Errorf("HighestSeverity() = %v, want %v", sa.HighestSeverity(), SeverityInfo)
+		if sa.testHighestSeverity() != SeverityInfo {
+			t.Errorf("HighestSeverity() = %v, want %v", sa.testHighestSeverity(), SeverityInfo)
 		}
 	})
 
 	t.Run("single finding", func(t *testing.T) {
 		sa := NewScoreAccumulator(2)
-		sa.Add(Finding{Severity: SeverityHigh})
-		if sa.HighestSeverity() != SeverityHigh {
-			t.Errorf("HighestSeverity() = %v, want %v", sa.HighestSeverity(), SeverityHigh)
+		sa.Add(&Finding{Severity: SeverityHigh})
+		if sa.testHighestSeverity() != SeverityHigh {
+			t.Errorf("HighestSeverity() = %v, want %v", sa.testHighestSeverity(), SeverityHigh)
 		}
 	})
 
 	t.Run("mixed severities returns highest", func(t *testing.T) {
 		sa := NewScoreAccumulator(2)
-		sa.Add(Finding{Severity: SeverityLow})
-		sa.Add(Finding{Severity: SeverityCritical})
-		sa.Add(Finding{Severity: SeverityMedium})
-		if sa.HighestSeverity() != SeverityCritical {
-			t.Errorf("HighestSeverity() = %v, want %v", sa.HighestSeverity(), SeverityCritical)
+		sa.Add(&Finding{Severity: SeverityLow})
+		sa.Add(&Finding{Severity: SeverityCritical})
+		sa.Add(&Finding{Severity: SeverityMedium})
+		if sa.testHighestSeverity() != SeverityCritical {
+			t.Errorf("HighestSeverity() = %v, want %v", sa.testHighestSeverity(), SeverityCritical)
 		}
 	})
 
 	t.Run("all same severity", func(t *testing.T) {
 		sa := NewScoreAccumulator(2)
-		sa.Add(Finding{Severity: SeverityMedium})
-		sa.Add(Finding{Severity: SeverityMedium})
-		if sa.HighestSeverity() != SeverityMedium {
-			t.Errorf("HighestSeverity() = %v, want %v", sa.HighestSeverity(), SeverityMedium)
+		sa.Add(&Finding{Severity: SeverityMedium})
+		sa.Add(&Finding{Severity: SeverityMedium})
+		if sa.testHighestSeverity() != SeverityMedium {
+			t.Errorf("HighestSeverity() = %v, want %v", sa.testHighestSeverity(), SeverityMedium)
 		}
 	})
 }
 
 func TestScoreAccumulatorReset(t *testing.T) {
 	sa := NewScoreAccumulator(3)
-	sa.Add(Finding{Score: 50, Severity: SeverityHigh})
-	sa.Add(Finding{Score: 30, Severity: SeverityCritical})
+	sa.Add(&Finding{Score: 50, Severity: SeverityHigh})
+	sa.Add(&Finding{Score: 30, Severity: SeverityCritical})
 
-	if sa.RawTotal() != 80 {
-		t.Fatalf("pre-reset RawTotal = %d, want 80", sa.RawTotal())
+	if sa.testRawTotal() != 80 {
+		t.Fatalf("pre-reset RawTotal = %d, want 80", sa.testRawTotal())
 	}
 
 	sa.Reset()
 
-	if sa.RawTotal() != 0 {
-		t.Errorf("post-reset RawTotal = %d, want 0", sa.RawTotal())
+	if sa.testRawTotal() != 0 {
+		t.Errorf("post-reset RawTotal = %d, want 0", sa.testRawTotal())
 	}
 	if sa.Total() != 0 {
 		t.Errorf("post-reset Total = %d, want 0", sa.Total())
@@ -236,22 +251,22 @@ func TestScoreAccumulatorReset(t *testing.T) {
 	if len(sa.Findings()) != 0 {
 		t.Errorf("post-reset Findings len = %d, want 0", len(sa.Findings()))
 	}
-	if sa.HighestSeverity() != SeverityInfo {
-		t.Errorf("post-reset HighestSeverity = %v, want %v", sa.HighestSeverity(), SeverityInfo)
+	if sa.testHighestSeverity() != SeverityInfo {
+		t.Errorf("post-reset HighestSeverity = %v, want %v", sa.testHighestSeverity(), SeverityInfo)
 	}
 
 	// Verify accumulator still works after reset
-	sa.Add(Finding{Score: 10, Severity: SeverityLow})
-	if sa.RawTotal() != 10 {
-		t.Errorf("post-reset-add RawTotal = %d, want 10", sa.RawTotal())
+	sa.Add(&Finding{Score: 10, Severity: SeverityLow})
+	if sa.testRawTotal() != 10 {
+		t.Errorf("post-reset-add RawTotal = %d, want 10", sa.testRawTotal())
 	}
 }
 
 func TestScoreAccumulatorResetPreservesMultiplier(t *testing.T) {
 	sa := NewScoreAccumulator(4) // multiplier = 2.0
-	sa.Add(Finding{Score: 100})
+	sa.Add(&Finding{Score: 100})
 	sa.Reset()
-	sa.Add(Finding{Score: 50})
+	sa.Add(&Finding{Score: 50})
 	if sa.Total() != 100 {
 		t.Errorf("Total after reset = %d, want 100 (50 * 2.0)", sa.Total())
 	}
@@ -260,7 +275,7 @@ func TestScoreAccumulatorResetPreservesMultiplier(t *testing.T) {
 func TestAddTruncatesMatchedValue(t *testing.T) {
 	sa := NewScoreAccumulator(2)
 	longValue := strings.Repeat("x", 300)
-	sa.Add(Finding{MatchedValue: longValue, Score: 10})
+	sa.Add(&Finding{MatchedValue: longValue, Score: 10})
 
 	findings := sa.Findings()
 	if len(findings) != 1 {
@@ -276,7 +291,7 @@ func TestAddTruncatesMatchedValue(t *testing.T) {
 
 func TestAddPreservesShortMatchedValue(t *testing.T) {
 	sa := NewScoreAccumulator(2)
-	sa.Add(Finding{MatchedValue: "short", Score: 5})
+	sa.Add(&Finding{MatchedValue: "short", Score: 5})
 	findings := sa.Findings()
 	if findings[0].MatchedValue != "short" {
 		t.Errorf("MatchedValue = %q, want %q", findings[0].MatchedValue, "short")
@@ -288,8 +303,8 @@ func TestEmptyAccumulator(t *testing.T) {
 	if sa.Total() != 0 {
 		t.Errorf("empty Total = %d, want 0", sa.Total())
 	}
-	if sa.RawTotal() != 0 {
-		t.Errorf("empty RawTotal = %d, want 0", sa.RawTotal())
+	if sa.testRawTotal() != 0 {
+		t.Errorf("empty RawTotal = %d, want 0", sa.testRawTotal())
 	}
 	if sa.Exceeds(0) {
 		t.Error("empty Exceeds(0) = true, want false")

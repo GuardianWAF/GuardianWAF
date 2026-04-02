@@ -46,10 +46,10 @@ func (h *SSEHandler) authenticate(r *http.Request) bool {
 	if h.apiKey == "" {
 		return true
 	}
-	if key := r.Header.Get("X-API-Key"); len(key) > 0 {
+	if key := r.Header.Get("X-API-Key"); key != "" {
 		return subtle.ConstantTimeCompare([]byte(key), []byte(h.apiKey)) == 1
 	}
-	if key := r.URL.Query().Get("api_key"); len(key) > 0 {
+	if key := r.URL.Query().Get("api_key"); key != "" {
 		return subtle.ConstantTimeCompare([]byte(key), []byte(h.apiKey)) == 1
 	}
 	return false

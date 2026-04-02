@@ -1,10 +1,14 @@
 # GuardianWAF — Claude Code Instructions
 
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 ## Project Overview
-GuardianWAF is a zero-dependency Web Application Firewall written in Go.
+
+GuardianWAF is a zero-dependency Web Application Firewall written in Go (1.23+).
 Module: `github.com/guardianwaf/guardianwaf`
 
 ## Key Constraints
+
 - **ZERO external Go dependencies** — only Go stdlib. No exceptions.
 - Frontend (React dashboard) uses npm packages — that's OK, they embed into the Go binary.
 - Use `any` instead of `interface{}`
@@ -13,39 +17,67 @@ Module: `github.com/guardianwaf/guardianwaf`
 - Use `slices.Contains` where applicable
 
 ## Build & Test
+
 ```bash
+# Build and development
 make build          # Build binary (includes React dashboard)
+make run            # Build + run serve mode
+make ui             # Build React dashboard only
+make ui-dev         # Dashboard dev mode (hot reload on :5173, proxies API to :9443)
+
+# Testing
 make test           # Run all tests with -race
+make vet            # Run go vet
 make lint           # Run golangci-lint
 make bench          # Run benchmarks
+make fuzz           # Run fuzz tests (30s each)
 make cover          # Generate coverage report
-make docker-test    # Full Docker Compose integration test
 make smoke          # Build + run smoke tests
-go test ./...       # Quick test all packages
-go vet ./...        # Vet all packages
+make docker-test    # Full Docker Compose integration test
 
-# Dashboard frontend
-cd internal/dashboard/ui && npm install && npm run build
-cp -r internal/dashboard/ui/dist/* internal/dashboard/dist/
+# Running single tests
+go test -race -v ./internal/layers/detection/sqli/... -run TestDetector
+go test -race -v ./internal/engine/... -run TestPipeline
+
+# Quick validation during development
+go test -race -count=1 ./internal/layers/detection/...
+go vet ./...
+
+# Code formatting
+make fmt            # Format with gofmt -s
+make tidy           # Run go mod tidy
 ```
 
 ## Architecture
-13-layer pipeline executed in order:
-1. IP ACL (100) — radix tree CIDR matching
-2. Threat Intel (125) — IP/domain reputation feeds with LRU cache
-3. CORS (150) — origin validation, preflight caching
-4. Custom Rules (150) — geo-aware rule engine
-5. Rate Limit (200) — token bucket per IP/path, auto-ban
-6. ATO Protection (250) — brute force, credential stuffing, password spray, impossible travel
-7. API Security (275) — JWT validation (RS256/ES256/HS256), API key auth
-8. Sanitizer (300) — normalize + validate requests
-9. Detection (400) — 6 detectors: sqli, xss, lfi, cmdi, xxe, ssrf
-10. Bot Detection (500) — JA3/JA4 TLS fingerprinting, UA, behavioral analysis
-11. Response (600) — security headers, data masking
-12. JS Challenge — SHA-256 proof-of-work for suspicious requests (score 40-79)
-13. AI Analysis — background batch threat analysis via LLM (configurable provider)
+
+13-layer pipeline executed in order (lower numbers run first):
+
+| Order | Layer | Description |
+|-------|-------|-------------|
+| 100 | IP ACL | Radix tree CIDR matching, runtime add/remove |
+| 125 | Threat Intel | IP/domain reputation feeds with LRU cache |
+| 150 | CORS | Origin validation, preflight caching |
+| 150 | Custom Rules | Geo-aware rule engine with dashboard CRUD |
+| 200 | Rate Limit | Token bucket per IP/path, auto-ban |
+| 250 | ATO Protection | Brute force, credential stuffing, password spray, impossible travel |
+| 275 | API Security | JWT validation (RS256/ES256/HS256), API key auth |
+| 300 | Sanitizer | Normalize + validate requests |
+| 400 | Detection | 6 detectors: sqli, xss, lfi, cmdi, xxe, ssrf |
+| 500 | Bot Detection | JA3/JA4 TLS fingerprinting, UA, behavioral analysis |
+| 600 | Response | Security headers, data masking, branded block pages |
+| — | JS Challenge | SHA-256 proof-of-work for suspicious requests (score 40-79) |
+| — | AI Analysis | Background batch threat analysis via LLM (configurable provider) |
+
+## Scoring System
+
+- Each detector produces scores 0-100
+- Scores accumulate per-request
+- `block_threshold`: 50 (default), `log_threshold`: 25
+- Score 40-79 with bot detection → JS challenge
+- Per-detector multipliers adjust sensitivity
 
 ## Package Layout
+
 - `cmd/guardianwaf/` — CLI (serve, sidecar, check, validate)
 - `internal/engine/` — Core engine, pipeline, scoring, context, access logging, panic recovery
 - `internal/config/` — Custom YAML parser, config structs, validation, YAML serializer
@@ -53,7 +85,7 @@ cp -r internal/dashboard/ui/dist/* internal/dashboard/dist/
 - `internal/proxy/` — Reverse proxy, load balancer (RR/weighted/least-conn/ip-hash), health check, circuit breaker, host-based router, WebSocket support
 - `internal/tls/` — TLS cert store, SNI-based cert selection, hot-reload, HTTP/2 support
 - `internal/dashboard/` — Web UI (React+Vite+TailwindCSS), REST API, SSE, config editor, AI page, routing topology graph (React Flow)
-- `internal/mcp/` — MCP JSON-RPC server (15 tools)
+- `internal/mcp/` — MCP JSON-RPC server (15 tools: get_stats, get_events, add_blacklist, etc.)
 - `internal/events/` — Event storage (memory ring buffer, JSONL file)
 - `internal/ai/` — AI threat analysis (provider catalog from models.dev, OpenAI-compatible client, batch analyzer, cost control, JSON store)
 - `internal/docker/` — Docker auto-discovery (Unix socket/CLI, label-based routing, event watcher)
@@ -62,14 +94,16 @@ cp -r internal/dashboard/ui/dist/* internal/dashboard/dist/
 - `guardianwaf.go` + `options.go` — Public library API
 
 ## Docker Auto-Discovery
+
 - Watches Docker daemon for containers with `gwaf.*` labels
 - Auto-creates upstreams, routes, virtual hosts from labels
 - Event-driven (container start/stop) + poll fallback
 - Zero-downtime atomic proxy rebuild on changes
 - Platform-agnostic: Unix socket (Linux), named pipe (Windows), Docker CLI
-- Label format: `gwaf.enable`, `gwaf.host`, `gwaf.port`, `gwaf.upstream`, `gwaf.path`, `gwaf.weight`, `gwaf.lb`, `gwaf.health.path`, etc.
+- Label format: `gwaf.enable`, `gwaf.host`, `gwaf.port`, `gwaf.upstream`, `gwaf.path`, `gwaf.weight`, `gwaf.lb`, `gwaf.health.path`
 
 ## AI Threat Analysis
+
 - Background batch processor (NOT per-request — too slow/expensive)
 - Fetches provider/model catalog from models.dev
 - OpenAI-compatible API client (works with any provider)
@@ -77,7 +111,29 @@ cp -r internal/dashboard/ui/dist/* internal/dashboard/dist/
 - Auto-block IPs based on AI verdict (confidence >= 70%)
 - Dashboard UI for provider config, analysis history, usage stats
 
-## Proxy & Routing
+## Dashboard Development
+
+```bash
+# Hot reload dev server (React + Vite)
+cd internal/dashboard/ui && npm run dev
+# Vite dev server runs on :5173, proxies API requests to :9443
+
+# Build for production (run from repo root)
+make ui
+# Outputs to internal/dashboard/dist/ which is embedded in Go binary
+```
+
+## CLI Commands
+
+```
+guardianwaf serve     # Standalone reverse proxy (full features, includes dashboard on :9443)
+guardianwaf sidecar   # Lightweight proxy (no dashboard/MCP)
+guardianwaf check     # Dry-run request test (send request and see scoring)
+guardianwaf validate  # Config file validation
+```
+
+## Proxy & Routing Architecture
+
 - Multi-upstream with multiple targets per upstream
 - 4 load balancing strategies: round_robin, weighted, least_conn, ip_hash
 - Active health checks (configurable interval, timeout, path)
@@ -86,35 +142,12 @@ cp -r internal/dashboard/ui/dist/* internal/dashboard/dist/
 - Wildcard domain support (*.example.com)
 - TLS termination with SNI cert selection, cert hot-reload, HTTP/2
 - WebSocket proxy support (Upgrade header forwarding)
-- Docker auto-discovery: label-based automatic upstream/route creation
 
 ## Observability
+
 - Prometheus `/metrics` endpoint (requests, blocks, latency)
 - `/healthz` endpoint (JSON status for K8s probes)
 - Structured access logging (JSON or text format)
 - Log level filtering (debug/info/warn/error)
 - Real-time SSE event streaming to dashboard
 - Application log buffer with level filtering
-
-## Scoring System
-- Each detector produces scores 0-100
-- Scores accumulate per-request
-- block_threshold: 50 (default), log_threshold: 25
-- Score 40-79 with bot detection → JS challenge
-- Per-detector multipliers adjust sensitivity
-
-## Dashboard
-- Real-time monitoring UI on `:9443` (React + Vite + Tailwind)
-- Pages: Dashboard, Routing (topology graph + config), Rules, WAF Config, AI Analysis, Logs
-- Routing topology: interactive React Flow graph with TLS/SSL, ports, health status
-- REST API: stats, events, config, IP ACL, rules, routing, AI, Docker discovery
-- SSE streaming for live event feed
-- Config persistence: changes saved to YAML file on disk
-
-## CLI Commands
-```
-guardianwaf serve     # Standalone reverse proxy (full features)
-guardianwaf sidecar   # Lightweight proxy (no dashboard/MCP)
-guardianwaf check     # Dry-run request test
-guardianwaf validate  # Config validation
-```

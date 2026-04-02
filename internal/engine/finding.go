@@ -92,27 +92,22 @@ func paranoiaToMultiplier(level int) float64 {
 }
 
 // Add adds a finding to the accumulator
-func (sa *ScoreAccumulator) Add(f Finding) {
+func (sa *ScoreAccumulator) Add(f *Finding) {
 	f.MatchedValue = truncateEvidence(f.MatchedValue, 200)
-	sa.findings = append(sa.findings, f)
+	sa.findings = append(sa.findings, *f)
 	sa.totalScore += f.Score
 }
 
 // AddMultiple adds multiple findings
 func (sa *ScoreAccumulator) AddMultiple(findings []Finding) {
-	for _, f := range findings {
-		sa.Add(f)
+	for i := range findings {
+		sa.Add(&findings[i])
 	}
 }
 
 // Total returns the total accumulated score with paranoia multiplier applied
 func (sa *ScoreAccumulator) Total() int {
 	return int(float64(sa.totalScore) * sa.multiplier)
-}
-
-// RawTotal returns the total score without paranoia multiplier
-func (sa *ScoreAccumulator) RawTotal() int {
-	return sa.totalScore
 }
 
 // Exceeds returns true if the accumulated score exceeds the threshold
@@ -123,18 +118,6 @@ func (sa *ScoreAccumulator) Exceeds(threshold int) bool {
 // Findings returns all accumulated findings
 func (sa *ScoreAccumulator) Findings() []Finding {
 	return sa.findings
-}
-
-// HighestSeverity returns the maximum severity from all findings.
-// Returns SeverityInfo if there are no findings.
-func (sa *ScoreAccumulator) HighestSeverity() Severity {
-	highest := SeverityInfo
-	for _, f := range sa.findings {
-		if f.Severity > highest {
-			highest = f.Severity
-		}
-	}
-	return highest
 }
 
 // Reset clears the accumulator for reuse (sync.Pool friendly)

@@ -4,8 +4,8 @@
 package dashboard
 
 import (
-	"embed"
 	"crypto/subtle"
+	"embed"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -23,6 +23,7 @@ import (
 var distFS embed.FS
 
 // Legacy static files kept for backward compatibility
+//
 //go:embed static/index.html static/style.css static/app.js static/config.html static/config.js static/routing.html static/routing.js
 var staticFiles embed.FS
 
@@ -33,17 +34,17 @@ type Dashboard struct {
 	sse           *SSEBroadcaster
 	mux           *http.ServeMux
 	apiKey        string
-	upstreamsFn   func() any // returns upstream status (injected to avoid circular imports)
+	upstreamsFn   func() any   // returns upstream status (injected to avoid circular imports)
 	rebuildFn     func() error // rebuilds proxy after config change
 	saveFn        func() error // persists current config to disk
-	rulesFn       func() any // returns rules list
+	rulesFn       func() any   // returns rules list
 	addRuleFn     func(map[string]any) error
 	updateRuleFn  func(string, map[string]any) error
 	deleteRuleFn  func(string) bool
 	toggleRuleFn  func(string, bool) bool
 	geoLookupFn   func(string) (string, string) // ip -> (country_code, country_name)
-	aiAnalyzer    aiAnalyzerInterface          // AI threat analyzer (optional)
-	dockerWatcher dockerWatcherInterface       // Docker auto-discovery (optional)
+	aiAnalyzer    aiAnalyzerInterface           // AI threat analyzer (optional)
+	dockerWatcher dockerWatcherInterface        // Docker auto-discovery (optional)
 }
 
 // New creates a new Dashboard wired to the given engine and event store.
@@ -103,13 +104,13 @@ func New(eng *engine.Engine, store events.EventStore, apiKey string) *Dashboard 
 	d.mux.HandleFunc("GET /api/v1/docker/services", d.authWrap(d.handleDockerServices))
 
 	// SPA serving — React build output from dist/ with fallback to legacy static/
-	d.mux.HandleFunc("GET /assets/", d.handleDistAssets) // Vite hashed assets — public (content-hashed, no secrets)
-	d.mux.HandleFunc("GET /config", d.authWrap(d.handleSPA))        // SPA routes
-	d.mux.HandleFunc("GET /routing", d.authWrap(d.handleSPA))       // SPA routes
-	d.mux.HandleFunc("GET /logs", d.authWrap(d.handleSPA))          // SPA routes
-	d.mux.HandleFunc("GET /rules", d.authWrap(d.handleSPA))         // SPA routes
-	d.mux.HandleFunc("GET /ai", d.authWrap(d.handleSPA))            // SPA routes
-	d.mux.HandleFunc("/", d.authWrap(d.handleSPA))                  // SPA catch-all
+	d.mux.HandleFunc("GET /assets/", d.handleDistAssets)      // Vite hashed assets — public (content-hashed, no secrets)
+	d.mux.HandleFunc("GET /config", d.authWrap(d.handleSPA))  // SPA routes
+	d.mux.HandleFunc("GET /routing", d.authWrap(d.handleSPA)) // SPA routes
+	d.mux.HandleFunc("GET /logs", d.authWrap(d.handleSPA))    // SPA routes
+	d.mux.HandleFunc("GET /rules", d.authWrap(d.handleSPA))   // SPA routes
+	d.mux.HandleFunc("GET /ai", d.authWrap(d.handleSPA))      // SPA routes
+	d.mux.HandleFunc("/", d.authWrap(d.handleSPA))            // SPA catch-all
 
 	return d
 }
@@ -156,7 +157,7 @@ func (d *Dashboard) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write([]byte(loginPage("")))
+	_, _ = w.Write([]byte(loginPage("")))
 }
 
 func (d *Dashboard) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
@@ -168,7 +169,7 @@ func (d *Dashboard) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 	if subtle.ConstantTimeCompare([]byte(key), []byte(d.apiKey)) != 1 {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte(loginPage("Invalid API key. Please try again.")))
+		_, _ = w.Write([]byte(loginPage("Invalid API key. Please try again.")))
 		return
 	}
 	setSessionCookie(w, r)
@@ -611,16 +612,16 @@ func (d *Dashboard) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 				},
 			},
 			"cors": map[string]any{
-				"enabled":          cfg.WAF.CORS.Enabled,
-				"allow_origins":    cfg.WAF.CORS.AllowOrigins,
-				"allow_methods":    cfg.WAF.CORS.AllowMethods,
-				"allow_headers":    cfg.WAF.CORS.AllowHeaders,
+				"enabled":           cfg.WAF.CORS.Enabled,
+				"allow_origins":     cfg.WAF.CORS.AllowOrigins,
+				"allow_methods":     cfg.WAF.CORS.AllowMethods,
+				"allow_headers":     cfg.WAF.CORS.AllowHeaders,
 				"allow_credentials": cfg.WAF.CORS.AllowCredentials,
-				"strict_mode":      cfg.WAF.CORS.StrictMode,
+				"strict_mode":       cfg.WAF.CORS.StrictMode,
 			},
 			"threat_intel": map[string]any{
-				"enabled":     cfg.WAF.ThreatIntel.Enabled,
-				"cache_size":  cfg.WAF.ThreatIntel.CacheSize,
+				"enabled":    cfg.WAF.ThreatIntel.Enabled,
+				"cache_size": cfg.WAF.ThreatIntel.CacheSize,
 				"ip_reputation": map[string]any{
 					"enabled":         cfg.WAF.ThreatIntel.IPReputation.Enabled,
 					"block_malicious": cfg.WAF.ThreatIntel.IPReputation.BlockMalicious,
@@ -632,11 +633,11 @@ func (d *Dashboard) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 				},
 			},
 			"ato_protection": map[string]any{
-				"enabled":      cfg.WAF.ATOProtection.Enabled,
-				"login_paths":  cfg.WAF.ATOProtection.LoginPaths,
+				"enabled":     cfg.WAF.ATOProtection.Enabled,
+				"login_paths": cfg.WAF.ATOProtection.LoginPaths,
 				"brute_force": map[string]any{
-					"enabled":               cfg.WAF.ATOProtection.BruteForce.Enabled,
-					"max_attempts_per_ip":   cfg.WAF.ATOProtection.BruteForce.MaxAttemptsPerIP,
+					"enabled":                cfg.WAF.ATOProtection.BruteForce.Enabled,
+					"max_attempts_per_ip":    cfg.WAF.ATOProtection.BruteForce.MaxAttemptsPerIP,
 					"max_attempts_per_email": cfg.WAF.ATOProtection.BruteForce.MaxAttemptsPerEmail,
 				},
 				"credential_stuffing": map[string]any{
@@ -651,16 +652,16 @@ func (d *Dashboard) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 			"api_security": map[string]any{
 				"enabled": cfg.WAF.APISecurity.Enabled,
 				"jwt": map[string]any{
-					"enabled":        cfg.WAF.APISecurity.JWT.Enabled,
-					"issuer":         cfg.WAF.APISecurity.JWT.Issuer,
-					"audience":       cfg.WAF.APISecurity.JWT.Audience,
-					"algorithms":     cfg.WAF.APISecurity.JWT.Algorithms,
-					"jwks_url":       cfg.WAF.APISecurity.JWT.JWKSURL,
+					"enabled":    cfg.WAF.APISecurity.JWT.Enabled,
+					"issuer":     cfg.WAF.APISecurity.JWT.Issuer,
+					"audience":   cfg.WAF.APISecurity.JWT.Audience,
+					"algorithms": cfg.WAF.APISecurity.JWT.Algorithms,
+					"jwks_url":   cfg.WAF.APISecurity.JWT.JWKSURL,
 				},
 				"api_keys": map[string]any{
-					"enabled":    cfg.WAF.APISecurity.APIKeys.Enabled,
+					"enabled":     cfg.WAF.APISecurity.APIKeys.Enabled,
 					"header_name": cfg.WAF.APISecurity.APIKeys.HeaderName,
-					"key_count":  len(cfg.WAF.APISecurity.APIKeys.Keys),
+					"key_count":   len(cfg.WAF.APISecurity.APIKeys.Keys),
 				},
 			},
 		},
@@ -1342,7 +1343,7 @@ func (d *Dashboard) handleSPA(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
-	w.Write(data)
+	_, _ = w.Write(data)
 }
 
 // handleDistAssets serves Vite-built assets (JS/CSS with content hashes).
@@ -1358,21 +1359,22 @@ func (d *Dashboard) handleDistAssets(w http.ResponseWriter, r *http.Request) {
 
 	// Content-Type detection
 	ct := "application/octet-stream"
-	if strings.HasSuffix(r.URL.Path, ".js") {
+	switch {
+	case strings.HasSuffix(r.URL.Path, ".js"):
 		ct = "application/javascript; charset=utf-8"
-	} else if strings.HasSuffix(r.URL.Path, ".css") {
+	case strings.HasSuffix(r.URL.Path, ".css"):
 		ct = "text/css; charset=utf-8"
-	} else if strings.HasSuffix(r.URL.Path, ".svg") {
+	case strings.HasSuffix(r.URL.Path, ".svg"):
 		ct = "image/svg+xml"
-	} else if strings.HasSuffix(r.URL.Path, ".png") {
+	case strings.HasSuffix(r.URL.Path, ".png"):
 		ct = "image/png"
-	} else if strings.HasSuffix(r.URL.Path, ".woff2") {
+	case strings.HasSuffix(r.URL.Path, ".woff2"):
 		ct = "font/woff2"
 	}
 
 	w.Header().Set("Content-Type", ct)
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-	w.Write(data)
+	_, _ = w.Write(data)
 }
 
 // --- SSE Broadcaster ---
@@ -1473,7 +1475,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 func formatFindings(findings []engine.Finding) []map[string]any {

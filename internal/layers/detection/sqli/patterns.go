@@ -75,8 +75,8 @@ func AnalyzeTokens(tokens []Token, location string) []engine.Finding {
 
 // Detect is the main entry point for SQLi detection on a single input string.
 // It tokenizes the input and analyzes the token sequence.
-func Detect(input string, location string) []engine.Finding {
-	if len(input) == 0 {
+func Detect(input, location string) []engine.Finding {
+	if input == "" {
 		return nil
 	}
 	tokens := Tokenize(input)
@@ -254,7 +254,7 @@ func hasTautology(tokens []Token, startIdx int) bool {
 			next := tokens[idx+1]
 			if next.Type == TokenOther || next.Type == TokenNumericLiteral || next.Type == TokenKeyword {
 				rightInner := strings.ToUpper(next.Value)
-				if strings.ToUpper(leftInner) == rightInner {
+				if strings.EqualFold(leftInner, rightInner) {
 					return true
 				}
 			}

@@ -89,7 +89,7 @@ func TestNewClient(t *testing.T) {
 func TestClientInitGeneratesKey(t *testing.T) {
 	// Mock directory server
 	dirSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(directory{
+		_ = json.NewEncoder(w).Encode(directory{
 			NewNonce:   "http://localhost/nonce",
 			NewAccount: "http://localhost/account",
 			NewOrder:   "http://localhost/order",
@@ -114,7 +114,7 @@ func TestClientInitLoadsKey(t *testing.T) {
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der})
 
 	dirSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(directory{
+		_ = json.NewEncoder(w).Encode(directory{
 			NewNonce:   "http://localhost/nonce",
 			NewAccount: "http://localhost/account",
 			NewOrder:   "http://localhost/order",
@@ -134,7 +134,7 @@ func TestClientInitLoadsKey(t *testing.T) {
 
 func TestClientAccountKeyPEM(t *testing.T) {
 	dirSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(directory{
+		_ = json.NewEncoder(w).Encode(directory{
 			NewNonce:   "http://localhost/nonce",
 			NewAccount: "http://localhost/account",
 			NewOrder:   "http://localhost/order",
@@ -143,7 +143,7 @@ func TestClientAccountKeyPEM(t *testing.T) {
 	defer dirSrv.Close()
 
 	c := NewClient(dirSrv.URL)
-	c.Init(nil)
+	_ = c.Init(nil)
 
 	pemData, err := c.AccountKeyPEM()
 	if err != nil {
@@ -161,7 +161,7 @@ func TestClientAccountKeyPEM(t *testing.T) {
 
 func TestClientInitInvalidKey(t *testing.T) {
 	dirSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(directory{})
+		_ = json.NewEncoder(w).Encode(directory{})
 	}))
 	defer dirSrv.Close()
 
@@ -196,8 +196,8 @@ func TestCertDiskStoreLoadCached(t *testing.T) {
 	certPEM, keyPEM := generateSelfSignedCert(t, "test.com")
 
 	// Pre-populate cache
-	os.WriteFile(filepath.Join(dir, "test.com.crt"), certPEM, 0600)
-	os.WriteFile(filepath.Join(dir, "test.com.key"), keyPEM, 0600)
+	_ = os.WriteFile(filepath.Join(dir, "test.com.crt"), certPEM, 0600)
+	_ = os.WriteFile(filepath.Join(dir, "test.com.key"), keyPEM, 0600)
 
 	store := NewCertDiskStore(dir, nil, nil)
 	cert, err := store.LoadOrObtain([]string{"test.com"})
@@ -263,7 +263,7 @@ func TestFileExists(t *testing.T) {
 	if fileExists(f) {
 		t.Error("should not exist yet")
 	}
-	os.WriteFile(f, []byte("hi"), 0644)
+	_ = os.WriteFile(f, []byte("hi"), 0644)
 	if !fileExists(f) {
 		t.Error("should exist after write")
 	}

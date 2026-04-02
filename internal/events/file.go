@@ -36,7 +36,7 @@ func NewFileStore(filePath string, maxSize int64) (*FileStore, error) {
 		maxSize = defaultMaxSize
 	}
 
-	f, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	f, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return nil, err
 	}
@@ -190,9 +190,9 @@ func (fs *FileStore) checkRotation() {
 		base = fs.filePath[:idx]
 	}
 	rotatedName := base + "-" + ts + ext
-	if err := os.Rename(fs.filePath, rotatedName); err != nil {
+	if renameErr := os.Rename(fs.filePath, rotatedName); renameErr != nil {
 		// If rename fails, continue with the current file
-		f, _ := os.OpenFile(fs.filePath, os.O_WRONLY|os.O_APPEND, 0644)
+		f, _ := os.OpenFile(fs.filePath, os.O_WRONLY|os.O_APPEND, 0o644)
 		if f != nil {
 			fs.file = f
 			fs.writer = bufio.NewWriterSize(f, 32*1024)
@@ -201,11 +201,11 @@ func (fs *FileStore) checkRotation() {
 	}
 
 	// Create new file
-	f, err := os.OpenFile(fs.filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	f, err := os.OpenFile(fs.filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		// If we can't create a new file, try to reopen with the rotated name
 		// This is a best-effort recovery
-		f, _ = os.OpenFile(rotatedName, os.O_WRONLY|os.O_APPEND, 0644)
+		f, _ = os.OpenFile(rotatedName, os.O_WRONLY|os.O_APPEND, 0o644)
 	}
 	fs.file = f
 	fs.writer = bufio.NewWriterSize(f, 32*1024)

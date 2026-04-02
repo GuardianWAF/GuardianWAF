@@ -44,12 +44,12 @@ func generateTestCert(t *testing.T, domains ...string) (certFile, keyFile string
 	keyFile = filepath.Join(dir, "key.pem")
 
 	certOut, _ := os.Create(certFile)
-	pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	_ = pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 	certOut.Close()
 
 	keyBytes, _ := x509.MarshalECPrivateKey(key)
 	keyOut, _ := os.Create(keyFile)
-	pem.Encode(keyOut, &pem.Block{Type: "EC PRIVATE KEY", Bytes: keyBytes})
+	_ = pem.Encode(keyOut, &pem.Block{Type: "EC PRIVATE KEY", Bytes: keyBytes})
 	keyOut.Close()
 
 	return certFile, keyFile
@@ -149,9 +149,9 @@ func TestGetCertificatePriority(t *testing.T) {
 	defaultCert, defaultKey := generateTestCert(t, "default")
 
 	cs := NewCertStore()
-	cs.LoadDefaultCert(defaultCert, defaultKey)
-	cs.LoadCert([]string{"api.example.com"}, exactCert, exactKey)
-	cs.LoadCert([]string{"*.example.com"}, wildcardCert, wildcardKey)
+	_ = cs.LoadDefaultCert(defaultCert, defaultKey)
+	_ = cs.LoadCert([]string{"api.example.com"}, exactCert, exactKey)
+	_ = cs.LoadCert([]string{"*.example.com"}, wildcardCert, wildcardKey)
 
 	tests := []struct {
 		serverName string
@@ -177,7 +177,7 @@ func TestGetCertificatePriority(t *testing.T) {
 func TestTLSConfig(t *testing.T) {
 	certFile, keyFile := generateTestCert(t, "test.com")
 	cs := NewCertStore()
-	cs.LoadCert([]string{"test.com"}, certFile, keyFile)
+	_ = cs.LoadCert([]string{"test.com"}, certFile, keyFile)
 
 	tlsCfg := cs.TLSConfig()
 	if tlsCfg == nil {
@@ -194,7 +194,7 @@ func TestTLSConfig(t *testing.T) {
 func TestCertHotReload(t *testing.T) {
 	certFile, keyFile := generateTestCert(t, "reload.com")
 	cs := NewCertStore()
-	cs.LoadCert([]string{"reload.com"}, certFile, keyFile)
+	_ = cs.LoadCert([]string{"reload.com"}, certFile, keyFile)
 
 	// Get original cert
 	hello := &tls.ClientHelloInfo{ServerName: "reload.com"}
@@ -238,7 +238,7 @@ func TestLoadCertInvalidFiles(t *testing.T) {
 func TestCaseInsensitiveLookup(t *testing.T) {
 	certFile, keyFile := generateTestCert(t, "API.Example.COM")
 	cs := NewCertStore()
-	cs.LoadCert([]string{"API.Example.COM"}, certFile, keyFile)
+	_ = cs.LoadCert([]string{"API.Example.COM"}, certFile, keyFile)
 
 	hello := &tls.ClientHelloInfo{ServerName: "api.example.com"}
 	cert, err := cs.GetCertificate(hello)

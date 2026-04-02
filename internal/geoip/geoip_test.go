@@ -24,7 +24,7 @@ func TestLookupNilDB(t *testing.T) {
 func TestLoadCSVSimpleFormat(t *testing.T) {
 	dir := t.TempDir()
 	csv := filepath.Join(dir, "geo.csv")
-	os.WriteFile(csv, []byte(`# GeoIP test data
+	_ = os.WriteFile(csv, []byte(`# GeoIP test data
 1.0.0.0,1.0.0.255,AU
 1.0.1.0,1.0.3.255,CN
 8.8.8.0,8.8.8.255,US
@@ -60,7 +60,7 @@ func TestLoadCSVSimpleFormat(t *testing.T) {
 func TestLoadCSVCIDRFormat(t *testing.T) {
 	dir := t.TempDir()
 	csv := filepath.Join(dir, "geo.csv")
-	os.WriteFile(csv, []byte(`10.0.0.0/8,US
+	_ = os.WriteFile(csv, []byte(`10.0.0.0/8,US
 172.16.0.0/12,DE
 192.168.0.0/16,TR
 `), 0644)
@@ -138,7 +138,7 @@ func BenchmarkLookup(b *testing.B) {
 			net.IPv4(byte(hi), byte(lo), 0, 0).String()+","+
 				net.IPv4(byte(hi), byte(lo), 255, 255).String()+",US\n")...)
 	}
-	os.WriteFile(csv, data, 0644)
+	_ = os.WriteFile(csv, data, 0644)
 
 	db, _ := LoadCSV(csv)
 	ip := net.ParseIP("1.100.50.25")

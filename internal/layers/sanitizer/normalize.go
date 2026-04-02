@@ -126,7 +126,7 @@ func CanonicalizePath(s string) string {
 	s = strings.ReplaceAll(s, "\\", "/")
 
 	// Preserve leading slash
-	hasLeadingSlash := len(s) > 0 && s[0] == '/'
+	hasLeadingSlash := s != "" && s[0] == '/'
 
 	parts := strings.Split(s, "/")
 	var resolved []string
@@ -303,7 +303,7 @@ var namedEntities = map[string]rune{
 
 // parseHexEntity parses a hex numeric character reference value.
 func parseHexEntity(s string) (int, bool) {
-	if len(s) == 0 || len(s) > 6 {
+	if s == "" || len(s) > 6 {
 		return 0, false
 	}
 	val := 0
@@ -319,7 +319,7 @@ func parseHexEntity(s string) (int, bool) {
 
 // parseDecEntity parses a decimal numeric character reference value.
 func parseDecEntity(s string) (int, bool) {
-	if len(s) == 0 || len(s) > 7 {
+	if s == "" || len(s) > 7 {
 		return 0, false
 	}
 	val := 0
@@ -358,7 +358,7 @@ func NormalizeWhitespace(s string) string {
 
 	result := b.String()
 	// Trim trailing space (from the last whitespace run)
-	if len(result) > 0 && result[len(result)-1] == ' ' {
+	if result != "" && result[len(result)-1] == ' ' {
 		result = result[:len(result)-1]
 	}
 	return result

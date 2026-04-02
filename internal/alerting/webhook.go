@@ -5,6 +5,7 @@ package alerting
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -20,8 +21,8 @@ import (
 type WebhookTarget struct {
 	Name     string
 	URL      string
-	Type     string            // "slack", "discord", "generic"
-	Events   []string          // "block", "challenge", "log", "all"
+	Type     string   // "slack", "discord", "generic"
+	Events   []string // "block", "challenge", "log", "all"
 	MinScore int
 	Cooldown time.Duration
 	Headers  map[string]string
@@ -42,7 +43,6 @@ type Alert struct {
 
 // Manager manages webhook delivery for security events.
 type Manager struct {
-	mu         sync.RWMutex
 	webhooks   []webhook
 	httpClient *http.Client
 	logFn      func(level, msg string)
@@ -60,9 +60,9 @@ type webhook struct {
 
 // Stats holds alerting statistics.
 type Stats struct {
-	Sent          int64 `json:"sent"`
-	Failed        int64 `json:"failed"`
-	WebhookCount  int   `json:"webhook_count"`
+	Sent         int64 `json:"sent"`
+	Failed       int64 `json:"failed"`
+	WebhookCount int   `json:"webhook_count"`
 }
 
 // NewManager creates an alerting manager from config.
@@ -100,10 +100,10 @@ func (m *Manager) GetStats() Stats {
 }
 
 // HandleEvent processes a WAF event and fires matching webhooks.
-func (m *Manager) HandleEvent(event engine.Event) {
+func (m *Manager) HandleEvent(event *engine.Event) {
 	action := event.Action.String()
 
-	var findings []string
+	findings := make([]string, 0, len(event.Findings))
 	for _, f := range event.Findings {
 		findings = append(findings, fmt.Sprintf("%s: %s (score=%d)", f.DetectorName, f.Description, f.Score))
 	}
@@ -144,12 +144,12 @@ func (m *Manager) HandleEvent(event engine.Event) {
 		}
 
 		// Fire async
-		go m.send(wh.config, alert)
+		go m.send(&wh.config, &alert)
 	}
 }
 
 // send delivers an alert to a webhook endpoint.
-func (m *Manager) send(wc WebhookTarget, alert Alert) {
+func (m *Manager) send(wc *WebhookTarget, alert *Alert) {
 	var body []byte
 	var err error
 
@@ -166,7 +166,8 @@ func (m *Manager) send(wc WebhookTarget, alert Alert) {
 		return
 	}
 
-	req, err := http.NewRequest("POST", wc.URL, bytes.NewReader(body))
+	ctx := context.Background()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, wc.URL, bytes.NewReader(body))
 	if err != nil {
 		m.failed.Add(1)
 		return
@@ -186,7 +187,7 @@ func (m *Manager) send(wc WebhookTarget, alert Alert) {
 		return
 	}
 	defer resp.Body.Close()
-	io.Copy(io.Discard, resp.Body)
+	_, _ = io.Copy(io.Discard, resp.Body)
 
 	if resp.StatusCode >= 400 {
 		m.failed.Add(1)
@@ -211,7 +212,7 @@ func matchesEvent(events []string, action string) bool {
 
 // --- Slack format ---
 
-func slackPayload(a Alert) map[string]any {
+func slackPayload(a *Alert) map[string]any {
 	color := "#ff0000"
 	if a.Action == "log" {
 		color = "#ffaa00"
@@ -230,9 +231,9 @@ func slackPayload(a Alert) map[string]any {
 	return map[string]any{
 		"attachments": []map[string]any{
 			{
-				"color":  color,
-				"title":  fmt.Sprintf("GuardianWAF — %s", a.Action),
-				"text":   fmt.Sprintf("**%s** `%s %s` from `%s` (score: %d)", a.Action, a.Method, a.Path, a.ClientIP, a.Score),
+				"color": color,
+				"title": fmt.Sprintf("GuardianWAF — %s", a.Action),
+				"text":  fmt.Sprintf("**%s** `%s %s` from `%s` (score: %d)", a.Action, a.Method, a.Path, a.ClientIP, a.Score),
 				"fields": []map[string]any{
 					{"title": "IP", "value": a.ClientIP, "short": true},
 					{"title": "Score", "value": fmt.Sprintf("%d", a.Score), "short": true},
@@ -248,7 +249,7 @@ func slackPayload(a Alert) map[string]any {
 
 // --- Discord format ---
 
-func discordPayload(a Alert) map[string]any {
+func discordPayload(a *Alert) map[string]any {
 	color := 0xff0000
 	if a.Action == "log" {
 		color = 0xffaa00

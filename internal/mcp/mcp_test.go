@@ -108,7 +108,7 @@ func readResponse(t *testing.T, output string) JSONRPCResponse {
 func readAllResponses(t *testing.T, output string) []JSONRPCResponse {
 	t.Helper()
 	lines := strings.Split(strings.TrimSpace(output), "\n")
-	var responses []JSONRPCResponse
+	responses := make([]JSONRPCResponse, 0, len(lines))
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -248,7 +248,7 @@ func TestInvalidJSONRPCVersion(t *testing.T) {
 	output := &bytes.Buffer{}
 	s := NewServer(strings.NewReader(req), output)
 
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	if resp.Error == nil {
@@ -272,7 +272,7 @@ func TestInitializeHandshake(t *testing.T) {
 	s := NewServer(strings.NewReader(input), output)
 	s.SetServerInfo("guardianwaf", "1.2.3")
 
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	if resp.Error != nil {
@@ -310,7 +310,7 @@ func TestToolsList(t *testing.T) {
 	s.SetEngine(newMockEngine())
 	s.RegisterAllTools()
 
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	if resp.Error != nil {
@@ -343,7 +343,7 @@ func TestToolsCallDispatch(t *testing.T) {
 	s.SetEngine(mock)
 	s.RegisterAllTools()
 
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	if resp.Error != nil {
@@ -372,7 +372,7 @@ func TestToolsCallUnknownTool(t *testing.T) {
 	s := NewServer(strings.NewReader(input), output)
 	s.RegisterAllTools()
 
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	if resp.Error == nil {
@@ -388,7 +388,7 @@ func TestMethodNotFound(t *testing.T) {
 	output := &bytes.Buffer{}
 	s := NewServer(strings.NewReader(input), output)
 
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	if resp.Error == nil {
@@ -405,7 +405,7 @@ func TestInvalidToolCallParams(t *testing.T) {
 	output := &bytes.Buffer{}
 	s := NewServer(strings.NewReader(input), output)
 
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	if resp.Error == nil {
@@ -422,7 +422,7 @@ func TestNotificationInitialized(t *testing.T) {
 	output := &bytes.Buffer{}
 	s := NewServer(strings.NewReader(input), output)
 
-	s.Run()
+	_ = s.Run()
 
 	if output.Len() != 0 {
 		t.Fatalf("expected no response for notification, got: %s", output.String())
@@ -447,18 +447,18 @@ func TestIOPipeRoundTrip(t *testing.T) {
 		"capabilities":    map[string]any{},
 		"clientInfo":      map[string]any{"name": "test", "version": "1.0"},
 	})
-	pw.Write([]byte(initReq))
+	_, _ = pw.Write([]byte(initReq))
 
 	// Send tools/list
 	listReq := sendRequest(2, "tools/list", nil)
-	pw.Write([]byte(listReq))
+	_, _ = pw.Write([]byte(listReq))
 
 	// Send tools/call
 	callReq := sendRequest(3, "tools/call", map[string]any{
 		"name":      "guardianwaf_get_stats",
 		"arguments": map[string]any{},
 	})
-	pw.Write([]byte(callReq))
+	_, _ = pw.Write([]byte(callReq))
 
 	// Close pipe to end the server
 	pw.Close()
@@ -520,7 +520,7 @@ func TestMultipleRequestsSequential(t *testing.T) {
 	s.SetEngine(newMockEngine())
 	s.RegisterAllTools()
 
-	s.Run()
+	_ = s.Run()
 
 	responses := readAllResponses(t, output.String())
 	// Expected: initialize, tools/list, get_stats, set_mode (4 responses, notification has none)
@@ -547,7 +547,7 @@ func TestToolCallWithEngineError(t *testing.T) {
 	// No engine set
 	s.RegisterAllTools()
 
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	if resp.Error != nil {
@@ -574,7 +574,7 @@ func TestHandlerAddWhitelist(t *testing.T) {
 	s.SetEngine(newMockEngine())
 	s.RegisterAllTools()
 
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	if resp.Error != nil {
@@ -592,7 +592,7 @@ func TestHandlerAddWhitelistMissingIP(t *testing.T) {
 	s.SetEngine(newMockEngine())
 	s.RegisterAllTools()
 
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	if resp.Error != nil {
@@ -619,7 +619,7 @@ func TestHandlerSetMode(t *testing.T) {
 	s.SetEngine(mock)
 	s.RegisterAllTools()
 
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	if resp.Error != nil {
@@ -640,7 +640,7 @@ func TestHandlerSetModeInvalid(t *testing.T) {
 	s.SetEngine(newMockEngine())
 	s.RegisterAllTools()
 
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	if resp.Error != nil {
@@ -672,7 +672,7 @@ func TestHandlerTestRequest(t *testing.T) {
 	s.SetEngine(newMockEngine())
 	s.RegisterAllTools()
 
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	if resp.Error != nil {
@@ -690,7 +690,7 @@ func TestHandlerGetDetectors(t *testing.T) {
 	s.SetEngine(newMockEngine())
 	s.RegisterAllTools()
 
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	if resp.Error != nil {
@@ -714,7 +714,7 @@ func TestHandlerAddRateLimit(t *testing.T) {
 	s.SetEngine(newMockEngine())
 	s.RegisterAllTools()
 
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	if resp.Error != nil {
@@ -736,7 +736,7 @@ func TestHandlerAddExclusion(t *testing.T) {
 	s.SetEngine(newMockEngine())
 	s.RegisterAllTools()
 
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	if resp.Error != nil {
@@ -750,7 +750,7 @@ func TestEmptyLines(t *testing.T) {
 	output := &bytes.Buffer{}
 	s := NewServer(strings.NewReader(input), output)
 
-	s.Run()
+	_ = s.Run()
 
 	responses := readAllResponses(t, output.String())
 	if len(responses) != 1 {
@@ -817,7 +817,7 @@ func TestBulkToolCallsAllTools(t *testing.T) {
 	s.SetEngine(newMockEngine())
 	s.RegisterAllTools()
 
-	s.Run()
+	_ = s.Run()
 
 	responses := readAllResponses(t, output.String())
 	if len(responses) != len(toolCalls) {
@@ -851,7 +851,7 @@ func TestHandlerGetTopIPs(t *testing.T) {
 	s.SetEngine(newMockEngine())
 	s.RegisterAllTools()
 
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	if resp.Error != nil {
@@ -870,7 +870,7 @@ func TestToolCallResultFormat(t *testing.T) {
 	s.SetEngine(newMockEngine())
 	s.RegisterAllTools()
 
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	if resp.Error != nil {
@@ -924,7 +924,7 @@ func BenchmarkServerRequestHandling(b *testing.B) {
 		s := NewServer(strings.NewReader(input), output)
 		s.SetEngine(mock)
 		s.RegisterAllTools()
-		s.Run()
+		_ = s.Run()
 	}
 }
 
@@ -938,7 +938,7 @@ func TestHandlerRemoveRateLimit(t *testing.T) {
 	s.SetEngine(newMockEngine())
 	s.RegisterAllTools()
 
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	if resp.Error != nil {
@@ -956,7 +956,7 @@ func TestHandlerRemoveExclusion(t *testing.T) {
 	s.SetEngine(newMockEngine())
 	s.RegisterAllTools()
 
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	if resp.Error != nil {
@@ -974,7 +974,7 @@ func TestHandlerAddBlacklist(t *testing.T) {
 	s.SetEngine(newMockEngine())
 	s.RegisterAllTools()
 
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	if resp.Error != nil {
@@ -992,7 +992,7 @@ func TestHandlerRemoveBlacklist(t *testing.T) {
 	s.SetEngine(newMockEngine())
 	s.RegisterAllTools()
 
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	if resp.Error != nil {
@@ -1014,7 +1014,7 @@ func TestHandlerRemoveWhitelistMissingIP(t *testing.T) {
 	s := NewServer(strings.NewReader(input), output)
 	s.SetEngine(newMockEngine())
 	s.RegisterAllTools()
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	result, _ := resp.Result.(map[string]any)
@@ -1033,7 +1033,7 @@ func TestHandlerAddBlacklistMissingIP(t *testing.T) {
 	s := NewServer(strings.NewReader(input), output)
 	s.SetEngine(newMockEngine())
 	s.RegisterAllTools()
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	result, _ := resp.Result.(map[string]any)
@@ -1052,7 +1052,7 @@ func TestHandlerRemoveBlacklistMissingIP(t *testing.T) {
 	s := NewServer(strings.NewReader(input), output)
 	s.SetEngine(newMockEngine())
 	s.RegisterAllTools()
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	result, _ := resp.Result.(map[string]any)
@@ -1071,7 +1071,7 @@ func TestHandlerAddRateLimitMissingID(t *testing.T) {
 	s := NewServer(strings.NewReader(input), output)
 	s.SetEngine(newMockEngine())
 	s.RegisterAllTools()
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	result, _ := resp.Result.(map[string]any)
@@ -1090,7 +1090,7 @@ func TestHandlerAddRateLimitZeroLimit(t *testing.T) {
 	s := NewServer(strings.NewReader(input), output)
 	s.SetEngine(newMockEngine())
 	s.RegisterAllTools()
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	result, _ := resp.Result.(map[string]any)
@@ -1109,7 +1109,7 @@ func TestHandlerAddRateLimitMissingWindow(t *testing.T) {
 	s := NewServer(strings.NewReader(input), output)
 	s.SetEngine(newMockEngine())
 	s.RegisterAllTools()
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	result, _ := resp.Result.(map[string]any)
@@ -1128,7 +1128,7 @@ func TestHandlerRemoveRateLimitMissingID(t *testing.T) {
 	s := NewServer(strings.NewReader(input), output)
 	s.SetEngine(newMockEngine())
 	s.RegisterAllTools()
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	result, _ := resp.Result.(map[string]any)
@@ -1147,7 +1147,7 @@ func TestHandlerAddExclusionMissingPath(t *testing.T) {
 	s := NewServer(strings.NewReader(input), output)
 	s.SetEngine(newMockEngine())
 	s.RegisterAllTools()
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	result, _ := resp.Result.(map[string]any)
@@ -1166,7 +1166,7 @@ func TestHandlerAddExclusionMissingDetectors(t *testing.T) {
 	s := NewServer(strings.NewReader(input), output)
 	s.SetEngine(newMockEngine())
 	s.RegisterAllTools()
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	result, _ := resp.Result.(map[string]any)
@@ -1185,7 +1185,7 @@ func TestHandlerRemoveExclusionMissingPath(t *testing.T) {
 	s := NewServer(strings.NewReader(input), output)
 	s.SetEngine(newMockEngine())
 	s.RegisterAllTools()
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	result, _ := resp.Result.(map[string]any)
@@ -1204,7 +1204,7 @@ func TestHandlerSetModeMissing(t *testing.T) {
 	s := NewServer(strings.NewReader(input), output)
 	s.SetEngine(newMockEngine())
 	s.RegisterAllTools()
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	result, _ := resp.Result.(map[string]any)
@@ -1223,7 +1223,7 @@ func TestHandlerTestRequestMissingURL(t *testing.T) {
 	s := NewServer(strings.NewReader(input), output)
 	s.SetEngine(newMockEngine())
 	s.RegisterAllTools()
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	result, _ := resp.Result.(map[string]any)
@@ -1242,7 +1242,7 @@ func TestHandlerTestRequestDefaultMethod(t *testing.T) {
 	s := NewServer(strings.NewReader(input), output)
 	s.SetEngine(newMockEngine())
 	s.RegisterAllTools()
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	if resp.Error != nil {
@@ -1264,7 +1264,7 @@ func TestHandlerGetTopIPsDefaultCount(t *testing.T) {
 	s := NewServer(strings.NewReader(input), output)
 	s.SetEngine(newMockEngine())
 	s.RegisterAllTools()
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	if resp.Error != nil {
@@ -1280,7 +1280,7 @@ func TestHandlerGetTopIPsNilParams(t *testing.T) {
 	s := NewServer(strings.NewReader(input), output)
 	s.SetEngine(newMockEngine())
 	s.RegisterAllTools()
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	if resp.Error != nil {
@@ -1297,7 +1297,7 @@ func TestHandlerGetEvents(t *testing.T) {
 	s := NewServer(strings.NewReader(input), output)
 	s.SetEngine(newMockEngine())
 	s.RegisterAllTools()
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	if resp.Error != nil {
@@ -1314,7 +1314,7 @@ func TestHandlerGetConfig(t *testing.T) {
 	s := NewServer(strings.NewReader(input), output)
 	s.SetEngine(newMockEngine())
 	s.RegisterAllTools()
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	if resp.Error != nil {
@@ -1349,7 +1349,7 @@ func TestHandlerInvalidJSON(t *testing.T) {
 			s := NewServer(strings.NewReader(input), output)
 			s.SetEngine(newMockEngine())
 			s.RegisterAllTools()
-			s.Run()
+			_ = s.Run()
 
 			resp := readResponse(t, output.String())
 			if resp.Error != nil {
@@ -1401,7 +1401,7 @@ func TestHandlerNoEngineAllTools(t *testing.T) {
 			s := NewServer(strings.NewReader(input), output)
 			// No engine set
 			s.RegisterAllTools()
-			s.Run()
+			_ = s.Run()
 
 			resp := readResponse(t, output.String())
 			if resp.Error != nil {
@@ -1434,7 +1434,7 @@ func TestHandlerAddRateLimitDefaults(t *testing.T) {
 	s := NewServer(strings.NewReader(input), output)
 	s.SetEngine(newMockEngine())
 	s.RegisterAllTools()
-	s.Run()
+	_ = s.Run()
 
 	resp := readResponse(t, output.String())
 	if resp.Error != nil {
@@ -1458,7 +1458,7 @@ func TestHandleAddWhitelist_EmptyIP(t *testing.T) {
 	srv := NewServer(strings.NewReader(input), &out)
 	srv.SetEngine(newMockEngine())
 	srv.RegisterAllTools()
-	srv.Run()
+	_ = srv.Run()
 	resp := readResponse(t, out.String())
 	if resp.Error != nil {
 		t.Fatalf("unexpected protocol error: %v", resp.Error)
@@ -1479,7 +1479,7 @@ func TestHandleRemoveWhitelist_EmptyIP(t *testing.T) {
 	srv := NewServer(strings.NewReader(input), &out)
 	srv.SetEngine(newMockEngine())
 	srv.RegisterAllTools()
-	srv.Run()
+	_ = srv.Run()
 	resp := readResponse(t, out.String())
 	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
@@ -1497,7 +1497,7 @@ func TestHandleAddBlacklist_EmptyIP(t *testing.T) {
 	srv := NewServer(strings.NewReader(input), &out)
 	srv.SetEngine(newMockEngine())
 	srv.RegisterAllTools()
-	srv.Run()
+	_ = srv.Run()
 	resp := readResponse(t, out.String())
 	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
@@ -1515,7 +1515,7 @@ func TestHandleRemoveBlacklist_EmptyIP(t *testing.T) {
 	srv := NewServer(strings.NewReader(input), &out)
 	srv.SetEngine(newMockEngine())
 	srv.RegisterAllTools()
-	srv.Run()
+	_ = srv.Run()
 	resp := readResponse(t, out.String())
 	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
@@ -1533,7 +1533,7 @@ func TestHandleRemoveRateLimit_EmptyID(t *testing.T) {
 	srv := NewServer(strings.NewReader(input), &out)
 	srv.SetEngine(newMockEngine())
 	srv.RegisterAllTools()
-	srv.Run()
+	_ = srv.Run()
 	resp := readResponse(t, out.String())
 	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
@@ -1551,7 +1551,7 @@ func TestHandleAddExclusion_EmptyDetectors(t *testing.T) {
 	srv := NewServer(strings.NewReader(input), &out)
 	srv.SetEngine(newMockEngine())
 	srv.RegisterAllTools()
-	srv.Run()
+	_ = srv.Run()
 	resp := readResponse(t, out.String())
 	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
@@ -1569,7 +1569,7 @@ func TestHandleRemoveExclusion_EmptyPath(t *testing.T) {
 	srv := NewServer(strings.NewReader(input), &out)
 	srv.SetEngine(newMockEngine())
 	srv.RegisterAllTools()
-	srv.Run()
+	_ = srv.Run()
 	resp := readResponse(t, out.String())
 	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
@@ -1587,7 +1587,7 @@ func TestHandleSetMode_EmptyMode(t *testing.T) {
 	srv := NewServer(strings.NewReader(input), &out)
 	srv.SetEngine(newMockEngine())
 	srv.RegisterAllTools()
-	srv.Run()
+	_ = srv.Run()
 	resp := readResponse(t, out.String())
 	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
@@ -1603,7 +1603,7 @@ func TestRun_EmptyLine(t *testing.T) {
 	srv := NewServer(strings.NewReader(input), &out)
 	srv.SetEngine(newMockEngine())
 	srv.RegisterAllTools()
-	srv.Run()
+	_ = srv.Run()
 	resp := readResponse(t, out.String())
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %v", resp.Error)
@@ -1659,7 +1659,7 @@ func TestHandleAddWhitelist_EngineError(t *testing.T) {
 	srv := NewServer(strings.NewReader(input), &out)
 	srv.SetEngine(newFailEngine())
 	srv.RegisterAllTools()
-	srv.Run()
+	_ = srv.Run()
 	resp := readResponse(t, out.String())
 	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
@@ -1677,7 +1677,7 @@ func TestHandleRemoveWhitelist_EngineError(t *testing.T) {
 	srv := NewServer(strings.NewReader(input), &out)
 	srv.SetEngine(newFailEngine())
 	srv.RegisterAllTools()
-	srv.Run()
+	_ = srv.Run()
 	resp := readResponse(t, out.String())
 	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
@@ -1695,7 +1695,7 @@ func TestHandleAddBlacklist_EngineError(t *testing.T) {
 	srv := NewServer(strings.NewReader(input), &out)
 	srv.SetEngine(newFailEngine())
 	srv.RegisterAllTools()
-	srv.Run()
+	_ = srv.Run()
 	resp := readResponse(t, out.String())
 	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
@@ -1713,7 +1713,7 @@ func TestHandleRemoveBlacklist_EngineError(t *testing.T) {
 	srv := NewServer(strings.NewReader(input), &out)
 	srv.SetEngine(newFailEngine())
 	srv.RegisterAllTools()
-	srv.Run()
+	_ = srv.Run()
 	resp := readResponse(t, out.String())
 	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
@@ -1731,7 +1731,7 @@ func TestHandleAddRateLimit_EngineError(t *testing.T) {
 	srv := NewServer(strings.NewReader(input), &out)
 	srv.SetEngine(newFailEngine())
 	srv.RegisterAllTools()
-	srv.Run()
+	_ = srv.Run()
 	resp := readResponse(t, out.String())
 	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
@@ -1749,7 +1749,7 @@ func TestHandleRemoveRateLimit_EngineError(t *testing.T) {
 	srv := NewServer(strings.NewReader(input), &out)
 	srv.SetEngine(newFailEngine())
 	srv.RegisterAllTools()
-	srv.Run()
+	_ = srv.Run()
 	resp := readResponse(t, out.String())
 	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
@@ -1767,7 +1767,7 @@ func TestHandleAddExclusion_EngineError(t *testing.T) {
 	srv := NewServer(strings.NewReader(input), &out)
 	srv.SetEngine(newFailEngine())
 	srv.RegisterAllTools()
-	srv.Run()
+	_ = srv.Run()
 	resp := readResponse(t, out.String())
 	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
@@ -1785,7 +1785,7 @@ func TestHandleRemoveExclusion_EngineError(t *testing.T) {
 	srv := NewServer(strings.NewReader(input), &out)
 	srv.SetEngine(newFailEngine())
 	srv.RegisterAllTools()
-	srv.Run()
+	_ = srv.Run()
 	resp := readResponse(t, out.String())
 	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
@@ -1803,7 +1803,7 @@ func TestHandleSetMode_EngineError(t *testing.T) {
 	srv := NewServer(strings.NewReader(input), &out)
 	srv.SetEngine(newFailEngine())
 	srv.RegisterAllTools()
-	srv.Run()
+	_ = srv.Run()
 	resp := readResponse(t, out.String())
 	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
@@ -1823,7 +1823,7 @@ func TestHandleAddWhitelist_InvalidJSON(t *testing.T) {
 	srv := NewServer(strings.NewReader(input), &out)
 	srv.SetEngine(newMockEngine())
 	srv.RegisterAllTools()
-	srv.Run()
+	_ = srv.Run()
 	resp := readResponse(t, out.String())
 	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
@@ -1841,7 +1841,7 @@ func TestHandleRemoveWhitelist_InvalidJSON(t *testing.T) {
 	srv := NewServer(strings.NewReader(input), &out)
 	srv.SetEngine(newMockEngine())
 	srv.RegisterAllTools()
-	srv.Run()
+	_ = srv.Run()
 	resp := readResponse(t, out.String())
 	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
@@ -1859,7 +1859,7 @@ func TestHandleAddBlacklist_InvalidJSON(t *testing.T) {
 	srv := NewServer(strings.NewReader(input), &out)
 	srv.SetEngine(newMockEngine())
 	srv.RegisterAllTools()
-	srv.Run()
+	_ = srv.Run()
 	resp := readResponse(t, out.String())
 	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
@@ -1877,7 +1877,7 @@ func TestHandleRemoveBlacklist_InvalidJSON(t *testing.T) {
 	srv := NewServer(strings.NewReader(input), &out)
 	srv.SetEngine(newMockEngine())
 	srv.RegisterAllTools()
-	srv.Run()
+	_ = srv.Run()
 	resp := readResponse(t, out.String())
 	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
@@ -1895,7 +1895,7 @@ func TestHandleAddRateLimit_InvalidJSON(t *testing.T) {
 	srv := NewServer(strings.NewReader(input), &out)
 	srv.SetEngine(newMockEngine())
 	srv.RegisterAllTools()
-	srv.Run()
+	_ = srv.Run()
 	resp := readResponse(t, out.String())
 	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
@@ -1913,7 +1913,7 @@ func TestHandleRemoveRateLimit_InvalidJSON(t *testing.T) {
 	srv := NewServer(strings.NewReader(input), &out)
 	srv.SetEngine(newMockEngine())
 	srv.RegisterAllTools()
-	srv.Run()
+	_ = srv.Run()
 	resp := readResponse(t, out.String())
 	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
@@ -1931,7 +1931,7 @@ func TestHandleAddExclusion_InvalidJSON(t *testing.T) {
 	srv := NewServer(strings.NewReader(input), &out)
 	srv.SetEngine(newMockEngine())
 	srv.RegisterAllTools()
-	srv.Run()
+	_ = srv.Run()
 	resp := readResponse(t, out.String())
 	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
@@ -1949,7 +1949,7 @@ func TestHandleRemoveExclusion_InvalidJSON(t *testing.T) {
 	srv := NewServer(strings.NewReader(input), &out)
 	srv.SetEngine(newMockEngine())
 	srv.RegisterAllTools()
-	srv.Run()
+	_ = srv.Run()
 	resp := readResponse(t, out.String())
 	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
@@ -1967,7 +1967,7 @@ func TestHandleSetMode_InvalidJSON(t *testing.T) {
 	srv := NewServer(strings.NewReader(input), &out)
 	srv.SetEngine(newMockEngine())
 	srv.RegisterAllTools()
-	srv.Run()
+	_ = srv.Run()
 	resp := readResponse(t, out.String())
 	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
@@ -1985,7 +1985,7 @@ func TestHandleSetMode_InvalidModeValue(t *testing.T) {
 	srv := NewServer(strings.NewReader(input), &out)
 	srv.SetEngine(newMockEngine())
 	srv.RegisterAllTools()
-	srv.Run()
+	_ = srv.Run()
 	resp := readResponse(t, out.String())
 	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
@@ -2003,7 +2003,7 @@ func TestHandleAddExclusion_EmptyPath(t *testing.T) {
 	srv := NewServer(strings.NewReader(input), &out)
 	srv.SetEngine(newMockEngine())
 	srv.RegisterAllTools()
-	srv.Run()
+	_ = srv.Run()
 	resp := readResponse(t, out.String())
 	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
@@ -2022,7 +2022,7 @@ func TestHandleAddRateLimit_MissingFields(t *testing.T) {
 	srv := NewServer(strings.NewReader(input), &out)
 	srv.SetEngine(newMockEngine())
 	srv.RegisterAllTools()
-	srv.Run()
+	_ = srv.Run()
 	resp := readResponse(t, out.String())
 	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
@@ -2040,7 +2040,7 @@ func TestHandleAddRateLimit_ZeroLimit(t *testing.T) {
 	srv := NewServer(strings.NewReader(input), &out)
 	srv.SetEngine(newMockEngine())
 	srv.RegisterAllTools()
-	srv.Run()
+	_ = srv.Run()
 	resp := readResponse(t, out.String())
 	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)
@@ -2058,7 +2058,7 @@ func TestHandleAddRateLimit_EmptyID(t *testing.T) {
 	srv := NewServer(strings.NewReader(input), &out)
 	srv.SetEngine(newMockEngine())
 	srv.RegisterAllTools()
-	srv.Run()
+	_ = srv.Run()
 	resp := readResponse(t, out.String())
 	result, _ := resp.Result.(map[string]any)
 	isError, _ := result["isError"].(bool)

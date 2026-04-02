@@ -122,7 +122,7 @@ func (w *Watcher) streamEvents() error {
 		cancel()
 	}()
 
-	eventCh := make(chan DockerEvent, 32)
+	eventCh := make(chan Event, 32)
 	errCh := make(chan error, 1)
 
 	go func() {
@@ -166,7 +166,7 @@ func (w *Watcher) pollLoop() {
 }
 
 // handleEvent processes a single Docker event.
-func (w *Watcher) handleEvent(event DockerEvent) {
+func (w *Watcher) handleEvent(event Event) {
 	switch event.Action {
 	case "start":
 		w.logFn("info", "Docker: container started: "+event.Actor.Attributes["name"])

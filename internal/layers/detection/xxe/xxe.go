@@ -98,8 +98,8 @@ func isXMLContentType(ct string) bool {
 }
 
 // Detect scans a single input string for XXE patterns.
-func Detect(input string, location string) []engine.Finding {
-	if len(input) == 0 {
+func Detect(input, location string) []engine.Finding {
+	if input == "" {
 		return nil
 	}
 
@@ -217,7 +217,7 @@ func checkParameterEntity(lower, location string, findings *[]engine.Finding) {
 	}
 	rest := lower[idx+8:] // after "<!entity"
 	rest = strings.TrimSpace(rest)
-	if len(rest) > 0 && rest[0] == '%' {
+	if rest != "" && rest[0] == '%' {
 		*findings = append(*findings, makeFinding(80, engine.SeverityCritical,
 			"Parameter entity declaration detected (<!ENTITY %)",
 			extractContext(lower, "<!entity"), location, 0.90))
@@ -275,22 +275,13 @@ func checkSuspiciousCDATA(lower, location string, findings *[]engine.Finding) {
 func extractContext(input, pattern string) string {
 	idx := strings.Index(input, pattern)
 	if idx < 0 {
-		if len(input) > 100 {
-			return input[:100]
-		}
-		return input
+		return input[:min(len(input), 100)]
 	}
-	start := idx - 20
-	if start < 0 {
-		start = 0
-	}
-	end := idx + len(pattern) + 40
-	if end > len(input) {
-		end = len(input)
-	}
+	start := max(idx-20, 0)
+	end := min(idx+len(pattern)+40, len(input))
 	result := input[start:end]
 	if len(result) > 200 {
-		result = result[:197] + "..."
+		return result[:197] + "..."
 	}
 	return result
 }

@@ -84,7 +84,7 @@ type ThresholdConfig struct {
 	Log   int
 }
 
-// SanitizerConfig controls request sanitization limits.
+// Config controls request sanitization limits.
 type SanitizerConfig struct {
 	MaxURLLength  int
 	MaxHeaderSize int
@@ -463,7 +463,7 @@ func addDefaultLayers(eng *engine.Engine, cfg *config.Config) {
 
 	// 3. Sanitizer layer (Order 300)
 	if cfg.WAF.Sanitizer.Enabled {
-		sanLayer := sanitizer.NewLayer(sanitizer.SanitizerConfig{
+		sanLayer := sanitizer.NewLayer(sanitizer.Config{
 			MaxURLLength:   cfg.WAF.Sanitizer.MaxURLLength,
 			MaxHeaderSize:  cfg.WAF.Sanitizer.MaxHeaderSize,
 			MaxHeaderCount: cfg.WAF.Sanitizer.MaxHeaderCount,

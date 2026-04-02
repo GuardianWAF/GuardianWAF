@@ -7,8 +7,8 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 )
 
-// SanitizerConfig holds configuration for the sanitizer layer.
-type SanitizerConfig struct {
+// Config holds configuration for the sanitizer layer.
+type Config struct {
 	MaxURLLength   int
 	MaxHeaderSize  int
 	MaxHeaderCount int
@@ -27,7 +27,7 @@ var hopByHopHeaders = []string{
 
 // ValidateRequest checks the request against structural limits.
 // Returns findings for each violation.
-func ValidateRequest(ctx *engine.RequestContext, cfg SanitizerConfig) []engine.Finding {
+func ValidateRequest(ctx *engine.RequestContext, cfg Config) []engine.Finding {
 	var findings []engine.Finding
 
 	// URL length check

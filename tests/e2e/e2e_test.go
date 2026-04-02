@@ -1,10 +1,10 @@
 package e2e
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -41,7 +41,7 @@ func setupE2E(t *testing.T, cfg guardianwaf.Config, opts ...guardianwaf.Option) 
 		reqCount.Add(1)
 		body, _ := io.ReadAll(r.Body)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"path":    r.URL.Path,
 			"query":   r.URL.RawQuery,
 			"method":  r.Method,
@@ -64,7 +64,7 @@ func setupE2E(t *testing.T, cfg guardianwaf.Config, opts ...guardianwaf.Option) 
 		if r.URL.RawQuery != "" {
 			target += "?" + r.URL.RawQuery
 		}
-		proxyReq, err := http.NewRequest(r.Method, target, r.Body)
+		proxyReq, err := http.NewRequestWithContext(context.Background(), r.Method, target, r.Body)
 		if err != nil {
 			http.Error(w, "Bad Gateway", http.StatusBadGateway)
 			return
@@ -82,7 +82,7 @@ func setupE2E(t *testing.T, cfg guardianwaf.Config, opts ...guardianwaf.Option) 
 			w.Header()[k] = v
 		}
 		w.WriteHeader(resp.StatusCode)
-		io.Copy(w, resp.Body)
+		_, _ = io.Copy(w, resp.Body)
 	})
 
 	wafHandler := waf.Middleware(proxy)
@@ -125,7 +125,7 @@ func defaultEnforceCfg() guardianwaf.Config {
 // doGet performs a GET request with the default browser UA.
 func doGet(t *testing.T, rawURL string) *http.Response {
 	t.Helper()
-	req, err := http.NewRequest("GET", rawURL, nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, rawURL, nil)
 	if err != nil {
 		t.Fatalf("creating request: %v", err)
 	}
@@ -140,7 +140,7 @@ func doGet(t *testing.T, rawURL string) *http.Response {
 // doRequest builds and sends an HTTP request, returning the response.
 func doRequest(t *testing.T, method, rawURL string, body io.Reader, headers map[string]string) *http.Response {
 	t.Helper()
-	req, err := http.NewRequest(method, rawURL, body)
+	req, err := http.NewRequestWithContext(context.Background(), method, rawURL, body)
 	if err != nil {
 		t.Fatalf("creating request: %v", err)
 	}
@@ -206,6 +206,7 @@ func TestE2E_CleanGETRequest(t *testing.T) {
 
 	before := reqs.Load()
 	resp := doGet(t, wafURL+"/hello?name=world")
+	defer resp.Body.Close()
 	assertPassed(t, resp, before, reqs)
 
 	body := readBody(t, resp)
@@ -228,6 +229,7 @@ func TestE2E_CleanPOSTRequest(t *testing.T) {
 	resp := doRequest(t, "POST", wafURL+"/api/users", strings.NewReader(payload), map[string]string{
 		"Content-Type": "application/json",
 	})
+	defer resp.Body.Close()
 	assertPassed(t, resp, before, reqs)
 	readBody(t, resp) // drain
 }
@@ -242,6 +244,7 @@ func TestE2E_CleanWithHeaders(t *testing.T) {
 		"X-Custom-Header": "test-value-123",
 		"Accept":          "application/json",
 	})
+	defer resp.Body.Close()
 	assertPassed(t, resp, before, reqs)
 	readBody(t, resp) // drain
 }
@@ -252,7 +255,7 @@ func TestE2E_CleanWithCookies(t *testing.T) {
 	defer cleanup()
 
 	before := reqs.Load()
-	req, err := http.NewRequest("GET", wafURL+"/dashboard", nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, wafURL+"/dashboard", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,6 +279,7 @@ func TestE2E_MultipleCleanRequests(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		before := reqs.Load()
 		resp := doGet(t, fmt.Sprintf("%s/page/%d?item=%d", wafURL, i, i))
+		defer resp.Body.Close()
 		assertPassed(t, resp, before, reqs)
 		readBody(t, resp)
 	}
@@ -293,6 +297,7 @@ func TestE2E_SQLi_UnionSelect(t *testing.T) {
 	before := reqs.Load()
 	q := url.Values{"q": {"' UNION SELECT * FROM users --"}}.Encode()
 	resp := doGet(t, wafURL+"/search?"+q)
+	defer resp.Body.Close()
 	assertBlocked(t, resp, before, reqs)
 	readBody(t, resp)
 }
@@ -305,6 +310,7 @@ func TestE2E_SQLi_Tautology(t *testing.T) {
 	before := reqs.Load()
 	q := url.Values{"q": {"' OR 1=1 --"}}.Encode()
 	resp := doGet(t, wafURL+"/search?"+q)
+	defer resp.Body.Close()
 	assertBlocked(t, resp, before, reqs)
 	readBody(t, resp)
 }
@@ -317,6 +323,7 @@ func TestE2E_SQLi_StackedQuery(t *testing.T) {
 	before := reqs.Load()
 	q := url.Values{"q": {"1; DROP TABLE users --"}}.Encode()
 	resp := doGet(t, wafURL+"/search?"+q)
+	defer resp.Body.Close()
 	assertBlocked(t, resp, before, reqs)
 	readBody(t, resp)
 }
@@ -329,6 +336,7 @@ func TestE2E_SQLi_BlindTimeBased(t *testing.T) {
 	before := reqs.Load()
 	q := url.Values{"q": {"' OR SLEEP(5) --"}}.Encode()
 	resp := doGet(t, wafURL+"/search?"+q)
+	defer resp.Body.Close()
 	assertBlocked(t, resp, before, reqs)
 	readBody(t, resp)
 }
@@ -369,7 +377,7 @@ func TestE2E_SQLi_InCookie(t *testing.T) {
 	defer cleanup()
 
 	before := reqs.Load()
-	req, _ := http.NewRequest("GET", wafURL+"/dashboard", nil)
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, wafURL+"/dashboard", nil)
 	req.Header.Set("User-Agent", defaultUA)
 	req.AddCookie(&http.Cookie{Name: "session", Value: "' UNION SELECT password FROM users --"})
 	resp, err := http.DefaultClient.Do(req)
@@ -721,7 +729,7 @@ func TestE2E_Bot_EmptyUserAgent(t *testing.T) {
 	wafURL, _, cleanup := setupE2E(t, defaultEnforceCfg())
 	defer cleanup()
 
-	req, _ := http.NewRequest("GET", wafURL+"/page", nil)
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, wafURL+"/page", nil)
 	// Explicitly leave User-Agent empty.
 	req.Header.Del("User-Agent")
 	resp, err := http.DefaultClient.Do(req)
@@ -729,7 +737,7 @@ func TestE2E_Bot_EmptyUserAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
-	io.ReadAll(resp.Body)
+	_, _ = io.ReadAll(resp.Body)
 
 	// Empty UA with bot detection enabled + BlockEmpty should trigger
 	// bot score of 40 + detection engine's bot mode. With enforce mode
@@ -1224,7 +1232,7 @@ func TestE2E_MonitorMode_StatsRecorded(t *testing.T) {
 
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	}))
 	defer backend.Close()
 
@@ -1234,7 +1242,7 @@ func TestE2E_MonitorMode_StatsRecorded(t *testing.T) {
 		if r.URL.RawQuery != "" {
 			target += "?" + r.URL.RawQuery
 		}
-		proxyReq, _ := http.NewRequest(r.Method, target, r.Body)
+		proxyReq, _ := http.NewRequestWithContext(context.Background(), r.Method, target, r.Body)
 		for k, v := range r.Header {
 			proxyReq.Header[k] = v
 		}
@@ -1248,7 +1256,7 @@ func TestE2E_MonitorMode_StatsRecorded(t *testing.T) {
 			w.Header()[k] = v
 		}
 		w.WriteHeader(resp.StatusCode)
-		io.Copy(w, resp.Body)
+		_, _ = io.Copy(w, resp.Body)
 	})
 
 	wafServer := httptest.NewServer(waf.Middleware(proxy))
@@ -1282,14 +1290,4 @@ func TestE2E_MonitorMode_StatsRecorded(t *testing.T) {
 // RemoteAddr seen by the WAF). Standard httptest.Server binds to 127.0.0.1.
 // --------------------------------------------------------------------------
 
-// getFreePort returns an available TCP port on localhost.
-func getFreePort(t *testing.T) int {
-	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("getting free port: %v", err)
-	}
-	port := l.Addr().(*net.TCPAddr).Port
-	l.Close()
-	return port
-}
+

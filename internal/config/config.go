@@ -184,7 +184,7 @@ type IPACLConfig struct {
 	AutoBan   AutoBanConfig `yaml:"auto_ban"`
 }
 
-// AutoBanConfig controls automatic IP banning behaviour.
+// AutoBanConfig controls automatic IP banning behavior.
 type AutoBanConfig struct {
 	Enabled    bool          `yaml:"enabled"`
 	DefaultTTL time.Duration `yaml:"default_ttl"`
@@ -209,7 +209,7 @@ type RateLimitRule struct {
 	AutoBanAfter int           `yaml:"auto_ban_after"`
 }
 
-// SanitizerConfig controls request sanitisation limits and behaviour.
+// SanitizerConfig controls request sanitisation limits and behavior.
 type SanitizerConfig struct {
 	Enabled           bool           `yaml:"enabled"`
 	MaxURLLength      int            `yaml:"max_url_length"`
@@ -281,7 +281,7 @@ type UAConfig struct {
 	BlockKnownScanners bool `yaml:"block_known_scanners"`
 }
 
-// BehaviorConfig controls behavioural analysis for bot detection.
+// BehaviorConfig controls behavioral analysis for bot detection.
 type BehaviorConfig struct {
 	Enabled            bool          `yaml:"enabled"`
 	Window             time.Duration `yaml:"window"`
@@ -331,7 +331,7 @@ type DataMaskingConfig struct {
 	StripStackTraces bool `yaml:"strip_stack_traces"`
 }
 
-// ErrorPagesConfig controls custom error page behaviour.
+// ErrorPagesConfig controls custom error page behavior.
 type ErrorPagesConfig struct {
 	Enabled bool   `yaml:"enabled"`
 	Mode    string `yaml:"mode"` // "production", "development"

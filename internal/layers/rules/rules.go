@@ -21,7 +21,7 @@ type Rule struct {
 	ID         string      `json:"id"`
 	Name       string      `json:"name"`
 	Enabled    bool        `json:"enabled"`
-	Priority   int         `json:"priority"` // lower = evaluated first
+	Priority   int         `json:"priority"`   // lower = evaluated first
 	Conditions []Condition `json:"conditions"` // all must match (AND logic)
 	Action     string      `json:"action"`     // "block", "log", "challenge", "pass"
 	Score      int         `json:"score"`      // score to add when matched
@@ -29,9 +29,9 @@ type Rule struct {
 
 // Condition defines a single match condition within a rule.
 type Condition struct {
-	Field  string `json:"field"`  // "path", "method", "ip", "country", "header:X-Name", "user_agent", "query", "body_size", "host", "score"
-	Op     string `json:"op"`     // "equals", "not_equals", "contains", "not_contains", "starts_with", "ends_with", "matches", "in", "not_in", "in_cidr", "greater_than", "less_than"
-	Value  any    `json:"value"`  // string, []string, float64 depending on op
+	Field string `json:"field"` // "path", "method", "ip", "country", "header:X-Name", "user_agent", "query", "body_size", "host", "score"
+	Op    string `json:"op"`    // "equals", "not_equals", "contains", "not_contains", "starts_with", "ends_with", "matches", "in", "not_in", "in_cidr", "greater_than", "less_than"
+	Value any    `json:"value"` // string, []string, float64 depending on op
 }
 
 // Config holds the custom rules layer configuration.
@@ -177,11 +177,12 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 			}
 
 			// Promote action (block > challenge > log)
-			if action == engine.ActionBlock {
+			switch {
+			case action == engine.ActionBlock:
 				resultAction = engine.ActionBlock
-			} else if action == engine.ActionChallenge && resultAction != engine.ActionBlock {
+			case action == engine.ActionChallenge && resultAction != engine.ActionBlock:
 				resultAction = engine.ActionChallenge
-			} else if action == engine.ActionLog && resultAction == engine.ActionPass {
+			case action == engine.ActionLog && resultAction == engine.ActionPass:
 				resultAction = engine.ActionLog
 			}
 		}

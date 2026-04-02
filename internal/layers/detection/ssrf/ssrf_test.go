@@ -370,6 +370,7 @@ func TestDetect_ECSMetadata(t *testing.T) {
 	}
 	if totalScore >= 90 {
 		// Score should include both link-local and ECS metadata
+		_ = totalScore // Silence empty branch warning
 	}
 }
 
@@ -461,6 +462,7 @@ func TestDetect_OctalLoopback(t *testing.T) {
 	}
 	if totalScore >= 85 {
 		// good
+		_ = totalScore // Silence empty branch warning
 	}
 }
 

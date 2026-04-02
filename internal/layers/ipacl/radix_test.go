@@ -202,16 +202,16 @@ func TestRadixTree_Len(t *testing.T) {
 		t.Fatalf("expected len 0, got %d", tree.Len())
 	}
 
-	tree.Insert("10.0.0.0/8", true)
-	tree.Insert("172.16.0.0/12", true)
-	tree.Insert("192.168.0.0/16", true)
+	_ = tree.Insert("10.0.0.0/8", true)
+	_ = tree.Insert("172.16.0.0/12", true)
+	_ = tree.Insert("192.168.0.0/16", true)
 
 	if tree.Len() != 3 {
 		t.Fatalf("expected len 3, got %d", tree.Len())
 	}
 
 	// Re-insert same key should not increase count
-	tree.Insert("10.0.0.0/8", true)
+	_ = tree.Insert("10.0.0.0/8", true)
 	if tree.Len() != 3 {
 		t.Fatalf("expected len 3 after re-insert, got %d", tree.Len())
 	}
@@ -266,7 +266,7 @@ func TestRadixTree_ConcurrentAccess(t *testing.T) {
 			defer wg.Done()
 			for i := 0; i < ops; i++ {
 				cidr := net.IPv4(172, 16, byte(id), byte(i%256)).String() + "/32"
-				tree.Insert(cidr, id)
+				_ = tree.Insert(cidr, id)
 			}
 		}(g)
 	}
@@ -276,7 +276,7 @@ func TestRadixTree_ConcurrentAccess(t *testing.T) {
 
 func TestRadixTree_LookupNilIP(t *testing.T) {
 	tree := NewRadixTree()
-	tree.Insert("10.0.0.0/8", true)
+	_ = tree.Insert("10.0.0.0/8", true)
 
 	_, found := tree.Lookup(nil)
 	if found {

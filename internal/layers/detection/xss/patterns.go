@@ -6,44 +6,15 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 )
 
-// dangerousTags maps tag names (lowercase) that are inherently dangerous when
-// combined with event handlers or specific attributes.
-var dangerousTags = map[string]bool{
-	"script":   true,
-	"img":      true,
-	"svg":      true,
-	"body":     true,
-	"div":      true,
-	"input":    true,
-	"iframe":   true,
-	"object":   true,
-	"embed":    true,
-	"form":     true,
-	"meta":     true,
-	"link":     true,
-	"style":    true,
-	"video":    true,
-	"audio":    true,
-	"source":   true,
-	"math":     true,
-	"table":    true,
-	"td":       true,
-	"details":  true,
-	"select":   true,
-	"textarea": true,
-	"marquee":  true,
-	"isindex":  true,
-}
-
 // Detect is the main entry point for XSS detection on a single input string.
 // It returns all findings with their scores. The location parameter indicates
 // where in the request this input was found (query, body, header, cookie, path).
-func Detect(input string, location string) []engine.Finding {
-	if len(input) == 0 {
+func Detect(input, location string) []engine.Finding {
+	if input == "" {
 		return nil
 	}
 
-	var findings []engine.Finding
+	findings := make([]engine.Finding, 0, 8)
 
 	// Pre-process: remove null bytes for analysis (but keep original for evidence)
 	cleaned := removeNullBytes(input)
@@ -152,7 +123,7 @@ func Detect(input string, location string) []engine.Finding {
 		// <meta http-equiv=refresh — score 50
 		if tag.Name == "meta" {
 			if httpEquiv, ok := tag.Attributes["http-equiv"]; ok {
-				if strings.ToLower(httpEquiv) == "refresh" {
+				if strings.EqualFold(httpEquiv, "refresh") {
 					findings = append(findings, makeFinding(50, engine.SeverityMedium,
 						"Meta refresh tag detected",
 						truncateMatch(tag.RawMatch), location, 0.75))

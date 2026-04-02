@@ -48,7 +48,7 @@ func TestFetchCatalog_MockServer(t *testing.T) {
 				},
 			},
 		}
-		json.NewEncoder(w).Encode(catalog)
+		_ = json.NewEncoder(w).Encode(catalog)
 	}))
 	defer srv.Close()
 
@@ -87,7 +87,7 @@ func TestCatalogCache_Summaries(t *testing.T) {
 				},
 			},
 		}
-		json.NewEncoder(w).Encode(catalog)
+		_ = json.NewEncoder(w).Encode(catalog)
 	}))
 	defer srv.Close()
 
@@ -121,7 +121,7 @@ func TestClient_Analyze_MockServer(t *testing.T) {
 				"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150,
 			},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer srv.Close()
 
@@ -176,7 +176,7 @@ func TestStore_History(t *testing.T) {
 	store := NewStore(dir)
 
 	for i := range 5 {
-		store.AddResult(AnalysisResult{
+		_ = store.AddResult(AnalysisResult{
 			ID:         "test-" + string(rune('0'+i)),
 			Timestamp:  time.Now(),
 			EventCount: 10,
@@ -240,12 +240,12 @@ func TestAnalyzer_CollectAndFlush(t *testing.T) {
 			},
 			"usage": map[string]any{"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150},
 		}
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer srv.Close()
 
 	// Configure provider
-	store.SetConfig(ProviderConfig{
+	_ = store.SetConfig(ProviderConfig{
 		ProviderID: "test",
 		ModelID:    "test-model",
 		APIKey:     "test-key",

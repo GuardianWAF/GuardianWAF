@@ -164,7 +164,8 @@ func (v *APIKeyValidator) checkRateLimit(tracker *keyTracker, limit int) bool {
 		return false
 	}
 
-	tracker.requests = append(valid, now)
+	valid = append(valid, now)
+	tracker.requests = valid
 	return true
 }
 

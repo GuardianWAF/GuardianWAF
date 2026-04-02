@@ -68,7 +68,7 @@ func (m *mockBanIPACL) RemoveAutoBan(ip string) {
 	delete(m.bans, ip)
 }
 func (m *mockBanIPACL) ActiveBansAny() any {
-	var result []map[string]any
+	result := make([]map[string]any, 0, len(m.bans))
 	for ip, exp := range m.bans {
 		result = append(result, map[string]any{"ip": ip, "expires_at": exp})
 	}
@@ -199,7 +199,7 @@ func TestGetIPACL_WithLayer(t *testing.T) {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
 	var result map[string]any
-	json.Unmarshal(w.Body.Bytes(), &result)
+	_ = json.Unmarshal(w.Body.Bytes(), &result)
 	wl := result["whitelist"].([]any)
 	if len(wl) != 1 {
 		t.Errorf("expected 1 whitelist entry, got %d", len(wl))
@@ -554,7 +554,7 @@ func TestGetRouting_WithUpstreamsAndVHosts(t *testing.T) {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
 	var result map[string]any
-	json.Unmarshal(w.Body.Bytes(), &result)
+	_ = json.Unmarshal(w.Body.Bytes(), &result)
 
 	upstreams := result["upstreams"].([]any)
 	if len(upstreams) != 1 {
@@ -649,7 +649,7 @@ func TestGetEvent_Found(t *testing.T) {
 		Action:   engine.ActionBlock,
 		Score:    80,
 	}
-	store.Store(evt)
+	_ = store.Store(evt)
 
 	w := httptest.NewRecorder()
 	req := authenticatedRequest("GET", "/api/v1/events/evt-123", "", "k")
@@ -864,7 +864,7 @@ func TestLogs_WithMatchingLevel(t *testing.T) {
 	}
 
 	var result map[string]any
-	json.Unmarshal(w.Body.Bytes(), &result)
+	_ = json.Unmarshal(w.Body.Bytes(), &result)
 	logs := result["logs"].([]any)
 	if len(logs) != 2 {
 		t.Errorf("expected 2 error logs, got %d", len(logs))
@@ -903,8 +903,8 @@ func TestGetEvents_WithIPFilter(t *testing.T) {
 	d := New(eng, store, "k")
 
 	// Store events with different IPs
-	store.Store(engine.Event{ID: "1", ClientIP: "1.2.3.4", Action: engine.ActionBlock})
-	store.Store(engine.Event{ID: "2", ClientIP: "5.6.7.8", Action: engine.ActionPass})
+	_ = store.Store(engine.Event{ID: "1", ClientIP: "1.2.3.4", Action: engine.ActionBlock})
+	_ = store.Store(engine.Event{ID: "2", ClientIP: "5.6.7.8", Action: engine.ActionPass})
 
 	w := httptest.NewRecorder()
 	req := authenticatedRequest("GET", "/api/v1/events?ip=1.2.3.4", "", "k")
@@ -922,8 +922,8 @@ func TestGetEvents_WithActionFilter(t *testing.T) {
 	eng, _ := engine.NewEngine(cfg, store, bus)
 	d := New(eng, store, "k")
 
-	store.Store(engine.Event{ID: "1", Action: engine.ActionBlock})
-	store.Store(engine.Event{ID: "2", Action: engine.ActionPass})
+	_ = store.Store(engine.Event{ID: "1", Action: engine.ActionBlock})
+	_ = store.Store(engine.Event{ID: "2", Action: engine.ActionPass})
 
 	w := httptest.NewRecorder()
 	req := authenticatedRequest("GET", "/api/v1/events?action=block", "", "k")

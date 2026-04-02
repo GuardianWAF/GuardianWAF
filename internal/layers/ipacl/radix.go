@@ -15,7 +15,7 @@ type RadixTree struct {
 
 type radixNode struct {
 	children [2]*radixNode // 0 and 1 branches
-	value    interface{}   // stored value (nil for intermediate nodes)
+	value    any           // stored value (nil for intermediate nodes)
 	hasValue bool          // distinguishes nil value from no value
 	prefix   int           // prefix length at this node
 }
@@ -29,7 +29,7 @@ func NewRadixTree() *RadixTree {
 
 // Insert adds an IP or CIDR to the tree.
 // Supports both IPv4 (e.g., "192.168.1.1", "10.0.0.0/8") and IPv6.
-func (t *RadixTree) Insert(cidr string, value interface{}) error {
+func (t *RadixTree) Insert(cidr string, value any) error {
 	ip, network, err := parseCIDROrIP(cidr)
 	if err != nil {
 		return err
@@ -63,7 +63,7 @@ func (t *RadixTree) Insert(cidr string, value interface{}) error {
 // Lookup checks if the given IP matches any entry in the tree.
 // Returns the value and true if found, nil and false otherwise.
 // Uses longest prefix match - walks the tree and returns the deepest match.
-func (t *RadixTree) Lookup(ip net.IP) (interface{}, bool) {
+func (t *RadixTree) Lookup(ip net.IP) (any, bool) {
 	// Normalize to 16-byte form
 	normalized := ip.To16()
 	if normalized == nil {
@@ -77,7 +77,7 @@ func (t *RadixTree) Lookup(ip net.IP) (interface{}, bool) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
-	var lastValue interface{}
+	var lastValue any
 	found := false
 
 	node := t.root
@@ -171,16 +171,24 @@ func (t *RadixTree) walk(node *radixNode, bits []byte, result *[]string) {
 				} else {
 					*result = append(*result, cidr)
 				}
-				goto children
+			} else {
+				// Fallback to standard IP formatting
+				if prefixLen == 128 {
+					*result = append(*result, ip.String())
+				} else {
+					*result = append(*result, fmt.Sprintf("%s/%d", ip.String(), prefixLen))
+				}
+			}
+		} else {
+			// Standard IP formatting for non-IPv4-mapped addresses
+			if prefixLen == 128 {
+				*result = append(*result, ip.String())
+			} else {
+				*result = append(*result, fmt.Sprintf("%s/%d", ip.String(), prefixLen))
 			}
 		}
-		if prefixLen == 128 {
-			*result = append(*result, ip.String())
-		} else {
-			*result = append(*result, fmt.Sprintf("%s/%d", ip.String(), prefixLen))
-		}
 	}
-children:
+
 	for bit := 0; bit < 2; bit++ {
 		if node.children[bit] != nil {
 			t.walk(node.children[bit], append(bits, byte(bit)), result)
@@ -216,8 +224,9 @@ func isIPv4Mapped(ip net.IP) bool {
 // Bare IPs are treated as /32 (IPv4) or /128 (IPv6).
 // All IPs are normalized to 16-byte IPv6 form for consistent tree storage.
 func parseCIDROrIP(s string) (net.IP, *net.IPNet, error) {
+	var ip net.IP
 	// Try as CIDR first
-	ip, network, err := net.ParseCIDR(s)
+	_, network, err := net.ParseCIDR(s)
 	if err == nil {
 		// Normalize the network IP to 16-byte form
 		ip = network.IP.To16()

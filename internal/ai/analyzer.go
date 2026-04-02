@@ -52,13 +52,13 @@ type AnalyzerConfig struct {
 
 // Analyzer is the background AI threat analysis engine.
 type Analyzer struct {
-	mu       sync.RWMutex
-	client   *Client
-	store    *Store
-	blocker  IPBlocker
-	config   AnalyzerConfig
-	catalog  *CatalogCache
-	logs     logFunc
+	mu      sync.RWMutex
+	client  *Client
+	store   *Store
+	blocker IPBlocker
+	config  AnalyzerConfig
+	catalog *CatalogCache
+	logs    logFunc
 
 	// Event collection
 	pending []eventSummary
@@ -199,7 +199,7 @@ func (a *Analyzer) collectEvent(ev engine.Event) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	var findings []string
+	findings := make([]string, 0, len(ev.Findings))
 	for _, f := range ev.Findings {
 		findings = append(findings, fmt.Sprintf("%s:%s(score=%d)", f.DetectorName, f.Description, f.Score))
 	}
@@ -273,7 +273,7 @@ func (a *Analyzer) flushBatch() {
 	if err != nil {
 		result.Error = err.Error()
 		a.logs("error", fmt.Sprintf("AI analysis failed: %v", err))
-		a.store.AddResult(result)
+		_ = a.store.AddResult(result)
 		return
 	}
 
@@ -285,7 +285,7 @@ func (a *Analyzer) flushBatch() {
 		result.Error = fmt.Sprintf("failed to parse AI response: %v", err)
 		result.Summary = truncate(responseText, 500)
 		a.logs("warn", fmt.Sprintf("AI response parse error: %v", err))
-		a.store.AddResult(result)
+		_ = a.store.AddResult(result)
 		return
 	}
 
@@ -300,7 +300,7 @@ func (a *Analyzer) flushBatch() {
 	a.applyVerdicts(aiResp.Verdicts)
 
 	// Store result
-	a.store.AddResult(result)
+	_ = a.store.AddResult(result)
 }
 
 // applyVerdicts applies AI verdicts (auto-ban for "block" actions).
@@ -338,9 +338,9 @@ func (a *Analyzer) ManualAnalyze(events []engine.Event) (*AnalysisResult, error)
 		return nil, fmt.Errorf("usage limit reached")
 	}
 
-	var batch []eventSummary
+	batch := make([]eventSummary, 0, len(events))
 	for _, ev := range events {
-		var findings []string
+		findings := make([]string, 0, len(ev.Findings))
 		for _, f := range ev.Findings {
 			findings = append(findings, fmt.Sprintf("%s:%s(score=%d)", f.DetectorName, f.Description, f.Score))
 		}
@@ -381,7 +381,7 @@ func (a *Analyzer) ManualAnalyze(events []engine.Event) (*AnalysisResult, error)
 
 	if err != nil {
 		result.Error = err.Error()
-		a.store.AddResult(*result)
+		_ = a.store.AddResult(*result)
 		return result, err
 	}
 
@@ -390,7 +390,7 @@ func (a *Analyzer) ManualAnalyze(events []engine.Event) (*AnalysisResult, error)
 	if err := json.Unmarshal([]byte(jsonStr), &aiResp); err != nil {
 		result.Error = "parse error: " + err.Error()
 		result.Summary = truncate(responseText, 500)
-		a.store.AddResult(*result)
+		_ = a.store.AddResult(*result)
 		return result, nil
 	}
 
@@ -399,7 +399,7 @@ func (a *Analyzer) ManualAnalyze(events []engine.Event) (*AnalysisResult, error)
 	result.ThreatsDetected = aiResp.ThreatsDetected
 
 	a.applyVerdicts(aiResp.Verdicts)
-	a.store.AddResult(*result)
+	_ = a.store.AddResult(*result)
 	return result, nil
 }
 

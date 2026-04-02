@@ -1,6 +1,7 @@
 package docker
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -268,13 +269,17 @@ func TestClient_ListContainers_MockServer(t *testing.T) {
 		containers[0].NetworkSettings.Networks = map[string]NetworkInfo{
 			"bridge": {IPAddress: "172.17.0.5"},
 		}
-		json.NewEncoder(w).Encode(containers)
+		_ = json.NewEncoder(w).Encode(containers)
 	}))
 	defer srv.Close()
 
 	// Can't easily test Unix socket client with httptest, but we can test the parsing
 	// by calling the mock server directly
-	resp, err := http.Get(srv.URL)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL, http.NoBody)
+	if err != nil {
+		t.Fatalf("creating request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("mock request failed: %v", err)
 	}

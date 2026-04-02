@@ -94,8 +94,8 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 }
 
 // Detect scans a single input string for path traversal / LFI patterns.
-func Detect(input string, location string) []engine.Finding {
-	if len(input) == 0 {
+func Detect(input, location string) []engine.Finding {
+	if input == "" {
 		return nil
 	}
 
@@ -141,7 +141,7 @@ func makeFinding(score int, severity engine.Severity, desc, matched, location st
 }
 
 // checkBasicTraversal detects ../ patterns and counts traversal depth.
-func checkBasicTraversal(lower string, location string) []engine.Finding {
+func checkBasicTraversal(lower, location string) []engine.Finding {
 	var findings []engine.Finding
 
 	// Count ../ or ..\ occurrences
@@ -173,7 +173,7 @@ func checkBasicTraversal(lower string, location string) []engine.Finding {
 }
 
 // checkEncodedTraversal detects URL-encoded traversal patterns.
-func checkEncodedTraversal(lower string, location string) []engine.Finding {
+func checkEncodedTraversal(lower, location string) []engine.Finding {
 	var findings []engine.Finding
 
 	// ..%2f or ..%2F (URL-encoded /)
@@ -208,7 +208,7 @@ func checkEncodedTraversal(lower string, location string) []engine.Finding {
 }
 
 // checkSensitivePaths detects access to sensitive system files.
-func checkSensitivePaths(lower string, location string) []engine.Finding {
+func checkSensitivePaths(lower, location string) []engine.Finding {
 	var findings []engine.Finding
 
 	// Linux sensitive paths (high priority)
@@ -275,7 +275,7 @@ func checkSensitivePaths(lower string, location string) []engine.Finding {
 }
 
 // checkWindowsPaths detects Windows path traversal and sensitive file access.
-func checkWindowsPaths(lower string, location string) []engine.Finding {
+func checkWindowsPaths(lower, location string) []engine.Finding {
 	var findings []engine.Finding
 
 	// C:\ or C:/ drive letter — only at start of string or after a boundary character
@@ -285,7 +285,7 @@ func checkWindowsPaths(lower string, location string) []engine.Finding {
 			if i == 0 || !isLetter(lower[i-1]) {
 				findings = append(findings, makeFinding(55, engine.SeverityHigh,
 					"Windows drive letter path detected",
-					extractContext(lower, string(lower[i:i+3])), location, 0.75))
+					extractContext(lower, lower[i:i+3]), location, 0.75))
 				break
 			}
 		}
@@ -320,7 +320,7 @@ func checkWindowsPaths(lower string, location string) []engine.Finding {
 }
 
 // checkWrapperSchemes detects PHP wrappers and file:// scheme.
-func checkWrapperSchemes(lower string, location string) []engine.Finding {
+func checkWrapperSchemes(lower, location string) []engine.Finding {
 	var findings []engine.Finding
 
 	schemes := []struct {
@@ -356,7 +356,7 @@ func checkWrapperSchemes(lower string, location string) []engine.Finding {
 }
 
 // checkBypassPatterns detects various traversal bypass techniques.
-func checkBypassPatterns(lower string, location string) []engine.Finding {
+func checkBypassPatterns(lower, location string) []engine.Finding {
 	var findings []engine.Finding
 
 	// ....// or ....\\ bypass
@@ -387,14 +387,8 @@ func extractContext(input, pattern string) string {
 		}
 		return input
 	}
-	start := idx - 20
-	if start < 0 {
-		start = 0
-	}
-	end := idx + len(pattern) + 20
-	if end > len(input) {
-		end = len(input)
-	}
+	start := max(idx-20, 0)
+	end := min(idx+len(pattern)+20, len(input))
 	result := input[start:end]
 	if len(result) > 200 {
 		result = result[:197] + "..."

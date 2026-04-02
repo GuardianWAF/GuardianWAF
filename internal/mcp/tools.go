@@ -2,8 +2,8 @@ package mcp
 
 // ToolDefinition describes an MCP tool with its name, description, and input schema.
 type ToolDefinition struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
 	InputSchema map[string]any `json:"inputSchema"`
 }
 

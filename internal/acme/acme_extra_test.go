@@ -75,7 +75,7 @@ func TestClientInit_BadDirectoryURL(t *testing.T) {
 
 func TestClientInit_BadDirectoryJSON(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("not json"))
+		_, _ = w.Write([]byte("not json"))
 	}))
 	defer srv.Close()
 
@@ -88,7 +88,7 @@ func TestClientInit_BadDirectoryJSON(t *testing.T) {
 
 func TestClientInit_InvalidPEMBlock(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(directory{})
+		_ = json.NewEncoder(w).Encode(directory{})
 	}))
 	defer srv.Close()
 
@@ -303,8 +303,8 @@ func TestCertDiskStore_LoadValidCachedCert(t *testing.T) {
 	keyDER, _ := x509.MarshalECPrivateKey(key)
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 
-	os.WriteFile(filepath.Join(dir, "valid.com.crt"), certPEM, 0600)
-	os.WriteFile(filepath.Join(dir, "valid.com.key"), keyPEM, 0600)
+	_ = os.WriteFile(filepath.Join(dir, "valid.com.crt"), certPEM, 0600)
+	_ = os.WriteFile(filepath.Join(dir, "valid.com.key"), keyPEM, 0600)
 
 	store := NewCertDiskStore(dir, nil, nil)
 	cert, err := store.LoadOrObtain([]string{"valid.com"})
@@ -353,7 +353,7 @@ func TestClientRegister_MockServer(t *testing.T) {
 	var srv *httptest.Server
 
 	mux.HandleFunc("/directory", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"newNonce":   srv.URL + "/nonce",
 			"newAccount": srv.URL + "/account",
 			"newOrder":   srv.URL + "/order",
@@ -367,7 +367,7 @@ func TestClientRegister_MockServer(t *testing.T) {
 		w.Header().Set("Location", srv.URL+"/account/1")
 		w.Header().Set("Replay-Nonce", "nonce-2")
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status": "valid",
 		})
 	})
@@ -392,7 +392,7 @@ func TestClientRegister_FailedStatus(t *testing.T) {
 	var srv *httptest.Server
 
 	mux.HandleFunc("/directory", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"newNonce":   srv.URL + "/nonce",
 			"newAccount": srv.URL + "/account",
 			"newOrder":   srv.URL + "/order",
@@ -405,14 +405,14 @@ func TestClientRegister_FailedStatus(t *testing.T) {
 	mux.HandleFunc("/account", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Replay-Nonce", "nonce2")
 		w.WriteHeader(http.StatusForbidden)
-		w.Write([]byte(`{"type":"urn:ietf:params:acme:error:unauthorized"}`))
+		_, _ = w.Write([]byte(`{"type":"urn:ietf:params:acme:error:unauthorized"}`))
 	})
 
 	srv = httptest.NewServer(mux)
 	defer srv.Close()
 
 	c := NewClient(srv.URL + "/directory")
-	c.Init(nil)
+	_ = c.Init(nil)
 	err := c.Register("test@example.com")
 	if err == nil {
 		t.Error("expected error for failed registration")
@@ -426,7 +426,7 @@ func newMockACME(t *testing.T) (*httptest.Server, *Client) {
 	var srv *httptest.Server
 
 	mux.HandleFunc("/directory", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"newNonce":   srv.URL + "/nonce",
 			"newAccount": srv.URL + "/account",
 			"newOrder":   srv.URL + "/order",
@@ -440,13 +440,13 @@ func newMockACME(t *testing.T) (*httptest.Server, *Client) {
 		w.Header().Set("Location", srv.URL+"/account/1")
 		w.Header().Set("Replay-Nonce", "nonce-acct")
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
 	})
 	mux.HandleFunc("/order", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Location", srv.URL+"/order/1")
 		w.Header().Set("Replay-Nonce", "nonce-order")
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status":         "pending",
 			"authorizations": []string{srv.URL + "/authz/1"},
 			"finalize":       srv.URL + "/finalize/1",
@@ -454,7 +454,7 @@ func newMockACME(t *testing.T) (*httptest.Server, *Client) {
 	})
 	mux.HandleFunc("/authz/1", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Replay-Nonce", "nonce-authz")
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status":     "valid", // already validated
 			"identifier": map[string]string{"value": "test.example.com"},
 			"challenges": []map[string]string{
@@ -465,7 +465,7 @@ func newMockACME(t *testing.T) (*httptest.Server, *Client) {
 	mux.HandleFunc("/finalize/1", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Replay-Nonce", "nonce-fin")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
 	})
 	mux.HandleFunc("/order/1", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Replay-Nonce", "nonce-poll")
@@ -480,7 +480,7 @@ func newMockACME(t *testing.T) (*httptest.Server, *Client) {
 		}
 		certDER, _ := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
 		certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status":      "valid",
 			"certificate": srv.URL + "/cert/1",
 		})
@@ -498,7 +498,7 @@ func newMockACME(t *testing.T) (*httptest.Server, *Client) {
 		}
 		certDER, _ := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
 		certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-		w.Write(certPEM)
+		_, _ = w.Write(certPEM)
 	})
 
 	srv = httptest.NewServer(mux)
@@ -566,7 +566,7 @@ func TestCreateOrder_FailedStatus(t *testing.T) {
 	var srv *httptest.Server
 
 	mux.HandleFunc("/directory", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"newNonce":   srv.URL + "/nonce",
 			"newAccount": srv.URL + "/account",
 			"newOrder":   srv.URL + "/order",
@@ -580,20 +580,20 @@ func TestCreateOrder_FailedStatus(t *testing.T) {
 		w.Header().Set("Location", srv.URL+"/acct/1")
 		w.Header().Set("Replay-Nonce", "n2")
 		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
 	})
 	mux.HandleFunc("/order", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Replay-Nonce", "n3")
 		w.WriteHeader(http.StatusForbidden)
-		w.Write([]byte(`{"type":"forbidden"}`))
+		_, _ = w.Write([]byte(`{"type":"forbidden"}`))
 	})
 
 	srv = httptest.NewServer(mux)
 	defer srv.Close()
 
 	c := NewClient(srv.URL + "/directory")
-	c.Init(nil)
-	c.Register("test@example.com")
+	_ = c.Init(nil)
+	_ = c.Register("test@example.com")
 
 	_, _, err := c.createOrder([]string{"bad.com"})
 	if err == nil {
@@ -605,7 +605,7 @@ func TestGetNonce_FromPool(t *testing.T) {
 	mux := http.NewServeMux()
 	var srv *httptest.Server
 	mux.HandleFunc("/directory", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"newNonce":   srv.URL + "/nonce",
 			"newAccount": srv.URL + "/account",
 			"newOrder":   srv.URL + "/order",
@@ -620,7 +620,7 @@ func TestGetNonce_FromPool(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL + "/directory")
-	c.Init(nil)
+	_ = c.Init(nil)
 
 	// Pre-fill the nonce pool
 	c.mu.Lock()
@@ -650,7 +650,7 @@ func TestFinalizeOrder_Failed(t *testing.T) {
 	mux := http.NewServeMux()
 	var srv *httptest.Server
 	mux.HandleFunc("/directory", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"newNonce":   srv.URL + "/nonce",
 			"newAccount": srv.URL + "/account",
 			"newOrder":   srv.URL + "/order",
@@ -664,20 +664,20 @@ func TestFinalizeOrder_Failed(t *testing.T) {
 		w.Header().Set("Location", srv.URL+"/acct/1")
 		w.Header().Set("Replay-Nonce", "n2")
 		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
 	})
 	mux.HandleFunc("/finalize", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Replay-Nonce", "n3")
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"type":"badCSR"}`))
+		_, _ = w.Write([]byte(`{"type":"badCSR"}`))
 	})
 
 	srv = httptest.NewServer(mux)
 	defer srv.Close()
 
 	c := NewClient(srv.URL + "/directory")
-	c.Init(nil)
-	c.Register("test@example.com")
+	_ = c.Init(nil)
+	_ = c.Register("test@example.com")
 
 	err := c.finalizeOrder(srv.URL+"/finalize", []byte("fake-csr"))
 	if err == nil {
@@ -701,8 +701,8 @@ func TestCertDiskStore_StoreCertMultipleDomains(t *testing.T) {
 	keyDER, _ := x509.MarshalECPrivateKey(key)
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 
-	os.WriteFile(filepath.Join(store.cacheDir, "a.com.crt"), certPEM, 0600)
-	os.WriteFile(filepath.Join(store.cacheDir, "a.com.key"), keyPEM, 0600)
+	_ = os.WriteFile(filepath.Join(store.cacheDir, "a.com.crt"), certPEM, 0600)
+	_ = os.WriteFile(filepath.Join(store.cacheDir, "a.com.key"), keyPEM, 0600)
 
 	cert, err := store.LoadOrObtain([]string{"a.com", "b.com", "c.com"})
 	if err != nil {
@@ -728,7 +728,7 @@ func TestCompleteAuthorization_NoHTTP01Challenge(t *testing.T) {
 	var srv *httptest.Server
 
 	mux.HandleFunc("/directory", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"newNonce":   srv.URL + "/nonce",
 			"newAccount": srv.URL + "/account",
 			"newOrder":   srv.URL + "/order",
@@ -742,12 +742,12 @@ func TestCompleteAuthorization_NoHTTP01Challenge(t *testing.T) {
 		w.Header().Set("Location", srv.URL+"/acct/1")
 		w.Header().Set("Replay-Nonce", "n2")
 		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
 	})
 	mux.HandleFunc("/authz/no-http01", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Replay-Nonce", "n-authz")
 		// No http-01 challenge, only dns-01
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status":     "pending",
 			"identifier": map[string]string{"value": "test.com"},
 			"challenges": []map[string]string{
@@ -760,8 +760,8 @@ func TestCompleteAuthorization_NoHTTP01Challenge(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL + "/directory")
-	c.Init(nil)
-	c.Register("test@example.com")
+	_ = c.Init(nil)
+	_ = c.Register("test@example.com")
 
 	handler := NewHTTP01Handler()
 	err := c.completeAuthorization(srv.URL+"/authz/no-http01", handler)
@@ -778,7 +778,7 @@ func TestCompleteAuthorization_AlreadyValid(t *testing.T) {
 	var srv *httptest.Server
 
 	mux.HandleFunc("/directory", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"newNonce":   srv.URL + "/nonce",
 			"newAccount": srv.URL + "/account",
 			"newOrder":   srv.URL + "/order",
@@ -792,11 +792,11 @@ func TestCompleteAuthorization_AlreadyValid(t *testing.T) {
 		w.Header().Set("Location", srv.URL+"/acct/1")
 		w.Header().Set("Replay-Nonce", "n2")
 		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
 	})
 	mux.HandleFunc("/authz/valid", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Replay-Nonce", "n-authz")
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status":     "valid", // Already validated
 			"identifier": map[string]string{"value": "test.com"},
 			"challenges": []map[string]string{
@@ -809,8 +809,8 @@ func TestCompleteAuthorization_AlreadyValid(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL + "/directory")
-	c.Init(nil)
-	c.Register("test@example.com")
+	_ = c.Init(nil)
+	_ = c.Register("test@example.com")
 
 	handler := NewHTTP01Handler()
 	err := c.completeAuthorization(srv.URL+"/authz/valid", handler)
@@ -825,7 +825,7 @@ func TestCompleteAuthorization_BecomesInvalid(t *testing.T) {
 	callCount := 0
 
 	mux.HandleFunc("/directory", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"newNonce":   srv.URL + "/nonce",
 			"newAccount": srv.URL + "/account",
 			"newOrder":   srv.URL + "/order",
@@ -839,14 +839,14 @@ func TestCompleteAuthorization_BecomesInvalid(t *testing.T) {
 		w.Header().Set("Location", srv.URL+"/acct/1")
 		w.Header().Set("Replay-Nonce", "n2")
 		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
 	})
 	mux.HandleFunc("/authz/invalid", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Replay-Nonce", "n-authz")
 		callCount++
 		if callCount == 1 {
 			// First call - pending
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"status":     "pending",
 				"identifier": map[string]string{"value": "test.com"},
 				"challenges": []map[string]string{
@@ -855,7 +855,7 @@ func TestCompleteAuthorization_BecomesInvalid(t *testing.T) {
 			})
 		} else {
 			// Poll - becomes invalid
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"status":     "invalid",
 				"identifier": map[string]string{"value": "test.com"},
 				"challenges": []map[string]string{
@@ -873,8 +873,8 @@ func TestCompleteAuthorization_BecomesInvalid(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL + "/directory")
-	c.Init(nil)
-	c.Register("test@example.com")
+	_ = c.Init(nil)
+	_ = c.Register("test@example.com")
 
 	handler := NewHTTP01Handler()
 	err := c.completeAuthorization(srv.URL+"/authz/invalid", handler)
@@ -905,8 +905,8 @@ func TestRenewIfNeeded_ValidNotExpired(t *testing.T) {
 	keyDER, _ := x509.MarshalECPrivateKey(key)
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 
-	os.WriteFile(filepath.Join(dir, "valid.com.crt"), certPEM, 0600)
-	os.WriteFile(filepath.Join(dir, "valid.com.key"), keyPEM, 0600)
+	_ = os.WriteFile(filepath.Join(dir, "valid.com.crt"), certPEM, 0600)
+	_ = os.WriteFile(filepath.Join(dir, "valid.com.key"), keyPEM, 0600)
 
 	store := NewCertDiskStore(dir, nil, nil)
 	store.AddDomains([]string{"valid.com"})
@@ -920,8 +920,8 @@ func TestRenewIfNeeded_InvalidCertFile(t *testing.T) {
 	dir := t.TempDir()
 
 	// Write invalid cert data
-	os.WriteFile(filepath.Join(dir, "bad.com.crt"), []byte("not a cert"), 0600)
-	os.WriteFile(filepath.Join(dir, "bad.com.key"), []byte("not a key"), 0600)
+	_ = os.WriteFile(filepath.Join(dir, "bad.com.crt"), []byte("not a cert"), 0600)
+	_ = os.WriteFile(filepath.Join(dir, "bad.com.key"), []byte("not a key"), 0600)
 
 	store := NewCertDiskStore(dir, nil, nil)
 	store.AddDomains([]string{"bad.com"})
@@ -937,7 +937,7 @@ func TestRenewIfNeeded_NeedsRenewalWithMockClient(t *testing.T) {
 	var srv *httptest.Server
 
 	mux.HandleFunc("/directory", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"newNonce":   srv.URL + "/nonce",
 			"newAccount": srv.URL + "/account",
 			"newOrder":   srv.URL + "/order",
@@ -950,19 +950,19 @@ func TestRenewIfNeeded_NeedsRenewalWithMockClient(t *testing.T) {
 	mux.HandleFunc("/account", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Location", srv.URL+"/acct/1")
 		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
 	})
 	mux.HandleFunc("/order", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Location", srv.URL+"/order/1")
 		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status":         "pending",
 			"authorizations": []string{srv.URL + "/authz/1"},
 			"finalize":       srv.URL + "/finalize",
 		})
 	})
 	mux.HandleFunc("/authz/1", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status":     "valid",
 			"identifier": map[string]string{"value": "expiring.com"},
 			"challenges": []map[string]string{
@@ -972,10 +972,10 @@ func TestRenewIfNeeded_NeedsRenewalWithMockClient(t *testing.T) {
 	})
 	mux.HandleFunc("/finalize", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
-		json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
 	})
 	mux.HandleFunc("/order/1", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status":      "valid",
 			"certificate": srv.URL + "/cert/1",
 		})
@@ -991,7 +991,7 @@ func TestRenewIfNeeded_NeedsRenewalWithMockClient(t *testing.T) {
 		}
 		certDER, _ := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
 		certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-		w.Write(certPEM)
+		_, _ = w.Write(certPEM)
 	})
 
 	srv = httptest.NewServer(mux)
@@ -1013,13 +1013,13 @@ func TestRenewIfNeeded_NeedsRenewalWithMockClient(t *testing.T) {
 	keyDER, _ := x509.MarshalECPrivateKey(oldKey)
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 
-	os.WriteFile(filepath.Join(dir, "expiring.com.crt"), certPEM, 0600)
-	os.WriteFile(filepath.Join(dir, "expiring.com.key"), keyPEM, 0600)
+	_ = os.WriteFile(filepath.Join(dir, "expiring.com.crt"), certPEM, 0600)
+	_ = os.WriteFile(filepath.Join(dir, "expiring.com.key"), keyPEM, 0600)
 
 	// Create client and store with mock server
 	client := NewClient(srv.URL + "/directory")
-	client.Init(nil)
-	client.Register("test@example.com")
+	_ = client.Init(nil)
+	_ = client.Register("test@example.com")
 
 	handler := NewHTTP01Handler()
 	store := NewCertDiskStore(dir, client, handler)
@@ -1036,7 +1036,7 @@ func TestRenewIfNeeded_NoCertFileWithMockClient(t *testing.T) {
 	var srv *httptest.Server
 
 	mux.HandleFunc("/directory", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"newNonce":   srv.URL + "/nonce",
 			"newAccount": srv.URL + "/account",
 			"newOrder":   srv.URL + "/order",
@@ -1049,19 +1049,19 @@ func TestRenewIfNeeded_NoCertFileWithMockClient(t *testing.T) {
 	mux.HandleFunc("/account", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Location", srv.URL+"/acct/1")
 		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
 	})
 	mux.HandleFunc("/order", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Location", srv.URL+"/order/1")
 		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status":         "pending",
 			"authorizations": []string{srv.URL + "/authz/1"},
 			"finalize":       srv.URL + "/finalize",
 		})
 	})
 	mux.HandleFunc("/authz/1", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status":     "valid",
 			"identifier": map[string]string{"value": "newdomain.com"},
 			"challenges": []map[string]string{
@@ -1071,10 +1071,10 @@ func TestRenewIfNeeded_NoCertFileWithMockClient(t *testing.T) {
 	})
 	mux.HandleFunc("/finalize", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
-		json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
 	})
 	mux.HandleFunc("/order/1", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status":      "valid",
 			"certificate": srv.URL + "/cert/1",
 		})
@@ -1090,15 +1090,15 @@ func TestRenewIfNeeded_NoCertFileWithMockClient(t *testing.T) {
 		}
 		certDER, _ := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
 		certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-		w.Write(certPEM)
+		_, _ = w.Write(certPEM)
 	})
 
 	srv = httptest.NewServer(mux)
 	defer srv.Close()
 
 	client := NewClient(srv.URL + "/directory")
-	client.Init(nil)
-	client.Register("test@example.com")
+	_ = client.Init(nil)
+	_ = client.Register("test@example.com")
 
 	handler := NewHTTP01Handler()
 	store := NewCertDiskStore(t.TempDir(), client, handler)
@@ -1122,7 +1122,7 @@ func TestPollCertificate_BecomesInvalid(t *testing.T) {
 	var srv *httptest.Server
 
 	mux.HandleFunc("/directory", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"newNonce":   srv.URL + "/nonce",
 			"newAccount": srv.URL + "/account",
 			"newOrder":   srv.URL + "/order",
@@ -1136,11 +1136,11 @@ func TestPollCertificate_BecomesInvalid(t *testing.T) {
 		w.Header().Set("Location", srv.URL+"/acct/1")
 		w.Header().Set("Replay-Nonce", "n2")
 		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
 	})
 	mux.HandleFunc("/order/invalid", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Replay-Nonce", "n")
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status": "invalid",
 		})
 	})
@@ -1149,8 +1149,8 @@ func TestPollCertificate_BecomesInvalid(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL + "/directory")
-	c.Init(nil)
-	c.Register("test@example.com")
+	_ = c.Init(nil)
+	_ = c.Register("test@example.com")
 
 	_, err := c.pollCertificate(srv.URL + "/order/invalid")
 	if err == nil {
@@ -1169,7 +1169,7 @@ func TestSignedPost_NonceError(t *testing.T) {
 	var srv *httptest.Server
 
 	mux.HandleFunc("/directory", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"newNonce":   "http://127.0.0.1:1/nonce", // unreachable
 			"newAccount": srv.URL + "/account",
 			"newOrder":   srv.URL + "/order",
@@ -1178,18 +1178,21 @@ func TestSignedPost_NonceError(t *testing.T) {
 	mux.HandleFunc("/account", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Location", srv.URL+"/acct/1")
 		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
 	})
 
 	srv = httptest.NewServer(mux)
 	defer srv.Close()
 
 	c := NewClient(srv.URL + "/directory")
-	c.Init(nil)
+	_ = c.Init(nil)
 
 	// The Init already fetched directory, but when we try to signedPost
 	// with empty nonce pool, it will try to get nonce from unreachable endpoint
-	_, err := c.signedPost("http://example.com/test", nil, false)
+	resp, err := c.signedPost("http://example.com/test", nil, false)
+	if resp != nil {
+		resp.Body.Close()
+	}
 	if err == nil {
 		t.Error("expected error when nonce fetch fails")
 	}
@@ -1199,7 +1202,7 @@ func TestSignedPost_NonceError(t *testing.T) {
 
 func TestFetchDirectory_InvalidJSON(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("not json"))
+		_, _ = w.Write([]byte("not json"))
 	}))
 	defer srv.Close()
 
@@ -1219,7 +1222,7 @@ func TestObtainCertificate_CompleteFlow(t *testing.T) {
 	authzCallCount := 0
 
 	mux.HandleFunc("/directory", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"newNonce":   srv.URL + "/nonce",
 			"newAccount": srv.URL + "/account",
 			"newOrder":   srv.URL + "/order",
@@ -1233,13 +1236,13 @@ func TestObtainCertificate_CompleteFlow(t *testing.T) {
 		w.Header().Set("Location", srv.URL+"/account/1")
 		w.Header().Set("Replay-Nonce", "nonce-acct")
 		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
 	})
 	mux.HandleFunc("/order", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Location", srv.URL+"/order/1")
 		w.Header().Set("Replay-Nonce", "nonce-order")
 		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status":         "pending",
 			"authorizations": []string{srv.URL + "/authz/1"},
 			"finalize":       srv.URL + "/finalize/1",
@@ -1250,7 +1253,7 @@ func TestObtainCertificate_CompleteFlow(t *testing.T) {
 		authzCallCount++
 		if authzCallCount <= 2 {
 			// First calls - pending, need to complete challenge
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"status":     "pending",
 				"identifier": map[string]string{"value": "test.example.com"},
 				"challenges": []map[string]string{
@@ -1259,7 +1262,7 @@ func TestObtainCertificate_CompleteFlow(t *testing.T) {
 			})
 		} else {
 			// After challenge - valid
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"status":     "valid",
 				"identifier": map[string]string{"value": "test.example.com"},
 				"challenges": []map[string]string{
@@ -1271,16 +1274,16 @@ func TestObtainCertificate_CompleteFlow(t *testing.T) {
 	mux.HandleFunc("/challenge/1", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Replay-Nonce", "nonce-ch")
 		w.WriteHeader(200)
-		json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
 	})
 	mux.HandleFunc("/finalize/1", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Replay-Nonce", "nonce-fin")
 		w.WriteHeader(200)
-		json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
 	})
 	mux.HandleFunc("/order/1", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Replay-Nonce", "nonce-poll")
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status":      "valid",
 			"certificate": srv.URL + "/cert/1",
 		})
@@ -1297,7 +1300,7 @@ func TestObtainCertificate_CompleteFlow(t *testing.T) {
 		}
 		certDER, _ := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
 		certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-		w.Write(certPEM)
+		_, _ = w.Write(certPEM)
 	})
 
 	srv = httptest.NewServer(mux)
@@ -1336,7 +1339,7 @@ func TestObtainCertificate_CreateOrderError(t *testing.T) {
 	var srv *httptest.Server
 
 	mux.HandleFunc("/directory", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"newNonce":   srv.URL + "/nonce",
 			"newAccount": srv.URL + "/account",
 			"newOrder":   srv.URL + "/order",
@@ -1349,19 +1352,19 @@ func TestObtainCertificate_CreateOrderError(t *testing.T) {
 	mux.HandleFunc("/account", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Location", srv.URL+"/acct/1")
 		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
 	})
 	mux.HandleFunc("/order", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
-		w.Write([]byte("server error"))
+		_, _ = w.Write([]byte("server error"))
 	})
 
 	srv = httptest.NewServer(mux)
 	defer srv.Close()
 
 	c := NewClient(srv.URL + "/directory")
-	c.Init(nil)
-	c.Register("test@example.com")
+	_ = c.Init(nil)
+	_ = c.Register("test@example.com")
 
 	_, _, err := c.ObtainCertificate([]string{"test.com"}, NewHTTP01Handler())
 	if err == nil {
@@ -1374,7 +1377,7 @@ func TestObtainCertificate_FinalizeError(t *testing.T) {
 	var srv *httptest.Server
 
 	mux.HandleFunc("/directory", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"newNonce":   srv.URL + "/nonce",
 			"newAccount": srv.URL + "/account",
 			"newOrder":   srv.URL + "/order",
@@ -1387,19 +1390,19 @@ func TestObtainCertificate_FinalizeError(t *testing.T) {
 	mux.HandleFunc("/account", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Location", srv.URL+"/acct/1")
 		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
 	})
 	mux.HandleFunc("/order", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Location", srv.URL+"/order/1")
 		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status":         "pending",
 			"authorizations": []string{srv.URL + "/authz/1"},
 			"finalize":       srv.URL + "/finalize",
 		})
 	})
 	mux.HandleFunc("/authz/1", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status":     "valid",
 			"identifier": map[string]string{"value": "test.com"},
 			"challenges": []map[string]string{
@@ -1409,15 +1412,15 @@ func TestObtainCertificate_FinalizeError(t *testing.T) {
 	})
 	mux.HandleFunc("/finalize", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
-		w.Write([]byte("finalize failed"))
+		_, _ = w.Write([]byte("finalize failed"))
 	})
 
 	srv = httptest.NewServer(mux)
 	defer srv.Close()
 
 	c := NewClient(srv.URL + "/directory")
-	c.Init(nil)
-	c.Register("test@example.com")
+	_ = c.Init(nil)
+	_ = c.Register("test@example.com")
 
 	_, _, err := c.ObtainCertificate([]string{"test.com"}, NewHTTP01Handler())
 	if err == nil {
@@ -1432,7 +1435,7 @@ func TestPollCertificate_Timeout(t *testing.T) {
 	var srv *httptest.Server
 
 	mux.HandleFunc("/directory", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"newNonce":   srv.URL + "/nonce",
 			"newAccount": srv.URL + "/account",
 			"newOrder":   srv.URL + "/order",
@@ -1445,12 +1448,12 @@ func TestPollCertificate_Timeout(t *testing.T) {
 	mux.HandleFunc("/account", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Location", srv.URL+"/acct/1")
 		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
 	})
 	mux.HandleFunc("/order/pending", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Replay-Nonce", "n")
 		// Always pending - will timeout
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status": "pending",
 		})
 	})
@@ -1459,8 +1462,8 @@ func TestPollCertificate_Timeout(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL + "/directory")
-	c.Init(nil)
-	c.Register("test@example.com")
+	_ = c.Init(nil)
+	_ = c.Register("test@example.com")
 
 	_, err := c.pollCertificate(srv.URL + "/order/pending")
 	if err == nil {
@@ -1492,8 +1495,8 @@ func TestLoadOrObtain_CachedValidCert(t *testing.T) {
 	keyDER, _ := x509.MarshalECPrivateKey(key)
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 
-	os.WriteFile(filepath.Join(dir, "cached.com.crt"), certPEM, 0600)
-	os.WriteFile(filepath.Join(dir, "cached.com.key"), keyPEM, 0600)
+	_ = os.WriteFile(filepath.Join(dir, "cached.com.crt"), certPEM, 0600)
+	_ = os.WriteFile(filepath.Join(dir, "cached.com.key"), keyPEM, 0600)
 
 	// Store with nil client - should use cached cert
 	store := NewCertDiskStore(dir, nil, nil)
@@ -1526,7 +1529,7 @@ func TestCompleteAuthorization_Timeout(t *testing.T) {
 	var srv *httptest.Server
 
 	mux.HandleFunc("/directory", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"newNonce":   srv.URL + "/nonce",
 			"newAccount": srv.URL + "/account",
 			"newOrder":   srv.URL + "/order",
@@ -1539,12 +1542,12 @@ func TestCompleteAuthorization_Timeout(t *testing.T) {
 	mux.HandleFunc("/account", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Location", srv.URL+"/acct/1")
 		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
 	})
 	mux.HandleFunc("/authz/pending", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Replay-Nonce", "n")
 		// Always pending - will timeout
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status":     "pending",
 			"identifier": map[string]string{"value": "test.com"},
 			"challenges": []map[string]string{
@@ -1561,8 +1564,8 @@ func TestCompleteAuthorization_Timeout(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL + "/directory")
-	c.Init(nil)
-	c.Register("test@example.com")
+	_ = c.Init(nil)
+	_ = c.Register("test@example.com")
 
 	err := c.completeAuthorization(srv.URL+"/authz/pending", NewHTTP01Handler())
 	if err == nil {
@@ -1624,7 +1627,7 @@ func TestLoadOrObtain_SaveError(t *testing.T) {
 
 	dir := t.TempDir()
 	readOnlyDir := filepath.Join(dir, "readonly")
-	os.MkdirAll(readOnlyDir, 0555)
+	_ = os.MkdirAll(readOnlyDir, 0555)
 
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	template := &x509.Certificate{
@@ -1640,11 +1643,11 @@ func TestLoadOrObtain_SaveError(t *testing.T) {
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 
 	// Pre-populate expired cert - will try to obtain new one
-	os.WriteFile(filepath.Join(readOnlyDir, "test.com.crt"), certPEM, 0444)
-	os.WriteFile(filepath.Join(readOnlyDir, "test.com.key"), keyPEM, 0444)
+	_ = os.WriteFile(filepath.Join(readOnlyDir, "test.com.crt"), certPEM, 0444)
+	_ = os.WriteFile(filepath.Join(readOnlyDir, "test.com.key"), keyPEM, 0444)
 
 	// Make directory read-only after writing
-	os.Chmod(readOnlyDir, 0555)
+	_ = os.Chmod(readOnlyDir, 0555)
 
 	store := NewCertDiskStore(readOnlyDir, nil, nil)
 	// This should fail because we can't create new cert files
@@ -1694,8 +1697,8 @@ func TestRenewIfNeeded_MultipleDomains(t *testing.T) {
 		keyDER, _ := x509.MarshalECPrivateKey(key)
 		keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 
-		os.WriteFile(filepath.Join(dir, domain+".crt"), certPEM, 0600)
-		os.WriteFile(filepath.Join(dir, domain+".key"), keyPEM, 0600)
+		_ = os.WriteFile(filepath.Join(dir, domain+".crt"), certPEM, 0600)
+		_ = os.WriteFile(filepath.Join(dir, domain+".key"), keyPEM, 0600)
 	}
 
 	store := NewCertDiskStore(dir, nil, nil)
@@ -1712,12 +1715,12 @@ func TestRenewIfNeeded_ParseError(t *testing.T) {
 
 	// Write cert with invalid DER (but valid PEM)
 	invalidPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: []byte("not a valid cert")})
-	os.WriteFile(filepath.Join(dir, "bad.com.crt"), invalidPEM, 0600)
+	_ = os.WriteFile(filepath.Join(dir, "bad.com.crt"), invalidPEM, 0600)
 
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	keyDER, _ := x509.MarshalECPrivateKey(key)
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
-	os.WriteFile(filepath.Join(dir, "bad.com.key"), keyPEM, 0600)
+	_ = os.WriteFile(filepath.Join(dir, "bad.com.key"), keyPEM, 0600)
 
 	store := NewCertDiskStore(dir, nil, nil)
 	store.AddDomains([]string{"bad.com"})
@@ -1777,7 +1780,7 @@ func TestLoadOrObtain_CacheMissWithClient(t *testing.T) {
 	var srv *httptest.Server
 
 	mux.HandleFunc("/directory", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"newNonce":   srv.URL + "/nonce",
 			"newAccount": srv.URL + "/account",
 			"newOrder":   srv.URL + "/order",
@@ -1790,19 +1793,19 @@ func TestLoadOrObtain_CacheMissWithClient(t *testing.T) {
 	mux.HandleFunc("/account", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Location", srv.URL+"/acct/1")
 		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
 	})
 	mux.HandleFunc("/order", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Location", srv.URL+"/order/1")
 		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status":         "pending",
 			"authorizations": []string{srv.URL + "/authz/1"},
 			"finalize":       srv.URL + "/finalize",
 		})
 	})
 	mux.HandleFunc("/authz/1", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status":     "valid",
 			"identifier": map[string]string{"value": "newcache.com"},
 			"challenges": []map[string]string{
@@ -1812,10 +1815,10 @@ func TestLoadOrObtain_CacheMissWithClient(t *testing.T) {
 	})
 	mux.HandleFunc("/finalize", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
-		json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
 	})
 	mux.HandleFunc("/order/1", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status":      "valid",
 			"certificate": srv.URL + "/cert/1",
 		})
@@ -1832,15 +1835,15 @@ func TestLoadOrObtain_CacheMissWithClient(t *testing.T) {
 		}
 		certDER, _ := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
 		certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-		w.Write(certPEM)
+		_, _ = w.Write(certPEM)
 	})
 
 	srv = httptest.NewServer(mux)
 	defer srv.Close()
 
 	client := NewClient(srv.URL + "/directory")
-	client.Init(nil)
-	client.Register("test@example.com")
+	_ = client.Init(nil)
+	_ = client.Register("test@example.com")
 
 	handler := NewHTTP01Handler()
 	dir := t.TempDir()
@@ -1873,8 +1876,8 @@ func TestRenewIfNeeded_NeedsRenewal(t *testing.T) {
 	keyDER, _ := x509.MarshalECPrivateKey(key)
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 
-	os.WriteFile(filepath.Join(dir, "expiring.com.crt"), certPEM, 0600)
-	os.WriteFile(filepath.Join(dir, "expiring.com.key"), keyPEM, 0600)
+	_ = os.WriteFile(filepath.Join(dir, "expiring.com.crt"), certPEM, 0600)
+	_ = os.WriteFile(filepath.Join(dir, "expiring.com.key"), keyPEM, 0600)
 
 	store := NewCertDiskStore(dir, nil, nil)
 	store.AddDomains([]string{"expiring.com"})
@@ -1891,7 +1894,7 @@ func TestSignedPost_WithAccountURL(t *testing.T) {
 	var srv *httptest.Server
 
 	mux.HandleFunc("/directory", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"newNonce":   srv.URL + "/nonce",
 			"newAccount": srv.URL + "/account",
 			"newOrder":   srv.URL + "/order",
@@ -1905,20 +1908,20 @@ func TestSignedPost_WithAccountURL(t *testing.T) {
 		w.Header().Set("Location", srv.URL+"/acct/1")
 		w.Header().Set("Replay-Nonce", "n2")
 		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
 	})
 	mux.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Replay-Nonce", "n3")
 		w.WriteHeader(200)
-		json.NewEncoder(w).Encode(map[string]string{"ok": "true"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"ok": "true"})
 	})
 
 	srv = httptest.NewServer(mux)
 	defer srv.Close()
 
 	c := NewClient(srv.URL + "/directory")
-	c.Init(nil)
-	c.Register("test@example.com")
+	_ = c.Init(nil)
+	_ = c.Register("test@example.com")
 
 	// Now signedPost should use kid (account URL) instead of jwk
 	resp, err := c.signedPost(srv.URL+"/test", map[string]any{"test": true}, false)
@@ -1950,8 +1953,8 @@ func TestLoadOrObtain_ValidCachedNotExpired(t *testing.T) {
 	keyDER, _ := x509.MarshalECPrivateKey(key)
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 
-	os.WriteFile(filepath.Join(dir, "validcached.com.crt"), certPEM, 0600)
-	os.WriteFile(filepath.Join(dir, "validcached.com.key"), keyPEM, 0600)
+	_ = os.WriteFile(filepath.Join(dir, "validcached.com.crt"), certPEM, 0600)
+	_ = os.WriteFile(filepath.Join(dir, "validcached.com.key"), keyPEM, 0600)
 
 	store := NewCertDiskStore(dir, nil, nil)
 
@@ -1972,7 +1975,7 @@ func TestFetchCertificateChain_Non200Status(t *testing.T) {
 	var srv *httptest.Server
 
 	mux.HandleFunc("/directory", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"newNonce":   srv.URL + "/nonce",
 			"newAccount": srv.URL + "/account",
 		})
@@ -1987,15 +1990,15 @@ func TestFetchCertificateChain_Non200Status(t *testing.T) {
 	})
 	mux.HandleFunc("/cert-error", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(404)
-		w.Write([]byte("not found"))
+		_, _ = w.Write([]byte("not found"))
 	})
 
 	srv = httptest.NewServer(mux)
 	defer srv.Close()
 
 	client := NewClient(srv.URL + "/directory")
-	client.Init(nil)
-	client.Register("test@example.com")
+	_ = client.Init(nil)
+	_ = client.Register("test@example.com")
 
 	// Call private fetchCertificateChain via reflection not possible,
 	// but we can test via ObtainCertificate flow
@@ -2016,7 +2019,7 @@ func TestCreateOrder_Non201Status(t *testing.T) {
 	var srv *httptest.Server
 
 	mux.HandleFunc("/directory", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"newNonce":   srv.URL + "/nonce",
 			"newAccount": srv.URL + "/account",
 			"newOrder":   srv.URL + "/order-error",
@@ -2032,15 +2035,15 @@ func TestCreateOrder_Non201Status(t *testing.T) {
 	})
 	mux.HandleFunc("/order-error", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(400)
-		w.Write([]byte(`{"type":"urn:ietf:params:acme:error:rejectedIdentifier"}`))
+		_, _ = w.Write([]byte(`{"type":"urn:ietf:params:acme:error:rejectedIdentifier"}`))
 	})
 
 	srv = httptest.NewServer(mux)
 	defer srv.Close()
 
 	client := NewClient(srv.URL + "/directory")
-	client.Init(nil)
-	client.Register("test@example.com")
+	_ = client.Init(nil)
+	_ = client.Register("test@example.com")
 
 	// Test createOrder - it should return error on non-201
 	handler := NewHTTP01Handler()
@@ -2060,7 +2063,7 @@ func TestFinalizeOrder_Non200Status(t *testing.T) {
 	var srv *httptest.Server
 
 	mux.HandleFunc("/directory", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"newNonce":   srv.URL + "/nonce",
 			"newAccount": srv.URL + "/account",
 			"newOrder":   srv.URL + "/order",
@@ -2077,14 +2080,14 @@ func TestFinalizeOrder_Non200Status(t *testing.T) {
 	mux.HandleFunc("/order", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Location", srv.URL+"/order/1")
 		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status":         "pending",
 			"authorizations": []string{srv.URL + "/authz/1"},
 			"finalize":       srv.URL + "/finalize-error",
 		})
 	})
 	mux.HandleFunc("/authz/1", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status":     "valid",
 			"identifier": map[string]string{"value": "test.com"},
 			"challenges": []map[string]any{
@@ -2094,15 +2097,15 @@ func TestFinalizeOrder_Non200Status(t *testing.T) {
 	})
 	mux.HandleFunc("/finalize-error", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(400)
-		w.Write([]byte(`{"type":"urn:ietf:params:acme:error:badCSR"}`))
+		_, _ = w.Write([]byte(`{"type":"urn:ietf:params:acme:error:badCSR"}`))
 	})
 
 	srv = httptest.NewServer(mux)
 	defer srv.Close()
 
 	client := NewClient(srv.URL + "/directory")
-	client.Init(nil)
-	client.Register("test@example.com")
+	_ = client.Init(nil)
+	_ = client.Register("test@example.com")
 
 	handler := NewHTTP01Handler()
 	_, _, err := client.ObtainCertificate([]string{"test.com"}, handler)
@@ -2125,7 +2128,7 @@ func TestLoadOrObtain_ObtainAndSaveSuccess(t *testing.T) {
 	var mu sync.Mutex
 
 	mux.HandleFunc("/directory", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"newNonce":   srv.URL + "/nonce",
 			"newAccount": srv.URL + "/account",
 			"newOrder":   srv.URL + "/order",
@@ -2138,19 +2141,19 @@ func TestLoadOrObtain_ObtainAndSaveSuccess(t *testing.T) {
 	mux.HandleFunc("/account", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Location", srv.URL+"/acct/1")
 		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
 	})
 	mux.HandleFunc("/order", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Location", srv.URL+"/order/1")
 		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status":         "pending",
 			"authorizations": []string{srv.URL + "/authz/1"},
 			"finalize":       srv.URL + "/finalize",
 		})
 	})
 	mux.HandleFunc("/authz/1", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status":     "valid",
 			"identifier": map[string]string{"value": "obtain.com"},
 			"challenges": []map[string]any{
@@ -2190,12 +2193,12 @@ func TestLoadOrObtain_ObtainAndSaveSuccess(t *testing.T) {
 		}
 
 		w.WriteHeader(200)
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status": "valid",
 		})
 	})
 	mux.HandleFunc("/order/1", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status":      "valid",
 			"certificate": srv.URL + "/cert/1",
 		})
@@ -2233,15 +2236,15 @@ func TestLoadOrObtain_ObtainAndSaveSuccess(t *testing.T) {
 		certDER, _ := x509.CreateCertificate(rand.Reader, template, caCert, pubKey, caKey)
 		certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 		w.Header().Set("Content-Type", "application/pem-certificate-chain")
-		w.Write(certPEM)
+		_, _ = w.Write(certPEM)
 	})
 
 	srv = httptest.NewServer(mux)
 	defer srv.Close()
 
 	client := NewClient(srv.URL + "/directory")
-	client.Init(nil)
-	client.Register("test@example.com")
+	_ = client.Init(nil)
+	_ = client.Register("test@example.com")
 
 	handler := NewHTTP01Handler()
 	dir := t.TempDir()
@@ -2276,7 +2279,7 @@ func TestRenewIfNeeded_CallsLoadOrObtain(t *testing.T) {
 	var mu sync.Mutex
 
 	mux.HandleFunc("/directory", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"newNonce":   srv.URL + "/nonce",
 			"newAccount": srv.URL + "/account",
 			"newOrder":   srv.URL + "/order",
@@ -2289,19 +2292,19 @@ func TestRenewIfNeeded_CallsLoadOrObtain(t *testing.T) {
 	mux.HandleFunc("/account", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Location", srv.URL+"/acct/1")
 		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
 	})
 	mux.HandleFunc("/order", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Location", srv.URL+"/order/1")
 		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status":         "pending",
 			"authorizations": []string{srv.URL + "/authz/1"},
 			"finalize":       srv.URL + "/finalize",
 		})
 	})
 	mux.HandleFunc("/authz/1", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status":     "valid",
 			"identifier": map[string]string{"value": "renew.com"},
 			"challenges": []map[string]any{
@@ -2341,10 +2344,10 @@ func TestRenewIfNeeded_CallsLoadOrObtain(t *testing.T) {
 		}
 
 		w.WriteHeader(200)
-		json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
 	})
 	mux.HandleFunc("/order/1", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status":      "valid",
 			"certificate": srv.URL + "/cert/1",
 		})
@@ -2379,15 +2382,15 @@ func TestRenewIfNeeded_CallsLoadOrObtain(t *testing.T) {
 
 		certDER, _ := x509.CreateCertificate(rand.Reader, template, caCert, pubKey, caKey)
 		certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-		w.Write(certPEM)
+		_, _ = w.Write(certPEM)
 	})
 
 	srv = httptest.NewServer(mux)
 	defer srv.Close()
 
 	client := NewClient(srv.URL + "/directory")
-	client.Init(nil)
-	client.Register("test@example.com")
+	_ = client.Init(nil)
+	_ = client.Register("test@example.com")
 
 	handler := NewHTTP01Handler()
 	dir := t.TempDir()
@@ -2423,7 +2426,7 @@ func TestLoadOrObtain_LoadNewCertError(t *testing.T) {
 	var srv *httptest.Server
 
 	mux.HandleFunc("/directory", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"newNonce":   srv.URL + "/nonce",
 			"newAccount": srv.URL + "/account",
 			"newOrder":   srv.URL + "/order",
@@ -2436,19 +2439,19 @@ func TestLoadOrObtain_LoadNewCertError(t *testing.T) {
 	mux.HandleFunc("/account", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Location", srv.URL+"/acct/1")
 		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
 	})
 	mux.HandleFunc("/order", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Location", srv.URL+"/order/1")
 		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status":         "pending",
 			"authorizations": []string{srv.URL + "/authz/1"},
 			"finalize":       srv.URL + "/finalize",
 		})
 	})
 	mux.HandleFunc("/authz/1", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status":     "valid",
 			"identifier": map[string]string{"value": "badcert.com"},
 			"challenges": []map[string]any{
@@ -2458,25 +2461,25 @@ func TestLoadOrObtain_LoadNewCertError(t *testing.T) {
 	})
 	mux.HandleFunc("/finalize", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
-		json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
 	})
 	mux.HandleFunc("/order/1", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status":      "valid",
 			"certificate": srv.URL + "/cert/1",
 		})
 	})
 	mux.HandleFunc("/cert/1", func(w http.ResponseWriter, r *http.Request) {
 		// Return invalid PEM data
-		w.Write([]byte("NOT A VALID PEM CERTIFICATE"))
+		_, _ = w.Write([]byte("NOT A VALID PEM CERTIFICATE"))
 	})
 
 	srv = httptest.NewServer(mux)
 	defer srv.Close()
 
 	client := NewClient(srv.URL + "/directory")
-	client.Init(nil)
-	client.Register("test@example.com")
+	_ = client.Init(nil)
+	_ = client.Register("test@example.com")
 
 	handler := NewHTTP01Handler()
 	dir := t.TempDir()
@@ -2508,8 +2511,8 @@ func TestStartRenewal_TickerFires(t *testing.T) {
 	keyDER, _ := x509.MarshalECPrivateKey(key)
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 
-	os.WriteFile(filepath.Join(dir, "ticker.com.crt"), certPEM, 0600)
-	os.WriteFile(filepath.Join(dir, "ticker.com.key"), keyPEM, 0600)
+	_ = os.WriteFile(filepath.Join(dir, "ticker.com.crt"), certPEM, 0600)
+	_ = os.WriteFile(filepath.Join(dir, "ticker.com.key"), keyPEM, 0600)
 
 	store := NewCertDiskStore(dir, nil, nil)
 	store.AddDomains([]string{"ticker.com"})
@@ -2532,7 +2535,7 @@ func TestLoadOrObtain_ExpiredCertFallsThrough(t *testing.T) {
 	var srv *httptest.Server
 
 	mux.HandleFunc("/directory", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"newNonce":   srv.URL + "/nonce",
 			"newAccount": srv.URL + "/account",
 			"newOrder":   srv.URL + "/order-error",
@@ -2548,7 +2551,7 @@ func TestLoadOrObtain_ExpiredCertFallsThrough(t *testing.T) {
 	})
 	mux.HandleFunc("/order-error", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(400)
-		w.Write([]byte(`{"type":"urn:ietf:params:acme:error:rejectedIdentifier"}`))
+		_, _ = w.Write([]byte(`{"type":"urn:ietf:params:acme:error:rejectedIdentifier"}`))
 	})
 
 	srv = httptest.NewServer(mux)
@@ -2570,12 +2573,12 @@ func TestLoadOrObtain_ExpiredCertFallsThrough(t *testing.T) {
 	keyDER, _ := x509.MarshalECPrivateKey(key)
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 
-	os.WriteFile(filepath.Join(dir, "expired.com.crt"), certPEM, 0600)
-	os.WriteFile(filepath.Join(dir, "expired.com.key"), keyPEM, 0600)
+	_ = os.WriteFile(filepath.Join(dir, "expired.com.crt"), certPEM, 0600)
+	_ = os.WriteFile(filepath.Join(dir, "expired.com.key"), keyPEM, 0600)
 
 	client := NewClient(srv.URL + "/directory")
-	client.Init(nil)
-	client.Register("test@example.com")
+	_ = client.Init(nil)
+	_ = client.Register("test@example.com")
 
 	// Create store with client that will fail to obtain
 	store := NewCertDiskStore(dir, client, nil)

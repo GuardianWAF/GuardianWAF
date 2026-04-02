@@ -191,7 +191,7 @@ func tlsCipherString(c uint16) string {
 
 // computePartialJA3 computes a partial JA3 hash from limited TLS info.
 // This is not a full JA3 - just a fingerprint of what we have.
-func computePartialJA3(version uint16, cipher uint16) string {
+func computePartialJA3(version, cipher uint16) string {
 	// Simple hash of version + cipher for basic fingerprinting
 	// Full JA3 would require complete ClientHello data
 	h := uint32(version)<<16 | uint32(cipher)
@@ -241,14 +241,8 @@ func computeJA4FromContext(ctx *RequestContext) string {
 		sni = "d"
 	}
 
-	cipherCount := len(ctx.JA4Ciphers)
-	if cipherCount > 99 {
-		cipherCount = 99
-	}
-	extCount := len(ctx.JA4Exts)
-	if extCount > 99 {
-		extCount = 99
-	}
+	cipherCount := min(len(ctx.JA4Ciphers), 99)
+	extCount := min(len(ctx.JA4Exts), 99)
 
 	alpn := ctx.JA4ALPN
 	alpnCode := "00"

@@ -14,24 +14,24 @@ import (
 // JSONRPCRequest represents a JSON-RPC 2.0 request.
 type JSONRPCRequest struct {
 	JSONRPC string          `json:"jsonrpc"`
-	ID      any     `json:"id,omitempty"`
+	ID      any             `json:"id,omitempty"`
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params,omitempty"`
 }
 
 // JSONRPCResponse represents a JSON-RPC 2.0 response.
 type JSONRPCResponse struct {
-	JSONRPC string      `json:"jsonrpc"`
-	ID      any `json:"id,omitempty"`
-	Result  any `json:"result,omitempty"`
-	Error   *RPCError   `json:"error,omitempty"`
+	JSONRPC string    `json:"jsonrpc"`
+	ID      any       `json:"id,omitempty"`
+	Result  any       `json:"result,omitempty"`
+	Error   *RPCError `json:"error,omitempty"`
 }
 
 // RPCError holds a JSON-RPC 2.0 error object.
 type RPCError struct {
-	Code    int         `json:"code"`
-	Message string      `json:"message"`
-	Data    any `json:"data,omitempty"`
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Data    any    `json:"data,omitempty"`
 }
 
 // Standard JSON-RPC 2.0 error codes.
@@ -142,12 +142,12 @@ func (s *Server) Run() error {
 
 		var req JSONRPCRequest
 		if err := json.Unmarshal(line, &req); err != nil {
-			s.sendError(nil, ErrCodeParseError, "Parse error", nil)
+			s.sendError(nil, ErrCodeParseError, "Parse error")
 			continue
 		}
 
 		if req.JSONRPC != "2.0" {
-			s.sendError(req.ID, ErrCodeInvalidRequest, "Invalid JSON-RPC version", nil)
+			s.sendError(req.ID, ErrCodeInvalidRequest, "Invalid JSON-RPC version")
 			continue
 		}
 
@@ -167,7 +167,7 @@ func (s *Server) handleRequest(req JSONRPCRequest) {
 	case "tools/call":
 		s.handleToolsCall(req)
 	default:
-		s.sendError(req.ID, ErrCodeMethodNotFound, fmt.Sprintf("Method not found: %s", req.Method), nil)
+		s.sendError(req.ID, ErrCodeMethodNotFound, fmt.Sprintf("Method not found: %s", req.Method))
 	}
 }
 
@@ -210,7 +210,7 @@ type toolsCallParams struct {
 func (s *Server) handleToolsCall(req JSONRPCRequest) {
 	var params toolsCallParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
-		s.sendError(req.ID, ErrCodeInvalidParams, "Invalid params for tools/call", nil)
+		s.sendError(req.ID, ErrCodeInvalidParams, "Invalid params for tools/call")
 		return
 	}
 
@@ -219,7 +219,7 @@ func (s *Server) handleToolsCall(req JSONRPCRequest) {
 	s.mu.Unlock()
 
 	if !ok {
-		s.sendError(req.ID, ErrCodeInvalidParams, fmt.Sprintf("Unknown tool: %s", params.Name), nil)
+		s.sendError(req.ID, ErrCodeInvalidParams, fmt.Sprintf("Unknown tool: %s", params.Name))
 		return
 	}
 
@@ -251,7 +251,7 @@ func (s *Server) handleToolsCall(req JSONRPCRequest) {
 }
 
 // sendResult writes a successful JSON-RPC response.
-func (s *Server) sendResult(id any, result any) {
+func (s *Server) sendResult(id, result any) {
 	resp := JSONRPCResponse{
 		JSONRPC: "2.0",
 		ID:      id,
@@ -261,14 +261,14 @@ func (s *Server) sendResult(id any, result any) {
 }
 
 // sendError writes an error JSON-RPC response.
-func (s *Server) sendError(id any, code int, message string, data any) {
+func (s *Server) sendError(id any, code int, message string) {
 	resp := JSONRPCResponse{
 		JSONRPC: "2.0",
 		ID:      id,
 		Error: &RPCError{
 			Code:    code,
 			Message: message,
-			Data:    data,
+			
 		},
 	}
 	s.writeResponse(resp)

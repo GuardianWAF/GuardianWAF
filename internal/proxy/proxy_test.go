@@ -340,7 +340,7 @@ func TestRouterVirtualHosts(t *testing.T) {
 	}))
 	defer fallbackBackend.Close()
 
-	tApi, _ := NewTarget(apiBackend.URL, 1)
+	tAPI, _ := NewTarget(apiBackend.URL, 1)
 	tWeb, _ := NewTarget(webBackend.URL, 1)
 	tFb, _ := NewTarget(fallbackBackend.URL, 1)
 
@@ -348,7 +348,7 @@ func TestRouterVirtualHosts(t *testing.T) {
 		[]VirtualHost{
 			{
 				Domains: []string{"api.example.com"},
-				Routes:  []Route{{PathPrefix: "/", Balancer: NewBalancer([]*Target{tApi}, StrategyRoundRobin)}},
+				Routes:  []Route{{PathPrefix: "/", Balancer: NewBalancer([]*Target{tAPI}, StrategyRoundRobin)}},
 			},
 			{
 				Domains: []string{"www.example.com", "example.com"},
@@ -440,7 +440,7 @@ func TestRouterVHostPathRouting(t *testing.T) {
 	}))
 	defer staticHandler.Close()
 
-	tApi, _ := NewTarget(apiHandler.URL, 1)
+	tAPI, _ := NewTarget(apiHandler.URL, 1)
 	tStatic, _ := NewTarget(staticHandler.URL, 1)
 
 	router := NewRouterWithVHosts(
@@ -448,7 +448,7 @@ func TestRouterVHostPathRouting(t *testing.T) {
 			{
 				Domains: []string{"mysite.com"},
 				Routes: []Route{
-					{PathPrefix: "/api", Balancer: NewBalancer([]*Target{tApi}, StrategyRoundRobin), StripPrefix: true},
+					{PathPrefix: "/api", Balancer: NewBalancer([]*Target{tAPI}, StrategyRoundRobin), StripPrefix: true},
 					{PathPrefix: "/", Balancer: NewBalancer([]*Target{tStatic}, StrategyRoundRobin)},
 				},
 			},

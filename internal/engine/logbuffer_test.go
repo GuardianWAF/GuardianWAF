@@ -222,7 +222,7 @@ func TestFinding_JSONRoundtrip(t *testing.T) {
 	}
 	// Verify severity is string
 	var raw map[string]any
-	json.Unmarshal(data, &raw)
+	_ = json.Unmarshal(data, &raw)
 	if raw["severity"] != "high" {
 		t.Errorf("expected severity 'high' in JSON, got %v", raw["severity"])
 	}
@@ -238,7 +238,7 @@ func TestAction_JSONInStruct(t *testing.T) {
 		t.Fatalf("Marshal: %v", err)
 	}
 	var raw map[string]any
-	json.Unmarshal(data, &raw)
+	_ = json.Unmarshal(data, &raw)
 	if raw["action"] != "block" {
 		t.Errorf("expected 'block' in JSON, got %v", raw["action"])
 	}

@@ -85,7 +85,7 @@ func setupIntegrationEngine(t testing.TB) (*engine.Engine, *ipacl.Layer) {
 }
 
 func newSanitizer() *sanitizer.Layer {
-	return sanitizer.NewLayer(sanitizer.SanitizerConfig{
+	return sanitizer.NewLayer(sanitizer.Config{
 		MaxURLLength:   8192,
 		MaxHeaderSize:  8192,
 		MaxHeaderCount: 100,
@@ -477,7 +477,7 @@ func TestIntegration_MiddlewareBenignPassthrough(t *testing.T) {
 	backend := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		backendCalled = true
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		_, _ = w.Write([]byte("OK"))
 	})
 
 	handler := eng.Middleware(backend)

@@ -182,19 +182,20 @@ func Tokenize(input string) []Token {
 		// 4. Numeric literals
 		if isDigit(ch) || (ch == '0' && i+1 < n && (input[i+1] == 'x' || input[i+1] == 'X' || input[i+1] == 'b' || input[i+1] == 'B')) {
 			start := i
-			if ch == '0' && i+1 < n && (input[i+1] == 'x' || input[i+1] == 'X') {
+			switch {
+			case ch == '0' && i+1 < n && (input[i+1] == 'x' || input[i+1] == 'X'):
 				// Hex literal: 0x...
 				i += 2
 				for i < n && isHexDigit(input[i]) {
 					i++
 				}
-			} else if ch == '0' && i+1 < n && (input[i+1] == 'b' || input[i+1] == 'B') {
+			case ch == '0' && i+1 < n && (input[i+1] == 'b' || input[i+1] == 'B'):
 				// Binary literal: 0b...
 				i += 2
 				for i < n && (input[i] == '0' || input[i] == '1') {
 					i++
 				}
-			} else {
+			default:
 				// Decimal
 				for i < n && isDigit(input[i]) {
 					i++
@@ -284,13 +285,14 @@ func Tokenize(input string) []Token {
 			word := input[start:i]
 			upper := strings.ToUpper(word)
 
-			if IsOperatorKeyword(upper) {
+			switch {
+			case IsOperatorKeyword(upper):
 				tokens = append(tokens, Token{Type: TokenOperator, Value: word, Pos: start})
-			} else if IsFunction(upper) {
+			case IsFunction(upper):
 				tokens = append(tokens, Token{Type: TokenFunction, Value: word, Pos: start})
-			} else if IsKeyword(upper) {
+			case IsKeyword(upper):
 				tokens = append(tokens, Token{Type: TokenKeyword, Value: word, Pos: start})
-			} else {
+			default:
 				tokens = append(tokens, Token{Type: TokenOther, Value: word, Pos: start})
 			}
 			continue

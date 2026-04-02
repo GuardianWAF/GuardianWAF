@@ -15,13 +15,13 @@ import (
 
 // Config holds the configuration for the ATO Protection layer.
 type Config struct {
-	Enabled       bool                    `yaml:"enabled"`
-	LoginPaths    []string                `yaml:"login_paths"`
-	BruteForce    BruteForceConfig        `yaml:"brute_force"`
+	Enabled       bool                     `yaml:"enabled"`
+	LoginPaths    []string                 `yaml:"login_paths"`
+	BruteForce    BruteForceConfig         `yaml:"brute_force"`
 	CredStuffing  CredentialStuffingConfig `yaml:"credential_stuffing"`
-	PasswordSpray PasswordSprayConfig     `yaml:"password_spray"`
-	Travel        ImpossibleTravelConfig  `yaml:"impossible_travel"`
-	GeoDBPath     string                  `yaml:"geodb_path"`
+	PasswordSpray PasswordSprayConfig      `yaml:"password_spray"`
+	Travel        ImpossibleTravelConfig   `yaml:"impossible_travel"`
+	GeoDBPath     string                   `yaml:"geodb_path"`
 }
 
 // BruteForceConfig configures brute force detection.
@@ -43,18 +43,18 @@ type CredentialStuffingConfig struct {
 
 // PasswordSprayConfig configures password spray detection.
 type PasswordSprayConfig struct {
-	Enabled        bool          `yaml:"enabled"`
-	Threshold      int           `yaml:"threshold"` // Same password used X times
-	Window         time.Duration `yaml:"window"`
-	BlockDuration  time.Duration `yaml:"block_duration"`
+	Enabled       bool          `yaml:"enabled"`
+	Threshold     int           `yaml:"threshold"` // Same password used X times
+	Window        time.Duration `yaml:"window"`
+	BlockDuration time.Duration `yaml:"block_duration"`
 }
 
 // ImpossibleTravelConfig configures impossible travel detection.
 type ImpossibleTravelConfig struct {
-	Enabled        bool    `yaml:"enabled"`
-	MaxDistanceKm  float64 `yaml:"max_distance_km"`
-	MaxTimeHours   float64 `yaml:"max_time_hours"`
-	BlockDuration  time.Duration `yaml:"block_duration"`
+	Enabled       bool          `yaml:"enabled"`
+	MaxDistanceKm float64       `yaml:"max_distance_km"`
+	MaxTimeHours  float64       `yaml:"max_time_hours"`
+	BlockDuration time.Duration `yaml:"block_duration"`
 }
 
 // Layer implements engine.Layer for ATO protection.
