@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"fmt"
 	"io"
 	"net"
@@ -20,9 +21,13 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/events"
+	"github.com/guardianwaf/guardianwaf/internal/layers/apisecurity"
+	"github.com/guardianwaf/guardianwaf/internal/layers/ato"
+	"github.com/guardianwaf/guardianwaf/internal/layers/cors"
 	"github.com/guardianwaf/guardianwaf/internal/layers/detection"
 	"github.com/guardianwaf/guardianwaf/internal/layers/ipacl"
 	"github.com/guardianwaf/guardianwaf/internal/layers/ratelimit"
+	"github.com/guardianwaf/guardianwaf/internal/layers/threatintel"
 )
 
 // --- isValidIPOrCIDR ---
@@ -2620,5 +2625,400 @@ func TestMetricsEndpoint(t *testing.T) {
 	}
 	if !strings.Contains(body, "guardianwaf_requests_blocked_total") {
 		t.Errorf("expected blocked_total metric, got: %s", body)
+	}
+}
+
+// --- addLayers: ThreatIntel ---
+
+func TestAddLayers_ThreatIntel(t *testing.T) {
+	// Set up a test HTTP server to serve an empty threat feed
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintln(w, `{"ips":[]}`)
+	}))
+	defer srv.Close()
+
+	cfg := config.DefaultConfig()
+	cfg.WAF.ThreatIntel.Enabled = true
+	cfg.WAF.ThreatIntel.IPReputation.Enabled = true
+	cfg.WAF.ThreatIntel.IPReputation.BlockMalicious = true
+	cfg.WAF.ThreatIntel.IPReputation.ScoreThreshold = 50
+	cfg.WAF.ThreatIntel.CacheSize = 100
+	cfg.WAF.ThreatIntel.CacheTTL = 5 * time.Minute
+	cfg.WAF.ThreatIntel.Feeds = []config.ThreatFeedConfig{
+		{
+			Type:    "url",
+			URL:     srv.URL,
+			Format:  "json",
+			Refresh: 10 * time.Second,
+		},
+	}
+
+	store := events.NewMemoryStore(1000)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatalf("NewEngine error: %v", err)
+	}
+	defer eng.Close()
+
+	addLayers(eng, cfg)
+
+	layer := eng.FindLayer("threat_intel")
+	if layer == nil {
+		t.Fatal("expected threat_intel layer to be added")
+	}
+
+	// Clean up feed refresh goroutines
+	tiLayer, ok := layer.(*threatintel.Layer)
+	if !ok {
+		t.Fatal("expected *threatintel.Layer type")
+	}
+	tiLayer.Stop()
+}
+
+// --- addLayers: CORS ---
+
+func TestAddLayers_CORS(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.WAF.CORS.Enabled = true
+	cfg.WAF.CORS.AllowOrigins = []string{"https://example.com", "https://app.example.com"}
+	cfg.WAF.CORS.AllowMethods = []string{"GET", "POST"}
+	cfg.WAF.CORS.AllowHeaders = []string{"Content-Type", "Authorization"}
+	cfg.WAF.CORS.AllowCredentials = true
+	cfg.WAF.CORS.MaxAgeSeconds = 3600
+	cfg.WAF.CORS.PreflightCacheSeconds = 300
+
+	store := events.NewMemoryStore(1000)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatalf("NewEngine error: %v", err)
+	}
+	defer eng.Close()
+
+	addLayers(eng, cfg)
+
+	layer := eng.FindLayer("cors")
+	if layer == nil {
+		t.Fatal("expected cors layer to be added")
+	}
+	if _, ok := layer.(*cors.Layer); !ok {
+		t.Fatal("expected *cors.Layer type")
+	}
+}
+
+// --- addLayers: ATO Protection ---
+
+func TestAddLayers_ATOProtection(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.WAF.ATOProtection.Enabled = true
+	cfg.WAF.ATOProtection.LoginPaths = []string{"/login", "/auth/token"}
+	cfg.WAF.ATOProtection.BruteForce = config.BruteForceConfig{
+		Enabled:             true,
+		Window:              5 * time.Minute,
+		MaxAttemptsPerIP:    10,
+		MaxAttemptsPerEmail: 5,
+		BlockDuration:       15 * time.Minute,
+	}
+	cfg.WAF.ATOProtection.CredStuffing = config.CredentialStuffingConfig{
+		Enabled:              true,
+		DistributedThreshold: 5,
+		Window:               10 * time.Minute,
+		BlockDuration:        30 * time.Minute,
+	}
+	cfg.WAF.ATOProtection.PasswordSpray = config.PasswordSprayConfig{
+		Enabled:       true,
+		Threshold:     20,
+		Window:        5 * time.Minute,
+		BlockDuration: 15 * time.Minute,
+	}
+
+	store := events.NewMemoryStore(1000)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatalf("NewEngine error: %v", err)
+	}
+	defer eng.Close()
+
+	addLayers(eng, cfg)
+
+	layer := eng.FindLayer("ato_protection")
+	if layer == nil {
+		t.Fatal("expected ato_protection layer to be added")
+	}
+	if _, ok := layer.(*ato.Layer); !ok {
+		t.Fatal("expected *ato.Layer type")
+	}
+}
+
+// --- addLayers: APISecurity ---
+
+func TestAddLayers_APISecurity(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.WAF.APISecurity.Enabled = true
+	cfg.WAF.APISecurity.JWT = config.JWTConfig{
+		Enabled:          true,
+		Issuer:           "test-issuer",
+		Audience:         "test-audience",
+		Algorithms:       []string{"HS256"},
+		ClockSkewSeconds: 30,
+	}
+	cfg.WAF.APISecurity.APIKeys = config.APIKeysConfig{
+		Enabled: false,
+	}
+
+	store := events.NewMemoryStore(1000)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatalf("NewEngine error: %v", err)
+	}
+	defer eng.Close()
+
+	addLayers(eng, cfg)
+
+	layer := eng.FindLayer("api_security")
+	if layer == nil {
+		t.Fatal("expected api_security layer to be added")
+	}
+	if _, ok := layer.(*apisecurity.Layer); !ok {
+		t.Fatal("expected *apisecurity.Layer type")
+	}
+}
+
+// --- MCP Adapter: AddRateLimit layer not found ---
+
+func TestMCPAdapter_AddRateLimit_LayerNotFound(t *testing.T) {
+	cfg := config.DefaultConfig()
+	store := events.NewMemoryStore(1000)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatalf("NewEngine error: %v", err)
+	}
+	defer eng.Close()
+	// No rate limit layer added
+
+	adapter := &mcpEngineAdapter{engine: eng, cfg: cfg, eventStore: store}
+	err = adapter.AddRateLimit(map[string]any{
+		"id": "r1", "scope": "ip", "limit": 10, "window": "1m", "action": "block",
+	})
+	if err == nil {
+		t.Fatal("expected error when rate limit layer not found")
+	}
+	if !strings.Contains(err.Error(), "rate limit layer not available") {
+		t.Errorf("expected 'rate limit layer not available' error, got: %v", err)
+	}
+}
+
+// --- MCP Adapter: RemoveRateLimit layer not found ---
+
+func TestMCPAdapter_RemoveRateLimit_LayerNotFound(t *testing.T) {
+	cfg := config.DefaultConfig()
+	store := events.NewMemoryStore(1000)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatalf("NewEngine error: %v", err)
+	}
+	defer eng.Close()
+	// No rate limit layer added
+
+	adapter := &mcpEngineAdapter{engine: eng, cfg: cfg, eventStore: store}
+	err = adapter.RemoveRateLimit("r1")
+	if err == nil {
+		t.Fatal("expected error when rate limit layer not found")
+	}
+	if !strings.Contains(err.Error(), "rate limit layer not available") {
+		t.Errorf("expected 'rate limit layer not available' error, got: %v", err)
+	}
+}
+
+// --- MCP Adapter: RemoveBlacklist layer not found ---
+
+func TestMCPAdapter_RemoveBlacklist_LayerNotFound(t *testing.T) {
+	cfg := config.DefaultConfig()
+	store := events.NewMemoryStore(1000)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatalf("NewEngine error: %v", err)
+	}
+	defer eng.Close()
+	// No IP ACL layer added
+
+	adapter := &mcpEngineAdapter{engine: eng, cfg: cfg, eventStore: store}
+	err = adapter.RemoveBlacklist("10.0.0.1")
+	if err == nil {
+		t.Fatal("expected error when IP ACL layer not found")
+	}
+	if !strings.Contains(err.Error(), "IP ACL layer not available") {
+		t.Errorf("expected 'IP ACL layer not available' error, got: %v", err)
+	}
+}
+
+// --- MCP Adapter: RemoveWhitelist layer not found ---
+
+func TestMCPAdapter_RemoveWhitelist_LayerNotFound(t *testing.T) {
+	cfg := config.DefaultConfig()
+	store := events.NewMemoryStore(1000)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatalf("NewEngine error: %v", err)
+	}
+	defer eng.Close()
+	// No IP ACL layer added
+
+	adapter := &mcpEngineAdapter{engine: eng, cfg: cfg, eventStore: store}
+	err = adapter.RemoveWhitelist("10.0.0.1")
+	if err == nil {
+		t.Fatal("expected error when IP ACL layer not found")
+	}
+	if !strings.Contains(err.Error(), "IP ACL layer not available") {
+		t.Errorf("expected 'IP ACL layer not available' error, got: %v", err)
+	}
+}
+
+// --- MCP Adapter: RemoveExclusion layer not found ---
+
+func TestMCPAdapter_RemoveExclusion_LayerNotFound(t *testing.T) {
+	cfg := config.DefaultConfig()
+	store := events.NewMemoryStore(1000)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatalf("NewEngine error: %v", err)
+	}
+	defer eng.Close()
+	// No detection layer added
+
+	adapter := &mcpEngineAdapter{engine: eng, cfg: cfg, eventStore: store}
+	err = adapter.RemoveExclusion("/api")
+	if err == nil {
+		t.Fatal("expected error when detection layer not found")
+	}
+	if !strings.Contains(err.Error(), "detection layer not available") {
+		t.Errorf("expected 'detection layer not available' error, got: %v", err)
+	}
+}
+
+// --- MCP Adapter: GetTopIPs with data ---
+
+func TestMCPAdapter_GetTopIPs_WithData(t *testing.T) {
+	cfg := config.DefaultConfig()
+	store := events.NewMemoryStore(1000)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatalf("NewEngine error: %v", err)
+	}
+	defer eng.Close()
+
+	// Add events with different IPs and varying counts
+	ips := []struct {
+		ip    string
+		count int
+		score int
+	}{
+		{"1.1.1.1", 5, 10},
+		{"2.2.2.2", 3, 5},
+		{"3.3.3.3", 8, 20},
+		{"4.4.4.4", 1, 0},
+	}
+	for _, entry := range ips {
+		for i := 0; i < entry.count; i++ {
+			evt := engine.Event{
+				ID:        fmt.Sprintf("%s-%d", entry.ip, i),
+				Timestamp: time.Now(),
+				ClientIP:  entry.ip,
+				Method:    "GET",
+				Path:      "/test",
+				Action:    engine.ActionPass,
+				Score:     entry.score / entry.count,
+			}
+			if err := store.Store(evt); err != nil {
+				t.Fatalf("Store error: %v", err)
+			}
+		}
+	}
+
+	adapter := &mcpEngineAdapter{engine: eng, cfg: cfg, eventStore: store}
+	result := adapter.GetTopIPs(5)
+
+	// Result is []ipStat where ipStat is a local struct inside GetTopIPs.
+	// Use reflection to access the slice elements and their fields.
+	val := reflect.ValueOf(result)
+	if val.Kind() != reflect.Slice {
+		t.Fatalf("expected slice, got %T", result)
+	}
+	if val.Len() != 4 {
+		t.Fatalf("expected 4 IPs, got %d", val.Len())
+	}
+
+	// Helper to get string field by JSON tag name from a struct value
+	getField := func(v reflect.Value, fieldName string) reflect.Value {
+		tStruct := v.Type()
+		for i := 0; i < tStruct.NumField(); i++ {
+			if tStruct.Field(i).Name == fieldName {
+				return v.Field(i)
+			}
+		}
+		return reflect.Value{}
+	}
+
+	// Should be sorted by request count descending: 3.3.3.3 (8), 1.1.1.1 (5), 2.2.2.2 (3), 4.4.4.4 (1)
+	type expectedEntry struct {
+		IP       string
+		Requests int
+	}
+	expected := []expectedEntry{
+		{"3.3.3.3", 8},
+		{"1.1.1.1", 5},
+		{"2.2.2.2", 3},
+		{"4.4.4.4", 1},
+	}
+	for i, exp := range expected {
+		elem := val.Index(i)
+		ip := getField(elem, "IP").String()
+		requests := int(getField(elem, "Requests").Int())
+		if ip != exp.IP {
+			t.Errorf("entry %d: expected IP %s, got %s", i, exp.IP, ip)
+		}
+		if requests != exp.Requests {
+			t.Errorf("entry %d: expected %d requests, got %d", i, exp.Requests, requests)
+		}
+	}
+}
+
+// --- MCP Adapter: AddBlacklist with CIDR ---
+
+func TestMCPAdapter_AddBlacklist_CIDR(t *testing.T) {
+	a := newTestAdapter(t)
+
+	if err := a.AddBlacklist("10.0.0.0/8"); err != nil {
+		t.Errorf("AddBlacklist CIDR error: %v", err)
+	}
+
+	// Verify it was added by removing it
+	if err := a.RemoveBlacklist("10.0.0.0/8"); err != nil {
+		t.Errorf("RemoveBlacklist CIDR error: %v", err)
+	}
+}
+
+// --- MCP Adapter: AddWhitelist with CIDR ---
+
+func TestMCPAdapter_AddWhitelist_CIDR(t *testing.T) {
+	a := newTestAdapter(t)
+
+	if err := a.AddWhitelist("172.16.0.0/12"); err != nil {
+		t.Errorf("AddWhitelist CIDR error: %v", err)
+	}
+
+	// Verify it was added by removing it
+	if err := a.RemoveWhitelist("172.16.0.0/12"); err != nil {
+		t.Errorf("RemoveWhitelist CIDR error: %v", err)
 	}
 }

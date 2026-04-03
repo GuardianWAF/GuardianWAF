@@ -968,3 +968,225 @@ func TestBehaviorManager_GetOrCreate_ConcurrentSameIP(t *testing.T) {
 		t.Errorf("expected exactly 1 tracker, got %d", bm.TrackerCount())
 	}
 }
+
+// --- JA4 Fingerprint Tests ---
+
+func TestLookupJA4Fingerprint_KnownGood(t *testing.T) {
+	info := LookupJA4Fingerprint("t13d1516h2_8daaf6152771_e5627efa2ab1")
+	if info.Category != FingerprintGood {
+		t.Errorf("expected FingerprintGood, got %v", info.Category)
+	}
+	if info.Score != 0 {
+		t.Errorf("expected score 0 for good JA4 fingerprint, got %d", info.Score)
+	}
+	if info.Name != "Chrome/Edge 120" {
+		t.Errorf("expected Name 'Chrome/Edge 120', got %q", info.Name)
+	}
+}
+
+func TestLookupJA4Fingerprint_KnownBad(t *testing.T) {
+	info := LookupJA4Fingerprint("t12d0500_123456789abc_def456789abc")
+	if info.Category != FingerprintBad {
+		t.Errorf("expected FingerprintBad, got %v", info.Category)
+	}
+	if info.Score != 80 {
+		t.Errorf("expected score 80 for bad JA4 fingerprint, got %d", info.Score)
+	}
+	if info.Name != "Python requests" {
+		t.Errorf("expected Name 'Python requests', got %q", info.Name)
+	}
+}
+
+func TestLookupJA4Fingerprint_Unknown(t *testing.T) {
+	info := LookupJA4Fingerprint("t99d0000_unknown_unknown")
+	if info.Category != FingerprintUnknown {
+		t.Errorf("expected FingerprintUnknown, got %v", info.Category)
+	}
+	if info.Score != 0 {
+		t.Errorf("expected score 0 for unknown JA4 fingerprint, got %d", info.Score)
+	}
+	if info.Name != "unknown" {
+		t.Errorf("expected Name 'unknown', got %q", info.Name)
+	}
+}
+
+func TestAddJA4Fingerprint(t *testing.T) {
+	key := "test_ja4_custom_add"
+	info := FingerprintInfo{
+		Name:     "Test Custom Bot",
+		Category: FingerprintBad,
+		Score:    99,
+	}
+
+	AddJA4Fingerprint(key, info)
+	defer RemoveJA4Fingerprint(key)
+
+	got := LookupJA4Fingerprint(key)
+	if got.Category != FingerprintBad {
+		t.Errorf("expected FingerprintBad after add, got %v", got.Category)
+	}
+	if got.Score != 99 {
+		t.Errorf("expected score 99 after add, got %d", got.Score)
+	}
+	if got.Name != "Test Custom Bot" {
+		t.Errorf("expected Name 'Test Custom Bot' after add, got %q", got.Name)
+	}
+}
+
+func TestRemoveJA4Fingerprint(t *testing.T) {
+	key := "test_ja4_custom_remove"
+	info := FingerprintInfo{
+		Name:     "Test Remove",
+		Category: FingerprintBad,
+		Score:    75,
+	}
+
+	AddJA4Fingerprint(key, info)
+	// Verify it was added
+	got := LookupJA4Fingerprint(key)
+	if got.Category != FingerprintBad {
+		t.Fatalf("expected FingerprintBad after add, got %v", got.Category)
+	}
+
+	RemoveJA4Fingerprint(key)
+
+	got = LookupJA4Fingerprint(key)
+	if got.Category != FingerprintUnknown {
+		t.Errorf("expected FingerprintUnknown after remove, got %v", got.Category)
+	}
+}
+
+func TestAnalyzeTLSFingerprint_JA4Bad(t *testing.T) {
+	// Compute a JA4 hash from known params, register it as bad, then verify Process() detects it.
+	params := JA4Params{
+		Protocol:     "t",
+		TLSVersion:   0x0303,
+		SNI:          false,
+		CipherSuites: []uint16{0x002f, 0x0035},
+		Extensions:   []uint16{0x0000, 0x0010, 0x0017},
+		ALPN:         "h2",
+	}
+	ja4fp := ComputeJA4(params)
+
+	AddJA4Fingerprint(ja4fp.Full, FingerprintInfo{
+		Name:     "Test JA4 Bad Bot",
+		Category: FingerprintBad,
+		Score:    80,
+	})
+	defer RemoveJA4Fingerprint(ja4fp.Full)
+
+	cfg := DefaultConfig()
+	cfg.Mode = "enforce"
+	cfg.TLSFingerprint.Enabled = true
+	cfg.UserAgent.Enabled = false
+	cfg.Behavior.Enabled = false
+	layer := NewLayer(cfg)
+
+	ctx := newTestContext("", "10.0.0.1")
+	ctx.TLSVersion = params.TLSVersion
+	ctx.JA4Ciphers = params.CipherSuites
+	ctx.JA4Exts = params.Extensions
+	ctx.JA4ALPN = params.ALPN
+	ctx.JA4Protocol = params.Protocol
+	ctx.JA4SNI = params.SNI
+
+	result := layer.Process(ctx)
+
+	if result.Score == 0 {
+		t.Error("expected non-zero score for known bad JA4 fingerprint")
+	}
+	if len(result.Findings) == 0 {
+		t.Fatal("expected findings for known bad JA4 fingerprint")
+	}
+
+	found := false
+	for _, f := range result.Findings {
+		if f.DetectorName == "botdetect-ja4" {
+			found = true
+			if f.Severity != engine.SeverityHigh {
+				t.Errorf("expected SeverityHigh for bad JA4, got %v", f.Severity)
+			}
+			if f.Score != 80 {
+				t.Errorf("expected finding score 80, got %d", f.Score)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected a botdetect-ja4 finding")
+	}
+}
+
+func TestAnalyzeTLSFingerprint_JA4Good(t *testing.T) {
+	// Compute a JA4 hash, register it as good (score 0), verify Process() passes.
+	params := JA4Params{
+		Protocol:     "t",
+		TLSVersion:   0x0304,
+		SNI:          true,
+		CipherSuites: []uint16{0x1301, 0x1302, 0x1303},
+		Extensions:   []uint16{0x0000, 0x0010, 0x0033},
+		ALPN:         "h2",
+	}
+	ja4fp := ComputeJA4(params)
+
+	AddJA4Fingerprint(ja4fp.Full, FingerprintInfo{
+		Name:     "Test JA4 Good Browser",
+		Category: FingerprintGood,
+		Score:    0,
+	})
+	defer RemoveJA4Fingerprint(ja4fp.Full)
+
+	cfg := DefaultConfig()
+	cfg.Mode = "enforce"
+	cfg.TLSFingerprint.Enabled = true
+	cfg.UserAgent.Enabled = false
+	cfg.Behavior.Enabled = false
+	layer := NewLayer(cfg)
+
+	ctx := newTestContext("", "10.0.0.1")
+	ctx.TLSVersion = params.TLSVersion
+	ctx.JA4Ciphers = params.CipherSuites
+	ctx.JA4Exts = params.Extensions
+	ctx.JA4ALPN = params.ALPN
+	ctx.JA4Protocol = params.Protocol
+	ctx.JA4SNI = params.SNI
+
+	result := layer.Process(ctx)
+
+	if result.Action != engine.ActionPass {
+		t.Errorf("expected ActionPass for known good JA4 fingerprint, got %v", result.Action)
+	}
+	if result.Score != 0 {
+		t.Errorf("expected score 0 for known good JA4 fingerprint, got %d", result.Score)
+	}
+}
+
+func TestAnalyzeTLSFingerprint_JA4Unknown(t *testing.T) {
+	// JA4 that is not in the DB should fall through to the JA3 path.
+	cfg := DefaultConfig()
+	cfg.Mode = "enforce"
+	cfg.TLSFingerprint.Enabled = true
+	cfg.UserAgent.Enabled = false
+	cfg.Behavior.Enabled = false
+	layer := NewLayer(cfg)
+
+	ctx := newTestContext("", "10.0.0.1")
+	ctx.TLSVersion = 0x0303
+	ctx.TLSCipherSuite = 49199
+	// Set JA4 ciphers to trigger JA4 path, but with values that won't match any DB entry
+	ctx.JA4Ciphers = []uint16{0x00ff}
+	ctx.JA4Exts = []uint16{0x00fe}
+	ctx.JA4ALPN = "h2"
+	ctx.JA4Protocol = "t"
+	ctx.JA4SNI = false
+
+	result := layer.Process(ctx)
+
+	// Unknown JA4 falls through to JA3; JA3 hash for (0x0303, [49199]) is also unknown
+	// so the result should be pass with score 0
+	if result.Score != 0 {
+		t.Errorf("expected score 0 for unknown JA4 that falls through to unknown JA3, got %d", result.Score)
+	}
+	if result.Action != engine.ActionPass {
+		t.Errorf("expected ActionPass for unknown JA4, got %v", result.Action)
+	}
+}

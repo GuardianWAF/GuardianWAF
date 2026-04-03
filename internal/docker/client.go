@@ -21,6 +21,7 @@ import (
 type Client struct {
 	socketPath string
 	hostFlag   string // --host flag for docker CLI, empty = use default context
+	cmdFunc    func(ctx context.Context, args ...string) (string, error) // overrides dockerCmd if set
 }
 
 // NewClient creates a Docker client.
@@ -261,6 +262,9 @@ func (c *Client) StreamEvents(ctx context.Context, labelPrefix string, ch chan<-
 
 // dockerCmd executes a docker CLI command and returns stdout.
 func (c *Client) dockerCmd(ctx context.Context, args ...string) (string, error) {
+	if c.cmdFunc != nil {
+		return c.cmdFunc(ctx, args...)
+	}
 	if c.hostFlag != "" {
 		args = append([]string{"--host", c.hostFlag}, args...)
 	}

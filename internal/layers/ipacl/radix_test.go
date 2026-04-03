@@ -405,3 +405,157 @@ func TestIPToBits_NilIP(t *testing.T) {
 		t.Fatalf("expected nil for nil IP, got %v", bits)
 	}
 }
+
+// --- Entries Tests ---
+
+func TestRadixTree_Entries_Multiple(t *testing.T) {
+	tree := NewRadixTree()
+
+	if err := tree.Insert("192.168.1.0/24", nil); err != nil {
+		t.Fatalf("Insert 192.168.1.0/24 failed: %v", err)
+	}
+	if err := tree.Insert("10.0.0.0/8", nil); err != nil {
+		t.Fatalf("Insert 10.0.0.0/8 failed: %v", err)
+	}
+	if err := tree.Insert("2001:db8::1/128", nil); err != nil {
+		t.Fatalf("Insert 2001:db8::1/128 failed: %v", err)
+	}
+
+	entries := tree.Entries()
+	if len(entries) != 3 {
+		t.Fatalf("expected 3 entries, got %d: %v", len(entries), entries)
+	}
+
+	has := func(s string) bool {
+		for _, e := range entries {
+			if e == s {
+				return true
+			}
+		}
+		return false
+	}
+
+	if !has("192.168.1.0/24") {
+		t.Errorf("expected entries to contain '192.168.1.0/24', got %v", entries)
+	}
+	if !has("10.0.0.0/8") {
+		t.Errorf("expected entries to contain '10.0.0.0/8', got %v", entries)
+	}
+	if !has("2001:db8::1") {
+		t.Errorf("expected entries to contain '2001:db8::1', got %v", entries)
+	}
+}
+
+func TestRadixTree_Entries_Empty(t *testing.T) {
+	tree := NewRadixTree()
+
+	entries := tree.Entries()
+	if entries == nil {
+		// nil and empty slice are both valid for "no entries"
+		return
+	}
+	if len(entries) != 0 {
+		t.Errorf("expected 0 entries for empty tree, got %d: %v", len(entries), entries)
+	}
+}
+
+func TestRadixTree_Entries_IPv4Mapped(t *testing.T) {
+	tree := NewRadixTree()
+
+	// Insert an IPv4 CIDR (which parseCIDROrIP normalizes to IPv4-mapped IPv6 internally).
+	// Entries() should convert it back to the IPv4 display form.
+	if err := tree.Insert("10.0.0.0/8", nil); err != nil {
+		t.Fatalf("Insert 10.0.0.0/8 failed: %v", err)
+	}
+
+	entries := tree.Entries()
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d: %v", len(entries), entries)
+	}
+
+	// Internally stored as IPv4-mapped IPv6 (::ffff:a00:0/104), but Entries()
+	// should display it as the IPv4 form: 10.0.0.0/8
+	if entries[0] != "10.0.0.0/8" {
+		t.Errorf("expected '10.0.0.0/8' (IPv4 form), got %q", entries[0])
+	}
+}
+
+func TestRadixTree_Entries_SingleHost(t *testing.T) {
+	tree := NewRadixTree()
+
+	if err := tree.Insert("192.168.1.1/32", nil); err != nil {
+		t.Fatalf("Insert 192.168.1.1/32 failed: %v", err)
+	}
+
+	entries := tree.Entries()
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d: %v", len(entries), entries)
+	}
+
+	if entries[0] != "192.168.1.1" {
+		t.Errorf("expected '192.168.1.1' (bare IP for /32), got %q", entries[0])
+	}
+}
+
+func TestRadixTree_RemoveAndEntries(t *testing.T) {
+	tree := NewRadixTree()
+
+	if err := tree.Insert("10.0.0.0/8", "net-a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tree.Insert("172.16.0.0/12", "net-b"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tree.Insert("192.168.0.0/16", "net-c"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := tree.Remove("172.16.0.0/12"); err != nil {
+		t.Fatalf("Remove failed: %v", err)
+	}
+
+	entries := tree.Entries()
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries after remove, got %d: %v", len(entries), entries)
+	}
+
+	has := func(s string) bool {
+		for _, e := range entries {
+			if e == s {
+				return true
+			}
+		}
+		return false
+	}
+
+	if !has("10.0.0.0/8") {
+		t.Errorf("expected entries to contain '10.0.0.0/8', got %v", entries)
+	}
+	if !has("192.168.0.0/16") {
+		t.Errorf("expected entries to contain '192.168.0.0/16', got %v", entries)
+	}
+	if has("172.16.0.0/12") {
+		t.Errorf("expected entries NOT to contain '172.16.0.0/12' after removal, got %v", entries)
+	}
+}
+
+func TestRadixTree_Entries_AfterReinsert(t *testing.T) {
+	tree := NewRadixTree()
+
+	if err := tree.Insert("10.0.0.0/8", "v1"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Re-insert same CIDR with different value; Entries count should stay 1
+	if err := tree.Insert("10.0.0.0/8", "v2"); err != nil {
+		t.Fatal(err)
+	}
+
+	entries := tree.Entries()
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry after re-insert, got %d: %v", len(entries), entries)
+	}
+	if entries[0] != "10.0.0.0/8" {
+		t.Errorf("expected '10.0.0.0/8', got %q", entries[0])
+	}
+}
