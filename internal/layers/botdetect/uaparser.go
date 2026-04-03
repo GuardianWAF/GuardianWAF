@@ -71,15 +71,28 @@ func isBot(lower string) bool {
 
 func detectBotName(lower string) string {
 	bots := []struct{ pattern, name string }{
-		{"googlebot", "Googlebot"}, {"bingbot", "Bingbot"}, {"yandexbot", "YandexBot"},
-		{"baiduspider", "Baiduspider"}, {"duckduckbot", "DuckDuckBot"},
-		{"facebookexternalhit", "Facebook"}, {"twitterbot", "Twitterbot"},
-		{"linkedinbot", "LinkedInBot"}, {"applebot", "Applebot"},
-		{"semrushbot", "SemrushBot"}, {"ahrefsbot", "AhrefsBot"},
-		{"sqlmap", "sqlmap"}, {"nikto", "Nikto"}, {"nmap", "Nmap"},
-		{"nuclei", "Nuclei"}, {"burpsuite", "BurpSuite"}, {"masscan", "Masscan"},
-		{"zgrab", "ZGrab"}, {"dirbuster", "DirBuster"}, {"gobuster", "GoBuster"},
-		{"wfuzz", "WFuzz"}, {"ffuf", "FFUF"},
+		{"googlebot", "Googlebot"},
+		{"bingbot", "Bingbot"},
+		{"yandexbot", "YandexBot"},
+		{"baiduspider", "Baiduspider"},
+		{"duckduckbot", "DuckDuckBot"},
+		{"facebookexternalhit", "Facebook"},
+		{"twitterbot", "Twitterbot"},
+		{"linkedinbot", "LinkedInBot"},
+		{"applebot", "Applebot"},
+		{"semrushbot", "SemrushBot"},
+		{"ahrefsbot", "AhrefsBot"},
+		{"sqlmap", "sqlmap"},
+		{"nikto", "Nikto"},
+		{"nmap", "Nmap"},
+		{"nuclei", "Nuclei"},
+		{"burpsuite", "BurpSuite"},
+		{"masscan", "Masscan"},
+		{"zgrab", "ZGrab"},
+		{"dirbuster", "DirBuster"},
+		{"gobuster", "GoBuster"},
+		{"wfuzz", "WFuzz"},
+		{"ffuf", "FFUF"},
 	}
 	for _, b := range bots {
 		if strings.Contains(lower, b.pattern) {
@@ -112,9 +125,13 @@ func isCLI(lower string) bool {
 
 func detectCLIName(lower string) string {
 	tools := []struct{ pattern, name string }{
-		{"curl/", "curl"}, {"wget/", "wget"}, {"httpie/", "HTTPie"},
-		{"libwww-perl", "libwww-perl"}, {"python-requests", "Python Requests"},
-		{"python-urllib", "Python urllib"}, {"go-http-client", "Go HTTP"},
+		{"curl/", "curl"},
+		{"wget/", "wget"},
+		{"httpie/", "HTTPie"},
+		{"libwww-perl", "libwww-perl"},
+		{"python-requests", "Python Requests"},
+		{"python-urllib", "Python urllib"},
+		{"go-http-client", "Go HTTP"},
 		{"okhttp/", "OkHttp"},
 	}
 	for _, t := range tools {

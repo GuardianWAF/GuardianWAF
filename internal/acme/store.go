@@ -72,13 +72,13 @@ func (s *CertDiskStore) LoadOrObtain(domains []string) (*tls.Certificate, error)
 	}
 
 	// Save to disk
-	if err := os.MkdirAll(s.cacheDir, 0700); err != nil {
+	if err := os.MkdirAll(s.cacheDir, 0o700); err != nil {
 		return nil, fmt.Errorf("creating cache dir: %w", err)
 	}
-	if err := os.WriteFile(certFile, certPEM, 0600); err != nil {
+	if err := os.WriteFile(certFile, certPEM, 0o600); err != nil {
 		return nil, fmt.Errorf("writing cert: %w", err)
 	}
-	if err := os.WriteFile(keyFile, keyPEM, 0600); err != nil {
+	if err := os.WriteFile(keyFile, keyPEM, 0o600); err != nil {
 		return nil, fmt.Errorf("writing key: %w", err)
 	}
 

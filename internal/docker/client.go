@@ -218,10 +218,12 @@ func (c *Client) InspectContainer(id string) (*ContainerDetail, error) {
 // Blocks until ctx is canceled or the process exits.
 func (c *Client) StreamEvents(ctx context.Context, labelPrefix string, ch chan<- Event) error {
 	filter := fmt.Sprintf("label=%s.enable=true", labelPrefix)
-	args := []string{"events", "--filter", "type=container",
+	args := []string{
+		"events", "--filter", "type=container",
 		"--filter", "event=start", "--filter", "event=stop",
 		"--filter", "event=die", "--filter", "event=destroy",
-		"--filter", filter, "--format", "{{json .}}"}
+		"--filter", filter, "--format", "{{json .}}",
+	}
 
 	if c.hostFlag != "" {
 		args = append([]string{"--host", c.hostFlag}, args...)
