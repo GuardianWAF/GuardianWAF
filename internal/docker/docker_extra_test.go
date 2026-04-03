@@ -326,3 +326,86 @@ func TestPortBinding_Parsing(t *testing.T) {
 		t.Errorf("expected 9090, got %q", pb.HostPort)
 	}
 }
+
+// --- handleEvent: die ---
+
+func TestWatcher_HandleEvent_Die(t *testing.T) {
+	w := NewWatcher(nil, "gwaf", "bridge", time.Second)
+	w.SetLogger(func(_, _ string) {})
+
+	w.services["xyz"] = &DiscoveredService{ContainerID: "xyz", IPAddress: "10.0.0.1", Port: 80}
+
+	changed := false
+	w.SetOnChange(func() { changed = true })
+
+	evt := Event{Action: "die"}
+	evt.Actor.ID = "xyz"
+	evt.Actor.Attributes = map[string]string{"name": "svc"}
+	w.handleEvent(evt)
+
+	if !changed {
+		t.Error("expected onChange on die event")
+	}
+	if w.ServiceCount() != 0 {
+		t.Error("expected 0 services after die event")
+	}
+}
+
+// --- handleEvent: start (with Docker client, sync may fail) ---
+
+func TestWatcher_HandleEvent_Start_WithClient(t *testing.T) {
+	c := NewClient("")
+	w := NewWatcher(c, "gwaf", "bridge", time.Second)
+	w.SetLogger(func(_, _ string) {})
+
+	changed := false
+	w.SetOnChange(func() { changed = true })
+
+	evt := Event{Action: "start"}
+	evt.Actor.ID = "abc123"
+	evt.Actor.Attributes = map[string]string{"name": "test-app"}
+	w.handleEvent(evt)
+
+	// sync fails without Docker but onChange should still be called
+	if !changed {
+		t.Error("expected onChange to be called on start event")
+	}
+}
+
+// --- pollLoop stops on stopCh ---
+
+func TestWatcher_PollLoop_StopsOnChannel(t *testing.T) {
+	w := NewWatcher(nil, "gwaf", "bridge", 10*time.Millisecond)
+	w.SetLogger(func(_, _ string) {})
+
+	// Close stopCh to unblock pollLoop immediately
+	close(w.stopCh)
+
+	done := make(chan struct{})
+	go func() {
+		w.pollLoop()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Success
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("pollLoop should return when stopCh is closed")
+	}
+}
+
+// --- Event JSON with all fields ---
+
+func TestEventJSON_AllActions(t *testing.T) {
+	for _, action := range []string{"start", "stop", "die", "destroy", "restart", "pause"} {
+		eventJSON := `{"Type":"container","Action":"` + action + `","Actor":{"ID":"abc","Attributes":{"name":"test"}},"time":1700000000}`
+		var event Event
+		if err := json.Unmarshal([]byte(eventJSON), &event); err != nil {
+			t.Fatalf("unmarshal %s: %v", action, err)
+		}
+		if event.Action != action {
+			t.Errorf("expected %s, got %q", action, event.Action)
+		}
+	}
+}

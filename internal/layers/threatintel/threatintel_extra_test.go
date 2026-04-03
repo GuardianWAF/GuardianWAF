@@ -573,3 +573,158 @@ func TestProcess_DomainBlocked_HighScore(t *testing.T) {
 		t.Error("expected non-zero score for blocked domain")
 	}
 }
+
+// --- FeedManager Start/Stop/refreshLoop ---
+
+func TestFeedManager_StartStop_Immediate(t *testing.T) {
+	fm := NewFeedManager(FeedConfig{Type: "url", URL: "http://127.0.0.1:1/feed", Refresh: 0})
+	fm.Start()
+	// Should not panic even with refresh=0
+	time.Sleep(50 * time.Millisecond)
+	fm.Stop()
+}
+
+func TestFeedManager_StartStop_WithRefresh(t *testing.T) {
+	callCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte(`{"ip":"1.2.3.4","score":50,"type":"test"}` + "\n"))
+	}))
+	defer srv.Close()
+
+	var updatedEntries []ThreatEntry
+	fm := NewFeedManager(FeedConfig{
+		Type:    "url",
+		URL:     srv.URL + "/feed",
+		Refresh: 100 * time.Millisecond,
+	})
+	fm.SetUpdateCallback(func(entries []ThreatEntry) {
+		updatedEntries = entries
+	})
+
+	fm.Start()
+	defer fm.Stop()
+
+	// Wait for initial load + at least one refresh
+	time.Sleep(250 * time.Millisecond)
+
+	if callCount < 2 {
+		t.Errorf("expected at least 2 calls (initial+refresh), got %d", callCount)
+	}
+	if len(updatedEntries) == 0 {
+		t.Error("expected entries via update callback")
+	}
+}
+
+func TestFeedManager_loadURL_InvalidStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	fm := NewFeedManager(FeedConfig{Type: "url", URL: srv.URL + "/feed"})
+	_, err := fm.LoadOnce(context.Background())
+	if err == nil {
+		t.Error("expected error for non-200 status")
+	}
+}
+
+func TestFeedManager_loadURL_Unreachable(t *testing.T) {
+	fm := NewFeedManager(FeedConfig{Type: "url", URL: "http://127.0.0.1:1/feed"})
+	_, err := fm.LoadOnce(context.Background())
+	if err == nil {
+		t.Error("expected error for unreachable URL")
+	}
+}
+
+func TestFeedManager_loadFile(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/feeds.jsonl"
+	content := `{"ip":"1.2.3.4","score":90,"type":"malware"}` + "\n" + `{"ip":"5.6.7.8","score":80,"type":"scanner"}` + "\n"
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	fm := NewFeedManager(FeedConfig{Type: "file", Path: path})
+	entries, err := fm.LoadOnce(context.Background())
+	if err != nil {
+		t.Fatalf("LoadOnce file: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Errorf("expected 2 entries, got %d", len(entries))
+	}
+}
+
+func TestFeedManager_loadFile_Missing(t *testing.T) {
+	fm := NewFeedManager(FeedConfig{Type: "file", Path: "/nonexistent/feed.jsonl"})
+	_, err := fm.LoadOnce(context.Background())
+	if err == nil {
+		t.Error("expected error for missing file")
+	}
+}
+
+func TestFeedManager_loadOnce_UnknownType(t *testing.T) {
+	fm := NewFeedManager(FeedConfig{Type: "ftp"})
+	_, err := fm.LoadOnce(context.Background())
+	if err == nil {
+		t.Error("expected error for unknown feed type")
+	}
+}
+
+// --- parseReader format detection ---
+
+func TestParseReader_DefaultJsonl(t *testing.T) {
+	fm := NewFeedManager(FeedConfig{}) // no format specified
+	input := `{"ip":"1.2.3.4","score":60,"type":"test"}` + "\n"
+	entries, err := fm.parseReader(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parseReader: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("expected 1 entry, got %d", len(entries))
+	}
+}
+
+func TestParseReader_JSONFormat(t *testing.T) {
+	fm := NewFeedManager(FeedConfig{Format: "json"})
+	input := `[{"ip":"1.2.3.4","score":90,"type":"malware"},{"ip":"5.6.7.8","score":80,"type":"scanner"}]`
+	entries, err := fm.parseReader(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parseReader JSON: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Errorf("expected 2 entries, got %d", len(entries))
+	}
+}
+
+func TestParseReader_CSVFormat(t *testing.T) {
+	fm := NewFeedManager(FeedConfig{Format: "csv"})
+	input := "1.2.3.4,90,malware\n5.6.7.8,80,scanner\n"
+	entries, err := fm.parseReader(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("parseReader CSV: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Errorf("expected 2 entries, got %d", len(entries))
+	}
+}
+
+// --- loadURL via HTTP with JSONL format ---
+
+func TestFeedManager_loadURL_Jsonl(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte(`{"ip":"1.2.3.4","score":90,"type":"malware"}` + "\n" + `{"cidr":"10.0.0.0/8","score":70,"type":"internal"}` + "\n"))
+	}))
+	defer srv.Close()
+
+	fm := NewFeedManager(FeedConfig{Type: "url", URL: srv.URL + "/feed"})
+	entries, err := fm.LoadOnce(context.Background())
+	if err != nil {
+		t.Fatalf("LoadOnce URL: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Errorf("expected 2 entries, got %d", len(entries))
+	}
+}
