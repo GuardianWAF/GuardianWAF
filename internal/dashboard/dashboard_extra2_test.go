@@ -1007,3 +1007,187 @@ func TestHandleSSE_NotSupportedViaDashboard(t *testing.T) {
 		t.Errorf("expected 500 for non-Flusher, got %d", w.code)
 	}
 }
+
+// --- handleDistAssets: successful file serve ---
+
+func TestDistAssets_ServeJS(t *testing.T) {
+	d := newTestDashboard(t, "")
+	handler := d.Handler()
+
+	// Request the embedded JS asset
+	req := httptest.NewRequest("GET", "/assets/index-7wN0RkPG.js", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 for JS asset, got %d", rr.Code)
+	}
+	ct := rr.Header().Get("Content-Type")
+	if !strings.HasPrefix(ct, "application/javascript") {
+		t.Errorf("expected application/javascript content type, got %q", ct)
+	}
+	if rr.Body.Len() == 0 {
+		t.Error("expected non-empty JS body")
+	}
+	cc := rr.Header().Get("Cache-Control")
+	if !strings.Contains(cc, "max-age=31536000") {
+		t.Errorf("expected long cache control, got %q", cc)
+	}
+}
+
+func TestDistAssets_ServeCSS(t *testing.T) {
+	d := newTestDashboard(t, "")
+	handler := d.Handler()
+
+	req := httptest.NewRequest("GET", "/assets/index-WFqYnm8y.css", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 for CSS asset, got %d", rr.Code)
+	}
+	ct := rr.Header().Get("Content-Type")
+	if !strings.HasPrefix(ct, "text/css") {
+		t.Errorf("expected text/css content type, got %q", ct)
+	}
+}
+
+// --- handleGetEvent: empty ID path ---
+
+func TestGetEvent_EmptyID_DirectCall(t *testing.T) {
+	d := newTestDashboard(t, "")
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/api/v1/events/", nil)
+	// Manually set path value to empty string to exercise the check
+	r.SetPathValue("id", "")
+
+	d.handleGetEvent(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for empty ID, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "missing event ID") {
+		t.Errorf("expected 'missing event ID' error, got: %s", body)
+	}
+}
+
+// --- handleUpdateConfig: Docker section ---
+
+func TestUpdateConfig_Docker(t *testing.T) {
+	d := newTestDashboard(t, "")
+	handler := d.Handler()
+
+	body := `{"docker":{"enabled":true,"socket_path":"/var/run/docker.sock","label_prefix":"gwaf","network":"guardian"}}`
+	req := httptest.NewRequest("PUT", "/api/v1/config", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	cfg := d.engine.Config()
+	if !cfg.Docker.Enabled {
+		t.Error("expected docker enabled")
+	}
+	if cfg.Docker.SocketPath != "/var/run/docker.sock" {
+		t.Errorf("expected socket_path '/var/run/docker.sock', got %q", cfg.Docker.SocketPath)
+	}
+	if cfg.Docker.LabelPrefix != "gwaf" {
+		t.Errorf("expected label_prefix 'gwaf', got %q", cfg.Docker.LabelPrefix)
+	}
+	if cfg.Docker.Network != "guardian" {
+		t.Errorf("expected network 'guardian', got %q", cfg.Docker.Network)
+	}
+}
+
+// --- handleUpdateConfig: AI Analysis section ---
+
+func TestUpdateConfig_AIAnalysis(t *testing.T) {
+	d := newTestDashboard(t, "")
+	handler := d.Handler()
+
+	body := `{"ai_analysis":{"enabled":true,"batch_size":10,"min_score":50,"auto_block":true}}`
+	req := httptest.NewRequest("PUT", "/api/v1/config", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	cfg := d.engine.Config()
+	if !cfg.WAF.AIAnalysis.Enabled {
+		t.Error("expected AI analysis enabled")
+	}
+	if cfg.WAF.AIAnalysis.BatchSize != 10 {
+		t.Errorf("expected batch_size 10, got %d", cfg.WAF.AIAnalysis.BatchSize)
+	}
+	if cfg.WAF.AIAnalysis.MinScore != 50 {
+		t.Errorf("expected min_score 50, got %d", cfg.WAF.AIAnalysis.MinScore)
+	}
+	if !cfg.WAF.AIAnalysis.AutoBlock {
+		t.Error("expected auto_block true")
+	}
+}
+
+// --- handleUpdateConfig: Alerting section ---
+
+func TestUpdateConfig_Alerting(t *testing.T) {
+	d := newTestDashboard(t, "")
+	handler := d.Handler()
+
+	body := `{"alerting":{"enabled":true}}`
+	req := httptest.NewRequest("PUT", "/api/v1/config", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	cfg := d.engine.Config()
+	if !cfg.Alerting.Enabled {
+		t.Error("expected alerting enabled")
+	}
+}
+
+// --- handleUpdateConfig: combined patch ---
+
+func TestUpdateConfig_CombinedDockerAIAlerting(t *testing.T) {
+	d := newTestDashboard(t, "")
+	handler := d.Handler()
+
+	body := `{
+		"docker":{"enabled":true,"socket_path":"/tmp/docker.sock"},
+		"ai_analysis":{"enabled":true,"batch_size":20},
+		"alerting":{"enabled":false}
+	}`
+	req := httptest.NewRequest("PUT", "/api/v1/config", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	cfg := d.engine.Config()
+	if !cfg.Docker.Enabled {
+		t.Error("expected docker enabled")
+	}
+	if !cfg.WAF.AIAnalysis.Enabled {
+		t.Error("expected AI enabled")
+	}
+	if cfg.WAF.AIAnalysis.BatchSize != 20 {
+		t.Errorf("expected batch_size 20, got %d", cfg.WAF.AIAnalysis.BatchSize)
+	}
+	if cfg.Alerting.Enabled {
+		t.Error("expected alerting disabled")
+	}
+}
