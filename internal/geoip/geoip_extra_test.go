@@ -327,3 +327,188 @@ func TestLoadCSV_ExtraFieldsFormat(t *testing.T) {
 		t.Errorf("expected AU, got %q", got)
 	}
 }
+
+// --- Reload ---
+
+func TestReload_Valid(t *testing.T) {
+	dir := t.TempDir()
+	csv := filepath.Join(dir, "geo.csv")
+	_ = os.WriteFile(csv, []byte("1.0.0.0,1.0.0.255,AU\n"), 0644)
+
+	db, err := LoadCSV(csv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if db.Count() != 1 {
+		t.Fatalf("expected 1, got %d", db.Count())
+	}
+
+	// Write new data and reload
+	_ = os.WriteFile(csv, []byte("8.8.8.0,8.8.8.255,US\n10.0.0.0,10.0.0.255,TR\n"), 0644)
+	err = db.Reload(csv)
+	if err != nil {
+		t.Fatalf("Reload: %v", err)
+	}
+	if db.Count() != 2 {
+		t.Errorf("expected 2 after reload, got %d", db.Count())
+	}
+	if got := db.Lookup(net.ParseIP("10.0.0.1")); got != "TR" {
+		t.Errorf("expected TR, got %q", got)
+	}
+}
+
+func TestReload_InvalidPath(t *testing.T) {
+	dir := t.TempDir()
+	csv := filepath.Join(dir, "geo.csv")
+	_ = os.WriteFile(csv, []byte("1.0.0.0,1.0.0.255,AU\n"), 0644)
+
+	db, _ := LoadCSV(csv)
+	err := db.Reload(filepath.Join(dir, "nonexistent.csv"))
+	if err == nil {
+		t.Error("expected error for nonexistent file")
+	}
+}
+
+// --- StartAutoRefresh ---
+
+func TestStartAutoRefresh_Stop(t *testing.T) {
+	dir := t.TempDir()
+	csv := filepath.Join(dir, "geo.csv")
+	_ = os.WriteFile(csv, []byte("1.0.0.0,1.0.0.255,AU\n"), 0644)
+
+	db, _ := LoadCSV(csv)
+	stop := db.StartAutoRefresh(csv, "", 100*time.Millisecond)
+
+	// Let it tick once
+	time.Sleep(200 * time.Millisecond)
+
+	// Should not panic on stop
+	stop()
+}
+
+func TestStartAutoRefresh_WithDownloadURL(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte("8.8.8.0,8.8.8.255,US\n"))
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	csv := filepath.Join(dir, "geo.csv")
+	_ = os.WriteFile(csv, []byte("1.0.0.0,1.0.0.255,AU\n"), 0644)
+
+	db, _ := LoadCSV(csv)
+	stop := db.StartAutoRefresh(csv, srv.URL+"/geo.csv", 100*time.Millisecond)
+	defer stop()
+
+	time.Sleep(250 * time.Millisecond)
+
+	// After refresh, data should have changed
+	if got := db.Lookup(net.ParseIP("8.8.8.1")); got != "US" {
+		t.Errorf("expected US after refresh, got %q", got)
+	}
+}
+
+func TestStartAutoRefresh_DefaultInterval(t *testing.T) {
+	dir := t.TempDir()
+	csv := filepath.Join(dir, "geo.csv")
+	_ = os.WriteFile(csv, []byte("1.0.0.0,1.0.0.255,AU\n"), 0644)
+
+	db, _ := LoadCSV(csv)
+	// Zero interval → defaults to 24h. Just verify it starts and stops.
+	stop := db.StartAutoRefresh(csv, "", 0)
+	stop()
+}
+
+// --- LoadOrDownload stale file + download fallback ---
+
+func TestLoadOrDownload_StaleFile_WithFallback(t *testing.T) {
+	dir := t.TempDir()
+	csv := filepath.Join(dir, "geo.csv")
+	_ = os.WriteFile(csv, []byte("1.0.0.0,1.0.0.255,AU\n"), 0644)
+
+	// Make file "stale" by setting maxAge to 1ns — will try download
+	// Use a bad URL, but since old file exists it should fall back
+	db, err := LoadOrDownload(csv, "http://127.0.0.1:1/fail.csv", 1*time.Nanosecond)
+	if err != nil {
+		t.Fatalf("expected fallback to old file, got: %v", err)
+	}
+	if db.Count() != 1 {
+		t.Errorf("expected 1 from fallback, got %d", db.Count())
+	}
+}
+
+func TestLoadOrDownload_StaleFile_DownloadSuccess(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte("8.8.8.0,8.8.8.255,US\n10.0.0.0,10.0.0.255,TR\n"))
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	csv := filepath.Join(dir, "geo.csv")
+	_ = os.WriteFile(csv, []byte("1.0.0.0,1.0.0.255,AU\n"), 0644)
+
+	// Set file mod time to 2 days ago to make it stale
+	oldTime := time.Now().Add(-48 * time.Hour)
+	_ = os.Chtimes(csv, oldTime, oldTime)
+
+	// Stale → downloads fresh data
+	db, err := LoadOrDownload(csv, srv.URL+"/geo.csv", 24*time.Hour)
+	if err != nil {
+		t.Fatalf("LoadOrDownload: %v", err)
+	}
+	if db.Count() != 2 {
+		t.Errorf("expected 2 after download, got %d", db.Count())
+	}
+}
+
+// --- downloadDB additional branches ---
+
+func TestDownloadDB_BadURL(t *testing.T) {
+	dir := t.TempDir()
+	err := downloadDB("http://127.0.0.1:1/nonexistent", filepath.Join(dir, "geo.csv"))
+	if err == nil {
+		t.Error("expected error for unreachable URL")
+	}
+}
+
+func TestDownloadDB_InvalidGzip(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/gzip")
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte("not valid gzip data"))
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	err := downloadDB(srv.URL+"/file.csv.gz", filepath.Join(dir, "geo.csv"))
+	if err == nil {
+		t.Error("expected error for invalid gzip")
+	}
+}
+
+func TestDownloadDB_Subdirectory(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+		_, _ = w.Write([]byte("1.0.0.0,1.0.0.255,AU\n"))
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	subdir := filepath.Join(dir, "sub", "dir")
+	csvPath := filepath.Join(subdir, "geo.csv")
+
+	err := downloadDB(srv.URL+"/geo.csv", csvPath)
+	if err != nil {
+		t.Fatalf("downloadDB with subdirectory: %v", err)
+	}
+
+	db, err := LoadCSV(csvPath)
+	if err != nil {
+		t.Fatalf("LoadCSV: %v", err)
+	}
+	if db.Count() != 1 {
+		t.Errorf("expected 1, got %d", db.Count())
+	}
+}

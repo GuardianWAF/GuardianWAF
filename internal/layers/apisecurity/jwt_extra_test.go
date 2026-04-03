@@ -1,12 +1,20 @@
 package apisecurity
 
 import (
+	"crypto"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/hmac"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/base64"
+	"hash"
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -975,5 +983,941 @@ func TestAPIKeyValidator_RemoveKey_NotFound(t *testing.T) {
 	removed := v.RemoveKey("nonexistent")
 	if removed {
 		t.Error("expected false for nonexistent key")
+	}
+}
+
+// --- RSA Signature Verification ---
+
+func makeRSAToken(claims JWTClaims, privateKey *rsa.PrivateKey) string {
+	header := map[string]string{"alg": "RS256", "typ": "JWT"}
+	headerJSON, _ := json.Marshal(header)
+	payloadJSON, _ := json.Marshal(claims)
+	headerB64 := base64.RawURLEncoding.EncodeToString(headerJSON)
+	payloadB64 := base64.RawURLEncoding.EncodeToString(payloadJSON)
+	signingInput := headerB64 + "." + payloadB64
+
+	h := sha256.Sum256([]byte(signingInput))
+	sig, _ := rsa.SignPKCS1v15(rand.Reader, privateKey, crypto.SHA256, h[:])
+	sigB64 := base64.RawURLEncoding.EncodeToString(sig)
+	return signingInput + "." + sigB64
+}
+
+func makeRS384Token(claims JWTClaims, privateKey *rsa.PrivateKey) string {
+	header := map[string]string{"alg": "RS384", "typ": "JWT"}
+	headerJSON, _ := json.Marshal(header)
+	payloadJSON, _ := json.Marshal(claims)
+	headerB64 := base64.RawURLEncoding.EncodeToString(headerJSON)
+	payloadB64 := base64.RawURLEncoding.EncodeToString(payloadJSON)
+	signingInput := headerB64 + "." + payloadB64
+
+	h := sha512.Sum384([]byte(signingInput))
+	sig, _ := rsa.SignPKCS1v15(rand.Reader, privateKey, crypto.SHA384, h[:])
+	sigB64 := base64.RawURLEncoding.EncodeToString(sig)
+	return signingInput + "." + sigB64
+}
+
+func makeRS512Token(claims JWTClaims, privateKey *rsa.PrivateKey) string {
+	header := map[string]string{"alg": "RS512", "typ": "JWT"}
+	headerJSON, _ := json.Marshal(header)
+	payloadJSON, _ := json.Marshal(claims)
+	headerB64 := base64.RawURLEncoding.EncodeToString(headerJSON)
+	payloadB64 := base64.RawURLEncoding.EncodeToString(payloadJSON)
+	signingInput := headerB64 + "." + payloadB64
+
+	h := sha512.Sum512([]byte(signingInput))
+	sig, _ := rsa.SignPKCS1v15(rand.Reader, privateKey, crypto.SHA512, h[:])
+	sigB64 := base64.RawURLEncoding.EncodeToString(sig)
+	return signingInput + "." + sigB64
+}
+
+func TestJWTValidate_RS256_Valid(t *testing.T) {
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().Unix()
+	claims := JWTClaims{
+		Issuer:    "test-issuer",
+		Subject:   "rsa-user",
+		ExpiresAt: now + 3600,
+		IssuedAt:  now,
+	}
+
+	v, _ := NewJWTValidator(JWTConfig{Enabled: true, Issuer: "test-issuer"})
+	v.publicKey = &privateKey.PublicKey
+
+	token := makeRSAToken(claims, privateKey)
+	parsed, err := v.Validate(token)
+	if err != nil {
+		t.Fatalf("expected valid RS256 token, got: %v", err)
+	}
+	if parsed.Subject != "rsa-user" {
+		t.Errorf("expected subject 'rsa-user', got %q", parsed.Subject)
+	}
+}
+
+func TestJWTValidate_RS256_WrongKey(t *testing.T) {
+	privateKey, _ := rsa.GenerateKey(rand.Reader, 2048)
+	wrongKey, _ := rsa.GenerateKey(rand.Reader, 2048)
+
+	claims := JWTClaims{ExpiresAt: time.Now().Unix() + 3600}
+	v, _ := NewJWTValidator(JWTConfig{Enabled: true})
+	v.publicKey = &wrongKey.PublicKey
+
+	token := makeRSAToken(claims, privateKey)
+	_, err := v.Validate(token)
+	if err == nil {
+		t.Error("expected error for wrong RSA key")
+	}
+}
+
+func TestJWTValidate_RS384_Valid(t *testing.T) {
+	privateKey, _ := rsa.GenerateKey(rand.Reader, 2048)
+	claims := JWTClaims{ExpiresAt: time.Now().Unix() + 3600}
+
+	v, _ := NewJWTValidator(JWTConfig{Enabled: true})
+	v.publicKey = &privateKey.PublicKey
+
+	token := makeRS384Token(claims, privateKey)
+	_, err := v.Validate(token)
+	if err != nil {
+		t.Fatalf("expected valid RS384 token, got: %v", err)
+	}
+}
+
+func TestJWTValidate_RS512_Valid(t *testing.T) {
+	privateKey, _ := rsa.GenerateKey(rand.Reader, 2048)
+	claims := JWTClaims{ExpiresAt: time.Now().Unix() + 3600}
+
+	v, _ := NewJWTValidator(JWTConfig{Enabled: true})
+	v.publicKey = &privateKey.PublicKey
+
+	token := makeRS512Token(claims, privateKey)
+	_, err := v.Validate(token)
+	if err != nil {
+		t.Fatalf("expected valid RS512 token, got: %v", err)
+	}
+}
+
+func TestVerifyRSASignature_NotRSAKey(t *testing.T) {
+	err := verifyRSASignature([]byte("not-rsa"), crypto.SHA256, "data", []byte("sig"))
+	if err == nil {
+		t.Error("expected error for non-RSA key")
+	}
+	if !strings.Contains(err.Error(), "not an RSA") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// --- ECDSA Signature Verification ---
+
+func makeECDSAToken(claims JWTClaims, privateKey *ecdsa.PrivateKey) string {
+	header := map[string]string{"alg": "ES256", "typ": "JWT"}
+	headerJSON, _ := json.Marshal(header)
+	payloadJSON, _ := json.Marshal(claims)
+	headerB64 := base64.RawURLEncoding.EncodeToString(headerJSON)
+	payloadB64 := base64.RawURLEncoding.EncodeToString(payloadJSON)
+	signingInput := headerB64 + "." + payloadB64
+
+	h := sha256.Sum256([]byte(signingInput))
+	r, s, _ := ecdsa.Sign(rand.Reader, privateKey, h[:])
+	// DER encode
+	sig := encodeECDSASignature(r, s)
+	sigB64 := base64.RawURLEncoding.EncodeToString(sig)
+	return signingInput + "." + sigB64
+}
+
+func makeECDSATokenRaw(claims JWTClaims, privateKey *ecdsa.PrivateKey) string {
+	header := map[string]string{"alg": "ES256", "typ": "JWT"}
+	headerJSON, _ := json.Marshal(header)
+	payloadJSON, _ := json.Marshal(claims)
+	headerB64 := base64.RawURLEncoding.EncodeToString(headerJSON)
+	payloadB64 := base64.RawURLEncoding.EncodeToString(payloadJSON)
+	signingInput := headerB64 + "." + payloadB64
+
+	h := sha256.Sum256([]byte(signingInput))
+	r, s, _ := ecdsa.Sign(rand.Reader, privateKey, h[:])
+	// Raw format: r || s (each 32 bytes for P-256)
+	rb := r.Bytes()
+	sb := s.Bytes()
+	raw := make([]byte, 64)
+	copy(raw[32-len(rb):32], rb)
+	copy(raw[64-len(sb):], sb)
+	sigB64 := base64.RawURLEncoding.EncodeToString(raw)
+	return signingInput + "." + sigB64
+}
+
+func encodeECDSASignature(r, s *big.Int) []byte {
+	rb := r.Bytes()
+	sb := s.Bytes()
+	// Prepend 0x00 if high bit set
+	if rb[0]&0x80 != 0 {
+		rb = append([]byte{0x00}, rb...)
+	}
+	if sb[0]&0x80 != 0 {
+		sb = append([]byte{0x00}, sb...)
+	}
+	// DER encode each INTEGER
+	ri := append([]byte{0x02, byte(len(rb))}, rb...)
+	si := append([]byte{0x02, byte(len(sb))}, sb...)
+	seq := append(ri, si...)
+	// Encode SEQUENCE with proper length
+	result := []byte{0x30}
+	if len(seq) >= 128 {
+		// Multi-byte length: 0x81 + length byte
+		result = append(result, 0x81, byte(len(seq)))
+	} else {
+		result = append(result, byte(len(seq)))
+	}
+	return append(result, seq...)
+}
+
+func TestJWTValidate_ES256_Valid(t *testing.T) {
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	claims := JWTClaims{Subject: "ec-user", ExpiresAt: time.Now().Unix() + 3600}
+	v, _ := NewJWTValidator(JWTConfig{Enabled: true})
+	v.publicKey = &privateKey.PublicKey
+
+	token := makeECDSAToken(claims, privateKey)
+	parsed, err := v.Validate(token)
+	if err != nil {
+		t.Fatalf("expected valid ES256 token, got: %v", err)
+	}
+	if parsed.Subject != "ec-user" {
+		t.Errorf("expected subject 'ec-user', got %q", parsed.Subject)
+	}
+}
+
+func TestJWTValidate_ES256_RawFormat(t *testing.T) {
+	privateKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	claims := JWTClaims{ExpiresAt: time.Now().Unix() + 3600}
+
+	v, _ := NewJWTValidator(JWTConfig{Enabled: true})
+	v.publicKey = &privateKey.PublicKey
+
+	token := makeECDSATokenRaw(claims, privateKey)
+	_, err := v.Validate(token)
+	if err != nil {
+		t.Fatalf("expected valid ES256 token with raw signature, got: %v", err)
+	}
+}
+
+func TestJWTValidate_ES256_WrongKey(t *testing.T) {
+	privateKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	wrongKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+
+	claims := JWTClaims{ExpiresAt: time.Now().Unix() + 3600}
+	v, _ := NewJWTValidator(JWTConfig{Enabled: true})
+	v.publicKey = &wrongKey.PublicKey
+
+	token := makeECDSAToken(claims, privateKey)
+	_, err := v.Validate(token)
+	if err == nil {
+		t.Error("expected error for wrong ECDSA key")
+	}
+}
+
+func TestVerifyECDSASignature_NotECDSAKey(t *testing.T) {
+	err := verifyECDSASignature([]byte("not-ecdsa"), crypto.SHA256, "data", make([]byte, 64))
+	if err == nil {
+		t.Error("expected error for non-ECDSA key")
+	}
+	if !strings.Contains(err.Error(), "not an ECDSA") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestVerifyECDSASignature_InvalidFormat(t *testing.T) {
+	privateKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	// 48 bytes is neither DER nor raw (64 bytes)
+	err := verifyECDSASignature(&privateKey.PublicKey, crypto.SHA256, "data", make([]byte, 48))
+	if err == nil {
+		t.Error("expected error for invalid signature format")
+	}
+}
+
+// --- HMAC HS384/HS512 ---
+
+func makeHS384Token(claims JWTClaims, secret []byte) string {
+	return makeSignedToken(map[string]string{"alg": "HS384", "typ": "JWT"}, claims, secret, sha512.New384)
+}
+
+func makeHS512Token(claims JWTClaims, secret []byte) string {
+	return makeSignedToken(map[string]string{"alg": "HS512", "typ": "JWT"}, claims, secret, sha512.New)
+}
+
+func makeSignedToken(header map[string]string, claims JWTClaims, secret []byte, hashFunc func() hash.Hash) string {
+	headerJSON, _ := json.Marshal(header)
+	payloadJSON, _ := json.Marshal(claims)
+	headerB64 := base64.RawURLEncoding.EncodeToString(headerJSON)
+	payloadB64 := base64.RawURLEncoding.EncodeToString(payloadJSON)
+	signingInput := headerB64 + "." + payloadB64
+	h := hmac.New(hashFunc, secret)
+	h.Write([]byte(signingInput))
+	sig := base64.RawURLEncoding.EncodeToString(h.Sum(nil))
+	return signingInput + "." + sig
+}
+
+func TestJWTValidate_HS384_Valid(t *testing.T) {
+	secret := []byte("hs384-secret")
+	claims := JWTClaims{Subject: "hs384-user", ExpiresAt: time.Now().Unix() + 3600}
+
+	v, _ := NewJWTValidator(JWTConfig{Enabled: true})
+	v.publicKey = secret
+
+	token := makeHS384Token(claims, secret)
+	parsed, err := v.Validate(token)
+	if err != nil {
+		t.Fatalf("expected valid HS384 token, got: %v", err)
+	}
+	if parsed.Subject != "hs384-user" {
+		t.Errorf("expected subject 'hs384-user', got %q", parsed.Subject)
+	}
+}
+
+func TestJWTValidate_HS512_Valid(t *testing.T) {
+	secret := []byte("hs512-secret")
+	claims := JWTClaims{Subject: "hs512-user", ExpiresAt: time.Now().Unix() + 3600}
+
+	v, _ := NewJWTValidator(JWTConfig{Enabled: true})
+	v.publicKey = secret
+
+	token := makeHS512Token(claims, secret)
+	parsed, err := v.Validate(token)
+	if err != nil {
+		t.Fatalf("expected valid HS512 token, got: %v", err)
+	}
+	if parsed.Subject != "hs512-user" {
+		t.Errorf("expected subject 'hs512-user', got %q", parsed.Subject)
+	}
+}
+
+func TestVerifyHMACSignature_NotBytes(t *testing.T) {
+	err := verifyHMACSignature(42, sha256.New, "data", []byte("sig"))
+	if err == nil {
+		t.Error("expected error for non-byte key")
+	}
+	if !strings.Contains(err.Error(), "not an HMAC") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// --- verifySignature unsupported algorithm ---
+
+func TestVerifySignature_UnsupportedAlgorithm(t *testing.T) {
+	v := &JWTValidator{}
+	err := v.verifySignature("UNKNOWN", "data", []byte("sig"), []byte("key"))
+	if err == nil {
+		t.Error("expected error for unsupported algorithm")
+	}
+}
+
+// --- JWKS Fetching ---
+
+func TestFetchJWKS_RSAKey(t *testing.T) {
+	privateKey, _ := rsa.GenerateKey(rand.Reader, 2048)
+	n := base64.RawURLEncoding.EncodeToString(privateKey.N.Bytes())
+	e := base64.RawURLEncoding.EncodeToString(big.NewInt(int64(privateKey.E)).Bytes())
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		jwks := map[string]any{
+			"keys": []map[string]any{
+				{
+					"kid": "key-1",
+					"kty": "RSA",
+					"use": "sig",
+					"n":   n,
+					"e":   e,
+				},
+			},
+		}
+		json.NewEncoder(w).Encode(jwks)
+	}))
+	defer srv.Close()
+
+	v, _ := NewJWTValidator(JWTConfig{
+		Enabled: true,
+		JWKSURL: srv.URL,
+	})
+	// Manually trigger fetch (constructor starts it in goroutine)
+	v.fetchJWKS()
+
+	// Verify key was cached
+	k, ok := v.jwksCache.Load("key-1")
+	if !ok {
+		t.Fatal("expected JWKS key to be cached")
+	}
+	rsaKey, ok := k.(*rsa.PublicKey)
+	if !ok {
+		t.Fatal("expected RSA public key")
+	}
+	if rsaKey.N.Cmp(privateKey.N) != 0 {
+		t.Error("N mismatch")
+	}
+}
+
+func TestFetchJWKS_ECKey(t *testing.T) {
+	privateKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	x := base64.RawURLEncoding.EncodeToString(privateKey.X.Bytes())
+	y := base64.RawURLEncoding.EncodeToString(privateKey.Y.Bytes())
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		jwks := map[string]any{
+			"keys": []map[string]any{
+				{
+					"kid": "ec-key-1",
+					"kty": "EC",
+					"use": "sig",
+					"crv": "P-256",
+					"x":   x,
+					"y":   y,
+				},
+			},
+		}
+		json.NewEncoder(w).Encode(jwks)
+	}))
+	defer srv.Close()
+
+	v, _ := NewJWTValidator(JWTConfig{Enabled: true, JWKSURL: srv.URL})
+	v.fetchJWKS()
+
+	k, ok := v.jwksCache.Load("ec-key-1")
+	if !ok {
+		t.Fatal("expected EC JWKS key to be cached")
+	}
+	ecKey, ok := k.(*ecdsa.PublicKey)
+	if !ok {
+		t.Fatal("expected ECDSA public key")
+	}
+	if ecKey.X.Cmp(privateKey.X) != 0 {
+		t.Error("X mismatch")
+	}
+}
+
+func TestFetchJWKS_EmptyURL(t *testing.T) {
+	v, _ := NewJWTValidator(JWTConfig{Enabled: true})
+	// Should return without error
+	v.fetchJWKS()
+}
+
+func TestFetchJWKS_BadResponse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("not json"))
+	}))
+	defer srv.Close()
+
+	v, _ := NewJWTValidator(JWTConfig{Enabled: true, JWKSURL: srv.URL})
+	// Should not panic
+	v.fetchJWKS()
+}
+
+func TestFetchJWKS_NoKid(t *testing.T) {
+	privateKey, _ := rsa.GenerateKey(rand.Reader, 2048)
+	n := base64.RawURLEncoding.EncodeToString(privateKey.N.Bytes())
+	e := base64.RawURLEncoding.EncodeToString(big.NewInt(int64(privateKey.E)).Bytes())
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		jwks := map[string]any{
+			"keys": []map[string]any{
+				{
+					"kty": "RSA",
+					"n":   n,
+					"e":   e,
+					// no kid
+				},
+			},
+		}
+		json.NewEncoder(w).Encode(jwks)
+	}))
+	defer srv.Close()
+
+	v, _ := NewJWTValidator(JWTConfig{Enabled: true, JWKSURL: srv.URL})
+	v.fetchJWKS()
+
+	// Key without kid should not be cached
+	v.jwksCache.Range(func(k, v any) bool {
+		t.Error("expected no keys cached without kid")
+		return false
+	})
+}
+
+func TestValidate_WithJWKSKidLookup(t *testing.T) {
+	privateKey, _ := rsa.GenerateKey(rand.Reader, 2048)
+
+	v, _ := NewJWTValidator(JWTConfig{Enabled: true})
+	// Pre-populate JWKS cache with the key
+	v.jwksCache.Store("my-key-id", &privateKey.PublicKey)
+
+	claims := JWTClaims{ExpiresAt: time.Now().Unix() + 3600}
+	// Create token with kid in header
+	headerJSON, _ := json.Marshal(map[string]string{"alg": "RS256", "typ": "JWT", "kid": "my-key-id"})
+	payloadJSON, _ := json.Marshal(claims)
+	headerB64 := base64.RawURLEncoding.EncodeToString(headerJSON)
+	payloadB64 := base64.RawURLEncoding.EncodeToString(payloadJSON)
+	signingInput := headerB64 + "." + payloadB64
+	h := sha256.Sum256([]byte(signingInput))
+	sig, _ := rsa.SignPKCS1v15(rand.Reader, privateKey, crypto.SHA256, h[:])
+	token := signingInput + "." + base64.RawURLEncoding.EncodeToString(sig)
+
+	parsed, err := v.Validate(token)
+	if err != nil {
+		t.Fatalf("expected valid token with JWKS kid, got: %v", err)
+	}
+	if parsed.ExpiresAt == 0 {
+		t.Error("expected claims to be parsed")
+	}
+}
+
+func TestValidate_NoVerificationKey(t *testing.T) {
+	v, _ := NewJWTValidator(JWTConfig{Enabled: true})
+	// No publicKey set, no kid in header
+
+	token := makeValidHS256Token(JWTClaims{ExpiresAt: time.Now().Unix() + 3600}, []byte("secret"))
+	_, err := v.Validate(token)
+	if err == nil {
+		t.Error("expected error for no verification key")
+	}
+	if !strings.Contains(err.Error(), "no verification key") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// --- parsePublicKey ---
+
+func TestParsePublicKey_NoPEM(t *testing.T) {
+	_, err := parsePublicKey([]byte("not PEM data"))
+	if err == nil {
+		t.Error("expected error for non-PEM data")
+	}
+}
+
+func TestParsePublicKey_InvalidPEM(t *testing.T) {
+	_, err := parsePublicKey([]byte("-----BEGIN but no end"))
+	if err == nil {
+		t.Error("expected error for incomplete PEM")
+	}
+}
+
+func TestParsePublicKey_InvalidBase64(t *testing.T) {
+	_, err := parsePublicKey([]byte("-----BEGIN PUBLIC KEY-----\n!!!invalid!!!\n-----END PUBLIC KEY-----"))
+	if err == nil {
+		t.Error("expected error for invalid base64 in PEM")
+	}
+}
+
+func TestParsePublicKey_InvalidDER(t *testing.T) {
+	// Valid base64 but invalid DER content
+	b64 := base64.StdEncoding.EncodeToString([]byte("this is not a real key"))
+	_, err := parsePublicKey([]byte("-----BEGIN PUBLIC KEY-----\n" + b64 + "\n-----END PUBLIC KEY-----"))
+	if err == nil {
+		t.Error("expected error for invalid DER")
+	}
+}
+
+// --- loadPublicKeyFromFile ---
+
+func TestLoadPublicKeyFromFile(t *testing.T) {
+	called := false
+	SetFileOps(
+		func(path string) (any, error) { called = true; return "fake-file", nil },
+		func(any) {},
+		func(any, []byte) (int, error) { return 0, fmt.Errorf("read error") },
+	)
+	defer SetFileOps(nil, nil, nil)
+
+	_, err := loadPublicKeyFromFile("test.pem")
+	if err == nil {
+		t.Error("expected error from read failure")
+	}
+	if !called {
+		t.Error("expected openFile to be called")
+	}
+}
+
+// --- NewJWTValidator with PublicKeyPEM ---
+
+func TestNewJWTValidator_WithPublicKeyPEM(t *testing.T) {
+	// Invalid PEM should fail
+	_, err := NewJWTValidator(JWTConfig{
+		Enabled:      true,
+		PublicKeyPEM: "not-valid-pem",
+	})
+	if err == nil {
+		t.Error("expected error for invalid PEM")
+	}
+}
+
+func TestNewJWTValidator_WithPublicKeyFile(t *testing.T) {
+	SetFileOps(
+		func(path string) (any, error) { return "file", nil },
+		func(any) {},
+		func(any, []byte) (int, error) { return 0, fmt.Errorf("read error") },
+	)
+	defer SetFileOps(nil, nil, nil)
+
+	_, err := NewJWTValidator(JWTConfig{
+		Enabled:       true,
+		PublicKeyFile: "test.pem",
+	})
+	if err == nil {
+		t.Error("expected error for unreadable key file")
+	}
+}
+
+// --- parseLength / parseLengthFrom ---
+
+func TestParseLength_SingleByte(t *testing.T) {
+	p := &asn1Parser{data: []byte{0x05, 'a', 'b', 'c', 'd', 'e'}}
+	l, err := p.parseLength()
+	if err != nil || l != 5 {
+		t.Errorf("expected length 5, got %d, err %v", l, err)
+	}
+}
+
+func TestParseLength_MultiByte(t *testing.T) {
+	// 0x81 means 1 byte follows for the length value
+	p := &asn1Parser{data: []byte{0x81, 0x10}} // length = 16
+	l, err := p.parseLength()
+	if err != nil || l != 16 {
+		t.Errorf("expected length 16, got %d, err %v", l, err)
+	}
+}
+
+func TestParseLength_EmptyData(t *testing.T) {
+	p := &asn1Parser{data: []byte{}}
+	_, err := p.parseLength()
+	if err == nil {
+		t.Error("expected error for empty data")
+	}
+}
+
+func TestParseLength_Overflow(t *testing.T) {
+	// 0x82 means 2 bytes follow, but data is too short
+	p := &asn1Parser{data: []byte{0x82, 0x01}}
+	_, err := p.parseLength()
+	if err == nil {
+		t.Error("expected error for length overflow")
+	}
+}
+
+func TestParseLengthFrom_SingleByte(t *testing.T) {
+	data := []byte{0x03, 'a', 'b', 'c'}
+	l, err := parseLengthFrom(&data)
+	if err != nil || l != 3 {
+		t.Errorf("expected length 3, got %d, err %v", l, err)
+	}
+}
+
+func TestParseLengthFrom_MultiByte(t *testing.T) {
+	data := []byte{0x82, 0x00, 0x20} // length = 32
+	l, err := parseLengthFrom(&data)
+	if err != nil || l != 32 {
+		t.Errorf("expected length 32, got %d, err %v", l, err)
+	}
+}
+
+func TestParseLengthFrom_Empty(t *testing.T) {
+	data := []byte{}
+	_, err := parseLengthFrom(&data)
+	if err == nil {
+		t.Error("expected error for empty data")
+	}
+}
+
+func TestParseLengthFrom_Overflow(t *testing.T) {
+	data := []byte{0x83, 0x01} // 3 bytes needed, only 1 available
+	_, err := parseLengthFrom(&data)
+	if err == nil {
+		t.Error("expected error for overflow")
+	}
+}
+
+// --- parseValue deeper coverage ---
+
+func TestParseValue_NoLengthByte(t *testing.T) {
+	p := &asn1Parser{data: []byte{0x30}} // SEQUENCE tag but no length
+	var esig struct{ R, S *big.Int }
+	err := p.parseValue(&esig)
+	if err == nil {
+		t.Error("expected error for missing length")
+	}
+}
+
+func TestParseValue_WrongTag(t *testing.T) {
+	p := &asn1Parser{data: []byte{0x02, 0x01, 0x01}} // INTEGER, not SEQUENCE
+	var esig struct{ R, S *big.Int }
+	err := p.parseValue(&esig)
+	if err == nil {
+		t.Error("expected error for wrong tag")
+	}
+}
+
+// --- extractAPIKey ---
+
+func TestExtractAPIKey_CustomHeader(t *testing.T) {
+	l := &Layer{config: Config{APIKeys: APIKeysConfig{HeaderName: "X-Custom-Key"}}}
+	headers := map[string][]string{"X-Custom-Key": {"my-custom-key"}}
+	key := l.extractAPIKey(headers, nil)
+	if key != "my-custom-key" {
+		t.Errorf("expected 'my-custom-key', got %q", key)
+	}
+}
+
+func TestExtractAPIKey_QueryParam(t *testing.T) {
+	l := &Layer{config: Config{}}
+	headers := map[string][]string{}
+	queryParams := map[string][]string{"api_key": {"query-key"}}
+	key := l.extractAPIKey(headers, queryParams)
+	if key != "query-key" {
+		t.Errorf("expected 'query-key', got %q", key)
+	}
+}
+
+func TestExtractAPIKey_CustomQueryParam(t *testing.T) {
+	l := &Layer{config: Config{APIKeys: APIKeysConfig{QueryParam: "token"}}}
+	queryParams := map[string][]string{"token": {"my-token"}}
+	key := l.extractAPIKey(map[string][]string{}, queryParams)
+	if key != "my-token" {
+		t.Errorf("expected 'my-token', got %q", key)
+	}
+}
+
+func TestExtractAPIKey_Empty(t *testing.T) {
+	l := &Layer{config: Config{}}
+	key := l.extractAPIKey(map[string][]string{}, nil)
+	if key != "" {
+		t.Errorf("expected empty, got %q", key)
+	}
+}
+
+// --- Skip Path Tests ---
+
+func TestLayerProcess_SkipPath(t *testing.T) {
+	cfg := Config{
+		Enabled:   true,
+		SkipPaths: []string{"/health"},
+		JWT:       JWTConfig{Enabled: true},
+	}
+	layer, _ := NewLayer(&cfg)
+	secret := []byte("secret")
+	layer.jwtValidator.publicKey = secret
+
+	req := httptest.NewRequest("GET", "/health", nil)
+	ctx := engine.AcquireContext(req, 1, 1024*1024)
+	defer engine.ReleaseContext(ctx)
+
+	result := layer.Process(ctx)
+	if result.Action != engine.ActionPass {
+		t.Errorf("expected pass for skipped path, got %v", result.Action)
+	}
+}
+
+func TestLayer_AddRemoveSkipPath(t *testing.T) {
+	cfg := Config{Enabled: true}
+	layer, _ := NewLayer(&cfg)
+
+	layer.AddSkipPath("/metrics")
+	if !layer.shouldSkipPath("/metrics") {
+		t.Error("expected /metrics to be skipped")
+	}
+
+	layer.RemoveSkipPath("/metrics")
+	if layer.shouldSkipPath("/metrics") {
+		t.Error("expected /metrics to not be skipped after removal")
+	}
+}
+
+func TestLayerProcess_WildcardSkipPath(t *testing.T) {
+	cfg := Config{
+		Enabled:   true,
+		SkipPaths: []string{"/static/*"},
+		JWT:       JWTConfig{Enabled: true},
+	}
+	layer, _ := NewLayer(&cfg)
+	secret := []byte("secret")
+	layer.jwtValidator.publicKey = secret
+
+	req := httptest.NewRequest("GET", "/static/css/main.css", nil)
+	ctx := engine.AcquireContext(req, 1, 1024*1024)
+	defer engine.ReleaseContext(ctx)
+
+	result := layer.Process(ctx)
+	if result.Action != engine.ActionPass {
+		t.Errorf("expected pass for wildcard skipped path, got %v", result.Action)
+	}
+}
+
+// --- Stats ---
+
+func TestLayer_Stats(t *testing.T) {
+	key := "stats-key"
+	hash := sha256.Sum256([]byte(key))
+	hashStr := "sha256:" + fmt.Sprintf("%x", hash[:])
+
+	cfg := Config{
+		Enabled: true,
+		APIKeys: APIKeysConfig{
+			Enabled: true,
+			Keys:    []APIKeyConfig{{Name: "test", KeyHash: hashStr, Enabled: true}},
+		},
+	}
+	layer, _ := NewLayer(&cfg)
+
+	stats := layer.Stats()
+	if stats["enabled"] != true {
+		t.Error("expected enabled=true")
+	}
+	if stats["api_key_count"] != 1 {
+		t.Errorf("expected api_key_count=1, got %v", stats["api_key_count"])
+	}
+}
+
+// --- Layer Process with API key via query param ---
+
+func TestLayerProcess_APIKeyViaQueryParam(t *testing.T) {
+	key := "query-api-key"
+	hash := sha256.Sum256([]byte(key))
+	hashStr := "sha256:" + fmt.Sprintf("%x", hash[:])
+
+	cfg := Config{
+		Enabled: true,
+		APIKeys: APIKeysConfig{
+			Enabled: true,
+			Keys: []APIKeyConfig{
+				{Name: "query-test", KeyHash: hashStr, Enabled: true},
+			},
+		},
+	}
+	layer, _ := NewLayer(&cfg)
+
+	req := httptest.NewRequest("GET", "/api/data?api_key=query-api-key", nil)
+	ctx := engine.AcquireContext(req, 1, 1024*1024)
+	defer engine.ReleaseContext(ctx)
+
+	result := layer.Process(ctx)
+	if result.Score > 0 {
+		t.Errorf("valid API key via query param should not add score, got %d", result.Score)
+	}
+}
+
+// --- JWKS fetch with non-200 response ---
+
+func TestFetchJWKS_EC_P384_P521(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		curve  elliptic.Curve
+		crvID  string
+	}{
+		{"P-384", elliptic.P384(), "P-384"},
+		{"P-521", elliptic.P521(), "P-521"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			privateKey, _ := ecdsa.GenerateKey(tc.curve, rand.Reader)
+			x := base64.RawURLEncoding.EncodeToString(privateKey.X.Bytes())
+			y := base64.RawURLEncoding.EncodeToString(privateKey.Y.Bytes())
+
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				jwks := map[string]any{
+					"keys": []map[string]any{{
+						"kid": tc.name, "kty": "EC", "use": "sig",
+						"crv": tc.crvID, "x": x, "y": y,
+					}},
+				}
+				json.NewEncoder(w).Encode(jwks)
+			}))
+			defer srv.Close()
+
+			v, _ := NewJWTValidator(JWTConfig{Enabled: true, JWKSURL: srv.URL})
+			v.fetchJWKS()
+
+			k, ok := v.jwksCache.Load(tc.name)
+			if !ok {
+				t.Fatal("expected key to be cached")
+			}
+			ecKey := k.(*ecdsa.PublicKey)
+			if ecKey.X.Cmp(privateKey.X) != 0 {
+				t.Error("X mismatch")
+			}
+		})
+	}
+}
+
+// --- ECDSA ES384 / ES512 tokens via verifySignature ---
+
+func TestJWTValidate_ES384_Valid(t *testing.T) {
+	privateKey, _ := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+	claims := JWTClaims{ExpiresAt: time.Now().Unix() + 3600}
+
+	headerJSON, _ := json.Marshal(map[string]string{"alg": "ES384", "typ": "JWT"})
+	payloadJSON, _ := json.Marshal(claims)
+	headerB64 := base64.RawURLEncoding.EncodeToString(headerJSON)
+	payloadB64 := base64.RawURLEncoding.EncodeToString(payloadJSON)
+	signingInput := headerB64 + "." + payloadB64
+
+	h := sha512.Sum384([]byte(signingInput))
+	r, s, _ := ecdsa.Sign(rand.Reader, privateKey, h[:])
+	sig := encodeECDSASignature(r, s)
+	token := signingInput + "." + base64.RawURLEncoding.EncodeToString(sig)
+
+	v, _ := NewJWTValidator(JWTConfig{Enabled: true})
+	v.publicKey = &privateKey.PublicKey
+	_, err := v.Validate(token)
+	if err != nil {
+		t.Fatalf("expected valid ES384 token, got: %v", err)
+	}
+}
+
+func TestJWTValidate_ES512_Valid(t *testing.T) {
+	privateKey, _ := ecdsa.GenerateKey(elliptic.P521(), rand.Reader)
+	claims := JWTClaims{ExpiresAt: time.Now().Unix() + 3600}
+
+	headerJSON, _ := json.Marshal(map[string]string{"alg": "ES512", "typ": "JWT"})
+	payloadJSON, _ := json.Marshal(claims)
+	headerB64 := base64.RawURLEncoding.EncodeToString(headerJSON)
+	payloadB64 := base64.RawURLEncoding.EncodeToString(payloadJSON)
+	signingInput := headerB64 + "." + payloadB64
+
+	h := sha512.Sum512([]byte(signingInput))
+	r, s, _ := ecdsa.Sign(rand.Reader, privateKey, h[:])
+	sig := encodeECDSASignature(r, s)
+	token := signingInput + "." + base64.RawURLEncoding.EncodeToString(sig)
+
+	v, _ := NewJWTValidator(JWTConfig{Enabled: true})
+	v.publicKey = &privateKey.PublicKey
+	_, err := v.Validate(token)
+	if err != nil {
+		t.Fatalf("expected valid ES512 token, got: %v", err)
+	}
+}
+
+// --- JWKS unknown curve ---
+
+func TestFetchJWKS_UnknownCurve(t *testing.T) {
+	privateKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	x := base64.RawURLEncoding.EncodeToString(privateKey.X.Bytes())
+	y := base64.RawURLEncoding.EncodeToString(privateKey.Y.Bytes())
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		jwks := map[string]any{
+			"keys": []map[string]any{{
+				"kid": "unknown-curve", "kty": "EC", "use": "sig",
+				"crv": "Ed25519", "x": x, "y": y, // unsupported curve
+			}},
+		}
+		json.NewEncoder(w).Encode(jwks)
+	}))
+	defer srv.Close()
+
+	v, _ := NewJWTValidator(JWTConfig{Enabled: true, JWKSURL: srv.URL})
+	v.fetchJWKS()
+
+	_, ok := v.jwksCache.Load("unknown-curve")
+	if ok {
+		t.Error("expected key with unknown curve to not be cached")
 	}
 }
