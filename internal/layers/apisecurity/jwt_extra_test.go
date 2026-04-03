@@ -675,3 +675,305 @@ func TestLayerProcess_APIKeyAuth_Invalid(t *testing.T) {
 		t.Error("invalid API key should add score")
 	}
 }
+
+// --- Layer AddAPIKey / RemoveAPIKey ---
+
+func TestLayer_AddAPIKey(t *testing.T) {
+	cfg := Config{
+		Enabled: true,
+		APIKeys: APIKeysConfig{
+			Enabled: true,
+			Keys:    []APIKeyConfig{},
+		},
+	}
+	layer, err := NewLayer(&cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	key := "new-runtime-key"
+	hash := sha256.Sum256([]byte(key))
+	hashStr := "sha256:" + fmt.Sprintf("%x", hash[:])
+
+	err = layer.AddAPIKey(APIKeyConfig{
+		Name:      "runtime-key",
+		KeyHash:   hashStr,
+		KeyPrefix: "new-",
+		Enabled:   true,
+	})
+	if err != nil {
+		t.Fatalf("AddAPIKey error: %v", err)
+	}
+
+	// Verify the key works
+	req := httptest.NewRequest("GET", "/api/data", nil)
+	req.Header.Set("X-API-Key", key)
+	ctx := engine.AcquireContext(req, 1, 1024*1024)
+	defer engine.ReleaseContext(ctx)
+
+	result := layer.Process(ctx)
+	if result.Score > 0 {
+		t.Errorf("valid runtime key should not add score, got %d", result.Score)
+	}
+}
+
+func TestLayer_RemoveAPIKey(t *testing.T) {
+	key := "removable-key"
+	hash := sha256.Sum256([]byte(key))
+	hashStr := "sha256:" + fmt.Sprintf("%x", hash[:])
+
+	cfg := Config{
+		Enabled: true,
+		APIKeys: APIKeysConfig{
+			Enabled: true,
+			Keys: []APIKeyConfig{
+				{Name: "remove-test", KeyHash: hashStr, KeyPrefix: "rem-", Enabled: true},
+			},
+		},
+	}
+	layer, err := NewLayer(&cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	removed := layer.RemoveAPIKey("remove-test")
+	if !removed {
+		t.Error("expected key to be removed")
+	}
+
+	// Key should no longer work
+	req := httptest.NewRequest("GET", "/api/data", nil)
+	req.Header.Set("X-API-Key", key)
+	ctx := engine.AcquireContext(req, 1, 1024*1024)
+	defer engine.ReleaseContext(ctx)
+
+	result := layer.Process(ctx)
+	if result.Score == 0 {
+		t.Error("removed key should cause auth failure")
+	}
+}
+
+func TestLayer_AddAPIKey_NilValidator(t *testing.T) {
+	cfg := Config{Enabled: true}
+	layer, err := NewLayer(&cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = layer.AddAPIKey(APIKeyConfig{Name: "test"})
+	if err != nil {
+		t.Errorf("expected nil, got %v", err)
+	}
+}
+
+func TestLayer_RemoveAPIKey_NilValidator(t *testing.T) {
+	cfg := Config{Enabled: true}
+	layer, err := NewLayer(&cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	removed := layer.RemoveAPIKey("test")
+	if removed {
+		t.Error("expected false with nil validator")
+	}
+}
+
+// --- Layer RefreshJWKS ---
+
+func TestLayer_RefreshJWKS_NilValidator(t *testing.T) {
+	cfg := Config{Enabled: true}
+	layer, err := NewLayer(&cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Should not panic
+	layer.RefreshJWKS()
+}
+
+// --- Layer Start / Stop ---
+
+func TestLayer_StartStop(t *testing.T) {
+	cfg := Config{Enabled: true}
+	layer, err := NewLayer(&cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	layer.Start()
+	layer.Stop()
+}
+
+// --- API Key Rate Limiting ---
+
+func TestAPIKeyValidator_RateLimit(t *testing.T) {
+	key := "rate-limited-key"
+	hash := sha256.Sum256([]byte(key))
+	hashStr := "sha256:" + fmt.Sprintf("%x", hash[:])
+
+	v, err := NewAPIKeyValidator([]APIKeyConfig{
+		{
+			Name:      "rate-test",
+			KeyHash:   hashStr,
+			Enabled:   true,
+			RateLimit: 3,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Should succeed for first 3 requests
+	for i := 0; i < 3; i++ {
+		_, err := v.Validate(key, "/api/data")
+		if err != nil {
+			t.Errorf("request %d should succeed, got: %v", i+1, err)
+		}
+	}
+
+	// 4th request should be rate limited
+	_, err = v.Validate(key, "/api/data")
+	if err != ErrRateLimitExceeded {
+		t.Errorf("expected rate limit error, got: %v", err)
+	}
+}
+
+// --- API Key Path Restrictions ---
+
+func TestAPIKeyValidator_PathRestriction(t *testing.T) {
+	key := "path-limited-key"
+	hash := sha256.Sum256([]byte(key))
+	hashStr := "sha256:" + fmt.Sprintf("%x", hash[:])
+
+	v, err := NewAPIKeyValidator([]APIKeyConfig{
+		{
+			Name:         "path-test",
+			KeyHash:      hashStr,
+			Enabled:      true,
+			AllowedPaths: []string{"/api/v1/*"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Allowed path
+	cfg, err := v.Validate(key, "/api/v1/users")
+	if err != nil {
+		t.Errorf("allowed path should succeed: %v", err)
+	}
+	if cfg.Name != "path-test" {
+		t.Errorf("expected path-test, got %q", cfg.Name)
+	}
+
+	// Disallowed path
+	_, err = v.Validate(key, "/admin/dashboard")
+	if err != ErrUnauthorizedPath {
+		t.Errorf("expected unauthorized path error, got: %v", err)
+	}
+}
+
+// --- API Key Disabled ---
+// Note: NewAPIKeyValidator skips disabled keys during init.
+// A key added at runtime then disabled via AddKey with Enabled=false
+// can still be looked up but returns ErrAPIKeyDisabled.
+
+func TestAPIKeyValidator_DisabledKey_Runtime(t *testing.T) {
+	key := "runtime-disabled"
+	hash := sha256.Sum256([]byte(key))
+	hashStr := "sha256:" + fmt.Sprintf("%x", hash[:])
+
+	v, err := NewAPIKeyValidator([]APIKeyConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Add enabled key first
+	err = v.AddKey(APIKeyConfig{
+		Name:    "to-disable",
+		KeyHash: hashStr,
+		Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify it works
+	_, err = v.Validate(key, "/api/data")
+	if err != nil {
+		t.Fatalf("enabled key should work: %v", err)
+	}
+
+	// Now disable it by re-adding with Enabled=false
+	err = v.AddKey(APIKeyConfig{
+		Name:    "to-disable",
+		KeyHash: hashStr,
+		Enabled: false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = v.Validate(key, "/api/data")
+	if err != ErrAPIKeyDisabled {
+		t.Errorf("expected disabled error, got: %v", err)
+	}
+}
+
+// --- API Key Add/Remove via Validator ---
+
+func TestAPIKeyValidator_AddKey(t *testing.T) {
+	v, err := NewAPIKeyValidator([]APIKeyConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	key := "dynamic-key"
+	hash := sha256.Sum256([]byte(key))
+	hashStr := "sha256:" + fmt.Sprintf("%x", hash[:])
+
+	err = v.AddKey(APIKeyConfig{
+		Name:    "dynamic",
+		KeyHash: hashStr,
+		Enabled: true,
+	})
+	if err != nil {
+		t.Fatalf("AddKey error: %v", err)
+	}
+
+	cfg, err := v.Validate(key, "/api/data")
+	if err != nil {
+		t.Fatalf("validate after add failed: %v", err)
+	}
+	if cfg.Name != "dynamic" {
+		t.Errorf("expected dynamic, got %q", cfg.Name)
+	}
+}
+
+func TestAPIKeyValidator_RemoveKey(t *testing.T) {
+	key := "to-remove"
+	hash := sha256.Sum256([]byte(key))
+	hashStr := "sha256:" + fmt.Sprintf("%x", hash[:])
+
+	v, err := NewAPIKeyValidator([]APIKeyConfig{
+		{Name: "removable", KeyHash: hashStr, Enabled: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	removed := v.RemoveKey("removable")
+	if !removed {
+		t.Error("expected key to be removed")
+	}
+
+	_, err = v.Validate(key, "/api/data")
+	if err != ErrInvalidAPIKey {
+		t.Errorf("expected invalid after removal, got: %v", err)
+	}
+}
+
+func TestAPIKeyValidator_RemoveKey_NotFound(t *testing.T) {
+	v, _ := NewAPIKeyValidator([]APIKeyConfig{})
+	removed := v.RemoveKey("nonexistent")
+	if removed {
+		t.Error("expected false for nonexistent key")
+	}
+}
