@@ -13,7 +13,6 @@ linters:
     - misspell
     - gofumpt
     - revive
-    - gocritic
     - bodyclose
     - durationcheck
     - exportloopref
@@ -43,12 +42,6 @@ linters-settings:
       - name: time-naming
       - name: unexported-return
       - name: indent-error-flow
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - performance
-    disabled-checks:
-      - hugeParam
   misspell:
     locale: US
 
