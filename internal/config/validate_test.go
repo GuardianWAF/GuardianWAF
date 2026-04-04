@@ -38,7 +38,7 @@ routes:
   - path: /api
     upstream: backend
 `
-	if err := os.WriteFile(path, []byte(yamlContent), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(yamlContent), 0o644); err != nil {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
 
@@ -97,7 +97,7 @@ func TestLoadFile_InvalidYAML(t *testing.T) {
 	// Write content that our parser will reject (e.g. invalid flow sequence)
 	badYAML := `mode: enforce
 listen: [invalid`
-	if err := os.WriteFile(path, []byte(badYAML), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(badYAML), 0o644); err != nil {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
 
@@ -1135,7 +1135,7 @@ func TestLoadFile_PopulateError(t *testing.T) {
 	badYAML := `tls:
   enabled:
     nested: value`
-	if err := os.WriteFile(path, []byte(badYAML), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(badYAML), 0o644); err != nil {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
 

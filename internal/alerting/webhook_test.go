@@ -347,8 +347,8 @@ func TestMatchesEvent(t *testing.T) {
 		action string
 		want   bool
 	}{
-		{nil, "block", true},              // default: only blocks
-		{[]string{}, "block", true},       // empty: only blocks
+		{nil, "block", true},        // default: only blocks
+		{[]string{}, "block", true}, // empty: only blocks
 		{[]string{"block"}, "block", true},
 		{[]string{"block"}, "log", false},
 		{[]string{"all"}, "log", true},

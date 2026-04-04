@@ -29,23 +29,23 @@ var staticFiles embed.FS
 
 // Dashboard is the web dashboard server.
 type Dashboard struct {
-	engine         *engine.Engine
-	eventStore     events.EventStore
-	sse            *SSEBroadcaster
-	mux            *http.ServeMux
-	apiKey         string
-	upstreamsFn    func() any   // returns upstream status (injected to avoid circular imports)
-	rebuildFn      func() error // rebuilds proxy after config change
-	saveFn         func() error // persists current config to disk
-	rulesFn        func() any   // returns rules list
-	addRuleFn      func(map[string]any) error
-	updateRuleFn   func(string, map[string]any) error
-	deleteRuleFn   func(string) bool
-	toggleRuleFn   func(string, bool) bool
-	geoLookupFn    func(string) (string, string) // ip -> (country_code, country_name)
+	engine          *engine.Engine
+	eventStore      events.EventStore
+	sse             *SSEBroadcaster
+	mux             *http.ServeMux
+	apiKey          string
+	upstreamsFn     func() any   // returns upstream status (injected to avoid circular imports)
+	rebuildFn       func() error // rebuilds proxy after config change
+	saveFn          func() error // persists current config to disk
+	rulesFn         func() any   // returns rules list
+	addRuleFn       func(map[string]any) error
+	updateRuleFn    func(string, map[string]any) error
+	deleteRuleFn    func(string) bool
+	toggleRuleFn    func(string, bool) bool
+	geoLookupFn     func(string) (string, string) // ip -> (country_code, country_name)
 	alertingStatsFn func() any                    // returns alerting stats (optional)
-	aiAnalyzer     aiAnalyzerInterface           // AI threat analyzer (optional)
-	dockerWatcher  dockerWatcherInterface        // Docker auto-discovery (optional)
+	aiAnalyzer      aiAnalyzerInterface           // AI threat analyzer (optional)
+	dockerWatcher   dockerWatcherInterface        // Docker auto-discovery (optional)
 }
 
 // New creates a new Dashboard wired to the given engine and event store.
@@ -116,14 +116,14 @@ func New(eng *engine.Engine, store events.EventStore, apiKey string) *Dashboard 
 	d.mux.HandleFunc("GET /api/v1/docker/services", d.authWrap(d.handleDockerServices))
 
 	// SPA serving — React build output from dist/ with fallback to legacy static/
-	d.mux.HandleFunc("GET /assets/", d.handleDistAssets)        // Vite hashed assets — public (content-hashed, no secrets)
-	d.mux.HandleFunc("GET /config", d.authWrap(d.handleSPA))    // SPA routes
-	d.mux.HandleFunc("GET /routing", d.authWrap(d.handleSPA))   // SPA routes
-	d.mux.HandleFunc("GET /alerting", d.authWrap(d.handleSPA))  // SPA routes
-	d.mux.HandleFunc("GET /logs", d.authWrap(d.handleSPA))      // SPA routes
-	d.mux.HandleFunc("GET /rules", d.authWrap(d.handleSPA))     // SPA routes
-	d.mux.HandleFunc("GET /ai", d.authWrap(d.handleSPA))        // SPA routes
-	d.mux.HandleFunc("/", d.authWrap(d.handleSPA))              // SPA catch-all
+	d.mux.HandleFunc("GET /assets/", d.handleDistAssets)       // Vite hashed assets — public (content-hashed, no secrets)
+	d.mux.HandleFunc("GET /config", d.authWrap(d.handleSPA))   // SPA routes
+	d.mux.HandleFunc("GET /routing", d.authWrap(d.handleSPA))  // SPA routes
+	d.mux.HandleFunc("GET /alerting", d.authWrap(d.handleSPA)) // SPA routes
+	d.mux.HandleFunc("GET /logs", d.authWrap(d.handleSPA))     // SPA routes
+	d.mux.HandleFunc("GET /rules", d.authWrap(d.handleSPA))    // SPA routes
+	d.mux.HandleFunc("GET /ai", d.authWrap(d.handleSPA))       // SPA routes
+	d.mux.HandleFunc("/", d.authWrap(d.handleSPA))             // SPA catch-all
 
 	return d
 }
@@ -1626,12 +1626,12 @@ func (d *Dashboard) handleAlertingStatus(w http.ResponseWriter, r *http.Request)
 	webhooks := make([]any, 0, len(cfg.Alerting.Webhooks))
 	for _, w := range cfg.Alerting.Webhooks {
 		webhooks = append(webhooks, map[string]any{
-			"name":     w.Name,
-			"url":      w.URL,
-			"type":     w.Type,
-			"events":   w.Events,
+			"name":      w.Name,
+			"url":       w.URL,
+			"type":      w.Type,
+			"events":    w.Events,
 			"min_score": w.MinScore,
-			"cooldown": w.Cooldown.String(),
+			"cooldown":  w.Cooldown.String(),
 		})
 	}
 	emails := make([]any, 0, len(cfg.Alerting.Emails))
@@ -1650,11 +1650,11 @@ func (d *Dashboard) handleAlertingStatus(w http.ResponseWriter, r *http.Request)
 	}
 
 	result := map[string]any{
-		"enabled":        cfg.Alerting.Enabled,
-		"webhook_count":  len(cfg.Alerting.Webhooks),
-		"email_count":    len(cfg.Alerting.Emails),
-		"webhooks":       webhooks,
-		"emails":         emails,
+		"enabled":       cfg.Alerting.Enabled,
+		"webhook_count": len(cfg.Alerting.Webhooks),
+		"email_count":   len(cfg.Alerting.Emails),
+		"webhooks":      webhooks,
+		"emails":        emails,
 	}
 
 	if d.alertingStatsFn != nil {
@@ -1673,12 +1673,12 @@ func (d *Dashboard) handleGetWebhooks(w http.ResponseWriter, r *http.Request) {
 	webhooks := make([]any, 0, len(cfg.Alerting.Webhooks))
 	for _, w := range cfg.Alerting.Webhooks {
 		webhooks = append(webhooks, map[string]any{
-			"name":     w.Name,
-			"url":      w.URL,
-			"type":     w.Type,
-			"events":   w.Events,
+			"name":      w.Name,
+			"url":       w.URL,
+			"type":      w.Type,
+			"events":    w.Events,
 			"min_score": w.MinScore,
-			"cooldown": w.Cooldown.String(),
+			"cooldown":  w.Cooldown.String(),
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"webhooks": webhooks})

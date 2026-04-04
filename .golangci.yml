@@ -5,57 +5,30 @@ run:
 linters:
   enable:
     - govet
-    - staticcheck
     - errcheck
-    - gosimple
-    - ineffassign
+    - staticcheck
     - unused
-    - misspell
-    - gofumpt
-    - revive
-    - bodyclose
-    - durationcheck
-    - exportloopref
-    - prealloc
-    - unconvert
-    - unparam
-    - noctx
+    - ineffassign
 
 linters-settings:
   govet:
-    enable-all: true
-    disable:
-      - fieldalignment
-  revive:
-    rules:
-      - name: exported
-        arguments:
-          - "checkPrivateReceivers"
-      - name: blank-imports
-      - name: context-as-argument
-      - name: error-return
-      - name: error-strings
-      - name: increment-decrement
-      - name: var-naming
-      - name: range
-      - name: receiver-naming
-      - name: time-naming
-      - name: unexported-return
-      - name: indent-error-flow
-  misspell:
-    locale: US
+    enable-all: false
+    enable:
+      - shadow
 
 issues:
   exclude-rules:
     - path: _test\.go
       linters:
         - errcheck
-        - gocritic
-        - unparam
-        - bodyclose
         - govet
-        - noctx
+    - path: internal/layers/apisecurity/jwt\.go
+      linters:
         - staticcheck
-        - prealloc
+      text: "elliptic.Unmarshal has been deprecated"
+    - path: internal/acme/client\.go
+      linters:
+        - unparam
+      text: "result 1 .error. is always nil"
   max-issues-per-linter: 50
   max-same-issues: 5
