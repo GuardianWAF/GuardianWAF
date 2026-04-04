@@ -1,14 +1,13 @@
 package geoip
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
-
-	"net/http"
-	"net/http/httptest"
 )
 
 func TestLoadCSV_ScannerError(t *testing.T) {
@@ -16,7 +15,7 @@ func TestLoadCSV_ScannerError(t *testing.T) {
 	csv := filepath.Join(dir, "geo.csv")
 	// Write a line longer than bufio.Scanner's default 64KB token limit
 	longLine := strings.Repeat("a", 70000)
-	_ = os.WriteFile(csv, []byte(longLine), 0644)
+	_ = os.WriteFile(csv, []byte(longLine), 0o644)
 
 	_, err := LoadCSV(csv)
 	if err == nil {
@@ -36,7 +35,7 @@ func TestLoadOrDownload_EmptyDownloadURL(t *testing.T) {
 func TestLoadOrDownload_StaleFile_Fallback(t *testing.T) {
 	dir := t.TempDir()
 	csv := filepath.Join(dir, "geo.csv")
-	_ = os.WriteFile(csv, []byte("1.0.0.0,1.0.0.255,AU\n"), 0644)
+	_ = os.WriteFile(csv, []byte("1.0.0.0,1.0.0.255,AU\n"), 0o644)
 
 	// Make file genuinely stale
 	oldTime := time.Now().Add(-48 * time.Hour)
@@ -69,7 +68,7 @@ func TestDownloadDB_MkdirAllError(t *testing.T) {
 
 	dir := t.TempDir()
 	parentFile := filepath.Join(dir, "parent")
-	_ = os.WriteFile(parentFile, []byte("x"), 0644)
+	_ = os.WriteFile(parentFile, []byte("x"), 0o644)
 
 	err := downloadDB(srv.URL+"/geo.csv", filepath.Join(parentFile, "sub", "geo.csv"))
 	if err == nil {
@@ -86,7 +85,7 @@ func TestDownloadDB_CreateError(t *testing.T) {
 
 	dir := t.TempDir()
 	targetDir := filepath.Join(dir, "geo.csv")
-	_ = os.Mkdir(targetDir, 0755)
+	_ = os.Mkdir(targetDir, 0o755)
 
 	err := downloadDB(srv.URL+"/geo.csv", targetDir)
 	if err == nil {

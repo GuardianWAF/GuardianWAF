@@ -5,8 +5,8 @@ package geoip
 
 import (
 	"bufio"
-	"context"
 	"compress/gzip"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -208,7 +208,7 @@ const AutoDownloadURL = "https://download.db-ip.com/free/dbip-country-lite-2025-
 
 // LoadOrDownload tries to load from path. If file doesn't exist or is older than
 // maxAge, downloads from the given URL (or AutoDownloadURL if empty).
-func LoadOrDownload(path string, downloadURL string, maxAge time.Duration) (*DB, error) {
+func LoadOrDownload(path, downloadURL string, maxAge time.Duration) (*DB, error) {
 	if path == "" {
 		path = "geoip.csv"
 	}
@@ -293,19 +293,19 @@ func ipToUint32(ip net.IP) uint32 {
 	return binary.BigEndian.Uint32(v4)
 }
 
-func cidrToRange(cidr string) (uint32, uint32, error) {
+func cidrToRange(cidr string) (start, end uint32, err error) {
 	_, network, err := net.ParseCIDR(cidr)
 	if err != nil {
 		return 0, 0, err
 	}
 
-	start := ipToUint32(network.IP.To4())
+	start = ipToUint32(network.IP.To4())
 	ones, bits := network.Mask.Size()
 	if bits != 32 {
 		return 0, 0, fmt.Errorf("only IPv4 CIDR supported")
 	}
 	hostBits := uint32(32 - ones)
-	end := start | ((1 << hostBits) - 1)
+	end = start | ((1 << hostBits) - 1)
 
 	return start, end, nil
 }
