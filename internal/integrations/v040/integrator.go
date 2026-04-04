@@ -12,6 +12,7 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/discovery"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/layers/botdetect"
+	"github.com/guardianwaf/guardianwaf/internal/layers/cache"
 	"github.com/guardianwaf/guardianwaf/internal/layers/dlp"
 	"github.com/guardianwaf/guardianwaf/internal/layers/graphql"
 	"github.com/guardianwaf/guardianwaf/internal/layers/siem"
@@ -37,6 +38,7 @@ type Integrator struct {
 	dlpLayer          *dlp.EngineLayer
 	zeroTrustService  *zerotrust.Service
 	siemExporter      *siem.Exporter
+	cacheLayer        *cache.Layer
 
 	// HTTP handlers
 	biometricHandler http.HandlerFunc
@@ -110,6 +112,13 @@ func NewIntegrator(cfg *config.Config) (*Integrator, error) {
 	if cfg.WAF.SIEM.Enabled {
 		if err := i.initSIEM(); err != nil {
 			return nil, fmt.Errorf("siem: %w", err)
+		}
+	}
+
+	// Initialize Cache (Phase 3)
+	if cfg.WAF.Cache.Enabled {
+		if err := i.initCache(); err != nil {
+			return nil, fmt.Errorf("cache: %w", err)
 		}
 	}
 
@@ -450,6 +459,44 @@ func (i *Integrator) RecordRequest(r *http.Request, statusCode int) {
 	if i.apiDiscovery != nil {
 		i.apiDiscovery.RecordRequest(r, statusCode)
 	}
+}
+
+// initCache initializes the Advanced Caching layer.
+func (i *Integrator) initCache() error {
+	cacheCfg := i.cfg.WAF.Cache
+
+	cfg := &cache.Config{
+		Enabled:   cacheCfg.Enabled,
+		Backend:   cacheCfg.Backend,
+		TTL:       cacheCfg.TTL,
+		MaxSize:   cacheCfg.MaxSize,
+		RedisAddr: cacheCfg.RedisAddr,
+		RedisPass: cacheCfg.RedisPass,
+		RedisDB:   cacheCfg.RedisDB,
+		Prefix:    cacheCfg.Prefix,
+	}
+
+	c, err := cache.New(cfg)
+	if err != nil {
+		return err
+	}
+
+	layerCfg := &cache.LayerConfig{
+		Enabled:              cacheCfg.Enabled,
+		CacheTTL:             cacheCfg.TTL,
+		CacheMethods:         cacheCfg.CacheMethods,
+		CacheStatus:          cacheCfg.CacheStatusCodes,
+		SkipPaths:            cacheCfg.SkipPaths,
+		MaxCacheSize:         cacheCfg.MaxCacheSize,
+		StaleWhileRevalidate: cacheCfg.StaleWhileRevalidate,
+	}
+
+	layer := cache.NewLayer(c, layerCfg)
+	i.cacheLayer = layer
+
+	log.Printf("[v0.4.0+] Cache enabled (backend=%s, ttl=%v, max_size=%dMB)",
+		cacheCfg.Backend, cacheCfg.TTL, cacheCfg.MaxSize)
+	return nil
 }
 
 // GetZeroTrustService returns the Zero Trust service.

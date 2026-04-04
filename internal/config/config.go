@@ -185,6 +185,7 @@ type WAFConfig struct {
 	DLP              DLPConfig              `yaml:"dlp"`
 	ZeroTrust        ZeroTrustConfig        `yaml:"zero_trust"`
 	SIEM             SIEMConfig             `yaml:"siem"`
+	Cache            CacheConfig            `yaml:"cache"`
 }
 
 // AIAnalysisConfig controls AI-powered threat analysis.
@@ -223,6 +224,23 @@ type ZeroTrustConfig struct {
 	TrustedCAPath        string        `yaml:"trusted_ca_path"`
 	DeviceTrustThreshold string        `yaml:"device_trust_threshold"`
 	AllowBypassPaths     []string      `yaml:"allow_bypass_paths"`
+}
+
+// CacheConfig controls cache layer settings.
+type CacheConfig struct {
+	Enabled              bool          `yaml:"enabled"`
+	Backend              string        `yaml:"backend"` // "memory", "redis"
+	TTL                  time.Duration `yaml:"ttl"`
+	MaxSize              int           `yaml:"max_size"` // For memory backend (MB)
+	RedisAddr            string        `yaml:"redis_addr"`
+	RedisPass            string        `yaml:"redis_password"`
+	RedisDB              int           `yaml:"redis_db"`
+	Prefix               string        `yaml:"prefix"`
+	CacheMethods         []string      `yaml:"cache_methods"`
+	CacheStatusCodes     []int         `yaml:"cache_status_codes"`
+	SkipPaths            []string      `yaml:"skip_paths"`
+	MaxCacheSize         int           `yaml:"max_cache_size"` // KB per entry
+	StaleWhileRevalidate bool          `yaml:"stale_while_revalidate"`
 }
 
 // SIEMConfig controls SIEM integration settings.

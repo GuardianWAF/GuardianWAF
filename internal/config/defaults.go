@@ -227,6 +227,18 @@ func DefaultConfig() *Config {
 				Timeout:       10 * time.Second,
 				Fields:        make(map[string]string),
 			},
+			Cache: CacheConfig{
+				Enabled:              false,
+				Backend:              "memory",
+				TTL:                  5 * time.Minute,
+				MaxSize:              100,
+				Prefix:               "gwaf",
+				CacheMethods:         []string{"GET", "HEAD"},
+				CacheStatusCodes:     []int{200, 301, 302, 404},
+				SkipPaths:            []string{"/api/login", "/api/logout", "/healthz"},
+				MaxCacheSize:         1024,
+				StaleWhileRevalidate: false,
+			},
 		},
 		Dashboard: DashboardConfig{
 			Enabled: true,
