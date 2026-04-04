@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-04-04
+
 ### Added
 
 #### Alerting & Notifications
@@ -61,6 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - MCP tool count: 15 → 21 (6 new alerting tools)
 - Dashboard sidebar: Added Alerting menu item
 - API endpoints: Added `/api/v1/alerting/*` routes
+- Docker images: Moved from Docker Hub to GitHub Container Registry (GHCR)
 
 ### Fixed
 
@@ -68,7 +71,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SMTP TLS connection handling
 - CSV export escaping for special characters
 
-## [1.0.0] - 2024-XX-XX
+## [0.2.0] - 2026-03-20
+
+### Added
+- AI-powered threat analysis with 400+ providers from models.dev
+- Docker auto-discovery with label-based routing
+- MCP server with SSE transport support
+- Routing topology graph in dashboard
+- Real-time backend health monitoring
+
+### Changed
+- Improved dashboard UI/UX
+- Enhanced detection engine performance
+
+## [0.1.0] - 2026-03-17
 
 ### Added
 - Initial release
