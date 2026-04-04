@@ -1648,11 +1648,81 @@ func TestLoadOrObtain_SaveError(t *testing.T) {
 	// Make directory read-only after writing
 	_ = os.Chmod(readOnlyDir, 0555)
 
-	store := NewCertDiskStore(readOnlyDir, nil, nil)
-	// This should fail because we can't create new cert files
+	// Create a mock client to avoid nil pointer panic
+	mux := http.NewServeMux()
+	var srv *httptest.Server
+	mux.HandleFunc("/directory", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"newNonce":   srv.URL + "/nonce",
+			"newAccount": srv.URL + "/account",
+			"newOrder":   srv.URL + "/order",
+		})
+	})
+	mux.HandleFunc("/nonce", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Replay-Nonce", "n")
+		w.WriteHeader(200)
+	})
+	mux.HandleFunc("/account", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", srv.URL+"/acct/1")
+		w.WriteHeader(201)
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
+	})
+	mux.HandleFunc("/order", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", srv.URL+"/order/1")
+		w.WriteHeader(201)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status":         "pending",
+			"authorizations": []string{srv.URL + "/authz/1"},
+			"finalize":       srv.URL + "/finalize",
+		})
+	})
+	mux.HandleFunc("/authz/1", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status":     "valid",
+			"identifier": map[string]string{"value": "test.com"},
+			"challenges": []map[string]string{
+				{"type": "http-01", "url": srv.URL + "/ch/1", "token": "tok"},
+			},
+		})
+	})
+	mux.HandleFunc("/finalize", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "valid"})
+	})
+	mux.HandleFunc("/order/1", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status":      "valid",
+			"certificate": srv.URL + "/cert/1",
+		})
+	})
+	mux.HandleFunc("/cert/1", func(w http.ResponseWriter, r *http.Request) {
+		key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		template := &x509.Certificate{
+			SerialNumber: big.NewInt(1),
+			Subject:      pkix.Name{CommonName: "test.com"},
+			DNSNames:     []string{"test.com"},
+			NotBefore:    time.Now(),
+			NotAfter:     time.Now().Add(90 * 24 * time.Hour),
+		}
+		certDER, _ := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+		certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+		_, _ = w.Write(certPEM)
+	})
+
+	srv = httptest.NewServer(mux)
+	defer srv.Close()
+
+	client := NewClient(srv.URL + "/directory")
+	_ = client.Init(nil)
+	_ = client.Register("test@example.com")
+
+	store := NewCertDiskStore(readOnlyDir, client, nil)
+	// This should fail because we can't create new cert files in read-only dir
 	_, err := store.LoadOrObtain([]string{"test.com"})
-	// Error expected due to nil client or permission issue
-	_ = err // Just ensure no panic
+	// Error expected due to permission issue when saving cert
+	if err == nil {
+		t.Error("expected error when saving to read-only directory")
+	}
 }
 
 // --- Additional store tests ---
