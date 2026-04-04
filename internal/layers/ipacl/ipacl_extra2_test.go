@@ -18,7 +18,7 @@ func TestWalk_NilNode(t *testing.T) {
 // TestParseCIDROrIP_InvalidIPTo16 tries edge-case inputs that may trigger the
 // defensive nil checks after To16().  In practice these checks are effectively
 // unreachable with the current net package, but the tests document the
-// behaviour and exercise the branches if they ever become reachable.
+// behavior and exercise the branches if they ever become reachable.
 func TestParseCIDROrIP_InvalidCIDRTo16(t *testing.T) {
 	// net.ParseCIDR can succeed for some degenerate inputs, but To16()
 	// should still work for anything ParseCIDR accepts.  We test an

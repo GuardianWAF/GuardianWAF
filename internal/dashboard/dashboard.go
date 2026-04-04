@@ -366,7 +366,7 @@ func (d *Dashboard) writeEventsCSV(w http.ResponseWriter, evts []engine.Event) {
 
 	// CSV header
 	header := "timestamp,event_id,client_ip,method,path,action,score,user_agent,findings\n"
-	w.Write([]byte(header))
+	_, _ = w.Write([]byte(header))
 
 	// CSV rows
 	for _, e := range evts {
@@ -388,7 +388,7 @@ func (d *Dashboard) writeEventsCSV(w http.ResponseWriter, evts []engine.Event) {
 			escapeCSV(e.UserAgent),
 			escapeCSV(findings),
 		)
-		w.Write([]byte(line))
+		_, _ = w.Write([]byte(line))
 	}
 }
 

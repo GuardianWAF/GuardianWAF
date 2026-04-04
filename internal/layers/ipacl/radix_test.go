@@ -31,10 +31,10 @@ func TestRadixTree_InsertAndLookupCIDR(t *testing.T) {
 	tree := NewRadixTree()
 
 	tests := []struct {
-		cidr     string
-		value    string
-		matchIP  string
-		noMatch  string
+		cidr    string
+		value   string
+		matchIP string
+		noMatch string
 	}{
 		{"10.0.0.0/8", "class-a", "10.255.255.255", "11.0.0.0"},
 		{"172.16.0.0/16", "class-b", "172.16.255.255", "172.17.0.0"},

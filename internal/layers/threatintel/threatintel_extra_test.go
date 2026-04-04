@@ -642,7 +642,7 @@ func TestFeedManager_loadFile(t *testing.T) {
 	dir := t.TempDir()
 	path := dir + "/feeds.jsonl"
 	content := `{"ip":"1.2.3.4","score":90,"type":"malware"}` + "\n" + `{"ip":"5.6.7.8","score":80,"type":"scanner"}` + "\n"
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -752,7 +752,7 @@ func TestLayer_WithFeed(t *testing.T) {
 	dir := t.TempDir()
 	path := dir + "/feed.jsonl"
 	content := `{"ip":"1.2.3.4","score":90,"type":"malware"}` + "\n"
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

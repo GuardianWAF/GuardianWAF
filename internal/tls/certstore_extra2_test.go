@@ -25,6 +25,6 @@ func TestReloadIfChanged_InvalidCert(t *testing.T) {
 	cs := NewCertStore()
 	_ = cs.LoadCert([]string{"badcert.com"}, certFile, keyFile)
 	time.Sleep(10 * time.Millisecond)
-	_ = os.WriteFile(certFile, []byte("not a valid cert"), 0600)
+	_ = os.WriteFile(certFile, []byte("not a valid cert"), 0o600)
 	cs.reloadIfChanged()
 }

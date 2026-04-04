@@ -111,8 +111,8 @@ func TestReloadIfChanged(t *testing.T) {
 	// Copy new cert to old paths
 	certData, _ := os.ReadFile(certFile2)
 	keyData, _ := os.ReadFile(keyFile2)
-	_ = os.WriteFile(certFile, certData, 0600)
-	_ = os.WriteFile(keyFile, keyData, 0600)
+	_ = os.WriteFile(certFile, certData, 0o600)
+	_ = os.WriteFile(keyFile, keyData, 0o600)
 
 	cs.reloadIfChanged()
 
@@ -171,8 +171,8 @@ func TestReloadIfChanged_WildcardReload(t *testing.T) {
 	keyData, _ := os.ReadFile(newKeyFile)
 	_ = certFile2
 	_ = keyFile2
-	_ = os.WriteFile(certFile, certData, 0600)
-	_ = os.WriteFile(keyFile, keyData, 0600)
+	_ = os.WriteFile(certFile, certData, 0o600)
+	_ = os.WriteFile(keyFile, keyData, 0o600)
 
 	cs.reloadIfChanged()
 
