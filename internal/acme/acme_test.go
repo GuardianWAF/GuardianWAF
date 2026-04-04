@@ -196,8 +196,8 @@ func TestCertDiskStoreLoadCached(t *testing.T) {
 	certPEM, keyPEM := generateSelfSignedCert(t, "test.com")
 
 	// Pre-populate cache
-	_ = os.WriteFile(filepath.Join(dir, "test.com.crt"), certPEM, 0600)
-	_ = os.WriteFile(filepath.Join(dir, "test.com.key"), keyPEM, 0600)
+	_ = os.WriteFile(filepath.Join(dir, "test.com.crt"), certPEM, 0o600)
+	_ = os.WriteFile(filepath.Join(dir, "test.com.key"), keyPEM, 0o600)
 
 	store := NewCertDiskStore(dir, nil, nil)
 	cert, err := store.LoadOrObtain([]string{"test.com"})
@@ -263,7 +263,7 @@ func TestFileExists(t *testing.T) {
 	if fileExists(f) {
 		t.Error("should not exist yet")
 	}
-	_ = os.WriteFile(f, []byte("hi"), 0644)
+	_ = os.WriteFile(f, []byte("hi"), 0o644)
 	if !fileExists(f) {
 		t.Error("should exist after write")
 	}

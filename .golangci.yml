@@ -54,5 +54,6 @@ issues:
         - unparam
         - bodyclose
         - govet
+        - noctx
   max-issues-per-linter: 50
   max-same-issues: 5

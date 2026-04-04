@@ -274,9 +274,9 @@ func TestAnalyzer_ApplyVerdicts(t *testing.T) {
 	dir := t.TempDir()
 	store := NewStore(dir)
 	a := NewAnalyzer(AnalyzerConfig{
-		Enabled:         true,
+		Enabled:          true,
 		AutoBlockEnabled: true,
-		AutoBlockTTL:    time.Hour,
+		AutoBlockTTL:     time.Hour,
 	}, store, "")
 
 	var mb mockBlocker

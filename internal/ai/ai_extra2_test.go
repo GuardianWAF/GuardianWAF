@@ -68,8 +68,10 @@ func TestCatalogCache_Refresh_StaleFallback(t *testing.T) {
 		callCount++
 		if callCount == 1 {
 			catalog := map[string]any{
-				"p1": map[string]any{"id": "p1", "name": "P1", "api": "https://api.p1.com",
-					"models": map[string]any{}},
+				"p1": map[string]any{
+					"id": "p1", "name": "P1", "api": "https://api.p1.com",
+					"models": map[string]any{},
+				},
 			}
 			json.NewEncoder(w).Encode(catalog)
 		} else {
@@ -107,8 +109,10 @@ func TestCatalogCache_Refresh_StaleFallback(t *testing.T) {
 func TestCatalogCache_Refresh_DoubleCheckLock(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		catalog := map[string]any{
-			"p1": map[string]any{"id": "p1", "name": "P1", "api": "https://api.p1.com",
-				"models": map[string]any{}},
+			"p1": map[string]any{
+				"id": "p1", "name": "P1", "api": "https://api.p1.com",
+				"models": map[string]any{},
+			},
 		}
 		json.NewEncoder(w).Encode(catalog)
 	}))
