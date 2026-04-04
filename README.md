@@ -660,6 +660,9 @@ Design choices for performance:
 | [Configuration Reference](docs/configuration.md) | Full YAML schema with every field |
 | [Production Deployment](docs/production-deployment.md) | Production hardening, security, monitoring |
 | [Architecture](docs/ARCHITECTURE.md) | System diagrams and component overview |
+| [Security Best Practices](docs/security-best-practices.md) | Security hardening and hardening guide |
+| [API Examples](docs/api-examples.md) | REST API examples in Go, Python, Node.js |
+| [Troubleshooting FAQ](docs/troubleshooting-faq.md) | Common issues and solutions |
 | [Detection Engine](docs/detection-engine.md) | Scoring system, detectors, pattern tables |
 | [Deployment Modes](docs/deployment-modes.md) | Standalone, library, sidecar comparison |
 | [Docker Auto-Discovery](docs/docker-discovery.md) | Label-based container discovery and routing |
