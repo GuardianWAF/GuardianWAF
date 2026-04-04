@@ -42,7 +42,7 @@ func TestIPACL_ActiveBans(t *testing.T) {
 		Enabled: true,
 		AutoBan: AutoBanConfig{Enabled: true},
 	}
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestIPACL_ActiveBans_Expired(t *testing.T) {
 		Enabled: true,
 		AutoBan: AutoBanConfig{Enabled: true},
 	}
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestIPACL_ActiveBansAny(t *testing.T) {
 		Enabled: true,
 		AutoBan: AutoBanConfig{Enabled: true},
 	}
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +124,7 @@ func TestIPACL_ActiveBansAny(t *testing.T) {
 
 func TestIPACL_RuntimeWhitelistManagement(t *testing.T) {
 	cfg := Config{Enabled: true}
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ func TestIPACL_RuntimeWhitelistManagement(t *testing.T) {
 
 func TestIPACL_RuntimeBlacklistManagement(t *testing.T) {
 	cfg := Config{Enabled: true}
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +196,7 @@ func TestIPACL_RuntimeBlacklistManagement(t *testing.T) {
 
 func TestIPACL_AddSingleIP(t *testing.T) {
 	cfg := Config{Enabled: true}
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +225,7 @@ func TestIPACL_MultipleCIDRs(t *testing.T) {
 		Enabled:   true,
 		Blacklist: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"},
 	}
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,7 +256,7 @@ func TestIPACL_FindingsFields(t *testing.T) {
 		Enabled:   true,
 		Blacklist: []string{"1.2.3.4"},
 	}
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,7 +292,7 @@ func TestIPACL_AutoBanFindingsFields(t *testing.T) {
 		Enabled: true,
 		AutoBan: AutoBanConfig{Enabled: true},
 	}
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +320,7 @@ func TestIPACL_IPv6Whitelist(t *testing.T) {
 		Whitelist: []string{"::1"},
 		Blacklist: []string{"::1"},
 	}
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -39,9 +39,9 @@ type Layer struct {
 }
 
 // NewLayer creates a new rate limiter layer.
-func NewLayer(cfg Config) *Layer {
+func NewLayer(cfg *Config) *Layer {
 	return &Layer{
-		config: cfg,
+		config: *cfg,
 	}
 }
 

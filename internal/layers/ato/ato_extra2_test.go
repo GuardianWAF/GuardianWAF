@@ -43,7 +43,7 @@ func TestNewLayer_AllSubConfigsEnabled(t *testing.T) {
 		},
 	}
 
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatalf("NewLayer with all configs: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestNewLayer_WithGeoDBPath(t *testing.T) {
 		GeoDBPath: "/fake/path/to/geodb.mmdb",
 	}
 
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatalf("NewLayer with GeoDBPath: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestNewLayer_TravelEnabled_NoGeoDBPath(t *testing.T) {
 		// GeoDBPath intentionally empty
 	}
 
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatalf("NewLayer: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestCheckImpossibleTravel_NoLocationDB(t *testing.T) {
 			BlockDuration: time.Hour,
 		},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	ctx := &engine.RequestContext{
 		Path:       "/login",
@@ -143,7 +143,7 @@ func TestCheckImpossibleTravel_WithLocationDB_NoLastLocation(t *testing.T) {
 		},
 		GeoDBPath: "/fake/geodb",
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	// Add current IP location to DB
 	layer.locationDB.Add("1.2.3.4", &GeoLocation{
@@ -180,7 +180,7 @@ func TestCheckImpossibleTravel_CurrentIPLocationNotFound(t *testing.T) {
 		},
 		GeoDBPath: "/fake/geodb",
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	// Don't add current IP to DB -> getLocation returns nil
 	ctx := &engine.RequestContext{
@@ -209,7 +209,7 @@ func TestCheckImpossibleTravel_LocationDBExactMatch(t *testing.T) {
 		},
 		GeoDBPath: "/fake/geodb",
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	// Add an exact IP entry
 	layer.locationDB.Add("10.0.0.5", &GeoLocation{
@@ -251,7 +251,7 @@ func TestCheckImpossibleTravel_LocationDBNoMatch(t *testing.T) {
 
 func TestGetLastLoginLocation_ReturnsNil(t *testing.T) {
 	cfg := Config{Enabled: true, LoginPaths: []string{"/login"}}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	loc := layer.getLastLoginLocation("anyone@example.com")
 	if loc != nil {
@@ -261,7 +261,7 @@ func TestGetLastLoginLocation_ReturnsNil(t *testing.T) {
 
 func TestGetLastLoginTime_ReturnsZero(t *testing.T) {
 	cfg := Config{Enabled: true, LoginPaths: []string{"/login"}}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	tm := layer.getLastLoginTime("anyone@example.com")
 	if !tm.IsZero() {
@@ -281,7 +281,7 @@ func TestCheckImpossibleTravel_Block(t *testing.T) {
 		},
 		GeoDBPath: "/fake/geodb",
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	layer.locationDB.Add("1.2.3.4", &GeoLocation{Latitude: 40.7128, Longitude: -74.0060})
 	layer.lastLogin["traveler@example.com"] = &GeoLocation{Latitude: 51.5074, Longitude: -0.1278}
@@ -313,7 +313,7 @@ func TestCheckImpossibleTravel_Possible(t *testing.T) {
 		},
 		GeoDBPath: "/fake/geodb",
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	layer.locationDB.Add("1.2.3.4", &GeoLocation{Latitude: 40.7128, Longitude: -74.0060})
 	layer.lastLogin["traveler@example.com"] = &GeoLocation{Latitude: 40.7300, Longitude: -73.9900}
@@ -349,14 +349,14 @@ func TestCheckBruteForce_ExactThreshold(t *testing.T) {
 			BlockDuration:       time.Hour,
 		},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	ip := net.ParseIP("192.0.2.1")
 	email := "victim@example.com"
 
 	// Record exactly MaxAttemptsPerIP attempts
 	for i := 0; i < 3; i++ {
-		layer.tracker.RecordAttempt(LoginAttempt{
+		layer.tracker.RecordAttempt(&LoginAttempt{
 			IP:    ip,
 			Email: email,
 			Time:  time.Now(),
@@ -389,14 +389,14 @@ func TestCheckBruteForce_BelowThreshold(t *testing.T) {
 			BlockDuration:       time.Hour,
 		},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	ip := net.ParseIP("192.0.2.2")
 	email := "safe@example.com"
 
 	// Record fewer than threshold
 	for i := 0; i < 4; i++ {
-		layer.tracker.RecordAttempt(LoginAttempt{
+		layer.tracker.RecordAttempt(&LoginAttempt{
 			IP:    ip,
 			Email: email,
 			Time:  time.Now(),
@@ -429,13 +429,13 @@ func TestCheckBruteForce_PerEmailThreshold(t *testing.T) {
 			BlockDuration:       time.Hour,
 		},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	email := "target@example.com"
 
 	// Record attempts from different IPs for same email
 	for i := 0; i < 3; i++ {
-		layer.tracker.RecordAttempt(LoginAttempt{
+		layer.tracker.RecordAttempt(&LoginAttempt{
 			IP:    net.ParseIP("10.0.0." + string(rune('1'+i))),
 			Email: email,
 			Time:  time.Now(),
@@ -471,14 +471,14 @@ func TestCheckBruteForce_ExpiredEntriesNotCounted(t *testing.T) {
 			BlockDuration:       time.Hour,
 		},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	ip := net.ParseIP("192.0.2.50")
 	email := "expired@example.com"
 
 	// Record old attempts outside the window
 	for i := 0; i < 5; i++ {
-		layer.tracker.RecordAttempt(LoginAttempt{
+		layer.tracker.RecordAttempt(&LoginAttempt{
 			IP:    ip,
 			Email: email,
 			Time:  time.Now().Add(-10 * time.Minute),
@@ -511,13 +511,13 @@ func TestCheckBruteForce_DifferentEmailsSeparate(t *testing.T) {
 			BlockDuration:       time.Hour,
 		},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	ip := net.ParseIP("192.0.2.10")
 
 	// 3 attempts for email-a -> triggers per-IP block
 	for i := 0; i < 3; i++ {
-		layer.tracker.RecordAttempt(LoginAttempt{
+		layer.tracker.RecordAttempt(&LoginAttempt{
 			IP:    ip,
 			Email: "a@example.com",
 			Time:  time.Now(),
@@ -554,11 +554,11 @@ func TestCheckPasswordSpray_BelowThreshold(t *testing.T) {
 			BlockDuration: time.Hour,
 		},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	// Record 4 uses (below threshold of 5)
 	for i := 0; i < 4; i++ {
-		layer.tracker.RecordAttempt(LoginAttempt{
+		layer.tracker.RecordAttempt(&LoginAttempt{
 			IP:       net.ParseIP("10.0.0." + string(rune('1'+i))),
 			Email:    string(rune('a'+i)) + "@test.com",
 			Password: "sharedpwd",
@@ -591,11 +591,11 @@ func TestCheckPasswordSpray_ExactThreshold(t *testing.T) {
 			BlockDuration: time.Hour,
 		},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	// Record exactly 3 uses -> at threshold
 	for i := 0; i < 3; i++ {
-		layer.tracker.RecordAttempt(LoginAttempt{
+		layer.tracker.RecordAttempt(&LoginAttempt{
 			IP:       net.ParseIP("10.0.1." + string(rune('1'+i))),
 			Email:    string(rune('a'+i)) + "@spray.com",
 			Password: "spraypass",
@@ -631,13 +631,13 @@ func TestCheckPasswordSpray_MultipleEmailsFromSameIP(t *testing.T) {
 			BlockDuration: time.Hour,
 		},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	attackerIP := net.ParseIP("10.0.2.1")
 
 	// Same IP tries different emails with the same password
 	for i := 0; i < 3; i++ {
-		layer.tracker.RecordAttempt(LoginAttempt{
+		layer.tracker.RecordAttempt(&LoginAttempt{
 			IP:       attackerIP,
 			Email:    string(rune('a'+i)) + "@target.com",
 			Password: "guessedpwd",
@@ -665,7 +665,7 @@ func TestCheckPasswordSpray_MultipleEmailsFromSameIP(t *testing.T) {
 
 func TestExtractEmail_FormEncoded(t *testing.T) {
 	cfg := Config{Enabled: true, LoginPaths: []string{"/login"}}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	tests := []struct {
 		body     string
@@ -691,7 +691,7 @@ func TestExtractEmail_FormEncoded(t *testing.T) {
 
 func TestExtractEmail_EmptyBody(t *testing.T) {
 	cfg := Config{Enabled: true, LoginPaths: []string{"/login"}}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	result := layer.extractEmail("")
 	if result != "" {
@@ -701,7 +701,7 @@ func TestExtractEmail_EmptyBody(t *testing.T) {
 
 func TestExtractEmail_NoEmailPresent(t *testing.T) {
 	cfg := Config{Enabled: true, LoginPaths: []string{"/login"}}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	tests := []struct {
 		body     string
@@ -724,7 +724,7 @@ func TestExtractEmail_NoEmailPresent(t *testing.T) {
 
 func TestExtractEmail_JSON_FallbackFields(t *testing.T) {
 	cfg := Config{Enabled: true, LoginPaths: []string{"/login"}}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	// Email field takes priority
 	result := layer.extractEmail(`{"email":"primary@example.com","username":"secondary@example.com"}`)
@@ -753,7 +753,7 @@ func TestExtractEmail_JSON_FallbackFields(t *testing.T) {
 
 func TestExtractEmail_FormEncoded_MultiplePairs(t *testing.T) {
 	cfg := Config{Enabled: true, LoginPaths: []string{"/login"}}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	result := layer.extractEmail("password=secret&email=form@example.com&remember=true")
 	if result != "form@example.com" {
@@ -777,7 +777,7 @@ func TestProcess_LoginPath_VariousMethods(t *testing.T) {
 			BlockDuration:       time.Hour,
 		},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	methods := []string{"GET", "PUT", "DELETE", "PATCH"}
 	for _, method := range methods {
@@ -806,7 +806,7 @@ func TestProcess_NonLoginPath_PassThrough(t *testing.T) {
 			MaxAttemptsPerEmail: 1,
 		},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	paths := []string{"/api/users", "/dashboard", "/healthz", "/v1/data"}
 	for _, path := range paths {
@@ -829,7 +829,7 @@ func TestProcess_IPAlreadyBlocked(t *testing.T) {
 		Enabled:    true,
 		LoginPaths: []string{"/login"},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	ip := net.ParseIP("192.0.2.100")
 	layer.tracker.BlockIP(ip, time.Now().Add(time.Hour), "previous_violation")
@@ -856,7 +856,7 @@ func TestProcess_EmailAlreadyBlocked(t *testing.T) {
 		Enabled:    true,
 		LoginPaths: []string{"/login"},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	email := "blocked@example.com"
 	layer.tracker.BlockEmail(email, time.Now().Add(time.Hour), "credential_stuffing")
@@ -889,14 +889,14 @@ func TestProcess_CredentialStuffingThroughProcess(t *testing.T) {
 			BlockDuration:        time.Hour,
 		},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	email := "shared@example.com"
 	ips := []string{"192.168.1.1", "192.168.1.2", "192.168.1.3"}
 
 	// Record attempts from 3 different IPs for same email
 	for _, ip := range ips {
-		layer.tracker.RecordAttempt(LoginAttempt{
+		layer.tracker.RecordAttempt(&LoginAttempt{
 			IP:    net.ParseIP(ip),
 			Email: email,
 			Time:  time.Now(),
@@ -930,7 +930,7 @@ func TestProcess_RecordsAttemptOnPass(t *testing.T) {
 			MaxAttemptsPerEmail: 100,
 		},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	ip := net.ParseIP("10.0.0.50")
 	email := "record@example.com"
@@ -993,7 +993,7 @@ func TestProcess_AllChecksEnabled_FirstAttemptPasses(t *testing.T) {
 			BlockDuration: time.Hour,
 		},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	ctx := &engine.RequestContext{
 		Path:       "/api/auth",
@@ -1081,7 +1081,7 @@ func TestLocationDB_ExactMatchSameIP(t *testing.T) {
 
 func TestBlockResult_FindingFields(t *testing.T) {
 	cfg := Config{Enabled: true, LoginPaths: []string{"/login"}}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	ctx := &engine.RequestContext{
 		Path:       "/login",
@@ -1153,7 +1153,7 @@ func TestTracker_Cleanup_PasswordHashes(t *testing.T) {
 	tracker := NewAttemptTracker()
 
 	// Record an old password attempt
-	tracker.RecordAttempt(LoginAttempt{
+	tracker.RecordAttempt(&LoginAttempt{
 		IP:       net.ParseIP("10.0.0.1"),
 		Email:    "old@test.com",
 		Password: "old-password",
@@ -1161,7 +1161,7 @@ func TestTracker_Cleanup_PasswordHashes(t *testing.T) {
 	})
 
 	// Record a recent password attempt
-	tracker.RecordAttempt(LoginAttempt{
+	tracker.RecordAttempt(&LoginAttempt{
 		IP:       net.ParseIP("10.0.0.2"),
 		Email:    "new@test.com",
 		Password: "new-password",

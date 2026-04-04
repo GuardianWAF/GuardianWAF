@@ -27,7 +27,7 @@ func testCtx(method, path string, ip string, headers map[string][]string) *engin
 }
 
 func TestRuleMatchPath(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r1", Name: "Block /admin", Enabled: true, Priority: 1,
@@ -54,7 +54,7 @@ func TestRuleMatchPath(t *testing.T) {
 }
 
 func TestRuleMatchMethod(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r2", Name: "Log DELETE", Enabled: true, Priority: 1,
@@ -71,7 +71,7 @@ func TestRuleMatchMethod(t *testing.T) {
 }
 
 func TestRuleMatchUserAgent(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r3", Name: "Challenge bots", Enabled: true, Priority: 1,
@@ -90,7 +90,7 @@ func TestRuleMatchUserAgent(t *testing.T) {
 }
 
 func TestRuleMatchHeader(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r4", Name: "Block bad referer", Enabled: true, Priority: 1,
@@ -109,7 +109,7 @@ func TestRuleMatchHeader(t *testing.T) {
 }
 
 func TestRuleMatchIPCIDR(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r5", Name: "Block internal", Enabled: true, Priority: 1,
@@ -132,7 +132,7 @@ func TestRuleMatchIPCIDR(t *testing.T) {
 }
 
 func TestRuleMultipleConditionsAND(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r6", Name: "Block POST /admin", Enabled: true, Priority: 1,
@@ -160,7 +160,7 @@ func TestRuleMultipleConditionsAND(t *testing.T) {
 }
 
 func TestRuleDisabled(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r7", Name: "Disabled rule", Enabled: false, Priority: 1,
@@ -177,7 +177,7 @@ func TestRuleDisabled(t *testing.T) {
 }
 
 func TestRulePassAction(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{
 			{ID: "whitelist", Name: "Whitelist /health", Enabled: true, Priority: 1,
@@ -207,7 +207,7 @@ func TestRulePassAction(t *testing.T) {
 }
 
 func TestRuleRegexMatch(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "regex", Name: "Regex test", Enabled: true, Priority: 1,
@@ -230,7 +230,7 @@ func TestRuleRegexMatch(t *testing.T) {
 }
 
 func TestRuleInList(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "methods", Name: "Block unsafe methods", Enabled: true, Priority: 1,
@@ -247,7 +247,7 @@ func TestRuleInList(t *testing.T) {
 }
 
 func TestRuleCRUD(t *testing.T) {
-	layer := NewLayer(Config{Enabled: true}, nil)
+	layer := NewLayer(&Config{Enabled: true}, nil)
 
 	// Add
 	layer.AddRule(Rule{ID: "a", Name: "A", Enabled: true, Priority: 2})
@@ -284,14 +284,14 @@ func TestRuleCRUD(t *testing.T) {
 }
 
 func TestLayerName(t *testing.T) {
-	layer := NewLayer(Config{}, nil)
+	layer := NewLayer(&Config{}, nil)
 	if layer.Name() != "rules" {
 		t.Errorf("expected 'rules', got %s", layer.Name())
 	}
 }
 
 func BenchmarkRuleEvaluation(b *testing.B) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{
 			{ID: "r1", Enabled: true, Priority: 1,

@@ -503,7 +503,7 @@ func TestLayer_Process_NoSecurityHeaders(t *testing.T) {
 		SecurityHeadersEnabled: false,
 		DataMaskingEnabled:     true,
 	}
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	ctx := &engine.RequestContext{
 		Request: &http.Request{
@@ -542,7 +542,7 @@ func TestLayer_ApplyToResponse(t *testing.T) {
 func TestLayer_ApplyToResponse_Disabled(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.DataMaskingEnabled = false
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	body := "Card: 4111111111111111"
 	result := layer.ApplyToResponse(body)
@@ -556,7 +556,7 @@ func TestLayer_ApplyToResponse_SelectiveMasking(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.MaskCreditCards = false
 	cfg.MaskSSN = true
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	body := "Card: 4111111111111111 SSN: 123-45-6789"
 	result := layer.ApplyToResponse(body)
@@ -580,7 +580,7 @@ func TestLayer_GetConfig(t *testing.T) {
 		MaskCreditCards:        true,
 		ErrorPageMode:          "production",
 	}
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 	got := layer.GetConfig()
 	if got.SecurityHeadersEnabled != cfg.SecurityHeadersEnabled {
 		t.Error("GetConfig should return the config passed to NewLayer")

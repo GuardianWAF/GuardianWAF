@@ -48,6 +48,8 @@ linters-settings:
       - diagnostic
       - style
       - performance
+    disabled-checks:
+      - hugeParam
   misspell:
     locale: US
 

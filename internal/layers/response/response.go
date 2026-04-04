@@ -39,8 +39,8 @@ type Layer struct {
 }
 
 // NewLayer creates a new response protection layer with the given configuration.
-func NewLayer(cfg Config) *Layer {
-	return &Layer{config: cfg}
+func NewLayer(cfg *Config) *Layer {
+	return &Layer{config: *cfg}
 }
 
 // Name returns the layer name.

@@ -10,7 +10,7 @@ import (
 // --- AddRule ---
 
 func TestAddRule_NewRule(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{
 			{ID: "r1", Scope: "ip", Limit: 10, Window: time.Second, Burst: 10, Action: "block"},
@@ -25,7 +25,7 @@ func TestAddRule_NewRule(t *testing.T) {
 }
 
 func TestAddRule_ReplaceExisting(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{
 			{ID: "r1", Scope: "ip", Limit: 10, Window: time.Second, Burst: 10, Action: "block"},
@@ -45,7 +45,7 @@ func TestAddRule_ReplaceExisting(t *testing.T) {
 // --- RemoveRule ---
 
 func TestRemoveRule_Found(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{
 			{ID: "r1", Scope: "ip", Limit: 10, Window: time.Second, Burst: 10, Action: "block"},
@@ -66,7 +66,7 @@ func TestRemoveRule_Found(t *testing.T) {
 }
 
 func TestRemoveRule_NotFound(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{
 			{ID: "r1", Scope: "ip", Limit: 10, Window: time.Second, Burst: 10, Action: "block"},
@@ -89,7 +89,7 @@ func TestRemoveRule_CleansBuckets(t *testing.T) {
 			{ID: "r1", Scope: "ip", Limit: 10, Window: 1 * time.Second, Burst: 10, Action: "block"},
 		},
 	}
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	// Create a bucket entry
 	ctx := makeContext("192.0.2.1", "/api/test")
@@ -118,7 +118,7 @@ func TestRemoveRule_CleansBuckets(t *testing.T) {
 // --- Process with dynamic rule changes ---
 
 func TestProcess_AddRuleThenBlock(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules:   []Rule{},
 	})
@@ -153,7 +153,7 @@ func TestProcess_AddRuleThenBlock(t *testing.T) {
 // --- RemoveRule then process should pass ---
 
 func TestProcess_RemoveRuleThenPass(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{
 			{ID: "r1", Scope: "ip", Limit: 1, Window: 1 * time.Second, Burst: 1, Action: "block"},

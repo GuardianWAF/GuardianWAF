@@ -21,7 +21,7 @@ func TestNewLayer(t *testing.T) {
 		CacheTTL:  30 * time.Minute,
 	}
 
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatalf("NewLayer failed: %v", err)
 	}
@@ -33,7 +33,7 @@ func TestNewLayer(t *testing.T) {
 
 func TestProcess_Disabled(t *testing.T) {
 	cfg := Config{Enabled: false}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	ctx := &engine.RequestContext{
 		ClientIP: net.ParseIP("192.0.2.1"),
@@ -54,7 +54,7 @@ func TestProcess_IPBlocked(t *testing.T) {
 			ScoreThreshold: 70,
 		},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	// Add malicious IP
 	layer.AddIP("192.0.2.1", &ThreatInfo{
@@ -86,7 +86,7 @@ func TestProcess_IPBelowThreshold(t *testing.T) {
 			ScoreThreshold: 70,
 		},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	// Add IP with low score
 	layer.AddIP("192.0.2.1", &ThreatInfo{
@@ -117,7 +117,7 @@ func TestProcess_DomainFlagged(t *testing.T) {
 			BlockMalicious: false, // Log only
 		},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	layer.AddDomain("malicious.example.com", &ThreatInfo{
 		Score:  95,
@@ -151,7 +151,7 @@ func TestProcess_DomainBlocked(t *testing.T) {
 			BlockMalicious: true,
 		},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	layer.AddDomain("malicious.example.com", &ThreatInfo{
 		Score:  80,
@@ -172,7 +172,7 @@ func TestProcess_DomainBlocked(t *testing.T) {
 
 func TestCheckIP_CIDR(t *testing.T) {
 	cfg := Config{Enabled: true}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	// Add CIDR range
 	layer.mu.Lock()
@@ -201,7 +201,7 @@ func TestCheckIP_CIDR(t *testing.T) {
 
 func TestCheckDomain_Subdomain(t *testing.T) {
 	cfg := Config{Enabled: true}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	// Add parent domain
 	layer.AddDomain("example.com", &ThreatInfo{
@@ -228,7 +228,7 @@ func TestCheckDomain_Subdomain(t *testing.T) {
 
 func TestAddRemoveIP(t *testing.T) {
 	cfg := Config{Enabled: true}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	layer.AddIP("10.0.0.1", &ThreatInfo{Score: 50, Type: "test"})
 
@@ -249,7 +249,7 @@ func TestAddRemoveIP(t *testing.T) {
 
 func TestStats(t *testing.T) {
 	cfg := Config{Enabled: true}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	layer.AddIP("10.0.0.1", &ThreatInfo{Score: 50})
 	layer.AddIP("10.0.0.2", &ThreatInfo{Score: 50})
@@ -373,7 +373,7 @@ evil.com,95,phishing,phishtank
 
 func TestLayer_StartStop(t *testing.T) {
 	cfg := Config{Enabled: true}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 	layer.Start()
 	layer.Start() // idempotent
 	layer.Stop()
@@ -390,7 +390,7 @@ func BenchmarkProcess(b *testing.B) {
 			ScoreThreshold: 70,
 		},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	// Pre-populate cache
 	for i := 0; i < 1000; i++ {

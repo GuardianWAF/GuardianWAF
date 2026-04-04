@@ -271,7 +271,7 @@ func TestBehaviorManager_Cleanup(t *testing.T) {
 func TestLayer_Disabled(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Enabled = false
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	ctx := newTestContext("sqlmap/1.0", "10.0.0.1")
 	result := layer.Process(ctx)
@@ -285,7 +285,7 @@ func TestLayer_KnownScanner(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.TLSFingerprint.Enabled = false // Disable TLS for this test
 	cfg.Behavior.Enabled = false
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	ctx := newTestContext("sqlmap/1.5#stable", "10.0.0.1")
 	result := layer.Process(ctx)
@@ -305,7 +305,7 @@ func TestLayer_NormalBrowser(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.TLSFingerprint.Enabled = false
 	cfg.Behavior.Enabled = false
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	ua := "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 	ctx := newTestContext(ua, "10.0.0.1")
@@ -321,7 +321,7 @@ func TestLayer_EmptyUA(t *testing.T) {
 	cfg.TLSFingerprint.Enabled = false
 	cfg.Behavior.Enabled = false
 	cfg.UserAgent.BlockEmpty = true
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	ctx := newTestContext("", "10.0.0.1")
 	// Remove User-Agent from headers for empty test
@@ -338,7 +338,7 @@ func TestLayer_MonitorMode(t *testing.T) {
 	cfg.Mode = "monitor"
 	cfg.TLSFingerprint.Enabled = false
 	cfg.Behavior.Enabled = false
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	ctx := newTestContext("sqlmap/1.5", "10.0.0.1")
 	result := layer.Process(ctx)
@@ -416,7 +416,7 @@ func TestScoreToBehaviorSeverity(t *testing.T) {
 func TestLayer_BehaviorMgr(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Behavior.Enabled = true
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	bm := layer.BehaviorMgr()
 	if bm == nil {
@@ -426,7 +426,7 @@ func TestLayer_BehaviorMgr(t *testing.T) {
 	// Test with behavior disabled
 	cfg2 := DefaultConfig()
 	cfg2.Behavior.Enabled = false
-	layer2 := NewLayer(cfg2)
+	layer2 := NewLayer(&cfg2)
 	bm2 := layer2.BehaviorMgr()
 	if bm2 != nil {
 		t.Fatal("expected nil BehaviorManager when behavior disabled")
@@ -461,7 +461,7 @@ func TestLayer_ProcessWithBehavior(t *testing.T) {
 	cfg.Behavior.Enabled = true
 	cfg.Behavior.RPSThreshold = 1 // very low threshold
 	cfg.Behavior.Window = 5 * time.Second
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	// Simulate many requests to trigger behavior detection
 	for i := 0; i < 50; i++ {
@@ -482,7 +482,7 @@ func TestLayer_ProcessWithNilClientIP(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.TLSFingerprint.Enabled = false
 	cfg.Behavior.Enabled = true
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	ctx := newTestContext("Mozilla/5.0 Chrome", "")
 	// ctx.ClientIP is nil
@@ -498,7 +498,7 @@ func TestLayer_ProcessEnforceHighScore(t *testing.T) {
 	cfg.Mode = "enforce"
 	cfg.TLSFingerprint.Enabled = false
 	cfg.Behavior.Enabled = false
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	// Known scanner gets score 85 -> should block in enforce mode
 	ctx := newTestContext("sqlmap/1.5", "10.0.0.1")
@@ -514,7 +514,7 @@ func TestLayer_ProcessEnforceMediumScore(t *testing.T) {
 	cfg.Mode = "enforce"
 	cfg.TLSFingerprint.Enabled = false
 	cfg.Behavior.Enabled = false
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	// Empty UA gets score 40 -> should challenge in enforce mode
 	ctx := newTestContext("", "10.0.0.1")
@@ -531,7 +531,7 @@ func TestLayer_ProcessEnforceLowScore(t *testing.T) {
 	cfg.Mode = "enforce"
 	cfg.TLSFingerprint.Enabled = false
 	cfg.Behavior.Enabled = false
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	// CLI tool gets score 15 -> should log in enforce mode
 	ctx := newTestContext("curl/7.68.0", "10.0.0.1")
@@ -547,7 +547,7 @@ func TestLayer_EmptyUABlockDisabled(t *testing.T) {
 	cfg.TLSFingerprint.Enabled = false
 	cfg.Behavior.Enabled = false
 	cfg.UserAgent.BlockEmpty = false
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	ctx := newTestContext("", "10.0.0.1")
 	delete(ctx.Headers, "User-Agent")
@@ -565,7 +565,7 @@ func TestLayer_ProcessWithTLSFingerprint(t *testing.T) {
 	cfg.TLSFingerprint.Enabled = true
 	cfg.UserAgent.Enabled = false
 	cfg.Behavior.Enabled = false
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	ctx := newTestContext("", "10.0.0.1")
 	ctx.TLSVersion = 771
@@ -590,7 +590,7 @@ func TestLayer_AnalyzeTLSFingerprint_KnownBad(t *testing.T) {
 	AddFingerprint(testFP.Hash, FingerprintInfo{Name: "test-bad", Category: FingerprintBad, Score: 80})
 	defer RemoveFingerprint(testFP.Hash)
 
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	ctx := newTestContext("", "10.0.0.1")
 	ctx.TLSVersion = 771
@@ -616,7 +616,7 @@ func TestLayer_AnalyzeTLSFingerprint_KnownSuspicious(t *testing.T) {
 	AddFingerprint(testFP.Hash, FingerprintInfo{Name: "test-sus", Category: FingerprintSuspicious, Score: 40})
 	defer RemoveFingerprint(testFP.Hash)
 
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	ctx := newTestContext("", "10.0.0.1")
 	ctx.TLSVersion = 772
@@ -639,7 +639,7 @@ func TestLayer_AnalyzeTLSFingerprint_KnownGood(t *testing.T) {
 	AddFingerprint(testFP.Hash, FingerprintInfo{Name: "test-good", Category: FingerprintGood, Score: 0})
 	defer RemoveFingerprint(testFP.Hash)
 
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	ctx := newTestContext("", "10.0.0.1")
 	ctx.TLSVersion = 773
@@ -812,7 +812,7 @@ func TestLayer_UAHighScore_Severity(t *testing.T) {
 	cfg.Mode = "enforce"
 	cfg.TLSFingerprint.Enabled = false
 	cfg.Behavior.Enabled = false
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	// Scanner gets score 85 => SeverityHigh
 	ctx := newTestContext("sqlmap/1.5", "10.0.0.1")
@@ -835,7 +835,7 @@ func TestLayer_UAMediumScore_Severity(t *testing.T) {
 	cfg.Mode = "enforce"
 	cfg.TLSFingerprint.Enabled = false
 	cfg.Behavior.Enabled = false
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	// Empty UA gets score 40 => SeverityMedium
 	ctx := newTestContext("", "10.0.0.1")
@@ -1080,7 +1080,7 @@ func TestAnalyzeTLSFingerprint_JA4Bad(t *testing.T) {
 	cfg.TLSFingerprint.Enabled = true
 	cfg.UserAgent.Enabled = false
 	cfg.Behavior.Enabled = false
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	ctx := newTestContext("", "10.0.0.1")
 	ctx.TLSVersion = params.TLSVersion
@@ -1140,7 +1140,7 @@ func TestAnalyzeTLSFingerprint_JA4Good(t *testing.T) {
 	cfg.TLSFingerprint.Enabled = true
 	cfg.UserAgent.Enabled = false
 	cfg.Behavior.Enabled = false
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	ctx := newTestContext("", "10.0.0.1")
 	ctx.TLSVersion = params.TLSVersion
@@ -1167,7 +1167,7 @@ func TestAnalyzeTLSFingerprint_JA4Unknown(t *testing.T) {
 	cfg.TLSFingerprint.Enabled = true
 	cfg.UserAgent.Enabled = false
 	cfg.Behavior.Enabled = false
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	ctx := newTestContext("", "10.0.0.1")
 	ctx.TLSVersion = 0x0303

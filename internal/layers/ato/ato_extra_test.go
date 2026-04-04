@@ -15,8 +15,8 @@ func TestPostProcess_Success(t *testing.T) {
 		Enabled:    true,
 		LoginPaths: []string{"/login"},
 	}
-	layer, _ := NewLayer(cfg)
-	layer.tracker.RecordAttempt(LoginAttempt{
+	layer, _ := NewLayer(&cfg)
+	layer.tracker.RecordAttempt(&LoginAttempt{
 		IP:    net.ParseIP("192.0.2.1"),
 		Email: "test@example.com",
 		Time:  time.Now(),
@@ -36,8 +36,8 @@ func TestPostProcess_Success(t *testing.T) {
 
 func TestPostProcess_Failure(t *testing.T) {
 	cfg := Config{Enabled: true, LoginPaths: []string{"/login"}}
-	layer, _ := NewLayer(cfg)
-	layer.tracker.RecordAttempt(LoginAttempt{
+	layer, _ := NewLayer(&cfg)
+	layer.tracker.RecordAttempt(&LoginAttempt{
 		IP:    net.ParseIP("192.0.2.1"),
 		Email: "test@example.com",
 		Time:  time.Now(),
@@ -57,7 +57,7 @@ func TestPostProcess_Failure(t *testing.T) {
 
 func TestPostProcess_Disabled(t *testing.T) {
 	cfg := Config{Enabled: false}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 	ctx := &engine.RequestContext{
 		ClientIP:   net.ParseIP("192.0.2.1"),
 		BodyString: `{"email":"test@example.com"}`,
@@ -69,7 +69,7 @@ func TestPostProcess_Disabled(t *testing.T) {
 
 func TestExtractPassword_JSON(t *testing.T) {
 	cfg := Config{Enabled: true, LoginPaths: []string{"/login"}}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	tests := []struct {
 		body     string
@@ -90,7 +90,7 @@ func TestExtractPassword_JSON(t *testing.T) {
 
 func TestExtractPassword_FormFormat(t *testing.T) {
 	cfg := Config{Enabled: true, LoginPaths: []string{"/login"}}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	tests := []struct {
 		body     string
@@ -114,13 +114,13 @@ func TestExtractPassword_FormFormat(t *testing.T) {
 func TestGetPasswordUseCount(t *testing.T) {
 	tracker := NewAttemptTracker()
 
-	tracker.RecordAttempt(LoginAttempt{
+	tracker.RecordAttempt(&LoginAttempt{
 		IP:       net.ParseIP("10.0.0.1"),
 		Email:    "a@test.com",
 		Password: "common-password",
 		Time:     time.Now(),
 	})
-	tracker.RecordAttempt(LoginAttempt{
+	tracker.RecordAttempt(&LoginAttempt{
 		IP:       net.ParseIP("10.0.0.2"),
 		Email:    "b@test.com",
 		Password: "common-password",
@@ -159,13 +159,13 @@ func TestTracker_Cleanup(t *testing.T) {
 	tracker := NewAttemptTracker()
 
 	// Record old attempt
-	tracker.RecordAttempt(LoginAttempt{
+	tracker.RecordAttempt(&LoginAttempt{
 		IP:    net.ParseIP("192.0.2.1"),
 		Email: "old@example.com",
 		Time:  time.Now().Add(-48 * time.Hour),
 	})
 	// Record recent attempt
-	tracker.RecordAttempt(LoginAttempt{
+	tracker.RecordAttempt(&LoginAttempt{
 		IP:    net.ParseIP("10.0.0.1"),
 		Email: "new@example.com",
 		Time:  time.Now(),
@@ -187,7 +187,7 @@ func TestTracker_Cleanup(t *testing.T) {
 
 func TestTracker_Stats_Blocked(t *testing.T) {
 	tracker := NewAttemptTracker()
-	tracker.RecordAttempt(LoginAttempt{
+	tracker.RecordAttempt(&LoginAttempt{
 		IP:    net.ParseIP("10.0.0.1"),
 		Email: "test@example.com",
 		Time:  time.Now(),
@@ -229,7 +229,7 @@ func TestLocationDB_Lookup_NotFound(t *testing.T) {
 
 func TestGetLocation_NilDB(t *testing.T) {
 	cfg := Config{Enabled: true, LoginPaths: []string{"/login"}}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 	loc := layer.getLocation(net.ParseIP("1.2.3.4"))
 	if loc != nil {
 		t.Error("expected nil when no location DB")
@@ -240,9 +240,9 @@ func TestGetLocation_NilDB(t *testing.T) {
 
 func TestLayer_Cleanup(t *testing.T) {
 	cfg := Config{Enabled: true, LoginPaths: []string{"/login"}}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
-	layer.tracker.RecordAttempt(LoginAttempt{
+	layer.tracker.RecordAttempt(&LoginAttempt{
 		IP:    net.ParseIP("192.0.2.1"),
 		Email: "test@example.com",
 		Time:  time.Now(),
@@ -263,7 +263,7 @@ func TestIsLoginPath(t *testing.T) {
 		Enabled:    true,
 		LoginPaths: []string{"/login", "/api/auth"},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	if !layer.isLoginPath("/login") {
 		t.Error("/login should match")
@@ -280,7 +280,7 @@ func TestIsLoginPath(t *testing.T) {
 
 func TestClearAttempt_IPOnly(t *testing.T) {
 	tracker := NewAttemptTracker()
-	tracker.RecordAttempt(LoginAttempt{IP: net.ParseIP("10.0.0.1"), Email: "test@example.com", Time: time.Now()})
+	tracker.RecordAttempt(&LoginAttempt{IP: net.ParseIP("10.0.0.1"), Email: "test@example.com", Time: time.Now()})
 
 	tracker.ClearAttempt(net.ParseIP("10.0.0.1"), "")
 	if tracker.GetIPAttempts(net.ParseIP("10.0.0.1"), time.Hour) != 0 {
@@ -290,7 +290,7 @@ func TestClearAttempt_IPOnly(t *testing.T) {
 
 func TestClearAttempt_NilIP(t *testing.T) {
 	tracker := NewAttemptTracker()
-	tracker.RecordAttempt(LoginAttempt{IP: net.ParseIP("10.0.0.1"), Email: "test@example.com", Time: time.Now()})
+	tracker.RecordAttempt(&LoginAttempt{IP: net.ParseIP("10.0.0.1"), Email: "test@example.com", Time: time.Now()})
 
 	tracker.ClearAttempt(nil, "test@example.com")
 	if tracker.GetEmailAttempts("test@example.com", time.Hour) != 0 {
@@ -326,7 +326,7 @@ func TestIsEmailBlocked_Expired(t *testing.T) {
 
 func TestRecordAttempt_ZeroTime(t *testing.T) {
 	tracker := NewAttemptTracker()
-	tracker.RecordAttempt(LoginAttempt{
+	tracker.RecordAttempt(&LoginAttempt{
 		IP:    net.ParseIP("10.0.0.1"),
 		Email: "test@example.com",
 		Time:  time.Time{},
@@ -351,11 +351,11 @@ func TestProcess_PasswordSpray(t *testing.T) {
 			BlockDuration: time.Hour,
 		},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	// Record 3 password uses first via tracker directly
 	for i := 0; i < 3; i++ {
-		layer.tracker.RecordAttempt(LoginAttempt{
+		layer.tracker.RecordAttempt(&LoginAttempt{
 			IP:       net.ParseIP("10.0.0." + string(rune('1'+i))),
 			Email:    string(rune('a'+i)) + "@test.com",
 			Password: "common123",
@@ -386,7 +386,7 @@ func TestProcess_NoEmail(t *testing.T) {
 		LoginPaths: []string{"/login"},
 		BruteForce: BruteForceConfig{Enabled: true, Window: time.Hour, MaxAttemptsPerIP: 3},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	ctx := &engine.RequestContext{
 		Path:       "/login",

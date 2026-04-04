@@ -50,7 +50,7 @@ type Layer struct {
 }
 
 // NewLayer creates a new Threat Intelligence layer.
-func NewLayer(cfg Config) (*Layer, error) {
+func NewLayer(cfg *Config) (*Layer, error) {
 	cacheSize := cfg.CacheSize
 	if cacheSize == 0 {
 		cacheSize = 100000
@@ -62,14 +62,15 @@ func NewLayer(cfg Config) (*Layer, error) {
 	}
 
 	l := &Layer{
-		config:      cfg,
+		config:      *cfg,
 		ipCache:     NewCache(cacheSize, cacheTTL),
 		domainCache: NewCache(cacheSize/10, cacheTTL),
 		cidrCache:   make(map[string]*ThreatInfo),
 	}
 
 	// Initialize feed managers
-	for _, fc := range cfg.Feeds {
+	for i := range cfg.Feeds {
+		fc := &cfg.Feeds[i]
 		fm := NewFeedManager(fc)
 		fm.SetUpdateCallback(l.updateEntries)
 		l.feeds = append(l.feeds, fm)

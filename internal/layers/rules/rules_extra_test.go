@@ -11,7 +11,7 @@ import (
 )
 
 func TestRuleNotEquals(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r1", Name: "Non-GET", Enabled: true, Priority: 1,
@@ -32,7 +32,7 @@ func TestRuleNotEquals(t *testing.T) {
 }
 
 func TestRuleNotContains(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r1", Name: "No api", Enabled: true, Priority: 1,
@@ -53,7 +53,7 @@ func TestRuleNotContains(t *testing.T) {
 }
 
 func TestRuleEndsWith(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r1", Name: "PHP files", Enabled: true, Priority: 1,
@@ -74,7 +74,7 @@ func TestRuleEndsWith(t *testing.T) {
 }
 
 func TestRuleNotIn(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r1", Name: "Block non-standard", Enabled: true, Priority: 1,
@@ -95,7 +95,7 @@ func TestRuleNotIn(t *testing.T) {
 }
 
 func TestRuleGreaterThan(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r1", Name: "Large body", Enabled: true, Priority: 1,
@@ -118,7 +118,7 @@ func TestRuleGreaterThan(t *testing.T) {
 }
 
 func TestRuleLessThan(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r1", Name: "Tiny body", Enabled: true, Priority: 1,
@@ -135,7 +135,7 @@ func TestRuleLessThan(t *testing.T) {
 }
 
 func TestRuleMatchHost(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r1", Name: "Admin host", Enabled: true, Priority: 1,
@@ -162,7 +162,7 @@ func TestRuleMatchHost(t *testing.T) {
 }
 
 func TestRuleMatchContentType(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r1", Name: "Block XML", Enabled: true, Priority: 1,
@@ -179,7 +179,7 @@ func TestRuleMatchContentType(t *testing.T) {
 }
 
 func TestRuleMatchQuery(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r1", Name: "Block debug", Enabled: true, Priority: 1,
@@ -206,7 +206,7 @@ func TestRuleMatchQuery(t *testing.T) {
 }
 
 func TestRuleMatchCookie(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r1", Name: "Admin cookie", Enabled: true, Priority: 1,
@@ -229,7 +229,7 @@ func TestRuleMatchCookie(t *testing.T) {
 }
 
 func TestRuleMatchScore(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r1", Name: "High score", Enabled: true, Priority: 1,
@@ -252,7 +252,7 @@ func TestRuleMatchScore(t *testing.T) {
 }
 
 func TestRuleMatchIP(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r1", Name: "Match IP", Enabled: true, Priority: 1,
@@ -268,7 +268,7 @@ func TestRuleMatchIP(t *testing.T) {
 }
 
 func TestRuleMatchNilIP(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r1", Name: "Match empty IP", Enabled: true, Priority: 1,
@@ -285,7 +285,7 @@ func TestRuleMatchNilIP(t *testing.T) {
 }
 
 func TestRuleInvalidRegex(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r1", Name: "Bad regex", Enabled: true, Priority: 1,
@@ -301,7 +301,7 @@ func TestRuleInvalidRegex(t *testing.T) {
 }
 
 func TestRuleInCIDR_PlainIP(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r1", Name: "Match exact IP", Enabled: true, Priority: 1,
@@ -322,7 +322,7 @@ func TestRuleInCIDR_PlainIP(t *testing.T) {
 }
 
 func TestRuleInCIDR_NilIP(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r1", Name: "CIDR nil", Enabled: true, Priority: 1,
@@ -339,7 +339,7 @@ func TestRuleInCIDR_NilIP(t *testing.T) {
 }
 
 func TestRuleInList_StringValue(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r1", Name: "Single value in", Enabled: true, Priority: 1,
@@ -355,7 +355,7 @@ func TestRuleInList_StringValue(t *testing.T) {
 }
 
 func TestRuleInList_AnySlice(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r1", Name: "Any slice in", Enabled: true, Priority: 1,
@@ -372,7 +372,7 @@ func TestRuleInList_AnySlice(t *testing.T) {
 
 func TestRuleActionPromotion(t *testing.T) {
 	// Test that block > challenge > log
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{
 			{ID: "r1", Name: "Log rule", Enabled: true, Priority: 1,
@@ -395,7 +395,7 @@ func TestRuleActionPromotion(t *testing.T) {
 }
 
 func TestRuleBlockPromotesOverChallenge(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{
 			{ID: "r1", Name: "Challenge", Enabled: true, Priority: 1,
@@ -415,7 +415,7 @@ func TestRuleBlockPromotesOverChallenge(t *testing.T) {
 }
 
 func TestRuleUnknownOperator(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r1", Name: "Unknown op", Enabled: true, Priority: 1,
@@ -431,7 +431,7 @@ func TestRuleUnknownOperator(t *testing.T) {
 }
 
 func TestRuleUnknownField(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r1", Name: "Unknown field", Enabled: true, Priority: 1,
@@ -448,7 +448,7 @@ func TestRuleUnknownField(t *testing.T) {
 }
 
 func TestRuleUnknownAction(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r1", Name: "Unknown action", Enabled: true, Priority: 1,
@@ -470,7 +470,7 @@ func TestRuleWithGeoIP(t *testing.T) {
 	db := geoip.New()
 	// We can't easily add ranges to geoip.New() since it's empty,
 	// so we test with nil geoip and country field returns ""
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r1", Name: "Block country", Enabled: true, Priority: 1,
@@ -486,7 +486,7 @@ func TestRuleWithGeoIP(t *testing.T) {
 }
 
 func TestRuleCountryNilGeoDB(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r1", Name: "Country nil", Enabled: true, Priority: 1,
@@ -502,7 +502,7 @@ func TestRuleCountryNilGeoDB(t *testing.T) {
 }
 
 func TestRuleUpdateNonExistent(t *testing.T) {
-	layer := NewLayer(Config{Enabled: true}, nil)
+	layer := NewLayer(&Config{Enabled: true}, nil)
 	ok := layer.UpdateRule(Rule{ID: "nope"})
 	if ok {
 		t.Error("expected false for non-existent rule update")
@@ -510,7 +510,7 @@ func TestRuleUpdateNonExistent(t *testing.T) {
 }
 
 func TestRuleRemoveNonExistent(t *testing.T) {
-	layer := NewLayer(Config{Enabled: true}, nil)
+	layer := NewLayer(&Config{Enabled: true}, nil)
 	ok := layer.RemoveRule("nope")
 	if ok {
 		t.Error("expected false for non-existent rule remove")
@@ -518,7 +518,7 @@ func TestRuleRemoveNonExistent(t *testing.T) {
 }
 
 func TestRuleToggleNonExistent(t *testing.T) {
-	layer := NewLayer(Config{Enabled: true}, nil)
+	layer := NewLayer(&Config{Enabled: true}, nil)
 	ok := layer.ToggleRule("nope", true)
 	if ok {
 		t.Error("expected false for non-existent rule toggle")
@@ -526,7 +526,7 @@ func TestRuleToggleNonExistent(t *testing.T) {
 }
 
 func TestRuleSetRulesClearsCache(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r1", Enabled: true, Priority: 1,
@@ -609,7 +609,7 @@ func TestActionToSeverity(t *testing.T) {
 
 func TestRuleEmptyConditions(t *testing.T) {
 	// A rule with no conditions should match everything
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r1", Name: "Empty conds", Enabled: true, Priority: 1,
@@ -625,7 +625,7 @@ func TestRuleEmptyConditions(t *testing.T) {
 }
 
 func TestRuleMissingHeader(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r1", Name: "Check missing header", Enabled: true, Priority: 1,
@@ -641,7 +641,7 @@ func TestRuleMissingHeader(t *testing.T) {
 }
 
 func TestRuleMissingCookie(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r1", Name: "Check missing cookie", Enabled: true, Priority: 1,
@@ -657,7 +657,7 @@ func TestRuleMissingCookie(t *testing.T) {
 }
 
 func TestRuleScoreAccumulation(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{
 			{ID: "r1", Enabled: true, Priority: 1,
@@ -680,7 +680,7 @@ func TestRuleScoreAccumulation(t *testing.T) {
 }
 
 func TestRuleFindingFields(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "test-rule", Name: "Test Rule Name", Enabled: true, Priority: 1,
@@ -713,7 +713,7 @@ func TestRuleFindingFields(t *testing.T) {
 }
 
 func TestRuleNilRequest(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r1", Name: "Query check", Enabled: true, Priority: 1,
@@ -739,7 +739,7 @@ func TestRuleNilRequest(t *testing.T) {
 }
 
 func TestRuleNilAccumulator(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r1", Enabled: true, Priority: 1,
@@ -766,7 +766,7 @@ func TestRuleNilAccumulator(t *testing.T) {
 // TestRuleEmptyUserAgent covers the getFieldValue branch for user_agent when
 // the User-Agent header is missing.
 func TestRuleEmptyUserAgent(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r1", Name: "No UA", Enabled: true, Priority: 1,
@@ -785,7 +785,7 @@ func TestRuleEmptyUserAgent(t *testing.T) {
 
 // TestRuleEmptyHost covers the getFieldValue branch for host when Request is nil.
 func TestRuleEmptyHost(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "r1", Name: "No host", Enabled: true, Priority: 1,
@@ -811,7 +811,7 @@ func TestRuleEmptyHost(t *testing.T) {
 }
 
 func BenchmarkRuleWithRegex(b *testing.B) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{{
 			ID: "regex", Enabled: true, Priority: 1,
@@ -843,7 +843,7 @@ func BenchmarkRuleMultipleConditions(b *testing.B) {
 		}
 	}
 
-	layer := NewLayer(Config{Enabled: true, Rules: rules}, nil)
+	layer := NewLayer(&Config{Enabled: true, Rules: rules}, nil)
 	ctx := testCtx("GET", "/home", "1.2.3.4", nil)
 
 	b.ResetTimer()

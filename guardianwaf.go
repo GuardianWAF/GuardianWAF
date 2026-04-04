@@ -440,7 +440,7 @@ func convertResult(event *engine.Event) Result {
 func addDefaultLayers(eng *engine.Engine, cfg *config.Config) {
 	// 1. IP ACL layer (Order 100)
 	if cfg.WAF.IPACL.Enabled {
-		ipaclLayer, err := ipacl.NewLayer(ipacl.Config{
+		ipaclLayer, err := ipacl.NewLayer(&ipacl.Config{
 			Enabled:   cfg.WAF.IPACL.Enabled,
 			Whitelist: cfg.WAF.IPACL.Whitelist,
 			Blacklist: cfg.WAF.IPACL.Blacklist,
@@ -470,7 +470,7 @@ func addDefaultLayers(eng *engine.Engine, cfg *config.Config) {
 				AutoBanAfter: r.AutoBanAfter,
 			}
 		}
-		rlLayer := ratelimit.NewLayer(ratelimit.Config{
+		rlLayer := ratelimit.NewLayer(&ratelimit.Config{
 			Enabled: true,
 			Rules:   rules,
 		})
@@ -479,7 +479,7 @@ func addDefaultLayers(eng *engine.Engine, cfg *config.Config) {
 
 	// 3. Sanitizer layer (Order 300)
 	if cfg.WAF.Sanitizer.Enabled {
-		sanLayer := sanitizer.NewLayer(sanitizer.Config{
+		sanLayer := sanitizer.NewLayer(&sanitizer.Config{
 			MaxURLLength:   cfg.WAF.Sanitizer.MaxURLLength,
 			MaxHeaderSize:  cfg.WAF.Sanitizer.MaxHeaderSize,
 			MaxHeaderCount: cfg.WAF.Sanitizer.MaxHeaderCount,
@@ -509,7 +509,7 @@ func addDefaultLayers(eng *engine.Engine, cfg *config.Config) {
 				Reason:     exc.Reason,
 			})
 		}
-		detLayer := detection.NewLayer(detection.Config{
+		detLayer := detection.NewLayer(&detection.Config{
 			Enabled:    true,
 			Detectors:  detConfigs,
 			Exclusions: exclusions,
@@ -519,7 +519,7 @@ func addDefaultLayers(eng *engine.Engine, cfg *config.Config) {
 
 	// 5. Bot Detection layer (Order 500)
 	if cfg.WAF.BotDetection.Enabled {
-		bdLayer := botdetect.NewLayer(botdetect.Config{
+		bdLayer := botdetect.NewLayer(&botdetect.Config{
 			Enabled: true,
 			Mode:    cfg.WAF.BotDetection.Mode,
 			TLSFingerprint: botdetect.TLSFingerprintConfig{
@@ -561,6 +561,6 @@ func addDefaultLayers(eng *engine.Engine, cfg *config.Config) {
 			PermissionsPolicy:   cfg.WAF.Response.SecurityHeaders.PermissionsPolicy,
 		}
 	}
-	respLayer := response.NewLayer(respCfg)
+	respLayer := response.NewLayer(&respCfg)
 	eng.AddLayer(engine.OrderedLayer{Layer: respLayer, Order: engine.OrderResponse})
 }

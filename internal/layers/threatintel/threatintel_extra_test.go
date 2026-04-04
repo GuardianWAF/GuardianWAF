@@ -266,7 +266,7 @@ func TestFeedManager_Stop(t *testing.T) {
 
 func TestLayer_UpdateEntries(t *testing.T) {
 	cfg := Config{Enabled: true}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	entries := []ThreatEntry{
 		{IP: "10.0.0.1", Info: &ThreatInfo{Score: 90, Type: "malware"}},
@@ -298,7 +298,7 @@ func TestProcess_DomainWithPort(t *testing.T) {
 			BlockMalicious: false,
 		},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 	layer.AddDomain("example.com", &ThreatInfo{Score: 95, Type: "phishing", Source: "test"})
 
 	ctx := &engine.RequestContext{
@@ -323,7 +323,7 @@ func TestProcess_NoClientIP(t *testing.T) {
 			ScoreThreshold: 50,
 		},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	ctx := &engine.RequestContext{
 		ClientIP: nil,
@@ -347,7 +347,7 @@ func TestProcess_IPNotBlocking(t *testing.T) {
 			ScoreThreshold: 50,
 		},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 	layer.AddIP("192.0.2.1", &ThreatInfo{Score: 90, Type: "malware_c2", Source: "test"})
 
 	ctx := &engine.RequestContext{
@@ -375,7 +375,7 @@ func TestProcess_IPBelowThreshold_NoFindings(t *testing.T) {
 			ScoreThreshold: 90,
 		},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 	layer.AddIP("192.0.2.1", &ThreatInfo{Score: 50, Type: "suspicious", Source: "test"})
 
 	ctx := &engine.RequestContext{
@@ -513,7 +513,7 @@ func TestParseJSONL_DefaultScore(t *testing.T) {
 
 func TestLayer_StartStop_NoFeeds(t *testing.T) {
 	cfg := Config{Enabled: true}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 	layer.Start()
 	layer.Start() // idempotent (no feeds → no deadlock)
 	layer.Stop()
@@ -534,7 +534,7 @@ func TestProcess_CleanRequest(t *testing.T) {
 			BlockMalicious: true,
 		},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	ctx := &engine.RequestContext{
 		ClientIP: net.ParseIP("10.0.0.1"),
@@ -560,7 +560,7 @@ func TestProcess_DomainBlocked_HighScore(t *testing.T) {
 			BlockMalicious: true,
 		},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 	layer.AddDomain("evil.com", &ThreatInfo{Score: 90, Type: "phishing", Source: "test"})
 
 	ctx := &engine.RequestContext{
@@ -760,7 +760,7 @@ func TestLayer_WithFeed(t *testing.T) {
 		Enabled: true,
 		Feeds:   []FeedConfig{{Type: "file", Path: path, Format: "jsonl"}},
 	}
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -773,7 +773,7 @@ func TestLayer_WithFeed(t *testing.T) {
 
 // Cover checkIP with invalid CIDR in cache.
 func TestCheckIP_InvalidCIDR(t *testing.T) {
-	layer, _ := NewLayer(Config{Enabled: true})
+	layer, _ := NewLayer(&Config{Enabled: true})
 	layer.cidrCache["not-a-valid-cidr"] = &ThreatInfo{Score: 50, Type: "test"}
 
 	info, ok := layer.checkIP(net.ParseIP("1.2.3.4"))
@@ -790,7 +790,7 @@ func TestLayer_StartStop_WithFeeds(t *testing.T) {
 			{Type: "file", Path: "test.csv", Format: "csv", Refresh: time.Hour},
 		},
 	}
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -11,9 +11,9 @@ type Layer struct {
 }
 
 // NewLayer creates a new sanitizer layer with the given configuration.
-func NewLayer(cfg Config) *Layer {
+func NewLayer(cfg *Config) *Layer {
 	return &Layer{
-		config:  cfg,
+		config:  *cfg,
 		enabled: true,
 	}
 }

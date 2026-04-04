@@ -14,7 +14,7 @@ func TestNewLayer(t *testing.T) {
 		LoginPaths: []string{"/login", "/api/auth"},
 	}
 
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatalf("NewLayer failed: %v", err)
 	}
@@ -26,7 +26,7 @@ func TestNewLayer(t *testing.T) {
 
 func TestProcess_Disabled(t *testing.T) {
 	cfg := Config{Enabled: false}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	ctx := &engine.RequestContext{
 		Path:    "/login",
@@ -45,7 +45,7 @@ func TestProcess_NonLoginPath(t *testing.T) {
 		Enabled:    true,
 		LoginPaths: []string{"/login"},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	ctx := &engine.RequestContext{
 		Path:    "/api/users",
@@ -64,7 +64,7 @@ func TestProcess_NonPostMethod(t *testing.T) {
 		Enabled:    true,
 		LoginPaths: []string{"/login"},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	ctx := &engine.RequestContext{
 		Path:    "/login",
@@ -89,7 +89,7 @@ func TestProcess_BruteForce(t *testing.T) {
 			BlockDuration:    30 * time.Minute,
 		},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	// Simulate multiple failed attempts
 	for i := 0; i < 5; i++ {
@@ -119,7 +119,7 @@ func TestProcess_CredentialStuffing(t *testing.T) {
 			BlockDuration:        time.Hour,
 		},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	// Simulate same email from different IPs - need to exceed threshold
 	ips := []string{"192.0.2.1", "192.0.2.2", "192.0.2.3", "192.0.2.4"}
@@ -148,7 +148,7 @@ func TestAttemptTracker(t *testing.T) {
 
 	// Record attempts
 	for i := 0; i < 5; i++ {
-		tracker.RecordAttempt(LoginAttempt{
+		tracker.RecordAttempt(&LoginAttempt{
 			IP:    ip,
 			Email: email,
 			Time:  time.Now(),
@@ -186,7 +186,7 @@ func TestAttemptTracker(t *testing.T) {
 
 func TestExtractEmail(t *testing.T) {
 	cfg := Config{Enabled: true, LoginPaths: []string{"/login"}}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	tests := []struct {
 		body     string
@@ -227,7 +227,7 @@ func TestHaversineDistance(t *testing.T) {
 
 func TestStats(t *testing.T) {
 	cfg := Config{Enabled: true}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	stats := layer.Stats()
 	if !stats["enabled"].(bool) {
@@ -246,7 +246,7 @@ func BenchmarkProcess(b *testing.B) {
 			MaxAttemptsPerIP: 10,
 		},
 	}
-	layer, _ := NewLayer(cfg)
+	layer, _ := NewLayer(&cfg)
 
 	ctx := &engine.RequestContext{
 		Path:       "/login",

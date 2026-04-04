@@ -25,7 +25,7 @@ func TestIPACL_WhitelistBypass(t *testing.T) {
 		Whitelist: []string{"10.0.0.1"},
 		Blacklist: []string{"10.0.0.1"}, // also blacklisted — whitelist should win
 	}
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestIPACL_BlacklistBlock(t *testing.T) {
 		Enabled:   true,
 		Blacklist: []string{"192.168.1.0/24"},
 	}
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestIPACL_NotBlacklisted(t *testing.T) {
 		Enabled:   true,
 		Blacklist: []string{"192.168.1.0/24"},
 	}
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestIPACL_WhitelistPriorityOverBlacklist(t *testing.T) {
 		Whitelist: []string{"10.0.0.0/8"},
 		Blacklist: []string{"10.0.0.0/8"},
 	}
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func TestIPACL_AutoBanAddAndCheck(t *testing.T) {
 			DefaultTTL: 5 * time.Minute,
 		},
 	}
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +139,7 @@ func TestIPACL_AutoBanRemove(t *testing.T) {
 		Enabled: true,
 		AutoBan: AutoBanConfig{Enabled: true},
 	}
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestIPACL_AutoBanExpiry(t *testing.T) {
 		Enabled: true,
 		AutoBan: AutoBanConfig{Enabled: true},
 	}
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ func TestIPACL_CleanupExpired(t *testing.T) {
 		Enabled: true,
 		AutoBan: AutoBanConfig{Enabled: true},
 	}
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +220,7 @@ func TestIPACL_AutoBanMaxTTL(t *testing.T) {
 			MaxTTL:  10 * time.Second,
 		},
 	}
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +244,7 @@ func TestIPACL_DisabledLayer(t *testing.T) {
 		Enabled:   false,
 		Blacklist: []string{"0.0.0.0/0"}, // blacklist everything
 	}
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,7 +263,7 @@ func TestIPACL_NilClientIP(t *testing.T) {
 		Enabled:   true,
 		Blacklist: []string{"0.0.0.0/0"},
 	}
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -285,7 +285,7 @@ func TestIPACL_ConcurrentAutoBan(t *testing.T) {
 		Enabled: true,
 		AutoBan: AutoBanConfig{Enabled: true},
 	}
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,7 +317,7 @@ func TestIPACL_WhitelistedIPSkipsAutoBan(t *testing.T) {
 		Whitelist: []string{"10.0.0.1"},
 		AutoBan:   AutoBanConfig{Enabled: true},
 	}
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,7 +335,7 @@ func TestIPACL_WhitelistedIPSkipsAutoBan(t *testing.T) {
 }
 
 func TestIPACL_Name(t *testing.T) {
-	layer, _ := NewLayer(Config{})
+	layer, _ := NewLayer(&Config{})
 	if layer.Name() != "ipacl" {
 		t.Fatalf("expected name 'ipacl', got %q", layer.Name())
 	}
@@ -346,7 +346,7 @@ func TestIPACL_InvalidConfig(t *testing.T) {
 		Enabled:   true,
 		Blacklist: []string{"not-valid-cidr-at-all!!!"},
 	}
-	_, err := NewLayer(cfg)
+	_, err := NewLayer(&cfg)
 	if err == nil {
 		t.Fatal("expected error for invalid blacklist entry")
 	}
@@ -357,7 +357,7 @@ func TestIPACL_AutoBanIncrementCount(t *testing.T) {
 		Enabled: true,
 		AutoBan: AutoBanConfig{Enabled: true},
 	}
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -385,7 +385,7 @@ func TestIPACL_InvalidWhitelistConfig(t *testing.T) {
 		Enabled:   true,
 		Whitelist: []string{"totally-invalid-ip!!!"},
 	}
-	_, err := NewLayer(cfg)
+	_, err := NewLayer(&cfg)
 	if err == nil {
 		t.Fatal("expected error for invalid whitelist entry")
 	}
@@ -400,7 +400,7 @@ func TestIPACL_AutoBanMaxTTL_NoCap(t *testing.T) {
 			MaxTTL:  0,
 		},
 	}
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -422,7 +422,7 @@ func TestIPACL_RemoveAutoBan_NonExistent(t *testing.T) {
 		Enabled: true,
 		AutoBan: AutoBanConfig{Enabled: true},
 	}
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -444,7 +444,7 @@ func TestIPACL_IPv6Blacklist(t *testing.T) {
 		Enabled:   true,
 		Blacklist: []string{"2001:db8::/32"},
 	}
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -466,7 +466,7 @@ func TestIPACL_ConcurrentAddRemoveCleanup(t *testing.T) {
 		Enabled: true,
 		AutoBan: AutoBanConfig{Enabled: true},
 	}
-	layer, err := NewLayer(cfg)
+	layer, err := NewLayer(&cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -488,7 +488,7 @@ func TestIPACL_ConcurrentAddRemoveCleanup(t *testing.T) {
 
 func TestParseCIDROrIP_InvalidIP(t *testing.T) {
 	// An IP that is neither a valid CIDR nor a valid bare IP
-	_, err := NewLayer(Config{
+	_, err := NewLayer(&Config{
 		Enabled:   true,
 		Blacklist: []string{"not-an-ip"},
 	})
@@ -499,7 +499,7 @@ func TestParseCIDROrIP_InvalidIP(t *testing.T) {
 
 func TestParseCIDROrIP_IPv6Bare(t *testing.T) {
 	// Bare IPv6 address (no CIDR)
-	layer, err := NewLayer(Config{
+	layer, err := NewLayer(&Config{
 		Enabled:   true,
 		Blacklist: []string{"::1"},
 	})

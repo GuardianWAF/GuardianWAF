@@ -41,8 +41,8 @@ type Layer struct {
 }
 
 // NewLayer creates a new detection layer with the given configuration.
-func NewLayer(cfg Config) *Layer {
-	l := &Layer{config: cfg}
+func NewLayer(cfg *Config) *Layer {
+	l := &Layer{config: *cfg}
 
 	// Initialize detectors based on config
 	if dc, ok := cfg.Detectors["sqli"]; ok {

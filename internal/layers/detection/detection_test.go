@@ -43,7 +43,7 @@ func makeContext(path, query, body, contentType string) *engine.RequestContext {
 func TestDetectionLayer_Disabled(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.Enabled = false
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	ctx := makeContext("/search", "q='+OR+1=1--", "", "")
 	defer engine.ReleaseContext(ctx)
@@ -292,7 +292,7 @@ func TestDetectionLayer_Exclusion(t *testing.T) {
 			Reason:     "Webhook payloads may contain SQL-like patterns",
 		},
 	}
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	// SQLi payload on an excluded path
 	ctx := makeContext("/api/webhook/github", "q='+UNION+SELECT+1,2,3--", "", "")
@@ -327,7 +327,7 @@ func TestDetectionLayer_Exclusion(t *testing.T) {
 func TestDetectionLayer_DetectorDisabled(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.Detectors["sqli"] = DetectorConfig{Enabled: false, Multiplier: 1.0}
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	ctx := makeContext("/search", "q='+UNION+SELECT+1,2,3--", "", "")
 	defer engine.ReleaseContext(ctx)
@@ -350,7 +350,7 @@ func TestDetectionLayer_Multiplier(t *testing.T) {
 			"sqli": {Enabled: true, Multiplier: 1.0},
 		},
 	}
-	layer1 := NewLayer(cfg1)
+	layer1 := NewLayer(&cfg1)
 
 	ctx1 := makeContext("/search", "q='+UNION+SELECT+1,2,3--", "", "")
 	defer engine.ReleaseContext(ctx1)
@@ -363,7 +363,7 @@ func TestDetectionLayer_Multiplier(t *testing.T) {
 			"sqli": {Enabled: true, Multiplier: 2.0},
 		},
 	}
-	layer2 := NewLayer(cfg2)
+	layer2 := NewLayer(&cfg2)
 
 	ctx2 := makeContext("/search", "q='+UNION+SELECT+1,2,3--", "", "")
 	defer engine.ReleaseContext(ctx2)

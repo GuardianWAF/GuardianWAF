@@ -38,9 +38,9 @@ type Layer struct {
 }
 
 // NewLayer creates a new IP ACL layer from the given config.
-func NewLayer(cfg Config) (*Layer, error) {
+func NewLayer(cfg *Config) (*Layer, error) {
 	l := &Layer{
-		config:    cfg,
+		config:    *cfg,
 		whitelist: NewRadixTree(),
 		blacklist: NewRadixTree(),
 		autoBan:   make(map[string]*autoBanEntry),

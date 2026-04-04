@@ -69,9 +69,9 @@ type Layer struct {
 }
 
 // NewLayer creates a new ATO Protection layer.
-func NewLayer(cfg Config) (*Layer, error) {
+func NewLayer(cfg *Config) (*Layer, error) {
 	l := &Layer{
-		config:    cfg,
+		config:    *cfg,
 		tracker:   NewAttemptTracker(),
 		emailRe:   regexp.MustCompile(`(?i)^[\w.-]+@[\w.-]+\.\w+$`),
 		lastLogin: make(map[string]*GeoLocation),
@@ -164,7 +164,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	}
 
 	// Record the attempt
-	l.tracker.RecordAttempt(LoginAttempt{
+	l.tracker.RecordAttempt(&LoginAttempt{
 		IP:    ctx.ClientIP,
 		Email: email,
 		Time:  time.Now(),

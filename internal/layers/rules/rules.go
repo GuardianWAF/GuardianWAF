@@ -50,7 +50,7 @@ type Layer struct {
 }
 
 // NewLayer creates a new custom rules layer.
-func NewLayer(cfg Config, geodb *geoip.DB) *Layer {
+func NewLayer(cfg *Config, geodb *geoip.DB) *Layer {
 	l := &Layer{
 		geodb:      geodb,
 		regexCache: make(map[string]*regexp.Regexp),

@@ -74,7 +74,7 @@ type Layer struct {
 }
 
 // NewLayer creates a new bot detection layer with the given configuration.
-func NewLayer(cfg Config) *Layer {
+func NewLayer(cfg *Config) *Layer {
 	var bm *BehaviorManager
 	if cfg.Behavior.Enabled {
 		bm = NewBehaviorManager(BehaviorConfig{
@@ -86,7 +86,7 @@ func NewLayer(cfg Config) *Layer {
 		})
 	}
 	return &Layer{
-		config:   cfg,
+		config:   *cfg,
 		behavior: bm,
 	}
 }

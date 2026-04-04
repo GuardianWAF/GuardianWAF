@@ -48,9 +48,9 @@ type ThreatInfo struct {
 }
 
 // NewFeedManager creates a new feed manager.
-func NewFeedManager(config FeedConfig) *FeedManager {
+func NewFeedManager(config *FeedConfig) *FeedManager {
 	return &FeedManager{
-		config: config,
+		config: *config,
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},

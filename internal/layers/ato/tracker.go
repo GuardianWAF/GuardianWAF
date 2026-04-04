@@ -67,7 +67,7 @@ func NewAttemptTracker() *AttemptTracker {
 }
 
 // RecordAttempt records a failed login attempt.
-func (t *AttemptTracker) RecordAttempt(attempt LoginAttempt) {
+func (t *AttemptTracker) RecordAttempt(attempt *LoginAttempt) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 

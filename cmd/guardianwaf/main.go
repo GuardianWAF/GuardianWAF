@@ -429,7 +429,7 @@ func cmdServe(args []string) {
 			}
 			if rLayer == nil {
 				// Create an empty rules layer and add to pipeline
-				rLayer = rules.NewLayer(rules.Config{Enabled: true}, nil)
+				rLayer = rules.NewLayer(&rules.Config{Enabled: true}, nil)
 				eng.AddLayer(engine.OrderedLayer{Layer: rLayer, Order: engine.OrderRules})
 			}
 			var gDB *geoip.DB
@@ -1284,7 +1284,7 @@ func loadConfig(path string) *config.Config {
 func addLayers(eng *engine.Engine, cfg *config.Config) {
 	// 1. IP ACL layer (Order 100)
 	if cfg.WAF.IPACL.Enabled {
-		ipaclLayer, err := ipacl.NewLayer(ipacl.Config{
+		ipaclLayer, err := ipacl.NewLayer(&ipacl.Config{
 			Enabled:   cfg.WAF.IPACL.Enabled,
 			Whitelist: cfg.WAF.IPACL.Whitelist,
 			Blacklist: cfg.WAF.IPACL.Blacklist,
@@ -1313,7 +1313,7 @@ func addLayers(eng *engine.Engine, cfg *config.Config) {
 				Format:  f.Format,
 			}
 		}
-		tiLayer, err := threatintel.NewLayer(threatintel.Config{
+		tiLayer, err := threatintel.NewLayer(&threatintel.Config{
 			Enabled: cfg.WAF.ThreatIntel.Enabled,
 			IPReputation: threatintel.IPRepConfig{
 				Enabled:        cfg.WAF.ThreatIntel.IPReputation.Enabled,
@@ -1379,7 +1379,7 @@ func addLayers(eng *engine.Engine, cfg *config.Config) {
 			}
 		}
 
-		rulesLayer := rules.NewLayer(rules.Config{Enabled: true, Rules: ruleList}, geodb)
+		rulesLayer := rules.NewLayer(&rules.Config{Enabled: true, Rules: ruleList}, geodb)
 		eng.AddLayer(engine.OrderedLayer{Layer: rulesLayer, Order: engine.OrderRules})
 		eng.Logs.Infof("Custom rules: %d rules loaded", len(ruleList))
 	}
@@ -1399,7 +1399,7 @@ func addLayers(eng *engine.Engine, cfg *config.Config) {
 				AutoBanAfter: r.AutoBanAfter,
 			}
 		}
-		rlLayer := ratelimit.NewLayer(ratelimit.Config{
+		rlLayer := ratelimit.NewLayer(&ratelimit.Config{
 			Enabled: cfg.WAF.RateLimit.Enabled,
 			Rules:   rules,
 		})
@@ -1408,7 +1408,7 @@ func addLayers(eng *engine.Engine, cfg *config.Config) {
 
 	// 2b. ATO Protection layer (Order 250)
 	if cfg.WAF.ATOProtection.Enabled {
-		atoLayer, err := ato.NewLayer(ato.Config{
+		atoLayer, err := ato.NewLayer(&ato.Config{
 			Enabled:    cfg.WAF.ATOProtection.Enabled,
 			LoginPaths: cfg.WAF.ATOProtection.LoginPaths,
 			BruteForce: ato.BruteForceConfig{
@@ -1491,7 +1491,7 @@ func addLayers(eng *engine.Engine, cfg *config.Config) {
 
 	// 3. Sanitizer layer (Order 300)
 	if cfg.WAF.Sanitizer.Enabled {
-		sanLayer := sanitizer.NewLayer(sanitizer.Config{
+		sanLayer := sanitizer.NewLayer(&sanitizer.Config{
 			MaxURLLength:   cfg.WAF.Sanitizer.MaxURLLength,
 			MaxHeaderSize:  cfg.WAF.Sanitizer.MaxHeaderSize,
 			MaxHeaderCount: cfg.WAF.Sanitizer.MaxHeaderCount,
@@ -1521,7 +1521,7 @@ func addLayers(eng *engine.Engine, cfg *config.Config) {
 				Reason:     exc.Reason,
 			})
 		}
-		detLayer := detection.NewLayer(detection.Config{
+		detLayer := detection.NewLayer(&detection.Config{
 			Enabled:    cfg.WAF.Detection.Enabled,
 			Detectors:  detConfigs,
 			Exclusions: exclusions,
@@ -1531,7 +1531,7 @@ func addLayers(eng *engine.Engine, cfg *config.Config) {
 
 	// 5. Bot Detection layer (Order 500)
 	if cfg.WAF.BotDetection.Enabled {
-		bdLayer := botdetect.NewLayer(botdetect.Config{
+		bdLayer := botdetect.NewLayer(&botdetect.Config{
 			Enabled: cfg.WAF.BotDetection.Enabled,
 			Mode:    cfg.WAF.BotDetection.Mode,
 			TLSFingerprint: botdetect.TLSFingerprintConfig{
@@ -1580,7 +1580,7 @@ func addLayers(eng *engine.Engine, cfg *config.Config) {
 			respCfg.Headers.HSTS = hsts
 		}
 	}
-	respLayer := response.NewLayer(respCfg)
+	respLayer := response.NewLayer(&respCfg)
 	eng.AddLayer(engine.OrderedLayer{Layer: respLayer, Order: engine.OrderResponse})
 }
 

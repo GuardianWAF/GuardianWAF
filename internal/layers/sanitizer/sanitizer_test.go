@@ -34,7 +34,7 @@ func TestSanitizerLayer_Normalize(t *testing.T) {
 		MaxBodySize:    1048576,
 		AllowedMethods: []string{"GET", "POST"},
 	}
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	ctx := newTestContext("GET", "/test%20path", "/test%20path", "")
 	ctx.QueryParams["q"] = []string{"%3Cscript%3E"}
@@ -74,7 +74,7 @@ func TestSanitizerLayer_ValidateURLLength(t *testing.T) {
 		MaxURLLength:   50,
 		AllowedMethods: []string{"GET"},
 	}
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	longURL := "/" + strings.Repeat("a", 100)
 	ctx := newTestContext("GET", longURL, longURL, "")
@@ -106,7 +106,7 @@ func TestSanitizerLayer_ValidateMethod(t *testing.T) {
 	cfg := Config{
 		AllowedMethods: []string{"GET", "POST"},
 	}
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	ctx := newTestContext("DELETE", "/test", "/test", "")
 
@@ -136,7 +136,7 @@ func TestSanitizerLayer_ValidateNullBytes(t *testing.T) {
 		BlockNullBytes: true,
 		AllowedMethods: []string{"GET"},
 	}
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	ctx := newTestContext("GET", "/test%00path", "/test%00path", "")
 
@@ -161,7 +161,7 @@ func TestSanitizerLayer_HopByHopStripping(t *testing.T) {
 		StripHopByHop:  true,
 		AllowedMethods: []string{"GET"},
 	}
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	ctx := newTestContext("GET", "/test", "/test", "")
 	ctx.Headers["Connection"] = []string{"keep-alive"}
@@ -193,7 +193,7 @@ func TestSanitizerLayer_Disabled(t *testing.T) {
 		MaxURLLength:   10,
 		AllowedMethods: []string{"GET"},
 	}
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 	layer.SetEnabled(false)
 
 	longURL := "/" + strings.Repeat("a", 100)
@@ -220,7 +220,7 @@ func TestSanitizerLayer_BlockOnHighScore(t *testing.T) {
 		BlockNullBytes: true,
 		AllowedMethods: []string{"GET"},
 	}
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	// URL too long (40) + null bytes (60) = 100, well above 50
 	longURL := "/" + strings.Repeat("a", 100) + "%00"
@@ -346,7 +346,7 @@ func TestValidateRequest_HeaderSize(t *testing.T) {
 
 func TestSanitizerLayer_ImplementsInterface(t *testing.T) {
 	cfg := Config{}
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	// Verify it satisfies engine.Layer
 	var _ engine.Layer = layer
@@ -361,7 +361,7 @@ func TestSanitizerLayer_LogOnLowScore(t *testing.T) {
 		MaxCookieSize:  10,
 		AllowedMethods: []string{"GET"},
 	}
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	ctx := newTestContext("GET", "/test", "/test", "")
 	ctx.Cookies["session"] = strings.Repeat("a", 50)
@@ -401,7 +401,7 @@ func TestSanitizerLayer_WithRealHTTPRequest(t *testing.T) {
 		MaxBodySize:    1048576,
 		AllowedMethods: []string{"GET", "POST"},
 	}
-	layer := NewLayer(cfg)
+	layer := NewLayer(&cfg)
 
 	reqURL, _ := url.Parse("http://example.com/test?q=%3Cscript%3E")
 	req := &http.Request{
