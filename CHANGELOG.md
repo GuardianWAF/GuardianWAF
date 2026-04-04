@@ -1,115 +1,110 @@
-# Changelog
+## [0.4.0] - 2026-04-04
 
-All notable changes to GuardianWAF will be documented in this file.
+### Added
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+#### Phase 1: ML Anomaly, API Discovery, GraphQL Security, Enhanced Bot Management
 
-## [Unreleased]
+- **ML Anomaly Detection Layer**
+  - Unsupervised ML-based anomaly detection
+  - Real-time behavioral analysis
+  - Configurable thresholds and auto-blocking
+  - Feature extraction from requests
+
+- **API Discovery Engine**
+  - Automatic API endpoint discovery
+  - Passive traffic analysis
+  - OpenAPI spec generation and export
+  - Real-time endpoint statistics
+  - JSON and OpenAPI export formats
+
+- **GraphQL Security Layer**
+  - Query depth limiting (configurable max depth)
+  - Complexity analysis and scoring
+  - Introspection blocking
+  - Endpoint allowlisting
+
+- **Enhanced Bot Detection**
+  - hCaptcha/Turnstile integration
+  - Biometric behavioral analysis
+  - Browser fingerprinting (Canvas, WebGL, Fonts)
+  - Headless browser detection
+  - JavaScript challenge collector
+
+#### Phase 2: gRPC Support, Multi-tenancy, Advanced DLP
+
+- **gRPC/gRPC-Web Proxy**
+  - HTTP/2 transport support
+  - gRPC-Web bridging for browsers
+  - Protocol Buffer validation
+  - Method-level access control (ACL)
+  - Message size limits
+
+- **Multi-tenancy with Namespace Isolation**
+  - Tenant CRUD operations
+  - Domain-based and API key resolution
+  - Resource quotas per tenant:
+    - Max requests per minute/hour
+    - Bandwidth limits
+    - Max rules, rate limits, IP ACLs
+  - Usage tracking (requests, bytes, blocked)
+  - Wildcard domain support (*.example.com)
+  - Context-based tenant propagation
+  - REST API: `/api/v1/tenants/*`
+
+- **Advanced DLP (Data Loss Prevention)**
+  - Pattern detection for:
+    - Credit Cards (Visa, MasterCard, Amex, Discover, JCB, Diners)
+    - US Social Security Numbers (SSN)
+    - IBAN (International Bank Account Numbers)
+    - Email addresses
+    - Phone numbers
+    - API Keys and tokens
+    - Private Keys (RSA, EC, DSA)
+    - Passport numbers
+    - Tax IDs (EIN)
+  - Request/response body scanning
+  - Automatic PII masking
+  - Risk scoring per pattern
+  - Custom pattern support
+
+#### Integration
+
+- **v0.4.0 Feature Integrator** (`internal/integrations/v040`)
+  - Unified initialization for all v0.4.0 features
+  - Layer registration with proper ordering:
+    - 450: GraphQL Security
+    - 475: ML Anomaly Detection
+    - 500: Enhanced Bot Detection
+    - 550: Advanced DLP
+  - HTTP handler registration
+  - Statistics aggregation
+
+### Changed
+
+- Layer order system updated for new Phase 1 & 2 layers
+- Dashboard API extended with tenant management endpoints
+- Configuration schema extended:
+  - `WAF.MLAnomaly`
+  - `WAF.APIDiscovery`
+  - `WAF.GraphQL`
+  - `WAF.GRPC`
+  - `WAF.Tenant`
+  - `WAF.DLP`
+
+### Security
+
+- DLP pattern detection prevents data exfiltration
+- Multi-tenant isolation prevents cross-tenant data access
+- gRPC method ACLs for fine-grained access control
+- Enhanced bot detection with biometric analysis
+
+### Testing
+
+- **Phase 1 Tests**: 50+ new test cases
+- **Phase 2 Tests**: 47+ new test cases
+  - Multi-tenancy: 25 tests
+  - gRPC proxy: 12 tests
+  - DLP patterns: 22 tests
+- Overall test coverage maintained >95%
 
 ## [0.3.0] - 2026-04-04
-
-### Added
-
-#### Alerting & Notifications
-- **Email Alerting**: Full SMTP support with TLS encryption
-  - Configurable email templates with variable substitution
-  - Per-target event filtering (block, challenge, log, all)
-  - Minimum score thresholds and cooldown periods
-  - Dashboard UI for email configuration
-- **PagerDuty Integration**: Events API v2 format support
-  - Severity mapping (critical/warning/info)
-  - Deduplication keys
-  - Custom payload with event details
-- **Webhook Management**:
-  - Slack, Discord, PagerDuty, and generic webhook types
-  - Runtime add/remove via Dashboard API
-  - Test alert functionality
-- **MCP Alerting Tools**: 6 new MCP tools for programmatic management
-  - `guardianwaf_get_alerting_status`
-  - `guardianwaf_add_webhook`
-  - `guardianwaf_remove_webhook`
-  - `guardianwaf_add_email_target`
-  - `guardianwaf_remove_email_target`
-  - `guardianwaf_test_alert`
-
-#### Security Enhancements
-- **JWT ASN.1 DER Parsing**: Standalone library-free implementation
-  - RSA public key parsing from PKCS#1/SubjectPublicKeyInfo
-  - ECDSA curve detection (P-256, P-384, P-521)
-  - Ed25519 support
-  - RS256/ES256/HS256/EdDSA signature verification
-  - JWKS support with key rotation
-
-#### Events Management
-- **Events Export API**: `/api/v1/events/export`
-  - JSON format export
-  - CSV format with proper escaping
-  - Filter support (action, client_ip, path, min_score, since, until)
-  - Configurable limit (up to 50,000 events)
-- **Dashboard Alerting Page**: React-based management UI
-  - Webhook and email configuration tabs
-  - Add/remove/test targets
-  - Real-time alerting statistics
-
-#### Testing & Quality
-- **E2E Test Coverage**: Added alerting and block page content tests
-- **Email Alerting Tests**: 11 new test cases
-- **Alerting Management Tests**: 15 MCP and webhook tests
-- **Test Coverage**: Maintained ~95% overall coverage
-
-### Changed
-
-- MCP tool count: 15 → 21 (6 new alerting tools)
-- Dashboard sidebar: Added Alerting menu item
-- API endpoints: Added `/api/v1/alerting/*` routes
-- Docker images: Moved from Docker Hub to GitHub Container Registry (GHCR)
-
-### Fixed
-
-- JWT parsing with complex ASN.1 structures
-- SMTP TLS connection handling
-- CSV export escaping for special characters
-
-## [0.2.0] - 2026-03-20
-
-### Added
-- AI-powered threat analysis with 400+ providers from models.dev
-- Docker auto-discovery with label-based routing
-- MCP server with SSE transport support
-- Routing topology graph in dashboard
-- Real-time backend health monitoring
-
-### Changed
-- Improved dashboard UI/UX
-- Enhanced detection engine performance
-
-## [0.1.0] - 2026-03-17
-
-### Added
-- Initial release
-- 13-layer security pipeline
-- SQLi, XSS, LFI, CMDi, SSRF, XXE detection
-- Bot detection with JA3/JA4 fingerprinting
-- Rate limiting with token bucket
-- IP ACL with radix tree CIDR matching
-- Docker auto-discovery
-- AI-powered threat analysis
-- Real-time dashboard with SSE
-- MCP server integration
-- ACME/Let's Encrypt support
-- WebSocket proxy support
-- Multi-domain virtual hosting
-- Circuit breaker pattern
-- Custom rules engine
-
----
-
-## Legend
-
-- **Added**: New features
-- **Changed**: Changes to existing functionality
-- **Deprecated**: Soon-to-be removed features
-- **Removed**: Removed features
-- **Fixed**: Bug fixes
-- **Security**: Security improvements
