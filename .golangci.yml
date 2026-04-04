@@ -53,5 +53,6 @@ issues:
         - gocritic
         - unparam
         - bodyclose
+        - govet
   max-issues-per-linter: 50
   max-same-issues: 5

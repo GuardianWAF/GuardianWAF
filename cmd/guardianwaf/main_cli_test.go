@@ -100,7 +100,7 @@ func TestRunMain_Serve(t *testing.T) {
 
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "gwaf.yaml")
-	os.WriteFile(cfgPath, []byte("mode: enforce\nlisten: 127.0.0.1:0\ndashboard:\n  enabled: false\nmcp:\n  enabled: false\n"), 0644)
+	os.WriteFile(cfgPath, []byte("mode: enforce\nlisten: 127.0.0.1:0\ndashboard:\n  enabled: false\nmcp:\n  enabled: false\n"), 0o644)
 
 	done := make(chan struct{})
 	go func() {
@@ -157,7 +157,7 @@ waf:
   bot_detection:
     enabled: false
 `
-	os.WriteFile(path, []byte(cfg), 0644)
+	os.WriteFile(path, []byte(cfg), 0o644)
 	code := runMain([]string{"guardianwaf", "check", "--url", "/health", "--config", path})
 	if code != 0 {
 		t.Errorf("expected exit code 0, got %d", code)
@@ -176,7 +176,7 @@ func TestRunMain_CheckAttack(t *testing.T) {
 func TestRunMain_Validate(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "valid.yaml")
-	os.WriteFile(path, []byte("mode: enforce\n"), 0644)
+	os.WriteFile(path, []byte("mode: enforce\n"), 0o644)
 
 	code := runMain([]string{"guardianwaf", "validate", "--config", path})
 	if code != 0 {
@@ -352,7 +352,7 @@ func TestCmdCheck_WithHeaders(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cfg.yaml")
 	cfg := `mode: enforce\nwaf:\n  detection:\n    enabled: false\n  bot_detection:\n    enabled: false\n`
-	os.WriteFile(path, []byte(cfg), 0644)
+	os.WriteFile(path, []byte(cfg), 0o644)
 	code, called := captureOptionalExit(t, func() {
 		cmdCheck([]string{"--config", path, "--url", "/test", "-H", "User-Agent: test", "-H", "X-Test: value"})
 	})
@@ -375,7 +375,7 @@ waf:
   api_security:
     enabled: false
 `
-	os.WriteFile(path, []byte(cfg), 0644)
+	os.WriteFile(path, []byte(cfg), 0o644)
 	code, called := captureOptionalExit(t, func() {
 		cmdCheck([]string{"--config", path, "--url", "/test", "--method", "POST", "--body", "username=admin&password=123"})
 	})
@@ -387,7 +387,7 @@ waf:
 func TestCmdValidateRunMain_ValidConfig(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "valid.yaml")
-	os.WriteFile(path, []byte("mode: enforce\n"), 0644)
+	os.WriteFile(path, []byte("mode: enforce\n"), 0o644)
 
 	code, called := captureOptionalExit(t, func() {
 		cmdValidate([]string{"--config", path})
@@ -412,7 +412,7 @@ func TestCmdServe_SignalShutdown(t *testing.T) {
 
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "gwaf.yaml")
-	os.WriteFile(cfgPath, []byte("mode: enforce\nlisten: 127.0.0.1:0\ndashboard:\n  enabled: false\nmcp:\n  enabled: false\n"), 0644)
+	os.WriteFile(cfgPath, []byte("mode: enforce\nlisten: 127.0.0.1:0\ndashboard:\n  enabled: false\nmcp:\n  enabled: false\n"), 0o644)
 
 	done := make(chan struct{})
 	go func() {
@@ -472,7 +472,7 @@ routes:
     upstream: default
 `, port)
 	cfgPath := filepath.Join(dir, "sidecar.yaml")
-	os.WriteFile(cfgPath, []byte(cfg), 0644)
+	os.WriteFile(cfgPath, []byte(cfg), 0o644)
 
 	done := make(chan struct{})
 	go func() {
@@ -542,7 +542,7 @@ listen: 127.0.0.1:0
 upstreams: []
 routes: []
 `
-	os.WriteFile(cfgPath, []byte(cfg), 0644)
+	os.WriteFile(cfgPath, []byte(cfg), 0o644)
 
 	// Need an upstream to pass validation, so add one via config
 	cfg2 := `mode: enforce
@@ -556,7 +556,7 @@ routes:
     upstream: default
 `
 	cfgPath2 := filepath.Join(dir, "sidecar2.yaml")
-	os.WriteFile(cfgPath2, []byte(cfg2), 0644)
+	os.WriteFile(cfgPath2, []byte(cfg2), 0o644)
 
 	done := make(chan struct{})
 	go func() {
@@ -635,7 +635,7 @@ func TestCmdServe_FullFeatures(t *testing.T) {
 
 	// GeoIP CSV
 	geoCSV := filepath.Join(dir, "geo.csv")
-	_ = os.WriteFile(geoCSV, []byte("1.0.0.0,1.0.0.255,AU\n"), 0644)
+	_ = os.WriteFile(geoCSV, []byte("1.0.0.0,1.0.0.255,AU\n"), 0o644)
 
 	cfgPath := filepath.Join(dir, "serve.yaml")
 	cfg := fmt.Sprintf(`mode: enforce
@@ -711,7 +711,7 @@ virtual_hosts:
       - path: /
         upstream: default
 `, mainPort, dashPort, geoCSV, filepath.Join(dir, "ai_store.json"))
-	_ = os.WriteFile(cfgPath, []byte(cfg), 0644)
+	_ = os.WriteFile(cfgPath, []byte(cfg), 0o644)
 
 	done := make(chan struct{})
 	go func() {
@@ -915,7 +915,7 @@ waf:
   bot_detection:
     enabled: false
 `, httpPort, tlsPort, certPath, keyPath)
-	_ = os.WriteFile(cfgPath, []byte(cfg), 0644)
+	_ = os.WriteFile(cfgPath, []byte(cfg), 0o644)
 
 	done := make(chan struct{})
 	go func() {
@@ -1015,7 +1015,7 @@ waf:
       block: 10
       log: 5
 `, port)
-	_ = os.WriteFile(cfgPath, []byte(cfg), 0644)
+	_ = os.WriteFile(cfgPath, []byte(cfg), 0o644)
 
 	done := make(chan struct{})
 	go func() {
@@ -1089,7 +1089,7 @@ waf:
   bot_detection:
     enabled: false
 `, port)
-	_ = os.WriteFile(cfgPath, []byte(cfg), 0644)
+	_ = os.WriteFile(cfgPath, []byte(cfg), 0o644)
 
 	done := make(chan struct{})
 	go func() {
@@ -1160,7 +1160,7 @@ waf:
   bot_detection:
     enabled: false
 `, port)
-	_ = os.WriteFile(cfgPath, []byte(cfg), 0644)
+	_ = os.WriteFile(cfgPath, []byte(cfg), 0o644)
 
 	done := make(chan struct{})
 	go func() {
@@ -1228,7 +1228,7 @@ waf:
   bot_detection:
     enabled: false
 `, port)
-	_ = os.WriteFile(cfgPath, []byte(cfg), 0644)
+	_ = os.WriteFile(cfgPath, []byte(cfg), 0o644)
 
 	done := make(chan struct{})
 	go func() {
@@ -1301,7 +1301,7 @@ waf:
       block: 10
       log: 5
 `, port)
-	_ = os.WriteFile(cfgPath, []byte(cfg), 0644)
+	_ = os.WriteFile(cfgPath, []byte(cfg), 0o644)
 
 	done := make(chan struct{})
 	go func() {
@@ -1381,7 +1381,7 @@ waf:
   bot_detection:
     enabled: false
 `, port)
-	_ = os.WriteFile(cfgPath, []byte(cfg), 0644)
+	_ = os.WriteFile(cfgPath, []byte(cfg), 0o644)
 
 	done := make(chan struct{})
 	go func() {
@@ -1444,7 +1444,7 @@ waf:
   bot_detection:
     enabled: false
 `, port)
-	_ = os.WriteFile(cfgPath, []byte(cfg), 0644)
+	_ = os.WriteFile(cfgPath, []byte(cfg), 0o644)
 
 	// Need upstream to pass validation, so we also provide --upstream flag
 	done := make(chan struct{})
@@ -1516,7 +1516,7 @@ waf:
   bot_detection:
     enabled: false
 `, port)
-	_ = os.WriteFile(cfgPath, []byte(cfg), 0644)
+	_ = os.WriteFile(cfgPath, []byte(cfg), 0o644)
 
 	done := make(chan struct{})
 	go func() {
@@ -1580,7 +1580,7 @@ waf:
       block: 10
       log: 5
 `, port)
-	_ = os.WriteFile(cfgPath, []byte(cfg), 0644)
+	_ = os.WriteFile(cfgPath, []byte(cfg), 0o644)
 
 	done := make(chan struct{})
 	go func() {
@@ -1655,7 +1655,7 @@ waf:
   bot_detection:
     enabled: false
 `, port)
-	_ = os.WriteFile(cfgPath, []byte(cfg), 0644)
+	_ = os.WriteFile(cfgPath, []byte(cfg), 0o644)
 
 	done := make(chan struct{})
 	go func() {
@@ -1782,7 +1782,7 @@ waf:
   bot_detection:
     enabled: false
 `, httpPort, tlsPort, certPath, keyPath, filepath.Join(dir, "acme_cache"))
-	_ = os.WriteFile(cfgPath, []byte(cfg), 0644)
+	_ = os.WriteFile(cfgPath, []byte(cfg), 0o644)
 
 	done := make(chan struct{})
 	go func() {
@@ -1909,7 +1909,7 @@ routes:
   - path: /
     upstream: default
 `, mainPort, dashPort)
-	_ = os.WriteFile(cfgPath, []byte(cfg), 0644)
+	_ = os.WriteFile(cfgPath, []byte(cfg), 0o644)
 
 	done := make(chan struct{})
 	go func() {

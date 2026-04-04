@@ -50,7 +50,7 @@ func TestCmdServe_DashboardClosuresProbe(t *testing.T) {
 
 	dir := t.TempDir()
 	geoCSV := filepath.Join(dir, "geo.csv")
-	_ = os.WriteFile(geoCSV, []byte("1.0.0.0,1.0.0.255,AU\n"), 0644)
+	_ = os.WriteFile(geoCSV, []byte("1.0.0.0,1.0.0.255,AU\n"), 0o644)
 	cfgPath := filepath.Join(dir, "serve.yaml")
 	cfg := fmt.Sprintf(`mode: enforce
 listen: "127.0.0.1:%d"
@@ -93,7 +93,7 @@ routes:
   - path: /
     upstream: default
 `, mainPort, dashPort, geoCSV)
-	_ = os.WriteFile(cfgPath, []byte(cfg), 0644)
+	_ = os.WriteFile(cfgPath, []byte(cfg), 0o644)
 
 	done := make(chan struct{})
 	go func() {
