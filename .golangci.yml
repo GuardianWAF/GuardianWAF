@@ -46,7 +46,6 @@ linters-settings:
   gocritic:
     enabled-tags:
       - diagnostic
-      - style
       - performance
     disabled-checks:
       - hugeParam
