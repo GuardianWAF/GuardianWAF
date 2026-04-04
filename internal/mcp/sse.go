@@ -88,8 +88,8 @@ func (h *SSEHandler) handleSSE(w http.ResponseWriter, r *http.Request) {
 	messageURL := fmt.Sprintf("%s://%s/mcp/message", scheme, r.Host)
 	client.mu.Lock()
 	fmt.Fprintf(w, "event: endpoint\ndata: %s\n\n", messageURL)
-	client.mu.Unlock()
 	flusher.Flush()
+	client.mu.Unlock()
 
 	// Keep connection alive until client disconnects
 	<-r.Context().Done()
