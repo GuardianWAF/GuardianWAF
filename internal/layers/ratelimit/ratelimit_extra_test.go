@@ -135,9 +135,9 @@ func TestProcess_AddRuleThenBlock(t *testing.T) {
 
 	// First 2 should pass
 	for i := 0; i < 2; i++ {
-		ctx := makeContext("192.0.2.1", "/api/test")
-		result := layer.Process(ctx)
-		if result.Action == engine.ActionBlock {
+		loopCtx := makeContext("192.0.2.1", "/api/test")
+		loopResult := layer.Process(loopCtx)
+		if loopResult.Action == engine.ActionBlock {
 			t.Errorf("request %d should pass", i+1)
 		}
 	}

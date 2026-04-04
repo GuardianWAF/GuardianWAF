@@ -1139,23 +1139,23 @@ func TestComputeJA4FromContext(t *testing.T) {
 		{
 			name: "with JA4 fields",
 			ctx: &RequestContext{
-				TLSVersion:   0x0303,
-				JA4Protocol:  "t",
-				JA4SNI:       true,
-				JA4Ciphers:   []uint16{0x1301, 0x1302},
-				JA4Exts:      []uint16{0x001b},
-				JA4ALPN:      "h2",
-				JA4Ver:       0x0304,
+				TLSVersion:  0x0303,
+				JA4Protocol: "t",
+				JA4SNI:      true,
+				JA4Ciphers:  []uint16{0x1301, 0x1302},
+				JA4Exts:     []uint16{0x001b},
+				JA4ALPN:     "h2",
+				JA4Ver:      0x0304,
 			},
 			contains: "t13d02",
 		},
 		{
 			name: "QUIC protocol",
 			ctx: &RequestContext{
-				TLSVersion:   0x0304,
-				JA4Protocol:  "q",
-				JA4Ciphers:   []uint16{0x1301},
-				JA4ALPN:      "h3",
+				TLSVersion:  0x0304,
+				JA4Protocol: "q",
+				JA4Ciphers:  []uint16{0x1301},
+				JA4ALPN:     "h3",
 			},
 			contains: "q13",
 		},
@@ -1175,9 +1175,9 @@ func TestNewEvent_WithTLS(t *testing.T) {
 	// Create a request with TLS info
 	req := httptest.NewRequest("GET", "https://example.com/test", nil)
 	req.TLS = &tls.ConnectionState{
-		Version:           0x0303,
-		CipherSuite:       0xc02f,
-		ServerName:        "example.com",
+		Version:            0x0303,
+		CipherSuite:        0xc02f,
+		ServerName:         "example.com",
 		NegotiatedProtocol: "h2",
 	}
 

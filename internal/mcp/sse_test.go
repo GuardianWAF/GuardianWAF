@@ -138,7 +138,11 @@ func TestClientCount_AfterSSEConnection(t *testing.T) {
 	defer ts.Close()
 
 	// Connect to SSE endpoint.
-	resp, err := http.Get(ts.URL + "/mcp/sse")
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, ts.URL+"/mcp/sse", nil)
+	if err != nil {
+		t.Fatalf("creating request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("SSE connection failed: %v", err)
 	}
@@ -187,7 +191,7 @@ func TestHandleSSE_Headers(t *testing.T) {
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/mcp/sse")
+	resp, err := http.Get(ts.URL + "/mcp/sse") //nolint:noctx
 	if err != nil {
 		t.Fatalf("SSE connection failed: %v", err)
 	}
@@ -219,7 +223,7 @@ func TestHandleSSE_EndpointEvent(t *testing.T) {
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/mcp/sse")
+	resp, err := http.Get(ts.URL + "/mcp/sse") //nolint:noctx
 	if err != nil {
 		t.Fatalf("SSE connection failed: %v", err)
 	}
@@ -454,7 +458,7 @@ func TestBroadcastResponse_SendsToClients(t *testing.T) {
 	defer ts.Close()
 
 	// Connect SSE client.
-	resp, err := http.Get(ts.URL + "/mcp/sse")
+	resp, err := http.Get(ts.URL + "/mcp/sse") //nolint:noctx
 	if err != nil {
 		t.Fatalf("SSE connection failed: %v", err)
 	}
@@ -478,7 +482,7 @@ func TestBroadcastResponse_SendsToClients(t *testing.T) {
 
 	// Send a message via POST to trigger broadcastResponse.
 	initReq := `{"jsonrpc":"2.0","id":99,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`
-	postResp, err := http.Post(ts.URL+"/mcp/message", "application/json", strings.NewReader(initReq))
+	postResp, err := http.Post(ts.URL+"/mcp/message", "application/json", strings.NewReader(initReq)) //nolint:noctx
 	if err != nil {
 		t.Fatalf("POST message failed: %v", err)
 	}
@@ -559,7 +563,7 @@ func TestBroadcastResponse_MultipleClients(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			resp, err := http.Get(ts.URL + "/mcp/sse")
+			resp, err := http.Get(ts.URL + "/mcp/sse") //nolint:noctx
 			if err != nil {
 				results <- fmt.Sprintf("error: %v", err)
 				return
@@ -592,7 +596,7 @@ func TestBroadcastResponse_MultipleClients(t *testing.T) {
 
 	// Send a message to trigger broadcast.
 	initReq := `{"jsonrpc":"2.0","id":42,"method":"initialize","params":{}}`
-	postResp, err := http.Post(ts.URL+"/mcp/message", "application/json", strings.NewReader(initReq))
+	postResp, err := http.Post(ts.URL+"/mcp/message", "application/json", strings.NewReader(initReq)) //nolint:noctx
 	if err != nil {
 		t.Fatalf("POST message failed: %v", err)
 	}
@@ -750,7 +754,7 @@ func TestHandleSSE_EndpointURLScheme(t *testing.T) {
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/mcp/sse")
+	resp, err := http.Get(ts.URL + "/mcp/sse") //nolint:noctx
 	if err != nil {
 		t.Fatalf("SSE connection failed: %v", err)
 	}

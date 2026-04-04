@@ -70,11 +70,11 @@ func TestComputeJA4_OnlySigAlgs(t *testing.T) {
 // TestBehaviorTracker_UniquePathsThreshold exercises the UniquePathsPerMin branch.
 func TestBehaviorTracker_UniquePathsThreshold(t *testing.T) {
 	cfg := BehaviorConfig{
-		Window:           1 * time.Minute,
-		RPSThreshold:     0,
-		UniquePathsPerMin: 5,
+		Window:             1 * time.Minute,
+		RPSThreshold:       0,
+		UniquePathsPerMin:  5,
 		ErrorRateThreshold: 0,
-		TimingStdDevMs:   0,
+		TimingStdDevMs:     0,
 	}
 	tracker := newBehaviorTracker(cfg.Window)
 	for i := range 10 {

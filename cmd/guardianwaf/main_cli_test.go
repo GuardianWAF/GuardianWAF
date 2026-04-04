@@ -824,7 +824,10 @@ virtual_hosts:
 	}
 
 	// Trigger a block event for alerting webhook
-	_, _ = http.Get(fmt.Sprintf("http://127.0.0.1:%d/?q=' OR 1=1 --", mainPort))
+	respBlock, _ := http.Get(fmt.Sprintf("http://127.0.0.1:%d/?q=' OR 1=1 --", mainPort))
+	if respBlock != nil {
+		respBlock.Body.Close()
+	}
 
 	shutdownCh <- syscall.SIGTERM
 	select {
@@ -1035,8 +1038,14 @@ waf:
 		t.Fatal("cmdServe did not start")
 	}
 
-	_, _ = http.Get(fmt.Sprintf("http://127.0.0.1:%d/", port))
-	_, _ = http.Get(fmt.Sprintf("http://127.0.0.1:%d/?q=<script>", port))
+	resp1, _ := http.Get(fmt.Sprintf("http://127.0.0.1:%d/", port))
+	if resp1 != nil {
+		resp1.Body.Close()
+	}
+	resp2, _ := http.Get(fmt.Sprintf("http://127.0.0.1:%d/?q=<script>", port))
+	if resp2 != nil {
+		resp2.Body.Close()
+	}
 
 	shutdownCh <- syscall.SIGTERM
 	select {
@@ -1315,8 +1324,14 @@ waf:
 		t.Fatal("sidecar did not start")
 	}
 
-	_, _ = http.Get(fmt.Sprintf("http://127.0.0.1:%d/", port))
-	_, _ = http.Get(fmt.Sprintf("http://127.0.0.1:%d/?q=1' OR 1=1", port))
+	resp3, _ := http.Get(fmt.Sprintf("http://127.0.0.1:%d/", port))
+	if resp3 != nil {
+		resp3.Body.Close()
+	}
+	resp4, _ := http.Get(fmt.Sprintf("http://127.0.0.1:%d/?q=1' OR 1=1", port))
+	if resp4 != nil {
+		resp4.Body.Close()
+	}
 
 	shutdownCh <- syscall.SIGTERM
 	select {
@@ -1589,7 +1604,10 @@ waf:
 	}
 
 	// Trigger a block so the log_blocked=false return branch executes
-	_, _ = http.Get(fmt.Sprintf("http://127.0.0.1:%d/?q=<script>alert(1)</script>", port))
+	resp5, _ := http.Get(fmt.Sprintf("http://127.0.0.1:%d/?q=<script>alert(1)</script>", port))
+	if resp5 != nil {
+		resp5.Body.Close()
+	}
 
 	shutdownCh <- syscall.SIGTERM
 	select {
@@ -1661,7 +1679,10 @@ waf:
 	}
 
 	// Normal request should hit log_allowed=false return branch
-	_, _ = http.Get(fmt.Sprintf("http://127.0.0.1:%d/", port))
+	resp6, _ := http.Get(fmt.Sprintf("http://127.0.0.1:%d/", port))
+	if resp6 != nil {
+		resp6.Body.Close()
+	}
 
 	shutdownCh <- syscall.SIGTERM
 	select {

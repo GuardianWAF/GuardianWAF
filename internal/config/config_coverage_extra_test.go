@@ -971,7 +971,7 @@ func TestPopulateAlerting_Valid(t *testing.T) {
 			"webhooks": {
 				Kind: SequenceNode,
 				Items: []*Node{{
-					Kind: MapNode,
+					Kind:    MapNode,
 					MapKeys: []string{"name", "url", "type", "events", "min_score", "cooldown", "headers"},
 					MapItems: map[string]*Node{
 						"name":      {Kind: ScalarNode, Value: "wh1"},

@@ -256,7 +256,7 @@ func downloadDB(url, path string) error {
 
 	// Ensure parent directory exists
 	if dir := filepath.Dir(path); dir != "" && dir != "." {
-		if err := os.MkdirAll(dir, 0o700); err != nil {
+		if err = os.MkdirAll(dir, 0o700); err != nil {
 			return fmt.Errorf("failed to create directory: %w", err)
 		}
 	}
@@ -271,9 +271,9 @@ func downloadDB(url, path string) error {
 
 	// Auto-detect gzip by URL suffix or Content-Type
 	if strings.HasSuffix(url, ".gz") || strings.Contains(resp.Header.Get("Content-Type"), "gzip") {
-		gz, err := gzip.NewReader(resp.Body)
-		if err != nil {
-			return fmt.Errorf("gzip decode: %w", err)
+		gz, gzErr := gzip.NewReader(resp.Body)
+		if gzErr != nil {
+			return fmt.Errorf("gzip decode: %w", gzErr)
 		}
 		defer gz.Close()
 		reader = gz

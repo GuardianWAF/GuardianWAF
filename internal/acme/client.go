@@ -128,7 +128,7 @@ func (c *Client) AccountKeyPEM() ([]byte, error) {
 func (c *Client) Register(email string) error {
 	payload := map[string]any{
 		"termsOfServiceAgreed": true,
-		"contact":             []string{"mailto:" + email},
+		"contact":              []string{"mailto:" + email},
 	}
 
 	resp, err := c.signedPost(c.directory.NewAccount, payload, true)

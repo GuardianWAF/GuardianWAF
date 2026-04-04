@@ -18,12 +18,10 @@ import (
 // --- Mock AI Analyzer ---
 
 type mockAIAnalyzer struct {
-	catalog []*ai.ProviderSummary
-	config  ai.ProviderConfig
-	history []ai.AnalysisResult
-	usage   ai.UsageStats
-	store   *ai.Store
-	testErr error
+	catalog       []*ai.ProviderSummary
+	config        ai.ProviderConfig
+	store         *ai.Store
+	testErr       error
 	analyzeResult *ai.AnalysisResult
 }
 

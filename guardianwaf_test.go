@@ -386,7 +386,7 @@ func TestNewFromFile_ValidConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfgFile := tmpDir + "/guardianwaf.yaml"
 	content := "mode: monitor\n"
-	if err := os.WriteFile(cfgFile, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(cfgFile, []byte(content), 0o644); err != nil {
 		t.Fatalf("WriteFile failed: %v", err)
 	}
 
@@ -413,7 +413,7 @@ func TestNewFromFile_InvalidYAML(t *testing.T) {
 	cfgFile := tmpDir + "/bad.yaml"
 	// Write invalid UTF-8 bytes to trigger parse error
 	content := []byte{0xff, 0xfe, 0x80, 0x81}
-	if err := os.WriteFile(cfgFile, content, 0644); err != nil {
+	if err := os.WriteFile(cfgFile, content, 0o644); err != nil {
 		t.Fatalf("WriteFile failed: %v", err)
 	}
 
@@ -427,7 +427,7 @@ func TestNewFromFile_WithOptions(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfgFile := tmpDir + "/guardianwaf.yaml"
 	content := "mode: enforce\n"
-	if err := os.WriteFile(cfgFile, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(cfgFile, []byte(content), 0o644); err != nil {
 		t.Fatalf("WriteFile failed: %v", err)
 	}
 
@@ -1253,7 +1253,7 @@ waf:
       x_frame_options: DENY
       referrer_policy: no-referrer
 `
-	if err := os.WriteFile(cfgFile, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(cfgFile, []byte(content), 0o644); err != nil {
 		t.Fatalf("WriteFile failed: %v", err)
 	}
 

@@ -275,7 +275,6 @@ func (s *Server) sendError(id any, code int, message string) {
 		Error: &RPCError{
 			Code:    code,
 			Message: message,
-			
 		},
 	}
 	s.writeResponse(resp)

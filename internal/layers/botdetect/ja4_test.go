@@ -18,9 +18,9 @@ func TestComputeJA4_Example(t *testing.T) {
 	// 0403,0804,0401,0503,0805,0501,0806,0601
 
 	params := JA4Params{
-		Protocol:     "t",
-		TLSVersion:   0x0303, // TLS 1.2 in ProtocolVersion, but we'll use supported_versions
-		SNI:          true,
+		Protocol:   "t",
+		TLSVersion: 0x0303, // TLS 1.2 in ProtocolVersion, but we'll use supported_versions
+		SNI:        true,
 		CipherSuites: []uint16{
 			0x1301, 0x1302, 0x1303, 0xc02b, 0xc02f, 0xc02c, 0xc030, 0xcca9, 0xcca8,
 			0xc013, 0xc014, 0x009c, 0x009d, 0x002f, 0x0035,
@@ -76,12 +76,12 @@ func TestComputeJA4_Example(t *testing.T) {
 func TestComputeJA4_WithGREASE(t *testing.T) {
 	// Test that GREASE values are properly ignored
 	params := JA4Params{
-		Protocol:     "t",
-		TLSVersion:   0x0303,
-		SNI:          true,
-		CipherSuites: []uint16{0x0a0a, 0x1301, 0x1302, 0x2a2a}, // GREASE mixed in
-		Extensions:   []uint16{0x001b, 0x1a1a, 0x0000},         // GREASE mixed in
-		ALPN:         "h2",
+		Protocol:         "t",
+		TLSVersion:       0x0303,
+		SNI:              true,
+		CipherSuites:     []uint16{0x0a0a, 0x1301, 0x1302, 0x2a2a}, // GREASE mixed in
+		Extensions:       []uint16{0x001b, 0x1a1a, 0x0000},         // GREASE mixed in
+		ALPN:             "h2",
 		SupportedVersion: 0x0304,
 	}
 
@@ -385,13 +385,13 @@ func splitJA4(fp string) []string {
 
 func BenchmarkComputeJA4(b *testing.B) {
 	params := JA4Params{
-		Protocol:     "t",
-		TLSVersion:   0x0303,
-		SNI:          true,
-		CipherSuites: []uint16{0x1301, 0x1302, 0x1303, 0xc02b, 0xc02f, 0xc02c, 0xc030, 0xcca9, 0xcca8, 0xc013, 0xc014, 0x009c, 0x009d, 0x002f, 0x0035},
-		Extensions:   []uint16{0x001b, 0x0000, 0x0033, 0x0010, 0x4469, 0x0017, 0x002d, 0x000d, 0x0005, 0x0023, 0x0012, 0x002b, 0xff01, 0x000b, 0x000a, 0x0015},
-		ALPN:         "h2",
-		SignatureAlgs: []uint16{0x0403, 0x0804, 0x0401, 0x0503, 0x0805, 0x0501, 0x0806, 0x0601},
+		Protocol:         "t",
+		TLSVersion:       0x0303,
+		SNI:              true,
+		CipherSuites:     []uint16{0x1301, 0x1302, 0x1303, 0xc02b, 0xc02f, 0xc02c, 0xc030, 0xcca9, 0xcca8, 0xc013, 0xc014, 0x009c, 0x009d, 0x002f, 0x0035},
+		Extensions:       []uint16{0x001b, 0x0000, 0x0033, 0x0010, 0x4469, 0x0017, 0x002d, 0x000d, 0x0005, 0x0023, 0x0012, 0x002b, 0xff01, 0x000b, 0x000a, 0x0015},
+		ALPN:             "h2",
+		SignatureAlgs:    []uint16{0x0403, 0x0804, 0x0401, 0x0503, 0x0805, 0x0501, 0x0806, 0x0601},
 		SupportedVersion: 0x0304,
 	}
 
@@ -452,13 +452,13 @@ func BenchmarkComputeJA4_Large(b *testing.B) {
 
 func BenchmarkComputeJA4_WithGREASE(b *testing.B) {
 	params := JA4Params{
-		Protocol:     "t",
-		TLSVersion:   0x0303,
-		SNI:          true,
-		CipherSuites: []uint16{0x0a0a, 0x1301, 0x1302, 0x2a2a, 0x1303, 0x3a3a, 0xc02b, 0x4a4a},
-		Extensions:   []uint16{0x5a5a, 0x001b, 0x6a6a, 0x0000, 0x7a7a, 0x0010},
-		ALPN:         "h2",
-		SignatureAlgs: []uint16{0x8a8a, 0x0403, 0x9a9a, 0x0804},
+		Protocol:         "t",
+		TLSVersion:       0x0303,
+		SNI:              true,
+		CipherSuites:     []uint16{0x0a0a, 0x1301, 0x1302, 0x2a2a, 0x1303, 0x3a3a, 0xc02b, 0x4a4a},
+		Extensions:       []uint16{0x5a5a, 0x001b, 0x6a6a, 0x0000, 0x7a7a, 0x0010},
+		ALPN:             "h2",
+		SignatureAlgs:    []uint16{0x8a8a, 0x0403, 0x9a9a, 0x0804},
 		SupportedVersion: 0x0304,
 	}
 

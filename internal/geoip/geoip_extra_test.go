@@ -23,7 +23,7 @@ invalid-line
 short
 
 8.8.8.0,8.8.8.255,US
-`), 0644)
+`), 0o644)
 
 	db, err := LoadCSV(csv)
 	if err != nil {
@@ -42,7 +42,7 @@ func TestLoadCSV_InvalidIPs(t *testing.T) {
 bad,1.0.0.255,US
 1.0.0.0,bad,US
 1.0.0.0,1.0.0.255,TOOLONG
-`), 0644)
+`), 0o644)
 
 	db, err := LoadCSV(csv)
 	if err != nil {
@@ -60,7 +60,7 @@ func TestLoadCSV_InvalidCIDR(t *testing.T) {
 	_ = os.WriteFile(csv, []byte(`not-a-cidr,US
 10.0.0.0/8,TR
 300.0.0.0/8,XX
-`), 0644)
+`), 0o644)
 
 	db, err := LoadCSV(csv)
 	if err != nil {
@@ -92,7 +92,7 @@ func TestLookup_BoundaryIPs(t *testing.T) {
 	csv := filepath.Join(dir, "geo.csv")
 	_ = os.WriteFile(csv, []byte(`10.0.0.0,10.0.0.255,US
 10.0.1.0,10.0.1.255,TR
-`), 0644)
+`), 0o644)
 
 	db, err := LoadCSV(csv)
 	if err != nil {
@@ -103,10 +103,10 @@ func TestLookup_BoundaryIPs(t *testing.T) {
 		ip       string
 		expected string
 	}{
-		{"10.0.0.0", "US"},   // start of first range
-		{"10.0.0.255", "US"}, // end of first range
-		{"10.0.1.0", "TR"},   // start of second range
-		{"10.0.1.255", "TR"}, // end of second range
+		{"10.0.0.0", "US"},    // start of first range
+		{"10.0.0.255", "US"},  // end of first range
+		{"10.0.1.0", "TR"},    // start of second range
+		{"10.0.1.255", "TR"},  // end of second range
 		{"9.255.255.255", ""}, // just before range
 		{"10.0.2.0", ""},      // just after range
 	}
@@ -122,7 +122,7 @@ func TestLoadOrDownload_ExistingFile(t *testing.T) {
 	dir := t.TempDir()
 	csv := filepath.Join(dir, "geo.csv")
 	_ = os.WriteFile(csv, []byte(`1.0.0.0,1.0.0.255,AU
-`), 0644)
+`), 0o644)
 
 	db, err := LoadOrDownload(csv, "", 0)
 	if err != nil {
@@ -277,7 +277,7 @@ func TestDownloadDB_HTTPError(t *testing.T) {
 func TestLoadOrDownload_FreshFile(t *testing.T) {
 	dir := t.TempDir()
 	csv := filepath.Join(dir, "geo.csv")
-	_ = os.WriteFile(csv, []byte("1.0.0.0,1.0.0.255,AU\n"), 0644)
+	_ = os.WriteFile(csv, []byte("1.0.0.0,1.0.0.255,AU\n"), 0o644)
 
 	// maxAge > 0 and file is fresh
 	db, err := LoadOrDownload(csv, "", 24*time.Hour)
@@ -314,7 +314,7 @@ func TestLoadCSV_ExtraFieldsFormat(t *testing.T) {
 	// Format with extra columns (like MaxMind)
 	_ = os.WriteFile(csv, []byte(`1.0.0.0,1.0.0.255,AU,extra1,extra2
 8.8.8.0,8.8.8.255,US,extra
-`), 0644)
+`), 0o644)
 
 	db, err := LoadCSV(csv)
 	if err != nil {
@@ -333,7 +333,7 @@ func TestLoadCSV_ExtraFieldsFormat(t *testing.T) {
 func TestReload_Valid(t *testing.T) {
 	dir := t.TempDir()
 	csv := filepath.Join(dir, "geo.csv")
-	_ = os.WriteFile(csv, []byte("1.0.0.0,1.0.0.255,AU\n"), 0644)
+	_ = os.WriteFile(csv, []byte("1.0.0.0,1.0.0.255,AU\n"), 0o644)
 
 	db, err := LoadCSV(csv)
 	if err != nil {
@@ -344,7 +344,7 @@ func TestReload_Valid(t *testing.T) {
 	}
 
 	// Write new data and reload
-	_ = os.WriteFile(csv, []byte("8.8.8.0,8.8.8.255,US\n10.0.0.0,10.0.0.255,TR\n"), 0644)
+	_ = os.WriteFile(csv, []byte("8.8.8.0,8.8.8.255,US\n10.0.0.0,10.0.0.255,TR\n"), 0o644)
 	err = db.Reload(csv)
 	if err != nil {
 		t.Fatalf("Reload: %v", err)
@@ -360,7 +360,7 @@ func TestReload_Valid(t *testing.T) {
 func TestReload_InvalidPath(t *testing.T) {
 	dir := t.TempDir()
 	csv := filepath.Join(dir, "geo.csv")
-	_ = os.WriteFile(csv, []byte("1.0.0.0,1.0.0.255,AU\n"), 0644)
+	_ = os.WriteFile(csv, []byte("1.0.0.0,1.0.0.255,AU\n"), 0o644)
 
 	db, _ := LoadCSV(csv)
 	err := db.Reload(filepath.Join(dir, "nonexistent.csv"))
@@ -374,7 +374,7 @@ func TestReload_InvalidPath(t *testing.T) {
 func TestStartAutoRefresh_Stop(t *testing.T) {
 	dir := t.TempDir()
 	csv := filepath.Join(dir, "geo.csv")
-	_ = os.WriteFile(csv, []byte("1.0.0.0,1.0.0.255,AU\n"), 0644)
+	_ = os.WriteFile(csv, []byte("1.0.0.0,1.0.0.255,AU\n"), 0o644)
 
 	db, _ := LoadCSV(csv)
 	stop := db.StartAutoRefresh(csv, "", 100*time.Millisecond)
@@ -395,7 +395,7 @@ func TestStartAutoRefresh_WithDownloadURL(t *testing.T) {
 
 	dir := t.TempDir()
 	csv := filepath.Join(dir, "geo.csv")
-	_ = os.WriteFile(csv, []byte("1.0.0.0,1.0.0.255,AU\n"), 0644)
+	_ = os.WriteFile(csv, []byte("1.0.0.0,1.0.0.255,AU\n"), 0o644)
 
 	db, _ := LoadCSV(csv)
 	stop := db.StartAutoRefresh(csv, srv.URL+"/geo.csv", 100*time.Millisecond)
@@ -419,7 +419,7 @@ func TestStartAutoRefresh_WithDownloadURL(t *testing.T) {
 func TestStartAutoRefresh_DefaultInterval(t *testing.T) {
 	dir := t.TempDir()
 	csv := filepath.Join(dir, "geo.csv")
-	_ = os.WriteFile(csv, []byte("1.0.0.0,1.0.0.255,AU\n"), 0644)
+	_ = os.WriteFile(csv, []byte("1.0.0.0,1.0.0.255,AU\n"), 0o644)
 
 	db, _ := LoadCSV(csv)
 	// Zero interval → defaults to 24h. Just verify it starts and stops.
@@ -432,7 +432,7 @@ func TestStartAutoRefresh_DefaultInterval(t *testing.T) {
 func TestLoadOrDownload_StaleFile_WithFallback(t *testing.T) {
 	dir := t.TempDir()
 	csv := filepath.Join(dir, "geo.csv")
-	_ = os.WriteFile(csv, []byte("1.0.0.0,1.0.0.255,AU\n"), 0644)
+	_ = os.WriteFile(csv, []byte("1.0.0.0,1.0.0.255,AU\n"), 0o644)
 
 	// Make file "stale" by setting maxAge to 1ns — will try download
 	// Use a bad URL, but since old file exists it should fall back
@@ -454,7 +454,7 @@ func TestLoadOrDownload_StaleFile_DownloadSuccess(t *testing.T) {
 
 	dir := t.TempDir()
 	csv := filepath.Join(dir, "geo.csv")
-	_ = os.WriteFile(csv, []byte("1.0.0.0,1.0.0.255,AU\n"), 0644)
+	_ = os.WriteFile(csv, []byte("1.0.0.0,1.0.0.255,AU\n"), 0o644)
 
 	// Set file mod time to 2 days ago to make it stale
 	oldTime := time.Now().Add(-48 * time.Hour)

@@ -3033,16 +3033,7 @@ func TestAccessLog_JSON(t *testing.T) {
 	format := "json"
 
 	entry := engine.AccessLogEntry{
-		Timestamp:  "2024-01-01T00:00:00Z",
-		ClientIP:   "1.2.3.4",
-		Method:     "GET",
-		Path:       "/test",
-		StatusCode: 200,
-		Action:     "pass",
-		Score:      0,
-		Duration:   "100",
-		UserAgent:  "test-agent",
-		Findings:   0,
+		Action: "pass",
 	}
 
 	// Exercise the access log logic for allowed requests (JSON format)
@@ -3067,16 +3058,7 @@ func TestAccessLog_JSON(t *testing.T) {
 func TestAccessLog_Text(t *testing.T) {
 	// Test the text access log callback logic for blocked requests
 	entry := engine.AccessLogEntry{
-		Timestamp:  "2024-01-01T00:00:00Z",
-		ClientIP:   "5.6.7.8",
-		Method:     "POST",
-		Path:       "/admin",
-		StatusCode: 403,
-		Action:     "block",
-		Score:      75,
-		Duration:   "250",
-		UserAgent:  "malicious-bot",
-		Findings:   3,
+		Action: "block",
 	}
 
 	isBlocked := entry.Action == "block" || entry.Action == "challenge"

@@ -317,9 +317,15 @@ func TestSend_Server4xx(t *testing.T) {
 
 func TestSend_CustomHeaders(t *testing.T) {
 	var receivedHeaders http.Header
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	wg.Add(1)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
 		receivedHeaders = r.Header.Clone()
+		mu.Unlock()
+		wg.Done()
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
@@ -335,8 +341,10 @@ func TestSend_CustomHeaders(t *testing.T) {
 	})
 
 	m.HandleEvent(testEvent(engine.ActionBlock, 80, "1.2.3.4"))
-	time.Sleep(300 * time.Millisecond)
+	wg.Wait()
 
+	mu.Lock()
+	defer mu.Unlock()
 	if receivedHeaders.Get("X-Custom-Auth") != "Bearer test-token" {
 		t.Errorf("expected custom auth header, got %q", receivedHeaders.Get("X-Custom-Auth"))
 	}
@@ -347,9 +355,13 @@ func TestSend_CustomHeaders(t *testing.T) {
 
 func TestSend_GenericType(t *testing.T) {
 	var receivedBody map[string]any
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	wg.Add(1)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewDecoder(r.Body).Decode(&receivedBody)
+		wg.Done()
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
@@ -359,8 +371,10 @@ func TestSend_GenericType(t *testing.T) {
 	})
 
 	m.HandleEvent(testEvent(engine.ActionBlock, 80, "5.6.7.8"))
-	time.Sleep(300 * time.Millisecond)
+	wg.Wait()
 
+	mu.Lock()
+	defer mu.Unlock()
 	if receivedBody == nil {
 		t.Fatal("expected generic payload")
 	}

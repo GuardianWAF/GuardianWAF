@@ -41,12 +41,12 @@ func (k NodeKind) String() string {
 // Node is the core type of the YAML parser, representing any YAML value.
 type Node struct {
 	Kind     NodeKind
-	Value    string            // raw scalar value (for ScalarNode)
-	MapKeys  []string          // ordered keys (for MapNode)
-	MapItems map[string]*Node  // key-value pairs (for MapNode)
-	Items    []*Node           // items (for SequenceNode)
-	IsNull   bool              // true when the value is null/~
-	Line     int               // source line number (1-based)
+	Value    string           // raw scalar value (for ScalarNode)
+	MapKeys  []string         // ordered keys (for MapNode)
+	MapItems map[string]*Node // key-value pairs (for MapNode)
+	Items    []*Node          // items (for SequenceNode)
+	IsNull   bool             // true when the value is null/~
+	Line     int              // source line number (1-based)
 }
 
 // String returns the scalar value as a string.
@@ -1071,7 +1071,7 @@ func unescapeDoubleQuoted(s string) string {
 }
 
 // unescapeSingleQuoted processes single-quoted strings.
-// In YAML, single-quoted strings only escape '' as '.
+// In YAML, single-quoted strings only escape ” as '.
 func unescapeSingleQuoted(s string) string {
 	return strings.ReplaceAll(s, "''", "'")
 }
@@ -1109,5 +1109,3 @@ func (p *parser) skipBlankAndComments() {
 func (p *parser) lineNum() int {
 	return p.pos + 1
 }
-
-

@@ -73,6 +73,7 @@ func (m *mockEngine) TestRequest(method, url string, headers map[string]string) 
 		"action": "pass",
 	}, nil
 }
+
 func (m *mockEngine) GetAlertingStatus() any {
 	return map[string]any{
 		"enabled":       false,
@@ -80,6 +81,7 @@ func (m *mockEngine) GetAlertingStatus() any {
 		"email_count":   0,
 	}
 }
+
 func (m *mockEngine) AddWebhook(name, url, webhookType string, events []string, minScore int, cooldown string) error {
 	return nil
 }
@@ -88,7 +90,7 @@ func (m *mockEngine) AddEmailTarget(name, smtpHost string, smtpPort int, usernam
 	return nil
 }
 func (m *mockEngine) RemoveEmailTarget(name string) error { return nil }
-func (m *mockEngine) TestAlert(target string) error { return nil }
+func (m *mockEngine) TestAlert(target string) error       { return nil }
 
 // sendRequest encodes a JSON-RPC request and returns the written bytes.
 func sendRequest(id any, method string, params any) string {

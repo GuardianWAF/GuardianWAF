@@ -60,5 +60,6 @@ issues:
         - errcheck
         - gocritic
         - unparam
+        - bodyclose
   max-issues-per-linter: 50
   max-same-issues: 5

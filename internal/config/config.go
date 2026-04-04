@@ -44,19 +44,19 @@ type WebhookConfig struct {
 
 // EmailConfig defines SMTP email alert delivery.
 type EmailConfig struct {
-	Name       string        `yaml:"name"`
-	SMTPHost   string        `yaml:"smtp_host"`
-	SMTPPort   int           `yaml:"smtp_port"`
-	Username   string        `yaml:"username"`
-	Password   string        `yaml:"password"`
-	From       string        `yaml:"from"`
-	To         []string      `yaml:"to"`
-	UseTLS     bool          `yaml:"use_tls"`
-	Events     []string      `yaml:"events"`
-	MinScore   int           `yaml:"min_score"`
-	Cooldown   time.Duration `yaml:"cooldown"`
-	Subject    string        `yaml:"subject"`    // optional custom subject template
-	Template   string        `yaml:"template"`   // optional custom body template
+	Name     string        `yaml:"name"`
+	SMTPHost string        `yaml:"smtp_host"`
+	SMTPPort int           `yaml:"smtp_port"`
+	Username string        `yaml:"username"`
+	Password string        `yaml:"password"`
+	From     string        `yaml:"from"`
+	To       []string      `yaml:"to"`
+	UseTLS   bool          `yaml:"use_tls"`
+	Events   []string      `yaml:"events"`
+	MinScore int           `yaml:"min_score"`
+	Cooldown time.Duration `yaml:"cooldown"`
+	Subject  string        `yaml:"subject"`  // optional custom subject template
+	Template string        `yaml:"template"` // optional custom body template
 }
 
 // DockerConfig controls Docker container auto-discovery.

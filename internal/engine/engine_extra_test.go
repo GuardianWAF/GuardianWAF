@@ -416,9 +416,9 @@ func (m *mockChallengeService) ServeChallengePage(w http.ResponseWriter, _ *http
 
 func TestComputeJA4FromContext_AllTLSVersionsViaJA4Ver(t *testing.T) {
 	tests := []struct {
-		name    string
-		ja4Ver  uint16
-		want    string
+		name   string
+		ja4Ver uint16
+		want   string
 	}{
 		{"TLS 1.0 via JA4Ver", 0x0301, "t10"},
 		{"TLS 1.1 via JA4Ver", 0x0302, "t11"},
@@ -785,8 +785,8 @@ func TestLevelToInt_AllLevels(t *testing.T) {
 		{"info", LogLevelInfo},
 		{"warn", LogLevelWarn},
 		{"error", LogLevelError},
-		{"trace", LogLevelInfo}, // unknown defaults to info
-		{"", LogLevelInfo},      // empty defaults to info
+		{"trace", LogLevelInfo},   // unknown defaults to info
+		{"", LogLevelInfo},        // empty defaults to info
 		{"WARNING", LogLevelInfo}, // case-sensitive, defaults to info
 	}
 

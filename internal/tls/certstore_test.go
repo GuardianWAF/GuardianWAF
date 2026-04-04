@@ -256,7 +256,7 @@ func copyFile(t *testing.T, src, dst string) {
 	if err != nil {
 		t.Fatalf("reading %s: %v", src, err)
 	}
-	if err := os.WriteFile(dst, data, 0644); err != nil {
+	if err := os.WriteFile(dst, data, 0o644); err != nil {
 		t.Fatalf("writing %s: %v", dst, err)
 	}
 }

@@ -20,7 +20,11 @@ import (
 
 func TestCmdServe_DashboardClosuresProbe(t *testing.T) {
 	oldSignalNotify := signalNotify
-	defer func() { signalNotify = oldSignalNotify }()
+	oldOsExit := osExit
+	defer func() {
+		signalNotify = oldSignalNotify
+		osExit = oldOsExit
+	}()
 
 	shutdownCh := make(chan os.Signal, 1)
 	signalNotify = func(c chan<- os.Signal, sig ...os.Signal) {
@@ -29,6 +33,12 @@ func TestCmdServe_DashboardClosuresProbe(t *testing.T) {
 				c <- s
 			}
 		}()
+	}
+
+	// Capture os.Exit calls
+	exitCalled := make(chan int, 1)
+	osExit = func(code int) {
+		exitCalled <- code
 	}
 
 	ln1, _ := net.Listen("tcp", "127.0.0.1:0")
@@ -91,13 +101,27 @@ routes:
 		cmdServe([]string{"-config", cfgPath})
 	}()
 
-	for i := 0; i < 50; i++ {
+	// Wait for server to be ready with longer timeout for race detector
+	serverReady := false
+	for i := 0; i < 100; i++ {
+		// Check if os.Exit was called
+		select {
+		case code := <-exitCalled:
+			t.Fatalf("Server exited with code %d - config validation failed", code)
+		default:
+		}
+
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", dashPort), 50*time.Millisecond)
 		if err == nil {
 			conn.Close()
+			serverReady = true
 			break
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if !serverReady {
+		t.Fatal("Server failed to start within timeout")
 	}
 
 	// Trigger all dashboard mutation endpoints and verify 200

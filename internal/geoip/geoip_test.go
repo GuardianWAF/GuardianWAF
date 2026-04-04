@@ -28,7 +28,7 @@ func TestLoadCSVSimpleFormat(t *testing.T) {
 1.0.0.0,1.0.0.255,AU
 1.0.1.0,1.0.3.255,CN
 8.8.8.0,8.8.8.255,US
-`), 0644)
+`), 0o644)
 
 	db, err := LoadCSV(csv)
 	if err != nil {
@@ -46,7 +46,7 @@ func TestLoadCSVSimpleFormat(t *testing.T) {
 		{"1.0.0.255", "AU"},
 		{"1.0.1.100", "CN"},
 		{"8.8.8.8", "US"},
-		{"2.2.2.2", ""},  // not in DB
+		{"2.2.2.2", ""}, // not in DB
 		{"192.168.1.1", ""},
 	}
 	for _, tt := range tests {
@@ -63,7 +63,7 @@ func TestLoadCSVCIDRFormat(t *testing.T) {
 	_ = os.WriteFile(csv, []byte(`10.0.0.0/8,US
 172.16.0.0/12,DE
 192.168.0.0/16,TR
-`), 0644)
+`), 0o644)
 
 	db, err := LoadCSV(csv)
 	if err != nil {
@@ -138,7 +138,7 @@ func BenchmarkLookup(b *testing.B) {
 			net.IPv4(byte(hi), byte(lo), 0, 0).String()+","+
 				net.IPv4(byte(hi), byte(lo), 255, 255).String()+",US\n")...)
 	}
-	_ = os.WriteFile(csv, data, 0644)
+	_ = os.WriteFile(csv, data, 0o644)
 
 	db, _ := LoadCSV(csv)
 	ip := net.ParseIP("1.100.50.25")

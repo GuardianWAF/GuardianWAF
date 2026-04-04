@@ -110,8 +110,8 @@ func TestProcess_AllowedOrigin(t *testing.T) {
 	layer, _ := NewLayer(&cfg)
 
 	ctx := &engine.RequestContext{
-		Method:  "GET",
-		Headers: map[string][]string{"Origin": {"https://example.com"}},
+		Method:   "GET",
+		Headers:  map[string][]string{"Origin": {"https://example.com"}},
 		Metadata: make(map[string]any),
 	}
 
@@ -132,15 +132,15 @@ func TestProcess_AllowedOrigin(t *testing.T) {
 
 func TestProcess_BlockedOrigin_StrictMode(t *testing.T) {
 	cfg := Config{
-		Enabled:       true,
-		AllowOrigins:  []string{"https://example.com"},
-		StrictMode:    true,
+		Enabled:      true,
+		AllowOrigins: []string{"https://example.com"},
+		StrictMode:   true,
 	}
 	layer, _ := NewLayer(&cfg)
 
 	ctx := &engine.RequestContext{
-		Method:  "GET",
-		Headers: map[string][]string{"Origin": {"https://evil.com"}},
+		Method:   "GET",
+		Headers:  map[string][]string{"Origin": {"https://evil.com"}},
 		Metadata: make(map[string]any),
 	}
 
@@ -162,8 +162,8 @@ func TestProcess_BlockedOrigin_NonStrict(t *testing.T) {
 	layer, _ := NewLayer(&cfg)
 
 	ctx := &engine.RequestContext{
-		Method:  "GET",
-		Headers: map[string][]string{"Origin": {"https://evil.com"}},
+		Method:   "GET",
+		Headers:  map[string][]string{"Origin": {"https://evil.com"}},
 		Metadata: make(map[string]any),
 	}
 

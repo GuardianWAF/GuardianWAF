@@ -302,8 +302,8 @@ func TestCertDiskStore_LoadValidCachedCert(t *testing.T) {
 	keyDER, _ := x509.MarshalECPrivateKey(key)
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 
-	_ = os.WriteFile(filepath.Join(dir, "valid.com.crt"), certPEM, 0600)
-	_ = os.WriteFile(filepath.Join(dir, "valid.com.key"), keyPEM, 0600)
+	_ = os.WriteFile(filepath.Join(dir, "valid.com.crt"), certPEM, 0o600)
+	_ = os.WriteFile(filepath.Join(dir, "valid.com.key"), keyPEM, 0o600)
 
 	store := NewCertDiskStore(dir, nil, nil)
 	cert, err := store.LoadOrObtain([]string{"valid.com"})
@@ -700,8 +700,8 @@ func TestCertDiskStore_StoreCertMultipleDomains(t *testing.T) {
 	keyDER, _ := x509.MarshalECPrivateKey(key)
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 
-	_ = os.WriteFile(filepath.Join(store.cacheDir, "a.com.crt"), certPEM, 0600)
-	_ = os.WriteFile(filepath.Join(store.cacheDir, "a.com.key"), keyPEM, 0600)
+	_ = os.WriteFile(filepath.Join(store.cacheDir, "a.com.crt"), certPEM, 0o600)
+	_ = os.WriteFile(filepath.Join(store.cacheDir, "a.com.key"), keyPEM, 0o600)
 
 	cert, err := store.LoadOrObtain([]string{"a.com", "b.com", "c.com"})
 	if err != nil {
@@ -904,8 +904,8 @@ func TestRenewIfNeeded_ValidNotExpired(t *testing.T) {
 	keyDER, _ := x509.MarshalECPrivateKey(key)
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 
-	_ = os.WriteFile(filepath.Join(dir, "valid.com.crt"), certPEM, 0600)
-	_ = os.WriteFile(filepath.Join(dir, "valid.com.key"), keyPEM, 0600)
+	_ = os.WriteFile(filepath.Join(dir, "valid.com.crt"), certPEM, 0o600)
+	_ = os.WriteFile(filepath.Join(dir, "valid.com.key"), keyPEM, 0o600)
 
 	store := NewCertDiskStore(dir, nil, nil)
 	store.AddDomains([]string{"valid.com"})
@@ -919,8 +919,8 @@ func TestRenewIfNeeded_InvalidCertFile(t *testing.T) {
 	dir := t.TempDir()
 
 	// Write invalid cert data
-	_ = os.WriteFile(filepath.Join(dir, "bad.com.crt"), []byte("not a cert"), 0600)
-	_ = os.WriteFile(filepath.Join(dir, "bad.com.key"), []byte("not a key"), 0600)
+	_ = os.WriteFile(filepath.Join(dir, "bad.com.crt"), []byte("not a cert"), 0o600)
+	_ = os.WriteFile(filepath.Join(dir, "bad.com.key"), []byte("not a key"), 0o600)
 
 	store := NewCertDiskStore(dir, nil, nil)
 	store.AddDomains([]string{"bad.com"})
@@ -1012,8 +1012,8 @@ func TestRenewIfNeeded_NeedsRenewalWithMockClient(t *testing.T) {
 	keyDER, _ := x509.MarshalECPrivateKey(oldKey)
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 
-	_ = os.WriteFile(filepath.Join(dir, "expiring.com.crt"), certPEM, 0600)
-	_ = os.WriteFile(filepath.Join(dir, "expiring.com.key"), keyPEM, 0600)
+	_ = os.WriteFile(filepath.Join(dir, "expiring.com.crt"), certPEM, 0o600)
+	_ = os.WriteFile(filepath.Join(dir, "expiring.com.key"), keyPEM, 0o600)
 
 	// Create client and store with mock server
 	client := NewClient(srv.URL + "/directory")
@@ -1494,8 +1494,8 @@ func TestLoadOrObtain_CachedValidCert(t *testing.T) {
 	keyDER, _ := x509.MarshalECPrivateKey(key)
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 
-	_ = os.WriteFile(filepath.Join(dir, "cached.com.crt"), certPEM, 0600)
-	_ = os.WriteFile(filepath.Join(dir, "cached.com.key"), keyPEM, 0600)
+	_ = os.WriteFile(filepath.Join(dir, "cached.com.crt"), certPEM, 0o600)
+	_ = os.WriteFile(filepath.Join(dir, "cached.com.key"), keyPEM, 0o600)
 
 	// Store with nil client - should use cached cert
 	store := NewCertDiskStore(dir, nil, nil)
@@ -1626,7 +1626,7 @@ func TestLoadOrObtain_SaveError(t *testing.T) {
 
 	dir := t.TempDir()
 	readOnlyDir := filepath.Join(dir, "readonly")
-	_ = os.MkdirAll(readOnlyDir, 0555)
+	_ = os.MkdirAll(readOnlyDir, 0o555)
 
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	template := &x509.Certificate{
@@ -1642,11 +1642,11 @@ func TestLoadOrObtain_SaveError(t *testing.T) {
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 
 	// Pre-populate expired cert - will try to obtain new one
-	_ = os.WriteFile(filepath.Join(readOnlyDir, "test.com.crt"), certPEM, 0444)
-	_ = os.WriteFile(filepath.Join(readOnlyDir, "test.com.key"), keyPEM, 0444)
+	_ = os.WriteFile(filepath.Join(readOnlyDir, "test.com.crt"), certPEM, 0o444)
+	_ = os.WriteFile(filepath.Join(readOnlyDir, "test.com.key"), keyPEM, 0o444)
 
 	// Make directory read-only after writing
-	_ = os.Chmod(readOnlyDir, 0555)
+	_ = os.Chmod(readOnlyDir, 0o555)
 
 	// Create a mock client to avoid nil pointer panic
 	mux := http.NewServeMux()
@@ -1766,8 +1766,8 @@ func TestRenewIfNeeded_MultipleDomains(t *testing.T) {
 		keyDER, _ := x509.MarshalECPrivateKey(key)
 		keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 
-		_ = os.WriteFile(filepath.Join(dir, domain+".crt"), certPEM, 0600)
-		_ = os.WriteFile(filepath.Join(dir, domain+".key"), keyPEM, 0600)
+		_ = os.WriteFile(filepath.Join(dir, domain+".crt"), certPEM, 0o600)
+		_ = os.WriteFile(filepath.Join(dir, domain+".key"), keyPEM, 0o600)
 	}
 
 	store := NewCertDiskStore(dir, nil, nil)
@@ -1784,12 +1784,12 @@ func TestRenewIfNeeded_ParseError(t *testing.T) {
 
 	// Write cert with invalid DER (but valid PEM)
 	invalidPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: []byte("not a valid cert")})
-	_ = os.WriteFile(filepath.Join(dir, "bad.com.crt"), invalidPEM, 0600)
+	_ = os.WriteFile(filepath.Join(dir, "bad.com.crt"), invalidPEM, 0o600)
 
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	keyDER, _ := x509.MarshalECPrivateKey(key)
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
-	_ = os.WriteFile(filepath.Join(dir, "bad.com.key"), keyPEM, 0600)
+	_ = os.WriteFile(filepath.Join(dir, "bad.com.key"), keyPEM, 0o600)
 
 	store := NewCertDiskStore(dir, nil, nil)
 	store.AddDomains([]string{"bad.com"})
@@ -1945,8 +1945,8 @@ func TestRenewIfNeeded_NeedsRenewal(t *testing.T) {
 	keyDER, _ := x509.MarshalECPrivateKey(key)
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 
-	_ = os.WriteFile(filepath.Join(dir, "expiring.com.crt"), certPEM, 0600)
-	_ = os.WriteFile(filepath.Join(dir, "expiring.com.key"), keyPEM, 0600)
+	_ = os.WriteFile(filepath.Join(dir, "expiring.com.crt"), certPEM, 0o600)
+	_ = os.WriteFile(filepath.Join(dir, "expiring.com.key"), keyPEM, 0o600)
 
 	store := NewCertDiskStore(dir, nil, nil)
 	store.AddDomains([]string{"expiring.com"})
@@ -2022,8 +2022,8 @@ func TestLoadOrObtain_ValidCachedNotExpired(t *testing.T) {
 	keyDER, _ := x509.MarshalECPrivateKey(key)
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 
-	_ = os.WriteFile(filepath.Join(dir, "validcached.com.crt"), certPEM, 0600)
-	_ = os.WriteFile(filepath.Join(dir, "validcached.com.key"), keyPEM, 0600)
+	_ = os.WriteFile(filepath.Join(dir, "validcached.com.crt"), certPEM, 0o600)
+	_ = os.WriteFile(filepath.Join(dir, "validcached.com.key"), keyPEM, 0o600)
 
 	store := NewCertDiskStore(dir, nil, nil)
 
@@ -2580,8 +2580,8 @@ func TestStartRenewal_TickerFires(t *testing.T) {
 	keyDER, _ := x509.MarshalECPrivateKey(key)
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 
-	_ = os.WriteFile(filepath.Join(dir, "ticker.com.crt"), certPEM, 0600)
-	_ = os.WriteFile(filepath.Join(dir, "ticker.com.key"), keyPEM, 0600)
+	_ = os.WriteFile(filepath.Join(dir, "ticker.com.crt"), certPEM, 0o600)
+	_ = os.WriteFile(filepath.Join(dir, "ticker.com.key"), keyPEM, 0o600)
 
 	store := NewCertDiskStore(dir, nil, nil)
 	store.AddDomains([]string{"ticker.com"})
@@ -2614,8 +2614,8 @@ func TestLoadOrObtain_CachedCertNilLeaf(t *testing.T) {
 	keyDER, _ := x509.MarshalECPrivateKey(key)
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 
-	_ = os.WriteFile(filepath.Join(dir, "leafnil.com.crt"), certPEM, 0600)
-	_ = os.WriteFile(filepath.Join(dir, "leafnil.com.key"), keyPEM, 0600)
+	_ = os.WriteFile(filepath.Join(dir, "leafnil.com.crt"), certPEM, 0o600)
+	_ = os.WriteFile(filepath.Join(dir, "leafnil.com.key"), keyPEM, 0o600)
 
 	store := NewCertDiskStore(dir, nil, nil)
 	cert, err := store.LoadOrObtain([]string{"leafnil.com"})
@@ -2646,8 +2646,8 @@ func TestRenewIfNeeded_CertNilLeaf(t *testing.T) {
 	keyDER, _ := x509.MarshalECPrivateKey(key)
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 
-	_ = os.WriteFile(filepath.Join(dir, "leafnil2.com.crt"), certPEM, 0600)
-	_ = os.WriteFile(filepath.Join(dir, "leafnil2.com.key"), keyPEM, 0600)
+	_ = os.WriteFile(filepath.Join(dir, "leafnil2.com.crt"), certPEM, 0o600)
+	_ = os.WriteFile(filepath.Join(dir, "leafnil2.com.key"), keyPEM, 0o600)
 
 	store := NewCertDiskStore(dir, nil, nil)
 	store.AddDomains([]string{"leafnil2.com"})
@@ -3080,8 +3080,8 @@ func TestLoadOrObtain_ExpiredCertFallsThrough(t *testing.T) {
 	keyDER, _ := x509.MarshalECPrivateKey(key)
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 
-	_ = os.WriteFile(filepath.Join(dir, "expired.com.crt"), certPEM, 0600)
-	_ = os.WriteFile(filepath.Join(dir, "expired.com.key"), keyPEM, 0600)
+	_ = os.WriteFile(filepath.Join(dir, "expired.com.crt"), certPEM, 0o600)
+	_ = os.WriteFile(filepath.Join(dir, "expired.com.key"), keyPEM, 0o600)
 
 	client := NewClient(srv.URL + "/directory")
 	_ = client.Init(nil)
