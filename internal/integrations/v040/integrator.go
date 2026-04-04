@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/discovery"
@@ -15,6 +16,7 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/layers/cache"
 	"github.com/guardianwaf/guardianwaf/internal/layers/dlp"
 	"github.com/guardianwaf/guardianwaf/internal/layers/graphql"
+	"github.com/guardianwaf/guardianwaf/internal/layers/replay"
 	"github.com/guardianwaf/guardianwaf/internal/layers/siem"
 	"github.com/guardianwaf/guardianwaf/internal/layers/zerotrust"
 	"github.com/guardianwaf/guardianwaf/internal/ml/anomaly"
@@ -39,6 +41,7 @@ type Integrator struct {
 	zeroTrustService  *zerotrust.Service
 	siemExporter      *siem.Exporter
 	cacheLayer        *cache.Layer
+	replayManager     *replay.Manager
 
 	// HTTP handlers
 	biometricHandler http.HandlerFunc
@@ -119,6 +122,13 @@ func NewIntegrator(cfg *config.Config) (*Integrator, error) {
 	if cfg.WAF.Cache.Enabled {
 		if err := i.initCache(); err != nil {
 			return nil, fmt.Errorf("cache: %w", err)
+		}
+	}
+
+	// Initialize Request Replay (Phase 3)
+	if cfg.WAF.Replay.Enabled || cfg.WAF.Replay.Replay.Enabled {
+		if err := i.initReplay(); err != nil {
+			return nil, fmt.Errorf("replay: %w", err)
 		}
 	}
 
@@ -653,6 +663,9 @@ type Stats struct {
 	ZeroTrustRequireMTLS    bool `json:"zero_trust_require_mtls"`
 	SIEMEnabled             bool `json:"siem_enabled"`
 	SIEMFormat              string `json:"siem_format"`
+	CacheEnabled            bool   `json:"cache_enabled"`
+	ReplayEnabled           bool   `json:"replay_enabled"`
+	ReplayRecordingEnabled  bool   `json:"replay_recording_enabled"`
 }
 
 // GetStats returns the current integration statistics.
@@ -672,6 +685,9 @@ func (i *Integrator) GetStats() Stats {
 		ZeroTrustRequireMTLS:   i.cfg.WAF.ZeroTrust.RequireMTLS,
 		SIEMEnabled:            i.siemExporter != nil,
 		SIEMFormat:             i.cfg.WAF.SIEM.Format,
+		CacheEnabled:           i.cacheLayer != nil,
+		ReplayEnabled:          i.replayManager != nil,
+		ReplayRecordingEnabled: i.cfg.WAF.Replay.Enabled,
 	}
 
 	if i.tenantIntegrator != nil {
@@ -680,4 +696,61 @@ func (i *Integrator) GetStats() Stats {
 	}
 
 	return stats
+}
+
+// initReplay initializes the Request Replay manager.
+func (i *Integrator) initReplay() error {
+	replayCfg := i.cfg.WAF.Replay
+
+	cfg := &replay.ManagerConfig{
+		Recording: &replay.Config{
+			Enabled:         replayCfg.Enabled,
+			StoragePath:     replayCfg.StoragePath,
+			Format:          replay.RecordFormat(replayCfg.Format),
+			MaxFileSize:     replayCfg.MaxFileSize,
+			MaxFiles:        replayCfg.MaxFiles,
+			RetentionDays:   replayCfg.RetentionDays,
+			CaptureRequest:  replayCfg.CaptureRequest,
+			CaptureResponse: replayCfg.CaptureResponse,
+			CaptureHeaders:  replayCfg.CaptureHeaders,
+			SkipPaths:       replayCfg.SkipPaths,
+			SkipMethods:     replayCfg.SkipMethods,
+			Compress:        replayCfg.Compress,
+		},
+		Replay: &replay.ReplayerConfig{
+			Enabled:          replayCfg.Replay.Enabled,
+			TargetBaseURL:    replayCfg.Replay.TargetBaseURL,
+			RateLimit:        replayCfg.Replay.RateLimit,
+			Concurrency:      replayCfg.Replay.Concurrency,
+			Timeout:          replayCfg.Replay.Timeout,
+			FollowRedirects:  replayCfg.Replay.FollowRedirects,
+			ModifyHost:       replayCfg.Replay.ModifyHost,
+			PreserveIDs:      replayCfg.Replay.PreserveIDs,
+			DryRun:           replayCfg.Replay.DryRun,
+			Headers:          replayCfg.Replay.Headers,
+		},
+	}
+
+	manager, err := replay.NewManager(cfg)
+	if err != nil {
+		return err
+	}
+
+	i.replayManager = manager
+	log.Printf("[v0.4.0+] Request Replay enabled (recording=%v, replay=%v)",
+		replayCfg.Enabled, replayCfg.Replay.Enabled)
+	return nil
+}
+
+// GetReplayManager returns the replay manager.
+func (i *Integrator) GetReplayManager() *replay.Manager {
+	return i.replayManager
+}
+
+// RecordRequestForReplay captures a request/response for replay.
+func (i *Integrator) RecordRequestForReplay(req *http.Request, resp *http.Response, duration time.Duration) error {
+	if i.replayManager == nil {
+		return nil
+	}
+	return i.replayManager.Record(req, resp, duration)
 }

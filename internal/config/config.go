@@ -186,6 +186,7 @@ type WAFConfig struct {
 	ZeroTrust        ZeroTrustConfig        `yaml:"zero_trust"`
 	SIEM             SIEMConfig             `yaml:"siem"`
 	Cache            CacheConfig            `yaml:"cache"`
+	Replay           ReplayConfig           `yaml:"replay"`
 }
 
 // AIAnalysisConfig controls AI-powered threat analysis.
@@ -241,6 +242,37 @@ type CacheConfig struct {
 	SkipPaths            []string      `yaml:"skip_paths"`
 	MaxCacheSize         int           `yaml:"max_cache_size"` // KB per entry
 	StaleWhileRevalidate bool          `yaml:"stale_while_revalidate"`
+}
+
+// ReplayConfig controls request recording and replay settings.
+type ReplayConfig struct {
+	Enabled         bool          `yaml:"enabled"`
+	StoragePath     string        `yaml:"storage_path"`
+	Format          string        `yaml:"format"` // "json", "binary"
+	MaxFileSize     int64         `yaml:"max_file_size"` // MB
+	MaxFiles        int           `yaml:"max_files"`
+	RetentionDays   int           `yaml:"retention_days"`
+	CaptureRequest  bool          `yaml:"capture_request"`
+	CaptureResponse bool          `yaml:"capture_response"`
+	CaptureHeaders  []string      `yaml:"capture_headers"`
+	SkipPaths       []string      `yaml:"skip_paths"`
+	SkipMethods     []string      `yaml:"skip_methods"`
+	Compress        bool          `yaml:"compress"`
+	Replay          ReplayEngineConfig `yaml:"replay"`
+}
+
+// ReplayEngineConfig controls replay behavior.
+type ReplayEngineConfig struct {
+	Enabled          bool              `yaml:"enabled"`
+	TargetBaseURL    string            `yaml:"target_base_url"`
+	RateLimit        int               `yaml:"rate_limit"`
+	Concurrency      int               `yaml:"concurrency"`
+	Timeout          time.Duration     `yaml:"timeout"`
+	FollowRedirects  bool              `yaml:"follow_redirects"`
+	ModifyHost       bool              `yaml:"modify_host"`
+	PreserveIDs      bool              `yaml:"preserve_ids"`
+	DryRun           bool              `yaml:"dry_run"`
+	Headers          map[string]string `yaml:"headers"`
 }
 
 // SIEMConfig controls SIEM integration settings.
