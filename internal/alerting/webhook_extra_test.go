@@ -673,4 +673,3 @@ func TestPagerDutyPayload_Log(t *testing.T) {
 		t.Errorf("expected severity=info for log action, got %v", p["severity"])
 	}
 }
-

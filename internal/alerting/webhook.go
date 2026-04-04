@@ -44,10 +44,10 @@ type Alert struct {
 
 // Manager manages webhook and email delivery for security events.
 type Manager struct {
-	webhooks    []webhook
+	webhooks     []webhook
 	emailTargets []*EmailTarget
-	httpClient  *http.Client
-	logFn       func(level, msg string)
+	httpClient   *http.Client
+	logFn        func(level, msg string)
 
 	// Stats
 	sent   atomic.Int64
@@ -62,11 +62,11 @@ type webhook struct {
 
 // Stats holds alerting statistics.
 type Stats struct {
-	Sent         int64         `json:"sent"`
-	Failed       int64         `json:"failed"`
-	WebhookCount int           `json:"webhook_count"`
-	EmailCount   int           `json:"email_count"`
-	Email        EmailStats    `json:"email,omitempty"`
+	Sent         int64      `json:"sent"`
+	Failed       int64      `json:"failed"`
+	WebhookCount int        `json:"webhook_count"`
+	EmailCount   int        `json:"email_count"`
+	Email        EmailStats `json:"email,omitempty"`
 }
 
 // NewManager creates an alerting manager with the given webhook targets.

@@ -23,9 +23,9 @@ type EmailTarget struct {
 
 // EmailStats holds email alerting statistics.
 type EmailStats struct {
-	Sent       int64 `json:"sent"`
-	Failed     int64 `json:"failed"`
-	TargetCount int  `json:"target_count"`
+	Sent        int64 `json:"sent"`
+	Failed      int64 `json:"failed"`
+	TargetCount int   `json:"target_count"`
 }
 
 // emailSent and emailFailed are atomic counters for email stats.
