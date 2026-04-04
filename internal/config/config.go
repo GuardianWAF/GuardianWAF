@@ -188,6 +188,7 @@ type WAFConfig struct {
 	Cache            CacheConfig            `yaml:"cache"`
 	Replay           ReplayConfig           `yaml:"replay"`
 	Canary           CanaryConfig           `yaml:"canary"`
+	Analytics        AnalyticsConfig        `yaml:"analytics"`
 }
 
 // AIAnalysisConfig controls AI-powered threat analysis.
@@ -294,6 +295,16 @@ type CanaryConfig struct {
 	LatencyThreshold time.Duration     `yaml:"latency_threshold"`
 	HealthCheckPath  string            `yaml:"health_check_path"`
 	Metadata         map[string]string `yaml:"metadata"`
+}
+
+// AnalyticsConfig controls analytics and metrics collection.
+type AnalyticsConfig struct {
+	Enabled          bool          `yaml:"enabled"`
+	StoragePath      string        `yaml:"storage_path"`
+	RetentionDays    int           `yaml:"retention_days"`
+	FlushInterval    time.Duration `yaml:"flush_interval"`
+	MaxDataPoints    int           `yaml:"max_data_points"`
+	EnableTimeSeries bool          `yaml:"enable_time_series"`
 }
 
 // SIEMConfig controls SIEM integration settings.

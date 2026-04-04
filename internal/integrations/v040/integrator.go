@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/guardianwaf/guardianwaf/internal/analytics"
 	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/discovery"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
@@ -44,6 +45,7 @@ type Integrator struct {
 	cacheLayer        *cache.Layer
 	replayManager     *replay.Manager
 	canaryLayer       *canary.Layer
+	analyticsLayer    *analytics.Layer
 
 	// HTTP handlers
 	biometricHandler http.HandlerFunc
@@ -138,6 +140,13 @@ func NewIntegrator(cfg *config.Config) (*Integrator, error) {
 	if cfg.WAF.Canary.Enabled {
 		if err := i.initCanary(); err != nil {
 			return nil, fmt.Errorf("canary: %w", err)
+		}
+	}
+
+	// Initialize Analytics (Phase 4)
+	if cfg.WAF.Analytics.Enabled {
+		if err := i.initAnalytics(); err != nil {
+			return nil, fmt.Errorf("analytics: %w", err)
 		}
 	}
 
@@ -677,6 +686,7 @@ type Stats struct {
 	ReplayRecordingEnabled  bool   `json:"replay_recording_enabled"`
 	CanaryEnabled           bool   `json:"canary_enabled"`
 	CanaryStrategy          string `json:"canary_strategy"`
+	AnalyticsEnabled        bool   `json:"analytics_enabled"`
 }
 
 // GetStats returns the current integration statistics.
@@ -701,6 +711,7 @@ func (i *Integrator) GetStats() Stats {
 		ReplayRecordingEnabled: i.cfg.WAF.Replay.Enabled,
 		CanaryEnabled:          i.canaryLayer != nil,
 		CanaryStrategy:         i.cfg.WAF.Canary.Strategy,
+		AnalyticsEnabled:       i.analyticsLayer != nil,
 	}
 
 	if i.tenantIntegrator != nil {
@@ -816,4 +827,44 @@ func (i *Integrator) CanaryMiddleware(next http.Handler) http.Handler {
 	}
 	middleware := canary.NewMiddleware(i.canaryLayer.GetCanary())
 	return middleware.Handler(next)
+}
+
+// initAnalytics initializes the Analytics layer.
+func (i *Integrator) initAnalytics() error {
+	analyticsCfg := i.cfg.WAF.Analytics
+
+	cfg := &analytics.Config{
+		Enabled:          analyticsCfg.Enabled,
+		StoragePath:      analyticsCfg.StoragePath,
+		RetentionDays:    analyticsCfg.RetentionDays,
+		FlushInterval:    analyticsCfg.FlushInterval,
+		MaxDataPoints:    analyticsCfg.MaxDataPoints,
+		EnableTimeSeries: analyticsCfg.EnableTimeSeries,
+	}
+
+	layer, err := analytics.NewLayer(&analytics.LayerConfig{
+		Enabled: cfg.Enabled,
+		Config:  cfg,
+	})
+	if err != nil {
+		return err
+	}
+
+	i.analyticsLayer = layer
+	log.Printf("[v0.4.0+] Analytics enabled (storage=%s, retention=%d days)",
+		analyticsCfg.StoragePath, analyticsCfg.RetentionDays)
+	return nil
+}
+
+// GetAnalyticsLayer returns the analytics layer.
+func (i *Integrator) GetAnalyticsLayer() *analytics.Layer {
+	return i.analyticsLayer
+}
+
+// AnalyticsHandler returns the analytics HTTP handler.
+func (i *Integrator) AnalyticsHandler() http.Handler {
+	if i.analyticsLayer == nil {
+		return nil
+	}
+	return i.analyticsLayer.GetHandler()
 }

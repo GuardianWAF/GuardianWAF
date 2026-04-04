@@ -275,6 +275,14 @@ func DefaultConfig() *Config {
 				HealthCheckPath:  "/healthz",
 				Metadata:         make(map[string]string),
 			},
+			Analytics: AnalyticsConfig{
+				Enabled:          true,
+				StoragePath:      "data/analytics",
+				RetentionDays:    30,
+				FlushInterval:    60 * time.Second,
+				MaxDataPoints:    10000,
+				EnableTimeSeries: true,
+			},
 		},
 		Dashboard: DashboardConfig{
 			Enabled: true,
