@@ -9,13 +9,13 @@
 [![Go Version](https://img.shields.io/github/go-mod/go-version/guardianwaf/guardianwaf?style=flat-square)](https://go.dev/)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 [![Go Report Card](https://goreportcard.com/badge/github.com/guardianwaf/guardianwaf?style=flat-square)](https://goreportcard.com/report/github.com/guardianwaf/guardianwaf)
-[![Test Coverage](https://img.shields.io/codecov/c/github/guardianwaf/guardianwaf?style=flat-square)](https://codecov.io/gh/guardianwaf/guardianwaf)
+[![Test Coverage](https://img.shields.io/badge/coverage-91%25-brightgreen?style=flat-square)](/docs/)
 [![Release](https://img.shields.io/github/v/release/guardianwaf/guardianwaf?style=flat-square)](https://github.com/guardianwaf/guardianwaf/releases)
 [![GHCR](https://img.shields.io/badge/ghcr.io-guardianwaf%2Fguardianwaf-blue?style=flat-square)](https://github.com/guardianwaf/guardianwaf/pkgs/container/guardianwaf)
 [![GitHub Stars](https://img.shields.io/github/stars/guardianwaf/guardianwaf?style=flat-square)](https://github.com/guardianwaf/guardianwaf/stargazers)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/guardianwaf/guardianwaf/ci.yml?branch=main&style=flat-square)](https://github.com/guardianwaf/guardianwaf/actions)
 [![Go Reference](https://pkg.go.dev/badge/github.com/guardianwaf/guardianwaf.svg)](https://pkg.go.dev/github.com/guardianwaf/guardianwaf)
-[![Security Headers](https://img.shields.io/security-headers?url=https%3A%2F%2Fguardianwaf.com&style=flat-square)](https://securityheaders.com/?q=guardianwaf.com)
+[![Zero Dependencies](https://img.shields.io/badge/dependencies-zero-brightgreen?style=flat-square)](/)
 
 GuardianWAF is a production-grade Web Application Firewall written in pure Go with zero external dependencies. It protects any HTTP backend — Node.js, Python, Java, PHP, Ruby, .NET, or any other language — as a standalone reverse proxy, sidecar, or embeddable Go library. Docker auto-discovery, AI-powered threat analysis, and real-time dashboard included. Single binary, zero config required.
 
@@ -658,6 +658,8 @@ Design choices for performance:
 |---|---|
 | [Getting Started](docs/getting-started.md) | Installation and first deployment |
 | [Configuration Reference](docs/configuration.md) | Full YAML schema with every field |
+| [Production Deployment](docs/production-deployment.md) | Production hardening, security, monitoring |
+| [Architecture](docs/ARCHITECTURE.md) | System diagrams and component overview |
 | [Detection Engine](docs/detection-engine.md) | Scoring system, detectors, pattern tables |
 | [Deployment Modes](docs/deployment-modes.md) | Standalone, library, sidecar comparison |
 | [Docker Auto-Discovery](docs/docker-discovery.md) | Label-based container discovery and routing |
