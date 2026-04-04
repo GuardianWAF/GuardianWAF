@@ -3,9 +3,7 @@ version: "3.9"
 services:
   # GuardianWAF sidecar proxy
   guardianwaf:
-    build:
-      context: ../..
-      dockerfile: Dockerfile
+    image: ghcr.io/guardianwaf/guardianwaf:latest
     ports:
       - "8088:8088"
     command: ["sidecar", "--upstream", "http://app:3000", "--listen", ":8088"]

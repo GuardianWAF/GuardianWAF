@@ -11,7 +11,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/guardianwaf/guardianwaf?style=flat-square)](https://goreportcard.com/report/github.com/guardianwaf/guardianwaf)
 [![Test Coverage](https://img.shields.io/codecov/c/github/guardianwaf/guardianwaf?style=flat-square)](https://codecov.io/gh/guardianwaf/guardianwaf)
 [![Release](https://img.shields.io/github/v/release/guardianwaf/guardianwaf?style=flat-square)](https://github.com/guardianwaf/guardianwaf/releases)
-[![Docker Pulls](https://img.shields.io/docker/pulls/guardianwaf/guardianwaf?style=flat-square)](https://hub.docker.com/r/guardianwaf/guardianwaf)
+[![GHCR](https://img.shields.io/badge/ghcr.io-guardianwaf%2Fguardianwaf-blue?style=flat-square)](https://github.com/guardianwaf/guardianwaf/pkgs/container/guardianwaf)
 [![GitHub Stars](https://img.shields.io/github/stars/guardianwaf/guardianwaf?style=flat-square)](https://github.com/guardianwaf/guardianwaf/stargazers)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/guardianwaf/guardianwaf/ci.yml?branch=main&style=flat-square)](https://github.com/guardianwaf/guardianwaf/actions)
 [![Go Reference](https://pkg.go.dev/badge/github.com/guardianwaf/guardianwaf.svg)](https://pkg.go.dev/github.com/guardianwaf/guardianwaf)
@@ -210,7 +210,7 @@ http.ListenAndServe(":8088", waf.Middleware(myHandler))
 
 ```bash
 docker run -d -p 8088:8088 \
-  guardianwaf/guardianwaf:latest \
+  ghcr.io/guardianwaf/guardianwaf:latest \
   sidecar --upstream http://app:3000
 ```
 
@@ -221,7 +221,7 @@ No upstream config needed -- just add `gwaf.*` labels to your containers:
 ```yaml
 services:
   guardianwaf:
-    image: guardianwaf/guardianwaf:latest
+    image: ghcr.io/guardianwaf/guardianwaf:latest
     ports:
       - "80:8088"
       - "9443:9443"
@@ -408,10 +408,10 @@ chmod +x guardianwaf
 sudo mv guardianwaf /usr/local/bin/
 ```
 
-### Docker
+### Docker (GHCR)
 
 ```bash
-docker pull guardianwaf/guardianwaf:latest
+docker pull ghcr.io/guardianwaf/guardianwaf:latest
 ```
 
 ### Build from Source

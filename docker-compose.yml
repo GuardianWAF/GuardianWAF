@@ -1,6 +1,6 @@
 services:
   guardianwaf:
-    build: .
+    image: ghcr.io/guardianwaf/guardianwaf:latest
     ports:
       - "18088:8088"
       - "9443:9443"
