@@ -321,7 +321,7 @@ func TestCacheTTL(t *testing.T) {
 }
 
 func TestParseJSONL(t *testing.T) {
-	fm := NewFeedManager(FeedConfig{Format: "jsonl"})
+	fm := NewFeedManager(&FeedConfig{Format: "jsonl"})
 
 	jsonl := `{"ip": "192.0.2.1", "score": 90, "type": "malware_c2", "source": "test"}
 {"cidr": "10.0.0.0/8", "score": 80, "type": "internal", "source": "internal"}
@@ -348,7 +348,7 @@ func TestParseJSONL(t *testing.T) {
 }
 
 func TestParseCSV(t *testing.T) {
-	fm := NewFeedManager(FeedConfig{Format: "csv"})
+	fm := NewFeedManager(&FeedConfig{Format: "csv"})
 
 	csv := `# comment
 192.0.2.1,90,malware_c2,test

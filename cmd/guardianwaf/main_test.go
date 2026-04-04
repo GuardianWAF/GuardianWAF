@@ -292,16 +292,16 @@ func newTestAdapter(t *testing.T) *mcpEngineAdapter {
 		t.Fatalf("NewEngine error: %v", err)
 	}
 	// Add IP ACL layer for testing
-	ipaclLayer, err := ipacl.NewLayer(ipacl.Config{Enabled: true})
+	ipaclLayer, err := ipacl.NewLayer(&ipacl.Config{Enabled: true})
 	if err != nil {
 		t.Fatalf("NewLayer ipacl error: %v", err)
 	}
 	eng.AddLayer(engine.OrderedLayer{Layer: ipaclLayer, Order: 100})
 	// Add rate limit layer for testing
-	rlLayer := ratelimit.NewLayer(ratelimit.Config{Enabled: true})
+	rlLayer := ratelimit.NewLayer(&ratelimit.Config{Enabled: true})
 	eng.AddLayer(engine.OrderedLayer{Layer: rlLayer, Order: 200})
 	// Add detection layer for testing
-	detLayer := detection.NewLayer(detection.Config{
+	detLayer := detection.NewLayer(&detection.Config{
 		Enabled: true,
 		Detectors: map[string]detection.DetectorConfig{
 			"sqli": {Enabled: true, Multiplier: 1.0},
@@ -2445,7 +2445,7 @@ func TestMCPEngineAdapter_AddRateLimit(t *testing.T) {
 		t.Fatalf("NewEngine error: %v", err)
 	}
 	defer eng.Close()
-	eng.AddLayer(engine.OrderedLayer{Layer: ratelimit.NewLayer(ratelimit.Config{Enabled: true}), Order: 200})
+	eng.AddLayer(engine.OrderedLayer{Layer: ratelimit.NewLayer(&ratelimit.Config{Enabled: true}), Order: 200})
 
 	adapter := &mcpEngineAdapter{engine: eng, cfg: cfg, eventStore: store}
 	err = adapter.AddRateLimit(map[string]any{"id": "r1", "scope": "ip", "limit": 10, "window": "1m", "action": "block"})
@@ -2464,7 +2464,7 @@ func TestMCPEngineAdapter_RemoveRateLimit(t *testing.T) {
 		t.Fatalf("NewEngine error: %v", err)
 	}
 	defer eng.Close()
-	rlLayer := ratelimit.NewLayer(ratelimit.Config{Enabled: true})
+	rlLayer := ratelimit.NewLayer(&ratelimit.Config{Enabled: true})
 	eng.AddLayer(engine.OrderedLayer{Layer: rlLayer, Order: 200})
 
 	adapter := &mcpEngineAdapter{engine: eng, cfg: cfg, eventStore: store}
@@ -2486,7 +2486,7 @@ func TestMCPEngineAdapter_AddExclusion(t *testing.T) {
 		t.Fatalf("NewEngine error: %v", err)
 	}
 	defer eng.Close()
-	eng.AddLayer(engine.OrderedLayer{Layer: detection.NewLayer(detection.Config{Enabled: true}), Order: 400})
+	eng.AddLayer(engine.OrderedLayer{Layer: detection.NewLayer(&detection.Config{Enabled: true}), Order: 400})
 
 	adapter := &mcpEngineAdapter{engine: eng, cfg: cfg, eventStore: store}
 	err = adapter.AddExclusion("/api", []string{"sqli"}, "test reason")
@@ -2505,7 +2505,7 @@ func TestMCPEngineAdapter_RemoveExclusion(t *testing.T) {
 		t.Fatalf("NewEngine error: %v", err)
 	}
 	defer eng.Close()
-	eng.AddLayer(engine.OrderedLayer{Layer: detection.NewLayer(detection.Config{Enabled: true}), Order: 400})
+	eng.AddLayer(engine.OrderedLayer{Layer: detection.NewLayer(&detection.Config{Enabled: true}), Order: 400})
 
 	adapter := &mcpEngineAdapter{engine: eng, cfg: cfg, eventStore: store}
 	// Add first, then remove

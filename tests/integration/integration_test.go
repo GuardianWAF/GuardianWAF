@@ -36,7 +36,7 @@ func setupIntegrationEngine(t testing.TB) (*engine.Engine, *ipacl.Layer) {
 	}
 
 	// IP ACL layer
-	ipaclLayer, err := ipacl.NewLayer(ipacl.Config{
+	ipaclLayer, err := ipacl.NewLayer(&ipacl.Config{
 		Enabled: true,
 		AutoBan: ipacl.AutoBanConfig{Enabled: true, DefaultTTL: time.Hour, MaxTTL: 24 * time.Hour},
 	})
@@ -46,7 +46,7 @@ func setupIntegrationEngine(t testing.TB) (*engine.Engine, *ipacl.Layer) {
 	eng.AddLayer(engine.OrderedLayer{Layer: ipaclLayer, Order: engine.OrderIPACL})
 
 	// Rate limit layer
-	rlLayer := ratelimit.NewLayer(ratelimit.Config{
+	rlLayer := ratelimit.NewLayer(&ratelimit.Config{
 		Enabled: true,
 		Rules: []ratelimit.Rule{
 			{ID: "global", Scope: "ip", Limit: 100, Window: time.Minute, Burst: 10, Action: "block"},
@@ -63,7 +63,7 @@ func setupIntegrationEngine(t testing.TB) (*engine.Engine, *ipacl.Layer) {
 	eng.AddLayer(engine.OrderedLayer{Layer: detLayer, Order: engine.OrderDetection})
 
 	// Bot detection layer (monitor mode)
-	bdLayer := botdetect.NewLayer(botdetect.Config{
+	bdLayer := botdetect.NewLayer(&botdetect.Config{
 		Enabled: true,
 		Mode:    "monitor",
 		UserAgent: botdetect.UAConfig{
@@ -75,7 +75,7 @@ func setupIntegrationEngine(t testing.TB) (*engine.Engine, *ipacl.Layer) {
 	eng.AddLayer(engine.OrderedLayer{Layer: bdLayer, Order: engine.OrderBotDetect})
 
 	// Response layer
-	respLayer := response.NewLayer(response.Config{
+	respLayer := response.NewLayer(&response.Config{
 		SecurityHeadersEnabled: true,
 		ErrorPageMode:          "production",
 	})
@@ -85,7 +85,7 @@ func setupIntegrationEngine(t testing.TB) (*engine.Engine, *ipacl.Layer) {
 }
 
 func newSanitizer() *sanitizer.Layer {
-	return sanitizer.NewLayer(sanitizer.Config{
+	return sanitizer.NewLayer(&sanitizer.Config{
 		MaxURLLength:   8192,
 		MaxHeaderSize:  8192,
 		MaxHeaderCount: 100,
@@ -98,7 +98,7 @@ func newSanitizer() *sanitizer.Layer {
 }
 
 func newFullDetection() *detection.Layer {
-	return detection.NewLayer(detection.Config{
+	return detection.NewLayer(&detection.Config{
 		Enabled: true,
 		Detectors: map[string]detection.DetectorConfig{
 			"sqli": {Enabled: true, Multiplier: 1.0},
@@ -270,7 +270,7 @@ func TestIntegration_BlacklistBlocked(t *testing.T) {
 	}
 	defer eng.Close()
 
-	ipaclLayer, err := ipacl.NewLayer(ipacl.Config{
+	ipaclLayer, err := ipacl.NewLayer(&ipacl.Config{
 		Enabled:   true,
 		Blacklist: []string{"6.6.6.6"},
 	})
@@ -304,7 +304,7 @@ func TestIntegration_WhitelistBypass(t *testing.T) {
 	}
 	defer eng.Close()
 
-	ipaclLayer, err := ipacl.NewLayer(ipacl.Config{
+	ipaclLayer, err := ipacl.NewLayer(&ipacl.Config{
 		Enabled:   true,
 		Whitelist: []string{"10.0.0.1"},
 	})
@@ -346,7 +346,7 @@ func TestIntegration_ScoreAccumulation(t *testing.T) {
 
 	eng.AddLayer(engine.OrderedLayer{Layer: newSanitizer(), Order: engine.OrderSanitizer})
 	eng.AddLayer(engine.OrderedLayer{
-		Layer: detection.NewLayer(detection.Config{
+		Layer: detection.NewLayer(&detection.Config{
 			Enabled: true,
 			Detectors: map[string]detection.DetectorConfig{
 				"sqli": {Enabled: true, Multiplier: 1.0},
@@ -392,7 +392,7 @@ func TestIntegration_PathExclusion(t *testing.T) {
 
 	eng.AddLayer(engine.OrderedLayer{Layer: newSanitizer(), Order: engine.OrderSanitizer})
 	eng.AddLayer(engine.OrderedLayer{
-		Layer: detection.NewLayer(detection.Config{
+		Layer: detection.NewLayer(&detection.Config{
 			Enabled: true,
 			Detectors: map[string]detection.DetectorConfig{
 				"sqli": {Enabled: true, Multiplier: 1.0},

@@ -9,7 +9,7 @@ import (
 // --- AddExclusion ---
 
 func TestLayer_AddExclusion(t *testing.T) {
-	layer := NewLayer(Config{Enabled: true})
+	layer := NewLayer(&Config{Enabled: true})
 
 	exc := Exclusion{PathPrefix: "/api/health", Detectors: []string{"sqli"}, Reason: "false positive"}
 	layer.AddExclusion(exc)
@@ -23,7 +23,7 @@ func TestLayer_AddExclusion(t *testing.T) {
 }
 
 func TestLayer_AddExclusion_ReplaceExisting(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Exclusions: []Exclusion{
 			{PathPrefix: "/api/health", Detectors: []string{"sqli"}},
@@ -45,7 +45,7 @@ func TestLayer_AddExclusion_ReplaceExisting(t *testing.T) {
 }
 
 func TestLayer_AddExclusion_MultipleDistinct(t *testing.T) {
-	layer := NewLayer(Config{Enabled: true})
+	layer := NewLayer(&Config{Enabled: true})
 
 	layer.AddExclusion(Exclusion{PathPrefix: "/a"})
 	layer.AddExclusion(Exclusion{PathPrefix: "/b"})
@@ -58,7 +58,7 @@ func TestLayer_AddExclusion_MultipleDistinct(t *testing.T) {
 // --- RemoveExclusion ---
 
 func TestLayer_RemoveExclusion(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Exclusions: []Exclusion{
 			{PathPrefix: "/api/health"},
@@ -79,7 +79,7 @@ func TestLayer_RemoveExclusion(t *testing.T) {
 }
 
 func TestLayer_RemoveExclusion_NotFound(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled:    true,
 		Exclusions: []Exclusion{{PathPrefix: "/api/health"}},
 	})
@@ -96,7 +96,7 @@ func TestLayer_RemoveExclusion_NotFound(t *testing.T) {
 // --- Process with exclusions ---
 
 func TestLayer_Process_Excluded(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Detectors: map[string]DetectorConfig{
 			"sqli": {Enabled: true},
@@ -121,7 +121,7 @@ func TestLayer_Process_Excluded(t *testing.T) {
 }
 
 func TestLayer_Process_NotExcludedPath(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Detectors: map[string]DetectorConfig{
 			"sqli": {Enabled: true},

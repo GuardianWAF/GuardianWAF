@@ -450,14 +450,16 @@ func TestErrorPage_VariousCodes(t *testing.T) {
 // --- Layer Integration Tests ---
 
 func TestLayer_Name(t *testing.T) {
-	layer := NewLayer(DefaultConfig())
+	cfg := DefaultConfig()
+	layer := NewLayer(&cfg)
 	if layer.Name() != "response" {
 		t.Errorf("expected layer name 'response', got %q", layer.Name())
 	}
 }
 
 func TestLayer_Process(t *testing.T) {
-	layer := NewLayer(DefaultConfig())
+	cfg := DefaultConfig()
+	layer := NewLayer(&cfg)
 
 	ctx := &engine.RequestContext{
 		Request: &http.Request{
@@ -526,7 +528,8 @@ func TestLayer_Process_NoSecurityHeaders(t *testing.T) {
 }
 
 func TestLayer_ApplyToResponse(t *testing.T) {
-	layer := NewLayer(DefaultConfig())
+	cfg := DefaultConfig()
+	layer := NewLayer(&cfg)
 
 	body := "Card: 4111111111111111 SSN: 123-45-6789"
 	result := layer.ApplyToResponse(body)

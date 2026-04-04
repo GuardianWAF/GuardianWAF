@@ -115,7 +115,7 @@ func TestCache_GetExpired(t *testing.T) {
 // --- Feed Manager Tests ---
 
 func TestFeedManager_SetUpdateCallback(t *testing.T) {
-	fm := NewFeedManager(FeedConfig{Format: "jsonl"})
+	fm := NewFeedManager(&FeedConfig{Format: "jsonl"})
 	called := false
 	fm.SetUpdateCallback(func(entries []ThreatEntry) { called = true })
 	fm.onUpdate([]ThreatEntry{})
@@ -125,7 +125,7 @@ func TestFeedManager_SetUpdateCallback(t *testing.T) {
 }
 
 func TestFeedManager_LoadOnce_UnknownType(t *testing.T) {
-	fm := NewFeedManager(FeedConfig{Type: "unknown"})
+	fm := NewFeedManager(&FeedConfig{Type: "unknown"})
 	_, err := fm.LoadOnce(context.Background())
 	if err == nil {
 		t.Error("expected error for unknown type")
@@ -133,7 +133,7 @@ func TestFeedManager_LoadOnce_UnknownType(t *testing.T) {
 }
 
 func TestFeedManager_ParseJSON(t *testing.T) {
-	fm := NewFeedManager(FeedConfig{Format: "json"})
+	fm := NewFeedManager(&FeedConfig{Format: "json"})
 
 	data := []map[string]any{
 		{"ip": "1.2.3.4", "score": float64(90), "type": "malware_c2", "source": "test"},
@@ -157,7 +157,7 @@ func TestFeedManager_ParseJSON(t *testing.T) {
 }
 
 func TestFeedManager_ParseJSON_DefaultScore(t *testing.T) {
-	fm := NewFeedManager(FeedConfig{Format: "json"})
+	fm := NewFeedManager(&FeedConfig{Format: "json"})
 	data := []map[string]any{
 		{"ip": "1.2.3.4"}, // no score → default 50
 	}
@@ -173,7 +173,7 @@ func TestFeedManager_ParseJSON_DefaultScore(t *testing.T) {
 }
 
 func TestFeedManager_ParseJSON_SkipEmpty(t *testing.T) {
-	fm := NewFeedManager(FeedConfig{Format: "json"})
+	fm := NewFeedManager(&FeedConfig{Format: "json"})
 	data := []map[string]any{
 		{"score": float64(90)}, // no ip/cidr/domain → skip
 	}
@@ -186,7 +186,7 @@ func TestFeedManager_ParseJSON_SkipEmpty(t *testing.T) {
 }
 
 func TestFeedManager_ParseReader_UnknownFormat(t *testing.T) {
-	fm := NewFeedManager(FeedConfig{Format: "xml"})
+	fm := NewFeedManager(&FeedConfig{Format: "xml"})
 	_, err := fm.parseReader(strings.NewReader(""))
 	if err == nil {
 		t.Error("expected error for unknown format")
@@ -194,7 +194,7 @@ func TestFeedManager_ParseReader_UnknownFormat(t *testing.T) {
 }
 
 func TestFeedManager_LoadFile_NotFound(t *testing.T) {
-	fm := NewFeedManager(FeedConfig{Type: "file", Path: "/nonexistent/file.txt", Format: "csv"})
+	fm := NewFeedManager(&FeedConfig{Type: "file", Path: "/nonexistent/file.txt", Format: "csv"})
 	_, err := fm.LoadOnce(context.Background())
 	if err == nil {
 		t.Error("expected error for missing file")
@@ -212,7 +212,7 @@ func TestFeedManager_LoadFile_CSV(t *testing.T) {
 	f.WriteString("10.0.0.0/8,80,internal,local\n")
 	f.Close()
 
-	fm := NewFeedManager(FeedConfig{Type: "file", Path: f.Name(), Format: "csv"})
+	fm := NewFeedManager(&FeedConfig{Type: "file", Path: f.Name(), Format: "csv"})
 	entries, err := fm.LoadOnce(context.Background())
 	if err != nil {
 		t.Fatalf("LoadOnce failed: %v", err)
@@ -231,7 +231,7 @@ func TestFeedManager_LoadURL(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	fm := NewFeedManager(FeedConfig{Type: "url", URL: srv.URL, Format: "json"})
+	fm := NewFeedManager(&FeedConfig{Type: "url", URL: srv.URL, Format: "json"})
 	entries, err := fm.LoadOnce(context.Background())
 	if err != nil {
 		t.Fatalf("LoadOnce URL failed: %v", err)
@@ -250,7 +250,7 @@ func TestFeedManager_LoadURL_ErrorStatus(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	fm := NewFeedManager(FeedConfig{Type: "url", URL: srv.URL, Format: "json"})
+	fm := NewFeedManager(&FeedConfig{Type: "url", URL: srv.URL, Format: "json"})
 	_, err := fm.LoadOnce(context.Background())
 	if err == nil {
 		t.Error("expected error for 500 status")
@@ -258,7 +258,7 @@ func TestFeedManager_LoadURL_ErrorStatus(t *testing.T) {
 }
 
 func TestFeedManager_Stop(t *testing.T) {
-	fm := NewFeedManager(FeedConfig{Format: "jsonl", Refresh: 1 * time.Hour})
+	fm := NewFeedManager(&FeedConfig{Format: "jsonl", Refresh: 1 * time.Hour})
 	fm.Stop()
 }
 
@@ -424,7 +424,7 @@ func TestParseInt_Empty(t *testing.T) {
 // --- parseJSONL edge cases ---
 
 func TestParseJSONL_EmptyLine(t *testing.T) {
-	fm := NewFeedManager(FeedConfig{Format: "jsonl"})
+	fm := NewFeedManager(&FeedConfig{Format: "jsonl"})
 	input := "\n\n# comment\n"
 	entries, err := fm.parseJSONL(strings.NewReader(input))
 	if err != nil {
@@ -436,7 +436,7 @@ func TestParseJSONL_EmptyLine(t *testing.T) {
 }
 
 func TestParseJSONL_MalformedJSON(t *testing.T) {
-	fm := NewFeedManager(FeedConfig{Format: "jsonl"})
+	fm := NewFeedManager(&FeedConfig{Format: "jsonl"})
 	input := "not-json\n{\"ip\": \"1.2.3.4\"}\n"
 	entries, err := fm.parseJSONL(strings.NewReader(input))
 	if err != nil {
@@ -448,7 +448,7 @@ func TestParseJSONL_MalformedJSON(t *testing.T) {
 }
 
 func TestParseJSONL_NoIdentifier(t *testing.T) {
-	fm := NewFeedManager(FeedConfig{Format: "jsonl"})
+	fm := NewFeedManager(&FeedConfig{Format: "jsonl"})
 	input := `{"score": 90, "type": "test"}`
 	entries, _ := fm.parseJSONL(strings.NewReader(input))
 	if len(entries) != 0 {
@@ -459,7 +459,7 @@ func TestParseJSONL_NoIdentifier(t *testing.T) {
 // --- parseCSV edge cases ---
 
 func TestParseCSV_EmptyIP(t *testing.T) {
-	fm := NewFeedManager(FeedConfig{Format: "csv"})
+	fm := NewFeedManager(&FeedConfig{Format: "csv"})
 	input := ",90,test,src\n"
 	entries, _ := fm.parseCSV(strings.NewReader(input))
 	if len(entries) != 0 {
@@ -468,7 +468,7 @@ func TestParseCSV_EmptyIP(t *testing.T) {
 }
 
 func TestParseCSV_DefaultFormat(t *testing.T) {
-	fm := NewFeedManager(FeedConfig{Format: "jsonl"})
+	fm := NewFeedManager(&FeedConfig{Format: "jsonl"})
 	input := `{"ip": "1.2.3.4", "score": 70, "type": "scanner"}`
 	entries, err := fm.parseReader(strings.NewReader(input))
 	if err != nil {
@@ -498,7 +498,7 @@ func TestGetHost_EmptySlice(t *testing.T) {
 // --- parseJSONL with default score ---
 
 func TestParseJSONL_DefaultScore(t *testing.T) {
-	fm := NewFeedManager(FeedConfig{Format: "jsonl"})
+	fm := NewFeedManager(&FeedConfig{Format: "jsonl"})
 	input := `{"ip": "1.2.3.4", "type": "test"}`
 	entries, _ := fm.parseJSONL(strings.NewReader(input))
 	if len(entries) != 1 {
@@ -577,7 +577,7 @@ func TestProcess_DomainBlocked_HighScore(t *testing.T) {
 // --- FeedManager Start/Stop/refreshLoop ---
 
 func TestFeedManager_StartStop_Immediate(t *testing.T) {
-	fm := NewFeedManager(FeedConfig{Type: "url", URL: "http://127.0.0.1:1/feed", Refresh: 0})
+	fm := NewFeedManager(&FeedConfig{Type: "url", URL: "http://127.0.0.1:1/feed", Refresh: 0})
 	fm.Start()
 	// Should not panic even with refresh=0
 	time.Sleep(50 * time.Millisecond)
@@ -594,7 +594,7 @@ func TestFeedManager_StartStop_WithRefresh(t *testing.T) {
 	defer srv.Close()
 
 	var updatedEntries []ThreatEntry
-	fm := NewFeedManager(FeedConfig{
+	fm := NewFeedManager(&FeedConfig{
 		Type:    "url",
 		URL:     srv.URL + "/feed",
 		Refresh: 100 * time.Millisecond,
@@ -623,7 +623,7 @@ func TestFeedManager_loadURL_InvalidStatus(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	fm := NewFeedManager(FeedConfig{Type: "url", URL: srv.URL + "/feed"})
+	fm := NewFeedManager(&FeedConfig{Type: "url", URL: srv.URL + "/feed"})
 	_, err := fm.LoadOnce(context.Background())
 	if err == nil {
 		t.Error("expected error for non-200 status")
@@ -631,7 +631,7 @@ func TestFeedManager_loadURL_InvalidStatus(t *testing.T) {
 }
 
 func TestFeedManager_loadURL_Unreachable(t *testing.T) {
-	fm := NewFeedManager(FeedConfig{Type: "url", URL: "http://127.0.0.1:1/feed"})
+	fm := NewFeedManager(&FeedConfig{Type: "url", URL: "http://127.0.0.1:1/feed"})
 	_, err := fm.LoadOnce(context.Background())
 	if err == nil {
 		t.Error("expected error for unreachable URL")
@@ -646,7 +646,7 @@ func TestFeedManager_loadFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fm := NewFeedManager(FeedConfig{Type: "file", Path: path})
+	fm := NewFeedManager(&FeedConfig{Type: "file", Path: path})
 	entries, err := fm.LoadOnce(context.Background())
 	if err != nil {
 		t.Fatalf("LoadOnce file: %v", err)
@@ -657,7 +657,7 @@ func TestFeedManager_loadFile(t *testing.T) {
 }
 
 func TestFeedManager_loadFile_Missing(t *testing.T) {
-	fm := NewFeedManager(FeedConfig{Type: "file", Path: "/nonexistent/feed.jsonl"})
+	fm := NewFeedManager(&FeedConfig{Type: "file", Path: "/nonexistent/feed.jsonl"})
 	_, err := fm.LoadOnce(context.Background())
 	if err == nil {
 		t.Error("expected error for missing file")
@@ -665,7 +665,7 @@ func TestFeedManager_loadFile_Missing(t *testing.T) {
 }
 
 func TestFeedManager_loadOnce_UnknownType(t *testing.T) {
-	fm := NewFeedManager(FeedConfig{Type: "ftp"})
+	fm := NewFeedManager(&FeedConfig{Type: "ftp"})
 	_, err := fm.LoadOnce(context.Background())
 	if err == nil {
 		t.Error("expected error for unknown feed type")
@@ -675,7 +675,7 @@ func TestFeedManager_loadOnce_UnknownType(t *testing.T) {
 // --- parseReader format detection ---
 
 func TestParseReader_DefaultJsonl(t *testing.T) {
-	fm := NewFeedManager(FeedConfig{}) // no format specified
+	fm := NewFeedManager(&FeedConfig{}) // no format specified
 	input := `{"ip":"1.2.3.4","score":60,"type":"test"}` + "\n"
 	entries, err := fm.parseReader(strings.NewReader(input))
 	if err != nil {
@@ -687,7 +687,7 @@ func TestParseReader_DefaultJsonl(t *testing.T) {
 }
 
 func TestParseReader_JSONFormat(t *testing.T) {
-	fm := NewFeedManager(FeedConfig{Format: "json"})
+	fm := NewFeedManager(&FeedConfig{Format: "json"})
 	input := `[{"ip":"1.2.3.4","score":90,"type":"malware"},{"ip":"5.6.7.8","score":80,"type":"scanner"}]`
 	entries, err := fm.parseReader(strings.NewReader(input))
 	if err != nil {
@@ -699,7 +699,7 @@ func TestParseReader_JSONFormat(t *testing.T) {
 }
 
 func TestParseReader_CSVFormat(t *testing.T) {
-	fm := NewFeedManager(FeedConfig{Format: "csv"})
+	fm := NewFeedManager(&FeedConfig{Format: "csv"})
 	input := "1.2.3.4,90,malware\n5.6.7.8,80,scanner\n"
 	entries, err := fm.parseReader(strings.NewReader(input))
 	if err != nil {
@@ -719,7 +719,7 @@ func TestFeedManager_loadURL_Jsonl(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	fm := NewFeedManager(FeedConfig{Type: "url", URL: srv.URL + "/feed"})
+	fm := NewFeedManager(&FeedConfig{Type: "url", URL: srv.URL + "/feed"})
 	entries, err := fm.LoadOnce(context.Background())
 	if err != nil {
 		t.Fatalf("LoadOnce URL: %v", err)
@@ -731,7 +731,7 @@ func TestFeedManager_loadURL_Jsonl(t *testing.T) {
 
 // Cover loadURL NewRequest error branch.
 func TestFeedManager_loadURL_InvalidURL(t *testing.T) {
-	fm := NewFeedManager(FeedConfig{Type: "url", URL: "://bad-url"})
+	fm := NewFeedManager(&FeedConfig{Type: "url", URL: "://bad-url"})
 	_, err := fm.LoadOnce(context.Background())
 	if err == nil {
 		t.Error("expected error for invalid URL")
@@ -740,7 +740,7 @@ func TestFeedManager_loadURL_InvalidURL(t *testing.T) {
 
 // Cover parseJSON decode error branch.
 func TestFeedManager_ParseJSON_Invalid(t *testing.T) {
-	fm := NewFeedManager(FeedConfig{Format: "json"})
+	fm := NewFeedManager(&FeedConfig{Format: "json"})
 	_, err := fm.parseJSON(strings.NewReader("not valid json"))
 	if err == nil {
 		t.Error("expected error for invalid JSON")

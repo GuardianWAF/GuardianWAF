@@ -18,7 +18,7 @@ func makeContext(ip, path string) *engine.RequestContext {
 }
 
 func TestRateLimit_WithinLimit(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{
 			{
@@ -45,7 +45,7 @@ func TestRateLimit_WithinLimit(t *testing.T) {
 }
 
 func TestRateLimit_ExceedLimitBlock(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{
 			{
@@ -83,7 +83,7 @@ func TestRateLimit_ExceedLimitBlock(t *testing.T) {
 }
 
 func TestRateLimit_BurstHandling(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{
 			{
@@ -115,7 +115,7 @@ func TestRateLimit_BurstHandling(t *testing.T) {
 }
 
 func TestRateLimit_IPScoped(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{
 			{
@@ -157,7 +157,7 @@ func TestRateLimit_IPScoped(t *testing.T) {
 }
 
 func TestRateLimit_IPPathScoped(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{
 			{
@@ -201,7 +201,7 @@ func TestRateLimit_IPPathScoped(t *testing.T) {
 }
 
 func TestRateLimit_PathPatternMatching(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{
 			{
@@ -245,7 +245,7 @@ func TestRateLimit_PathPatternMatching(t *testing.T) {
 }
 
 func TestRateLimit_MultipleRules(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{
 			{
@@ -300,7 +300,7 @@ func TestRateLimit_AutoBanCallback(t *testing.T) {
 	var bannedIP string
 	var mu sync.Mutex
 
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{
 			{
@@ -353,7 +353,7 @@ func TestRateLimit_AutoBanCallback(t *testing.T) {
 }
 
 func TestRateLimit_LogAction(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{
 			{
@@ -388,7 +388,7 @@ func TestRateLimit_LogAction(t *testing.T) {
 }
 
 func TestRateLimit_DisabledLayer(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: false,
 		Rules: []Rule{
 			{
@@ -413,7 +413,7 @@ func TestRateLimit_DisabledLayer(t *testing.T) {
 }
 
 func TestRateLimit_ConcurrentAccess(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{
 			{
@@ -447,7 +447,7 @@ func TestRateLimit_ConcurrentAccess(t *testing.T) {
 }
 
 func TestRateLimit_CleanupExpired(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{
 			{
@@ -494,14 +494,14 @@ func TestRateLimit_CleanupExpired(t *testing.T) {
 }
 
 func TestRateLimit_Name(t *testing.T) {
-	layer := NewLayer(Config{})
+	layer := NewLayer(&Config{})
 	if layer.Name() != "ratelimit" {
 		t.Fatalf("expected name 'ratelimit', got %q", layer.Name())
 	}
 }
 
 func TestRateLimit_RefillAllowsMoreRequests(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{
 			{
@@ -546,7 +546,7 @@ func TestRateLimit_RefillAllowsMoreRequests(t *testing.T) {
 }
 
 func TestRateLimit_EmptyPathsMatchAll(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{
 			{
@@ -580,7 +580,7 @@ func TestRateLimit_EmptyPathsMatchAll(t *testing.T) {
 }
 
 func TestRateLimit_GlobPatternMatch(t *testing.T) {
-	layer := NewLayer(Config{
+	layer := NewLayer(&Config{
 		Enabled: true,
 		Rules: []Rule{
 			{

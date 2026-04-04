@@ -188,7 +188,7 @@ func BenchmarkDetectionLayer_Process(b *testing.B) {
 	san := newSanitizer()
 	eng.AddLayer(engine.OrderedLayer{Layer: san, Order: engine.OrderSanitizer})
 
-	detLayer := detection.NewLayer(detection.Config{
+	detLayer := detection.NewLayer(&detection.Config{
 		Enabled: true,
 		Detectors: map[string]detection.DetectorConfig{
 			"sqli": {Enabled: true, Multiplier: 1.0},

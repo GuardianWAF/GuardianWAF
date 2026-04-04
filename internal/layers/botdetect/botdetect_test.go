@@ -349,7 +349,8 @@ func TestLayer_MonitorMode(t *testing.T) {
 }
 
 func TestLayer_Name(t *testing.T) {
-	layer := NewLayer(DefaultConfig())
+	cfg := DefaultConfig()
+	layer := NewLayer(&cfg)
 	if layer.Name() != "botdetect" {
 		t.Errorf("expected layer name 'botdetect', got %q", layer.Name())
 	}
