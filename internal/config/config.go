@@ -163,20 +163,23 @@ type GeoIPConfig struct {
 
 // WAFConfig is the top-level container for all WAF protection settings.
 type WAFConfig struct {
-	IPACL         IPACLConfig         `yaml:"ip_acl"`
-	CustomRules   CustomRulesConfig   `yaml:"custom_rules"`
-	GeoIP         GeoIPConfig         `yaml:"geoip"`
-	ThreatIntel   ThreatIntelConfig   `yaml:"threat_intel"`
-	CORS          CORSConfig          `yaml:"cors"`
-	RateLimit     RateLimitConfig     `yaml:"rate_limit"`
-	ATOProtection ATOProtectionConfig `yaml:"ato_protection"`
-	APISecurity   APISecurityConfig   `yaml:"api_security"`
-	Sanitizer     SanitizerConfig     `yaml:"sanitizer"`
-	Detection     DetectionConfig     `yaml:"detection"`
-	BotDetection  BotDetectionConfig  `yaml:"bot_detection"`
-	Challenge     ChallengeConfig     `yaml:"challenge"`
-	Response      ResponseConfig      `yaml:"response"`
-	AIAnalysis    AIAnalysisConfig    `yaml:"ai_analysis"`
+	IPACL            IPACLConfig            `yaml:"ip_acl"`
+	CustomRules      CustomRulesConfig      `yaml:"custom_rules"`
+	GeoIP            GeoIPConfig            `yaml:"geoip"`
+	ThreatIntel      ThreatIntelConfig      `yaml:"threat_intel"`
+	CORS             CORSConfig             `yaml:"cors"`
+	RateLimit        RateLimitConfig        `yaml:"rate_limit"`
+	ATOProtection    ATOProtectionConfig    `yaml:"ato_protection"`
+	APISecurity      APISecurityConfig      `yaml:"api_security"`
+	Sanitizer        SanitizerConfig        `yaml:"sanitizer"`
+	Detection        DetectionConfig        `yaml:"detection"`
+	BotDetection     BotDetectionConfig     `yaml:"bot_detection"`
+	Challenge        ChallengeConfig        `yaml:"challenge"`
+	Response         ResponseConfig         `yaml:"response"`
+	AIAnalysis       AIAnalysisConfig       `yaml:"ai_analysis"`
+	MLAnomaly        MLAnomalyConfig        `yaml:"ml_anomaly"`
+	APIDiscovery     APIDiscoveryConfig     `yaml:"api_discovery"`
+	GraphQL          GraphQLConfig          `yaml:"graphql"`
 }
 
 // AIAnalysisConfig controls AI-powered threat analysis.
@@ -277,11 +280,47 @@ type ExclusionConfig struct {
 
 // BotDetectionConfig controls automated-client detection.
 type BotDetectionConfig struct {
-	Enabled        bool                 `yaml:"enabled"`
-	Mode           string               `yaml:"mode"`
-	TLSFingerprint TLSFingerprintConfig `yaml:"tls_fingerprint"`
-	UserAgent      UAConfig             `yaml:"user_agent"`
-	Behavior       BehaviorConfig       `yaml:"behavior"`
+	Enabled        bool                      `yaml:"enabled"`
+	Mode           string                    `yaml:"mode"`
+	TLSFingerprint TLSFingerprintConfig      `yaml:"tls_fingerprint"`
+	UserAgent      UAConfig                  `yaml:"user_agent"`
+	Behavior       BehaviorConfig            `yaml:"behavior"`
+	Enhanced       EnhancedBotDetectionConfig `yaml:"enhanced"`
+}
+
+// EnhancedBotDetectionConfig controls advanced bot detection with ML-based behavioral analysis.
+type EnhancedBotDetectionConfig struct {
+	Enabled            bool                         `yaml:"enabled"`
+	Mode               string                       `yaml:"mode"` // "monitor" or "enforce"
+	Biometric          BiometricDetectionConfig     `yaml:"biometric"`
+	BrowserFingerprint BrowserFingerprintConfig     `yaml:"browser_fingerprint"`
+	Captcha            CaptchaChallengeConfig       `yaml:"captcha"`
+}
+
+// BiometricDetectionConfig controls mouse/keyboard behavioral biometrics.
+type BiometricDetectionConfig struct {
+	Enabled        bool          `yaml:"enabled"`
+	MinEvents      int           `yaml:"min_events"`
+	ScoreThreshold float64       `yaml:"score_threshold"`
+	TimeWindow     time.Duration `yaml:"time_window"`
+}
+
+// BrowserFingerprintConfig controls browser fingerprinting for bot detection.
+type BrowserFingerprintConfig struct {
+	Enabled       bool `yaml:"enabled"`
+	CheckCanvas   bool `yaml:"check_canvas"`
+	CheckWebGL    bool `yaml:"check_webgl"`
+	CheckFonts    bool `yaml:"check_fonts"`
+	CheckHeadless bool `yaml:"check_headless"`
+}
+
+// CaptchaChallengeConfig controls CAPTCHA challenge integration.
+type CaptchaChallengeConfig struct {
+	Enabled   bool          `yaml:"enabled"`
+	Provider  string        `yaml:"provider"` // "hcaptcha" or "turnstile"
+	SiteKey   string        `yaml:"site_key"`
+	SecretKey string        `yaml:"secret_key"`
+	Timeout   time.Duration `yaml:"timeout"`
 }
 
 // TLSFingerprintConfig controls JA3/JA4 TLS fingerprint analysis.
@@ -353,6 +392,40 @@ type DataMaskingConfig struct {
 type ErrorPagesConfig struct {
 	Enabled bool   `yaml:"enabled"`
 	Mode    string `yaml:"mode"` // "production", "development"
+}
+
+// MLAnomalyConfig controls ML-based real-time anomaly detection.
+type MLAnomalyConfig struct {
+	Enabled         bool          `yaml:"enabled"`
+	Mode            string        `yaml:"mode"` // "monitor" or "enforce"
+	Threshold       float64       `yaml:"threshold"`
+	WindowSize      int           `yaml:"window_size"`
+	MinSamples      int           `yaml:"min_samples"`
+	FeatureBuckets  int           `yaml:"feature_buckets"`
+	AutoBlock       bool          `yaml:"auto_block"`
+	BlockThreshold  float64       `yaml:"block_threshold"`
+}
+
+// APIDiscoveryConfig controls automatic API endpoint discovery and OpenAPI generation.
+type APIDiscoveryConfig struct {
+	Enabled          bool          `yaml:"enabled"`
+	CaptureMode      string        `yaml:"capture_mode"` // "passive", "active"
+	RingBufferSize   int           `yaml:"ring_buffer_size"`
+	MinSamples       int           `yaml:"min_samples"`
+	ClusterThreshold float64       `yaml:"cluster_threshold"`
+	ExportPath       string        `yaml:"export_path"`
+	ExportFormat     string        `yaml:"export_format"` // "openapi" or "json"
+	AutoExport       bool          `yaml:"auto_export"`
+	ExportInterval   time.Duration `yaml:"export_interval"`
+}
+
+// GraphQLConfig controls GraphQL security layer settings.
+type GraphQLConfig struct {
+	Enabled            bool     `yaml:"enabled"`
+	MaxDepth           int      `yaml:"max_depth"`
+	MaxComplexity      int      `yaml:"max_complexity"`
+	BlockIntrospection bool     `yaml:"block_introspection"`
+	AllowEndpoints     []string `yaml:"allow_endpoints"`
 }
 
 // DashboardConfig controls the built-in web dashboard.

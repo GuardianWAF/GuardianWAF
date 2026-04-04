@@ -1,6 +1,9 @@
 package discovery
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // OpenAPISpec represents an OpenAPI 3.0 specification.
 type OpenAPISpec struct {
@@ -315,4 +318,9 @@ func findSubstring(s, substr string) int {
 		}
 	}
 	return -1
+}
+
+// ToJSON serializes the OpenAPI spec to JSON.
+func (s *OpenAPISpec) ToJSON() ([]byte, error) {
+	return json.MarshalIndent(s, "", "  ")
 }

@@ -88,6 +88,28 @@ func DefaultConfig() *Config {
 					RPSThreshold:       10,
 					ErrorRateThreshold: 30,
 				},
+				Enhanced: EnhancedBotDetectionConfig{
+					Enabled: false,
+					Mode:    "enforce",
+					Biometric: BiometricDetectionConfig{
+						Enabled:        false,
+						MinEvents:      20,
+						ScoreThreshold: 50,
+						TimeWindow:     5 * time.Minute,
+					},
+					BrowserFingerprint: BrowserFingerprintConfig{
+						Enabled:       true,
+						CheckCanvas:   true,
+						CheckWebGL:    true,
+						CheckFonts:    true,
+						CheckHeadless: true,
+					},
+					Captcha: CaptchaChallengeConfig{
+						Enabled:  false,
+						Provider: "hcaptcha",
+						Timeout:  30 * time.Second,
+					},
+				},
 			},
 			Challenge: ChallengeConfig{
 				Enabled:    false,
@@ -122,7 +144,7 @@ func DefaultConfig() *Config {
 			},
 			AIAnalysis: AIAnalysisConfig{
 				Enabled:          false,
-				StorePath:        "data/ai", // relative to CWD; Dockerfile sets CWD to /var/lib/guardianwaf
+				StorePath:        "data/ai",
 				BatchSize:        20,
 				BatchInterval:    60 * time.Second,
 				MinScore:         25,
@@ -131,6 +153,34 @@ func DefaultConfig() *Config {
 				MaxRequestsHour:  30,
 				AutoBlock:        false,
 				AutoBlockTTL:     time.Hour,
+			},
+			MLAnomaly: MLAnomalyConfig{
+				Enabled:        false,
+				Mode:           "monitor",
+				Threshold:      0.7,
+				WindowSize:     100,
+				MinSamples:     50,
+				FeatureBuckets: 20,
+				AutoBlock:      false,
+				BlockThreshold: 0.9,
+			},
+			APIDiscovery: APIDiscoveryConfig{
+				Enabled:          false,
+				CaptureMode:      "passive",
+				RingBufferSize:   10000,
+				MinSamples:       100,
+				ClusterThreshold: 0.85,
+				ExportPath:       "data/api-discovery",
+				ExportFormat:     "openapi",
+				AutoExport:       false,
+				ExportInterval:   24 * time.Hour,
+			},
+			GraphQL: GraphQLConfig{
+				Enabled:            false,
+				MaxDepth:           10,
+				MaxComplexity:      1000,
+				BlockIntrospection: false,
+				AllowEndpoints:     []string{"/graphql", "/api/graphql"},
 			},
 		},
 		Dashboard: DashboardConfig{
@@ -516,6 +566,21 @@ func populateWAF(waf *WAFConfig, n *Node) error {
 			return fmt.Errorf("ai_analysis: %w", err)
 		}
 	}
+	if sub := n.Get("ml_anomaly"); sub != nil {
+		if err := populateMLAnomaly(&waf.MLAnomaly, sub); err != nil {
+			return fmt.Errorf("ml_anomaly: %w", err)
+		}
+	}
+	if sub := n.Get("api_discovery"); sub != nil {
+		if err := populateAPIDiscovery(&waf.APIDiscovery, sub); err != nil {
+			return fmt.Errorf("api_discovery: %w", err)
+		}
+	}
+	if sub := n.Get("graphql"); sub != nil {
+		if err := populateGraphQL(&waf.GraphQL, sub); err != nil {
+			return fmt.Errorf("graphql: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -591,6 +656,161 @@ func populateAIAnalysis(ai *AIAnalysisConfig, n *Node) error {
 			return fmt.Errorf("auto_block_ttl: %w", err)
 		}
 		ai.AutoBlockTTL = d
+	}
+	return nil
+}
+
+func populateMLAnomaly(ml *MLAnomalyConfig, n *Node) error {
+	if n.Kind != MapNode {
+		return nil
+	}
+	if v := n.Get("enabled"); v != nil {
+		b, err := nodeBool(v)
+		if err != nil {
+			return fmt.Errorf("enabled: %w", err)
+		}
+		ml.Enabled = b
+	}
+	if v := n.Get("mode"); v != nil && !v.IsNull {
+		ml.Mode = v.String()
+	}
+	if v := n.Get("threshold"); v != nil {
+		f, err := nodeFloat64(v)
+		if err != nil {
+			return fmt.Errorf("threshold: %w", err)
+		}
+		ml.Threshold = f
+	}
+	if v := n.Get("window_size"); v != nil {
+		i, err := nodeInt(v)
+		if err != nil {
+			return fmt.Errorf("window_size: %w", err)
+		}
+		ml.WindowSize = i
+	}
+	if v := n.Get("min_samples"); v != nil {
+		i, err := nodeInt(v)
+		if err != nil {
+			return fmt.Errorf("min_samples: %w", err)
+		}
+		ml.MinSamples = i
+	}
+	if v := n.Get("feature_buckets"); v != nil {
+		i, err := nodeInt(v)
+		if err != nil {
+			return fmt.Errorf("feature_buckets: %w", err)
+		}
+		ml.FeatureBuckets = i
+	}
+	if v := n.Get("auto_block"); v != nil {
+		b, err := nodeBool(v)
+		if err != nil {
+			return fmt.Errorf("auto_block: %w", err)
+		}
+		ml.AutoBlock = b
+	}
+	if v := n.Get("block_threshold"); v != nil {
+		f, err := nodeFloat64(v)
+		if err != nil {
+			return fmt.Errorf("block_threshold: %w", err)
+		}
+		ml.BlockThreshold = f
+	}
+	return nil
+}
+
+func populateAPIDiscovery(ad *APIDiscoveryConfig, n *Node) error {
+	if n.Kind != MapNode {
+		return nil
+	}
+	if v := n.Get("enabled"); v != nil {
+		b, err := nodeBool(v)
+		if err != nil {
+			return fmt.Errorf("enabled: %w", err)
+		}
+		ad.Enabled = b
+	}
+	if v := n.Get("capture_mode"); v != nil && !v.IsNull {
+		ad.CaptureMode = v.String()
+	}
+	if v := n.Get("ring_buffer_size"); v != nil {
+		i, err := nodeInt(v)
+		if err != nil {
+			return fmt.Errorf("ring_buffer_size: %w", err)
+		}
+		ad.RingBufferSize = i
+	}
+	if v := n.Get("min_samples"); v != nil {
+		i, err := nodeInt(v)
+		if err != nil {
+			return fmt.Errorf("min_samples: %w", err)
+		}
+		ad.MinSamples = i
+	}
+	if v := n.Get("cluster_threshold"); v != nil {
+		f, err := nodeFloat64(v)
+		if err != nil {
+			return fmt.Errorf("cluster_threshold: %w", err)
+		}
+		ad.ClusterThreshold = f
+	}
+	if v := n.Get("export_path"); v != nil && !v.IsNull {
+		ad.ExportPath = v.String()
+	}
+	if v := n.Get("export_format"); v != nil && !v.IsNull {
+		ad.ExportFormat = v.String()
+	}
+	if v := n.Get("auto_export"); v != nil {
+		b, err := nodeBool(v)
+		if err != nil {
+			return fmt.Errorf("auto_export: %w", err)
+		}
+		ad.AutoExport = b
+	}
+	if v := n.Get("export_interval"); v != nil && !v.IsNull {
+		d, err := parseDuration(v.String())
+		if err != nil {
+			return fmt.Errorf("export_interval: %w", err)
+		}
+		ad.ExportInterval = d
+	}
+	return nil
+}
+
+func populateGraphQL(gql *GraphQLConfig, n *Node) error {
+	if n.Kind != MapNode {
+		return nil
+	}
+	if v := n.Get("enabled"); v != nil {
+		b, err := nodeBool(v)
+		if err != nil {
+			return fmt.Errorf("enabled: %w", err)
+		}
+		gql.Enabled = b
+	}
+	if v := n.Get("max_depth"); v != nil {
+		i, err := nodeInt(v)
+		if err != nil {
+			return fmt.Errorf("max_depth: %w", err)
+		}
+		gql.MaxDepth = i
+	}
+	if v := n.Get("max_complexity"); v != nil {
+		i, err := nodeInt(v)
+		if err != nil {
+			return fmt.Errorf("max_complexity: %w", err)
+		}
+		gql.MaxComplexity = i
+	}
+	if v := n.Get("block_introspection"); v != nil {
+		b, err := nodeBool(v)
+		if err != nil {
+			return fmt.Errorf("block_introspection: %w", err)
+		}
+		gql.BlockIntrospection = b
+	}
+	if v := n.Get("allow_endpoints"); v != nil {
+		gql.AllowEndpoints = nodeStringSlice(v)
 	}
 	return nil
 }
@@ -991,6 +1211,120 @@ func populateBotDetection(bd *BotDetectionConfig, n *Node) error {
 				return fmt.Errorf("behavior.error_rate_threshold: %w", err)
 			}
 			bd.Behavior.ErrorRateThreshold = i
+		}
+	}
+	if sub := n.Get("enhanced"); sub != nil && sub.Kind == MapNode {
+		if err := populateEnhancedBotDetection(&bd.Enhanced, sub); err != nil {
+			return fmt.Errorf("enhanced: %w", err)
+		}
+	}
+	return nil
+}
+
+func populateEnhancedBotDetection(ebd *EnhancedBotDetectionConfig, n *Node) error {
+	if n.Kind != MapNode {
+		return nil
+	}
+	if v := n.Get("enabled"); v != nil {
+		b, err := nodeBool(v)
+		if err != nil {
+			return fmt.Errorf("enabled: %w", err)
+		}
+		ebd.Enabled = b
+	}
+	if v := n.Get("mode"); v != nil && !v.IsNull {
+		ebd.Mode = v.String()
+	}
+	if sub := n.Get("biometric"); sub != nil && sub.Kind == MapNode {
+		if v := sub.Get("enabled"); v != nil {
+			b, err := nodeBool(v)
+			if err != nil {
+				return fmt.Errorf("biometric.enabled: %w", err)
+			}
+			ebd.Biometric.Enabled = b
+		}
+		if v := sub.Get("min_events"); v != nil {
+			i, err := nodeInt(v)
+			if err != nil {
+				return fmt.Errorf("biometric.min_events: %w", err)
+			}
+			ebd.Biometric.MinEvents = i
+		}
+		if v := sub.Get("score_threshold"); v != nil {
+			f, err := nodeFloat64(v)
+			if err != nil {
+				return fmt.Errorf("biometric.score_threshold: %w", err)
+			}
+			ebd.Biometric.ScoreThreshold = f
+		}
+		if v := sub.Get("time_window"); v != nil && !v.IsNull {
+			d, err := parseDuration(v.String())
+			if err != nil {
+				return fmt.Errorf("biometric.time_window: %w", err)
+			}
+			ebd.Biometric.TimeWindow = d
+		}
+	}
+	if sub := n.Get("browser_fingerprint"); sub != nil && sub.Kind == MapNode {
+		if v := sub.Get("enabled"); v != nil {
+			b, err := nodeBool(v)
+			if err != nil {
+				return fmt.Errorf("browser_fingerprint.enabled: %w", err)
+			}
+			ebd.BrowserFingerprint.Enabled = b
+		}
+		if v := sub.Get("check_canvas"); v != nil {
+			b, err := nodeBool(v)
+			if err != nil {
+				return fmt.Errorf("browser_fingerprint.check_canvas: %w", err)
+			}
+			ebd.BrowserFingerprint.CheckCanvas = b
+		}
+		if v := sub.Get("check_webgl"); v != nil {
+			b, err := nodeBool(v)
+			if err != nil {
+				return fmt.Errorf("browser_fingerprint.check_webgl: %w", err)
+			}
+			ebd.BrowserFingerprint.CheckWebGL = b
+		}
+		if v := sub.Get("check_fonts"); v != nil {
+			b, err := nodeBool(v)
+			if err != nil {
+				return fmt.Errorf("browser_fingerprint.check_fonts: %w", err)
+			}
+			ebd.BrowserFingerprint.CheckFonts = b
+		}
+		if v := sub.Get("check_headless"); v != nil {
+			b, err := nodeBool(v)
+			if err != nil {
+				return fmt.Errorf("browser_fingerprint.check_headless: %w", err)
+			}
+			ebd.BrowserFingerprint.CheckHeadless = b
+		}
+	}
+	if sub := n.Get("captcha"); sub != nil && sub.Kind == MapNode {
+		if v := sub.Get("enabled"); v != nil {
+			b, err := nodeBool(v)
+			if err != nil {
+				return fmt.Errorf("captcha.enabled: %w", err)
+			}
+			ebd.Captcha.Enabled = b
+		}
+		if v := sub.Get("provider"); v != nil && !v.IsNull {
+			ebd.Captcha.Provider = v.String()
+		}
+		if v := sub.Get("site_key"); v != nil && !v.IsNull {
+			ebd.Captcha.SiteKey = v.String()
+		}
+		if v := sub.Get("secret_key"); v != nil && !v.IsNull {
+			ebd.Captcha.SecretKey = v.String()
+		}
+		if v := sub.Get("timeout"); v != nil && !v.IsNull {
+			d, err := parseDuration(v.String())
+			if err != nil {
+				return fmt.Errorf("captcha.timeout: %w", err)
+			}
+			ebd.Captcha.Timeout = d
 		}
 	}
 	return nil

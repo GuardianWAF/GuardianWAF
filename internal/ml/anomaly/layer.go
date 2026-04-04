@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/ml/features"
 	"github.com/guardianwaf/guardianwaf/internal/ml/onnx"
 )
@@ -222,4 +223,70 @@ func (l *Layer) updateMetrics(result *onnx.InferenceResult, latency time.Duratio
 // Close cleans up resources.
 func (l *Layer) Close() error {
 	return nil
+}
+
+// Stop stops the layer and cleans up resources.
+func (l *Layer) Stop() {
+	l.Close()
+}
+
+// Name returns the layer name for the WAF pipeline.
+func (l *Layer) Name() string {
+	return "ml-anomaly"
+}
+
+// Process implements the engine.Layer interface.
+// It analyzes the request for anomalies and returns a LayerResult.
+func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
+	if !l.Enabled() {
+		return engine.LayerResult{Action: engine.ActionPass}
+	}
+
+	// Convert engine context to http.Request for analysis
+	req := ctx.Request
+	if req == nil {
+		return engine.LayerResult{Action: engine.ActionPass}
+	}
+
+	result, err := l.Analyze(req)
+	if err != nil || result.Error != nil {
+		// Fail open - log but don't block on errors
+		return engine.LayerResult{
+			Action: engine.ActionPass,
+			Score:  0,
+		}
+	}
+
+	// Determine action based on anomaly score
+	action := engine.ActionPass
+	if result.IsAnomaly {
+		// Score >= 90 is block, 50-89 is log/challenge
+		if result.AnomalyScore >= 0.9 {
+			action = engine.ActionBlock
+		} else if result.AnomalyScore >= 0.5 {
+			action = engine.ActionLog
+		}
+	}
+
+	// Create finding if anomaly detected
+	var findings []engine.Finding
+	if result.IsAnomaly {
+		findings = append(findings, engine.Finding{
+			DetectorName: "ml-anomaly",
+			Category:     "anomaly",
+			Severity:     engine.SeverityHigh,
+			Score:        result.Score(),
+			Description:  "ML anomaly detected",
+			Location:     "request",
+			Confidence:   result.Confidence,
+		})
+		ctx.Accumulator.Add(&findings[0])
+	}
+
+	return engine.LayerResult{
+		Action:   action,
+		Score:    result.Score(),
+		Findings: findings,
+		Duration: result.Latency,
+	}
 }

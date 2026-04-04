@@ -8,6 +8,9 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
+
+	"github.com/guardianwaf/guardianwaf/internal/engine"
 )
 
 // Layer is the GraphQL security layer.
@@ -286,6 +289,70 @@ func (l *Layer) updateMetrics(result *Result) {
 		l.queriesBlocked++
 	} else if result.Score > 0 {
 		l.queriesChallenged++
+	}
+}
+
+// Name returns the layer name for the WAF pipeline.
+func (l *Layer) Name() string {
+	return "graphql-security"
+}
+
+// Process implements the engine.Layer interface.
+// It analyzes the request for GraphQL security issues and returns a LayerResult.
+func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
+	if !l.Enabled() {
+		return engine.LayerResult{Action: engine.ActionPass}
+	}
+
+	start := time.Now()
+
+	// Use the existing Analyze method
+	result, err := l.Analyze(ctx.Request)
+	if err != nil {
+		return engine.LayerResult{
+			Action: engine.ActionPass,
+			Score:  0,
+		}
+	}
+
+	// Determine action based on result
+	action := engine.ActionPass
+	if result.Blocked {
+		action = engine.ActionBlock
+	} else if result.Score >= 50 {
+		action = engine.ActionChallenge
+	} else if result.Score > 0 {
+		action = engine.ActionLog
+	}
+
+	// Convert issues to findings
+	var findings []engine.Finding
+	for _, issue := range result.Issues {
+		severity := engine.SeverityMedium
+		switch issue.Severity {
+		case "high":
+			severity = engine.SeverityHigh
+		case "low":
+			severity = engine.SeverityLow
+		}
+
+		finding := engine.Finding{
+			DetectorName: "graphql-security",
+			Category:     "graphql",
+			Severity:     severity,
+			Score:        result.Score,
+			Description:  issue.Description,
+			Location:     issue.Field,
+		}
+		findings = append(findings, finding)
+		ctx.Accumulator.Add(&finding)
+	}
+
+	return engine.LayerResult{
+		Action:   action,
+		Score:    result.Score,
+		Findings: findings,
+		Duration: time.Since(start),
 	}
 }
 
