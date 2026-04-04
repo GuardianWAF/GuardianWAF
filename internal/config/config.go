@@ -180,6 +180,8 @@ type WAFConfig struct {
 	MLAnomaly        MLAnomalyConfig        `yaml:"ml_anomaly"`
 	APIDiscovery     APIDiscoveryConfig     `yaml:"api_discovery"`
 	GraphQL          GraphQLConfig          `yaml:"graphql"`
+	GRPC             GRPCConfig             `yaml:"grpc"`
+	Tenant           TenantConfig           `yaml:"tenant"`
 }
 
 // AIAnalysisConfig controls AI-powered threat analysis.
@@ -426,6 +428,47 @@ type GraphQLConfig struct {
 	MaxComplexity      int      `yaml:"max_complexity"`
 	BlockIntrospection bool     `yaml:"block_introspection"`
 	AllowEndpoints     []string `yaml:"allow_endpoints"`
+}
+
+// GRPCConfig controls gRPC/gRPC-Web proxy settings.
+type GRPCConfig struct {
+	Enabled        bool     `yaml:"enabled"`
+	GRPCWebEnabled bool     `yaml:"grpc_web_enabled"`
+	ProtoPaths     []string `yaml:"proto_paths"`
+	AllowedMethods []string `yaml:"allowed_methods"`
+	BlockedMethods []string `yaml:"blocked_methods"`
+	ValidateProto  bool     `yaml:"validate_proto"`
+	MaxMessageSize int      `yaml:"max_message_size"`
+}
+
+// TenantConfig controls multi-tenancy settings.
+type TenantConfig struct {
+	Enabled      bool              `yaml:"enabled"`
+	MaxTenants   int               `yaml:"max_tenants"`
+	HeaderName   string            `yaml:"header_name"`
+	DefaultQuota ResourceQuotaConfig `yaml:"default_quota"`
+	Tenants      []TenantDefinition `yaml:"tenants"`
+}
+
+// ResourceQuotaConfig defines resource limits for tenants.
+type ResourceQuotaConfig struct {
+	MaxRequestsPerMinute int64 `yaml:"max_requests_per_minute"`
+	MaxRequestsPerHour   int64 `yaml:"max_requests_per_hour"`
+	MaxBandwidthMbps     int   `yaml:"max_bandwidth_mbps"`
+	MaxRules             int   `yaml:"max_rules"`
+	MaxRateLimitRules    int   `yaml:"max_rate_limit_rules"`
+	MaxIPACLs            int   `yaml:"max_ip_acls"`
+}
+
+// TenantDefinition defines a static tenant configuration.
+type TenantDefinition struct {
+	ID          string              `yaml:"id"`
+	Name        string              `yaml:"name"`
+	Description string              `yaml:"description"`
+	Domains     []string            `yaml:"domains"`
+	APIKey      string              `yaml:"api_key"`
+	Active      bool                `yaml:"active"`
+	Quota       ResourceQuotaConfig `yaml:"quota"`
 }
 
 // DashboardConfig controls the built-in web dashboard.

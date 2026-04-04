@@ -182,6 +182,25 @@ func DefaultConfig() *Config {
 				BlockIntrospection: false,
 				AllowEndpoints:     []string{"/graphql", "/api/graphql"},
 			},
+			GRPC: GRPCConfig{
+				Enabled:        false,
+				GRPCWebEnabled: true,
+				ValidateProto:  true,
+				MaxMessageSize: 4 * 1024 * 1024, // 4MB
+			},
+			Tenant: TenantConfig{
+				Enabled:    false,
+				MaxTenants: 100,
+				HeaderName: "X-GuardianWAF-Tenant",
+				DefaultQuota: ResourceQuotaConfig{
+					MaxRequestsPerMinute: 10000,
+					MaxRequestsPerHour:   500000,
+					MaxBandwidthMbps:     100,
+					MaxRules:             100,
+					MaxRateLimitRules:    10,
+					MaxIPACLs:            1000,
+				},
+			},
 		},
 		Dashboard: DashboardConfig{
 			Enabled: true,

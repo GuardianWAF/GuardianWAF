@@ -1,6 +1,6 @@
-// Package v040 provides integration for GuardianWAF v0.4.0 Phase 1 features.
-// This wires together: ML Anomaly Detection, API Discovery, GraphQL Security,
-// and Enhanced Bot Management.
+// Package v040 provides integration for GuardianWAF v0.4.0 Phase 1 and Phase 2 features.
+// Phase 1: ML Anomaly Detection, API Discovery, GraphQL Security, Enhanced Bot Management
+// Phase 2: gRPC Support, Multi-tenancy
 package v040
 
 import (
@@ -14,18 +14,23 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/layers/botdetect"
 	"github.com/guardianwaf/guardianwaf/internal/layers/graphql"
 	"github.com/guardianwaf/guardianwaf/internal/ml/anomaly"
+	"github.com/guardianwaf/guardianwaf/internal/proxy/grpc"
 )
 
-// Integrator manages all v0.4.0 Phase 1 features.
+// Integrator manages all v0.4.0 Phase 1 and Phase 2 features.
 type Integrator struct {
 	cfg *config.Config
 
-	// Components
+	// Phase 1 Components
 	mlAnomalyLayer   *anomaly.Layer
 	apiDiscovery     *discovery.Engine
 	graphqlLayer     *graphql.Layer
 	enhancedBotLayer *botdetect.EnhancedLayer
 	botCollector     *botdetect.BiometricCollector
+
+	// Phase 2 Components
+	grpcProxy         *grpc.Proxy
+	tenantIntegrator  *TenantIntegrator
 
 	// HTTP handlers
 	biometricHandler http.HandlerFunc
@@ -64,6 +69,20 @@ func NewIntegrator(cfg *config.Config) (*Integrator, error) {
 	if cfg.WAF.BotDetection.Enhanced.Enabled {
 		if err := i.initEnhancedBotDetection(); err != nil {
 			return nil, fmt.Errorf("enhanced_bot_detection: %w", err)
+		}
+	}
+
+	// Initialize gRPC Support (Phase 2)
+	if cfg.WAF.GRPC.Enabled {
+		if err := i.initGRPC(); err != nil {
+			return nil, fmt.Errorf("grpc: %w", err)
+		}
+	}
+
+	// Initialize Multi-tenancy (Phase 2)
+	if cfg.WAF.Tenant.Enabled {
+		if err := i.initMultiTenancy(); err != nil {
+			return nil, fmt.Errorf("tenant: %w", err)
 		}
 	}
 
@@ -233,6 +252,44 @@ func (i *Integrator) RegisterLayers(e *engine.Engine) {
 	log.Println("[v0.4.0] All layers registered with engine pipeline")
 }
 
+// initGRPC initializes the gRPC proxy.
+func (i *Integrator) initGRPC() error {
+	grpcCfg := i.cfg.WAF.GRPC
+
+	cfg := &grpc.Config{
+		Enabled:        grpcCfg.Enabled,
+		GRPCWebEnabled: grpcCfg.GRPCWebEnabled,
+		ProtoPaths:     grpcCfg.ProtoPaths,
+		AllowedMethods: grpcCfg.AllowedMethods,
+		BlockedMethods: grpcCfg.BlockedMethods,
+		ValidateProto:  grpcCfg.ValidateProto,
+		MaxMessageSize: grpcCfg.MaxMessageSize,
+	}
+
+	proxy, err := grpc.NewProxy(cfg)
+	if err != nil {
+		return err
+	}
+
+	i.grpcProxy = proxy
+	log.Printf("[v0.4.0] gRPC Support enabled (grpc_web=%v, validate=%v)",
+		grpcCfg.GRPCWebEnabled, grpcCfg.ValidateProto)
+	return nil
+}
+
+// initMultiTenancy initializes the multi-tenancy integrator.
+func (i *Integrator) initMultiTenancy() error {
+	integrator, err := NewTenantIntegrator(i.cfg.WAF.Tenant)
+	if err != nil {
+		return err
+	}
+
+	i.tenantIntegrator = integrator
+	log.Printf("[v0.4.0] Multi-tenancy enabled (max_tenants=%d)",
+		i.cfg.WAF.Tenant.MaxTenants)
+	return nil
+}
+
 // RegisterHandlers registers HTTP handlers for v0.4.0 features.
 // These should be mounted on the dashboard/proxy mux.
 func (i *Integrator) RegisterHandlers(mux *http.ServeMux) {
@@ -256,6 +313,12 @@ func (i *Integrator) RegisterHandlers(mux *http.ServeMux) {
 		mux.HandleFunc("/gwaf/api/discovery/stats", i.handleDiscoveryStats)
 		log.Println("[v0.4.0] Registered handlers: /gwaf/api/discovery/*")
 	}
+
+	// Tenant management endpoints (Phase 2)
+	if i.tenantIntegrator != nil {
+		i.tenantIntegrator.RegisterHandlers(mux)
+		log.Println("[v0.4.0] Registered handlers: /api/v1/tenants/*")
+	}
 }
 
 // RecordRequest records a request for API Discovery if enabled.
@@ -274,6 +337,24 @@ func (i *Integrator) GetAPIDiscovery() *discovery.Engine {
 // GetEnhancedBotLayer returns the enhanced bot detection layer.
 func (i *Integrator) GetEnhancedBotLayer() *botdetect.EnhancedLayer {
 	return i.enhancedBotLayer
+}
+
+// GetGRPCProxy returns the gRPC proxy for handling gRPC requests.
+func (i *Integrator) GetGRPCProxy() *grpc.Proxy {
+	return i.grpcProxy
+}
+
+// GetTenantIntegrator returns the tenant integrator for multi-tenancy.
+func (i *Integrator) GetTenantIntegrator() *TenantIntegrator {
+	return i.tenantIntegrator
+}
+
+// TenantMiddleware returns the tenant middleware for HTTP handlers.
+func (i *Integrator) TenantMiddleware(next http.Handler) http.Handler {
+	if i.tenantIntegrator == nil {
+		return next
+	}
+	return i.tenantIntegrator.Middleware()(next)
 }
 
 // Cleanup performs cleanup of all v0.4.0 components.
@@ -368,16 +449,28 @@ type Stats struct {
 	EnhancedBotEnabled      bool `json:"enhanced_bot_enabled"`
 	BiometricEnabled        bool `json:"biometric_enabled"`
 	CaptchaEnabled          bool `json:"captcha_enabled"`
+	GRPCEnabled             bool `json:"grpc_enabled"`
+	MultiTenancyEnabled     bool `json:"multi_tenancy_enabled"`
+	TenantCount             int  `json:"tenant_count"`
 }
 
 // GetStats returns the current integration statistics.
 func (i *Integrator) GetStats() Stats {
-	return Stats{
+	stats := Stats{
 		MLAnomalyEnabled:       i.mlAnomalyLayer != nil,
 		APIDiscoveryEnabled:    i.apiDiscovery != nil,
 		GraphQLSecurityEnabled: i.graphqlLayer != nil,
 		EnhancedBotEnabled:     i.enhancedBotLayer != nil,
 		BiometricEnabled:       i.cfg.WAF.BotDetection.Enhanced.Biometric.Enabled,
 		CaptchaEnabled:         i.cfg.WAF.BotDetection.Enhanced.Captcha.Enabled,
+		GRPCEnabled:            i.grpcProxy != nil,
+		MultiTenancyEnabled:    i.tenantIntegrator != nil,
 	}
+
+	if i.tenantIntegrator != nil {
+		tenantStats := i.tenantIntegrator.Stats()
+		stats.TenantCount = tenantStats.TenantCount
+	}
+
+	return stats
 }
