@@ -210,6 +210,15 @@ func DefaultConfig() *Config {
 				MaxBodySize:  1024 * 1024, // 1MB
 				Patterns:     []string{"credit_card", "ssn", "api_key", "private_key", "tax_id"},
 			},
+			ZeroTrust: ZeroTrustConfig{
+				Enabled:              false,
+				RequireMTLS:          true,
+				RequireAttestation:   false,
+				SessionTTL:           1 * time.Hour,
+				AttestationTTL:       24 * time.Hour,
+				DeviceTrustThreshold: "medium",
+				AllowBypassPaths:     []string{"/healthz", "/metrics"},
+			},
 		},
 		Dashboard: DashboardConfig{
 			Enabled: true,

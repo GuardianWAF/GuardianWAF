@@ -14,6 +14,7 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/layers/botdetect"
 	"github.com/guardianwaf/guardianwaf/internal/layers/dlp"
 	"github.com/guardianwaf/guardianwaf/internal/layers/graphql"
+	"github.com/guardianwaf/guardianwaf/internal/layers/zerotrust"
 	"github.com/guardianwaf/guardianwaf/internal/ml/anomaly"
 	"github.com/guardianwaf/guardianwaf/internal/proxy/grpc"
 )
@@ -33,6 +34,7 @@ type Integrator struct {
 	grpcProxy         *grpc.Proxy
 	tenantIntegrator  *TenantIntegrator
 	dlpLayer          *dlp.EngineLayer
+	zeroTrustService  *zerotrust.Service
 
 	// HTTP handlers
 	biometricHandler http.HandlerFunc
@@ -92,6 +94,13 @@ func NewIntegrator(cfg *config.Config) (*Integrator, error) {
 	if cfg.WAF.DLP.Enabled {
 		if err := i.initDLP(); err != nil {
 			return nil, fmt.Errorf("dlp: %w", err)
+		}
+	}
+
+	// Initialize Zero Trust (Phase 3)
+	if cfg.WAF.ZeroTrust.Enabled {
+		if err := i.initZeroTrust(); err != nil {
+			return nil, fmt.Errorf("zero_trust: %w", err)
 		}
 	}
 
@@ -294,7 +303,46 @@ func (i *Integrator) initGRPC() error {
 	return nil
 }
 
-// initMultiTenancy initializes the multi-tenancy integrator.
+// initZeroTrust initializes the Zero Trust service.
+func (i *Integrator) initZeroTrust() error {
+	ztCfg := i.cfg.WAF.ZeroTrust
+
+	cfg := &zerotrust.Config{
+		Enabled:            ztCfg.Enabled,
+		RequireMTLS:        ztCfg.RequireMTLS,
+		RequireAttestation: ztCfg.RequireAttestation,
+		SessionTTL:         ztCfg.SessionTTL,
+		AttestationTTL:     ztCfg.AttestationTTL,
+		TrustedCAPath:      ztCfg.TrustedCAPath,
+		AllowBypassPaths:   ztCfg.AllowBypassPaths,
+	}
+
+	// Parse trust threshold
+	switch ztCfg.DeviceTrustThreshold {
+	case "none":
+		cfg.DeviceTrustThreshold = zerotrust.TrustLevelNone
+	case "low":
+		cfg.DeviceTrustThreshold = zerotrust.TrustLevelLow
+	case "medium":
+		cfg.DeviceTrustThreshold = zerotrust.TrustLevelMedium
+	case "high":
+		cfg.DeviceTrustThreshold = zerotrust.TrustLevelHigh
+	case "maximum":
+		cfg.DeviceTrustThreshold = zerotrust.TrustLevelMaximum
+	default:
+		cfg.DeviceTrustThreshold = zerotrust.TrustLevelMedium
+	}
+
+	service, err := zerotrust.NewService(cfg)
+	if err != nil {
+		return err
+	}
+
+	i.zeroTrustService = service
+	log.Printf("[v0.4.0+] Zero Trust enabled (mTLS=%v, attestation=%v)",
+		ztCfg.RequireMTLS, ztCfg.RequireAttestation)
+	return nil
+}
 func (i *Integrator) initMultiTenancy() error {
 	integrator, err := NewTenantIntegrator(i.cfg.WAF.Tenant)
 	if err != nil {
@@ -368,7 +416,19 @@ func (i *Integrator) RecordRequest(r *http.Request, statusCode int) {
 	}
 }
 
-// GetAPIDiscovery returns the API discovery engine for dashboard integration.
+// GetZeroTrustService returns the Zero Trust service.
+func (i *Integrator) GetZeroTrustService() *zerotrust.Service {
+	return i.zeroTrustService
+}
+
+// ZeroTrustMiddleware returns the Zero Trust middleware for HTTP handlers.
+func (i *Integrator) ZeroTrustMiddleware(next http.Handler) http.Handler {
+	if i.zeroTrustService == nil {
+		return next
+	}
+	middleware := zerotrust.NewMiddleware(i.zeroTrustService)
+	return middleware.Handler(next)
+}
 func (i *Integrator) GetAPIDiscovery() *discovery.Engine {
 	return i.apiDiscovery
 }
@@ -498,6 +558,8 @@ type Stats struct {
 	TenantCount             int  `json:"tenant_count"`
 	DLPEnabled              bool `json:"dlp_enabled"`
 	DLPBlockOnMatch         bool `json:"dlp_block_on_match"`
+	ZeroTrustEnabled        bool `json:"zero_trust_enabled"`
+	ZeroTrustRequireMTLS    bool `json:"zero_trust_require_mtls"`
 }
 
 // GetStats returns the current integration statistics.
@@ -513,6 +575,8 @@ func (i *Integrator) GetStats() Stats {
 		MultiTenancyEnabled:    i.tenantIntegrator != nil,
 		DLPEnabled:             i.dlpLayer != nil,
 		DLPBlockOnMatch:        i.cfg.WAF.DLP.BlockOnMatch,
+		ZeroTrustEnabled:       i.zeroTrustService != nil,
+		ZeroTrustRequireMTLS:   i.cfg.WAF.ZeroTrust.RequireMTLS,
 	}
 
 	if i.tenantIntegrator != nil {

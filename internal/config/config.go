@@ -183,6 +183,7 @@ type WAFConfig struct {
 	GRPC             GRPCConfig             `yaml:"grpc"`
 	Tenant           TenantConfig           `yaml:"tenant"`
 	DLP              DLPConfig              `yaml:"dlp"`
+	ZeroTrust        ZeroTrustConfig        `yaml:"zero_trust"`
 }
 
 // AIAnalysisConfig controls AI-powered threat analysis.
@@ -209,6 +210,18 @@ type DLPConfig struct {
 	MaskResponse bool     `yaml:"mask_response"`
 	MaxBodySize  int      `yaml:"max_body_size"`
 	Patterns     []string `yaml:"patterns"`
+}
+
+// ZeroTrustConfig controls Zero Trust Network Access settings.
+type ZeroTrustConfig struct {
+	Enabled              bool          `yaml:"enabled"`
+	RequireMTLS          bool          `yaml:"require_mtls"`
+	RequireAttestation   bool          `yaml:"require_attestation"`
+	SessionTTL           time.Duration `yaml:"session_ttl"`
+	AttestationTTL       time.Duration `yaml:"attestation_ttl"`
+	TrustedCAPath        string        `yaml:"trusted_ca_path"`
+	DeviceTrustThreshold string        `yaml:"device_trust_threshold"`
+	AllowBypassPaths     []string      `yaml:"allow_bypass_paths"`
 }
 type IPACLConfig struct {
 	Enabled   bool          `yaml:"enabled"`
