@@ -8,6 +8,8 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -49,27 +51,31 @@ func TestHandleSSE_NonFlusher(t *testing.T) {
 
 func TestHandleSSE_HTTPS(t *testing.T) {
 	handler, _ := helperSSEServer("")
+
+	// Use a thread-safe wrapper around ResponseRecorder
 	rec := httptest.NewRecorder()
+	safeRec := &safeResponseRecorder{rec: rec}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	req := httptest.NewRequest(http.MethodGet, "/mcp/sse", nil).WithContext(ctx)
 	req.TLS = &tls.ConnectionState{}
 
 	done := make(chan struct{})
 	go func() {
-		handler.handleSSE(rec, req)
+		handler.handleSSE(safeRec, req)
 		close(done)
 	}()
 
 	// Wait for SSE data with timeout
-	var bodyStr string
+	var body string
 	for i := 0; i < 200; i++ {
 		time.Sleep(10 * time.Millisecond)
-		bodyStr = rec.Body.String()
-		if len(bodyStr) > 0 {
+		body = safeRec.bodyString()
+		if len(body) > 0 {
 			break
 		}
 	}
-	if len(bodyStr) == 0 {
+	if len(body) == 0 {
 		t.Fatal("timed out waiting for SSE data")
 	}
 	cancel()
@@ -79,13 +85,50 @@ func TestHandleSSE_HTTPS(t *testing.T) {
 		t.Fatal("timed out waiting for handleSSE to return")
 	}
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rec.Code)
+	if safeRec.code() != http.StatusOK {
+		t.Fatalf("expected 200, got %d", safeRec.code())
 	}
-	body := bodyStr
-	if !bytes.Contains([]byte(body), []byte("https://")) {
+	if !strings.Contains(body, "https://") {
 		t.Fatalf("expected https scheme in endpoint, got %s", body)
 	}
+}
+
+// safeResponseRecorder wraps httptest.ResponseRecorder with mutex for thread safety
+type safeResponseRecorder struct {
+	rec *httptest.ResponseRecorder
+	mu  sync.RWMutex
+}
+
+func (s *safeResponseRecorder) Header() http.Header {
+	return s.rec.Header()
+}
+
+func (s *safeResponseRecorder) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.rec.Write(p)
+}
+
+func (s *safeResponseRecorder) WriteHeader(code int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.rec.WriteHeader(code)
+}
+
+func (s *safeResponseRecorder) Flush() {
+	s.rec.Flush()
+}
+
+func (s *safeResponseRecorder) bodyString() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.rec.Body.String()
+}
+
+func (s *safeResponseRecorder) code() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.rec.Code
 }
 
 func TestBroadcastResponse_MarshalError(t *testing.T) {
