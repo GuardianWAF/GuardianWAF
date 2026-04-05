@@ -9,7 +9,7 @@
 [![Go Version](https://img.shields.io/github/go-mod/go-version/guardianwaf/guardianwaf?style=flat-square)](https://go.dev/)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 [![Go Report Card](https://goreportcard.com/badge/github.com/guardianwaf/guardianwaf?style=flat-square)](https://goreportcard.com/report/github.com/guardianwaf/guardianwaf)
-[![Test Coverage](https://img.shields.io/badge/coverage-91%25-brightgreen?style=flat-square)](/docs/)
+[![Test Coverage](https://img.shields.io/badge/coverage-79%25-brightgreen?style=flat-square)](/docs/)
 [![Release](https://img.shields.io/github/v/release/guardianwaf/guardianwaf?style=flat-square)](https://github.com/guardianwaf/guardianwaf/releases)
 [![GHCR](https://img.shields.io/badge/ghcr.io-guardianwaf%2Fguardianwaf-blue?style=flat-square)](https://github.com/guardianwaf/guardianwaf/pkgs/container/guardianwaf)
 [![GitHub Stars](https://img.shields.io/github/stars/guardianwaf/guardianwaf?style=flat-square)](https://github.com/guardianwaf/guardianwaf/stargazers)

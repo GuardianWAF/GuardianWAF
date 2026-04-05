@@ -1,3 +1,42 @@
+## [1.0.0] - 2026-04-05
+
+### Production Release
+
+#### Critical Fixes
+- **Cluster Package Mutex Fix**
+  - Fixed sync.RWMutex copying undefined behavior
+  - Resolved deadlock in handleJoin and startLeaderElection
+  - Added StateSyncData struct with Clone() method for safe copying
+
+- **GraphQL Parser Fix**
+  - Fixed alias parsing with parentheses (e.g., `__type(name: "User")`)
+  - Fixed depth calculation to start from 1 instead of 0
+
+- **WebSocket Pattern Matching**
+  - Fixed flaky test with ordered slice pattern matching
+  - Ensured deterministic pattern detection order
+
+#### Infrastructure
+- **Kubernetes Support**
+  - Added production-ready Kubernetes manifests
+  - Deployment with 2 replicas, security contexts, health probes
+  - ConfigMap for WAF configuration
+  - Service and Ingress with dashboard auth
+  - Comprehensive deployment documentation
+
+- **Monitoring**
+  - Added Grafana production dashboard (25+ panels)
+  - Request rate, block rate, P99 latency metrics
+  - Detection performance per detector
+  - Geographic distribution map
+  - AI analysis queue and cost tracking
+
+#### Documentation
+- Updated README with production deployment section
+- Added PRODUCTION_READINESS_SUMMARY.md
+
+---
+
 ## [0.4.0] - 2026-04-04
 
 ### Added
