@@ -283,6 +283,16 @@ func DefaultConfig() *Config {
 				MaxDataPoints:    10000,
 				EnableTimeSeries: true,
 			},
+			Cluster: ClusterConfig{
+				Enabled:               false,
+				BindAddr:              "0.0.0.0",
+				BindPort:              7946,
+				SyncInterval:          30 * time.Second,
+				HeartbeatInterval:     5 * time.Second,
+				HeartbeatTimeout:      15 * time.Second,
+				LeaderElectionTimeout: 30 * time.Second,
+				MaxNodes:              10,
+			},
 		},
 		Dashboard: DashboardConfig{
 			Enabled: true,

@@ -189,6 +189,7 @@ type WAFConfig struct {
 	Replay           ReplayConfig           `yaml:"replay"`
 	Canary           CanaryConfig           `yaml:"canary"`
 	Analytics        AnalyticsConfig        `yaml:"analytics"`
+	Cluster          ClusterConfig        `yaml:"cluster"`
 }
 
 // AIAnalysisConfig controls AI-powered threat analysis.
@@ -305,6 +306,21 @@ type AnalyticsConfig struct {
 	FlushInterval    time.Duration `yaml:"flush_interval"`
 	MaxDataPoints    int           `yaml:"max_data_points"`
 	EnableTimeSeries bool          `yaml:"enable_time_series"`
+}
+
+// ClusterConfig controls distributed clustering.
+type ClusterConfig struct {
+	Enabled               bool          `yaml:"enabled"`
+	NodeID                string        `yaml:"node_id"`
+	BindAddr              string        `yaml:"bind_addr"`
+	BindPort              int           `yaml:"bind_port"`
+	AdvertiseAddr         string        `yaml:"advertise_addr"`
+	SeedNodes             []string      `yaml:"seed_nodes"`
+	SyncInterval          time.Duration `yaml:"sync_interval"`
+	HeartbeatInterval     time.Duration `yaml:"heartbeat_interval"`
+	HeartbeatTimeout    time.Duration `yaml:"heartbeat_timeout"`
+	LeaderElectionTimeout time.Duration `yaml:"leader_election_timeout"`
+	MaxNodes            int           `yaml:"max_nodes"`
 }
 
 // SIEMConfig controls SIEM integration settings.

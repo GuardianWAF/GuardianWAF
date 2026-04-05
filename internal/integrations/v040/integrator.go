@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/analytics"
+	"github.com/guardianwaf/guardianwaf/internal/cluster"
 	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/discovery"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
@@ -46,6 +47,7 @@ type Integrator struct {
 	replayManager     *replay.Manager
 	canaryLayer       *canary.Layer
 	analyticsLayer    *analytics.Layer
+	clusterLayer      *cluster.Layer
 
 	// HTTP handlers
 	biometricHandler http.HandlerFunc
@@ -147,6 +149,13 @@ func NewIntegrator(cfg *config.Config) (*Integrator, error) {
 	if cfg.WAF.Analytics.Enabled {
 		if err := i.initAnalytics(); err != nil {
 			return nil, fmt.Errorf("analytics: %w", err)
+		}
+	}
+
+	// Initialize Cluster (Phase 4)
+	if cfg.WAF.Cluster.Enabled {
+		if err := i.initCluster(); err != nil {
+			return nil, fmt.Errorf("cluster: %w", err)
 		}
 	}
 
@@ -289,6 +298,14 @@ func (i *Integrator) initEnhancedBotDetection() error {
 // RegisterLayers registers all v0.4.0 layers with the engine pipeline.
 // This should be called after the engine is created but before it starts processing requests.
 func (i *Integrator) RegisterLayers(e *engine.Engine) {
+	// Layer 75: Cluster (early to check cluster-wide bans before rate limiting)
+	if i.clusterLayer != nil {
+		e.AddLayer(engine.OrderedLayer{
+			Layer: i.clusterLayer,
+			Order: 75,
+		})
+	}
+
 	// Layer 450: GraphQL Security (before detection)
 	if i.graphqlLayer != nil {
 		e.AddLayer(engine.OrderedLayer{
@@ -588,6 +605,9 @@ func (i *Integrator) Cleanup() {
 	if i.siemExporter != nil {
 		i.siemExporter.Stop()
 	}
+	if i.clusterLayer != nil {
+		i.clusterLayer.Stop()
+	}
 	log.Println("[v0.4.0] Cleanup complete")
 }
 
@@ -687,6 +707,9 @@ type Stats struct {
 	CanaryEnabled           bool   `json:"canary_enabled"`
 	CanaryStrategy          string `json:"canary_strategy"`
 	AnalyticsEnabled        bool   `json:"analytics_enabled"`
+	ClusterEnabled          bool   `json:"cluster_enabled"`
+	ClusterNodeCount        int    `json:"cluster_node_count"`
+	ClusterIsLeader         bool   `json:"cluster_is_leader"`
 }
 
 // GetStats returns the current integration statistics.
@@ -712,6 +735,9 @@ func (i *Integrator) GetStats() Stats {
 		CanaryEnabled:          i.canaryLayer != nil,
 		CanaryStrategy:         i.cfg.WAF.Canary.Strategy,
 		AnalyticsEnabled:       i.analyticsLayer != nil,
+		ClusterEnabled:         i.clusterLayer != nil,
+		ClusterNodeCount:       i.GetClusterNodeCount(),
+		ClusterIsLeader:        i.IsClusterLeader(),
 	}
 
 	if i.tenantIntegrator != nil {
@@ -868,3 +894,72 @@ func (i *Integrator) AnalyticsHandler() http.Handler {
 	}
 	return i.analyticsLayer.GetHandler()
 }
+
+// initCluster initializes the distributed clustering layer.
+func (i *Integrator) initCluster() error {
+	clusterCfg := i.cfg.WAF.Cluster
+
+	cfg := &cluster.Config{
+		Enabled:               clusterCfg.Enabled,
+		NodeID:                clusterCfg.NodeID,
+		BindAddr:              clusterCfg.BindAddr,
+		BindPort:              clusterCfg.BindPort,
+		AdvertiseAddr:         clusterCfg.AdvertiseAddr,
+		SeedNodes:             clusterCfg.SeedNodes,
+		SyncInterval:          clusterCfg.SyncInterval,
+		HeartbeatInterval:     clusterCfg.HeartbeatInterval,
+		HeartbeatTimeout:      clusterCfg.HeartbeatTimeout,
+		LeaderElectionTimeout: clusterCfg.LeaderElectionTimeout,
+		MaxNodes:              clusterCfg.MaxNodes,
+	}
+
+	layerCfg := &cluster.LayerConfig{
+		Enabled: clusterCfg.Enabled,
+		Config:  cfg,
+	}
+
+	layer, err := cluster.NewLayer(layerCfg)
+	if err != nil {
+		return err
+	}
+
+	// Start the cluster
+	if err := layer.Start(); err != nil {
+		return err
+	}
+
+	i.clusterLayer = layer
+	log.Printf("[v0.4.0+] Cluster enabled (node=%s, bind=%s:%d, seeds=%d)",
+		layer.GetCluster().GetNodes()[0].ID, clusterCfg.BindAddr, clusterCfg.BindPort, len(clusterCfg.SeedNodes))
+	return nil
+}
+
+// GetClusterLayer returns the cluster layer.
+func (i *Integrator) GetClusterLayer() *cluster.Layer {
+	return i.clusterLayer
+}
+
+// GetCluster returns the underlying cluster instance.
+func (i *Integrator) GetCluster() *cluster.Cluster {
+	if i.clusterLayer == nil {
+		return nil
+	}
+	return i.clusterLayer.GetCluster()
+}
+
+// IsClusterLeader returns true if this node is the cluster leader.
+func (i *Integrator) IsClusterLeader() bool {
+	if i.clusterLayer == nil {
+		return false
+	}
+	return i.clusterLayer.IsLeader()
+}
+
+// GetClusterNodeCount returns the number of nodes in the cluster.
+func (i *Integrator) GetClusterNodeCount() int {
+	if i.clusterLayer == nil {
+		return 1
+	}
+	return i.clusterLayer.GetNodeCount()
+}
+
