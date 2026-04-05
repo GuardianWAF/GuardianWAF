@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/guardianwaf/guardianwaf/internal/ai/remediation"
 	"github.com/guardianwaf/guardianwaf/internal/analytics"
 	"github.com/guardianwaf/guardianwaf/internal/cluster"
 	"github.com/guardianwaf/guardianwaf/internal/config"
@@ -48,6 +49,7 @@ type Integrator struct {
 	canaryLayer       *canary.Layer
 	analyticsLayer    *analytics.Layer
 	clusterLayer      *cluster.Layer
+	remediationLayer  *remediation.Layer
 
 	// HTTP handlers
 	biometricHandler http.HandlerFunc
@@ -156,6 +158,13 @@ func NewIntegrator(cfg *config.Config) (*Integrator, error) {
 	if cfg.WAF.Cluster.Enabled {
 		if err := i.initCluster(); err != nil {
 			return nil, fmt.Errorf("cluster: %w", err)
+		}
+	}
+
+	// Initialize Remediation (Phase 4)
+	if cfg.WAF.Remediation.Enabled {
+		if err := i.initRemediation(); err != nil {
+			return nil, fmt.Errorf("remediation: %w", err)
 		}
 	}
 
@@ -608,6 +617,9 @@ func (i *Integrator) Cleanup() {
 	if i.clusterLayer != nil {
 		i.clusterLayer.Stop()
 	}
+	if i.remediationLayer != nil {
+		i.remediationLayer.Stop()
+	}
 	log.Println("[v0.4.0] Cleanup complete")
 }
 
@@ -710,6 +722,9 @@ type Stats struct {
 	ClusterEnabled          bool   `json:"cluster_enabled"`
 	ClusterNodeCount        int    `json:"cluster_node_count"`
 	ClusterIsLeader         bool   `json:"cluster_is_leader"`
+	RemediationEnabled      bool   `json:"remediation_enabled"`
+	RemediationAutoApply    bool   `json:"remediation_auto_apply"`
+	RemediationRulesActive  int    `json:"remediation_rules_active"`
 }
 
 // GetStats returns the current integration statistics.
@@ -738,11 +753,17 @@ func (i *Integrator) GetStats() Stats {
 		ClusterEnabled:         i.clusterLayer != nil,
 		ClusterNodeCount:       i.GetClusterNodeCount(),
 		ClusterIsLeader:        i.IsClusterLeader(),
+		RemediationEnabled:     i.remediationLayer != nil,
+		RemediationAutoApply:   i.cfg.WAF.Remediation.AutoApply,
 	}
 
 	if i.tenantIntegrator != nil {
 		tenantStats := i.tenantIntegrator.Stats()
 		stats.TenantCount = tenantStats.TenantCount
+	}
+
+	if i.remediationLayer != nil {
+		stats.RemediationRulesActive = len(i.remediationLayer.GetEngine().GetActiveRules())
 	}
 
 	return stats
@@ -961,5 +982,51 @@ func (i *Integrator) GetClusterNodeCount() int {
 		return 1
 	}
 	return i.clusterLayer.GetNodeCount()
+}
+
+// initRemediation initializes the AI auto-remediation layer.
+func (i *Integrator) initRemediation() error {
+	remCfg := i.cfg.WAF.Remediation
+
+	cfg := &remediation.Config{
+		Enabled:             remCfg.Enabled,
+		AutoApply:           remCfg.AutoApply,
+		ConfidenceThreshold: remCfg.ConfidenceThreshold,
+		MaxRulesPerDay:      remCfg.MaxRulesPerDay,
+		RuleTTL:             remCfg.RuleTTL,
+		ExcludedPaths:       remCfg.ExcludedPaths,
+		StoragePath:         remCfg.StoragePath,
+	}
+
+	layer, err := remediation.NewLayer(cfg)
+	if err != nil {
+		return err
+	}
+
+	i.remediationLayer = layer
+	log.Printf("[v0.4.0+] Remediation enabled (auto_apply=%v, threshold=%d%%)",
+		remCfg.AutoApply, remCfg.ConfidenceThreshold)
+	return nil
+}
+
+// GetRemediationLayer returns the remediation layer.
+func (i *Integrator) GetRemediationLayer() *remediation.Layer {
+	return i.remediationLayer
+}
+
+// GetRemediationEngine returns the remediation engine.
+func (i *Integrator) GetRemediationEngine() *remediation.Engine {
+	if i.remediationLayer == nil {
+		return nil
+	}
+	return i.remediationLayer.GetEngine()
+}
+
+// RemediationHandler returns the remediation HTTP handler.
+func (i *Integrator) RemediationHandler() http.Handler {
+	if i.remediationLayer == nil {
+		return nil
+	}
+	return i.remediationLayer.GetHandler()
 }
 

@@ -189,7 +189,8 @@ type WAFConfig struct {
 	Replay           ReplayConfig           `yaml:"replay"`
 	Canary           CanaryConfig           `yaml:"canary"`
 	Analytics        AnalyticsConfig        `yaml:"analytics"`
-	Cluster          ClusterConfig        `yaml:"cluster"`
+	Cluster          ClusterConfig          `yaml:"cluster"`
+	Remediation      RemediationConfig      `yaml:"remediation"`
 }
 
 // AIAnalysisConfig controls AI-powered threat analysis.
@@ -321,6 +322,17 @@ type ClusterConfig struct {
 	HeartbeatTimeout    time.Duration `yaml:"heartbeat_timeout"`
 	LeaderElectionTimeout time.Duration `yaml:"leader_election_timeout"`
 	MaxNodes            int           `yaml:"max_nodes"`
+}
+
+// RemediationConfig controls AI auto-remediation settings.
+type RemediationConfig struct {
+	Enabled             bool          `yaml:"enabled"`
+	AutoApply           bool          `yaml:"auto_apply"`
+	ConfidenceThreshold int           `yaml:"confidence_threshold"`
+	MaxRulesPerDay      int           `yaml:"max_rules_per_day"`
+	RuleTTL             time.Duration `yaml:"rule_ttl"`
+	ExcludedPaths       []string      `yaml:"excluded_paths"`
+	StoragePath         string        `yaml:"storage_path"`
 }
 
 // SIEMConfig controls SIEM integration settings.

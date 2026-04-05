@@ -293,6 +293,15 @@ func DefaultConfig() *Config {
 				LeaderElectionTimeout: 30 * time.Second,
 				MaxNodes:              10,
 			},
+			Remediation: RemediationConfig{
+				Enabled:             false,
+				AutoApply:           false,
+				ConfidenceThreshold: 85,
+				MaxRulesPerDay:      10,
+				RuleTTL:             24 * time.Hour,
+				ExcludedPaths:       []string{"/healthz", "/metrics", "/api/v1/status"},
+				StoragePath:         "data/remediation",
+			},
 		},
 		Dashboard: DashboardConfig{
 			Enabled: true,
