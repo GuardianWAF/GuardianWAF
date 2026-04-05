@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: guardianwaf
+  namespace: default
+  labels:
+    app: guardianwaf
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8088
+      protocol: TCP
+      name: http
+    - port: 9443
+      targetPort: 9443
+      protocol: TCP
+      name: dashboard
+  selector:
+    app: guardianwaf
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: guardianwaf-dashboard
+  namespace: default
+  labels:
+    app: guardianwaf
+    component: dashboard
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9443
+      targetPort: 9443
+      protocol: TCP
+      name: dashboard
+  selector:
+    app: guardianwaf

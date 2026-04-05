@@ -406,7 +406,7 @@ func calculateDepth(ast *AST) int {
 
 	maxDepth := 0
 	for _, op := range ast.Document.Operations {
-		depth := calculateSelectionDepth(op.SelectionSet, 0)
+		depth := calculateSelectionDepth(op.SelectionSet, 1)
 		if depth > maxDepth {
 			maxDepth = depth
 		}

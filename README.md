@@ -264,6 +264,67 @@ Scale instantly: `docker compose up -d --scale api=5` -- GuardianWAF detects all
 
 ---
 
+## Production Deployment
+
+### Kubernetes
+
+GuardianWAF includes production-ready Kubernetes manifests:
+
+```bash
+# Apply all manifests
+kubectl apply -f contrib/k8s/
+
+# Verify deployment
+kubectl get pods -l app=guardianwaf
+kubectl logs -l app=guardianwaf
+```
+
+**Features:**
+- 2 replicas with pod anti-affinity
+- Security contexts (non-root, read-only filesystem)
+- Resource limits (64Mi-256Mi memory, 100m-500m CPU)
+- Health checks (`/healthz` endpoint)
+- ConfigMap for WAF configuration
+- Secret support for TLS certificates
+- Horizontal Pod Autoscaler ready
+
+See [contrib/k8s/README.md](contrib/k8s/README.md) for detailed configuration.
+
+### Monitoring (Grafana)
+
+Import the production dashboard:
+
+```bash
+# Via Grafana UI
+# Dashboards -> Import -> Upload dashboard.json
+```
+
+**Dashboard includes:**
+- Request rate, block rate, P99 latency
+- Detection performance per detector
+- Rate limiting and IP blacklist metrics
+- Cluster health and upstream status
+- Geographic distribution map
+- AI analysis queue and cost tracking
+
+See [contrib/grafana/README.md](contrib/grafana/README.md) for metrics reference.
+
+### Docker Build
+
+```bash
+# Build image
+docker build -t guardianwaf:latest .
+
+# Run container
+docker run -d \
+  -p 8088:8088 \
+  -p 9443:9443 \
+  -v $(pwd)/guardianwaf.yaml:/etc/guardianwaf/guardianwaf.yaml:ro \
+  guardianwaf:latest
+```
+
+---
+
 ## Deployment Topologies
 
 ```

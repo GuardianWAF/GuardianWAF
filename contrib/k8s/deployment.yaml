@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: guardianwaf
+  namespace: default
+  labels:
+    app: guardianwaf
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: guardianwaf
+  template:
+    metadata:
+      labels:
+        app: guardianwaf
+    spec:
+      containers:
+        - name: guardianwaf
+          image: guardianwaf/guardianwaf:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8088
+              protocol: TCP
+            - name: dashboard
+              containerPort: 9443
+              protocol: TCP
+          env:
+            - name: GWAF_MODE
+              value: "enforce"
+            - name: GWAF_LISTEN
+              value: ":8088"
+            - name: GWAF_DASHBOARD_LISTEN
+              value: ":9443"
+          volumeMounts:
+            - name: config
+              mountPath: /etc/guardianwaf
+              readOnly: true
+            - name: certs
+              mountPath: /etc/guardianwaf/certs
+              readOnly: true
+            - name: cache
+              mountPath: /var/cache/guardianwaf
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8088
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8088
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: config
+          configMap:
+            name: guardianwaf-config
+        - name: certs
+          secret:
+            secretName: guardianwaf-certs
+            optional: true
+        - name: cache
+          emptyDir:
+            sizeLimit: 100Mi
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - guardianwaf
+                topologyKey: kubernetes.io/hostname

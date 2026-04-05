@@ -131,10 +131,41 @@ type MessageHandler func(msg *Message) error
 
 // StateSync manages distributed state synchronization.
 type StateSync struct {
-	IPBans      map[string]time.Time `json:"ip_bans"`
-	RateLimits  map[string]int64     `json:"rate_limits"`
-	ConfigHash  string               `json:"config_hash"`
-	mu          sync.RWMutex
+	IPBans     map[string]time.Time `json:"ip_bans"`
+	RateLimits map[string]int64     `json:"rate_limits"`
+	ConfigHash string               `json:"config_hash"`
+	mu         sync.RWMutex
+}
+
+// StateSyncData holds the data from StateSync without the mutex.
+// Used for safe copying and JSON serialization.
+type StateSyncData struct {
+	IPBans     map[string]time.Time `json:"ip_bans"`
+	RateLimits map[string]int64     `json:"rate_limits"`
+	ConfigHash string               `json:"config_hash"`
+}
+
+// Clone returns a copy of the state data safely (without copying the mutex).
+func (s *StateSync) Clone() StateSyncData {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// Deep copy the maps
+	ipBansCopy := make(map[string]time.Time, len(s.IPBans))
+	for k, v := range s.IPBans {
+		ipBansCopy[k] = v
+	}
+
+	rateLimitsCopy := make(map[string]int64, len(s.RateLimits))
+	for k, v := range s.RateLimits {
+		rateLimitsCopy[k] = v
+	}
+
+	return StateSyncData{
+		IPBans:     ipBansCopy,
+		RateLimits: rateLimitsCopy,
+		ConfigHash: s.ConfigHash,
+	}
 }
 
 // New creates a new cluster.
@@ -232,6 +263,17 @@ func (c *Cluster) Stop() error {
 // IsLeader returns if this node is the leader.
 func (c *Cluster) IsLeader() bool {
 	return c.isLeader.Load()
+}
+
+// getLeaderUnlocked returns the leader node without acquiring lock.
+// Caller must hold c.mu lock.
+func (c *Cluster) getLeaderUnlocked() *Node {
+	for _, node := range c.nodes {
+		if node.IsLeader {
+			return node
+		}
+	}
+	return nil
 }
 
 // GetLeader returns the current leader node.
@@ -442,7 +484,7 @@ func (c *Cluster) handleJoin(node *Node) {
 	}
 
 	// If no leader exists, start election
-	if c.GetLeader() == nil {
+	if c.getLeaderUnlocked() == nil {
 		c.startLeaderElection()
 	}
 }
@@ -473,6 +515,7 @@ func (c *Cluster) handleLeave(nodeID string) {
 }
 
 // startLeaderElection starts a leader election.
+// Caller must hold c.mu lock when calling from within other locked methods.
 func (c *Cluster) startLeaderElection() {
 	// Simple leader election: lowest node ID wins
 	var leader *Node
@@ -485,22 +528,30 @@ func (c *Cluster) startLeaderElection() {
 	}
 
 	if leader != nil && leader.ID == c.localNode.ID {
-		c.becomeLeader()
+		// Set leader state while holding lock
+		c.isLeader.Store(true)
+		c.localNode.IsLeader = true
+		c.state = StateLeader
+		// Release lock before broadcasting to avoid deadlock
+		c.mu.Unlock()
+		c.broadcast(&Message{
+			Type:      MsgLeaderElection,
+			From:      c.localNode.ID,
+			Timestamp: time.Now(),
+		})
+		c.mu.Lock() // Re-acquire lock for caller
 	}
 }
 
 // becomeLeader makes this node the leader.
+// Note: This method should NOT be called while holding c.mu lock
+// as it calls broadcast() which needs to acquire the lock.
+// Use startLeaderElection() instead which handles lock correctly.
 func (c *Cluster) becomeLeader() {
 	c.isLeader.Store(true)
 	c.localNode.IsLeader = true
 	c.state = StateLeader
-
-	// Notify other nodes
-	c.broadcast(&Message{
-		Type:      MsgLeaderElection,
-		From:      c.localNode.ID,
-		Timestamp: time.Now(),
-	})
+	// Note: broadcast is now handled by the caller to avoid deadlock
 }
 
 // heartbeatLoop sends periodic heartbeats.
@@ -585,9 +636,7 @@ func (c *Cluster) stateSyncLoop() {
 
 // syncState broadcasts current state to all nodes.
 func (c *Cluster) syncState() {
-	c.stateSync.mu.RLock()
-	state := *c.stateSync
-	c.stateSync.mu.RUnlock()
+	state := c.stateSync.Clone()
 
 	payload, _ := json.Marshal(state)
 

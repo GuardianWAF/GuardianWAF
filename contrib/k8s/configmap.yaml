@@ -1,0 +1,85 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: guardianwaf-config
+  namespace: default
+data:
+  guardianwaf.yaml: |
+    mode: enforce
+    listen: ":8088"
+
+    tls:
+      enabled: false
+
+    dashboard:
+      enabled: true
+      listen: ":9443"
+      api_key: "${GWAF_DASHBOARD_API_KEY}"
+
+    waf:
+      detection:
+        enabled: true
+        threshold:
+          block: 50
+          log: 25
+        detectors:
+          sqli:
+            enabled: true
+            multiplier: 1.0
+          xss:
+            enabled: true
+            multiplier: 1.0
+          lfi:
+            enabled: true
+            multiplier: 1.0
+          cmdi:
+            enabled: true
+            multiplier: 1.0
+          xxe:
+            enabled: true
+            multiplier: 1.0
+          ssrf:
+            enabled: true
+            multiplier: 1.0
+
+      rate_limit:
+        enabled: true
+        rules:
+          - id: global
+            scope: ip
+            limit: 1000
+            window: 1m
+            burst: 50
+            action: block
+
+      ip_acl:
+        enabled: true
+        whitelist: []
+        blacklist: []
+
+      sanitizer:
+        enabled: true
+        max_url_length: 8192
+        max_header_size: 1048576
+        max_body_size: 10485760
+        max_header_count: 50
+
+      response:
+        security_headers:
+          enabled: true
+          x_frame_options: "DENY"
+          referrer_policy: "strict-origin-when-cross-origin"
+        data_masking:
+          enabled: true
+          mask_credit_cards: true
+          mask_ssn: true
+
+    logging:
+      level: info
+      format: json
+      log_blocked: true
+      log_allowed: false
+
+    events:
+      storage: memory
+      max_events: 100000

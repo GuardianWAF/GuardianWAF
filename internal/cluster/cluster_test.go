@@ -209,10 +209,13 @@ func TestCluster_LeaderElection(t *testing.T) {
 		t.Error("should not be leader initially")
 	}
 
-	// Simulate becoming leader manually
+	// Simulate becoming leader manually (acquire lock first)
+	cluster.mu.Lock()
+	cluster.localNode.State = StateActive
 	cluster.nodes["node-a"] = cluster.localNode
 	cluster.nodes["node-b"] = &Node{ID: "node-b", State: StateActive}
 	cluster.startLeaderElection()
+	cluster.mu.Unlock()
 
 	// Lower ID should be leader
 	if !cluster.IsLeader() {
@@ -229,9 +232,12 @@ func TestCluster_LeaderElection(t *testing.T) {
 		t.Fatalf("New failed: %v", err)
 	}
 
+	cluster2.mu.Lock()
+	cluster2.localNode.State = StateActive
 	cluster2.nodes["node-a"] = &Node{ID: "node-a", State: StateActive}
 	cluster2.nodes["node-z"] = cluster2.localNode
 	cluster2.startLeaderElection()
+	cluster2.mu.Unlock()
 
 	if cluster2.IsLeader() {
 		t.Error("node-z should not be leader (higher ID)")
@@ -800,9 +806,7 @@ func TestStateSync_Snapshot(t *testing.T) {
 	sync.IPBans["1.2.3.4"] = time.Now().Add(time.Hour)
 	sync.RateLimits["key1"] = 100
 
-	sync.mu.Lock()
-	state := *sync
-	sync.mu.Unlock()
+	state := sync.Clone()
 
 	if len(state.IPBans) != 1 {
 		t.Errorf("IP bans count = %d, want 1", len(state.IPBans))

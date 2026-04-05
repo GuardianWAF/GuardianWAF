@@ -380,35 +380,47 @@ func (s *Security) ValidateFrame(conn *Connection, frame *Frame) error {
 }
 
 // scanPayload scans payload for common threats.
+// orderedPattern defines a pattern with its threat type and priority.
+type orderedPattern struct {
+	pattern string
+	threat  string
+}
+
+// patterns is ordered by specificity - more specific patterns first.
+var patterns = []orderedPattern{
+	// Log4j before general template injection
+	{"${jndi:", "log4j"},
+	{"${", "template_injection"},
+	// XSS patterns
+	{"<script", "xss"},
+	{"javascript:", "xss"},
+	{"onerror=", "xss"},
+	{"onload=", "xss"},
+	// SQL injection
+	{"select ", "sqli"},
+	{"insert ", "sqli"},
+	{"update ", "sqli"},
+	{"delete ", "sqli"},
+	{"drop ", "sqli"},
+	{"union ", "sqli"},
+	// Path traversal
+	{"../", "path_traversal"},
+	{"..\\", "path_traversal"},
+	// LFI
+	{"/etc/passwd", "lfi"},
+	{"c:\\windows\\system32", "lfi"},
+	// Prototype pollution
+	{"__proto__", "prototype_pollution"},
+	{"constructor", "prototype_pollution"},
+}
+
 func (s *Security) scanPayload(payload []byte) string {
 	payloadStr := string(payload)
-
-	// Simple pattern matching - in production use proper detection engine
-	patterns := map[string]string{
-		"<script":                              "xss",
-		"javascript:":                          "xss",
-		"onerror=":                             "xss",
-		"onload=":                              "xss",
-		"SELECT ":                              "sqli",
-		"INSERT ":                              "sqli",
-		"UPDATE ":                              "sqli",
-		"DELETE ":                              "sqli",
-		"DROP ":                                "sqli",
-		"UNION ":                               "sqli",
-		"../":                                  "path_traversal",
-		"..\\":                                 "path_traversal",
-		"/etc/passwd":                          "lfi",
-		"C:\\Windows\\System32":                "lfi",
-		"${jndi:":                              "log4j",
-		"${":                                    "template_injection",
-		"__proto__":                            "prototype_pollution",
-		"constructor":                          "prototype_pollution",
-	}
-
 	lowerPayload := strings.ToLower(payloadStr)
-	for pattern, threat := range patterns {
-		if strings.Contains(lowerPayload, strings.ToLower(pattern)) {
-			return threat
+
+	for _, p := range patterns {
+		if strings.Contains(lowerPayload, p.pattern) {
+			return p.threat
 		}
 	}
 

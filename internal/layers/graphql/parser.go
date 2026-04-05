@@ -230,9 +230,13 @@ func parseField(fieldStr string) (*Field, error) {
 	}
 
 	// Check for alias (alias: name)
+	// Only treat as alias if : comes before any (
 	if idx := strings.Index(fieldStr, ":"); idx > 0 {
-		field.Alias = strings.TrimSpace(fieldStr[:idx])
-		fieldStr = strings.TrimSpace(fieldStr[idx+1:])
+		parenIdx := strings.Index(fieldStr, "(")
+		if parenIdx == -1 || idx < parenIdx {
+			field.Alias = strings.TrimSpace(fieldStr[:idx])
+			fieldStr = strings.TrimSpace(fieldStr[idx+1:])
+		}
 	}
 
 	// Extract field name (before ( or { or @)
