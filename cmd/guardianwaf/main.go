@@ -157,151 +157,457 @@ func cmdSetup(args []string) {
 		return
 	}
 
-	fmt.Println("==========================================")
-	fmt.Println("  GuardianWAF Interactive Setup")
-	fmt.Println("==========================================")
-	fmt.Println()
+	banner := `
+╔═══════════════════════════════════════════════════════════╗
+║           GuardianWAF Production Setup Wizard               ║
+║     Zero-dependency Web Application Firewall               ║
+╚═══════════════════════════════════════════════════════════╝
+`
+	fmt.Print(banner)
 
 	// Generate secure password
 	dashboardPassword := generateSecurePassword()
 
-	// Get values with defaults
-	fmt.Print("Listen address [:8088]: ")
-	var listen string
-	fmt.Scanln(&listen)
-	if listen == "" {
-		listen = ":8088"
-	}
+	// ============ SERVER SETTINGS ============
+	fmt.Println("\n━━━ Server Settings ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-	fmt.Print("Dashboard port [:9443]: ")
-	var dashboardPort string
-	fmt.Scanln(&dashboardPort)
-	if dashboardPort == "" {
-		dashboardPort = ":9443"
-	}
+	fmt.Print("Listen address (HTTP) [0.0.0.0:8088]: ")
+	listen := readLine(":8088")
 
-	fmt.Print("Upstream URL [http://localhost:3000]: ")
-	var upstream string
-	fmt.Scanln(&upstream)
-	if upstream == "" {
-		upstream = "http://localhost:3000"
-	}
-
-	fmt.Print("WAF mode (enforce/monitor) [enforce]: ")
-	var mode string
-	fmt.Scanln(&mode)
+	fmt.Print("WAF mode (enforce/monitor/disabled) [enforce]: ")
+	mode := readLine("enforce")
 	if mode == "" {
 		mode = "enforce"
 	}
 
-	fmt.Println()
-	fmt.Println("Generating configuration...")
+	fmt.Print("Enable TLS/SSL? (yes/no) [no]: ")
+	tlsEnabled := readLine("no") == "yes"
+
+	var tlsConfig string
+	var tlsListen string
+	if tlsEnabled {
+		fmt.Print("TLS listen port [0.0.0.0:8443]: ")
+		tlsListen = readLine(":8443")
+		fmt.Print("TLS certificate file path: ")
+		certFile := readLine("")
+		fmt.Print("TLS private key file path: ")
+		keyFile := readLine("")
+		fmt.Print("Enable HTTP->HTTPS redirect? (yes/no) [yes]: ")
+		httpRedirect := readLine("yes") == "yes"
+		if certFile != "" && keyFile != "" {
+			tlsConfig = fmt.Sprintf(`
+tls:
+  enabled: true
+  listen: "%s"
+  http_redirect: %t
+  cert_file: "%s"
+  key_file: "%s"`, tlsListen, httpRedirect, certFile, keyFile)
+		} else {
+			tlsConfig = fmt.Sprintf(`
+tls:
+  enabled: true
+  listen: "%s"
+  http_redirect: true`, tlsListen)
+		}
+	} else {
+		tlsConfig = `
+tls:
+  enabled: false`
+	}
+
+	// ============ UPSTREAMS ============
+	fmt.Println("\n━━━ Upstream Backend(s) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	fmt.Print("Number of backends [1]: ")
+	numBackends := readLine("1")
+	if numBackends == "" {
+		numBackends = "1"
+	}
+
+	n := 1
+	fmt.Sscanf(numBackends, "%d", &n)
+	if n < 1 {
+		n = 1
+	}
+	if n > 10 {
+		n = 10
+	}
+
+	var targets []string
+	for i := 0; i < n; i++ {
+		fmt.Printf("  Backend #%d URL: ", i+1)
+		url := readLine("")
+		if url == "" {
+			url = "http://localhost:3000"
+		}
+		fmt.Printf("  Backend #%d weight (1-10) [1]: ", i+1)
+		weight := readLine("1")
+		if weight == "" {
+			weight = "1"
+		}
+		targets = append(targets, fmt.Sprintf(`      - url: "%s"
+        weight: %s`, url, weight))
+	}
+
+	// Load balancing
+	fmt.Print("Load balancing strategy (round_robin/weighted/least_conn/ip_hash) [weighted]: ")
+	lb := readLine("weighted")
+
+	// Health check
+	fmt.Print("Enable health checks? (yes/no) [yes]: ")
+	hcEnabled := readLine("yes") == "yes"
+
+	var healthCheck string
+	if hcEnabled {
+		fmt.Print("  Health check path [/healthz]: ")
+		hcPath := readLine("/healthz")
+		fmt.Print("  Health check interval (e.g., 10s, 30s) [10s]: ")
+		hcInterval := readLine("10s")
+		fmt.Print("  Health check timeout (e.g., 5s) [5s]: ")
+		hcTimeout := readLine("5s")
+		healthCheck = fmt.Sprintf(`
+    health_check:
+      enabled: true
+      path: "%s"
+      interval: %s
+      timeout: %s`, hcPath, hcInterval, hcTimeout)
+	}
+
+	// ============ ROUTING ============
+	fmt.Println("\n━━━ Routing ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	fmt.Print("Route domain/host pattern [*]: ")
+	host := readLine("*")
+
+	fmt.Print("Route path prefix [/]: ")
+	path := readLine("/")
+
+	// ============ WAF SETTINGS ============
+	fmt.Println("\n━━━ WAF Detection ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	fmt.Print("Block threshold (1-100) [50]: ")
+	blockThresh := readLine("50")
+	fmt.Print("Log threshold (1-100) [25]: ")
+	logThresh := readLine("25")
+
+	fmt.Println("  Attack detectors to enable (all enabled by default):")
+	fmt.Print("  - SQL Injection (yes/no) [yes]: ")
+	sqli := readLine("yes") == "yes"
+	fmt.Print("  - Cross-Site Scripting (yes/no) [yes]: ")
+	xss := readLine("yes") == "yes"
+	fmt.Print("  - Local File Inclusion (yes/no) [yes]: ")
+	lfi := readLine("yes") == "yes"
+	fmt.Print("  - Command Injection (yes/no) [yes]: ")
+	cmdi := readLine("yes") == "yes"
+	fmt.Print("  - XXE (yes/no) [yes]: ")
+	xxe := readLine("yes") == "yes"
+	fmt.Print("  - SSRF (yes/no) [yes]: ")
+	ssrf := readLine("yes") == "yes"
+
+	var detectors []string
+	if sqli {
+		detectors = append(detectors, "sqli")
+	}
+	if xss {
+		detectors = append(detectors, "xss")
+	}
+	if lfi {
+		detectors = append(detectors, "lfi")
+	}
+	if cmdi {
+		detectors = append(detectors, "cmdi")
+	}
+	if xxe {
+		detectors = append(detectors, "xxe")
+	}
+	if ssrf {
+		detectors = append(detectors, "ssrf")
+	}
+
+	detectorsConfig := "      - " + strings.Join(detectors, "\n      - ")
+
+	// ============ BOT DETECTION ============
+	fmt.Println("\n━━━ Bot Detection ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	fmt.Print("Enable bot detection? (yes/no) [yes]: ")
+	botEnabled := readLine("yes") == "yes"
+
+	var botConfig string
+	if botEnabled {
+		fmt.Print("  Bot action (block/challenge/log) [block]: ")
+		botMode := readLine("block")
+		fmt.Print("  Enable JA3 fingerprinting? (yes/no) [yes]: ")
+		ja3 := readLine("yes") == "yes"
+		fmt.Print("  Enable JA4 fingerprinting? (yes/no) [yes]: ")
+		ja4 := readLine("yes") == "yes"
+		botConfig = fmt.Sprintf(`
+  bot_detection:
+    enabled: true
+    mode: %s
+    ja3_enabled: %t
+    ja4_enabled: %t`, botMode, ja3, ja4)
+	} else {
+		botConfig = `
+  bot_detection:
+    enabled: false`
+	}
+
+	// ============ RATE LIMITING ============
+	fmt.Println("\n━━━ Rate Limiting ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	fmt.Print("Enable rate limiting? (yes/no) [yes]: ")
+	rlEnabled := readLine("yes") == "yes"
+
+	var rateLimitConfig string
+	if rlEnabled {
+		fmt.Print("  Requests per minute [100]: ")
+		rlRpm := readLine("100")
+		fmt.Print("  Burst size [20]: ")
+		rlBurst := readLine("20")
+		fmt.Print("  Enable auto-ban? (yes/no) [yes]: ")
+		rlAutoBan := readLine("yes") == "yes"
+		fmt.Print("  Ban duration (e.g., 15m, 1h) [15m]: ")
+		rlBanDur := readLine("15m")
+		rateLimitConfig = fmt.Sprintf(`
+  rate_limit:
+    enabled: true
+    requests_per_minute: %s
+    burst: %s
+    auto_ban: %t
+    ban_duration: %s`, rlRpm, rlBurst, rlAutoBan, rlBanDur)
+	} else {
+		rateLimitConfig = `
+  rate_limit:
+    enabled: false`
+	}
+
+	// ============ CORS ============
+	fmt.Println("\n━━━ CORS Settings ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	fmt.Print("Enable CORS? (yes/no) [yes]: ")
+	corsEnabled := readLine("yes") == "yes"
+
+	var corsConfig string
+	if corsEnabled {
+		fmt.Print("  Allowed origins (comma-separated, * for any) [*]: ")
+		origins := readLine("*")
+		fmt.Print("  Allowed methods (comma-separated) [GET,POST,PUT,DELETE,OPTIONS]: ")
+		methods := readLine("GET,POST,PUT,DELETE,OPTIONS")
+		corsConfig = fmt.Sprintf(`
+cors:
+  enabled: true
+  allowed_origins:
+    - "%s"
+  allowed_methods:
+    - %s
+  allowed_headers:
+    - "*"
+  max_age: 86400`, origins, strings.ReplaceAll(methods, ",", "\n    - "))
+	} else {
+		corsConfig = `
+cors:
+  enabled: false`
+	}
+
+	// ============ ATO PROTECTION ============
+	fmt.Println("\n━━━ Account Takeover Protection ━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	fmt.Print("Enable ATO protection? (yes/no) [yes]: ")
+	atoEnabled := readLine("yes") == "yes"
+
+	var atoConfig string
+	if atoEnabled {
+		fmt.Print("  Max login attempts [5]: ")
+		atoMax := readLine("5")
+		fmt.Print("  Detection window (e.g., 10m) [10m]: ")
+		atoWindow := readLine("10m")
+		fmt.Print("  Ban duration (e.g., 30m) [30m]: ")
+		atoBan := readLine("30m")
+		atoConfig = fmt.Sprintf(`
+ato:
+  enabled: true
+  brute_force:
+    enabled: true
+    max_attempts: %s
+    window: %s
+    ban_duration: %s`, atoMax, atoWindow, atoBan)
+	} else {
+		atoConfig = `
+ato:
+  enabled: false`
+	}
+
+	// ============ ALERTING ============
+	fmt.Println("\n━━━ Alerting ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	fmt.Print("Enable alerting? (yes/no) [no]: ")
+	alertEnabled := readLine("no") == "yes"
+
+	var alertConfig string
+	if alertEnabled {
+		fmt.Print("  Webhook URL for alerts: ")
+		webhookURL := readLine("")
+		fmt.Print("  Alert on events (block,challenge,log) [block,challenge]: ")
+		events := readLine("block,challenge")
+		fmt.Print("  Minimum score threshold [50]: ")
+		minScore := readLine("50")
+		if webhookURL != "" {
+			alertConfig = fmt.Sprintf(`
+alerting:
+  enabled: true
+  webhooks:
+    - name: default
+      url: "%s"
+      events:
+        - %s
+      min_score: %s`, webhookURL, strings.ReplaceAll(events, ",", "\n        - "), minScore)
+		} else {
+			alertConfig = `
+alerting:
+  enabled: false`
+		}
+	} else {
+		alertConfig = `
+alerting:
+  enabled: false`
+	}
+
+	// ============ DOCKER ============
+	fmt.Println("\n━━━ Docker Auto-Discovery ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	fmt.Print("Enable Docker auto-discovery? (yes/no) [yes]: ")
+	dockerEnabled := readLine("yes") == "yes"
+
+	var dockerConfig string
+	if dockerEnabled {
+		fmt.Print("  Docker socket path [/var/run/docker.sock]: ")
+		dockerSocket := readLine("/var/run/docker.sock")
+		dockerConfig = fmt.Sprintf(`
+docker:
+  enabled: true
+  auto_discover: true
+  socket: "%s"`, dockerSocket)
+	} else {
+		dockerConfig = `
+docker:
+  enabled: false`
+	}
+
+	// ============ DASHBOARD ============
+	fmt.Println("\n━━━ Dashboard ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+	fmt.Print("Dashboard port [0.0.0.0:9443]: ")
+	dashboardListen := readLine(":9443")
+
+	// ============ SUMMARY ============
+	fmt.Println("\n━━━ Summary ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Printf("  Mode: %s\n", mode)
+	fmt.Printf("  Listen: %s\n", listen)
+	fmt.Printf("  TLS: %s\n", boolStr(tlsEnabled))
+	if tlsEnabled {
+		fmt.Printf("  TLS Listen: %s\n", tlsListen)
+	}
+	fmt.Printf("  Upstreams: %d\n", n)
+	fmt.Printf("  Load Balancer: %s\n", lb)
+	fmt.Printf("  Health Check: %s\n", boolStr(hcEnabled))
+	fmt.Printf("  Detectors: %d enabled\n", len(detectors))
+	fmt.Printf("  Bot Detection: %s\n", boolStr(botEnabled))
+	fmt.Printf("  Rate Limiting: %s\n", boolStr(rlEnabled))
+	fmt.Printf("  CORS: %s\n", boolStr(corsEnabled))
+	fmt.Printf("  ATO Protection: %s\n", boolStr(atoEnabled))
+	fmt.Printf("  Alerting: %s\n", boolStr(alertEnabled))
+	fmt.Printf("  Docker Discovery: %s\n", boolStr(dockerEnabled))
+	fmt.Printf("  Dashboard: %s\n", dashboardListen)
+
+	fmt.Print("\nGenerate config? (yes/no) [yes]: ")
+	if readLine("yes") != "yes" {
+		fmt.Println("Setup cancelled.")
+		return
+	}
+
+	fmt.Println("\nGenerating configuration...")
 
 	// Ensure parent directory exists
 	if dirIdx := strings.LastIndex(*configPath, "/"); dirIdx > 0 {
 		os.MkdirAll((*configPath)[:dirIdx], 0755)
 	}
 
-	// Write config
-	configContent := fmt.Sprintf(`# GuardianWAF Configuration
-# Generated by guardianwaf setup
-version: "1.0"
+	// Build config string piecewise
+	var buf strings.Builder
 
-server:
-  listen: "%s"
-  mode: %s
+	buf.WriteString("# GuardianWAF Configuration\n")
+	buf.WriteString("# Generated by guardianwaf setup on " + time.Now().Format("2006-01-02 15:04:05") + "\n")
+	buf.WriteString("# ============================================================\n")
+	buf.WriteString("# Mode: " + mode + " | Listen: " + listen + " | TLS: " + boolStr(tlsEnabled) + "\n")
+	buf.WriteString("# Dashboard: " + dashboardListen + " | Upstreams: " + fmt.Sprintf("%d", n) + "\n")
+	buf.WriteString("# ============================================================\n\n")
 
-tls:
-  enabled: false
+	buf.WriteString("version: \"1.0\"\n\n")
 
-upstreams:
-  - name: default
-    targets:
-      - url: "%s"
+	buf.WriteString("server:\n")
+	buf.WriteString("  listen: \"" + listen + "\"\n")
+	buf.WriteString("  mode: " + mode + "\n")
+	buf.WriteString(tlsConfig + "\n")
 
-routes:
-  - host: "*"
-    upstream: default
+	buf.WriteString("upstreams:\n")
+	buf.WriteString("  - name: default\n")
+	buf.WriteString("    load_balancer: " + lb + "\n")
+	buf.WriteString("    targets:\n")
+	buf.WriteString(upstreamsTargets + "\n")
+	buf.WriteString(healthCheck + "\n")
 
-logging:
-  level: info
-  format: json
-  access_log: true
+	buf.WriteString("routes:\n")
+	buf.WriteString("  - host: \"" + host + "\"\n")
+	buf.WriteString("    path: \"" + path + "\"\n")
+	buf.WriteString("    upstream: default\n\n")
 
-waf:
-  detection:
-    enabled: true
-    block_threshold: 50
-    log_threshold: 25
-    detectors:
-      - sqli
-      - xss
-      - lfi
-      - cmdi
-      - xxe
-      - ssrf
-  challenge:
-    enabled: true
-    difficulty: 20
-  bot_detection:
-    enabled: true
-    mode: block
-  rate_limit:
-    enabled: true
-    requests_per_minute: 100
-    burst: 20
-    auto_ban: true
-    ban_duration: 15m
+	buf.WriteString("logging:\n")
+	buf.WriteString("  level: info\n")
+	buf.WriteString("  format: json\n")
+	buf.WriteString("  access_log: true\n\n")
 
-ipacl:
-  enabled: true
+	buf.WriteString("waf:\n")
+	buf.WriteString("  detection:\n")
+	buf.WriteString("    enabled: true\n")
+	buf.WriteString("    block_threshold: " + blockThresh + "\n")
+	buf.WriteString("    log_threshold: " + logThresh + "\n")
+	buf.WriteString("    detectors:\n")
+	buf.WriteString(detectorsConfig + "\n")
+	buf.WriteString("  challenge:\n")
+	buf.WriteString("    enabled: true\n")
+	buf.WriteString("    difficulty: 20\n")
+	buf.WriteString(botConfig + "\n")
+	buf.WriteString(rateLimitConfig + "\n\n")
 
-cors:
-  enabled: true
-  allowed_origins:
-    - "*"
-  allowed_methods:
-    - GET
-    - POST
-    - PUT
-    - DELETE
-    - OPTIONS
-  allowed_headers:
-    - "*"
-  max_age: 86400
+	buf.WriteString("ipacl:\n")
+	buf.WriteString("  enabled: true\n\n")
 
-ato:
-  enabled: true
-  brute_force:
-    enabled: true
-    max_attempts: 5
-    window: 10m
-    ban_duration: 30m
+	buf.WriteString(corsConfig + "\n\n")
 
-alerting:
-  enabled: false
+	buf.WriteString(atoConfig + "\n\n")
 
-docker:
-  enabled: true
-  auto_discover: true
+	buf.WriteString(alertConfig + "\n\n")
 
-dashboard:
-  enabled: true
-  listen: "%s"
-  username: "admin"
-  # password: "%s"
+	buf.WriteString(dockerConfig + "\n\n")
 
-health:
-  enabled: true
-  path: "/healthz"
+	buf.WriteString("dashboard:\n")
+	buf.WriteString("  enabled: true\n")
+	buf.WriteString("  listen: \"" + dashboardListen + "\"\n")
+	buf.WriteString("  username: \"admin\"\n")
+	buf.WriteString("  # password: \"" + dashboardPassword + "\"\n\n")
 
-metrics:
-  enabled: true
-  path: "/metrics"
+	buf.WriteString("health:\n")
+	buf.WriteString("  enabled: true\n")
+	buf.WriteString("  path: \"/healthz\"\n\n")
 
-mcp:
-  enabled: true
-`, listen, mode, upstream, dashboardPort, dashboardPassword)
+	buf.WriteString("metrics:\n")
+	buf.WriteString("  enabled: true\n")
+	buf.WriteString("  path: \"/metrics\"\n\n")
+
+	buf.WriteString("mcp:\n")
+	buf.WriteString("  enabled: true\n")
+
+	configContent := buf.String()
 
 	if err := os.WriteFile(*configPath, []byte(configContent), 0600); err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing config: %v\n", err)
@@ -309,18 +615,65 @@ mcp:
 	}
 
 	fmt.Println()
-	fmt.Println("==========================================")
-	fmt.Println("  Setup Complete!")
-	fmt.Println("==========================================")
+	fmt.Println("╔═══════════════════════════════════════════════════════════╗")
+	fmt.Println("║              Setup Complete!                            ║")
+	fmt.Println("╚═══════════════════════════════════════════════════════════╝")
 	fmt.Println()
-	fmt.Printf("Config saved to: %s\n", *configPath)
+	fmt.Printf("  Config saved to: %s\n", *configPath)
 	fmt.Println()
-	fmt.Println("IMPORTANT - Save these credentials:")
-	fmt.Printf("  Dashboard password: %s\n", dashboardPassword)
+	fmt.Println("  ┌─────────────────────────────────────────────────────┐")
+	fmt.Println("  │  IMPORTANT - Save these credentials:                │")
+	fmt.Println("  │                                                     │")
+	fmt.Printf("  │  Dashboard password: %s                   │\n", dashboardPassword)
+	fmt.Println("  │                                                     │")
+	fmt.Println("  └─────────────────────────────────────────────────────┘")
 	fmt.Println()
-	fmt.Println("To start GuardianWAF:")
-	fmt.Printf("  guardianwaf serve -c %s\n", *configPath)
+	fmt.Println("  Next steps:")
+	fmt.Printf("    sudo systemctl enable guardianwaf\n")
+	fmt.Printf("    sudo systemctl start guardianwaf\n")
+	fmt.Printf("    sudo systemctl status guardianwaf\n")
 	fmt.Println()
+	fmt.Printf("  Or run directly:\n")
+	fmt.Printf("    guardianwaf serve -c %s\n", *configPath)
+	fmt.Println()
+}
+
+// readLine reads a line from stdin with a default value
+func readLine(defaultVal string) string {
+	var input string
+	fmt.Scanln(&input)
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return defaultVal
+	}
+	return input
+}
+
+// boolStr converts bool to yes/no string
+func boolStr(b bool) string {
+	if b {
+		return "yes"
+	}
+	return "no"
+}
+
+// removeEmptyLines removes consecutive empty lines from config
+func removeEmptyLines(s string) string {
+	lines := strings.Split(s, "\n")
+	var result []string
+	emptyCount := 0
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			emptyCount++
+			if emptyCount <= 2 {
+				result = append(result, line)
+			}
+		} else {
+			emptyCount = 0
+			result = append(result, line)
+		}
+	}
+	return strings.Join(result, "\n")
 }
 
 // generateSecurePassword creates a random 16-character password.
