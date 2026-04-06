@@ -81,6 +81,7 @@ type Dashboard struct {
 	aiAnalyzer      aiAnalyzerInterface           // AI threat analyzer (optional)
 	dockerWatcher   dockerWatcherInterface        // Docker auto-discovery (optional)
 	tenantManager   tenantManagerInterface        // Multi-tenant manager (optional)
+	certFn          func() any                    // returns SSL cert status (optional)
 }
 
 // New creates a new Dashboard wired to the given engine and event store.
@@ -106,6 +107,7 @@ func New(eng *engine.Engine, store events.EventStore, apiKey string) *Dashboard 
 	d.mux.HandleFunc("GET /api/v1/events", d.authWrap(d.handleGetEvents))
 	d.mux.HandleFunc("GET /api/v1/events/export", d.authWrap(d.handleExportEvents))
 	d.mux.HandleFunc("GET /api/v1/events/{id}", d.authWrap(d.handleGetEvent))
+	d.mux.HandleFunc("GET /api/v1/ssl", d.authWrap(d.handleGetCerts))
 	d.mux.HandleFunc("GET /api/v1/upstreams", d.authWrap(d.handleGetUpstreams))
 	d.mux.HandleFunc("GET /api/v1/config", d.authWrap(d.handleGetConfig))
 	d.mux.HandleFunc("PUT /api/v1/config", d.authWrap(d.handleUpdateConfig))
@@ -152,6 +154,7 @@ func New(eng *engine.Engine, store events.EventStore, apiKey string) *Dashboard 
 
 	// SPA serving — React build output from dist/ with fallback to legacy static/
 	d.mux.HandleFunc("GET /assets/", d.handleDistAssets)       // Vite hashed assets — public (content-hashed, no secrets)
+	d.mux.HandleFunc("GET /ssl", d.authWrap(d.handleSPA)) // SPA routes
 	d.mux.HandleFunc("GET /config", d.authWrap(d.handleSPA))   // SPA routes
 	d.mux.HandleFunc("GET /routing", d.authWrap(d.handleSPA))  // SPA routes
 	d.mux.HandleFunc("GET /alerting", d.authWrap(d.handleSPA)) // SPA routes
@@ -665,12 +668,30 @@ func (d *Dashboard) SetUpstreamsFn(fn func() any) {
 	d.upstreamsFn = fn
 }
 
+// SetCertFn sets the function that returns SSL certificate status.
+func (d *Dashboard) SetCertFn(fn func() any) {
+	d.certFn = fn
+}
+
 func (d *Dashboard) handleGetUpstreams(w http.ResponseWriter, r *http.Request) {
 	if d.upstreamsFn == nil {
 		writeJSON(w, http.StatusOK, []any{})
 		return
 	}
 	writeJSON(w, http.StatusOK, d.upstreamsFn())
+}
+
+// --- SSL Certs ---
+
+func (d *Dashboard) handleGetCerts(w http.ResponseWriter, r *http.Request) {
+	if d.certFn == nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"enabled": false,
+			"certs":   []any{},
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, d.certFn())
 }
 
 // --- Config ---

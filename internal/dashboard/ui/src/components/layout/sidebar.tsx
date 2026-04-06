@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { NavLink } from 'react-router'
-import { LayoutDashboard, Globe, Settings, ScrollText, Shield, ShieldCheck, PanelLeftClose, PanelLeft, Brain, Bell, Users, Network } from 'lucide-react'
+import { LayoutDashboard, Globe, Settings, ScrollText, Shield, ShieldCheck, PanelLeftClose, PanelLeft, Brain, Bell, Users, Network, KeyRound } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/routing', label: 'Routing', icon: Globe },
   { to: '/rules', label: 'Rules', icon: ShieldCheck },
+  { to: '/ssl', label: 'SSL/TLS', icon: KeyRound },
   { to: '/config', label: 'WAF Config', icon: Settings },
   { to: '/alerting', label: 'Alerting', icon: Bell },
   { to: '/ai', label: 'AI Analysis', icon: Brain },

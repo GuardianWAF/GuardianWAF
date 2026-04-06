@@ -857,6 +857,7 @@ func cmdServe(args []string) {
 	// 8. Start TLS server if enabled
 	var tlsSrv *http.Server
 	var certStore *gwaftls.CertStore
+	var diskStore *acme.CertDiskStore
 	if cfg.TLS.Enabled {
 		certStore = gwaftls.NewCertStore()
 
@@ -901,7 +902,7 @@ func cmdServe(args []string) {
 					fmt.Fprintf(os.Stderr, "Warning: ACME registration: %v\n", err)
 				} else {
 					// Obtain certs for all ACME domains + vhost domains
-					diskStore := acme.NewCertDiskStore(cfg.TLS.ACME.CacheDir, acmeClient, acmeHandler)
+					diskStore = acme.NewCertDiskStore(cfg.TLS.ACME.CacheDir, acmeClient, acmeHandler)
 					allDomains := collectACMEDomains(cfg)
 					for _, domains := range allDomains {
 						diskStore.AddDomains(domains)
@@ -988,6 +989,12 @@ func cmdServe(args []string) {
 			dash.SetUpstreamsFn(func() any {
 				return r.AllUpstreamStatus()
 			})
+			// Inject SSL cert status provider
+			if diskStore != nil {
+				dash.SetCertFn(func() any {
+					return diskStore.CertStatus()
+				})
+			}
 		}
 		// Wire rules management — always create a rules layer for dashboard CRUD
 		if dash != nil {

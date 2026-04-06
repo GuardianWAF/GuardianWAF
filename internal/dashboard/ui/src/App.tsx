@@ -13,6 +13,7 @@ import TenantDetailPage from '@/pages/tenant-detail'
 import TenantAnalyticsPage from '@/pages/tenant-analytics'
 import ClustersPage from '@/pages/clusters'
 import ClusterDetailPage from '@/pages/cluster-detail'
+import SSLPage from '@/pages/ssl'
 
 export function App() {
   return (
@@ -24,6 +25,7 @@ export function App() {
           <Route path="/rules" element={<RulesPage />} />
           <Route path="/config" element={<ConfigPage />} />
           <Route path="/alerting" element={<AlertingPage />} />
+          <Route path="/ssl" element={<SSLPage />} />
           <Route path="/ai" element={<AIPage />} />
           <Route path="/logs" element={<LogsPage />} />
           <Route path="/tenants" element={<TenantsPage />} />

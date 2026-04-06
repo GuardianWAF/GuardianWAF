@@ -99,6 +99,65 @@ func (s *CertDiskStore) GetCert(domain string) (*tls.Certificate, bool) {
 	return cert, ok
 }
 
+// CertStatus returns structured info about all managed certificates.
+func (s *CertDiskStore) CertStatus() map[string]any {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var certs []map[string]any
+	now := time.Now()
+	const renewDays = 30 // renew 30 days before expiry
+
+	for domain, cert := range s.certs {
+		var notAfter time.Time
+		var issuer string
+		var dnsNames []string
+
+		if cert.Leaf != nil {
+			notAfter = cert.Leaf.NotAfter
+			issuer = cert.Leaf.Issuer.String()
+			dnsNames = cert.Leaf.DNSNames
+		} else if len(cert.Certificate) > 0 {
+			if leaf, err := x509.ParseCertificate(cert.Certificate[0]); err == nil {
+				notAfter = leaf.NotAfter
+				issuer = leaf.Issuer.String()
+				dnsNames = leaf.DNSNames
+			}
+		}
+
+		daysLeft := int(notAfter.Sub(now).Hours() / 24)
+		needsRenewal := daysLeft <= renewDays
+
+		// Extract CN from issuer
+		issuerCN := issuer
+		if idx := strings.Index(issuer, "CN="); idx >= 0 {
+			rest := issuer[idx+3:]
+			if end := strings.Index(rest, ","); end >= 0 {
+				issuerCN = rest[:end]
+			} else {
+				issuerCN = rest
+			}
+		}
+
+		certs = append(certs, map[string]any{
+			"domain":       domain,
+			"dns_names":    dnsNames,
+			"not_after":    notAfter.Format(time.RFC3339),
+			"days_left":    daysLeft,
+			"issuer_cn":    issuerCN,
+			"needs_renewal": needsRenewal,
+			"is_wildcard":  strings.HasPrefix(domain, "*."),
+		})
+	}
+
+	return map[string]any{
+		"enabled":   true,
+		"cache_dir": s.cacheDir,
+		"domains":   s.domains,
+		"certs":     certs,
+	}
+}
+
 // StartRenewal begins a background goroutine that renews certs 30 days before expiry.
 func (s *CertDiskStore) StartRenewal(checkInterval time.Duration) {
 	if checkInterval <= 0 {

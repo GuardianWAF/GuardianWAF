@@ -33,6 +33,9 @@ export const api = {
   // Upstreams health
   getUpstreams: () => request<UpstreamStatus[]>('/api/v1/upstreams'),
 
+  // SSL Certificates
+  getSSL: () => request<any>('/api/v1/ssl'),
+
   // Config
   getConfig: () => request<WafConfig>('/api/v1/config'),
   updateConfig: (patch: Partial<WafConfig>) =>
