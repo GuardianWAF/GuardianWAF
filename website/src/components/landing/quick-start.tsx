@@ -2,14 +2,17 @@ import { Tabs } from '@/components/ui/tabs'
 import { CodeBlock } from '@/components/ui/code-block'
 
 const standaloneCode = `# Download the latest release
-curl -sL https://github.com/GuardianWAF/GuardianWAF/releases/latest/download/guardianwaf-linux-amd64 -o guardianwaf
+curl -sL https://github.com/GuardianWAF/GuardianWAF/releases/latest/download/guardianwaf_1.1.0_linux_amd64.tar.gz | tar -xz
 chmod +x guardianwaf
 
 # Run with default config
 ./guardianwaf serve --listen :8088 --upstream http://localhost:3000
 
 # Or with a config file
-./guardianwaf serve --config guardianwaf.yaml`
+./guardianwaf serve --config guardianwaf.yaml
+
+# Update
+curl -sSL https://raw.githubusercontent.com/guardianwaf/guardianwaf/main/scripts/update.sh | bash`
 
 const libraryCode = `package main
 

@@ -6,7 +6,7 @@ const stats = [
   { value: '<1ms', label: 'p99 Latency' },
   { value: '13', label: 'Security Layers' },
   { value: '400+', label: 'AI Providers' },
-  { value: '15', label: 'MCP Tools' },
+  { value: '30+', label: 'MCP Tools' },
 ]
 
 export function Hero() {

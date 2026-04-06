@@ -13,7 +13,7 @@
 [![Release](https://img.shields.io/github/v/release/guardianwaf/guardianwaf?style=flat-square)](https://github.com/guardianwaf/guardianwaf/releases)
 [![GHCR](https://img.shields.io/badge/ghcr.io-guardianwaf%2Fguardianwaf-blue?style=flat-square)](https://github.com/guardianwaf/guardianwaf/pkgs/container/guardianwaf)
 [![GitHub Stars](https://img.shields.io/github/stars/guardianwaf/guardianwaf?style=flat-square)](https://github.com/guardianwaf/guardianwaf/stargazers)
-[![Build Status](https://img.shields.io/github/actions/workflow/status/guardianwaf/guardianwaf/ci.yml?branch=main&style=flat-square)](https://github.com/guardianwaf/guardianwaf/actions)
+[![Release](https://img.shields.io/github/actions/workflow/status/guardianwaf/guardianwaf/release.yml?branch=main&style=flat-square)](https://github.com/guardianwaf/guardianwaf/actions)
 [![Go Reference](https://pkg.go.dev/badge/github.com/guardianwaf/guardianwaf.svg)](https://pkg.go.dev/github.com/guardianwaf/guardianwaf)
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-zero-brightgreen?style=flat-square)](/)
 
@@ -111,11 +111,28 @@ GuardianWAF is a production-grade Web Application Firewall written in pure Go wi
 
 ## Quick Start
 
+### One-Line Install
+
+```bash
+# Linux/Mac
+curl -sSL https://raw.githubusercontent.com/guardianwaf/guardianwaf/main/scripts/install.sh | bash
+
+# Windows PowerShell
+powershell -ExecutionPolicy Bypass -File https://raw.githubusercontent.com/guardianwaf/guardianwaf/main/scripts/install.ps1
+
+# Docker
+docker run -d -p 8088:8088 -p 9443:9443 ghcr.io/guardianwaf/guardianwaf:latest
+```
+
 ### Standalone Reverse Proxy
 
 ```bash
-# Install
-go install github.com/guardianwaf/guardianwaf/cmd/guardianwaf@latest
+# Download latest release
+curl -sL https://github.com/guardianwaf/guardianwaf/releases/latest/download/guardianwaf_1.1.0_linux_amd64.tar.gz | tar -xz
+chmod +x guardianwaf
+
+# Or use install script
+curl -sSL https://raw.githubusercontent.com/guardianwaf/guardianwaf/main/scripts/install.sh | bash
 
 # Create minimal config
 cat > guardianwaf.yaml <<EOF
