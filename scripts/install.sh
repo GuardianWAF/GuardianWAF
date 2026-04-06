@@ -261,13 +261,6 @@ RestartSec=5
 StandardOutput=journal
 StandardError=journal
 
-# Security hardening
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/var/lib/guardianwaf:/var/log/guardianwaf
-PrivateTmp=true
-
 Environment=GWAF_MODE=enforce
 Environment=GWAF_LOGGING_LEVEL=info
 
