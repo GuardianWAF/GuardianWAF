@@ -1,32 +1,49 @@
-# GuardianWAF Configuration - Docker Default
+# GuardianWAF Configuration
+# Production-ready default configuration
 version: "1.0"
 
+# Server settings
 server:
   listen: ":8088"
-  mode: enforce
+  mode: enforce              # enforce | monitor | disabled
 
+# TLS/SSL configuration
 tls:
   enabled: false
+  listen: ":8443"
+  http_redirect: false      # Redirect HTTP to HTTPS
+  # For production, enable TLS and configure certificates:
+  # cert_file: "/etc/guardianwaf/certs/server.pem"
+  # key_file: "/etc/guardianwaf/certs/server-key.pem"
+  # acme:
+  #   enabled: true
+  #   email: "admin@example.com"
+  #   cache_dir: "/var/lib/guardianwaf/acme"
 
+# Upstream backends
 upstreams:
-  - name: app-pool
+  - name: default
     targets:
-      - url: "http://backend:3000"
-        weight: 3
-      - url: "http://backend2:3000"
-        weight: 1
+      - url: "http://localhost:3000"
 
+# Routing rules
 routes:
   - host: "*"
-    upstream: app-pool
+    upstream: default
 
+# Logging configuration
 logging:
-  level: info
-  format: json
+  level: info               # debug | info | warn | error
+  format: json             # json | text
+  access_log: true
+  # file: "/var/log/guardianwaf/access.log"
 
+# WAF Detection settings
 waf:
   detection:
     enabled: true
+    block_threshold: 50     # Block score threshold
+    log_threshold: 25       # Log score threshold
     detectors:
       - sqli
       - xss
@@ -34,17 +51,143 @@ waf:
       - cmdi
       - xxe
       - ssrf
+  challenge:
+    enabled: true           # JS challenge for suspicious requests
+    difficulty: 20          # Proof-of-work difficulty (1-50)
   bot_detection:
     enabled: true
-    mode: block
+    mode: block            # block | challenge | log
+    ja3_enabled: true
+    ja4_enabled: true
+    ua_blocking: true
+  rate_limit:
+    enabled: true
+    requests_per_minute: 100
+    burst: 20
+    auto_ban: true
+    ban_duration: 15m
 
+# IP Access Control
+ipacl:
+  enabled: true
+  # Configure via dashboard or CLI:
+  # whitelist:
+  #   - "127.0.0.1"
+  #   - "10.0.0.0/8"
+  # blacklist: []
+
+# Threat Intelligence
+threat_intel:
+  enabled: false
+  # feeds:
+  #   - url: "https://feeds.example.com/ip blacklist.json"
+  #     type: ip_blacklist
+  #     refresh: 1h
+
+# CORS settings
+cors:
+  enabled: true
+  allowed_origins:
+    - "*"
+  allowed_methods:
+    - GET
+    - POST
+    - PUT
+    - DELETE
+    - OPTIONS
+  allowed_headers:
+    - "*"
+  exposed_headers:
+    - X-Request-ID
+  max_age: 86400
+  allow_credentials: false
+
+# API Security
+api_security:
+  enabled: false
+  # jwt:
+  #   enabled: true
+  #   algorithms:
+  #     - RS256
+  #   jwks_url: "https://auth.example.com/.well-known/jwks.json"
+  # api_keys:
+  #   - name: "default"
+  #     key: "your-api-key-here"
+  #     scopes:
+  #       - "read"
+  #       - "write"
+
+# Account Takeover Protection
+ato:
+  enabled: true
+  brute_force:
+    enabled: true
+    max_attempts: 5
+    window: 10m
+    ban_duration: 30m
+  credential_stuffing:
+    enabled: true
+    min_score: 70
+  impossible_travel:
+    enabled: true
+    max_distance_km: 500
+    max_time_minutes: 60
+
+# Alerting
+alerting:
+  enabled: false
+  # webhooks:
+  #   - name: slack
+  #     url: "https://hooks.slack.com/services/xxx"
+  #     type: slack
+  #     events:
+  #       - block
+  #     min_score: 50
+  # smtp:
+  #   enabled: false
+  #   host: "smtp.example.com"
+  #   port: 587
+  #   username: "alerts@example.com"
+  #   password: "smtp-password"
+  #   from: "guardianwaf@example.com"
+  #   to:
+  #     - "admin@example.com"
+
+# Docker auto-discovery
 docker:
   enabled: true
   auto_discover: true
+  # socket: "/var/run/docker.sock"
 
+# Dashboard
 dashboard:
   enabled: true
   listen: ":9443"
+  # password protection (strongly recommended for production)
+  username: "admin"
+  # password: "CHANGE-THIS-IN-PRODUCTION"  # Set via GWAF_DASHBOARD_PASSWORD env or generate on first run
+  # For secure production: remove password field and use GWAF_DASHBOARD_PASSWORD env var
 
+# MCP Server (for AI integrations)
 mcp:
   enabled: true
+  # transport: stdio    # stdio | sse
+
+# AI Analysis (optional)
+ai:
+  enabled: false
+  # provider: "openai"
+  # api_key: "sk-..."   # Set via GWAF_AI_API_KEY env
+  # model: "gpt-4"
+  # auto_block: true
+  # min_confidence: 70
+
+# Health check endpoint
+health:
+  enabled: true
+  path: "/healthz"
+
+# Metrics endpoint (Prometheus)
+metrics:
+  enabled: true
+  path: "/metrics"
