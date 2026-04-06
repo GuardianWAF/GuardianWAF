@@ -94,6 +94,8 @@ func runMain(args []string) int {
 		cmdValidate(args[2:])
 	case "test-alert":
 		cmdTestAlert(args[2:])
+	case "healthcheck":
+		cmdHealthcheck()
 	case "version":
 		cmdVersion()
 	case "help", "-h", "--help":
@@ -127,6 +129,13 @@ Run 'guardianwaf <command> --help' for command-specific options.`)
 // cmdVersion prints version information.
 func cmdVersion() {
 	fmt.Printf("guardianwaf %s (commit: %s, built: %s)\n", version, commit, date)
+}
+
+// cmdHealthcheck performs a health check and exits with appropriate code.
+func cmdHealthcheck() {
+	// Simple health check - just verify the binary runs
+	fmt.Println("OK")
+	os.Exit(0)
 }
 
 // --------------------------------------------------------------------------

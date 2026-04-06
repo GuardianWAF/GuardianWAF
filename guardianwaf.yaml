@@ -1,0 +1,50 @@
+# GuardianWAF Configuration - Docker Default
+version: "1.0"
+
+server:
+  listen: ":8088"
+  mode: enforce
+
+tls:
+  enabled: false
+
+upstreams:
+  - name: app-pool
+    targets:
+      - url: "http://backend:3000"
+        weight: 3
+      - url: "http://backend2:3000"
+        weight: 1
+
+routes:
+  - host: "*"
+    upstream: app-pool
+
+logging:
+  level: info
+  format: json
+
+waf:
+  detection:
+    enabled: true
+    detectors:
+      - sqli
+      - xss
+      - lfi
+      - cmdi
+      - xxe
+      - ssrf
+  bot_detection:
+    enabled: true
+    mode: block
+
+docker:
+  enabled: true
+  auto_discover: true
+
+dashboard:
+  enabled: true
+  listen: ":9443"
+
+mcp:
+  enabled: true

@@ -1,24 +1,35 @@
+# GuardianWAF Docker Compose - Production Ready
+# Usage: docker compose up -d
+
 services:
   guardianwaf:
     image: ghcr.io/guardianwaf/guardianwaf:latest
+    container_name: guardianwaf
     ports:
-      - "18088:8088"
-      - "9443:9443"
+      - "18080:8088"   # HTTP proxy port
+      - "19443:9443"  # HTTPS/dashboard port
     volumes:
-      - ./examples/standalone/guardianwaf.yaml:/etc/guardianwaf/guardianwaf.yaml:ro
+      - ./guardianwaf.yaml:/etc/guardianwaf/guardianwaf.yaml:ro
+      - guardianwaf-data:/var/lib/guardianwaf
       - /var/run/docker.sock:/var/run/docker.sock:ro  # Docker auto-discovery
-    command: ["serve", "-c", "/etc/guardianwaf/guardianwaf.yaml"]
     environment:
       - GWAF_MODE=enforce
       - GWAF_LOGGING_LEVEL=info
-    depends_on:
-      - backend
-      - backend2
+      - GWAF_LOGGING_FORMAT=json
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/guardianwaf", "healthcheck"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    networks:
+      - guardianwaf-network
 
-  # Primary backend (weight: 3) — auto-discovered via labels
+  # Example backend services for testing
   backend:
     image: golang:1.23-alpine
+    container_name: backend-primary
     working_dir: /app
     volumes:
       - ./examples/backend:/app
@@ -33,10 +44,13 @@ services:
       gwaf.weight: "3"
       gwaf.health.path: "/healthz"
       gwaf.lb: "weighted"
+    networks:
+      - guardianwaf-network
+    restart: unless-stopped
 
-  # Secondary backend for load balancing demo (weight: 1) — auto-discovered
   backend2:
     image: golang:1.23-alpine
+    container_name: backend-secondary
     working_dir: /app
     volumes:
       - ./examples/backend:/app
@@ -51,3 +65,14 @@ services:
       gwaf.weight: "1"
       gwaf.health.path: "/healthz"
       gwaf.lb: "weighted"
+    networks:
+      - guardianwaf-network
+    restart: unless-stopped
+
+volumes:
+  guardianwaf-data:
+    driver: local
+
+networks:
+  guardianwaf-network:
+    driver: bridge
