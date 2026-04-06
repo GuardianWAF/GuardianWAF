@@ -170,6 +170,9 @@ func (ms *MemoryStore) matchesFilter(ev engine.Event, f EventFilter) bool {
 	if f.Path != "" && !strings.HasPrefix(ev.Path, f.Path) {
 		return false
 	}
+	if f.CountryCode != "" && ev.CountryCode != f.CountryCode {
+		return false
+	}
 	return true
 }
 

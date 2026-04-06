@@ -22,6 +22,7 @@ type Config struct {
 	Alerting  AlertingConfig  `yaml:"alerting"`
 	Logging   LogConfig       `yaml:"logging"`
 	Events    EventsConfig    `yaml:"events"`
+	Tenant    TenantConfig    `yaml:"tenant"`
 }
 
 // AlertingConfig controls webhook and email-based alert delivery.
@@ -76,6 +77,7 @@ type TLSConfig struct {
 	KeyFile      string     `yaml:"key_file"`
 	HTTPRedirect bool       `yaml:"http_redirect"` // redirect HTTP→HTTPS when TLS enabled
 	ACME         ACMEConfig `yaml:"acme"`
+	HTTP3        HTTP3Config `yaml:"http3"`
 }
 
 // ACMEConfig holds automatic certificate management settings.
@@ -84,6 +86,20 @@ type ACMEConfig struct {
 	Email    string   `yaml:"email"`
 	Domains  []string `yaml:"domains"`
 	CacheDir string   `yaml:"cache_dir"`
+}
+
+// HTTP3Config controls HTTP/3 and QUIC settings.
+type HTTP3Config struct {
+	Enabled            bool          `yaml:"enabled"`
+	Listen             string        `yaml:"listen"`              // UDP listen address (default: same as TLS)
+	MaxHeaderBytes     int           `yaml:"max_header_bytes"`    // Max header size (default: 1MB)
+	ReadTimeout        time.Duration `yaml:"read_timeout"`
+	WriteTimeout       time.Duration `yaml:"write_timeout"`
+	IdleTimeout        time.Duration `yaml:"idle_timeout"`
+	Enable0RTT         bool          `yaml:"enable_0rtt"`         // Enable 0-RTT handshake
+	EnableDatagrams    bool          `yaml:"enable_datagrams"`    // Enable HTTP/3 datagrams (WebTransport)
+	AltSvcPort         int           `yaml:"alt_svc_port"`        // Port advertised in Alt-Svc header
+	AdvertiseAltSvc    bool          `yaml:"advertise_alt_svc"`   // Advertise HTTP/3 via Alt-Svc header
 }
 
 // UpstreamConfig defines a named group of backend targets with health checking.
@@ -171,11 +187,13 @@ type WAFConfig struct {
 	RateLimit        RateLimitConfig        `yaml:"rate_limit"`
 	ATOProtection    ATOProtectionConfig    `yaml:"ato_protection"`
 	APISecurity      APISecurityConfig      `yaml:"api_security"`
+	APIValidation    APIValidationConfig    `yaml:"api_validation"`
 	Sanitizer        SanitizerConfig        `yaml:"sanitizer"`
 	Detection        DetectionConfig        `yaml:"detection"`
 	BotDetection     BotDetectionConfig     `yaml:"bot_detection"`
 	Challenge        ChallengeConfig        `yaml:"challenge"`
 	Response         ResponseConfig         `yaml:"response"`
+	ClientSide       ClientSideConfig       `yaml:"client_side"`
 	AIAnalysis       AIAnalysisConfig       `yaml:"ai_analysis"`
 	MLAnomaly        MLAnomalyConfig        `yaml:"ml_anomaly"`
 	APIDiscovery     APIDiscoveryConfig     `yaml:"api_discovery"`
@@ -189,9 +207,11 @@ type WAFConfig struct {
 	Replay           ReplayConfig           `yaml:"replay"`
 	Canary           CanaryConfig           `yaml:"canary"`
 	Analytics        AnalyticsConfig        `yaml:"analytics"`
-	Cluster          ClusterConfig          `yaml:"cluster"`
+	ClusterSync      ClusterSyncConfig      `yaml:"cluster_sync"`
 	Remediation      RemediationConfig      `yaml:"remediation"`
 	WebSocket        WebSocketConfig        `yaml:"websocket"`
+	CRS              CRSConfig              `yaml:"crs"`
+	VirtualPatch     VirtualPatchConfig     `yaml:"virtual_patch"`
 }
 
 // AIAnalysisConfig controls AI-powered threat analysis.
@@ -310,19 +330,35 @@ type AnalyticsConfig struct {
 	EnableTimeSeries bool          `yaml:"enable_time_series"`
 }
 
-// ClusterConfig controls distributed clustering.
-type ClusterConfig struct {
-	Enabled               bool          `yaml:"enabled"`
-	NodeID                string        `yaml:"node_id"`
-	BindAddr              string        `yaml:"bind_addr"`
-	BindPort              int           `yaml:"bind_port"`
-	AdvertiseAddr         string        `yaml:"advertise_addr"`
-	SeedNodes             []string      `yaml:"seed_nodes"`
-	SyncInterval          time.Duration `yaml:"sync_interval"`
-	HeartbeatInterval     time.Duration `yaml:"heartbeat_interval"`
-	HeartbeatTimeout    time.Duration `yaml:"heartbeat_timeout"`
-	LeaderElectionTimeout time.Duration `yaml:"leader_election_timeout"`
-	MaxNodes            int           `yaml:"max_nodes"`
+// ClusterNodeConfig defines a peer node in the cluster.
+type ClusterNodeConfig struct {
+	ID      string `yaml:"id"`
+	Name    string `yaml:"name"`
+	Address string `yaml:"address"` // https://host:port
+}
+
+// ClusterSyncConfig controls data synchronization between clusters.
+type ClusterSyncConfig struct {
+	Enabled            bool                `yaml:"enabled"`
+	NodeID             string              `yaml:"node_id"`
+	NodeName           string              `yaml:"node_name"`
+	Listen             string              `yaml:"listen"`      // Bind address for sync API
+	Port               int                 `yaml:"port"`        // Default: 9444
+	SharedSecret       string              `yaml:"shared_secret"`
+	Clusters           []ClusterMembership `yaml:"clusters"`
+	SyncInterval       time.Duration       `yaml:"sync_interval"`
+	ConflictResolution string              `yaml:"conflict_resolution"` // "last_write_wins", "source_priority", "manual"
+	MaxRetries         int                 `yaml:"max_retries"`
+	RetryDelay         time.Duration       `yaml:"retry_delay"`
+}
+
+// ClusterMembership defines which clusters this node belongs to.
+type ClusterMembership struct {
+	ID            string            `yaml:"id"`
+	Name          string            `yaml:"name"`
+	Nodes         []ClusterNodeConfig `yaml:"nodes"`
+	SyncScope     string            `yaml:"sync_scope"`     // "tenants", "rules", "config", "all"
+	Bidirectional bool              `yaml:"bidirectional"`
 }
 
 // RemediationConfig controls AI auto-remediation settings.
@@ -531,6 +567,60 @@ type ResponseConfig struct {
 	ErrorPages      ErrorPagesConfig      `yaml:"error_pages"`
 }
 
+// ClientSideConfig controls client-side protection settings.
+type ClientSideConfig struct {
+	Enabled           bool                     `yaml:"enabled"`
+	Mode              string                   `yaml:"mode"` // "monitor", "block", "inject"
+	MagecartDetection MagecartDetectionConfig  `yaml:"magecart_detection"`
+	AgentInjection    AgentInjectionConfig     `yaml:"agent_injection"`
+	CSP               CSPHeaderConfig          `yaml:"csp"`
+	Exclusions        []string                 `yaml:"exclusions"`
+}
+
+// MagecartDetectionConfig controls Magecart/skimming detection.
+type MagecartDetectionConfig struct {
+	Enabled                 bool     `yaml:"enabled"`
+	DetectObfuscatedJS      bool     `yaml:"detect_obfuscated_js"`
+	DetectSuspiciousDomains bool     `yaml:"detect_suspicious_domains"`
+	DetectFormExfiltration  bool     `yaml:"detect_form_exfiltration"`
+	DetectKeyloggers        bool     `yaml:"detect_keyloggers"`
+	KnownSkimmingDomains    []string `yaml:"known_skimming_domains"`
+	BlockScore              int      `yaml:"block_score"`
+	AlertScore              int      `yaml:"alert_score"`
+}
+
+// AgentInjectionConfig controls security agent injection.
+type AgentInjectionConfig struct {
+	Enabled         bool     `yaml:"enabled"`
+	ScriptURL       string   `yaml:"script_url"`
+	InjectInHTML    bool     `yaml:"inject_in_html"`
+	InjectPosition  string   `yaml:"inject_position"` // "head", "body-start", "body-end"
+	MonitorDOM      bool     `yaml:"monitor_dom"`
+	MonitorNetwork  bool     `yaml:"monitor_network"`
+	MonitorForms    bool     `yaml:"monitor_forms"`
+	ProtectedPaths  []string `yaml:"protected_paths"`
+}
+
+// CSPHeaderConfig controls Content Security Policy headers.
+type CSPHeaderConfig struct {
+	Enabled         bool     `yaml:"enabled"`
+	ReportOnly      bool     `yaml:"report_only"`
+	DefaultSrc      []string `yaml:"default_src"`
+	ScriptSrc       []string `yaml:"script_src"`
+	StyleSrc        []string `yaml:"style_src"`
+	ImgSrc          []string `yaml:"img_src"`
+	ConnectSrc      []string `yaml:"connect_src"`
+	FontSrc         []string `yaml:"font_src"`
+	ObjectSrc       []string `yaml:"object_src"`
+	MediaSrc        []string `yaml:"media_src"`
+	FrameSrc        []string `yaml:"frame_src"`
+	FrameAncestors  []string `yaml:"frame_ancestors"`
+	FormAction      []string `yaml:"form_action"`
+	BaseURI         []string `yaml:"base_uri"`
+	ReportURI       string   `yaml:"report_uri"`
+	UpgradeInsecure bool     `yaml:"upgrade_insecure_requests"`
+}
+
 // SecurityHeadersConfig controls injection of protective HTTP headers.
 type SecurityHeadersConfig struct {
 	Enabled             bool       `yaml:"enabled"`
@@ -628,6 +718,7 @@ type TenantConfig struct {
 	MaxTenants   int               `yaml:"max_tenants"`
 	HeaderName   string            `yaml:"header_name"`
 	DefaultQuota ResourceQuotaConfig `yaml:"default_quota"`
+        StorePath    string              `yaml:"store_path"`
 	Tenants      []TenantDefinition `yaml:"tenants"`
 }
 
@@ -811,4 +902,23 @@ type APIKeyConfig struct {
 	RateLimit    int      `yaml:"rate_limit"`
 	AllowedPaths []string `yaml:"allowed_paths"`
 	Enabled      bool     `yaml:"enabled"`
+}
+
+// APIValidationConfig controls OpenAPI schema validation.
+type APIValidationConfig struct {
+	Enabled          bool                 `yaml:"enabled"`
+	ValidateRequest  bool                 `yaml:"validate_request"`
+	ValidateResponse bool                 `yaml:"validate_response"`
+	StrictMode       bool                 `yaml:"strict_mode"`
+	BlockOnViolation bool                 `yaml:"block_on_violation"`
+	ViolationScore   int                  `yaml:"violation_score"`
+	CacheSize        int                  `yaml:"cache_size"`
+	Schemas          []SchemaSourceConfig `yaml:"schemas"`
+}
+
+// SchemaSourceConfig represents a schema source configuration.
+type SchemaSourceConfig struct {
+	Path      string `yaml:"path"`
+	Type      string `yaml:"type"`
+	AutoLearn bool   `yaml:"auto_learn"`
 }

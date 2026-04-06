@@ -9,7 +9,7 @@ type ToolDefinition struct {
 
 // AllTools returns all GuardianWAF MCP tool definitions.
 func AllTools() []ToolDefinition {
-	return []ToolDefinition{
+	baseTools := []ToolDefinition{
 		{
 			Name:        "guardianwaf_get_stats",
 			Description: "Get WAF runtime statistics including total requests, blocked requests, passed requests, and average latency",
@@ -406,4 +406,8 @@ func AllTools() []ToolDefinition {
 			},
 		},
 	}
+
+	// Append new feature tools
+	newTools := NewFeatureTools()
+	return append(baseTools, newTools...)
 }

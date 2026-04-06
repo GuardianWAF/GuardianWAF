@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // Handlers provides HTTP handlers for tenant management.
@@ -209,4 +210,128 @@ func (h *Handlers) StatsHandler(w http.ResponseWriter, r *http.Request) {
 	stats := h.manager.Stats()
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(stats)
+}
+
+// UsageStats represents real-time usage statistics for a tenant.
+type UsageStats struct {
+	TenantID             string    `json:"tenant_id"`
+	Name                 string    `json:"name"`
+	Active               bool      `json:"active"`
+	RequestsPerMinute    int64     `json:"requests_per_minute"`
+	RequestsPerHour      int64     `json:"requests_per_hour"`
+	TotalRequests        int64     `json:"total_requests"`
+	BlockedRequests      int64     `json:"blocked_requests"`
+	BytesTransferred     int64     `json:"bytes_transferred"`
+	BandwidthMbps        float64   `json:"bandwidth_mbps"`
+	LastRequestAt        time.Time `json:"last_request_at"`
+	QuotaStatus          string    `json:"quota_status"`
+	QuotaPercentage      float64   `json:"quota_percentage"`
+}
+
+// GetTenantUsage returns real-time usage for a specific tenant.
+func (h *Handlers) GetTenantUsage(w http.ResponseWriter, r *http.Request, tenantID string) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	tenant := h.manager.GetTenant(tenantID)
+	if tenant == nil {
+		http.Error(w, "Tenant not found", http.StatusNotFound)
+		return
+	}
+
+	// Get current rate limiter count
+	var requestsPerMinute int64
+	if h.manager.rateLimiter != nil {
+		requestsPerMinute = h.manager.rateLimiter.Count(tenantID)
+	}
+
+	tenant.mu.RLock()
+	stats := UsageStats{
+		TenantID:          tenantID,
+		RequestsPerMinute: requestsPerMinute,
+		TotalRequests:     tenant.RequestCount,
+		BlockedRequests:   tenant.BlockedCount,
+		BytesTransferred:  tenant.ByteCount,
+		LastRequestAt:     tenant.LastRequestAt,
+	}
+
+	// Calculate bandwidth (simplified)
+	if !tenant.LastRequestAt.IsZero() {
+		duration := time.Since(tenant.CreatedAt).Seconds()
+		if duration > 0 {
+			stats.BandwidthMbps = float64(tenant.ByteCount*8) / duration / 1000000
+		}
+	}
+
+	// Calculate quota status
+	if tenant.Quota.MaxRequestsPerMinute > 0 {
+		stats.QuotaPercentage = float64(requestsPerMinute) / float64(tenant.Quota.MaxRequestsPerMinute) * 100
+		if requestsPerMinute >= tenant.Quota.MaxRequestsPerMinute {
+			stats.QuotaStatus = "exceeded"
+		} else if requestsPerMinute >= tenant.Quota.MaxRequestsPerMinute*80/100 {
+			stats.QuotaStatus = "warning"
+		} else {
+			stats.QuotaStatus = "ok"
+		}
+	} else {
+		stats.QuotaStatus = "unlimited"
+	}
+	tenant.mu.RUnlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(stats)
+}
+
+// GetAllUsage returns usage for all tenants.
+func (h *Handlers) GetAllUsage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	tenants := h.manager.ListTenants()
+	usageStats := make([]UsageStats, 0, len(tenants))
+
+	for _, tenant := range tenants {
+		var requestsPerMinute int64
+		if h.manager.rateLimiter != nil {
+			requestsPerMinute = h.manager.rateLimiter.Count(tenant.ID)
+		}
+
+		tenant.mu.RLock()
+		stats := UsageStats{
+			TenantID:          tenant.ID,
+			Name:              tenant.Name,
+			RequestsPerMinute: requestsPerMinute,
+			TotalRequests:     tenant.RequestCount,
+			BlockedRequests:   tenant.BlockedCount,
+			BytesTransferred:  tenant.ByteCount,
+			LastRequestAt:     tenant.LastRequestAt,
+			Active:            tenant.Active,
+		}
+
+		if tenant.Quota.MaxRequestsPerMinute > 0 {
+			stats.QuotaPercentage = float64(requestsPerMinute) / float64(tenant.Quota.MaxRequestsPerMinute) * 100
+			if requestsPerMinute >= tenant.Quota.MaxRequestsPerMinute {
+				stats.QuotaStatus = "exceeded"
+			} else if requestsPerMinute >= tenant.Quota.MaxRequestsPerMinute*80/100 {
+				stats.QuotaStatus = "warning"
+			} else {
+				stats.QuotaStatus = "ok"
+			}
+		} else {
+			stats.QuotaStatus = "unlimited"
+		}
+		tenant.mu.RUnlock()
+
+		usageStats = append(usageStats, stats)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"tenants": usageStats,
+		"count":   len(usageStats),
+	})
 }

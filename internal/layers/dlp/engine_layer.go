@@ -29,39 +29,55 @@ func (el *EngineLayer) Process(ctx *engine.RequestContext) engine.LayerResult {
 
 	// Scan request body if present
 	if len(ctx.Body) > 0 && el.scanRequest {
+		// Check for file uploads
+		contentType := ctx.Headers["Content-Type"]
+		if len(contentType) > 0 && el.config.ScanFileUploads {
+			result, err := el.Layer.ScanFileUploads(ctx.Body, contentType[0])
+			if err == nil && !result.Safe {
+				return el.handleScanResult(ctx, result, "file_upload")
+			}
+		}
+
+		// Scan regular content
 		result := el.scanContent(string(ctx.Body))
-
 		if !result.Safe {
-			// Add findings to context
-			for _, match := range result.Matches {
-				severity := el.convertSeverity(match.Severity)
-				finding := &engine.Finding{
-					DetectorName: "dlp",
-					Category:     string(match.Type),
-					Severity:     severity,
-					Score:        el.severityToScore(match.Severity),
-					Description:  el.formatFindingDescription(match),
-					Location:     "body",
-					Confidence:   1.0,
-				}
-				ctx.Accumulator.Add(finding)
-			}
+			return el.handleScanResult(ctx, result, "body")
+		}
+	}
 
-			// Block if configured
-			if el.config.BlockOnMatch && result.RiskScore >= 50 {
-				return engine.LayerResult{
-					Action: engine.ActionBlock,
-					Score:  result.RiskScore,
-				}
-			}
+	return engine.LayerResult{Action: engine.ActionPass}
+}
 
-			// Log if significant risk
-			if result.RiskScore >= 25 {
-				return engine.LayerResult{
-					Action: engine.ActionLog,
-					Score:  result.RiskScore,
-				}
-			}
+// handleScanResult processes scan results and returns appropriate LayerResult.
+func (el *EngineLayer) handleScanResult(ctx *engine.RequestContext, result *ScanResult, location string) engine.LayerResult {
+	// Add findings to context
+	for _, match := range result.Matches {
+		severity := el.convertSeverity(match.Severity)
+		finding := &engine.Finding{
+			DetectorName: "dlp",
+			Category:     string(match.Type),
+			Severity:     severity,
+			Score:        el.severityToScore(match.Severity),
+			Description:  el.formatFindingDescription(match),
+			Location:     location,
+			Confidence:   1.0,
+		}
+		ctx.Accumulator.Add(finding)
+	}
+
+	// Block if configured
+	if el.config.BlockOnMatch && result.RiskScore >= 50 {
+		return engine.LayerResult{
+			Action: engine.ActionBlock,
+			Score:  result.RiskScore,
+		}
+	}
+
+	// Log if significant risk
+	if result.RiskScore >= 25 {
+		return engine.LayerResult{
+			Action: engine.ActionLog,
+			Score:  result.RiskScore,
 		}
 	}
 

@@ -18,14 +18,15 @@ type EventStore interface {
 
 // EventFilter specifies criteria for querying events.
 type EventFilter struct {
-	Limit     int
-	Offset    int
-	Since     time.Time
-	Until     time.Time
-	Action    string // "", "blocked", "logged", "passed"
-	ClientIP  string
-	MinScore  int
-	Path      string // prefix match
-	SortBy    string // "timestamp", "score"
-	SortOrder string // "asc", "desc"
+	Limit       int
+	Offset      int
+	Since       time.Time
+	Until       time.Time
+	Action      string // "", "blocked", "logged", "passed"
+	ClientIP    string
+	MinScore    int
+	Path        string // prefix match
+	SortBy      string // "timestamp", "score"
+	SortOrder   string // "asc", "desc"
+	CountryCode string // ISO country code filter
 }

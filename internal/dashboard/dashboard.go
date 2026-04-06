@@ -27,6 +27,40 @@ var distFS embed.FS
 //go:embed static/index.html static/style.css static/app.js static/config.html static/config.js static/routing.html static/routing.js
 var staticFiles embed.FS
 
+// tenantManagerInterface is the interface for multi-tenant management.
+type tenantManagerInterface interface {
+	ListTenants() []any
+	GetTenant(id string) any
+	CreateTenant(name, description string, domains []string, quota any) (any, error)
+	UpdateTenant(id string, update any) error
+	DeleteTenant(id string) error
+	RegenerateAPIKey(id string) (string, error)
+	Stats() any
+	BillingManager() BillingManagerInterface
+	AlertManager() AlertManagerInterface
+	GetAllUsage() []any
+	GetTenantUsage(tenantID string) any
+	GetTenantRules(tenantID string) []any
+	AddTenantRule(tenantID string, rule map[string]any) error
+	GetTenantRule(tenantID, ruleID string) any
+	UpdateTenantRule(tenantID string, rule map[string]any) error
+	RemoveTenantRule(tenantID, ruleID string) error
+	ToggleTenantRule(tenantID, ruleID string, enabled bool) error
+}
+
+// BillingManagerInterface is the interface for tenant billing.
+type BillingManagerInterface interface {
+	GetAllInvoices() []any
+	GetInvoices(tenantID string) []any
+	GetCurrentUsage(tenantID string) any
+	GenerateInvoice(tenantID, tenantName string, plan string, periodStart, periodEnd time.Time) (any, error)
+}
+
+// AlertManagerInterface is the interface for tenant alerts.
+type AlertManagerInterface interface {
+	GetRecentAlerts(since time.Duration) []any
+}
+
 // Dashboard is the web dashboard server.
 type Dashboard struct {
 	engine          *engine.Engine
@@ -46,6 +80,7 @@ type Dashboard struct {
 	alertingStatsFn func() any                    // returns alerting stats (optional)
 	aiAnalyzer      aiAnalyzerInterface           // AI threat analyzer (optional)
 	dockerWatcher   dockerWatcherInterface        // Docker auto-discovery (optional)
+	tenantManager   tenantManagerInterface        // Multi-tenant manager (optional)
 }
 
 // New creates a new Dashboard wired to the given engine and event store.
@@ -1347,6 +1382,11 @@ func (d *Dashboard) SetAlertingStatsFn(fn func() any) {
 	d.alertingStatsFn = fn
 }
 
+// SetTenantManager injects the multi-tenant manager.
+func (d *Dashboard) SetTenantManager(manager tenantManagerInterface) {
+	d.tenantManager = manager
+}
+
 func (d *Dashboard) handleGetRules(w http.ResponseWriter, r *http.Request) {
 	if d.rulesFn == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"rules": []any{}})
@@ -1445,7 +1485,25 @@ func (d *Dashboard) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 // --- Health ---
 
 func (d *Dashboard) handleHealth(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"status": "healthy"})
+	status := "healthy"
+	components := map[string]string{
+		"engine":     "healthy",
+		"eventStore": "healthy",
+	}
+
+	if d.engine == nil {
+		status = "degraded"
+		components["engine"] = "unhealthy"
+	}
+	if d.eventStore == nil {
+		status = "degraded"
+		components["eventStore"] = "unhealthy"
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":     status,
+		"components": components,
+	})
 }
 
 // --- SSE ---

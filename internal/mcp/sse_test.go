@@ -428,8 +428,8 @@ func TestHandleRequestJSON_ToolsList(t *testing.T) {
 	if !ok {
 		t.Fatal("tools is not an array")
 	}
-	if len(tools) != 21 {
-		t.Fatalf("expected 21 tools, got %d", len(tools))
+	if len(tools) != 44 {
+		t.Fatalf("expected 44 tools, got %d", len(tools))
 	}
 }
 

@@ -7,6 +7,12 @@ import LogsPage from '@/pages/logs'
 import RulesPage from '@/pages/rules'
 import AIPage from '@/pages/ai'
 import AlertingPage from '@/pages/alerting'
+import TenantsPage from '@/pages/tenants'
+import TenantNewPage from '@/pages/tenant-new'
+import TenantDetailPage from '@/pages/tenant-detail'
+import TenantAnalyticsPage from '@/pages/tenant-analytics'
+import ClustersPage from '@/pages/clusters'
+import ClusterDetailPage from '@/pages/cluster-detail'
 
 export function App() {
   return (
@@ -20,6 +26,12 @@ export function App() {
           <Route path="/alerting" element={<AlertingPage />} />
           <Route path="/ai" element={<AIPage />} />
           <Route path="/logs" element={<LogsPage />} />
+          <Route path="/tenants" element={<TenantsPage />} />
+          <Route path="/tenants/new" element={<TenantNewPage />} />
+          <Route path="/tenants/:id" element={<TenantDetailPage />} />
+          <Route path="/tenants/:id/analytics" element={<TenantAnalyticsPage />} />
+          <Route path="/clusters" element={<ClustersPage />} />
+          <Route path="/clusters/:id" element={<ClusterDetailPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

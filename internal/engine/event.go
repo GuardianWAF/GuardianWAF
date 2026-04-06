@@ -10,9 +10,15 @@ import (
 // Set via SetUAParser to avoid circular imports with the botdetect package.
 type UAParser func(ua string) (browser, brVersion, os, deviceType string, isBot bool)
 
+// GeoIPLookup is a function type for looking up country by IP.
+// Set via SetGeoIPLookup to avoid circular imports with the geoip package.
+type GeoIPLookup func(ip string) (countryCode, countryName string)
+
 var (
-	uaParserMu sync.RWMutex
-	uaParser   UAParser
+	uaParserMu    sync.RWMutex
+	uaParser      UAParser
+	geoIPLookupMu sync.RWMutex
+	geoIPLookup   GeoIPLookup
 )
 
 // SetUAParser registers a User-Agent parser function.
@@ -27,6 +33,20 @@ func getUAParser() UAParser {
 	uaParserMu.RLock()
 	defer uaParserMu.RUnlock()
 	return uaParser
+}
+
+// SetGeoIPLookup registers a GeoIP lookup function.
+// Called once at startup from the main package after importing geoip.
+func SetGeoIPLookup(fn GeoIPLookup) {
+	geoIPLookupMu.Lock()
+	defer geoIPLookupMu.Unlock()
+	geoIPLookup = fn
+}
+
+func getGeoIPLookup() GeoIPLookup {
+	geoIPLookupMu.RLock()
+	defer geoIPLookupMu.RUnlock()
+	return geoIPLookup
 }
 
 // Event represents a WAF event for logging and storage.
@@ -51,6 +71,10 @@ type Event struct {
 	OS         string `json:"os"`
 	DeviceType string `json:"device_type"`
 	IsBot      bool   `json:"is_bot"`
+
+	// GeoIP information
+	CountryCode string `json:"country_code,omitempty"`
+	CountryName string `json:"country_name,omitempty"`
 
 	// Request metadata
 	ContentType string `json:"content_type,omitempty"`
@@ -110,6 +134,11 @@ func NewEvent(ctx *RequestContext, statusCode int) Event {
 	// Parse User-Agent into structured fields
 	if parser := getUAParser(); parser != nil && userAgent != "" {
 		ev.Browser, ev.BrVersion, ev.OS, ev.DeviceType, ev.IsBot = parser(userAgent)
+	}
+
+	// Lookup GeoIP country information
+	if lookup := getGeoIPLookup(); lookup != nil && clientIP != "" {
+		ev.CountryCode, ev.CountryName = lookup(clientIP)
 	}
 
 	// Extract additional request metadata

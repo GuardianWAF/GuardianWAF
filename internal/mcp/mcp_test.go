@@ -92,6 +92,69 @@ func (m *mockEngine) AddEmailTarget(name, smtpHost string, smtpPort int, usernam
 func (m *mockEngine) RemoveEmailTarget(name string) error { return nil }
 func (m *mockEngine) TestAlert(target string) error       { return nil }
 
+// New Feature Methods - CRS
+func (m *mockEngine) GetCRSRules(phase int, severity string) (any, error) {
+	return map[string]any{"enabled": true, "rules": []any{}}, nil
+}
+func (m *mockEngine) EnableCRSRule(ruleID string, enabled bool) error { return nil }
+func (m *mockEngine) SetParanoiaLevel(level int) error               { return nil }
+func (m *mockEngine) AddCRSExclusion(ruleID, path, parameter, reason string) error {
+	return nil
+}
+
+// New Feature Methods - Virtual Patch
+func (m *mockEngine) GetVirtualPatches(severity string, activeOnly bool) (any, error) {
+	return map[string]any{"enabled": true, "patches": []any{}}, nil
+}
+func (m *mockEngine) EnableVirtualPatch(patchID string, enabled bool) error { return nil }
+func (m *mockEngine) AddCustomPatch(id, name, description, cveID, pattern, patternType, target, action, severity string, score int) error {
+	return nil
+}
+func (m *mockEngine) UpdateCVEDatabase() error { return nil }
+
+// New Feature Methods - API Validation
+func (m *mockEngine) GetAPISchemas() (any, error) {
+	return map[string]any{"enabled": true, "schemas": []any{}}, nil
+}
+func (m *mockEngine) UploadAPISchema(name, content, format string, strictMode bool) error { return nil }
+func (m *mockEngine) RemoveAPISchema(name string) error                                  { return nil }
+func (m *mockEngine) SetAPIValidationMode(validateRequest, validateResponse, strictMode, blockOnViolation *bool) error {
+	return nil
+}
+func (m *mockEngine) TestAPISchema(method, path, body string) (any, error) {
+	return map[string]any{"valid": true}, nil
+}
+
+// New Feature Methods - Client-Side Protection
+func (m *mockEngine) GetClientSideStats() (any, error) {
+	return map[string]any{"enabled": true}, nil
+}
+func (m *mockEngine) SetClientSideMode(mode string, magecartDetection, agentInjection, cspEnabled *bool) error {
+	return nil
+}
+func (m *mockEngine) AddSkimmingDomain(domain string) error { return nil }
+func (m *mockEngine) GetCSPReports(limit int) (any, error) {
+	return map[string]any{"reports": []any{}}, nil
+}
+
+// New Feature Methods - DLP
+func (m *mockEngine) GetDLPAlerts(limit int, patternType string) (any, error) {
+	return map[string]any{"alerts": []any{}}, nil
+}
+func (m *mockEngine) AddDLPPattern(id, name, pattern, description, action string, score int) error {
+	return nil
+}
+func (m *mockEngine) RemoveDLPPattern(id string) error { return nil }
+func (m *mockEngine) TestDLPPattern(pattern, testData string) (any, error) {
+	return map[string]any{"matched": false}, nil
+}
+
+// New Feature Methods - HTTP/3
+func (m *mockEngine) GetHTTP3Status() (any, error) {
+	return map[string]any{"enabled": false}, nil
+}
+func (m *mockEngine) SetHTTP3Config(enabled, enable0RTT, advertiseAltSvc *bool) error { return nil }
+
 // sendRequest encodes a JSON-RPC request and returns the written bytes.
 func sendRequest(id any, method string, params any) string {
 	req := map[string]any{
@@ -185,15 +248,15 @@ func TestRegisterAllTools(t *testing.T) {
 	s.SetEngine(newMockEngine())
 	s.RegisterAllTools()
 
-	if s.ToolCount() != 21 {
-		t.Fatalf("expected 21 tools registered, got %d", s.ToolCount())
+	if s.ToolCount() != 44 {
+		t.Fatalf("expected 44 tools registered, got %d", s.ToolCount())
 	}
 }
 
 func TestAllToolsDefinitions(t *testing.T) {
 	tools := AllTools()
-	if len(tools) != 21 {
-		t.Fatalf("expected 21 tool definitions, got %d", len(tools))
+	if len(tools) != 44 {
+		t.Fatalf("expected 44 tool definitions, got %d", len(tools))
 	}
 
 	// Verify all tools have required fields
@@ -345,8 +408,8 @@ func TestToolsList(t *testing.T) {
 		t.Fatal("tools is not an array")
 	}
 
-	if len(tools) != 21 {
-		t.Fatalf("expected 21 tools, got %d", len(tools))
+	if len(tools) != 44 {
+		t.Fatalf("expected 44 tools, got %d", len(tools))
 	}
 }
 
@@ -1667,6 +1730,49 @@ func (m *failEngine) AddExclusion(path string, detectors []string, reason string
 }
 func (m *failEngine) RemoveExclusion(path string) error { return fmt.Errorf("fail") }
 func (m *failEngine) SetMode(mode string) error         { return fmt.Errorf("fail") }
+
+// New Feature Methods - fail versions
+func (m *failEngine) GetCRSRules(phase int, severity string) (any, error) { return nil, fmt.Errorf("fail") }
+func (m *failEngine) EnableCRSRule(ruleID string, enabled bool) error    { return fmt.Errorf("fail") }
+func (m *failEngine) SetParanoiaLevel(level int) error                   { return fmt.Errorf("fail") }
+func (m *failEngine) AddCRSExclusion(ruleID, path, parameter, reason string) error {
+	return fmt.Errorf("fail")
+}
+func (m *failEngine) GetVirtualPatches(severity string, activeOnly bool) (any, error) {
+	return nil, fmt.Errorf("fail")
+}
+func (m *failEngine) EnableVirtualPatch(patchID string, enabled bool) error { return fmt.Errorf("fail") }
+func (m *failEngine) AddCustomPatch(id, name, description, cveID, pattern, patternType, target, action, severity string, score int) error {
+	return fmt.Errorf("fail")
+}
+func (m *failEngine) UpdateCVEDatabase() error                               { return fmt.Errorf("fail") }
+func (m *failEngine) GetAPISchemas() (any, error)                            { return nil, fmt.Errorf("fail") }
+func (m *failEngine) UploadAPISchema(name, content, format string, strictMode bool) error {
+	return fmt.Errorf("fail")
+}
+func (m *failEngine) RemoveAPISchema(name string) error                      { return fmt.Errorf("fail") }
+func (m *failEngine) SetAPIValidationMode(validateRequest, validateResponse, strictMode, blockOnViolation *bool) error {
+	return fmt.Errorf("fail")
+}
+func (m *failEngine) TestAPISchema(method, path, body string) (any, error) { return nil, fmt.Errorf("fail") }
+func (m *failEngine) GetClientSideStats() (any, error)                      { return nil, fmt.Errorf("fail") }
+func (m *failEngine) SetClientSideMode(mode string, magecartDetection, agentInjection, cspEnabled *bool) error {
+	return fmt.Errorf("fail")
+}
+func (m *failEngine) AddSkimmingDomain(domain string) error               { return fmt.Errorf("fail") }
+func (m *failEngine) GetCSPReports(limit int) (any, error)                { return nil, fmt.Errorf("fail") }
+func (m *failEngine) GetDLPAlerts(limit int, patternType string) (any, error) {
+	return nil, fmt.Errorf("fail")
+}
+func (m *failEngine) AddDLPPattern(id, name, pattern, description, action string, score int) error {
+	return fmt.Errorf("fail")
+}
+func (m *failEngine) RemoveDLPPattern(id string) error                    { return fmt.Errorf("fail") }
+func (m *failEngine) TestDLPPattern(pattern, testData string) (any, error) { return nil, fmt.Errorf("fail") }
+func (m *failEngine) GetHTTP3Status() (any, error)                        { return nil, fmt.Errorf("fail") }
+func (m *failEngine) SetHTTP3Config(enabled, enable0RTT, advertiseAltSvc *bool) error {
+	return fmt.Errorf("fail")
+}
 
 func TestHandleAddWhitelist_EngineError(t *testing.T) {
 	input := sendRequest(1, "tools/call", map[string]any{

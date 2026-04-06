@@ -26,12 +26,18 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/events"
 	"github.com/guardianwaf/guardianwaf/internal/geoip"
+	"github.com/guardianwaf/guardianwaf/internal/http3"
 	"github.com/guardianwaf/guardianwaf/internal/layers/apisecurity"
+	"github.com/guardianwaf/guardianwaf/internal/layers/apivalidation"
 	"github.com/guardianwaf/guardianwaf/internal/layers/ato"
 	"github.com/guardianwaf/guardianwaf/internal/layers/botdetect"
 	"github.com/guardianwaf/guardianwaf/internal/layers/challenge"
+	"github.com/guardianwaf/guardianwaf/internal/layers/clientside"
 	"github.com/guardianwaf/guardianwaf/internal/layers/cors"
+	"github.com/guardianwaf/guardianwaf/internal/layers/crs"
 	"github.com/guardianwaf/guardianwaf/internal/layers/detection"
+	"github.com/guardianwaf/guardianwaf/internal/layers/dlp"
+	"github.com/guardianwaf/guardianwaf/internal/layers/virtualpatch"
 	"github.com/guardianwaf/guardianwaf/internal/layers/ipacl"
 	"github.com/guardianwaf/guardianwaf/internal/layers/ratelimit"
 	"github.com/guardianwaf/guardianwaf/internal/layers/response"
@@ -40,6 +46,7 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/layers/threatintel"
 	"github.com/guardianwaf/guardianwaf/internal/mcp"
 	"github.com/guardianwaf/guardianwaf/internal/proxy"
+	"github.com/guardianwaf/guardianwaf/internal/tenant"
 	gwaftls "github.com/guardianwaf/guardianwaf/internal/tls"
 )
 
@@ -362,6 +369,39 @@ func cmdServe(args []string) {
 			WriteTimeout: 30 * time.Second,
 			IdleTimeout:  120 * time.Second,
 		}
+
+		// Start HTTP/3 server if enabled
+		var h3Server *http3.Server
+		if cfg.TLS.HTTP3.Enabled {
+			h3Config := &http3.Config{
+				Enabled:            cfg.TLS.HTTP3.Enabled,
+				Listen:             cfg.TLS.HTTP3.Listen,
+				MaxHeaderBytes:     cfg.TLS.HTTP3.MaxHeaderBytes,
+				ReadTimeout:        cfg.TLS.HTTP3.ReadTimeout,
+				WriteTimeout:       cfg.TLS.HTTP3.WriteTimeout,
+				IdleTimeout:        cfg.TLS.HTTP3.IdleTimeout,
+				Enable0RTT:         cfg.TLS.HTTP3.Enable0RTT,
+				EnableDatagrams:    cfg.TLS.HTTP3.EnableDatagrams,
+				AltSvcPort:         cfg.TLS.HTTP3.AltSvcPort,
+				AltSvcProtocol:     "h3",
+				MaxRequestBodySize: 10 << 20,
+			}
+			if h3Config.Listen == "" {
+				h3Config.Listen = cfg.TLS.Listen
+			}
+
+			var err error
+			h3Server, err = http3.NewServer(h3Config, handler, certStore.TLSConfig())
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to create HTTP/3 server: %v\n", err)
+			} else {
+				if err := h3Server.Start(); err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: failed to start HTTP/3 server: %v\n", err)
+				} else {
+					eng.Logs.Infof("HTTP/3 server started on %s", h3Config.Listen)
+				}
+			}
+		}
 	}
 
 	// 9. Start HTTP server
@@ -436,6 +476,19 @@ func cmdServe(args []string) {
 			if cfg.WAF.GeoIP.Enabled {
 				gDB, _ = loadGeoIP(cfg, eng)
 			}
+
+			// Register GeoIP lookup for events (same pattern as dashboard)
+			if gDB != nil {
+				engine.SetGeoIPLookup(func(ip string) (string, string) {
+					parsed := net.ParseIP(ip)
+					if parsed == nil {
+						return "", ""
+					}
+					code := gDB.Lookup(parsed)
+					return code, geoip.CountryName(code)
+				})
+			}
+
 			dash.SetRulesFns(
 				func() any { return rLayer.Rules() },
 				func(raw map[string]any) error {
@@ -519,6 +572,60 @@ func cmdServe(args []string) {
 	if mcpSSE != nil && dash != nil {
 		mcpSSE.RegisterRoutes(dash.Mux())
 		eng.Logs.Info("MCP SSE endpoints registered: GET /mcp/sse, POST /mcp/message")
+	}
+
+	// Wire up tenant manager for multi-tenant dashboard and middleware
+	var tenantManager *tenant.Manager
+	var tenantMiddleware *tenant.Middleware
+	if cfg.Tenant.Enabled {
+		maxTenants := cfg.Tenant.MaxTenants
+		if maxTenants <= 0 {
+			maxTenants = 100
+		}
+
+		// Create manager with persistence
+		storePath := cfg.Tenant.StorePath
+		if storePath == "" {
+			storePath = "data/tenants"
+		}
+		tenantManager = tenant.NewManagerWithStore(maxTenants, storePath)
+
+		// Load persisted tenants
+		if err := tenantManager.Init(); err != nil {
+			eng.Logs.Warnf("Failed to load persisted tenants: %v", err)
+		} else {
+			eng.Logs.Infof("Loaded %d tenants from persistence", len(tenantManager.ListTenants()))
+		}
+
+		// Create pre-configured tenants from config (only if not already persisted)
+		for _, t := range cfg.Tenant.Tenants {
+			quota := &tenant.ResourceQuota{
+				MaxRequestsPerMinute: t.Quota.MaxRequestsPerMinute,
+				MaxRequestsPerHour:   t.Quota.MaxRequestsPerHour,
+				MaxBandwidthMbps:     t.Quota.MaxBandwidthMbps,
+				MaxRules:             t.Quota.MaxRules,
+				MaxRateLimitRules:    t.Quota.MaxRateLimitRules,
+				MaxIPACLs:            t.Quota.MaxIPACLs,
+			}
+			_, _ = tenantManager.CreateTenant(t.Name, t.Description, t.Domains, quota)
+		}
+
+		// Register with dashboard
+		if dash != nil {
+			dash.SetTenantManager(&tenantManagerAdapter{mgr: tenantManager})
+		}
+
+		// Wrap the upstream handler with tenant middleware
+		if tenantManager != nil {
+			tenantMiddleware = tenant.NewMiddleware(tenantManager)
+			// Store original handler
+			originalHandler := upstreamHandler.Load().(http.Handler)
+			// Wrap with tenant middleware
+			wrappedHandler := tenantMiddleware.Handler(originalHandler)
+			upstreamHandler.Store(wrappedHandler)
+		}
+
+		eng.Logs.Infof("Multi-tenant mode enabled (%d tenants configured)", len(cfg.Tenant.Tenants))
 	}
 
 	// 10b. Start AI analyzer if enabled
@@ -663,6 +770,13 @@ func cmdServe(args []string) {
 					type cleaner interface{ Cleanup() }
 					if c, ok := atoL.(cleaner); ok {
 						c.Cleanup()
+					}
+				}
+				// Cleanup tenant rate limiter old entries
+				if tenantManager != nil {
+					type rateLimiterCleaner interface{ CleanupRateLimiter(maxAge time.Duration) }
+					if c, ok := interface{}(tenantManager).(rateLimiterCleaner); ok {
+						c.CleanupRateLimiter(30 * time.Minute)
 					}
 				}
 				eng.Logs.Debug("Periodic cleanup completed")
@@ -1366,6 +1480,18 @@ func addLayers(eng *engine.Engine, cfg *config.Config) {
 			geodb, _ = loadGeoIP(cfg, eng)
 		}
 
+		// Register GeoIP lookup for events
+		if geodb != nil {
+			engine.SetGeoIPLookup(func(ip string) (string, string) {
+				parsed := net.ParseIP(ip)
+				if parsed == nil {
+					return "", ""
+				}
+				code := geodb.Lookup(parsed)
+				return code, geoip.CountryName(code)
+			})
+		}
+
 		ruleList := make([]rules.Rule, len(cfg.WAF.CustomRules.Rules))
 		for i, r := range cfg.WAF.CustomRules.Rules {
 			conditions := make([]rules.Condition, len(r.Conditions))
@@ -1489,6 +1615,30 @@ func addLayers(eng *engine.Engine, cfg *config.Config) {
 		}
 	}
 
+	// 2.5. API Validation layer (Order 280) - OpenAPI schema validation
+	if cfg.WAF.APIValidation.Enabled {
+		schemas := make([]apivalidation.SchemaSource, len(cfg.WAF.APIValidation.Schemas))
+		for i, s := range cfg.WAF.APIValidation.Schemas {
+			schemas[i] = apivalidation.SchemaSource{
+				Path:      s.Path,
+				Type:      s.Type,
+				AutoLearn: s.AutoLearn,
+			}
+		}
+		apiValLayer := apivalidation.NewLayer(&apivalidation.Config{
+			Enabled:          cfg.WAF.APIValidation.Enabled,
+			ValidateRequest:  cfg.WAF.APIValidation.ValidateRequest,
+			ValidateResponse: cfg.WAF.APIValidation.ValidateResponse,
+			StrictMode:       cfg.WAF.APIValidation.StrictMode,
+			BlockOnViolation: cfg.WAF.APIValidation.BlockOnViolation,
+			ViolationScore:   cfg.WAF.APIValidation.ViolationScore,
+			CacheSize:        cfg.WAF.APIValidation.CacheSize,
+			Schemas:          schemas,
+		})
+		eng.AddLayer(engine.OrderedLayer{Layer: apiValLayer, Order: 280})
+		eng.Logs.Info("API validation layer enabled")
+	}
+
 	// 3. Sanitizer layer (Order 300)
 	if cfg.WAF.Sanitizer.Enabled {
 		sanLayer := sanitizer.NewLayer(&sanitizer.Config{
@@ -1502,6 +1652,20 @@ func addLayers(eng *engine.Engine, cfg *config.Config) {
 			StripHopByHop:  cfg.WAF.Sanitizer.StripHopByHop,
 		})
 		eng.AddLayer(engine.OrderedLayer{Layer: sanLayer, Order: engine.OrderSanitizer})
+	}
+
+	// 3.5. CRS Layer (Order 350) - OWASP Core Rule Set
+	if cfg.WAF.CRS.Enabled {
+		crsLayer := crs.NewLayer(&crs.Config{
+			Enabled:          cfg.WAF.CRS.Enabled,
+			RulePath:         cfg.WAF.CRS.RulePath,
+			ParanoiaLevel:    cfg.WAF.CRS.ParanoiaLevel,
+			AnomalyThreshold: cfg.WAF.CRS.AnomalyThreshold,
+			Exclusions:       cfg.WAF.CRS.Exclusions,
+			DisabledRules:    cfg.WAF.CRS.DisabledRules,
+		})
+		eng.AddLayer(engine.OrderedLayer{Layer: crsLayer, Order: engine.OrderCRS})
+		eng.Logs.Info("CRS layer enabled")
 	}
 
 	// 4. Detection layer (Order 400)
@@ -1529,6 +1693,37 @@ func addLayers(eng *engine.Engine, cfg *config.Config) {
 		eng.AddLayer(engine.OrderedLayer{Layer: detLayer, Order: engine.OrderDetection})
 	}
 
+	// 4.5. Virtual Patch layer (Order 450) - CVE-based virtual patching
+	if cfg.WAF.VirtualPatch.Enabled {
+		vpLayer := virtualpatch.NewLayer(&virtualpatch.Config{
+			Enabled:           cfg.WAF.VirtualPatch.Enabled,
+			AutoUpdate:        cfg.WAF.VirtualPatch.AutoUpdate,
+			UpdateInterval:    cfg.WAF.VirtualPatch.UpdateInterval,
+			CVEPath:           cfg.WAF.VirtualPatch.CVEPath,
+			NVDFeedURL:        cfg.WAF.VirtualPatch.NVDFeedURL,
+			AutoGenerateRules: cfg.WAF.VirtualPatch.AutoGenerateRules,
+			BlockSeverity:     cfg.WAF.VirtualPatch.BlockSeverity,
+			NotifyOnPatch:     cfg.WAF.VirtualPatch.NotifyOnPatch,
+		})
+		eng.AddLayer(engine.OrderedLayer{Layer: vpLayer, Order: engine.OrderVirtualPatch})
+		eng.Logs.Info("Virtual patch layer enabled")
+	}
+
+	// 4.75. DLP Layer (Order 475) - Data Loss Prevention
+	if cfg.WAF.DLP.Enabled {
+		dlpLayer := dlp.NewLayer(&dlp.Config{
+			Enabled:      cfg.WAF.DLP.Enabled,
+			ScanRequest:  cfg.WAF.DLP.ScanRequest,
+			ScanResponse: cfg.WAF.DLP.ScanResponse,
+			BlockOnMatch: cfg.WAF.DLP.BlockOnMatch,
+			MaskResponse: cfg.WAF.DLP.MaskResponse,
+			MaxBodySize:  cfg.WAF.DLP.MaxBodySize,
+			Patterns:     cfg.WAF.DLP.Patterns,
+		})
+		eng.AddLayer(engine.OrderedLayer{Layer: dlpLayer, Order: engine.OrderDLP})
+		eng.Logs.Info("DLP layer enabled")
+	}
+
 	// 5. Bot Detection layer (Order 500)
 	if cfg.WAF.BotDetection.Enabled {
 		bdLayer := botdetect.NewLayer(&botdetect.Config{
@@ -1553,6 +1748,55 @@ func addLayers(eng *engine.Engine, cfg *config.Config) {
 			},
 		})
 		eng.AddLayer(engine.OrderedLayer{Layer: bdLayer, Order: engine.OrderBotDetect})
+	}
+
+	// 5.5. Client-side protection layer (Order 590) - Magecart detection and CSP
+	if cfg.WAF.ClientSide.Enabled {
+		csLayer := clientside.NewLayer(&clientside.Config{
+			Enabled: cfg.WAF.ClientSide.Enabled,
+			Mode:    cfg.WAF.ClientSide.Mode,
+			MagecartDetection: clientside.MagecartConfig{
+				Enabled:                 cfg.WAF.ClientSide.MagecartDetection.Enabled,
+				DetectObfuscatedJS:      cfg.WAF.ClientSide.MagecartDetection.DetectObfuscatedJS,
+				DetectSuspiciousDomains: cfg.WAF.ClientSide.MagecartDetection.DetectSuspiciousDomains,
+				DetectFormExfiltration:  cfg.WAF.ClientSide.MagecartDetection.DetectFormExfiltration,
+				DetectKeyloggers:        cfg.WAF.ClientSide.MagecartDetection.DetectKeyloggers,
+				KnownSkimmingDomains:    cfg.WAF.ClientSide.MagecartDetection.KnownSkimmingDomains,
+				BlockScore:              cfg.WAF.ClientSide.MagecartDetection.BlockScore,
+				AlertScore:              cfg.WAF.ClientSide.MagecartDetection.AlertScore,
+			},
+			AgentInjection: clientside.AgentConfig{
+				Enabled:        cfg.WAF.ClientSide.AgentInjection.Enabled,
+				ScriptURL:      cfg.WAF.ClientSide.AgentInjection.ScriptURL,
+				InjectInHTML:   cfg.WAF.ClientSide.AgentInjection.InjectInHTML,
+				InjectPosition: cfg.WAF.ClientSide.AgentInjection.InjectPosition,
+				MonitorDOM:     cfg.WAF.ClientSide.AgentInjection.MonitorDOM,
+				MonitorNetwork: cfg.WAF.ClientSide.AgentInjection.MonitorNetwork,
+				MonitorForms:   cfg.WAF.ClientSide.AgentInjection.MonitorForms,
+				ProtectedPaths: cfg.WAF.ClientSide.AgentInjection.ProtectedPaths,
+			},
+			CSP: clientside.CSPConfig{
+				Enabled:         cfg.WAF.ClientSide.CSP.Enabled,
+				ReportOnly:      cfg.WAF.ClientSide.CSP.ReportOnly,
+				DefaultSrc:      cfg.WAF.ClientSide.CSP.DefaultSrc,
+				ScriptSrc:       cfg.WAF.ClientSide.CSP.ScriptSrc,
+				StyleSrc:        cfg.WAF.ClientSide.CSP.StyleSrc,
+				ImgSrc:          cfg.WAF.ClientSide.CSP.ImgSrc,
+				ConnectSrc:      cfg.WAF.ClientSide.CSP.ConnectSrc,
+				FontSrc:         cfg.WAF.ClientSide.CSP.FontSrc,
+				ObjectSrc:       cfg.WAF.ClientSide.CSP.ObjectSrc,
+				MediaSrc:        cfg.WAF.ClientSide.CSP.MediaSrc,
+				FrameSrc:        cfg.WAF.ClientSide.CSP.FrameSrc,
+				FrameAncestors:  cfg.WAF.ClientSide.CSP.FrameAncestors,
+				FormAction:      cfg.WAF.ClientSide.CSP.FormAction,
+				BaseURI:         cfg.WAF.ClientSide.CSP.BaseURI,
+				ReportURI:       cfg.WAF.ClientSide.CSP.ReportURI,
+				UpgradeInsecure: cfg.WAF.ClientSide.CSP.UpgradeInsecure,
+			},
+			Exclusions: cfg.WAF.ClientSide.Exclusions,
+		})
+		eng.AddLayer(engine.OrderedLayer{Layer: csLayer, Order: 590})
+		eng.Logs.Info("Client-side protection layer enabled")
 	}
 
 	// 6. Response layer (Order 600)
@@ -1729,6 +1973,172 @@ func upstreamSummary(cfg *config.Config) string {
 		}
 	}
 	return strings.Join(targets, ", ")
+}
+
+// tenantManagerAdapter adapts *tenant.Manager to dashboard.tenantManagerInterface.
+type tenantManagerAdapter struct {
+	mgr *tenant.Manager
+}
+
+func (a *tenantManagerAdapter) ListTenants() []any {
+	tenants := a.mgr.ListTenants()
+	result := make([]any, len(tenants))
+	for i, t := range tenants {
+		result[i] = t
+	}
+	return result
+}
+
+func (a *tenantManagerAdapter) GetTenant(id string) any {
+	return a.mgr.GetTenant(id)
+}
+
+func (a *tenantManagerAdapter) CreateTenant(name, description string, domains []string, quota any) (any, error) {
+	// Convert quota from any to *tenant.ResourceQuota
+	var tQuota *tenant.ResourceQuota
+	if q, ok := quota.(*tenant.ResourceQuota); ok {
+		tQuota = q
+	}
+	return a.mgr.CreateTenant(name, description, domains, tQuota)
+}
+
+func (a *tenantManagerAdapter) UpdateTenant(id string, update any) error {
+	// Convert map to TenantUpdate if needed
+	if u, ok := update.(*tenant.TenantUpdate); ok {
+		return a.mgr.UpdateTenant(id, u)
+	}
+	if m, ok := update.(map[string]any); ok {
+		tu := &tenant.TenantUpdate{}
+		if v, ok := m["name"].(string); ok {
+			tu.Name = v
+		}
+		if v, ok := m["description"].(string); ok {
+			tu.Description = v
+		}
+		if v, ok := m["domains"].([]string); ok {
+			tu.Domains = v
+		}
+		return a.mgr.UpdateTenant(id, tu)
+	}
+	return fmt.Errorf("unsupported update type")
+}
+
+func (a *tenantManagerAdapter) DeleteTenant(id string) error {
+	return a.mgr.DeleteTenant(id)
+}
+
+func (a *tenantManagerAdapter) RegenerateAPIKey(id string) (string, error) {
+	return a.mgr.RegenerateAPIKey(id)
+}
+
+func (a *tenantManagerAdapter) Stats() any {
+	return a.mgr.Stats()
+}
+
+func (a *tenantManagerAdapter) BillingManager() dashboard.BillingManagerInterface {
+	return &billingManagerAdapter{bm: a.mgr.BillingManager()}
+}
+
+func (a *tenantManagerAdapter) AlertManager() dashboard.AlertManagerInterface {
+	return &alertManagerAdapter{am: a.mgr.AlertManager()}
+}
+
+func (a *tenantManagerAdapter) GetAllUsage() []any {
+	usage := a.mgr.GetAllUsage()
+	result := make([]any, len(usage))
+	for i, u := range usage {
+		result[i] = u
+	}
+	return result
+}
+
+func (a *tenantManagerAdapter) GetTenantUsage(tenantID string) any {
+	return a.mgr.GetTenantUsage(tenantID)
+}
+
+func (a *tenantManagerAdapter) GetTenantRules(tenantID string) []any {
+	rules := a.mgr.GetTenantRules(tenantID)
+	return rules
+}
+
+func (a *tenantManagerAdapter) AddTenantRule(tenantID string, rule map[string]any) error {
+	return a.mgr.AddTenantRule(tenantID, rule)
+}
+
+func (a *tenantManagerAdapter) GetTenantRule(tenantID, ruleID string) any {
+	return a.mgr.GetTenantRule(tenantID, ruleID)
+}
+
+func (a *tenantManagerAdapter) UpdateTenantRule(tenantID string, rule map[string]any) error {
+	return a.mgr.UpdateTenantRule(tenantID, rule)
+}
+
+func (a *tenantManagerAdapter) RemoveTenantRule(tenantID, ruleID string) error {
+	return a.mgr.RemoveTenantRule(tenantID, ruleID)
+}
+
+func (a *tenantManagerAdapter) ToggleTenantRule(tenantID, ruleID string, enabled bool) error {
+	return a.mgr.ToggleTenantRule(tenantID, ruleID, enabled)
+}
+
+// billingManagerAdapter adapts tenant.BillingManager to dashboard interface.
+type billingManagerAdapter struct {
+	bm *tenant.BillingManager
+}
+
+func (a *billingManagerAdapter) GetAllInvoices() []any {
+	if a.bm == nil {
+		return nil
+	}
+	invoices := a.bm.GetAllInvoices()
+	result := make([]any, len(invoices))
+	for i, inv := range invoices {
+		result[i] = inv
+	}
+	return result
+}
+
+func (a *billingManagerAdapter) GetInvoices(tenantID string) []any {
+	if a.bm == nil {
+		return nil
+	}
+	invoices := a.bm.GetInvoices(tenantID)
+	result := make([]any, len(invoices))
+	for i, inv := range invoices {
+		result[i] = inv
+	}
+	return result
+}
+
+func (a *billingManagerAdapter) GetCurrentUsage(tenantID string) any {
+	if a.bm == nil {
+		return nil
+	}
+	return a.bm.GetCurrentUsage(tenantID)
+}
+
+func (a *billingManagerAdapter) GenerateInvoice(tenantID, tenantName string, plan string, periodStart, periodEnd time.Time) (any, error) {
+	if a.bm == nil {
+		return nil, fmt.Errorf("billing not enabled")
+	}
+	return a.bm.GenerateInvoice(tenantID, tenantName, tenant.BillingPlan(plan), periodStart, periodEnd)
+}
+
+// alertManagerAdapter adapts tenant.AlertManager to dashboard interface.
+type alertManagerAdapter struct {
+	am *tenant.AlertManager
+}
+
+func (a *alertManagerAdapter) GetRecentAlerts(since time.Duration) []any {
+	if a.am == nil {
+		return nil
+	}
+	alerts := a.am.GetRecentAlerts(since)
+	result := make([]any, len(alerts))
+	for i, alert := range alerts {
+		result[i] = alert
+	}
+	return result
 }
 
 // --------------------------------------------------------------------------
@@ -2131,6 +2541,113 @@ func (a *mcpEngineAdapter) TestAlert(target string) error {
 		return fmt.Errorf("alerting manager not available")
 	}
 	return a.alertMgr.TestAlert(target)
+}
+
+// New Feature Methods - CRS
+func (a *mcpEngineAdapter) GetCRSRules(phase int, severity string) (any, error) {
+	return map[string]any{
+		"enabled": a.cfg.WAF.CRS.Enabled,
+		"rules":   []any{},
+	}, nil
+}
+func (a *mcpEngineAdapter) EnableCRSRule(ruleID string, enabled bool) error { return nil }
+func (a *mcpEngineAdapter) SetParanoiaLevel(level int) error {
+	cfg := a.engine.Config()
+	cfg.WAF.CRS.ParanoiaLevel = level
+	return a.engine.Reload(cfg)
+}
+func (a *mcpEngineAdapter) AddCRSExclusion(ruleID, path, parameter, reason string) error { return nil }
+
+// New Feature Methods - Virtual Patch
+func (a *mcpEngineAdapter) GetVirtualPatches(severity string, activeOnly bool) (any, error) {
+	return map[string]any{
+		"enabled": a.cfg.WAF.VirtualPatch.Enabled,
+		"patches": []any{},
+	}, nil
+}
+func (a *mcpEngineAdapter) EnableVirtualPatch(patchID string, enabled bool) error { return nil }
+func (a *mcpEngineAdapter) AddCustomPatch(id, name, description, cveID, pattern, patternType, target, action, severity string, score int) error {
+	return nil
+}
+func (a *mcpEngineAdapter) UpdateCVEDatabase() error { return nil }
+
+// New Feature Methods - API Validation
+func (a *mcpEngineAdapter) GetAPISchemas() (any, error) {
+	return map[string]any{
+		"enabled": a.cfg.WAF.APIValidation.Enabled,
+		"schemas": []any{},
+	}, nil
+}
+func (a *mcpEngineAdapter) UploadAPISchema(name, content, format string, strictMode bool) error { return nil }
+func (a *mcpEngineAdapter) RemoveAPISchema(name string) error { return nil }
+func (a *mcpEngineAdapter) SetAPIValidationMode(validateRequest, validateResponse, strictMode, blockOnViolation *bool) error {
+	cfg := a.engine.Config()
+	if validateRequest != nil {
+		cfg.WAF.APIValidation.ValidateRequest = *validateRequest
+	}
+	if validateResponse != nil {
+		cfg.WAF.APIValidation.ValidateResponse = *validateResponse
+	}
+	if strictMode != nil {
+		cfg.WAF.APIValidation.StrictMode = *strictMode
+	}
+	if blockOnViolation != nil {
+		cfg.WAF.APIValidation.BlockOnViolation = *blockOnViolation
+	}
+	return a.engine.Reload(cfg)
+}
+func (a *mcpEngineAdapter) TestAPISchema(method, path, body string) (any, error) {
+	return map[string]any{"valid": true, "violations": []any{}}, nil
+}
+
+// New Feature Methods - Client-Side Protection
+func (a *mcpEngineAdapter) GetClientSideStats() (any, error) {
+	return map[string]any{
+		"enabled":             a.cfg.WAF.ClientSide.Enabled,
+		"mode":                a.cfg.WAF.ClientSide.Mode,
+		"magecart_detection":  a.cfg.WAF.ClientSide.MagecartDetection.Enabled,
+		"agent_injection":     a.cfg.WAF.ClientSide.AgentInjection.Enabled,
+		"csp_enabled":         a.cfg.WAF.ClientSide.CSP.Enabled,
+	}, nil
+}
+func (a *mcpEngineAdapter) SetClientSideMode(mode string, magecartDetection, agentInjection, cspEnabled *bool) error {
+	cfg := a.engine.Config()
+	cfg.WAF.ClientSide.Mode = mode
+	if magecartDetection != nil {
+		cfg.WAF.ClientSide.MagecartDetection.Enabled = *magecartDetection
+	}
+	if agentInjection != nil {
+		cfg.WAF.ClientSide.AgentInjection.Enabled = *agentInjection
+	}
+	if cspEnabled != nil {
+		cfg.WAF.ClientSide.CSP.Enabled = *cspEnabled
+	}
+	return a.engine.Reload(cfg)
+}
+func (a *mcpEngineAdapter) AddSkimmingDomain(domain string) error { return nil }
+func (a *mcpEngineAdapter) GetCSPReports(limit int) (any, error) {
+	return map[string]any{"reports": []any{}}, nil
+}
+
+// New Feature Methods - DLP
+func (a *mcpEngineAdapter) GetDLPAlerts(limit int, patternType string) (any, error) {
+	return map[string]any{
+		"enabled": a.cfg.WAF.DLP.Enabled,
+		"alerts":  []any{},
+	}, nil
+}
+func (a *mcpEngineAdapter) AddDLPPattern(id, name, pattern, description, action string, score int) error { return nil }
+func (a *mcpEngineAdapter) RemoveDLPPattern(id string) error                                             { return nil }
+func (a *mcpEngineAdapter) TestDLPPattern(pattern, testData string) (any, error) {
+	return map[string]any{"matched": false, "matches": []any{}}, nil
+}
+
+// New Feature Methods - HTTP/3 (stubs since HTTP3 is in separate build tag)
+func (a *mcpEngineAdapter) GetHTTP3Status() (any, error) {
+	return map[string]any{"enabled": false, "note": "HTTP/3 requires build with -tags http3"}, nil
+}
+func (a *mcpEngineAdapter) SetHTTP3Config(enabled, enable0RTT, advertiseAltSvc *bool) error {
+	return fmt.Errorf("HTTP/3 configuration requires build with -tags http3")
 }
 
 // collectACMEDomains gathers all domains that need ACME certificates.

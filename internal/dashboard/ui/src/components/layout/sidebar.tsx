@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { NavLink } from 'react-router'
-import { LayoutDashboard, Globe, Settings, ScrollText, Shield, ShieldCheck, PanelLeftClose, PanelLeft, Brain, Bell } from 'lucide-react'
+import { LayoutDashboard, Globe, Settings, ScrollText, Shield, ShieldCheck, PanelLeftClose, PanelLeft, Brain, Bell, Users, Network } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const navItems = [
@@ -11,6 +11,8 @@ const navItems = [
   { to: '/alerting', label: 'Alerting', icon: Bell },
   { to: '/ai', label: 'AI Analysis', icon: Brain },
   { to: '/logs', label: 'Logs', icon: ScrollText },
+  { to: '/tenants', label: 'Tenants', icon: Users },
+  { to: '/clusters', label: 'Clusters', icon: Network },
 ]
 
 export function Sidebar() {

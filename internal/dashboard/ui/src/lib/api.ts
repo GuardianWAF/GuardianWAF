@@ -90,6 +90,35 @@ export const api = {
     request<ApiResult>('/api/v1/alerting/emails/' + encodeURIComponent(name), { method: 'DELETE' }),
   testAlert: (target: string) =>
     request<ApiResult>('/api/v1/alerting/test', { method: 'POST', body: JSON.stringify({ target }) }),
+
+  // Tenants
+  getTenants: () => request<Tenant[]>('/api/v1/tenants'),
+  getTenant: (id: string) => request<Tenant>('/api/v1/tenants/' + id),
+  createTenant: (tenant: CreateTenantRequest) =>
+    request<Tenant>('/api/v1/tenants', { method: 'POST', body: JSON.stringify(tenant) }),
+  updateTenant: (id: string, tenant: UpdateTenantRequest) =>
+    request<Tenant>('/api/v1/tenants/' + id, { method: 'PUT', body: JSON.stringify(tenant) }),
+  deleteTenant: (id: string) =>
+    request<void>('/api/v1/tenants/' + id, { method: 'DELETE' }),
+  getTenantUsage: (id: string) => request<TenantUsage>('/api/v1/tenants/' + id + '/usage'),
+  getAllUsage: () => request<TenantUsage[]>('/api/v1/tenants/usage'),
+  regenerateApiKey: (id: string) =>
+    request<{ api_key: string }>('/api/v1/tenants/' + id + '/apikey', { method: 'POST' }),
+
+  // Cluster Sync
+  getClusters: () => request<Cluster[]>('/api/clusters'),
+  getCluster: (id: string) => request<Cluster>('/api/clusters/' + id),
+  createCluster: (cluster: CreateClusterRequest) =>
+    request<Cluster>('/api/clusters', { method: 'POST', body: JSON.stringify(cluster) }),
+  deleteCluster: (id: string) =>
+    request<void>('/api/clusters/' + id, { method: 'DELETE' }),
+  joinCluster: (id: string, node: ClusterNode) =>
+    request<ClusterNode>('/api/clusters/' + id + '?action=join', { method: 'POST', body: JSON.stringify(node) }),
+  leaveCluster: (id: string, nodeId: string) =>
+    request<void>('/api/clusters/' + id + '?action=leave&node_id=' + encodeURIComponent(nodeId), { method: 'POST' }),
+  getNodes: () => request<ClusterNode[]>('/api/nodes'),
+  getSyncStats: () => request<SyncStats>('/api/sync/stats'),
+  getSyncStatus: () => request<SyncStatusResponse>('/api/sync/status'),
 }
 
 // --- Types ---
@@ -316,4 +345,104 @@ export interface EmailConfig {
   cooldown: string
   subject?: string
   template?: string
+}
+
+// Tenant Types
+export interface Tenant {
+  id: string
+  name: string
+  description?: string
+  active: boolean
+  domains: string[]
+  created_at: string
+  updated_at: string
+  quota?: ResourceQuota
+}
+
+export interface ResourceQuota {
+  max_requests_per_minute: number
+  max_requests_per_hour: number
+  max_bandwidth_mbps: number
+  max_rules: number
+  max_rate_limit_rules: number
+  max_ip_acls: number
+}
+
+export interface CreateTenantRequest {
+  name: string
+  description?: string
+  domains: string[]
+  quota?: ResourceQuota
+}
+
+export interface UpdateTenantRequest {
+  name?: string
+  description?: string
+  active?: boolean
+  domains?: string[]
+  quota?: ResourceQuota
+}
+
+export interface TenantUsage {
+  tenant_id: string
+  name: string
+  active: boolean
+  requests_per_minute: number
+  total_requests: number
+  blocked_requests: number
+  bytes_transferred: number
+  bandwidth_mbps: number
+  quota_percentage: number
+  quota_status: 'ok' | 'warning' | 'exceeded' | 'unlimited'
+  last_request_at?: string
+}
+
+// Cluster Sync Types
+export interface Cluster {
+  id: string
+  name: string
+  description?: string
+  nodes: string[]
+  sync_scope: 'tenants' | 'rules' | 'config' | 'all'
+  created_at: string
+}
+
+export interface ClusterNode {
+  id: string
+  name: string
+  address: string
+  healthy?: boolean
+  version?: string
+  last_seen?: string
+  is_local?: boolean
+}
+
+export interface CreateClusterRequest {
+  id?: string
+  name: string
+  description?: string
+  sync_scope?: string
+}
+
+export interface SyncStats {
+  total_events_sent: number
+  total_events_received: number
+  total_conflicts: number
+  total_resolved: number
+  active_connections: number
+  last_conflict_at?: string
+}
+
+export interface SyncStatusResponse {
+  local_node: string
+  nodes: ReplicationStatus[]
+}
+
+export interface ReplicationStatus {
+  node_id: string
+  last_replication: string
+  pending_events: number
+  failed_attempts: number
+  lag_ms: number
+  sync_status: Record<string, string>
 }

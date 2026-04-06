@@ -5,8 +5,14 @@ import (
 	"fmt"
 )
 
-// RegisterAllTools registers all 15 GuardianWAF MCP tool handlers on the server.
+// RegisterAllTools registers all GuardianWAF MCP tool handlers on the server.
 func (s *Server) RegisterAllTools() {
+	s.registerBaseTools()
+	s.RegisterNewFeatureHandlers()
+}
+
+// registerBaseTools registers the base set of MCP tools.
+func (s *Server) registerBaseTools() {
 	s.RegisterTool("guardianwaf_get_stats", s.handleGetStats)
 	s.RegisterTool("guardianwaf_get_events", s.handleGetEvents)
 	s.RegisterTool("guardianwaf_add_whitelist", s.handleAddWhitelist)

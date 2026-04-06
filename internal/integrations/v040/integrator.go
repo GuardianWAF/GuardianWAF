@@ -12,6 +12,7 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/ai/remediation"
 	"github.com/guardianwaf/guardianwaf/internal/analytics"
 	"github.com/guardianwaf/guardianwaf/internal/cluster"
+	"github.com/guardianwaf/guardianwaf/internal/clustersync"
 	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/discovery"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
@@ -51,9 +52,10 @@ type Integrator struct {
 	replayManager     *replay.Manager
 	canaryLayer       *canary.Layer
 	analyticsLayer    *analytics.Layer
-	clusterLayer      *cluster.Layer
-	remediationLayer  *remediation.Layer
-	websocketLayer    *websocket.Layer
+	clusterLayer       *cluster.Layer
+	clusterSyncManager *clustersync.Manager
+	remediationLayer   *remediation.Layer
+	websocketLayer     *websocket.Layer
 
 	// HTTP handlers
 	biometricHandler http.HandlerFunc
@@ -158,10 +160,10 @@ func NewIntegrator(cfg *config.Config) (*Integrator, error) {
 		}
 	}
 
-	// Initialize Cluster (Phase 4)
-	if cfg.WAF.Cluster.Enabled {
-		if err := i.initCluster(); err != nil {
-			return nil, fmt.Errorf("cluster: %w", err)
+	// Initialize ClusterSync (data replication between nodes)
+	if cfg.WAF.ClusterSync.Enabled {
+		if err := i.initClusterSync(); err != nil {
+			return nil, fmt.Errorf("cluster_sync: %w", err)
 		}
 	}
 
@@ -963,42 +965,60 @@ func (i *Integrator) AnalyticsHandler() http.Handler {
 	return i.analyticsLayer.GetHandler()
 }
 
-// initCluster initializes the distributed clustering layer.
-func (i *Integrator) initCluster() error {
-	clusterCfg := i.cfg.WAF.Cluster
+// initClusterSync initializes the cluster synchronization layer.
+func (i *Integrator) initClusterSync() error {
+	clusterCfg := i.cfg.WAF.ClusterSync
 
-	cfg := &cluster.Config{
-		Enabled:               clusterCfg.Enabled,
-		NodeID:                clusterCfg.NodeID,
-		BindAddr:              clusterCfg.BindAddr,
-		BindPort:              clusterCfg.BindPort,
-		AdvertiseAddr:         clusterCfg.AdvertiseAddr,
-		SeedNodes:             clusterCfg.SeedNodes,
-		SyncInterval:          clusterCfg.SyncInterval,
-		HeartbeatInterval:     clusterCfg.HeartbeatInterval,
-		HeartbeatTimeout:      clusterCfg.HeartbeatTimeout,
-		LeaderElectionTimeout: clusterCfg.LeaderElectionTimeout,
-		MaxNodes:              clusterCfg.MaxNodes,
+	// Initialize cluster sync manager
+	cfg := &clustersync.Config{
+		Enabled:            clusterCfg.Enabled,
+		NodeID:             clusterCfg.NodeID,
+		NodeName:           clusterCfg.NodeName,
+		BindAddress:        clusterCfg.Listen,
+		APIPort:            clusterCfg.Port,
+		SharedSecret:       clusterCfg.SharedSecret,
+		SyncInterval:       clusterCfg.SyncInterval,
+		ConflictResolution: clustersync.LastWriteWins,
+		MaxRetries:         clusterCfg.MaxRetries,
+		RetryDelay:         clusterCfg.RetryDelay,
 	}
 
-	layerCfg := &cluster.LayerConfig{
-		Enabled: clusterCfg.Enabled,
-		Config:  cfg,
+	// Convert cluster memberships
+	for _, cm := range clusterCfg.Clusters {
+		cc := clustersync.ClusterConfig{
+			ID:            cm.ID,
+			Name:          cm.Name,
+			SyncScope:     cm.SyncScope,
+			Bidirectional: cm.Bidirectional,
+		}
+		for _, n := range cm.Nodes {
+			cc.Nodes = append(cc.Nodes, clustersync.Node{
+				ID:      n.ID,
+				Name:    n.Name,
+				Address: n.Address,
+			})
+		}
+		cfg.Clusters = append(cfg.Clusters, cc)
 	}
 
-	layer, err := cluster.NewLayer(layerCfg)
-	if err != nil {
+	// Conflict resolution
+	switch clusterCfg.ConflictResolution {
+	case "source_priority":
+		cfg.ConflictResolution = clustersync.SourcePriority
+	case "manual":
+		cfg.ConflictResolution = clustersync.Manual
+	default:
+		cfg.ConflictResolution = clustersync.LastWriteWins
+	}
+
+	manager := clustersync.NewManager(cfg)
+	if err := manager.Start(); err != nil {
 		return err
 	}
 
-	// Start the cluster
-	if err := layer.Start(); err != nil {
-		return err
-	}
-
-	i.clusterLayer = layer
-	log.Printf("[v0.4.0+] Cluster enabled (node=%s, bind=%s:%d, seeds=%d)",
-		layer.GetCluster().GetNodes()[0].ID, clusterCfg.BindAddr, clusterCfg.BindPort, len(clusterCfg.SeedNodes))
+	i.clusterSyncManager = manager
+	log.Printf("[v0.4.0+] ClusterSync enabled (node=%s, port=%d, clusters=%d)",
+		cfg.NodeID, cfg.APIPort, len(cfg.Clusters))
 	return nil
 }
 

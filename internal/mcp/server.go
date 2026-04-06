@@ -72,6 +72,35 @@ type EngineInterface interface {
 	AddEmailTarget(name, smtpHost string, smtpPort int, username, password, from string, to []string, useTLS bool, events []string, minScore int) error
 	RemoveEmailTarget(name string) error
 	TestAlert(target string) error
+	// CRS management
+	GetCRSRules(phase int, severity string) (any, error)
+	EnableCRSRule(ruleID string, enabled bool) error
+	SetParanoiaLevel(level int) error
+	AddCRSExclusion(ruleID, path, parameter, reason string) error
+	// Virtual Patch management
+	GetVirtualPatches(severity string, activeOnly bool) (any, error)
+	EnableVirtualPatch(patchID string, enabled bool) error
+	AddCustomPatch(id, name, description, cveID, pattern, patternType, target, action, severity string, score int) error
+	UpdateCVEDatabase() error
+	// API Validation management
+	GetAPISchemas() (any, error)
+	UploadAPISchema(name, content, format string, strictMode bool) error
+	RemoveAPISchema(name string) error
+	SetAPIValidationMode(validateRequest, validateResponse, strictMode, blockOnViolation *bool) error
+	TestAPISchema(method, path, body string) (any, error)
+	// Client-Side Protection management
+	GetClientSideStats() (any, error)
+	SetClientSideMode(mode string, magecartDetection, agentInjection, cspEnabled *bool) error
+	AddSkimmingDomain(domain string) error
+	GetCSPReports(limit int) (any, error)
+	// DLP management
+	GetDLPAlerts(limit int, patternType string) (any, error)
+	AddDLPPattern(id, name, pattern, description, action string, score int) error
+	RemoveDLPPattern(id string) error
+	TestDLPPattern(pattern, testData string) (any, error)
+	// HTTP/3 management
+	GetHTTP3Status() (any, error)
+	SetHTTP3Config(enabled, enable0RTT, advertiseAltSvc *bool) error
 }
 
 // Server is a JSON-RPC 2.0 MCP server that communicates over stdio.

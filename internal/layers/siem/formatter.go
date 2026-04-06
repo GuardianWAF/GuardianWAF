@@ -51,6 +51,8 @@ type Event struct {
 	TenantID    string            `json:"tenant_id,omitempty"`
 	Tags        []string          `json:"tags,omitempty"`
 	Fields      map[string]string `json:"fields,omitempty"`
+	CountryCode string            `json:"country_code,omitempty"`
+	CountryName string            `json:"country_name,omitempty"`
 }
 
 // Formatter formats events for SIEM systems.

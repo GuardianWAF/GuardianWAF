@@ -65,9 +65,14 @@ const (
 	OrderRateLimit   = 200
 	OrderATO         = 250
 	OrderAPISecurity = 275
+	OrderAPIValidation = 280
 	OrderSanitizer   = 300
+	OrderCRS         = 350 // OWASP CRS after sanitization
 	OrderDetection   = 400
+	OrderVirtualPatch = 450 // Virtual patches after detection
+	OrderDLP         = 475 // DLP before bot detection
 	OrderBotDetect   = 500
+	OrderClientSide  = 590 // Client-side protection before response
 	OrderResponse    = 600
 )
 
