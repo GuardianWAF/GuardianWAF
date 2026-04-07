@@ -713,8 +713,8 @@ func generateDashboardPassword() string {
 
 func cmdServe(args []string) {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
-	configPath := fs.String("config", "guardianwaf.yaml", "Path to config file")
-	fs.StringVar(configPath, "c", "guardianwaf.yaml", "Path to config file (short)")
+	configPath := fs.String("config", "", "Path to config file (default: platform-specific)")
+	fs.StringVar(configPath, "c", "", "Path to config file (short)")
 	listenAddr := fs.String("listen", "", "Override listen address")
 	fs.StringVar(listenAddr, "l", "", "Override listen address (short)")
 	mode := fs.String("mode", "", "Override WAF mode (enforce/monitor/disabled)")
@@ -1713,8 +1713,8 @@ func runCheck(opts *CheckOptions) (*CheckResult, error) {
 
 func cmdCheck(args []string) {
 	fs := flag.NewFlagSet("check", flag.ExitOnError)
-	configPath := fs.String("config", "guardianwaf.yaml", "Path to config file")
-	fs.StringVar(configPath, "c", "guardianwaf.yaml", "Path to config file (short)")
+	configPath := fs.String("config", "", "Path to config file (default: platform-specific)")
+	fs.StringVar(configPath, "c", "", "Path to config file (short)")
 	urlStr := fs.String("url", "", "URL path to test (e.g., /search?q=test)")
 	method := fs.String("method", "GET", "HTTP method")
 	verbose := fs.Bool("verbose", false, "Show detailed detection results")
@@ -1797,8 +1797,8 @@ func runValidate(configPath string) (*ValidateResult, error) {
 
 func cmdValidate(args []string) {
 	fs := flag.NewFlagSet("validate", flag.ExitOnError)
-	configPath := fs.String("config", "guardianwaf.yaml", "Path to config file")
-	fs.StringVar(configPath, "c", "guardianwaf.yaml", "Path to config file (short)")
+	configPath := fs.String("config", "", "Path to config file (default: platform-specific)")
+	fs.StringVar(configPath, "c", "", "Path to config file (short)")
 	_ = fs.Parse(args)
 
 	result, err := runValidate(*configPath)
@@ -1932,16 +1932,34 @@ func validateConfigFile(path string) (*config.Config, *ConfigSummary, error) {
 // helpers
 // --------------------------------------------------------------------------
 
+// DefaultConfigPath returns the platform-specific default config file path.
+func DefaultConfigPath() string {
+	// Linux: /etc/guardianwaf/guardianwaf.yaml
+	// Windows: %PROGRAMDATA%\GuardianWAF\guardianwaf.yaml (C:\ProgramData\GuardianWAF\guardianwaf.yaml)
+	if os.PathSeparator == '/' {
+		return "/etc/guardianwaf/guardianwaf.yaml"
+	}
+	// Windows
+	if pd := os.Getenv("PROGRAMDATA"); pd != "" {
+		return pd + string(os.PathSeparator) + "GuardianWAF" + string(os.PathSeparator) + "guardianwaf.yaml"
+	}
+	return `C:\ProgramData\GuardianWAF\guardianwaf.yaml`
+}
+
 // loadConfig loads config from path, falling back to defaults if the file is not found.
 func loadConfig(path string) *config.Config {
+	// Use platform-specific default if no path specified
+	if path == "" {
+		path = DefaultConfigPath()
+	}
+
+	// Check if file exists before trying to load
+	if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
+		return config.DefaultConfig()
+	}
+
 	cfg, err := config.LoadFile(path)
 	if err != nil {
-		// If default path doesn't exist, use defaults silently
-		if path == "guardianwaf.yaml" {
-			if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
-				return config.DefaultConfig()
-			}
-		}
 		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
 		osExit(1)
 	}
@@ -1950,9 +1968,13 @@ func loadConfig(path string) *config.Config {
 
 // addLayers wires all WAF layers to the engine based on config.
 func addLayers(eng *engine.Engine, cfg *config.Config) {
+	// Track IP ACL layer for auto-ban integration
+	var ipaclLayer *ipacl.Layer
+
 	// 1. IP ACL layer (Order 100)
 	if cfg.WAF.IPACL.Enabled {
-		ipaclLayer, err := ipacl.NewLayer(&ipacl.Config{
+		var err error
+		ipaclLayer, err = ipacl.NewLayer(&ipacl.Config{
 			Enabled:   cfg.WAF.IPACL.Enabled,
 			Whitelist: cfg.WAF.IPACL.Whitelist,
 			Blacklist: cfg.WAF.IPACL.Blacklist,
@@ -2083,6 +2105,16 @@ func addLayers(eng *engine.Engine, cfg *config.Config) {
 			Enabled: cfg.WAF.RateLimit.Enabled,
 			Rules:   rules,
 		})
+		// Wire up auto-ban: when rate limit exceeds AutoBanAfter, ban IP in IP ACL layer
+		if ipaclLayer != nil && cfg.WAF.IPACL.AutoBan.Enabled {
+			rlLayer.OnAutoBan = func(ip, reason string) {
+				ttl := cfg.WAF.IPACL.AutoBan.DefaultTTL
+				if cfg.WAF.IPACL.AutoBan.MaxTTL > 0 && ttl > cfg.WAF.IPACL.AutoBan.MaxTTL {
+					ttl = cfg.WAF.IPACL.AutoBan.MaxTTL
+				}
+				ipaclLayer.AddAutoBan(ip, reason, ttl)
+			}
+		}
 		eng.AddLayer(engine.OrderedLayer{Layer: rlLayer, Order: engine.OrderRateLimit})
 	}
 
