@@ -305,7 +305,7 @@ func (d *Dashboard) handleGetEvents(w http.ResponseWriter, r *http.Request) {
 
 	evts, total, err := d.eventStore.Query(filter)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
 		return
 	}
 
@@ -381,7 +381,7 @@ func (d *Dashboard) handleExportEvents(w http.ResponseWriter, r *http.Request) {
 
 	evts, _, err := d.eventStore.Query(filter)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
 		return
 	}
 
@@ -640,14 +640,14 @@ func (d *Dashboard) handleUpdateRouting(w http.ResponseWriter, r *http.Request) 
 
 	// Reload config
 	if err := d.engine.Reload(cfg); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
 		return
 	}
 
 	// Rebuild proxy
 	if d.rebuildFn != nil {
 		if err := d.rebuildFn(); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "proxy rebuild: " + err.Error()})
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "proxy rebuild failed"})
 			return
 		}
 	}
@@ -655,7 +655,7 @@ func (d *Dashboard) handleUpdateRouting(w http.ResponseWriter, r *http.Request) 
 	// Persist to disk
 	if d.saveFn != nil {
 		if err := d.saveFn(); err != nil {
-			writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "message": "Routing updated (save to disk failed: " + err.Error() + ")"})
+			writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "message": "Routing updated (disk sync pending)"})
 			return
 		}
 	}
@@ -952,14 +952,14 @@ func (d *Dashboard) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := d.engine.Reload(cfg); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
 		return
 	}
 
 	// Persist to disk
 	if d.saveFn != nil {
 		if err := d.saveFn(); err != nil {
-			writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "message": "Configuration updated (save to disk failed: " + err.Error() + ")"})
+			writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "message": "Configuration updated (disk sync pending)"})
 			return
 		}
 	}
@@ -1757,6 +1757,28 @@ func clampFloat(v, lo, hi float64) float64 {
 	return v
 }
 
+// sanitizeErr strips potentially sensitive details from error messages
+// before returning them to clients.
+func sanitizeErr(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	// Strip file paths
+	if strings.Contains(msg, "/") || strings.Contains(msg, "\\") {
+		return "internal error"
+	}
+	// Strip stack trace indicators
+	if strings.Contains(msg, "goroutine") || strings.Contains(msg, "runtime/") {
+		return "internal error"
+	}
+	// Truncate very long errors
+	if len(msg) > 200 {
+		msg = msg[:200]
+	}
+	return msg
+}
+
 // --- Alerting Handlers ---
 
 func (d *Dashboard) handleAlertingStatus(w http.ResponseWriter, r *http.Request) {
@@ -1859,7 +1881,7 @@ func (d *Dashboard) handleAddWebhook(w http.ResponseWriter, r *http.Request) {
 	// Persist config
 	if d.saveFn != nil {
 		if err := d.saveFn(); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
 			return
 		}
 	}
@@ -1890,7 +1912,7 @@ func (d *Dashboard) handleDeleteWebhook(w http.ResponseWriter, r *http.Request) 
 
 	if d.saveFn != nil {
 		if err := d.saveFn(); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
 			return
 		}
 	}
@@ -1965,7 +1987,7 @@ func (d *Dashboard) handleAddEmail(w http.ResponseWriter, r *http.Request) {
 
 	if d.saveFn != nil {
 		if err := d.saveFn(); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
 			return
 		}
 	}
@@ -1996,7 +2018,7 @@ func (d *Dashboard) handleDeleteEmail(w http.ResponseWriter, r *http.Request) {
 
 	if d.saveFn != nil {
 		if err := d.saveFn(); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
 			return
 		}
 	}

@@ -105,6 +105,7 @@ type CreateTenantResponse struct {
 
 func (h *Handlers) createTenant(w http.ResponseWriter, r *http.Request) {
 	var req CreateTenantRequest
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
@@ -179,6 +180,7 @@ type UpdateTenantRequest struct {
 
 func (h *Handlers) updateTenant(w http.ResponseWriter, r *http.Request, tenantID string) {
 	var req UpdateTenantRequest
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
@@ -261,6 +263,7 @@ func (h *Handlers) getTenantWAFConfig(w http.ResponseWriter, r *http.Request, te
 // updateTenantWAFConfig updates only the WAF config for a tenant (partial update).
 func (h *Handlers) updateTenantWAFConfig(w http.ResponseWriter, r *http.Request, tenantID string) {
 	var wafCfg config.WAFConfig
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&wafCfg); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return

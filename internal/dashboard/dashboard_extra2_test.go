@@ -813,8 +813,8 @@ func TestSetSaveFn_Error(t *testing.T) {
 	var result map[string]any
 	_ = json.Unmarshal(w.Body.Bytes(), &result)
 	msg, _ := result["message"].(string)
-	if !strings.Contains(msg, "save to disk failed") {
-		t.Errorf("expected save failure message, got %s", msg)
+	if !strings.Contains(msg, "disk sync pending") {
+		t.Errorf("expected disk sync message, got %s", msg)
 	}
 }
 

@@ -206,7 +206,7 @@ func TestUpdateRouting_SaveFnError(t *testing.T) {
 	var result map[string]any
 	_ = json.Unmarshal(w.Body.Bytes(), &result)
 	msg, _ := result["message"].(string)
-	if !strings.Contains(msg, "save to disk failed") {
+	if !strings.Contains(msg, "disk sync pending") {
 		t.Errorf("expected save failure message, got %s", msg)
 	}
 }

@@ -77,7 +77,7 @@ func (p *HCaptchaProvider) VerifyToken(token string, remoteIP string) (*Verifica
 	defer resp.Body.Close()
 
 	// Parse response
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
@@ -181,7 +181,7 @@ func (p *TurnstileProvider) VerifyToken(token string, remoteIP string) (*Verific
 	defer resp.Body.Close()
 
 	// Parse response
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}

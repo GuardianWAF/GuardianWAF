@@ -138,7 +138,7 @@ func (c *Client) Register(email string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 && resp.StatusCode != 201 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		return fmt.Errorf("account registration failed (%d): %s", resp.StatusCode, body)
 	}
 
@@ -229,7 +229,7 @@ func (c *Client) createOrder(domains []string) (*order, string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 201 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		return nil, "", fmt.Errorf("create order failed (%d): %s", resp.StatusCode, body)
 	}
 
@@ -324,7 +324,7 @@ func (c *Client) finalizeOrder(finalizeURL string, csr []byte) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		return fmt.Errorf("finalize failed (%d): %s", resp.StatusCode, body)
 	}
 	return nil
@@ -362,7 +362,7 @@ func (c *Client) fetchCertificateChain(certURL string) ([]byte, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	return io.ReadAll(resp.Body)
+	return io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 }
 
 // --- JWS signing ---

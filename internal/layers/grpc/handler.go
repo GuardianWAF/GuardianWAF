@@ -1,6 +1,7 @@
 package grpc
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 // Handler provides HTTP API for gRPC monitoring.
 type Handler struct {
 	security *Security
+	apiKey   string
 }
 
 // NewHandler creates a new gRPC handler.
@@ -18,8 +20,26 @@ func NewHandler(security *Security) *Handler {
 	return &Handler{security: security}
 }
 
+// SetAPIKey sets the API key for authenticating requests.
+func (h *Handler) SetAPIKey(key string) {
+	h.apiKey = key
+}
+
+func (h *Handler) verifyKey(r *http.Request) bool {
+	if h.apiKey == "" {
+		return true // No key configured, allow all
+	}
+	key := r.Header.Get("X-API-Key")
+	return subtle.ConstantTimeCompare([]byte(key), []byte(h.apiKey)) == 1
+}
+
 // ServeHTTP implements http.Handler.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if !h.verifyKey(r) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	if h.security == nil {
 		http.Error(w, "gRPC security not initialized", http.StatusServiceUnavailable)
 		return

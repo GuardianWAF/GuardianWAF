@@ -3,6 +3,7 @@ package virtualpatch
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"time"
@@ -226,7 +227,7 @@ func (c *NVDClient) Search(opts SearchOptions) (*NVDResponse, error) {
 	}
 
 	var result NVDResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 50<<20)).Decode(&result); err != nil {
 		return nil, fmt.Errorf("decoding response: %w", err)
 	}
 
@@ -264,7 +265,7 @@ func (c *NVDClient) GetCVE(cveID string) (*CVEEntry, error) {
 	}
 
 	var result NVDResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 50<<20)).Decode(&result); err != nil {
 		return nil, fmt.Errorf("decoding response: %w", err)
 	}
 

@@ -178,8 +178,19 @@ func (s *Service) VerifyClientCertificate(cert *x509.Certificate) (*ClientIdenti
 		s.mu.Unlock()
 	}
 
-	// Store session
+	// Store session (with cap to prevent OOM)
 	s.mu.Lock()
+	if len(s.sessions) >= 100000 {
+		// Evict expired sessions
+		for id, ci := range s.sessions {
+			if time.Since(ci.AuthenticatedAt) > s.config.SessionTTL {
+				delete(s.sessions, id)
+			}
+			if len(s.sessions) < 100000 {
+				break
+			}
+		}
+	}
 	s.sessions[identity.SessionID] = identity
 	s.mu.Unlock()
 
