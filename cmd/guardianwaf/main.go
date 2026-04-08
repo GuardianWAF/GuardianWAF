@@ -725,7 +725,8 @@ func cmdServe(args []string) {
 	_ = fs.Parse(args)
 
 	// 1. Load config
-	cfg := loadConfig(*configPath)
+	explicitPath := *configPath != ""
+	cfg := loadConfig(*configPath, explicitPath)
 
 	// 2. Apply environment variable overrides, then CLI overrides
 	config.LoadEnv(cfg)
@@ -875,6 +876,7 @@ func cmdServe(args []string) {
 
 	// 8. Start TLS server if enabled
 	var tlsSrv *http.Server
+	var h3Server *http3.Server
 	var certStore *gwaftls.CertStore
 	var diskStore *acme.CertDiskStore
 	if cfg.TLS.Enabled {
@@ -956,7 +958,6 @@ func cmdServe(args []string) {
 		}
 
 		// Start HTTP/3 server if enabled
-		var h3Server *http3.Server
 		if cfg.TLS.HTTP3.Enabled {
 			h3Config := &http3.Config{
 				Enabled:            cfg.TLS.HTTP3.Enabled,
@@ -984,6 +985,10 @@ func cmdServe(args []string) {
 					fmt.Fprintf(os.Stderr, "Warning: failed to start HTTP/3 server: %v\n", err)
 				} else {
 					eng.Logs.Infof("HTTP/3 server started on %s", h3Config.Listen)
+					// Advertise HTTP/3 via Alt-Svc header on TLS responses
+					if cfg.TLS.HTTP3.AdvertiseAltSvc {
+						tlsSrv.Handler = http3.EnableAltSvc(tlsSrv.Handler, h3Server.AltSvcHeader())
+					}
 				}
 			}
 		}
@@ -1432,7 +1437,12 @@ func cmdServe(args []string) {
 		_ = tlsSrv.Shutdown(ctx)
 	}
 
-	// 2. Stop background services
+		// 2. Stop HTTP/3 server
+		if h3Server != nil {
+			_ = h3Server.Stop()
+		}
+
+	// 3. Stop background services
 	if certStore != nil {
 		certStore.StopReload()
 	}
@@ -1440,7 +1450,7 @@ func cmdServe(args []string) {
 		_ = dashSrv.Shutdown(ctx)
 	}
 
-	// 3. Stop threat intel feed refresh loops
+	// 4. Stop threat intel feed refresh loops
 	if tiLayer := eng.FindLayer("threat_intel"); tiLayer != nil {
 		type stopper interface{ Stop() }
 		if s, ok := tiLayer.(stopper); ok {
@@ -1448,10 +1458,10 @@ func cmdServe(args []string) {
 		}
 	}
 
-	// 4. Stop cleanup goroutine
+	// 5. Stop cleanup goroutine
 	close(cleanupStop)
 
-	// 5. Stop Docker watcher and AI analyzer
+	// 6. Stop Docker watcher and AI analyzer
 	if dockerWatcher != nil {
 		dockerWatcher.Stop()
 	}
@@ -1459,7 +1469,7 @@ func cmdServe(args []string) {
 		aiAnalyzer.Stop()
 	}
 
-	// 5. Close engine (flushes pending events, closes event bus and store)
+	// 7. Close engine (flushes pending events, closes event bus and store)
 	eng.Close()
 	fmt.Println("GuardianWAF stopped.")
 }
@@ -1484,7 +1494,7 @@ func cmdSidecar(args []string) {
 	// Load config or build from flags
 	var cfg *config.Config
 	if *configPath != "" {
-		cfg = loadConfig(*configPath)
+		cfg = loadConfig(*configPath, true)
 		config.LoadEnv(cfg)
 	} else {
 		cfg = config.DefaultConfig()
@@ -1693,7 +1703,7 @@ func runCheck(opts *CheckOptions) (*CheckResult, error) {
 	}
 
 	// Load config
-	cfg := loadConfig(opts.ConfigPath)
+	cfg := loadConfig(opts.ConfigPath, opts.ConfigPath != "")
 	config.LoadEnv(cfg)
 
 	// Create engine
@@ -1985,7 +1995,16 @@ func DefaultConfigPath() string {
 
 // loadConfig loads config from path, falling back to defaults if the file is not found.
 // Supports both single file and directory-based config.
-func loadConfig(path string) *config.Config {
+// isDefaultPath returns true if path is the platform-specific default config path.
+func isDefaultPath(path string) bool {
+	if os.PathSeparator == '/' {
+		return path == "/etc/guardianwaf/guardianwaf.yaml"
+	}
+	return path == `C:\ProgramData\GuardianWAF\guardianwaf.yaml` ||
+		path == os.Getenv("PROGRAMDATA")+string(os.PathSeparator)+"GuardianWAF"+string(os.PathSeparator)+"guardianwaf.yaml"
+}
+
+func loadConfig(path string, explicitPath bool) *config.Config {
 	// Use platform-specific default if no path specified
 	if path == "" {
 		path = DefaultConfigPath()
@@ -1994,6 +2013,12 @@ func loadConfig(path string) *config.Config {
 	// Check if path exists
 	info, statErr := os.Stat(path)
 	if os.IsNotExist(statErr) {
+		if explicitPath && !isDefaultPath(path) {
+			fmt.Fprintf(os.Stderr, "Error: config file not found: %s\n", path)
+			osExit(1)
+			return nil
+		}
+		// Default path doesn't exist or relative path doesn't exist - use defaults
 		return config.DefaultConfig()
 	}
 
@@ -3286,10 +3311,25 @@ func (a *mcpEngineAdapter) TestDLPPattern(pattern, testData string) (any, error)
 
 // New Feature Methods - HTTP/3 (stubs since HTTP3 is in separate build tag)
 func (a *mcpEngineAdapter) GetHTTP3Status() (any, error) {
-	return map[string]any{"enabled": false, "note": "HTTP/3 requires build with -tags http3"}, nil
+	return map[string]any{
+		"enabled":           a.cfg.TLS.HTTP3.Enabled,
+		"available":         true,
+		"enable_0rtt":       a.cfg.TLS.HTTP3.Enable0RTT,
+		"advertise_alt_svc": a.cfg.TLS.HTTP3.AdvertiseAltSvc,
+	}, nil
 }
 func (a *mcpEngineAdapter) SetHTTP3Config(enabled, enable0RTT, advertiseAltSvc *bool) error {
-	return fmt.Errorf("HTTP/3 configuration requires build with -tags http3")
+	cfg := a.engine.Config()
+	if enabled != nil {
+		cfg.TLS.HTTP3.Enabled = *enabled
+	}
+	if enable0RTT != nil {
+		cfg.TLS.HTTP3.Enable0RTT = *enable0RTT
+	}
+	if advertiseAltSvc != nil {
+		cfg.TLS.HTTP3.AdvertiseAltSvc = *advertiseAltSvc
+	}
+	return a.engine.Reload(cfg)
 }
 
 // collectACMEDomains gathers all domains that need ACME certificates.
