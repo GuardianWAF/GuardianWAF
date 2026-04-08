@@ -102,7 +102,12 @@ func (l *Layer) Name() string { return "ato_protection" }
 
 // Process checks for ATO attack patterns.
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
-	if !l.config.Enabled {
+	// Check if ATO protection is enabled (tenant config takes precedence)
+	enabled := l.config.Enabled
+	if ctx.TenantWAFConfig != nil && !ctx.TenantWAFConfig.ATOProtection.Enabled {
+		enabled = false
+	}
+	if !enabled {
 		return engine.LayerResult{Action: engine.ActionPass}
 	}
 

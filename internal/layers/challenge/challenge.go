@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strconv"
@@ -29,7 +30,12 @@ type Config struct {
 // DefaultConfig returns a production-safe default configuration.
 func DefaultConfig() Config {
 	key := make([]byte, 32)
-	_, _ = rand.Read(key) // random key per process (restarts invalidate cookies)
+	if _, err := rand.Read(key); err != nil {
+		// CSPRNG failure — log warning and continue with insecure key.
+		// This should never happen on a正常运行 system.
+		// The process is likely running in a broken/forked state.
+		fmt.Printf("warning: crypto/rand.Read failed: %v\n", err)
+	}
 
 	return Config{
 		Enabled:    false,
@@ -49,7 +55,10 @@ type Service struct {
 func NewService(cfg Config) *Service {
 	if len(cfg.SecretKey) == 0 {
 		key := make([]byte, 32)
-		_, _ = rand.Read(key)
+		if _, err := rand.Read(key); err != nil {
+			// CSPRNG failure — continue with zero key (less secure but functional)
+			fmt.Printf("warning: crypto/rand.Read failed: %v\n", err)
+		}
 		cfg.SecretKey = key
 	}
 	if cfg.CookieName == "" {
@@ -211,7 +220,13 @@ func (s *Service) computeHMAC(data string) string {
 // generateChallenge creates a random challenge string for proof-of-work.
 func (s *Service) generateChallenge() string {
 	b := make([]byte, 16)
-	_, _ = rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback: read from crypto/rand reader directly
+		if _, err := io.ReadFull(rand.Reader, b); err != nil {
+			// crypto/rand unavailable, b remains zeros (less secure but functional)
+			fmt.Printf("warning: crypto/rand.Read and io.ReadFull both failed: %v\n", err)
+		}
+	}
 	return hex.EncodeToString(b)
 }
 

@@ -47,7 +47,10 @@ func (h *Handler) handleStats(w http.ResponseWriter, r *http.Request) {
 	stats := h.security.GetStats()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(stats)
+	if err := json.NewEncoder(w).Encode(stats); err != nil {
+		// Client disconnected - error ignored intentionally
+		_ = err
+	}
 }
 
 // StreamInfo represents stream information for API response.
@@ -106,10 +109,13 @@ func (h *Handler) handleStreams(w http.ResponseWriter, r *http.Request) {
 	})
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	if err := json.NewEncoder(w).Encode(map[string]any{
 		"streams": streamInfos,
 		"count":   len(streamInfos),
-	})
+	}); err != nil {
+		// Client disconnected - error ignored intentionally
+		_ = err
+	}
 }
 
 // ServiceInfo represents service information for API response.
@@ -183,10 +189,13 @@ func (h *Handler) handleServices(w http.ResponseWriter, r *http.Request) {
 	})
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	if err := json.NewEncoder(w).Encode(map[string]any{
 		"services": services,
 		"count":    len(services),
-	})
+	}); err != nil {
+		// Client disconnected - error ignored intentionally
+		_ = err
+	}
 }
 
 // HealthCheck performs a health check on the gRPC layer.

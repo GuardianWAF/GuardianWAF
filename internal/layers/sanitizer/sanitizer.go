@@ -28,7 +28,12 @@ func (l *Layer) SetEnabled(enabled bool) {
 
 // Process normalizes and validates the request.
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
-	if !l.enabled {
+	// Check if sanitizer is enabled (tenant config takes precedence)
+	enabled := l.enabled
+	if ctx.TenantWAFConfig != nil && !ctx.TenantWAFConfig.Sanitizer.Enabled {
+		enabled = false
+	}
+	if !enabled {
 		return engine.LayerResult{Action: engine.ActionPass}
 	}
 

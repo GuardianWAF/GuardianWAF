@@ -84,7 +84,12 @@ func (l *Layer) RemoveRule(id string) bool {
 
 // Process checks the request against all rate limit rules.
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
-	if !l.config.Enabled {
+	// Check if rate limiting is enabled (tenant config takes precedence)
+	enabled := l.config.Enabled
+	if ctx.TenantWAFConfig != nil && !ctx.TenantWAFConfig.RateLimit.Enabled {
+		enabled = false
+	}
+	if !enabled {
 		return engine.LayerResult{Action: engine.ActionPass}
 	}
 

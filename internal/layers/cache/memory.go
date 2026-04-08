@@ -56,7 +56,7 @@ func (mb *MemoryBackend) Get(ctx context.Context, key string) ([]byte, error) {
 
 	// Check expiry
 	if time.Now().After(item.expiresAt) {
-		mb.Delete(ctx, key)
+		_ = mb.Delete(ctx, key) // Best effort delete
 		return nil, fmt.Errorf("key expired: %s", key)
 	}
 
@@ -145,7 +145,7 @@ func (mb *MemoryBackend) Exists(ctx context.Context, key string) (bool, error) {
 	// Check expiry
 	item := elem.Value.(*cacheItem)
 	if time.Now().After(item.expiresAt) {
-		mb.Delete(ctx, key)
+		_ = mb.Delete(ctx, key) // Best effort delete
 		return false, nil
 	}
 
@@ -187,8 +187,7 @@ func (mb *MemoryBackend) Clear(ctx context.Context) error {
 
 // Close closes the memory backend.
 func (mb *MemoryBackend) Close() error {
-	mb.Clear(context.Background())
-	return nil
+	return mb.Clear(context.Background())
 }
 
 // cleanupExpired periodically removes expired items.

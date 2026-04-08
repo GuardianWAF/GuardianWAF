@@ -54,14 +54,28 @@ func (l *Layer) Name() string {
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	start := time.Now()
 
+	// Use tenant config if available, otherwise use global config
+	cfg := l.config
+	if ctx.TenantWAFConfig != nil {
+		tenantResp := &ctx.TenantWAFConfig.Response
+		// Tenant can disable security headers via config
+		if !tenantResp.SecurityHeaders.Enabled {
+			cfg.SecurityHeadersEnabled = false
+		}
+		// Tenant can disable data masking via config
+		if !tenantResp.DataMasking.Enabled {
+			cfg.DataMaskingEnabled = false
+		}
+	}
+
 	// Store the config in context metadata for use by the response writer
-	ctx.Metadata["response_config"] = l.config
+	ctx.Metadata["response_config"] = cfg
 
 	// Register a hook that the engine middleware will call to apply headers.
 	// This avoids circular imports: the engine calls the hook via func type,
 	// without importing the response package.
-	if l.config.SecurityHeadersEnabled {
-		headers := l.config.Headers
+	if cfg.SecurityHeadersEnabled {
+		headers := cfg.Headers
 		ctx.Metadata["response_hook"] = func(w http.ResponseWriter) {
 			headers.Apply(w)
 		}

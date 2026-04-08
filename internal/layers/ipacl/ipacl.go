@@ -2,6 +2,7 @@ package ipacl
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
@@ -23,9 +24,9 @@ type AutoBanConfig struct {
 }
 
 type autoBanEntry struct {
-	ExpiresAt time.Time
+	ExpiresAt atomic.Value // time.Time — stored atomically for lock-free reads
 	Reason    string
-	Count     int
+	Count     int // protected by Layer.mu
 }
 
 // Layer implements engine.Layer for IP-based access control.
@@ -66,7 +67,12 @@ func (l *Layer) Name() string { return "ipacl" }
 
 // Process checks the request's client IP against whitelist, blacklist, and auto-ban.
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
-	if !l.config.Enabled {
+	// Check if IP ACL is enabled (tenant config takes precedence)
+	enabled := l.config.Enabled
+	if ctx.TenantWAFConfig != nil && !ctx.TenantWAFConfig.IPACL.Enabled {
+		enabled = false
+	}
+	if !enabled {
 		return engine.LayerResult{Action: engine.ActionPass}
 	}
 
@@ -159,11 +165,13 @@ func (l *Layer) AddAutoBan(ip, reason string, ttl time.Duration) {
 	entry, exists := l.autoBan[ip]
 	if exists {
 		entry.Count++
-		entry.ExpiresAt = time.Now().Add(ttl)
+		entry.ExpiresAt.Store(time.Now().Add(ttl))
 		entry.Reason = reason
 	} else {
+		var expiresAt atomic.Value
+		expiresAt.Store(time.Now().Add(ttl))
 		l.autoBan[ip] = &autoBanEntry{
-			ExpiresAt: time.Now().Add(ttl),
+			ExpiresAt: expiresAt,
 			Reason:    reason,
 			Count:     1,
 		}
@@ -193,10 +201,11 @@ func (l *Layer) ActiveBans() []BanEntry {
 	now := time.Now()
 	var result []BanEntry
 	for ip, entry := range l.autoBan {
-		if now.Before(entry.ExpiresAt) {
+		expiresAt, _ := entry.ExpiresAt.Load().(time.Time)
+		if now.Before(expiresAt) {
 			result = append(result, BanEntry{
 				IP: ip, Reason: entry.Reason,
-				ExpiresAt: entry.ExpiresAt, Count: entry.Count,
+				ExpiresAt: expiresAt, Count: entry.Count,
 			})
 		}
 	}
@@ -215,7 +224,8 @@ func (l *Layer) CleanupExpired() {
 
 	now := time.Now()
 	for ip, entry := range l.autoBan {
-		if now.After(entry.ExpiresAt) {
+		expiresAt, _ := entry.ExpiresAt.Load().(time.Time)
+		if now.After(expiresAt) {
 			delete(l.autoBan, ip)
 		}
 	}
@@ -230,5 +240,6 @@ func (l *Layer) isAutoBanned(ip string) bool {
 	if !exists {
 		return false
 	}
-	return time.Now().Before(entry.ExpiresAt)
+	expiresAt, _ := entry.ExpiresAt.Load().(time.Time)
+	return time.Now().Before(expiresAt)
 }

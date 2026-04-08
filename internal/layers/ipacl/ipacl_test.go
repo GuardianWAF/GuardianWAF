@@ -233,7 +233,8 @@ func TestIPACL_AutoBanMaxTTL(t *testing.T) {
 	layer.mu.RUnlock()
 
 	// The expiry should be roughly now + MaxTTL, not now + 1 hour
-	remaining := time.Until(entry.ExpiresAt)
+	expiresAt, _ := entry.ExpiresAt.Load().(time.Time)
+	remaining := time.Until(expiresAt)
 	if remaining > 15*time.Second {
 		t.Fatalf("expected TTL capped to ~10s, got %v", remaining)
 	}
@@ -411,7 +412,8 @@ func TestIPACL_AutoBanMaxTTL_NoCap(t *testing.T) {
 	entry := layer.autoBan["9.9.9.9"]
 	layer.mu.RUnlock()
 
-	remaining := time.Until(entry.ExpiresAt)
+	expiresAt, _ := entry.ExpiresAt.Load().(time.Time)
+	remaining := time.Until(expiresAt)
 	if remaining < 55*time.Minute {
 		t.Fatalf("expected TTL near 1 hour (no cap), got %v", remaining)
 	}

@@ -68,9 +68,12 @@ func (c *BiometricCollector) HandleCollect(w http.ResponseWriter, r *http.Reques
 	// Return success
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{
+	if err := json.NewEncoder(w).Encode(map[string]string{
 		"status": "ok",
-	})
+	}); err != nil {
+		// Client disconnected, error ignored
+		_ = err
+	}
 }
 
 // processEvent converts and records a biometric event.
@@ -186,7 +189,7 @@ func (c *BiometricCollector) HandleChallengePage(w http.ResponseWriter, r *http.
 	// Generate challenge page HTML
 	w.Header().Set("Content-Type", "text/html")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(generateChallengePage(siteKey, provider)))
+	_, _ = w.Write([]byte(generateChallengePage(siteKey, provider))) // error ignored (client disconnect)
 }
 
 // HandleChallengeVerify handles CAPTCHA token verification.
@@ -230,10 +233,13 @@ func (c *BiometricCollector) HandleChallengeVerify(w http.ResponseWriter, r *htt
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	if err := json.NewEncoder(w).Encode(map[string]any{
 		"success": result.Success,
 		"human":   result.IsHuman(),
-	})
+	}); err != nil {
+		// Client disconnected, error ignored
+		_ = err
+	}
 }
 
 // generateChallengePage generates HTML for the CAPTCHA challenge page.

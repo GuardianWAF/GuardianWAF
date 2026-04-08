@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/geoip"
 )
@@ -141,15 +142,28 @@ func (l *Layer) UpdateRule(rule Rule) bool {
 // Process evaluates all enabled rules against the request.
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	l.mu.RLock()
-	rules := l.rules
+	globalRules := l.rules
 	l.mu.RUnlock()
+
+	// Get all rules (global + tenant-specific)
+	allRules := globalRules
+	if ctx.TenantWAFConfig != nil && len(ctx.TenantWAFConfig.CustomRules.Rules) > 0 {
+		tenantRules := convertConfigRules(ctx.TenantWAFConfig.CustomRules.Rules)
+		// Append tenant rules to global rules
+		allRules = make([]Rule, len(globalRules), len(globalRules)+len(tenantRules))
+		copy(allRules, globalRules)
+		allRules = append(allRules, tenantRules...)
+		sort.Slice(allRules, func(i, j int) bool {
+			return allRules[i].Priority < allRules[j].Priority
+		})
+	}
 
 	start := time.Now()
 	var findings []engine.Finding
 	resultAction := engine.ActionPass
 	totalScore := 0
 
-	for _, rule := range rules {
+	for _, rule := range allRules {
 		if !rule.Enabled {
 			continue
 		}
@@ -347,6 +361,34 @@ func (l *Layer) inCIDR(cidr string, ip net.IP) bool {
 		return parsed != nil && parsed.Equal(ip)
 	}
 	return network.Contains(ip)
+}
+
+// --- Config Conversion ---
+
+// convertConfigRules converts config.CustomRule slice to []Rule,
+// properly mapping conditions from config.RuleCondition to Condition.
+func convertConfigRules(cfgRules []config.CustomRule) []Rule {
+	rules := make([]Rule, len(cfgRules))
+	for i, r := range cfgRules {
+		conditions := make([]Condition, len(r.Conditions))
+		for j, c := range r.Conditions {
+			conditions[j] = Condition{
+				Field: c.Field,
+				Op:    c.Op,
+				Value: c.Value,
+			}
+		}
+		rules[i] = Rule{
+			ID:         r.ID,
+			Name:       r.Name,
+			Enabled:    r.Enabled,
+			Priority:   r.Priority,
+			Conditions: conditions,
+			Action:     r.Action,
+			Score:      r.Score,
+		}
+	}
+	return rules
 }
 
 // --- Helpers ---

@@ -99,7 +99,12 @@ func (l *Layer) Name() string {
 // Process analyzes the request for bot indicators using JA3 fingerprinting,
 // User-Agent analysis, and behavioral patterns.
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
-	if !l.config.Enabled {
+	// Check if bot detection is enabled (tenant config takes precedence)
+	enabled := l.config.Enabled
+	if ctx.TenantWAFConfig != nil && !ctx.TenantWAFConfig.BotDetection.Enabled {
+		enabled = false
+	}
+	if !enabled {
 		return engine.LayerResult{Action: engine.ActionPass}
 	}
 

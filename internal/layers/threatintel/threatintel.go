@@ -118,7 +118,12 @@ func (l *Layer) Stop() {
 
 // Process checks IP and domain reputation.
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
-	if !l.config.Enabled {
+	// Check if threat intel is enabled (tenant config takes precedence)
+	enabled := l.config.Enabled
+	if ctx.TenantWAFConfig != nil && !ctx.TenantWAFConfig.ThreatIntel.Enabled {
+		enabled = false
+	}
+	if !enabled {
 		return engine.LayerResult{Action: engine.ActionPass}
 	}
 

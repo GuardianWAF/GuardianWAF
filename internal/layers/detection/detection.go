@@ -4,6 +4,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/layers/detection/cmdi"
 	"github.com/guardianwaf/guardianwaf/internal/layers/detection/lfi"
@@ -97,16 +98,28 @@ func (l *Layer) RemoveExclusion(pathPrefix string) bool {
 }
 
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
-	if !l.config.Enabled {
+	// Check if detection is enabled (tenant config takes precedence)
+	enabled := l.config.Enabled
+	var tenantDet *config.DetectionConfig
+	if ctx.TenantWAFConfig != nil {
+		tenantDet = &ctx.TenantWAFConfig.Detection
+		if !tenantDet.Enabled {
+			enabled = false
+		}
+	}
+	if !enabled {
 		return engine.LayerResult{Action: engine.ActionPass}
 	}
 
 	var allFindings []engine.Finding
 	totalScore := 0
 
+	// Get exclusions (merge global and tenant-specific)
+	exclusions := l.getExclusions(tenantDet)
+
 	for _, det := range l.detectors {
 		// Check exclusions
-		if l.isExcluded(det.DetectorName(), ctx.Path) {
+		if l.isExcludedWithTenant(det.DetectorName(), ctx.Path, exclusions) {
 			continue
 		}
 
@@ -133,6 +146,45 @@ func (l *Layer) isExcluded(detectorName, path string) bool {
 	copy(exclusions, l.config.Exclusions)
 	l.mu.RUnlock()
 
+	for _, exc := range exclusions {
+		if strings.HasPrefix(path, exc.PathPrefix) {
+			for _, d := range exc.Detectors {
+				if d == detectorName {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// getExclusions returns merged global and tenant-specific exclusions.
+func (l *Layer) getExclusions(tenantDet *config.DetectionConfig) []Exclusion {
+	l.mu.RLock()
+	globalExclusions := make([]Exclusion, len(l.config.Exclusions))
+	copy(globalExclusions, l.config.Exclusions)
+	l.mu.RUnlock()
+
+	if tenantDet == nil || len(tenantDet.Exclusions) == 0 {
+		return globalExclusions
+	}
+
+	// Merge tenant exclusions with global ones
+	merged := make([]Exclusion, len(globalExclusions), len(globalExclusions)+len(tenantDet.Exclusions))
+	copy(merged, globalExclusions)
+
+	for _, te := range tenantDet.Exclusions {
+		merged = append(merged, Exclusion{
+			PathPrefix: te.Path,
+			Detectors:  te.Detectors,
+			Reason:     "tenant",
+		})
+	}
+	return merged
+}
+
+// isExcludedWithTenant checks exclusions including tenant-specific ones.
+func (l *Layer) isExcludedWithTenant(detectorName, path string, exclusions []Exclusion) bool {
 	for _, exc := range exclusions {
 		if strings.HasPrefix(path, exc.PathPrefix) {
 			for _, d := range exc.Detectors {

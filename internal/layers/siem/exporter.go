@@ -12,12 +12,13 @@ import (
 
 // Exporter exports security events to SIEM systems.
 type Exporter struct {
-	config    *Config
-	formatter *Formatter
-	client    *http.Client
-	eventChan chan *Event
-	wg        sync.WaitGroup
-	stopChan  chan struct{}
+	config     *Config
+	formatter  *Formatter
+	client     *http.Client
+	eventChan  chan *Event
+	wg         sync.WaitGroup
+	stopChan   chan struct{}
+	logFn      func(level string, msg string, args ...any)
 }
 
 // Config for SIEM exporter.
@@ -79,6 +80,7 @@ func NewExporter(cfg *Config) *Exporter {
 		},
 		eventChan: make(chan *Event, cfg.BatchSize*2),
 		stopChan:  make(chan struct{}),
+		logFn:     func(_, _ string, _ ...any) {},
 	}
 }
 
@@ -141,20 +143,26 @@ func (e *Exporter) batchProcessor() {
 			batch = append(batch, event)
 
 			if len(batch) >= e.config.BatchSize {
-				e.sendBatch(batch)
+				if err := e.sendBatch(batch); err != nil {
+					e.logFn("warn", "SIEM batch send failed: %v", err)
+				}
 				batch = batch[:0]
 			}
 
 		case <-ticker.C:
 			if len(batch) > 0 {
-				e.sendBatch(batch)
+				if err := e.sendBatch(batch); err != nil {
+					e.logFn("warn", "SIEM batch send failed: %v", err)
+				}
 				batch = batch[:0]
 			}
 
 		case <-e.stopChan:
 			// Flush remaining events
 			if len(batch) > 0 {
-				e.sendBatch(batch)
+				if err := e.sendBatch(batch); err != nil {
+					e.logFn("warn", "SIEM final batch send failed: %v", err)
+				}
 			}
 			return
 		}

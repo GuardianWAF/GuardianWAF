@@ -110,8 +110,8 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	if err == nil && entry != nil {
 		// Check if entry is expired
 		if time.Now().After(entry.ExpiresAt) {
-			// Delete expired entry
-			l.cache.Delete(context.Background(), key)
+			// Delete expired entry - best effort, error ignored
+			_ = l.cache.Delete(context.Background(), key)
 		} else {
 			// Return cached response - pass through to indicate cache hit
 			return engine.LayerResult{Action: engine.ActionPass}
@@ -223,7 +223,7 @@ func (l *Layer) Invalidate(pattern string) error {
 	}
 
 	for _, key := range keys {
-		l.cache.Delete(context.Background(), key)
+		_ = l.cache.Delete(context.Background(), key) // Best effort, errors ignored
 	}
 
 	return nil

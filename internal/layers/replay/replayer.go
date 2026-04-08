@@ -384,7 +384,7 @@ func (r *Replayer) replayRequest(ctx context.Context, rec *RecordedRequest) erro
 	defer resp.Body.Close()
 
 	// Drain body
-	io.Copy(io.Discard, resp.Body)
+	_, _ = io.Copy(io.Discard, resp.Body)
 
 	return nil
 }

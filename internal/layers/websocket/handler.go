@@ -37,7 +37,10 @@ func (h *Handler) handleStats(w http.ResponseWriter, r *http.Request) {
 	stats := h.security.GetStats()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(stats)
+	if err := json.NewEncoder(w).Encode(stats); err != nil {
+		// Client disconnected - error ignored intentionally
+		_ = err
+	}
 }
 
 // handleConnections returns active connections.
@@ -78,8 +81,11 @@ func (h *Handler) handleConnections(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]any{
 		"connections": info,
 		"count":       len(info),
-	})
+	}); err != nil {
+		// Client disconnected, error ignored
+		_ = err
+	}
 }

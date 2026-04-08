@@ -245,7 +245,10 @@ func (c *Canary) randomInt(max int) int {
 		return 0
 	}
 	b := make([]byte, 4)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback: use time-based value if CSPRNG fails
+		return int(time.Now().UnixNano() % int64(max))
+	}
 	val := binary.BigEndian.Uint32(b)
 	return int(val % uint32(max))
 }
@@ -319,7 +322,8 @@ func (c *Canary) performHealthCheck() {
 
 	// If canary was halted but health check passes, consider unhalting
 	if c.haltCanary.Load() {
-		// Could implement gradual unhalting here
+		// Canary remains halted - explicit un halt required after health check pass
+		return
 	}
 }
 
