@@ -424,13 +424,33 @@ func (m *Manager) checkNodeHealth() {
 	}
 	m.mu.RUnlock()
 
+	staleTimeout := 5 * time.Minute // Remove nodes unseen for 5 minutes
+
 	for _, node := range nodes {
 		healthy := m.pingNode(node)
 		m.mu.Lock()
 		m.health[node.ID] = healthy
 		if n, ok := m.nodes[node.ID]; ok {
-			n.Healthy = healthy
-			n.LastSeen = time.Now()
+			if healthy {
+				n.Healthy = true
+				n.LastSeen = time.Now()
+			} else {
+				n.Healthy = false
+				// Remove stale nodes from all clusters
+				if !n.LastSeen.IsZero() && time.Since(n.LastSeen) > staleTimeout {
+					for _, cluster := range m.clusters {
+						cluster.mu.Lock()
+						cluster.Nodes = slices.DeleteFunc(cluster.Nodes, func(id string) bool {
+							return id == node.ID
+						})
+						cluster.mu.Unlock()
+					}
+					delete(m.nodes, node.ID)
+					delete(m.health, node.ID)
+					m.mu.Unlock()
+					continue
+				}
+			}
 		}
 		m.mu.Unlock()
 	}
