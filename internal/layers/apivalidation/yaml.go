@@ -10,6 +10,9 @@ import (
 	"strings"
 )
 
+// Pre-compiled regex for extracting schema names from $ref paths.
+var reSchemaRef = regexp.MustCompile(`#/components/schemas/(\w+)`)
+
 // YAMLToJSON converts a simple YAML document to JSON.
 // This is a basic implementation that handles common OpenAPI YAML structures.
 func YAMLToJSON(yamlData []byte) ([]byte, error) {
@@ -313,9 +316,7 @@ func resolveJSONRefs(schema *Schema, components *Components) *Schema {
 
 // extractRefName extracts the schema name from a $ref path.
 func extractRefName(ref string) string {
-	// Handle #/components/schemas/SchemaName
-	re := regexp.MustCompile(`#/components/schemas/(\w+)`)
-	matches := re.FindStringSubmatch(ref)
+	matches := reSchemaRef.FindStringSubmatch(ref)
 	if len(matches) > 1 {
 		return matches[1]
 	}

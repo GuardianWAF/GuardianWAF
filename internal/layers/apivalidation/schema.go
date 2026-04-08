@@ -10,6 +10,16 @@ import (
 	"sync"
 )
 
+// Pre-compiled regex patterns for format validation (avoids recompilation per request).
+var (
+	reEmail     = regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
+	reUUID     = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+	reDateTime = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$`)
+	reDate     = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+	reIPv4     = regexp.MustCompile(`^(\d{1,3}\.){3}\d{1,3}$`)
+	reHostname = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$`)
+)
+
 // Config holds API validation configuration.
 type Config struct {
 	Enabled           bool           `yaml:"enabled"`
@@ -682,9 +692,7 @@ func toFloat64(data any) *float64 {
 }
 
 func validateEmail(email string) bool {
-	// Simple email validation
-	re := regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
-	return re.MatchString(email)
+	return reEmail.MatchString(email)
 }
 
 func validateURL(url string) bool {
@@ -692,24 +700,19 @@ func validateURL(url string) bool {
 }
 
 func validateUUID(uuid string) bool {
-	re := regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
-	return re.MatchString(uuid)
+	return reUUID.MatchString(uuid)
 }
 
 func validateDateTime(dt string) bool {
-	// ISO 8601 format
-	re := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$`)
-	return re.MatchString(dt)
+	return reDateTime.MatchString(dt)
 }
 
 func validateDate(date string) bool {
-	re := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
-	return re.MatchString(date)
+	return reDate.MatchString(date)
 }
 
 func validateIPv4(ip string) bool {
-	re := regexp.MustCompile(`^(\d{1,3}\.){3}\d{1,3}$`)
-	if !re.MatchString(ip) {
+	if !reIPv4.MatchString(ip) {
 		return false
 	}
 	parts := strings.Split(ip, ".")
@@ -731,6 +734,5 @@ func validateHostname(host string) bool {
 	if len(host) > 253 {
 		return false
 	}
-	re := regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$`)
-	return re.MatchString(host)
+	return reHostname.MatchString(host)
 }

@@ -13,6 +13,11 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 )
 
+// Pre-compiled regex for directive injection detection.
+var reDirectiveSkip = regexp.MustCompile(`@skip\s*\(`)
+var reDirectiveInclude = regexp.MustCompile(`@include\s*\(`)
+var reDirectiveDeprecated = regexp.MustCompile(`@deprecated\s*\(`)
+
 // Layer is the GraphQL security layer.
 type Layer struct {
 	mu sync.RWMutex
@@ -541,19 +546,19 @@ func hasDirectiveInjection(ast *AST) bool {
 		return false
 	}
 
-	// Check for suspicious directive patterns
-	suspiciousDirectives := []string{
-		"skip", "include", "deprecated",
-		// Add any custom directives that could be abused
-	}
-
-	// Simple regex check for now
+	// Check for suspicious directive patterns using pre-compiled regexes
 	queryStr := ast.Raw
-	for _, dir := range suspiciousDirectives {
-		if strings.Contains(queryStr, "@"+dir) {
-			// Check if usage is suspicious (multiple directives, etc.)
-			re := regexp.MustCompile(`@` + dir + `\s*\(`)
-			if len(re.FindAllString(queryStr, -1)) > 5 {
+	directivePatterns := []struct {
+		name    string
+		pattern *regexp.Regexp
+	}{
+		{"skip", reDirectiveSkip},
+		{"include", reDirectiveInclude},
+		{"deprecated", reDirectiveDeprecated},
+	}
+	for _, dp := range directivePatterns {
+		if strings.Contains(queryStr, "@"+dp.name) {
+			if len(dp.pattern.FindAllString(queryStr, -1)) > 5 {
 				return true
 			}
 		}

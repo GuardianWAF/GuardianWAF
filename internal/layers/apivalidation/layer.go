@@ -14,6 +14,9 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 )
 
+// Pre-compiled regex for OpenAPI path parameter replacement.
+var rePathParam = regexp.MustCompile(`\{[^}]+\}`)
+
 // Layer implements the engine.Layer interface for OpenAPI schema validation.
 type Layer struct {
 	config   *Config
@@ -261,7 +264,7 @@ func (l *Layer) compileRoutes(spec *CompiledSpec) {
 func (l *Layer) compilePathPattern(path string) *regexp.Regexp {
 	// Convert /users/{id} to /users/([^/]+)
 	// First replace {param} patterns, then escape special chars
-	pattern := regexp.MustCompile(`\{[^}]+\}`).ReplaceAllString(path, `([^/]+)`)
+	pattern := rePathParam.ReplaceAllString(path, `([^/]+)`)
 	pattern = regexp.QuoteMeta(pattern)
 	// Unescape the regex groups we added
 	pattern = strings.ReplaceAll(pattern, `\(\[\^/\]\+\)`, `([^/]+)`)
