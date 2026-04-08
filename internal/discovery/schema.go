@@ -31,7 +31,7 @@ type Contact struct {
 type OpenAPIServer struct {
 	URL         string            `json:"url"`
 	Description string            `json:"description,omitempty"`
-	Variables   map[string]interface{} `json:"variables,omitempty"`
+	Variables   map[string]any `json:"variables,omitempty"`
 }
 
 // PathItem represents a path item.
@@ -79,7 +79,7 @@ type Schema struct {
 	Required    []string          `json:"required,omitempty"`
 	Properties  map[string]Schema `json:"properties,omitempty"`
 	Items       *Schema           `json:"items,omitempty"`
-	Example     interface{}       `json:"example,omitempty"`
+	Example     any       `json:"example,omitempty"`
 }
 
 // Response represents an API response.

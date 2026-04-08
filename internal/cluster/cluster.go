@@ -334,7 +334,7 @@ func (c *Cluster) BanIP(ip string, ttl time.Duration) {
 	c.stateSync.mu.Unlock()
 
 	// Broadcast to other nodes
-	payload, _ := json.Marshal(map[string]interface{}{
+	payload, _ := json.Marshal(map[string]any{
 		"ip":  ip,
 		"ttl": ttl.Seconds(),
 	})

@@ -296,7 +296,7 @@ func (l *Layer) Order() int {
 }
 
 // Process implements the layer interface.
-func (l *Layer) Process(ctx interface{}) interface{} {
+func (l *Layer) Process(ctx any) any {
 	if !l.config.Enabled || l.collector == nil {
 		return nil
 	}

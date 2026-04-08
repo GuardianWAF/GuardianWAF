@@ -109,11 +109,11 @@ func (m *Model) GetThreshold() float64 {
 }
 
 // Info returns model information.
-func (m *Model) Info() map[string]interface{} {
+func (m *Model) Info() map[string]any {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	return map[string]interface{}{
+	return map[string]any{
 		"name":         m.name,
 		"version":      m.version,
 		"input_shape":  m.inputShape,

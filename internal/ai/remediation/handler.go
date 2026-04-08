@@ -243,7 +243,7 @@ func (l *Layer) Name() string {
 
 // Process implements the layer interface.
 // Checks if request matches any active remediation rules.
-func (l *Layer) Process(ctx interface{}) interface{} {
+func (l *Layer) Process(ctx any) any {
 	if !l.config.Enabled || l.engine == nil {
 		return nil
 	}

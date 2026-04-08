@@ -299,7 +299,7 @@ func (l *EnhancedLayer) GetCaptchaSiteKey() string {
 }
 
 // RecordBiometricEvent records a biometric event for a session.
-func (l *EnhancedLayer) RecordBiometricEvent(sessionID string, event interface{}) {
+func (l *EnhancedLayer) RecordBiometricEvent(sessionID string, event any) {
 	l.sessionsMu.Lock()
 	defer l.sessionsMu.Unlock()
 

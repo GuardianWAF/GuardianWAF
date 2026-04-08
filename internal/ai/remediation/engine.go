@@ -49,7 +49,7 @@ type AnalysisResult struct {
 	Method      string                 `json:"method"`
 	Payload     string                 `json:"payload"`
 	Severity    string                 `json:"severity"`
-	Details     map[string]interface{} `json:"details"`
+	Details     map[string]any `json:"details"`
 }
 
 // GeneratedRule represents an auto-generated security rule.
