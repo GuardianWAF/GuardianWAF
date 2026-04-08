@@ -122,7 +122,7 @@ interface CreateResponse {
 export default function TenantNewPage() {
   const [step, setStep] = useState<Step>(1)
   const [loading, setLoading] = useState(false)
-  const [created, setCreated] = useState(false)
+  const [, setCreated] = useState(false)
   const [apiKey, setApiKey] = useState('')
   const [tenantId, setTenantId] = useState('')
   const { toast } = useToast()

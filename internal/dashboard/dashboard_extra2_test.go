@@ -1012,8 +1012,24 @@ func TestDistAssets_ServeJS(t *testing.T) {
 	d := newTestDashboard(t, "")
 	handler := d.Handler()
 
+	// Find actual JS file in dist assets
+	entries, err := distFS.ReadDir("dist/assets")
+	if err != nil {
+		t.Fatalf("failed to read dist assets: %v", err)
+	}
+	var jsFile string
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "index-") && strings.HasSuffix(e.Name(), ".js") {
+			jsFile = e.Name()
+			break
+		}
+	}
+	if jsFile == "" {
+		t.Fatal("no JS file found in dist/assets")
+	}
+
 	// Request the embedded JS asset
-	req := httptest.NewRequest("GET", "/assets/index-DbnhIOMD.js", nil)
+	req := httptest.NewRequest("GET", "/assets/"+jsFile, nil)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
@@ -1037,7 +1053,23 @@ func TestDistAssets_ServeCSS(t *testing.T) {
 	d := newTestDashboard(t, "")
 	handler := d.Handler()
 
-	req := httptest.NewRequest("GET", "/assets/index-CX1_M1Es.css", nil)
+	// Find actual CSS file in dist assets
+	entries, err := distFS.ReadDir("dist/assets")
+	if err != nil {
+		t.Fatalf("failed to read dist assets: %v", err)
+	}
+	var cssFile string
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "index-") && strings.HasSuffix(e.Name(), ".css") {
+			cssFile = e.Name()
+			break
+		}
+	}
+	if cssFile == "" {
+		t.Fatal("no CSS file found in dist/assets")
+	}
+
+	req := httptest.NewRequest("GET", "/assets/"+cssFile, nil)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 

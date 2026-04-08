@@ -9,6 +9,7 @@ interface EventsTableProps {
   setFilter: (f: string) => void
   search: string
   setSearch: (s: string) => void
+  isLoading?: boolean
 }
 
 const filters = [

@@ -72,41 +72,33 @@ func (l *Layer) AddIP(ip string, info *ThreatInfo) { ... }
 
 | Metric | Count |
 |--------|-------|
-| **Total Findings** | 9 |
-| **High-confidence deletes** | 2 |
-| **Medium-risk verifications** | 4 |
-| **Low-risk (keep for API)** | 3 |
-| **Estimated LOC removed** | ~32 lines |
+| **Total Findings** | 5 |
+| **High-confidence deletes** | 4 |
+| **Medium-risk verifications** | 0 |
+| **Low-risk (keep for API)** | 1 |
+| **Estimated LOC removed** | ~760 lines |
 | **Estimated dead imports** | 0 (confirmed zero external deps) |
-| **Files safe to delete entirely** | 0 |
+| **Files safe to delete entirely** | 1 (`embedded_rules.go`) |
 | **Estimated build time improvement** | Negligible (< 100ms) |
 
 ---
 
-### Overall Codebase Health: **A- (Excellent)**
+### Overall Codebase Health: **A (Excellent)**
 
 GuardianWAF demonstrates exceptional code discipline:
 
 - ✅ **Zero external Go dependencies** — confirmed via `go.mod` audit
 - ✅ **No unused imports** — build passes without warnings
-- ✅ **Minimal dead code** — only 2 functions are truly orphaned
+- ✅ **HTTP3 build fixed** — `upstreamsTargets` declaration added
+- ✅ **CRS dead code removed** — embedded rules scaffolding cleaned up
 - ✅ **No phantom dependencies** — all npm packages used in dashboard
 - ✅ **Consistent patterns** — no abandoned feature flags or unreachable branches
 
 ### Top-3 Highest-Impact Actions
 
-1. **🔴 Delete `RemoveDomain`** (5 min, zero risk)
-   - Completely orphaned function with no call sites
-   - Immediate cleanup with no cascading effects
-
-2. **🔴 Fix `strings.Repeat("x", 0)`** (5 min, low risk)
-   - Dead code that indicates a likely bug (intended visual indicator)
-   - Either remove noise or implement actual feature
-
-3. **🟡 Audit ThreatIntel Management APIs** (30 min)
-   - Determine if `AddIP`, `AddDomain`, `RemoveIP` are truly needed
-   - Either expose via dashboard endpoints or document as intentionally public
-   - Prevents future confusion about "unused" code
+1. **✅ Completed: HTTP3 build fix** - `upstreamsTargets` variable added
+2. **✅ Completed: CRS dead code cleanup** - ~760 lines removed
+3. **🟢 Verify remaining APIs** - ThreatIntel management APIs documented and in use
 
 ---
 
@@ -163,7 +155,11 @@ make lint
 | 2026-04-01 | Verified `HealthyCount()` is used | `internal/proxy/balancer.go` | ✅ Dashboard API usage confirmed |
 | 2026-04-01 | Added clarifying comments to ThreatIntel APIs | `internal/layers/threatintel/threatintel.go` | ✅ Documented AddIP, AddDomain, RemoveIP |
 | 2026-04-01 | Migrated `interface{}` to `any` | `internal/layers/ipacl/radix.go` | ✅ Modern Go syntax |
+| 2026-04-07 | Fixed HTTP3 build bug (`upstreamsTargets` missing) | `cmd/guardianwaf/main.go` | ✅ Build passes with http3 tag |
+| 2026-04-07 | Deleted `embedded_rules.go` (637 lines) | `internal/layers/crs/embedded_rules.go` | ✅ File removed |
+| 2026-04-07 | Deleted `DefaultRules()`, `MinimalRules()`, `LoadEmbeddedRules()` | `internal/layers/crs/layer.go` | ✅ ~120 lines removed |
+| 2026-04-07 | Refactored CRS tests to use inline rules | `internal/layers/crs/crs_test.go` | ✅ Tests pass |
 
-*Audit completed: 2026-04-01*  
+*Audit completed: 2026-04-07*  
 *Auditor: Claude Code (Claude 4.6)*  
 *Methodology: Static analysis + manual verification*

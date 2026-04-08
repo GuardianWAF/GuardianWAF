@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { useToast } from '@/components/ui/toast'
-import { api, TenantUsage as TenantUsageType } from '@/lib/api'
+import { api, Tenant, TenantUsage as TenantUsageType } from '@/lib/api'
 import {
   ArrowLeft,
   RefreshCw,
@@ -22,24 +22,16 @@ import {
   Ban
 } from 'lucide-react'
 
-interface Tenant {
-  id: string
-  name: string
-  description?: string
-  domains: string[]
-  active: boolean
-  created_at: string
-  plan: string
-  quota: {
-    max_requests_per_minute: number
-    max_requests_per_hour: number
-    max_bandwidth_mbps: number
-    max_rules: number
-    max_rate_limit_rules: number
-    max_ip_acls: number
-    max_domains: number
-  }
-}
+// Helper to safely access tenant quota with defaults
+const getQuota = (tenant: Tenant) => ({
+  max_requests_per_minute: tenant.quota?.max_requests_per_minute ?? 0,
+  max_requests_per_hour: tenant.quota?.max_requests_per_hour ?? 0,
+  max_bandwidth_mbps: tenant.quota?.max_bandwidth_mbps ?? 0,
+  max_rules: tenant.quota?.max_rules ?? 0,
+  max_rate_limit_rules: tenant.quota?.max_rate_limit_rules ?? 0,
+  max_ip_acls: tenant.quota?.max_ip_acls ?? 0,
+  max_domains: tenant.quota?.max_domains ?? 0,
+})
 
 interface UsageHistory {
   date: string
@@ -140,7 +132,7 @@ export default function TenantAnalyticsPage() {
         name: tenant.name,
         description: tenant.description,
         domains: tenant.domains,
-        plan: tenant.plan,
+        plan: tenant.plan || 'basic',
         created_at: tenant.created_at
       },
       usage: {
@@ -172,15 +164,16 @@ export default function TenantAnalyticsPage() {
       return { plan_cost: 0, overage_cost: 0, total_cost: 0, currency: 'USD', breakdown: { requests_overages: 0, bandwidth_overages: 0 } }
     }
 
-    const planCost = PLAN_PRICES[tenant.plan] || 0
+    const planCost = PLAN_PRICES[tenant.plan || 'basic'] || 0
 
     // Calculate overages
     const monthlyRequests = usage.total_requests
     const monthlyBandwidthGB = usage.bytes_transferred / (1024 * 1024 * 1024)
 
     // Assume monthly quota limits (simplified)
-    const monthlyRequestQuota = tenant.quota.max_requests_per_minute * 60 * 24 * 30 // per month
-    const monthlyBandwidthQuota = tenant.quota.max_bandwidth_mbps * 60 * 60 * 24 * 30 / 8000 // convert to GB/month roughly
+    const quota = getQuota(tenant)
+    const monthlyRequestQuota = quota.max_requests_per_minute * 60 * 24 * 30 // per month
+    const monthlyBandwidthQuota = quota.max_bandwidth_mbps * 60 * 60 * 24 * 30 / 8000 // convert to GB/month roughly
 
     const requestOverages = Math.max(0, monthlyRequests - monthlyRequestQuota)
     const bandwidthOverages = Math.max(0, monthlyBandwidthGB - monthlyBandwidthQuota)
@@ -231,15 +224,6 @@ export default function TenantAnalyticsPage() {
     ? (usage.blocked_requests / usage.total_requests * 100).toFixed(1)
     : '0'
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'ok': return 'bg-green-500'
-      case 'warning': return 'bg-yellow-500'
-      case 'exceeded': return 'bg-red-500'
-      default: return 'bg-gray-500'
-    }
-  }
-
   const getStatusBg = (status: string) => {
     switch (status) {
       case 'ok': return 'bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800'
@@ -247,14 +231,6 @@ export default function TenantAnalyticsPage() {
       case 'exceeded': return 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800'
       default: return 'bg-gray-50 border-gray-200'
     }
-  }
-
-  const formatBytes = (bytes: number) => {
-    if (bytes === 0) return '0 B'
-    const k = 1024
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
   }
 
   const totalRequestsInRange = history.reduce((sum, h) => sum + h.requests, 0)
@@ -277,7 +253,7 @@ export default function TenantAnalyticsPage() {
               <Badge variant={tenant.active ? 'default' : 'secondary'}>
                 {tenant.active ? 'Active' : 'Inactive'}
               </Badge>
-              <Badge variant="outline">{tenant.plan}</Badge>
+              <Badge variant="outline">{tenant.plan || 'basic'}</Badge>
             </div>
           </div>
         </div>
@@ -357,7 +333,7 @@ export default function TenantAnalyticsPage() {
           <CardContent>
             <div className="text-3xl font-bold">{usage.requests_per_minute.toLocaleString()}</div>
             <div className="text-sm text-gray-500">
-              Limit: {tenant.quota.max_requests_per_minute > 0 ? tenant.quota.max_requests_per_minute.toLocaleString() : '∞'}
+              Limit: {getQuota(tenant).max_requests_per_minute > 0 ? getQuota(tenant).max_requests_per_minute.toLocaleString() : '∞'}
             </div>
             <div className="mt-2 h-1.5 bg-gray-200 rounded-full overflow-hidden">
               <div
@@ -418,7 +394,7 @@ export default function TenantAnalyticsPage() {
               Current: {usage.bandwidth_mbps.toFixed(2)} Mbps
             </div>
             <div className="mt-2 text-sm text-gray-500">
-              Limit: {tenant.quota.max_bandwidth_mbps > 0 ? `${tenant.quota.max_bandwidth_mbps} Mbps` : 'Unlimited'}
+              Limit: {getQuota(tenant).max_bandwidth_mbps > 0 ? `${getQuota(tenant).max_bandwidth_mbps} Mbps` : 'Unlimited'}
             </div>
           </CardContent>
         </Card>
@@ -436,7 +412,7 @@ export default function TenantAnalyticsPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="space-y-4">
               <div className="text-sm text-gray-500">Current Plan</div>
-              <div className="text-2xl font-bold capitalize">{tenant.plan}</div>
+              <div className="text-2xl font-bold capitalize">{tenant.plan || 'basic'}</div>
               <div className="text-3xl font-bold text-accent">
                 ${billing.plan_cost}
                 <span className="text-sm text-gray-500 font-normal">/month</span>
@@ -509,7 +485,7 @@ export default function TenantAnalyticsPage() {
                 />
               </div>
               <div className="text-xs text-gray-500 mt-1">
-                {usage.requests_per_minute.toLocaleString()} / {tenant.quota.max_requests_per_minute.toLocaleString()} requests
+                {usage.requests_per_minute.toLocaleString()} / {getQuota(tenant).max_requests_per_minute.toLocaleString()} requests
               </div>
             </div>
 
@@ -523,11 +499,11 @@ export default function TenantAnalyticsPage() {
               <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
                 <div
                   className="h-full rounded-full bg-blue-500 transition-all duration-500"
-                  style={{ width: `${Math.min((usage.bandwidth_mbps / tenant.quota.max_bandwidth_mbps) * 100, 100)}%` }}
+                  style={{ width: `${Math.min((usage.bandwidth_mbps / getQuota(tenant).max_bandwidth_mbps) * 100, 100)}%` }}
                 />
               </div>
               <div className="text-xs text-gray-500 mt-1">
-                {usage.bandwidth_mbps.toFixed(2)} / {tenant.quota.max_bandwidth_mbps} Mbps
+                {usage.bandwidth_mbps.toFixed(2)} / {getQuota(tenant).max_bandwidth_mbps} Mbps
               </div>
             </div>
 
@@ -537,28 +513,28 @@ export default function TenantAnalyticsPage() {
                   <Shield className="w-3 h-3" />
                   Rules
                 </div>
-                <div className="text-lg font-semibold">0 / {tenant.quota.max_rules || '∞'}</div>
+                <div className="text-lg font-semibold">0 / {getQuota(tenant).max_rules || '∞'}</div>
               </div>
               <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded">
                 <div className="text-sm text-gray-500 flex items-center gap-1">
                   <Ban className="w-3 h-3" />
                   IP ACLs
                 </div>
-                <div className="text-lg font-semibold">0 / {tenant.quota.max_ip_acls || '∞'}</div>
+                <div className="text-lg font-semibold">0 / {getQuota(tenant).max_ip_acls || '∞'}</div>
               </div>
               <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded">
                 <div className="text-sm text-gray-500 flex items-center gap-1">
                   <Clock className="w-3 h-3" />
                   Rate Limits
                 </div>
-                <div className="text-lg font-semibold">0 / {tenant.quota.max_rate_limit_rules || '∞'}</div>
+                <div className="text-lg font-semibold">0 / {getQuota(tenant).max_rate_limit_rules || '∞'}</div>
               </div>
               <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded">
                 <div className="text-sm text-gray-500 flex items-center gap-1">
                   <Globe className="w-3 h-3" />
                   Domains
                 </div>
-                <div className="text-lg font-semibold">{tenant.domains.length} / {tenant.quota.max_domains || '∞'}</div>
+                <div className="text-lg font-semibold">{tenant.domains.length} / {getQuota(tenant).max_domains || '∞'}</div>
               </div>
             </div>
           </CardContent>

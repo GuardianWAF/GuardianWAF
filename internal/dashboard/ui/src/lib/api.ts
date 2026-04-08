@@ -359,6 +359,7 @@ export interface Tenant {
   domains: string[]
   created_at: string
   updated_at: string
+  plan?: string
   quota?: ResourceQuota
 }
 
@@ -369,6 +370,7 @@ export interface ResourceQuota {
   max_rules: number
   max_rate_limit_rules: number
   max_ip_acls: number
+  max_domains?: number
 }
 
 export interface CreateTenantRequest {

@@ -50,7 +50,7 @@ export default function DashboardPage() {
     lastCheck: new Date(),
     components: { engine: true, proxy: true, eventStore: true, sse: false }
   })
-  const [refreshInterval, setRefreshInterval] = useState(5000)
+  const [refreshInterval] = useState(5000)
   const sseRef = useRef<EventSource | null>(null)
   const retryDelay = useRef(1000)
   const consecutiveErrors = useRef(0)

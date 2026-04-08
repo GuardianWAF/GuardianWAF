@@ -1,0 +1,38 @@
+# GuardianWAF pre-commit hooks
+# Install: pip install pre-commit && pre-commit install
+repos:
+  - repo: https://github.com/golangci-lint/golangci-lint
+    rev: v1.64.8
+    hooks:
+      - id: golangci-lint
+        args: [--fix]
+
+  - repo: https://github.com/editorconfig-checker/editorconfig-checker
+    rev: 2.7.2
+    hooks:
+      - id: editorconfig-checker
+        args: [-c .editorconfig]
+
+  - repo: local
+    hooks:
+      - id: go-test
+        name: go test
+        entry: go test -race -count=1 ./...
+        pass_filenames: false
+        language: system
+        types: [go]
+
+      - id: go-vet
+        name: go vet
+        entry: go vet ./...
+        pass_filenames: false
+        language: system
+        types: [go]
+
+      - id: go-fmt
+        name: go fmt
+        entry: gofmt -s -l .
+        pass_filenames: true
+        language: system
+        types: [go]
+        description: "Check Go files are formatted"

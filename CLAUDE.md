@@ -1,15 +1,17 @@
-# GuardianWAF — Claude Code Instructions
+# CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
 
-GuardianWAF is a zero-dependency Web Application Firewall written in Go (1.23+).
+GuardianWAF is a zero-dependency Web Application Firewall written in Go (1.24+).
 Module: `github.com/guardianwaf/guardianwaf`
+
+The only Go dependency is `quic-go` (for optional HTTP/3 support, build with `-tags http3`).
 
 ## Key Constraints
 
-- **ZERO external Go dependencies** — only Go stdlib. No exceptions.
+- **ZERO external Go dependencies** — only Go stdlib (plus quic-go for HTTP/3). No exceptions.
 - Frontend (React dashboard) uses npm packages — that's OK, they embed into the Go binary.
 - Use `any` instead of `interface{}`
 - Use built-in `min`/`max` functions (Go 1.21+)
@@ -50,47 +52,111 @@ make tidy           # Run go mod tidy
 
 ## Architecture
 
-13-layer pipeline executed in order (lower numbers run first):
+### Pipeline (core pattern)
+
+All WAF processing flows through a **layer pipeline** (`internal/engine/pipeline.go`). Layers implement the `Layer` interface (`Name() + Process(ctx *RequestContext) LayerResult`) and are sorted by `Order` constant. The pipeline:
+
+1. Iterates layers in order (lowest Order first)
+2. Skips `Detector` layers if the path matches an exclusion
+3. Checks for `TenantAwareLayer` and injects per-tenant WAF config
+4. Accumulates `Finding` scores via `ScoreAccumulator`
+5. **Short-circuits on `ActionBlock`** — immediately returns without running remaining layers
+6. `ActionChallenge` only applies if current action is `ActionPass` (block takes priority)
+
+### Request Context
+
+`engine.RequestContext` (`internal/engine/context.go`) carries all per-request state. It's pooled via `sync.Pool` for zero-allocation hot paths:
+- Acquired via `AcquireContext()` — parses HTTP request, reads/decompresses body (gzip/deflate), extracts client IP (X-Forwarded-For → X-Real-IP → RemoteAddr)
+- Released via `ReleaseContext()` — resets all fields, returns to pool
+- Populates JA4 TLS fingerprint fields from custom TLS handler data
+- Carries `TenantID` and `TenantWAFConfig` for multi-tenant isolation
+
+### Layer Order Constants
+
+Defined in `internal/engine/layer.go`:
 
 | Order | Layer | Description |
 |-------|-------|-------------|
-| 100 | IP ACL | Radix tree CIDR matching, runtime add/remove |
+| 100 | IP ACL | Radix tree CIDR matching, runtime add/remove, auto-ban |
 | 125 | Threat Intel | IP/domain reputation feeds with LRU cache |
 | 150 | CORS | Origin validation, preflight caching |
 | 150 | Custom Rules | Geo-aware rule engine with dashboard CRUD |
 | 200 | Rate Limit | Token bucket per IP/path, auto-ban |
 | 250 | ATO Protection | Brute force, credential stuffing, password spray, impossible travel |
 | 275 | API Security | JWT validation (RS256/ES256/HS256), API key auth |
+| 280 | API Validation | Request/response schema validation (YAML-defined schemas) |
 | 300 | Sanitizer | Normalize + validate requests |
-| 400 | Detection | 6 detectors: sqli, xss, lfi, cmdi, xxe, ssrf |
+| 350 | CRS | OWASP ModSecurity Core Rule Set parser and executor |
+| 400 | Detection | 6 detectors: sqli, xss, lfi, cmdi, xxe, ssrf (each in own subdirectory) |
+| 450 | Virtual Patch | Virtual patching layer |
+| 475 | DLP | Data Loss Prevention (credit cards, SSNs, API keys, PII) |
 | 500 | Bot Detection | JA3/JA4 TLS fingerprinting, UA, behavioral analysis |
+| 590 | Client-Side | Client-side protection injection |
 | 600 | Response | Security headers, data masking, branded block pages |
 | — | JS Challenge | SHA-256 proof-of-work for suspicious requests (score 40-79) |
 | — | AI Analysis | Background batch threat analysis via LLM (configurable provider) |
+| — | gRPC Proxy | gRPC protocol handling |
+| — | WebSocket | Transparent WebSocket upgrade forwarding |
+| — | Cache | In-memory response caching layer |
+| — | Canary | Canary/deployment testing layer |
+| — | Replay | Request recording and replay for testing |
+| — | SIEM | Security event export to external SIEM systems |
 
-## Scoring System
+### Scoring System
 
 - Each detector produces scores 0-100
-- Scores accumulate per-request
+- Scores accumulate per-request via `ScoreAccumulator`
 - `block_threshold`: 50 (default), `log_threshold`: 25
 - Score 40-79 with bot detection → JS challenge
 - Per-detector multipliers adjust sensitivity
+
+### Multi-Tenancy
+
+`internal/tenant/` provides full tenant isolation:
+- Per-tenant WAF config overrides (via `TenantAwareLayer` interface)
+- Tenant middleware sets `TenantContext` in request context
+- Separate rate tracking, rules, alerts, and billing per tenant
+- Domain-based tenant resolution via virtual hosts
+
+### Configuration Layering
+
+Priority: `defaults` → `YAML file` → `environment variables (GWAF_ prefix)` → `CLI flags`
+
+Key config files:
+- `internal/config/config.go` — All config structs (mirrors YAML schema)
+- Custom YAML parser (not using yaml struct tags for loading — uses Node tree)
+- Per-domain WAF overrides via `VirtualHostConfig.WAF *WAFConfig`
+
+### Public API (Library Mode)
+
+`guardianwaf.go` + `options.go` — Functional options API:
+- `New(Config, ...Option)` — programmatic creation
+- `NewFromFile(path, ...Option)` — from YAML
+- `Middleware(http.Handler)` — HTTP middleware wrapper
+- `Check(*http.Request)` — dry-run scoring
+- `OnEvent(func(Event))` — event callback
+- `Stats()` / `Close()` — lifecycle
 
 ## Package Layout
 
 - `cmd/guardianwaf/` — CLI (serve, sidecar, check, validate)
 - `internal/engine/` — Core engine, pipeline, scoring, context, access logging, panic recovery
 - `internal/config/` — Custom YAML parser, config structs, validation, YAML serializer
-- `internal/layers/` — All WAF layers (ipacl, threatintel, cors, ratelimit, ato, apisecurity, sanitizer, detection/*, botdetect, challenge, response, rules)
+- `internal/layers/` — All WAF layers (see Layer Order table above)
 - `internal/proxy/` — Reverse proxy, load balancer (RR/weighted/least-conn/ip-hash), health check, circuit breaker, host-based router, WebSocket support
 - `internal/tls/` — TLS cert store, SNI-based cert selection, hot-reload, HTTP/2 support
+- `internal/http3/` — HTTP/3/QUIC support (build with `-tags http3`, stub otherwise)
 - `internal/dashboard/` — Web UI (React+Vite+TailwindCSS), REST API, SSE, config editor, AI page, routing topology graph (React Flow)
 - `internal/mcp/` — MCP JSON-RPC server (15 tools: get_stats, get_events, add_blacklist, etc.)
-- `internal/events/` — Event storage (memory ring buffer, JSONL file)
+- `internal/events/` — Event storage (memory ring buffer, JSONL file, event bus)
 - `internal/ai/` — AI threat analysis (provider catalog from models.dev, OpenAI-compatible client, batch analyzer, cost control, JSON store)
 - `internal/docker/` — Docker auto-discovery (Unix socket/CLI, label-based routing, event watcher)
 - `internal/geoip/` — GeoIP database with auto-refresh
 - `internal/acme/` — ACME/Let's Encrypt auto-certificate (HTTP-01)
+- `internal/tenant/` — Multi-tenant management (isolation, billing, rate limits, per-tenant rules)
+- `internal/analytics/` — Analytics engine and API handlers
+- `internal/cluster/` — Cluster mode support
+- `internal/clustersync/` — Cross-node state synchronization
 - `guardianwaf.go` + `options.go` — Public library API
 
 ## Docker Auto-Discovery
