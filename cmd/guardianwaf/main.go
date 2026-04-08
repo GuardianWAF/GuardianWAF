@@ -1371,7 +1371,7 @@ func cmdServe(args []string) {
 				// Cleanup tenant rate limiter old entries
 				if tenantManager != nil {
 					type rateLimiterCleaner interface{ CleanupRateLimiter(maxAge time.Duration) }
-					if c, ok := interface{}(tenantManager).(rateLimiterCleaner); ok {
+					if c, ok := any(tenantManager).(rateLimiterCleaner); ok {
 						c.CleanupRateLimiter(30 * time.Minute)
 					}
 				}
