@@ -18,11 +18,7 @@ linters:
       enable:
         - shadow
 
-issues:
-  max-issues-per-linter: 50
-  max-same-issues: 5
-
-  excludes:
+  exclusions:
     rules:
       - path: _test\.go
         linters:
@@ -37,3 +33,7 @@ issues:
         linters:
           - unparam
         text: "result 1 .error. is always nil"
+
+issues:
+  max-issues-per-linter: 50
+  max-same-issues: 5
