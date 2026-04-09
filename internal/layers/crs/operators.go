@@ -7,10 +7,41 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 )
 
 // regexCache caches compiled regex patterns to avoid recompilation per request.
-var regexCache sync.Map // string → *regexp.Regexp
+var (
+	regexCache     sync.Map    // string → *regexp.Regexp
+	regexCacheSize atomic.Int64 // track cache size for cap enforcement
+)
+
+const maxRegexCacheSize = 10000 // cap regex cache to prevent unbounded growth
+
+// regexExecutionTimeout is the maximum time allowed for a single regex match.
+// Go's regexp package uses RE2 (linear-time, no catastrophic backtracking),
+// but this timeout provides defense-in-depth against pathological inputs.
+const regexExecutionTimeout = 5 * time.Second
+
+// matchWithTimeout evaluates a regex match with a hard execution timeout.
+// This prevents any single regex from monopolizing CPU, even though RE2
+// guarantees O(n) matching — large inputs can still take significant wall time.
+func matchWithTimeout(re *regexp.Regexp, s string) []string {
+	type result struct {
+		submatches []string
+	}
+	done := make(chan result, 1)
+	go func() {
+		done <- result{submatches: re.FindStringSubmatch(s)}
+	}()
+	select {
+	case r := <-done:
+		return r.submatches
+	case <-time.After(regexExecutionTimeout):
+		return nil // Timeout — treat as non-match to fail open safely
+	}
+}
 
 func getCachedRegex(pattern string) (*regexp.Regexp, error) {
 	if cached, ok := regexCache.Load(pattern); ok {
@@ -20,7 +51,14 @@ func getCachedRegex(pattern string) (*regexp.Regexp, error) {
 	if err != nil {
 		return nil, err
 	}
-	actual, _ := regexCache.LoadOrStore(pattern, re)
+	// Enforce cache cap — if over limit, return compiled regex without caching
+	if regexCacheSize.Load() >= maxRegexCacheSize {
+		return re, nil
+	}
+	if _, loaded := regexCache.LoadOrStore(pattern, re); !loaded {
+		regexCacheSize.Add(1)
+	}
+	actual, _ := regexCache.Load(pattern)
 	return actual.(*regexp.Regexp), nil
 }
 
@@ -105,7 +143,8 @@ func (oe *OperatorEvaluator) evaluateRx(pattern, value string) (bool, error) {
 		return false, fmt.Errorf("invalid regex pattern: %w", err)
 	}
 
-	matches := re.FindStringSubmatch(value)
+	// Use timeout-wrapped matching to prevent CPU monopolization (H6 fix)
+	matches := matchWithTimeout(re, value)
 	if matches == nil {
 		return false, nil
 	}

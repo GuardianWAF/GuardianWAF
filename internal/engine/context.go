@@ -19,6 +19,57 @@ import (
 // randReader allows tests to inject failures for generateRequestID.
 var randReader = rand.Read
 
+// trustedProxyCIDRs holds parsed CIDRs for trusted proxy detection.
+// Only requests from these CIDRs will have their X-Forwarded-For / X-Real-IP headers trusted.
+// When empty (default), proxy headers are never trusted — RemoteAddr is always used.
+var (
+	trustedProxyCIDRs []*net.IPNet
+	trustedProxyMu    sync.RWMutex
+)
+
+// SetTrustedProxies configures the list of trusted proxy CIDRs.
+// Only connections originating from these CIDRs will have their
+// X-Forwarded-For and X-Real-IP headers honored.
+// Accepts CIDR notation ("10.0.0.0/8") or single IPs ("10.0.0.1").
+func SetTrustedProxies(cidrs []string) {
+	var parsed []*net.IPNet
+	for _, s := range cidrs {
+		if !strings.Contains(s, "/") {
+			// Single IP — convert to /32 or /128
+			ip := net.ParseIP(s)
+			if ip == nil {
+				continue
+			}
+			bits := 32
+			if ip.To4() == nil {
+				bits = 128
+			}
+			parsed = append(parsed, &net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)})
+			continue
+		}
+		_, cidr, err := net.ParseCIDR(s)
+		if err != nil {
+			continue
+		}
+		parsed = append(parsed, cidr)
+	}
+	trustedProxyMu.Lock()
+	trustedProxyCIDRs = parsed
+	trustedProxyMu.Unlock()
+}
+
+// isTrustedProxy checks if the given IP is within a configured trusted proxy CIDR.
+func isTrustedProxy(ip net.IP) bool {
+	trustedProxyMu.RLock()
+	defer trustedProxyMu.RUnlock()
+	for _, cidr := range trustedProxyCIDRs {
+		if cidr.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
 // RequestContext carries all per-request state through the WAF pipeline.
 // Allocated from a sync.Pool to minimize GC pressure.
 type RequestContext struct {
@@ -112,9 +163,12 @@ func AcquireContext(r *http.Request, paranoiaLevel int, maxBodySize int64) *Requ
 		ctx.QueryParams[k] = cp
 	}
 
-	// Headers
-	ctx.Headers = make(map[string][]string, len(r.Header))
+	// Headers — limit to prevent memory exhaustion from excessive header injection
+	ctx.Headers = make(map[string][]string, min(len(r.Header), 100))
 	for k, v := range r.Header {
+		if len(ctx.Headers) >= 100 {
+			break // Excessive headers — stop processing to prevent resource exhaustion
+		}
 		cp := make([]string, len(v))
 		copy(cp, v)
 		ctx.Headers[k] = cp
@@ -142,20 +196,25 @@ func AcquireContext(r *http.Request, paranoiaLevel int, maxBodySize int64) *Requ
 			// Restore original body for proxying (always raw/compressed)
 			r.Body = io.NopCloser(bytes.NewReader(rawData))
 
-			// Decompress for WAF inspection based on Content-Encoding
+			// Decompress for WAF inspection based on Content-Encoding.
+			// Rejects decompression bombs (ratio > 100:1).
 			inspectData := rawData
 			switch strings.ToLower(r.Header.Get("Content-Encoding")) {
 			case "gzip":
 				if gr, err := gzip.NewReader(bytes.NewReader(rawData)); err == nil {
 					if decompressed, err := io.ReadAll(io.LimitReader(gr, maxBodySize)); err == nil {
-						inspectData = decompressed
+						if len(rawData) > 0 && len(decompressed)/len(rawData) <= 100 {
+							inspectData = decompressed
+						}
 					}
 					gr.Close()
 				}
 			case "deflate":
 				fr := flate.NewReader(bytes.NewReader(rawData))
 				if decompressed, err := io.ReadAll(io.LimitReader(fr, maxBodySize)); err == nil {
-					inspectData = decompressed
+					if len(rawData) > 0 && len(decompressed)/len(rawData) <= 100 {
+						inspectData = decompressed
+					}
 				}
 				fr.Close()
 			}
@@ -217,20 +276,58 @@ func ReleaseContext(ctx *RequestContext) {
 	ctx.TenantID = ""
 	ctx.TenantWAFConfig = nil
 
+	// Clear JA4 TLS fingerprinting fields to prevent cross-request leakage
+	ctx.JA4Ciphers = nil
+	ctx.JA4Exts = nil
+	ctx.JA4SigAlgs = nil
+	ctx.JA4ALPN = ""
+	ctx.JA4Protocol = ""
+	ctx.JA4SNI = false
+	ctx.JA4Ver = 0
+
 	ctx.bodyRead = false
 
 	contextPool.Put(ctx)
 }
 
+// ExtractClientIP determines the real client IP from the request.
+// When trusted proxies are configured, proxy headers (X-Forwarded-For, X-Real-IP)
+// are only trusted if the direct connection comes from a trusted proxy.
+// For X-Forwarded-For, the rightmost non-trusted IP is used (not the leftmost,
+// which is attacker-controlled). When no trusted proxies are configured,
+// proxy headers are ignored and RemoteAddr is always used.
+func ExtractClientIP(r *http.Request) net.IP {
+	return extractClientIP(r)
+}
+
 // extractClientIP determines the real client IP from the request.
-// It checks X-Forwarded-For, then X-Real-IP, then falls back to RemoteAddr.
+// When trusted proxies are configured, proxy headers (X-Forwarded-For, X-Real-IP)
+// are only trusted if the direct connection comes from a trusted proxy.
+// For X-Forwarded-For, the rightmost non-trusted IP is used (not the leftmost,
+// which is attacker-controlled). When no trusted proxies are configured,
+// proxy headers are ignored and RemoteAddr is always used.
 func extractClientIP(r *http.Request) net.IP {
-	// Check X-Forwarded-For first (take the first IP in the list)
+	remoteIP := parseRemoteAddr(r.RemoteAddr)
+	if remoteIP == nil {
+		return nil
+	}
+
+	// Only trust proxy headers if the direct peer is a trusted proxy
+	if !isTrustedProxy(remoteIP) {
+		return remoteIP
+	}
+
+	// Check X-Forwarded-For — walk from right to left, find the rightmost
+	// IP that is NOT a trusted proxy (that's the real client)
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		parts := strings.Split(xff, ",")
-		if len(parts) > 0 {
-			ipStr := strings.TrimSpace(parts[0])
-			if ip := net.ParseIP(ipStr); ip != nil {
+		for i := len(parts) - 1; i >= 0; i-- {
+			ipStr := strings.TrimSpace(parts[i])
+			ip := net.ParseIP(ipStr)
+			if ip == nil {
+				continue
+			}
+			if !isTrustedProxy(ip) {
 				return ip
 			}
 		}
@@ -238,28 +335,23 @@ func extractClientIP(r *http.Request) net.IP {
 
 	// Check X-Real-IP
 	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		ipStr := strings.TrimSpace(xri)
-		if ip := net.ParseIP(ipStr); ip != nil {
+		if ip := net.ParseIP(strings.TrimSpace(xri)); ip != nil {
 			return ip
 		}
 	}
 
-	// Fall back to RemoteAddr (strip port)
-	addr := r.RemoteAddr
+	return remoteIP
+}
+
+// parseRemoteAddr extracts the IP from a RemoteAddr string (host:port or bare IP).
+func parseRemoteAddr(addr string) net.IP {
 	if addr == "" {
 		return nil
 	}
-
-	// Try to split host:port
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
-		// Maybe there's no port (bare IP)
-		if ip := net.ParseIP(addr); ip != nil {
-			return ip
-		}
-		return nil
+		return net.ParseIP(addr)
 	}
-
 	return net.ParseIP(host)
 }
 

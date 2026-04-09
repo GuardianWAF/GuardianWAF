@@ -36,11 +36,11 @@ func TestCompileWildcard_WildcardScheme(t *testing.T) {
 	if !re.MatchString("https://api.example.com") {
 		t.Error("should match https scheme")
 	}
-	if !re.MatchString("http://api.example.com") {
-		t.Error("should match http scheme")
+	if re.MatchString("http://api.example.com") {
+		t.Error("should NOT match http scheme — wildcard *:// now matches HTTPS only (L4 fix)")
 	}
 	if re.MatchString("ftp://api.example.com") {
-		t.Error("should not match ftp scheme (only https?)")
+		t.Error("should not match ftp scheme (only https)")
 	}
 }
 

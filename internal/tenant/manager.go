@@ -5,10 +5,12 @@ package tenant
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -151,6 +153,7 @@ func (m *Manager) LoadTenants() error {
 		// Set first tenant as default
 		if m.defaultTenantID == "" {
 			m.defaultTenantID = tenant.ID
+			log.Printf("[tenant] WARNING: Default tenant set to %q (%s). Unmatched requests will use this tenant's WAF config. Ensure this is intentional.", tenant.Name, tenant.ID)
 		}
 	}
 
@@ -302,13 +305,11 @@ func (m *Manager) GetTenantByAPIKey(apiKey string) *Tenant {
 		return nil
 	}
 
-	hash := hashAPIKey(apiKey)
-
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	for _, tenant := range m.tenants {
-		if tenant.APIKeyHash == hash {
+		if verifyAPIKey(tenant.APIKeyHash, apiKey) {
 			return tenant
 		}
 	}
@@ -702,9 +703,32 @@ func generateAPIKey() (string, error) {
 	return "gwaf_" + hex.EncodeToString(b), nil
 }
 
+// hashAPIKey hashes an API key with a per-tenant salt to prevent rainbow table attacks.
+// Returns "salt$hash" format.
 func hashAPIKey(apiKey string) string {
-	hash := sha256.Sum256([]byte(apiKey))
-	return hex.EncodeToString(hash[:])
+	salt := make([]byte, 16)
+	if _, err := rand.Read(salt); err != nil {
+		// Fallback: use timestamp as salt (still better than no salt)
+		salt = []byte(fmt.Sprintf("%d", time.Now().UnixNano()))
+	}
+	hash := sha256.Sum256(append(salt, []byte(apiKey)...))
+	return hex.EncodeToString(salt) + "$" + hex.EncodeToString(hash[:])
+}
+
+// verifyAPIKey checks if an API key matches a stored salt$hash.
+func verifyAPIKey(storedHash, apiKey string) bool {
+	parts := strings.SplitN(storedHash, "$", 2)
+	if len(parts) != 2 {
+		// Legacy unsalted hash — backwards compatible fallback
+		expected := sha256.Sum256([]byte(apiKey))
+		return subtle.ConstantTimeCompare([]byte(storedHash), []byte(hex.EncodeToString(expected[:]))) == 1
+	}
+	salt, err := hex.DecodeString(parts[0])
+	if err != nil {
+		return false
+	}
+	hash := sha256.Sum256(append(salt, []byte(apiKey)...))
+	return subtle.ConstantTimeCompare([]byte(parts[1]), []byte(hex.EncodeToString(hash[:]))) == 1
 }
 
 func matchWildcard(domain, pattern string) bool {

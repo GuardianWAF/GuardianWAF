@@ -99,7 +99,7 @@ func (h *APIValidationHandler) handleUploadSchema(w http.ResponseWriter, r *http
 	}
 
 	if err := apiLayer.LoadSchema(schema); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, sanitizeErr(err), http.StatusBadRequest)
 		return
 	}
 
@@ -144,7 +144,7 @@ func (h *APIValidationHandler) handleSchemaDetail(w http.ResponseWriter, r *http
 
 	case http.MethodDelete:
 		if err := apiLayer.RemoveSchema(path); err != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			http.Error(w, sanitizeErr(err), http.StatusNotFound)
 			return
 		}
 
@@ -205,7 +205,7 @@ func (h *APIValidationHandler) handleValidationConfig(w http.ResponseWriter, r *
 
 		// Reload config
 		if err := h.dashboard.engine.Reload(newCfg); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, sanitizeErr(err), http.StatusInternalServerError)
 			return
 		}
 

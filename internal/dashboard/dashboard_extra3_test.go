@@ -295,6 +295,7 @@ func TestHandleSPA_DistFallback(t *testing.T) {
 	d := newTestDashboard(t, "")
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("X-API-Key", "test-api-key")
 	d.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200 fallback to static, got %d", w.Code)
@@ -318,6 +319,7 @@ func TestHandleSPA_BothMissing(t *testing.T) {
 	d := newTestDashboard(t, "")
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("X-API-Key", "test-api-key")
 	d.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("expected 500 when both dist and static missing, got %d", w.Code)

@@ -260,7 +260,7 @@ func NewCollector(cfg *Config) *Collector {
 
 	// Ensure storage directory exists
 	if cfg.StoragePath != "" {
-		if err := os.MkdirAll(cfg.StoragePath, 0755); err != nil {
+		if err := os.MkdirAll(cfg.StoragePath, 0o700); err != nil {
 			// Log but continue without persistence — metrics still work in-memory
 			fmt.Printf("warning: failed to create storage directory %s: %v\n", cfg.StoragePath, err)
 		}
@@ -483,14 +483,14 @@ func (c *Collector) Flush() error {
 		return nil
 	}
 
-	c.mu.RLock()
+	// GetAllMetrics acquires its own lock, so don't hold an outer lock here
+	// (would deadlock if a writer is waiting between the two RLock calls)
 	data := c.GetAllMetrics()
-	c.mu.RUnlock()
 
 	filename := filepath.Join(c.config.StoragePath, fmt.Sprintf("metrics-%s.json",
 		time.Now().Format("20060102")))
 
-	file, err := os.Create(filename)
+	file, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}

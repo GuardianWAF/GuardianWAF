@@ -4,6 +4,7 @@ package clustersync
 import (
 	"crypto/subtle"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -399,9 +400,11 @@ func (h *Handler) handleReplicationStatus(w http.ResponseWriter, r *http.Request
 }
 
 func (h *Handler) checkAuth(r *http.Request) bool {
-	// If no shared secret configured, allow all (cluster auth not enabled)
+	// Shared secret is required for cluster sync — without it, all cluster
+	// endpoints (sync, join, config) would be unauthenticated.
 	if h.manager.config.SharedSecret == "" {
-		return true
+		log.Printf("[ERROR] Cluster sync shared secret is not configured — refusing request. Set SharedSecret before enabling cluster sync.")
+		return false
 	}
 	// Check shared secret auth using constant-time comparison
 	authHeader := r.Header.Get("X-Cluster-Auth")

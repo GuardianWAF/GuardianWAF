@@ -318,13 +318,21 @@ func (l *EnhancedLayer) RecordBiometricEvent(sessionID string, event any) {
 		l.sessions[sessionID] = session
 	}
 
+	// Cap events per session to prevent memory exhaustion from a single session
+	const maxEventsPerSession = 10000
 	switch e := event.(type) {
 	case biometric.MouseEvent:
-		session.MouseEvents = append(session.MouseEvents, e)
+		if len(session.MouseEvents) < maxEventsPerSession {
+			session.MouseEvents = append(session.MouseEvents, e)
+		}
 	case biometric.KeyEvent:
-		session.KeyEvents = append(session.KeyEvents, e)
+		if len(session.KeyEvents) < maxEventsPerSession {
+			session.KeyEvents = append(session.KeyEvents, e)
+		}
 	case biometric.ScrollEvent:
-		session.ScrollEvents = append(session.ScrollEvents, e)
+		if len(session.ScrollEvents) < maxEventsPerSession {
+			session.ScrollEvents = append(session.ScrollEvents, e)
+		}
 	}
 }
 

@@ -1,24 +1,39 @@
 package remediation
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
 )
 
+// maxHandlerBodySize limits the request body for remediation API endpoints.
+const maxHandlerBodySize = 1 * 1024 * 1024 // 1 MB
+
 // Handler provides HTTP API for remediation management.
 type Handler struct {
 	engine *Engine
+	apiKey string // required — reject unauthenticated requests
 }
 
 // NewHandler creates a new remediation handler.
-func NewHandler(engine *Engine) *Handler {
-	return &Handler{engine: engine}
+// apiKey is required for authentication; if empty, all requests are rejected.
+func NewHandler(engine *Engine, apiKey ...string) *Handler {
+	key := ""
+	if len(apiKey) > 0 {
+		key = apiKey[0]
+	}
+	return &Handler{engine: engine, apiKey: key}
 }
 
 // ServeHTTP implements http.Handler interface.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if !h.authenticate(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	// Route based on path
 	switch {
 	case r.URL.Path == "/api/v1/remediation/rules":
@@ -34,6 +49,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// authenticate checks the X-API-Key header against the configured API key.
+func (h *Handler) authenticate(r *http.Request) bool {
+	if h.apiKey == "" {
+		return false // no key configured = reject all
+	}
+	key := r.Header.Get("X-API-Key")
+	if key == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(key), []byte(h.apiKey)) == 1
 }
 
 // handleRules handles rule listing and creation.
@@ -114,7 +141,7 @@ func (h *Handler) getRule(w http.ResponseWriter, ruleID string) {
 // deleteRule deletes a rule.
 func (h *Handler) deleteRule(w http.ResponseWriter, ruleID string) {
 	if err := h.engine.DeleteRule(ruleID); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "failed to delete rule", http.StatusInternalServerError)
 		return
 	}
 
@@ -148,8 +175,9 @@ func (h *Handler) handleApply(w http.ResponseWriter, r *http.Request) {
 		RuleID string `json:"rule_id"`
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxHandlerBodySize)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
@@ -159,7 +187,7 @@ func (h *Handler) handleApply(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.engine.ApplyRule(req.RuleID); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "failed to apply rule", http.StatusInternalServerError)
 		return
 	}
 
@@ -184,8 +212,9 @@ func (h *Handler) handleRevoke(w http.ResponseWriter, r *http.Request) {
 		RuleID string `json:"rule_id"`
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxHandlerBodySize)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
@@ -195,7 +224,7 @@ func (h *Handler) handleRevoke(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.engine.RevokeRule(req.RuleID); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "failed to revoke rule", http.StatusInternalServerError)
 		return
 	}
 
@@ -295,11 +324,12 @@ func (l *Layer) GetEngine() *Engine {
 }
 
 // GetHandler returns the HTTP handler.
-func (l *Layer) GetHandler() *Handler {
+// apiKey is required for authentication on the handler endpoints.
+func (l *Layer) GetHandler(apiKey string) *Handler {
 	if l.engine == nil {
 		return nil
 	}
-	return NewHandler(l.engine)
+	return NewHandler(l.engine, apiKey)
 }
 
 // Stop stops the layer.

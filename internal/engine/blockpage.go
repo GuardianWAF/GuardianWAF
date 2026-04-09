@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"html"
 	"strings"
 )
 
@@ -42,7 +43,7 @@ If you believe this is an error, please contact the site administrator.</p>
 <div class="details">`)
 
 	b.WriteString(`<div>Request ID: <span>`)
-	b.WriteString(requestID)
+	b.WriteString(html.EscapeString(requestID))
 	b.WriteString(`</span></div>`)
 
 	if score > 0 {

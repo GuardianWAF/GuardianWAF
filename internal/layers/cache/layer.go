@@ -46,14 +46,18 @@ func DefaultLayerConfig() *LayerConfig {
 
 // CacheKey represents a cache key.
 type CacheKey struct {
-	Method string
-	Path   string
-	Host   string
-	Query  string
+	Method   string
+	Path     string
+	Host     string
+	Query    string
+	TenantID string
 }
 
 // String returns the cache key string.
 func (k *CacheKey) String() string {
+	if k.TenantID != "" {
+		return fmt.Sprintf("%s:%s:%s:%s:%s", k.TenantID, k.Method, k.Host, k.Path, k.Query)
+	}
 	return fmt.Sprintf("%s:%s:%s:%s", k.Method, k.Host, k.Path, k.Query)
 }
 
@@ -159,10 +163,11 @@ func (l *Layer) generateKey(ctx *engine.RequestContext) string {
 	}
 
 	key := &CacheKey{
-		Method: ctx.Method,
-		Path:   ctx.Path,
-		Host:   host,
-		Query:  "", // Could include normalized query params
+		Method:   ctx.Method,
+		Path:     ctx.Path,
+		Host:     host,
+		Query:    "", // Could include normalized query params
+		TenantID: ctx.TenantID,
 	}
 
 	// Vary by query params if present

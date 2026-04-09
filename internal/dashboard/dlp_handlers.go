@@ -136,7 +136,7 @@ func (h *DLPHandler) handleAddPattern(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := dlpLayer.AddPattern(pattern); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, sanitizeErr(err), http.StatusBadRequest)
 		return
 	}
 
@@ -181,7 +181,7 @@ func (h *DLPHandler) handlePatternDetail(w http.ResponseWriter, r *http.Request)
 
 	case http.MethodDelete:
 		if err := dlpLayer.RemovePattern(path); err != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			http.Error(w, sanitizeErr(err), http.StatusNotFound)
 			return
 		}
 

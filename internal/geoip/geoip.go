@@ -174,6 +174,11 @@ func (db *DB) StartAutoRefresh(path, downloadURL string, interval time.Duration)
 	}
 	stop := make(chan struct{})
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("[ERROR] GeoIP auto-refresh panic: %v\n", r)
+			}
+		}()
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
@@ -267,16 +272,18 @@ func downloadDB(url, path string) error {
 	}
 	defer f.Close()
 
-	var reader io.Reader = resp.Body
+	// Limit download to 500MB to prevent disk exhaustion
+	const maxDownloadSize = 500 * 1024 * 1024
+	var reader io.Reader = io.LimitReader(resp.Body, maxDownloadSize)
 
 	// Auto-detect gzip by URL suffix or Content-Type
 	if strings.HasSuffix(url, ".gz") || strings.Contains(resp.Header.Get("Content-Type"), "gzip") {
-		gz, gzErr := gzip.NewReader(resp.Body)
+		gz, gzErr := gzip.NewReader(reader)
 		if gzErr != nil {
 			return fmt.Errorf("gzip decode: %w", gzErr)
 		}
 		defer gz.Close()
-		reader = gz
+		reader = io.LimitReader(gz, maxDownloadSize)
 	}
 
 	_, err = io.Copy(f, reader)

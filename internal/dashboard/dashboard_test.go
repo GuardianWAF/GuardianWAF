@@ -31,9 +31,13 @@ func newTestDashboard(t *testing.T, apiKey string) *Dashboard {
 	t.Helper()
 	eng := newTestEngine(t)
 	store := events.NewMemoryStore(100)
+	if apiKey == "" {
+		apiKey = "test-api-key"
+	}
 	return New(eng, store, apiKey)
 }
 
+// authenticatedRequest sends a request with X-API-Key header.
 func authenticatedRequest(method, path string, body string, apiKey string) *http.Request {
 	var req *http.Request
 	if body != "" {
@@ -60,12 +64,16 @@ func decodeJSON(t *testing.T, w *httptest.ResponseRecorder) map[string]any {
 // --- Auth Tests ---
 
 func TestSignAndVerifySession(t *testing.T) {
-	token := signSession()
+	token := signSession("192.0.2.1")
 	if token == "" {
 		t.Fatal("signSession returned empty token")
 	}
-	if !verifySession(token) {
+	if !verifySession(token, "192.0.2.1") {
 		t.Error("verifySession rejected valid token")
+	}
+	// Different IP should fail (session hijacking prevention)
+	if verifySession(token, "10.0.0.1") {
+		t.Error("verifySession accepted token from different IP")
 	}
 }
 
@@ -81,7 +89,7 @@ func TestVerifySession_Invalid(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if verifySession(tt.token) {
+			if verifySession(tt.token, "192.0.2.1") {
 				t.Error("expected invalid session")
 			}
 		})
@@ -89,10 +97,12 @@ func TestVerifySession_Invalid(t *testing.T) {
 }
 
 func TestIsAuthenticated_NoAPIKey(t *testing.T) {
-	d := newTestDashboard(t, "")
+	eng := newTestEngine(t)
+	store := events.NewMemoryStore(100)
+	d := New(eng, store, "") // explicitly empty — should reject
 	req := httptest.NewRequest("GET", "/api/v1/stats", nil)
-	if !d.isAuthenticated(req) {
-		t.Error("should be authenticated when no API key configured")
+	if d.isAuthenticated(req) {
+		t.Error("should NOT be authenticated when no API key configured")
 	}
 }
 
@@ -108,8 +118,8 @@ func TestIsAuthenticated_APIKeyHeader(t *testing.T) {
 func TestIsAuthenticated_APIKeyQuery(t *testing.T) {
 	d := newTestDashboard(t, "secret-key")
 	req := httptest.NewRequest("GET", "/api/v1/stats?api_key=secret-key", nil)
-	if !d.isAuthenticated(req) {
-		t.Error("should be authenticated with correct API key in query")
+	if d.isAuthenticated(req) {
+		t.Error("API key in query parameter should be rejected — use X-API-Key header only")
 	}
 }
 
@@ -124,8 +134,9 @@ func TestIsAuthenticated_WrongKey(t *testing.T) {
 
 func TestIsAuthenticated_SessionCookie(t *testing.T) {
 	d := newTestDashboard(t, "secret-key")
-	token := signSession()
+	token := signSession("192.0.2.1")
 	req := httptest.NewRequest("GET", "/api/v1/stats", nil)
+	req.RemoteAddr = "192.0.2.1:1234"
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
 	if !d.isAuthenticated(req) {
 		t.Error("should be authenticated with valid session cookie")
@@ -536,12 +547,33 @@ func TestLoginPage(t *testing.T) {
 }
 
 func TestLoginPage_NoAuth(t *testing.T) {
-	d := newTestDashboard(t, "")
+	// Auth is always required — non-authenticated requests to non-API paths redirect to /login
+	eng := newTestEngine(t)
+	store := events.NewMemoryStore(100)
+	d := New(eng, store, "") // explicitly empty
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/login", nil)
+	req := httptest.NewRequest("GET", "/", nil)
 	d.Handler().ServeHTTP(w, req)
+	// Should redirect to /login since auth is required
 	if w.Code != http.StatusFound {
-		t.Errorf("expected 302 redirect when no auth configured, got %d", w.Code)
+		t.Errorf("expected 302 redirect to login, got %d", w.Code)
+	}
+}
+
+func TestLoginSubmit_NoAuth(t *testing.T) {
+	// Auth is always required — POST to /login without X-API-Key goes through authWrap
+	eng := newTestEngine(t)
+	store := events.NewMemoryStore(100)
+	d := New(eng, store, "") // explicitly empty
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/login", strings.NewReader("key=whatever"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Host = "localhost:9443"
+	req.Header.Set("Origin", "https://localhost:9443")
+	d.Handler().ServeHTTP(w, req)
+	// authWrap redirects to /login when isAuthenticated returns false
+	if w.Code != http.StatusFound {
+		t.Errorf("expected 302 redirect when auth fails, got %d", w.Code)
 	}
 }
 
@@ -549,7 +581,8 @@ func TestLoginPage_AlreadyAuthenticated(t *testing.T) {
 	d := newTestDashboard(t, "secret")
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/login", nil)
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: signSession()})
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: signSession("192.0.2.1")})
+	req.RemoteAddr = "192.0.2.1:1234"
 	d.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusFound {
 		t.Errorf("expected redirect when already authenticated, got %d", w.Code)
@@ -561,6 +594,8 @@ func TestLoginSubmit_Success(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest("POST", "/login", strings.NewReader("key=secret"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Host = "localhost:9443"
+	req.Header.Set("Origin", "https://localhost:9443")
 	d.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusFound {
 		t.Errorf("expected redirect after login, got %d", w.Code)
@@ -584,23 +619,14 @@ func TestLoginSubmit_WrongKey(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest("POST", "/login", strings.NewReader("key=wrong"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Host = "localhost:9443"
+	req.Header.Set("Origin", "https://localhost:9443")
 	d.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("expected 401, got %d", w.Code)
 	}
 	if !strings.Contains(w.Body.String(), "Invalid API key") {
 		t.Error("expected error message in response")
-	}
-}
-
-func TestLoginSubmit_NoAuth(t *testing.T) {
-	d := newTestDashboard(t, "")
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/login", strings.NewReader("key=whatever"))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	d.Handler().ServeHTTP(w, req)
-	if w.Code != http.StatusFound {
-		t.Errorf("expected redirect when no auth configured, got %d", w.Code)
 	}
 }
 

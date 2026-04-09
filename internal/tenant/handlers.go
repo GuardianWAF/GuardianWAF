@@ -3,6 +3,7 @@ package tenant
 import (
 	"crypto/subtle"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -29,7 +30,9 @@ func (h *Handlers) SetAPIKey(key string) {
 // verifyKey checks the request has a valid API key.
 func (h *Handlers) verifyKey(r *http.Request) bool {
 	if h.apiKey == "" {
-		return true // No key configured, allow all
+		// This should never happen — API key must be set before registering routes.
+		log.Printf("[ERROR] Tenant API key is not configured — refusing request. Set APIKey before starting the tenant handler.")
+		return false
 	}
 	key := r.Header.Get("X-API-Key")
 	if key == "" {
@@ -115,10 +118,37 @@ type CreateTenantRequest struct {
 	Quota       *ResourceQuota `json:"quota,omitempty"`
 }
 
-// CreateTenantResponse represents a create tenant response.
+// CreateTenantResponse represents the response when creating a tenant.
 type CreateTenantResponse struct {
-	Tenant *Tenant `json:"tenant"`
-	APIKey string  `json:"api_key"`
+	Tenant any    `json:"tenant"`
+	APIKey string `json:"api_key"`
+}
+
+// PublicTenant is a sanitized tenant view for API responses — excludes sensitive fields.
+type PublicTenant struct {
+	ID          string         `json:"id"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Active      bool           `json:"active"`
+	Domains     []string       `json:"domains"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+	Quota       *ResourceQuota `json:"quota,omitempty"`
+	WAFConfig   *config.Config `json:"waf_config,omitempty"`
+}
+
+func sanitizeTenant(t *Tenant) PublicTenant {
+	return PublicTenant{
+		ID:          t.ID,
+		Name:        t.Name,
+		Description: t.Description,
+		Active:      t.Active,
+		Domains:     t.Domains,
+		CreatedAt:   t.CreatedAt,
+		UpdatedAt:   t.UpdatedAt,
+		Quota:       &t.Quota,
+		WAFConfig:   t.Config,
+	}
 }
 
 func (h *Handlers) createTenant(w http.ResponseWriter, r *http.Request) {
@@ -151,7 +181,7 @@ func (h *Handlers) createTenant(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(CreateTenantResponse{
-		Tenant: tenant,
+		Tenant: sanitizeTenant(tenant),
 		APIKey: apiKey,
 	}); err != nil {
 		// Client disconnected, nothing we can do
@@ -162,10 +192,15 @@ func (h *Handlers) createTenant(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) listTenants(w http.ResponseWriter, r *http.Request) {
 	tenants := h.manager.ListTenants()
 
+	public := make([]PublicTenant, 0, len(tenants))
+	for _, t := range tenants {
+		public = append(public, sanitizeTenant(t))
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]any{
-		"tenants": tenants,
-		"count":   len(tenants),
+		"tenants": public,
+		"count":   len(public),
 	}); err != nil {
 		// Client disconnected
 		_ = err
@@ -180,7 +215,7 @@ func (h *Handlers) getTenant(w http.ResponseWriter, r *http.Request, tenantID st
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(tenant); err != nil {
+	if err := json.NewEncoder(w).Encode(sanitizeTenant(tenant)); err != nil {
 		// Client disconnected
 		_ = err
 	}

@@ -23,9 +23,10 @@ type Config struct {
 	MCP       MCPConfig       `yaml:"mcp"`
 	Docker    DockerConfig    `yaml:"docker"`
 	Alerting  AlertingConfig  `yaml:"alerting"`
-	Logging   LogConfig       `yaml:"logging"`
-	Events    EventsConfig    `yaml:"events"`
-	Tenant    TenantConfig    `yaml:"tenant"`
+	Logging        LogConfig       `yaml:"logging"`
+	Events         EventsConfig    `yaml:"events"`
+	Tenant         TenantConfig    `yaml:"tenant"`
+	TrustedProxies []string        `yaml:"trusted_proxies"` // CIDRs/IPs whose X-Forwarded-For/X-Real-IP headers are trusted
 }
 
 // AlertingConfig controls webhook and email-based alert delivery.

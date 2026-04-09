@@ -414,7 +414,7 @@ func TestAddWebhook(t *testing.T) {
 
 	m.AddWebhook(WebhookTarget{
 		Name:     "new-webhook",
-		URL:      "http://example.com/webhook",
+		URL:      "https://example.com/webhook",
 		Type:     "generic",
 		Events:   []string{"block"},
 		Cooldown: 30 * time.Second,
@@ -431,7 +431,7 @@ func TestAddWebhook_DefaultCooldown(t *testing.T) {
 
 	m.AddWebhook(WebhookTarget{
 		Name:     "no-cooldown",
-		URL:      "http://example.com/webhook",
+		URL:      "https://example.com/webhook",
 		Type:     "generic",
 		Events:   []string{"block"},
 		Cooldown: 0,

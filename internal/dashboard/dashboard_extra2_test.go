@@ -142,8 +142,8 @@ func TestSetSessionSecret_InvalidHex(t *testing.T) {
 
 func TestSetSessionSecret_SignVerifyRoundTrip(t *testing.T) {
 	SetSessionSecret("test-secret-key-for-roundtrip")
-	token := signSession()
-	if !verifySession(token) {
+	token := signSession("10.0.0.1")
+	if !verifySession(token, "10.0.0.1") {
 		t.Error("token signed with new secret should verify")
 	}
 }
@@ -826,6 +826,7 @@ func TestHandleSSE_DelegatesToBroadcaster(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/api/v1/sse", nil).WithContext(ctx)
+	req.Header.Set("X-API-Key", "test-api-key")
 
 	done := make(chan struct{})
 	go func() {
@@ -1112,6 +1113,7 @@ func TestUpdateConfig_Docker(t *testing.T) {
 	body := `{"docker":{"enabled":true,"socket_path":"/var/run/docker.sock","label_prefix":"gwaf","network":"guardian"}}`
 	req := httptest.NewRequest("PUT", "/api/v1/config", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Key", "test-api-key")
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
@@ -1143,6 +1145,7 @@ func TestUpdateConfig_AIAnalysis(t *testing.T) {
 	body := `{"ai_analysis":{"enabled":true,"batch_size":10,"min_score":50,"auto_block":true}}`
 	req := httptest.NewRequest("PUT", "/api/v1/config", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Key", "test-api-key")
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
@@ -1174,6 +1177,7 @@ func TestUpdateConfig_Alerting(t *testing.T) {
 	body := `{"alerting":{"enabled":true}}`
 	req := httptest.NewRequest("PUT", "/api/v1/config", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Key", "test-api-key")
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
@@ -1200,6 +1204,7 @@ func TestUpdateConfig_CombinedDockerAIAlerting(t *testing.T) {
 	}`
 	req := httptest.NewRequest("PUT", "/api/v1/config", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Key", "test-api-key")
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 

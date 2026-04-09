@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"net/http"
+	"path"
 	"sort"
 	"strings"
 	"sync"
@@ -80,10 +81,15 @@ func NewRouterWithVHosts(vhosts []VirtualHost, defaultRoutes []Route) *Router {
 func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	routes := rt.lookupRoutes(r.Host)
 
+	// Normalize path before matching — prevents bypasses via //, /../, etc.
+	reqPath := path.Clean(r.URL.Path)
+
 	for _, route := range routes {
-		if !strings.HasPrefix(r.URL.Path, route.PathPrefix) {
+		if !strings.HasPrefix(reqPath, route.PathPrefix) {
 			continue
 		}
+		// Apply normalized path to the request so downstream uses the clean path
+		r.URL.Path = reqPath
 		target := route.Balancer.Next(r)
 		if target == nil {
 			http.Error(w, "503 Service Unavailable - No healthy backends", http.StatusServiceUnavailable)

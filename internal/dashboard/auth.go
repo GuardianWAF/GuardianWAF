@@ -7,7 +7,11 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
+	"html"
+	"log"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -48,17 +52,18 @@ func SetSessionSecret(key string) {
 	}
 }
 
-// signSession creates an HMAC-signed session token: timestamp.signature
-func signSession() string {
+// signSession creates an HMAC-signed session token bound to a client IP: timestamp.signature
+// The IP is included in the HMAC to prevent session cookie theft across different clients.
+func signSession(clientIP string) string {
 	ts := fmt.Sprintf("%d", time.Now().Unix())
 	mac := hmac.New(sha256.New, loadSecret())
-	mac.Write([]byte(ts))
+	mac.Write([]byte(ts + ":" + clientIP))
 	sig := hex.EncodeToString(mac.Sum(nil))
 	return ts + "." + sig
 }
 
-// verifySession checks if a session token is valid and not expired.
-func verifySession(token string) bool {
+// verifySession checks if a session token is valid, not expired, and bound to the given client IP.
+func verifySession(token, clientIP string) bool {
 	parts := strings.SplitN(token, ".", 2)
 	if len(parts) != 2 {
 		return false
@@ -66,35 +71,49 @@ func verifySession(token string) bool {
 	ts := parts[0]
 	sig := parts[1]
 
-	// Verify HMAC
+	// Verify HMAC (includes IP binding)
 	mac := hmac.New(sha256.New, loadSecret())
-	mac.Write([]byte(ts))
+	mac.Write([]byte(ts + ":" + clientIP))
 	expected := hex.EncodeToString(mac.Sum(nil))
 	if !hmac.Equal([]byte(sig), []byte(expected)) {
 		return false
 	}
 
 	// Check expiry
-	var unix int64
-	for _, c := range ts {
-		unix = unix*10 + int64(c-'0')
+	unix, err := strconv.ParseInt(ts, 10, 64)
+	if err != nil || unix < 0 {
+		return false
 	}
 	created := time.Unix(unix, 0)
 	return time.Since(created) < sessionMaxAge
 }
 
+// clientIPFromRequest extracts the client IP from a request's RemoteAddr.
+func clientIPFromRequest(r *http.Request) string {
+	ip := r.RemoteAddr
+	if host, _, err := net.SplitHostPort(ip); err == nil {
+		ip = host
+	}
+	return ip
+}
+
 // isAuthenticated checks if the request has a valid session cookie or API key.
 func (d *Dashboard) isAuthenticated(r *http.Request) bool {
 	if d.apiKey == "" {
-		return true // No auth configured
+		// This should never happen — main.go auto-generates an API key.
+		// Library users must set one via SetSessionSecret() or New(..., apiKey).
+		log.Printf("[ERROR] Dashboard API key is not configured — refusing request. Set apiKey before starting the dashboard.")
+		return false
 	}
 
 	// Check API key header (for programmatic access)
 	if key := r.Header.Get("X-API-Key"); key != "" && subtle.ConstantTimeCompare([]byte(key), []byte(d.apiKey)) == 1 {
 		return true
 	}
-	if key := r.URL.Query().Get("api_key"); key != "" && subtle.ConstantTimeCompare([]byte(key), []byte(d.apiKey)) == 1 {
-		return true
+	// Reject API keys in query parameters — they leak via access logs, browser history, and Referer headers
+	if r.URL.Query().Get("api_key") != "" {
+		log.Printf("[WARN] Rejected API key from query parameter from %s — use X-API-Key header only", r.RemoteAddr)
+		return false
 	}
 
 	// Check session cookie (for browser access)
@@ -102,17 +121,17 @@ func (d *Dashboard) isAuthenticated(r *http.Request) bool {
 	if err != nil {
 		return false
 	}
-	return verifySession(cookie.Value)
+	return verifySession(cookie.Value, clientIPFromRequest(r))
 }
 
 // setSessionCookie sets the session cookie on the response with proper security flags.
 func setSessionCookie(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
-		Value:    signSession(),
+		Value:    signSession(clientIPFromRequest(r)),
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   r.TLS != nil, // Set Secure flag when served over HTTPS
+		Secure:   true, // Always require TLS for session cookies
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   int(sessionMaxAge.Seconds()),
 	})
@@ -122,7 +141,7 @@ func setSessionCookie(w http.ResponseWriter, r *http.Request) {
 func loginPage(errMsg string) string {
 	errorHTML := ""
 	if errMsg != "" {
-		errorHTML = `<div class="error">` + errMsg + `</div>`
+		errorHTML = `<div class="error">` + html.EscapeString(errMsg) + `</div>`
 	}
 	return `<!DOCTYPE html>
 <html lang="en">

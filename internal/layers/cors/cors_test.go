@@ -244,7 +244,7 @@ func TestCompileWildcard(t *testing.T) {
 		{"https://app-*.test.com", "https://app-prod.test.com", true},
 		{"https://app-*.test.com", "https://app-staging.test.com", true},
 		{"*://*.example.com", "https://api.example.com", true},
-		{"*://*.example.com", "http://api.example.com", true},
+		{"*://*.example.com", "http://api.example.com", false},
 	}
 
 	for _, tt := range tests {

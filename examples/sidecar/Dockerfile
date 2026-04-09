@@ -1,13 +1,17 @@
-FROM golang:1.23-alpine AS builder
+# GuardianWAF Sidecar — lightweight proxy mode (no dashboard/MCP)
+# Build from repo root: docker build -f examples/sidecar/Dockerfile -t guardianwaf-sidecar .
+FROM golang:1.24-alpine AS builder
 WORKDIR /app
-COPY ../../go.mod ./
+COPY go.mod go.sum ./
 RUN go mod download
-COPY ../.. .
+COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o guardianwaf ./cmd/guardianwaf
 
-FROM alpine:3.20
-RUN apk --no-cache add ca-certificates
+FROM alpine:3.21
+RUN apk --no-cache add ca-certificates && \
+    adduser -D -H -s /sbin/nologin guardianwaf
 COPY --from=builder /app/guardianwaf /usr/local/bin/guardianwaf
+USER guardianwaf
 EXPOSE 8088
 ENTRYPOINT ["guardianwaf"]
 CMD ["sidecar", "--upstream", "http://localhost:3000"]

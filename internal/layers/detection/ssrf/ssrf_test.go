@@ -133,8 +133,8 @@ func TestDetector_Integration(t *testing.T) {
 
 	result := det.Process(ctx)
 
-	if result.Action != engine.ActionLog {
-		t.Errorf("expected ActionLog, got %v", result.Action)
+	if result.Action != engine.ActionBlock {
+		t.Errorf("expected ActionBlock for high-score SSRF payload, got %v", result.Action)
 	}
 	if result.Score < 50 {
 		t.Errorf("expected score >= 50, got %d", result.Score)

@@ -206,6 +206,7 @@ func New(cfg Config, opts ...Option) (*Engine, error) {
 		if internalCfg.WAF.Challenge.SecretKey != "" {
 			chCfg.SecretKey = []byte(internalCfg.WAF.Challenge.SecretKey)
 		}
+		chCfg.ClientIPExtractor = engine.ExtractClientIP
 		eng.SetChallengeService(challenge.NewService(chCfg))
 	}
 

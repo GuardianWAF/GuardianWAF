@@ -8,6 +8,7 @@ package main
 import (
 	"context"
 	cryptoRand "crypto/rand"
+	"crypto/sha256"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -167,7 +168,7 @@ func cmdSetup(args []string) {
 	fmt.Print(banner)
 
 	// Generate secure password
-	dashboardPassword := generateSecurePassword()
+	dashboardPassword := generateDashboardPassword()
 
 	// ============ SERVER SETTINGS ============
 	fmt.Println("\n━━━ Server Settings ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -692,32 +693,30 @@ func sanitizeLogField(s string) string {
 	}, s)
 }
 
-// generateSecurePassword creates a random 16-character password.
-func generateSecurePassword() string {
-	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	b := make([]byte, 16)
-	for i := range b {
-		b[i] = charset[i%len(charset)]
-	}
-	// Use crypto/rand in production, this is a simple fallback
-	return string(b)
-}
-
 // generateDashboardPassword creates a cryptographically secure random password for dashboard.
 func generateDashboardPassword() string {
 	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	b := make([]byte, 24)
 	if _, err := cryptoRand.Read(b); err != nil {
-		// Fallback to simple rand if crypto/rand fails
+		// CSPRNG failure — extremely rare. Fall back to hash-based generation
+		// which is still non-deterministic (includes process state).
+		h := sha256.Sum256([]byte(fmt.Sprintf("%d%d%v", time.Now().UnixNano(), os.Getpid(), envForEntropy())))
 		for i := range b {
-			b[i] = charset[time.Now().UnixNano()%int64(len(charset))]
+			b[i] = charset[int(h[i%len(h)])%len(charset)]
 		}
+		fmt.Printf("[WARN] crypto/rand unavailable, using fallback entropy source: %v\n", err)
 	} else {
 		for i := range b {
 			b[i] = charset[int(b[i])%len(charset)]
 		}
 	}
 	return string(b)
+}
+
+// envForEntropy returns a small amount of process-specific data to mix into
+// fallback password generation. Not a replacement for CSPRNG.
+func envForEntropy() string {
+	return fmt.Sprintf("%d", time.Now().Nanosecond())
 }
 
 // --------------------------------------------------------------------------
@@ -818,6 +817,7 @@ func cmdServe(args []string) {
 		if cfg.WAF.Challenge.SecretKey != "" {
 			chCfg.SecretKey = []byte(cfg.WAF.Challenge.SecretKey)
 		}
+		chCfg.ClientIPExtractor = engine.ExtractClientIP
 		challengeSvc = challenge.NewService(chCfg)
 		eng.SetChallengeService(challengeSvc)
 	}
@@ -1030,11 +1030,12 @@ func cmdServe(args []string) {
 		})
 	}
 	srv := &http.Server{
-		Addr:         cfg.Listen,
-		Handler:      httpHandler,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		Addr:              cfg.Listen,
+		Handler:           httpHandler,
+		ReadTimeout:       30 * time.Second,
+		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	// 10. Start MCP server if enabled
@@ -1365,6 +1366,11 @@ func cmdServe(args []string) {
 	// 11. Start periodic cleanup goroutine for layer state (rate limit buckets, bot trackers, etc.)
 	cleanupStop := make(chan struct{})
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("[ERROR] Periodic cleanup panic: %v\n", r)
+			}
+		}()
 		ticker := time.NewTicker(5 * time.Minute)
 		defer ticker.Stop()
 		for {
@@ -1615,6 +1621,7 @@ func cmdSidecar(args []string) {
 		if cfg.WAF.Challenge.SecretKey != "" {
 			chCfg.SecretKey = []byte(cfg.WAF.Challenge.SecretKey)
 		}
+		chCfg.ClientIPExtractor = engine.ExtractClientIP
 		svc := challenge.NewService(chCfg)
 		eng.SetChallengeService(svc)
 	}

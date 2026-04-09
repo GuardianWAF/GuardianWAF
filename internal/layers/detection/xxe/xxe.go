@@ -44,9 +44,14 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 		return engine.LayerResult{Action: engine.ActionPass}
 	}
 
-	// Only scan XML-like content types
+	// Only scan XML-like content types, but also scan if body looks like XML
+	// (some backends parse XML regardless of Content-Type)
 	if !isXMLContentType(ctx.ContentType) {
-		return engine.LayerResult{Action: engine.ActionPass}
+		body := strings.TrimSpace(ctx.BodyString)
+		if !strings.HasPrefix(body, "<?xml") && !strings.HasPrefix(body, "<!DOCTYPE") &&
+			!strings.HasPrefix(strings.ToLower(body), "<!doctype") {
+			return engine.LayerResult{Action: engine.ActionPass}
+		}
 	}
 
 	var allFindings []engine.Finding

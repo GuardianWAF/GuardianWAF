@@ -438,25 +438,28 @@ func TestVerifyTokenMalformedPayload(t *testing.T) {
 	}
 }
 
-func TestHTMLEscape(t *testing.T) {
+func TestJSStringEscape(t *testing.T) {
 	tests := []struct {
 		input, expected string
 	}{
 		{`hello`, `hello`},
-		{`<script>`, `&lt;script&gt;`},
-		{`"quoted"`, `&quot;quoted&quot;`},
-		{`a&b`, `a&amp;b`},
-		{`it's`, `it&#39;s`},
+		{`</script>`, `<\/script>`},
+		{`"quoted"`, `\"quoted\"`},
+		{`a&b`, `a&b`}, // ampersand is not escaped in JS strings
+		{`it's`, `it\'s`},
+		{`back\slash`, `back\\slash`},
+		{"/path?a=1&b=2", `/path?a=1&b=2`},
 	}
 	for _, tt := range tests {
-		got := htmlEscape(tt.input)
+		got := jsStringEscape(tt.input)
 		if got != tt.expected {
-			t.Errorf("htmlEscape(%q) = %q, want %q", tt.input, got, tt.expected)
+			t.Errorf("jsStringEscape(%q) = %q, want %q", tt.input, got, tt.expected)
 		}
 	}
 }
 
 func TestExtractClientIP(t *testing.T) {
+	// Challenge layer's extractClientIP uses RemoteAddr only (no proxy header trust)
 	tests := []struct {
 		name     string
 		xff      string
@@ -464,8 +467,8 @@ func TestExtractClientIP(t *testing.T) {
 		remote   string
 		expected string
 	}{
-		{"XFF first", "1.2.3.4, 5.6.7.8", "", "9.0.0.1:80", "1.2.3.4"},
-		{"X-Real-IP", "", "10.0.0.1", "9.0.0.1:80", "10.0.0.1"},
+		{"XFF ignored", "1.2.3.4, 5.6.7.8", "", "9.0.0.1:80", "9.0.0.1"},
+		{"X-Real-IP ignored", "", "10.0.0.1", "9.0.0.1:80", "9.0.0.1"},
 		{"RemoteAddr", "", "", "192.168.1.1:12345", "192.168.1.1"},
 		{"RemoteAddr no port", "", "", "192.168.1.1", "192.168.1.1"},
 	}
@@ -505,14 +508,18 @@ func TestBuildChallengePage(t *testing.T) {
 }
 
 func TestBuildChallengePageXSS(t *testing.T) {
-	// Ensure XSS in redirect URI is escaped
+	// Ensure XSS in redirect URI is JS-escaped
 	page := buildChallengePage("abc", 16, `"><script>alert(1)</script>`)
 
 	if strings.Contains(page, `<script>alert(1)</script>`) {
 		t.Error("XSS payload should be escaped")
 	}
-	if !strings.Contains(page, `&lt;script&gt;`) {
-		t.Error("should contain escaped script tag")
+	// Double quote should be JS-escaped, script tag broken via <\/
+	if !strings.Contains(page, `\"`) {
+		t.Error("double quote should be JS-escaped")
+	}
+	if !strings.Contains(page, `<\/script>`) {
+		t.Error("should contain escaped script closing tag")
 	}
 }
 

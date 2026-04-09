@@ -1092,11 +1092,12 @@ func (i *Integrator) GetRemediationEngine() *remediation.Engine {
 }
 
 // RemediationHandler returns the remediation HTTP handler.
+// The handler requires authentication via X-API-Key header using the dashboard API key.
 func (i *Integrator) RemediationHandler() http.Handler {
 	if i.remediationLayer == nil {
 		return nil
 	}
-	return i.remediationLayer.GetHandler()
+	return i.remediationLayer.GetHandler(i.cfg.Dashboard.APIKey)
 }
 
 // initWebSocket initializes the WebSocket security layer.

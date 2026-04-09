@@ -51,6 +51,10 @@ func TestAcquireRelease(t *testing.T) {
 }
 
 func TestExtractClientIP_XForwardedFor(t *testing.T) {
+	// Configure 127.0.0.1 as trusted proxy so XFF headers are honored
+	SetTrustedProxies([]string{"127.0.0.1"})
+	defer SetTrustedProxies(nil)
+
 	// Single IP
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.RemoteAddr = "127.0.0.1:1234"
@@ -63,7 +67,7 @@ func TestExtractClientIP_XForwardedFor(t *testing.T) {
 		t.Errorf("expected 203.0.113.50, got %s", ctx.ClientIP)
 	}
 
-	// Multiple IPs — should take first
+	// Multiple IPs — should take rightmost non-trusted IP
 	r2 := httptest.NewRequest(http.MethodGet, "/", nil)
 	r2.RemoteAddr = "127.0.0.1:1234"
 	r2.Header.Set("X-Forwarded-For", "198.51.100.10, 203.0.113.50, 10.0.0.1")
@@ -71,12 +75,32 @@ func TestExtractClientIP_XForwardedFor(t *testing.T) {
 	ctx2 := AcquireContext(r2, 1, 1024)
 	defer ReleaseContext(ctx2)
 
-	if ctx2.ClientIP.String() != "198.51.100.10" {
-		t.Errorf("expected 198.51.100.10, got %s", ctx2.ClientIP)
+	if ctx2.ClientIP.String() != "10.0.0.1" {
+		t.Errorf("expected 10.0.0.1 (rightmost non-trusted), got %s", ctx2.ClientIP)
+	}
+}
+
+func TestExtractClientIP_XForwardedFor_Untrusted(t *testing.T) {
+	// No trusted proxies configured — XFF should be ignored
+	SetTrustedProxies(nil)
+
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "10.20.30.40:1234"
+	r.Header.Set("X-Forwarded-For", "203.0.113.50")
+
+	ctx := AcquireContext(r, 1, 1024)
+	defer ReleaseContext(ctx)
+
+	if ctx.ClientIP.String() != "10.20.30.40" {
+		t.Errorf("expected 10.20.30.40 (RemoteAddr, XFF untrusted), got %s", ctx.ClientIP)
 	}
 }
 
 func TestExtractClientIP_XRealIP(t *testing.T) {
+	// Configure 127.0.0.1 as trusted proxy so X-Real-IP is honored
+	SetTrustedProxies([]string{"127.0.0.1"})
+	defer SetTrustedProxies(nil)
+
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.RemoteAddr = "127.0.0.1:1234"
 	r.Header.Set("X-Real-IP", "198.51.100.20")
@@ -125,7 +149,10 @@ func TestExtractClientIP_IPv6(t *testing.T) {
 		t.Errorf("expected ::1, got %s", ctx.ClientIP)
 	}
 
-	// IPv6 via X-Forwarded-For
+	// IPv6 via X-Forwarded-For (with trusted proxy)
+	SetTrustedProxies([]string{"127.0.0.1"})
+	defer SetTrustedProxies(nil)
+
 	r2 := httptest.NewRequest(http.MethodGet, "/", nil)
 	r2.RemoteAddr = "127.0.0.1:1234"
 	r2.Header.Set("X-Forwarded-For", "2001:db8::1")
@@ -137,7 +164,7 @@ func TestExtractClientIP_IPv6(t *testing.T) {
 		t.Errorf("expected 2001:db8::1, got %s", ctx2.ClientIP)
 	}
 
-	// IPv6 via X-Real-IP
+	// IPv6 via X-Real-IP (with trusted proxy)
 	r3 := httptest.NewRequest(http.MethodGet, "/", nil)
 	r3.RemoteAddr = "127.0.0.1:1234"
 	r3.Header.Set("X-Real-IP", "fe80::1")

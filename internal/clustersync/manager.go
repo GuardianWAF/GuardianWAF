@@ -372,11 +372,13 @@ func (m *Manager) eventProcessor() {
 		case <-m.ctx.Done():
 			return
 		case event := <-m.eventQueue:
-			// Log event for replay
+			// Log event for replay (protected by mu to prevent data race with checkConflict)
+			m.mu.Lock()
 			m.eventLog = append(m.eventLog, event)
 			if len(m.eventLog) > 1000 {
 				m.eventLog = m.eventLog[len(m.eventLog)-1000:]
 			}
+			m.mu.Unlock()
 		}
 	}
 }
@@ -561,7 +563,9 @@ func (m *Manager) performFullSync() {
 
 func (m *Manager) syncFromNode(node *Node) {
 	// Request all changes since last sync
+	m.mu.RLock()
 	lastSync := m.lastSync[node.ID]
+	m.mu.RUnlock()
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	url := fmt.Sprintf("%s/api/cluster/events?since=%d", node.Address, lastSync.Unix())
@@ -600,6 +604,8 @@ func (m *Manager) syncFromNode(node *Node) {
 }
 
 func (m *Manager) checkConflict(event *SyncEvent) (bool, *SyncEvent) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	// Check if we have a newer version of this entity
 	for _, e := range m.eventLog {
 		if e.EntityType == event.EntityType && e.EntityID == event.EntityID {
@@ -684,11 +690,11 @@ func generateRandomString(n int) string {
 	const letters = "abcdefghijklmnopqrstuvwxyz0123456789"
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {
-		now := time.Now().UnixNano()
-		for i := range b {
-			b[i] = letters[int(now>>uint(i))%len(letters)]
-		}
-		return string(b)
+		// crypto/rand failure is extremely rare. Do NOT fall back to
+		// predictable time-based values — fail explicitly rather than
+		// generate guessable identifiers.
+		log.Printf("[CRITICAL] crypto/rand failed to generate random string: %v — event IDs may be predictable", err)
+		// Use whatever bytes were read (likely partial) rather than time-based fallback
 	}
 	for i := range b {
 		b[i] = letters[int(b[i])%len(letters)]

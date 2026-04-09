@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"sync"
+	"time"
 )
 
 // SSEHandler serves the MCP protocol over HTTP using Server-Sent Events.
@@ -51,7 +53,8 @@ func (h *SSEHandler) authenticate(r *http.Request) bool {
 		return subtle.ConstantTimeCompare([]byte(key), []byte(h.apiKey)) == 1
 	}
 	if key := r.URL.Query().Get("api_key"); key != "" {
-		return subtle.ConstantTimeCompare([]byte(key), []byte(h.apiKey)) == 1
+		log.Printf("[WARN] MCP API key passed via query parameter from %s — rejected, use X-API-Key header", r.RemoteAddr)
+		return false // Reject query-param-based API keys to prevent credential leakage
 	}
 	return false
 }
@@ -72,13 +75,20 @@ func (h *SSEHandler) handleSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 
 	client := &sseClient{w: w, flusher: flusher, done: make(chan struct{})}
 
 	h.mu.Lock()
 	h.clients[client] = true
 	h.mu.Unlock()
+
+	// Remove client on disconnect — prevents zombie client memory leak
+	defer func() {
+		h.mu.Lock()
+		delete(h.clients, client)
+		close(client.done)
+		h.mu.Unlock()
+	}()
 
 	// Send endpoint event — tells the client where to POST messages
 	scheme := "http"
@@ -92,12 +102,28 @@ func (h *SSEHandler) handleSSE(w http.ResponseWriter, r *http.Request) {
 	client.mu.Unlock()
 
 	// Keep connection alive until client disconnects
-	<-r.Context().Done()
+	// Periodic heartbeat ensures dead connections are cleaned up
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
 
-	h.mu.Lock()
-	delete(h.clients, client)
-	close(client.done)
-	h.mu.Unlock()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ticker.C:
+			// Send comment-only heartbeat to detect broken connections.
+			// If the write fails, the client is dead — remove immediately.
+			client.mu.Lock()
+			_, err := fmt.Fprint(w, ": heartbeat\n\n")
+			if err == nil {
+				flusher.Flush()
+			}
+			client.mu.Unlock()
+			if err != nil {
+				return // Client disconnected — trigger defer cleanup
+			}
+		}
+	}
 }
 
 // handleMessage receives JSON-RPC requests from the client via POST.

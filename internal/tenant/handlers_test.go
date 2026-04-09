@@ -37,8 +37,17 @@ func TestHandlers_CreateTenant(t *testing.T) {
 		t.Fatal("expected tenant in response")
 	}
 
-	if resp.Tenant.Name != "Test Tenant" {
-		t.Errorf("tenant name = %s, want Test Tenant", resp.Tenant.Name)
+	// Tenant is returned as PublicTenant but decoded from JSON as map[string]any
+	tenantMap, ok := resp.Tenant.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map[string]any for tenant, got %T", resp.Tenant)
+	}
+	if tenantMap["name"] != "Test Tenant" {
+		t.Errorf("tenant name = %v, want Test Tenant", tenantMap["name"])
+	}
+	// Verify APIKeyHash is NOT exposed
+	if _, hasHash := tenantMap["api_key_hash"]; hasHash {
+		t.Error("api_key_hash should not be exposed in API response")
 	}
 
 	if resp.APIKey == "" {

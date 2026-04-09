@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash"
+	"log"
 	"math/big"
 	"net/http"
 	"strings"
@@ -85,9 +86,16 @@ func NewJWTValidator(cfg JWTConfig) (*JWTValidator, error) {
 		v.publicKey = key
 	}
 
-	// Fetch JWKS if URL provided
+	// Fetch JWKS if URL provided — start periodic refresh
 	if cfg.JWKSURL != "" {
 		go v.fetchJWKS()
+		go v.refreshJWKSPeriodically(5 * time.Minute)
+	}
+
+	// Warn if using default algorithm whitelist — production deployments should
+	// explicitly set the `algorithms` field to restrict allowed algorithms.
+	if len(cfg.Algorithms) == 0 {
+		log.Println("[jwt] WARNING: JWT validation using default algorithm whitelist (RS256-RS512, ES256-ES512, HS256-HS512). Set `algorithms` in config to restrict.")
 	}
 
 	return v, nil
@@ -190,10 +198,22 @@ func (v *JWTValidator) Validate(tokenString string) (*JWTClaims, error) {
 }
 
 func (v *JWTValidator) isAlgorithmAllowed(alg string) bool {
-	if len(v.config.Algorithms) == 0 {
-		// Default allowed algorithms
+	// Prevent algorithm confusion: if an asymmetric key source is configured
+	// (PEM key, key file, or JWKS URL), do not allow HMAC algorithms.
+	hasAsymmetricSource := v.config.PublicKeyPEM != "" ||
+		v.config.PublicKeyFile != "" ||
+		v.config.JWKSURL != ""
+	if hasAsymmetricSource {
 		switch alg {
-		case "RS256", "RS384", "RS512", "ES256", "ES384", "ES512", "HS256", "HS384", "HS512":
+		case "HS256", "HS384", "HS512":
+			return false
+		}
+	}
+
+	if len(v.config.Algorithms) == 0 {
+		// Default allowed algorithms.
+		switch alg {
+		case "RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512", "HS256", "HS384", "HS512":
 			return true
 		}
 		return false
@@ -234,6 +254,12 @@ func (v *JWTValidator) verifySignature(alg, signingInput string, signature []byt
 		return verifyRSASignature(key, crypto.SHA384, signingInput, signature)
 	case "RS512":
 		return verifyRSASignature(key, crypto.SHA512, signingInput, signature)
+	case "PS256":
+		return verifyRSAPSSSignature(key, crypto.SHA256, signingInput, signature)
+	case "PS384":
+		return verifyRSAPSSSignature(key, crypto.SHA384, signingInput, signature)
+	case "PS512":
+		return verifyRSAPSSSignature(key, crypto.SHA512, signingInput, signature)
 	case "ES256":
 		return verifyECDSASignature(key, crypto.SHA256, signingInput, signature)
 	case "ES384":
@@ -262,6 +288,21 @@ func verifyRSASignature(key crypto.PublicKey, hash crypto.Hash, data string, sig
 	hashed := h.Sum(nil)
 
 	return rsa.VerifyPKCS1v15(rsaKey, hash, hashed, sig)
+}
+
+func verifyRSAPSSSignature(key crypto.PublicKey, hash crypto.Hash, data string, sig []byte) error {
+	rsaKey, ok := key.(*rsa.PublicKey)
+	if !ok {
+		return fmt.Errorf("not an RSA public key")
+	}
+
+	h := hash.New()
+	h.Write([]byte(data))
+	hashed := h.Sum(nil)
+
+	// RSA-PSS with salt length equal to hash length (per RFC 7518 section 3.5)
+	opts := &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash}
+	return rsa.VerifyPSS(rsaKey, hash, hashed, sig, opts)
 }
 
 func verifyECDSASignature(key crypto.PublicKey, hash crypto.Hash, data string, sig []byte) error {
@@ -384,6 +425,14 @@ func (v *JWTValidator) fetchJWKS() {
 		if pubKey != nil && key.Kid != "" {
 			v.jwksCache.Store(key.Kid, pubKey)
 		}
+	}
+}
+
+func (v *JWTValidator) refreshJWKSPeriodically(interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for range ticker.C {
+		v.fetchJWKS()
 	}
 }
 

@@ -208,18 +208,23 @@ func (l *Layer) loadJSONSchema(path string) (*OpenAPISpec, error) {
 
 // readFile reads a file from the local filesystem.
 func (l *Layer) readFile(path string) ([]byte, error) {
-	// Security: Only allow reading from specific directories
+	// Security: resolve absolute path and confine to the working directory
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return nil, err
 	}
 
-	// Basic path traversal protection
-	if strings.Contains(absPath, "..") {
-		return nil, fmt.Errorf("path traversal detected")
+	// Get the current working directory as the base for confinement
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("cannot determine working directory: %w", err)
 	}
 
-	// Read file using standard library
+	// Ensure the resolved path is within the working directory
+	if !strings.HasPrefix(absPath, cwd+string(filepath.Separator)) && absPath != cwd {
+		return nil, fmt.Errorf("path outside allowed directory")
+	}
+
 	return os.ReadFile(absPath)
 }
 

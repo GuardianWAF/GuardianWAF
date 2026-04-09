@@ -124,12 +124,19 @@ func (m *Manager) sendTLS(addr string, auth smtp.Auth, from string, to []string,
 	return client.Quit()
 }
 
+// sanitizeHeader strips CRLF characters to prevent SMTP header injection.
+func sanitizeHeader(s string) string {
+	s = strings.ReplaceAll(s, "\r", "")
+	s = strings.ReplaceAll(s, "\n", "")
+	return s
+}
+
 // buildSMTPMessage constructs an SMTP-compliant message.
 func (m *Manager) buildSMTPMessage(from string, to []string, subject, body string) []byte {
 	headers := make([]string, 0, 5)
-	headers = append(headers, fmt.Sprintf("From: %s", from))
-	headers = append(headers, fmt.Sprintf("To: %s", strings.Join(to, ", ")))
-	headers = append(headers, fmt.Sprintf("Subject: %s", subject))
+	headers = append(headers, fmt.Sprintf("From: %s", sanitizeHeader(from)))
+	headers = append(headers, fmt.Sprintf("To: %s", sanitizeHeader(strings.Join(to, ", "))))
+	headers = append(headers, fmt.Sprintf("Subject: %s", sanitizeHeader(subject)))
 	headers = append(headers, "MIME-Version: 1.0")
 	headers = append(headers, "Content-Type: text/plain; charset=\"utf-8\"")
 	headers = append(headers, "")

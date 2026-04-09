@@ -140,7 +140,7 @@ func (h *TenantAdminHandler) createTenant(w http.ResponseWriter, r *http.Request
 
 	tenant, err := h.manager.CreateTenant(req.Name, req.Description, req.Domains, req.Quota)
 	if err != nil {
-		writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error()})
+		writeJSON(w, http.StatusConflict, map[string]any{"error": sanitizeErr(err)})
 		return
 	}
 
@@ -200,7 +200,7 @@ func (h *TenantAdminHandler) updateTenant(w http.ResponseWriter, r *http.Request
 	}
 
 	if err := h.manager.UpdateTenant(tenantID, update); err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": sanitizeErr(err)})
 		return
 	}
 
@@ -215,7 +215,7 @@ func (h *TenantAdminHandler) deleteTenant(w http.ResponseWriter, r *http.Request
 	}
 
 	if err := h.manager.DeleteTenant(tenantID); err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": sanitizeErr(err)})
 		return
 	}
 
@@ -230,7 +230,7 @@ func (h *TenantAdminHandler) regenerateAPIKey(w http.ResponseWriter, r *http.Req
 
 	apiKey, err := h.manager.RegenerateAPIKey(tenantID)
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": sanitizeErr(err)})
 		return
 	}
 
@@ -349,7 +349,7 @@ func (h *TenantAdminHandler) handleBillingDetail(w http.ResponseWriter, r *http.
 			time.Now(),
 		)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
 			return
 		}
 
@@ -489,7 +489,7 @@ func (h *TenantAdminHandler) handleTenantRules(w http.ResponseWriter, r *http.Re
 			return
 		}
 		if err := h.manager.AddTenantRule(req.TenantID, req.Rule); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": sanitizeErr(err)})
 			return
 		}
 		writeJSON(w, http.StatusCreated, map[string]any{"status": "ok"})
@@ -540,13 +540,13 @@ func (h *TenantAdminHandler) handleTenantRuleDetail(w http.ResponseWriter, r *ht
 			return
 		}
 		if err := h.manager.UpdateTenantRule(tenantID, rule); err != nil {
-			writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": sanitizeErr(err)})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 	case http.MethodDelete:
 		if err := h.manager.RemoveTenantRule(tenantID, ruleID); err != nil {
-			writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": sanitizeErr(err)})
 			return
 		}
 		writeJSON(w, http.StatusNoContent, nil)
@@ -559,7 +559,7 @@ func (h *TenantAdminHandler) handleTenantRuleDetail(w http.ResponseWriter, r *ht
 			return
 		}
 		if err := h.manager.ToggleTenantRule(tenantID, ruleID, req.Enabled); err != nil {
-			writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": sanitizeErr(err)})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "enabled": req.Enabled})

@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/guardianwaf/guardianwaf/internal/alerting"
 	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/events"
@@ -195,6 +196,21 @@ func (d *Dashboard) authWrap(handler http.HandlerFunc) http.HandlerFunc {
 			}
 			return
 		}
+
+		// Refresh session cookie on each request (sliding idle timeout)
+		if cookie, err := r.Cookie(sessionCookieName); err == nil && cookie.Value != "" {
+			setSessionCookie(w, r)
+		}
+
+		// CSRF protection for state-changing requests authenticated via cookie
+		// (API key header auth is inherently CSRF-safe since browsers can't set custom headers cross-origin)
+		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
+			if r.Header.Get("X-API-Key") == "" && !verifySameOrigin(r) {
+				writeJSON(w, http.StatusForbidden, map[string]any{"error": "CSRF validation failed"})
+				return
+			}
+		}
+
 		handler(w, r)
 	}
 }
@@ -213,6 +229,12 @@ func (d *Dashboard) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *Dashboard) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
+	// CSRF protection: verify Origin or Referer matches the request host
+	if !verifySameOrigin(r) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
 	if d.apiKey == "" {
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
@@ -235,6 +257,8 @@ func (d *Dashboard) handleLogout(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
+		Secure:   true, // Always require TLS for session cookies
+		SameSite: http.SameSiteStrictMode,
 	})
 	http.Redirect(w, r, "/login", http.StatusFound)
 }
@@ -430,7 +454,15 @@ func (d *Dashboard) writeEventsCSV(w http.ResponseWriter, evts []engine.Event) {
 }
 
 // escapeCSV escapes a string for CSV output.
+// Also prevents formula injection by prefixing dangerous leading characters
+// with a single quote, so spreadsheet applications don't execute formulas.
 func escapeCSV(s string) string {
+	if len(s) > 0 {
+		switch s[0] {
+		case '=', '+', '-', '@', '\t', '\r':
+			s = "'" + s
+		}
+	}
 	if strings.ContainsAny(s, ",\"\n\r") {
 		return "\"" + strings.ReplaceAll(s, "\"", "\"\"") + "\""
 	}
@@ -866,7 +898,10 @@ func (d *Dashboard) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg := d.engine.Config()
+	// Copy config to avoid mutating shared state without a lock.
+	origCfg := d.engine.Config()
+	cfgCopy := *origCfg
+	cfg := &cfgCopy
 
 	// Apply top-level mode
 	if v, ok := patch["mode"].(string); ok {
@@ -1029,7 +1064,7 @@ func (d *Dashboard) handleAddIPACL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": sanitizeErr(err)})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "ip": body.IP, "list": body.List})
@@ -1065,7 +1100,7 @@ func (d *Dashboard) handleRemoveIPACL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": sanitizeErr(err)})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "ip": body.IP, "list": body.List})
@@ -1418,7 +1453,7 @@ func (d *Dashboard) handleAddRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := d.addRuleFn(rule); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": sanitizeErr(err)})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
@@ -1435,7 +1470,7 @@ func (d *Dashboard) handleUpdateRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := d.updateRuleFn(id, rule); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": sanitizeErr(err)})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
@@ -1855,6 +1890,12 @@ func (d *Dashboard) handleAddWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Name == "" || body.URL == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "name and url are required"})
+		return
+	}
+
+	// Validate webhook URL to prevent SSRF (reject private/loopback IPs)
+	if err := alerting.ValidateWebhookURL(body.URL); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": sanitizeErr(err)})
 		return
 	}
 

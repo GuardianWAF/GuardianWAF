@@ -2,6 +2,8 @@ package docker
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -56,6 +58,8 @@ func (w *Watcher) SetLogger(fn func(level, msg string)) {
 // Start begins watching Docker for container changes.
 // It does an initial sync, then tries event streaming with poll fallback.
 func (w *Watcher) Start() {
+	w.logFn("WARN", "Docker socket is mounted — if GuardianWAF is compromised, attackers can read all container configs, env vars, and network topology. Consider using Docker API over TLS instead of socket mounting.")
+
 	// Initial sync
 	w.sync()
 
@@ -91,6 +95,11 @@ func (w *Watcher) ServiceCount() int {
 // loop is the main watcher loop that tries event streaming with poll fallback.
 func (w *Watcher) loop() {
 	defer w.wg.Done()
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("[ERROR] Docker watcher panic: %v\n", r)
+		}
+	}()
 
 	for {
 		select {
@@ -169,12 +178,12 @@ func (w *Watcher) pollLoop() {
 func (w *Watcher) handleEvent(event Event) {
 	switch event.Action {
 	case "start":
-		w.logFn("info", "Docker: container started: "+event.Actor.Attributes["name"])
+		w.logFn("info", "Docker: container started: "+sanitizeLogValue(event.Actor.Attributes["name"]))
 		w.sync()
 		w.notifyChange()
 
 	case "stop", "die", "destroy":
-		w.logFn("info", "Docker: container stopped: "+event.Actor.Attributes["name"])
+		w.logFn("info", "Docker: container stopped: "+sanitizeLogValue(event.Actor.Attributes["name"]))
 		w.mu.Lock()
 		delete(w.services, event.Actor.ID)
 		w.mu.Unlock()
@@ -226,6 +235,19 @@ func (w *Watcher) notifyChange() {
 	if w.onChange != nil {
 		w.onChange()
 	}
+}
+
+// sanitizeLogValue strips control characters (newlines, ANSI escapes) from
+// external values to prevent log injection.
+func sanitizeLogValue(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r == '\n' || r == '\r' || r == '\x1b' || r < 0x20 {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 func itoa(n int) string {

@@ -29,7 +29,13 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/layers/ipacl"
 	"github.com/guardianwaf/guardianwaf/internal/layers/ratelimit"
 	"github.com/guardianwaf/guardianwaf/internal/layers/threatintel"
+	"github.com/guardianwaf/guardianwaf/internal/proxy"
 )
+
+func init() {
+	// Allow private/reserved IPs in tests (httptest.NewServer uses 127.0.0.1).
+	proxy.AllowPrivateTargets()
+}
 
 // --- isValidIPOrCIDR ---
 

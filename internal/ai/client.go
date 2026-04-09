@@ -3,10 +3,15 @@ package ai
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
+	"net"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 )
 
@@ -23,11 +28,12 @@ type Client struct {
 
 // ClientConfig holds configuration for the AI client.
 type ClientConfig struct {
-	BaseURL   string
-	APIKey    string
-	Model     string
-	MaxTokens int
-	Timeout   time.Duration
+	BaseURL       string
+	APIKey        string
+	Model         string
+	MaxTokens     int
+	Timeout       time.Duration
+	TLSServerName string // optional: override TLS server name for certificate verification
 }
 
 // NewClient creates a new AI API client.
@@ -40,13 +46,42 @@ func NewClient(cfg ClientConfig) *Client {
 	if maxTokens == 0 {
 		maxTokens = 2048
 	}
+	// Warn if endpoint is not HTTPS (API key transmitted in cleartext)
+	if cfg.BaseURL != "" {
+		if u, err := url.Parse(cfg.BaseURL); err == nil {
+			if u.Scheme == "http" {
+				log.Printf("[ai] WARNING: AI endpoint uses HTTP — API key will be sent in cleartext. Use HTTPS.")
+			}
+			// Warn about internal endpoints (SSRF risk)
+			host := u.Hostname()
+			if ip := net.ParseIP(host); ip != nil {
+				if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
+					log.Printf("[ai] WARNING: AI endpoint targets a private/loopback address")
+				}
+			} else if strings.EqualFold(host, "localhost") {
+				log.Printf("[ai] WARNING: AI endpoint targets localhost")
+			}
+		}
+	}
+
+	// Build HTTP client with optional TLS configuration
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		},
+	}
+	if cfg.TLSServerName != "" {
+		transport.TLSClientConfig.ServerName = cfg.TLSServerName
+	}
+
 	return &Client{
 		baseURL:   cfg.BaseURL,
 		apiKey:    cfg.APIKey,
 		model:     cfg.Model,
 		maxTokens: maxTokens,
 		httpClient: &http.Client{
-			Timeout: timeout,
+			Timeout:   timeout,
+			Transport: transport,
 		},
 	}
 }

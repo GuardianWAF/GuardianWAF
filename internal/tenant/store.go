@@ -97,7 +97,7 @@ func (s *Store) SaveTenant(tenant *Tenant) error {
 	// Write to file
 	filename := fmt.Sprintf("%s.json", tenant.ID)
 	filepath := filepath.Join(s.basePath, filename)
-	if err := os.WriteFile(filepath, jsonData, 0644); err != nil {
+	if err := os.WriteFile(filepath, jsonData, 0600); err != nil {
 		return fmt.Errorf("writing tenant file: %w", err)
 	}
 
@@ -240,7 +240,7 @@ func (s *Store) saveIndex() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(indexPath, data, 0644)
+	return os.WriteFile(indexPath, data, 0600)
 }
 
 // tenantData is the serialized representation of a tenant.

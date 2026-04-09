@@ -67,8 +67,9 @@ func TestAuthenticate_CorrectHeaderKey(t *testing.T) {
 func TestAuthenticate_CorrectQueryParam(t *testing.T) {
 	handler, _ := helperSSEServer("mykey")
 	req := httptest.NewRequest(http.MethodGet, "/mcp/sse?api_key=mykey", nil)
-	if !handler.authenticate(req) {
-		t.Fatal("expected correct api_key query param to authenticate")
+	// Query param API keys are rejected to prevent credential leakage via logs
+	if handler.authenticate(req) {
+		t.Fatal("expected api_key query param to be rejected (use X-API-Key header only)")
 	}
 }
 
@@ -209,9 +210,10 @@ func TestHandleSSE_Headers(t *testing.T) {
 	if conn != "keep-alive" {
 		t.Fatalf("expected Connection 'keep-alive', got %q", conn)
 	}
+	// Access-Control-Allow-Origin should NOT be set (wildcard CORS removed for security)
 	aco := resp.Header.Get("Access-Control-Allow-Origin")
-	if aco != "*" {
-		t.Fatalf("expected Access-Control-Allow-Origin '*', got %q", aco)
+	if aco != "" {
+		t.Fatalf("expected no Access-Control-Allow-Origin header, got %q", aco)
 	}
 }
 
@@ -324,8 +326,9 @@ func TestHandleMessage_WithAPIKeyQueryParam(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.handleMessage(w, req)
 
-	if w.Code != http.StatusAccepted {
-		t.Fatalf("expected 202 with correct API key in query, got %d", w.Code)
+	// Query param API keys are rejected to prevent credential leakage
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 (query param rejected), got %d", w.Code)
 	}
 }
 
@@ -728,19 +731,22 @@ func TestHandleSSE_WithAPIKeyQueryParam(t *testing.T) {
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
+	// Query param API keys are rejected — must use X-API-Key header
 	resp, err := http.Get(ts.URL + "/mcp/sse?api_key=mysecret")
 	if err != nil {
 		t.Fatalf("SSE connection failed: %v", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200 with correct api_key, got %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 (query param rejected), got %d", resp.StatusCode)
 	}
 
-	ct := resp.Header.Get("Content-Type")
-	if ct != "text/event-stream" {
-		t.Fatalf("expected text/event-stream, got %q", ct)
+	// Verify header-based auth still works (test via authenticate method — handleSSE blocks indefinitely)
+	req := httptest.NewRequest(http.MethodGet, "/mcp/sse", nil)
+	req.Header.Set("X-API-Key", "mysecret")
+	if !handler.authenticate(req) {
+		t.Fatal("expected X-API-Key header to authenticate")
 	}
 }
 

@@ -342,7 +342,7 @@ func TestPatternRegistry_AddCustomPattern(t *testing.T) {
 
 	found := false
 	for _, m := range matches {
-		if strings.HasPrefix(m.Value, "EMP-") {
+		if strings.HasPrefix(m.Masked, "EMP-") {
 			found = true
 			if m.Severity != SeverityMedium {
 				t.Errorf("expected medium severity, got %v", m.Severity)

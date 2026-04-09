@@ -12,8 +12,8 @@ func buildChallengePage(challenge string, difficulty int, redirectURI string) st
 	var b strings.Builder
 	b.Grow(4096)
 
-	// Escape the redirect URI for safe embedding in HTML
-	safeRedirect := htmlEscape(redirectURI)
+	// Escape the redirect URI for safe embedding in a JavaScript string
+	safeRedirect := jsStringEscape(redirectURI)
 
 	b.WriteString(`<!DOCTYPE html>
 <html lang="en">
@@ -133,16 +133,19 @@ solve();
 	return b.String()
 }
 
-// htmlEscape escapes special characters for safe embedding in HTML attributes.
-func htmlEscape(s string) string {
-	s = strings.ReplaceAll(s, "&", "&amp;")
-	s = strings.ReplaceAll(s, "<", "&lt;")
-	s = strings.ReplaceAll(s, ">", "&gt;")
-	s = strings.ReplaceAll(s, `"`, "&quot;")
-	s = strings.ReplaceAll(s, "'", "&#39;")
-	// Escape backslash and newlines for JS string safety
+// jsStringEscape escapes a string for safe embedding inside a JavaScript
+// double-quoted string literal within a <script> tag.
+func jsStringEscape(s string) string {
+	// Order matters: backslash first, then other escapes
 	s = strings.ReplaceAll(s, `\`, `\\`)
-	s = strings.ReplaceAll(s, "\n", "")
-	s = strings.ReplaceAll(s, "\r", "")
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	s = strings.ReplaceAll(s, "'", `\'`)
+	s = strings.ReplaceAll(s, "\n", `\n`)
+	s = strings.ReplaceAll(s, "\r", `\r`)
+	// Prevent </script> injection by escaping forward slash after <
+	s = strings.ReplaceAll(s, "</", `<\/`)
+	// Escape Unicode line/paragraph separators (valid in JSON but terminate JS strings)
+	s = strings.ReplaceAll(s, "\u2028", `\u2028`)
+	s = strings.ReplaceAll(s, "\u2029", `\u2029`)
 	return s
 }

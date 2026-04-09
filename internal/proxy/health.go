@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"sync"
 	"time"
@@ -54,9 +55,18 @@ func (hc *HealthChecker) Start() {
 	hc.wg.Add(1)
 	go func() {
 		defer hc.wg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				// Health checker panic recovery — prevent silent failure
+				fmt.Printf("[ERROR] health checker panic: %v\n", r)
+			}
+		}()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
 		// Initial check
-		hc.checkAll(context.Background())
+		hc.checkAll(ctx)
 
 		ticker := time.NewTicker(hc.interval)
 		defer ticker.Stop()
@@ -64,7 +74,7 @@ func (hc *HealthChecker) Start() {
 		for {
 			select {
 			case <-ticker.C:
-				hc.checkAll(context.Background())
+				hc.checkAll(ctx)
 			case <-hc.stopCh:
 				return
 			}
@@ -82,6 +92,15 @@ func (hc *HealthChecker) Stop() {
 func (hc *HealthChecker) checkAll(ctx context.Context) {
 	targets := hc.balancer.Targets()
 	for _, t := range targets {
+		// SSRF TOCTOU mitigation: re-check DNS on each health check to detect
+		// DNS rebinding attacks that change a public IP to a private one.
+		if !allowPrivateTargets {
+			if err := isPrivateOrReservedIP(t.URL.Host); err != nil {
+				t.SetHealthy(false)
+				t.lastCheck.Store(time.Now())
+				continue
+			}
+		}
 		healthy := hc.check(ctx, t)
 		t.SetHealthy(healthy)
 		t.lastCheck.Store(time.Now())
@@ -95,10 +114,15 @@ func (hc *HealthChecker) check(ctx context.Context, t *Target) bool {
 	if err != nil {
 		return false
 	}
+	// Set Host header so backends with virtual hosting respond correctly
+	req.Host = t.URL.Host
 	resp, err := hc.client.Do(req)
 	if err != nil {
 		return false
 	}
 	defer resp.Body.Close()
+	// Drain up to 64KB so the connection can be reused by the pool,
+	// but don't read unlimited data from a compromised backend.
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64*1024))
 	return resp.StatusCode >= 200 && resp.StatusCode < 400
 }

@@ -71,10 +71,10 @@ func compileWildcard(pattern string) *regexp.Regexp {
 		host = pattern
 	}
 
-	// Handle wildcard in scheme (*:// → https?:// or https://|http://)
+	// Handle wildcard in scheme (*:// → https:// only — HTTP is insecure)
 	var schemeRegex string
 	if scheme == "*" {
-		schemeRegex = "https?"
+		schemeRegex = "https"
 	} else {
 		schemeRegex = regexp.QuoteMeta(scheme)
 	}
@@ -109,6 +109,13 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	if origin == "" {
 		// Not a CORS request
 		return engine.LayerResult{Action: engine.ActionPass}
+	}
+
+	// Reject "null" origin when credentials are enabled — prevents sandbox iframe abuse
+	// (sandboxed iframes and data: URIs send Origin: null, which should not be reflected
+	// with Access-Control-Allow-Credentials: true)
+	if origin == "null" && l.config.AllowCredentials {
+		return engine.LayerResult{Action: engine.ActionPass} // no CORS headers
 	}
 
 	// Validate origin against allowlist

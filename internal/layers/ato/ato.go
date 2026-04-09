@@ -8,6 +8,7 @@ import (
 	"net"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
@@ -64,6 +65,7 @@ type Layer struct {
 	loginPathRe []*regexp.Regexp
 	emailRe     *regexp.Regexp
 	locationDB  *LocationDB
+	travelMu    sync.RWMutex
 	lastLogin   map[string]*GeoLocation
 	lastTime    map[string]time.Time
 }
@@ -377,10 +379,14 @@ func (l *Layer) getLocation(ip net.IP) *GeoLocation {
 }
 
 func (l *Layer) getLastLoginLocation(email string) *GeoLocation {
+	l.travelMu.RLock()
+	defer l.travelMu.RUnlock()
 	return l.lastLogin[email]
 }
 
 func (l *Layer) getLastLoginTime(email string) time.Time {
+	l.travelMu.RLock()
+	defer l.travelMu.RUnlock()
 	return l.lastTime[email]
 }
 
@@ -396,10 +402,28 @@ func (l *Layer) Stats() map[string]any {
 func (l *Layer) Cleanup() {
 	// Cleanup attempts older than 24 hours
 	l.tracker.Cleanup(24 * time.Hour)
+
+	// Cleanup impossible travel maps — remove entries older than 48 hours
+	cutoff := time.Now().Add(-48 * time.Hour)
+	l.travelMu.Lock()
+	for email, t := range l.lastTime {
+		if t.Before(cutoff) {
+			delete(l.lastTime, email)
+			delete(l.lastLogin, email)
+		}
+	}
+	l.travelMu.Unlock()
 }
 
 // haversineDistance calculates distance between two points in km.
+// Returns 0 if coordinates are invalid (NaN, Inf, or out of range).
 func haversineDistance(loc1, loc2 *GeoLocation) float64 {
+	// Validate coordinates to prevent NaN propagation (NaN comparisons always return false,
+	// which would silently bypass impossible travel detection).
+	if !isValidCoord(loc1.Latitude, loc1.Longitude) || !isValidCoord(loc2.Latitude, loc2.Longitude) {
+		return 0
+	}
+
 	const earthRadius = 6371 // km
 
 	lat1 := loc1.Latitude * math.Pi / 180
@@ -413,4 +437,11 @@ func haversineDistance(loc1, loc2 *GeoLocation) float64 {
 	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
 
 	return earthRadius * c
+}
+
+// isValidCoord checks that latitude and longitude are finite and in valid range.
+func isValidCoord(lat, lon float64) bool {
+	return !math.IsNaN(lat) && !math.IsNaN(lon) &&
+		!math.IsInf(lat, 0) && !math.IsInf(lon, 0) &&
+		lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180
 }

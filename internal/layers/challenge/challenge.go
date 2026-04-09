@@ -25,6 +25,12 @@ type Config struct {
 	CookieTTL  time.Duration // how long the challenge cookie is valid
 	CookieName string
 	SecretKey  []byte // HMAC signing key
+
+	// ClientIPExtractor optionally overrides the default RemoteAddr-based IP extraction.
+	// Set this to a trusted-proxy-aware function (e.g., engine's extractClientIP) so
+	// the challenge cookie is bound to the same IP used by the engine for validation.
+	// If nil, defaults to parsing RemoteAddr directly.
+	ClientIPExtractor func(*http.Request) net.IP
 }
 
 // DefaultConfig returns a production-safe default configuration.
@@ -128,7 +134,12 @@ func (s *Service) VerifyHandler() http.Handler {
 		}
 
 		// Generate signed cookie token
-		clientIP := extractClientIP(r)
+		var clientIP net.IP
+		if s.config.ClientIPExtractor != nil {
+			clientIP = s.config.ClientIPExtractor(r)
+		} else {
+			clientIP = extractClientIP(r)
+		}
 		token := s.generateToken(clientIP)
 
 		http.SetCookie(w, &http.Cookie{
@@ -259,21 +270,12 @@ func hasLeadingZeroBits(hash []byte, n int) bool {
 }
 
 // --- IP extraction (local copy to avoid import cycle) ---
+// Only trusts proxy headers (X-Forwarded-For, X-Real-IP) from RemoteAddr.
+// Does not apply trusted proxy filtering here — the engine's extractClientIP
+// handles that. This is a fallback for the challenge layer which only needs
+// the direct peer IP for cookie binding.
 
 func extractClientIP(r *http.Request) net.IP {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		parts := strings.Split(xff, ",")
-		if len(parts) > 0 {
-			if ip := net.ParseIP(strings.TrimSpace(parts[0])); ip != nil {
-				return ip
-			}
-		}
-	}
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		if ip := net.ParseIP(strings.TrimSpace(xri)); ip != nil {
-			return ip
-		}
-	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return net.ParseIP(r.RemoteAddr)

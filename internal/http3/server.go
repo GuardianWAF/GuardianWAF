@@ -41,7 +41,7 @@ func DefaultConfig() *Config {
 		ReadTimeout:        30 * time.Second,
 		WriteTimeout:       30 * time.Second,
 		IdleTimeout:        120 * time.Second,
-		Enable0RTT:         true,
+		Enable0RTT:         false, // Disabled by default — 0-RTT is vulnerable to replay attacks
 		EnableDatagrams:    false,
 		AltSvcPort:         0,
 		AltSvcProtocol:     "h3",
@@ -116,9 +116,11 @@ func (s *Server) Start() error {
 
 	// Configure QUIC transport
 	quicConf := &quic.Config{
-		Allow0RTT:       s.config.Enable0RTT,
-		EnableDatagrams: s.config.EnableDatagrams,
-		MaxIdleTimeout:  s.config.IdleTimeout,
+		Allow0RTT:            s.config.Enable0RTT,
+		EnableDatagrams:      s.config.EnableDatagrams,
+		MaxIdleTimeout:       s.config.IdleTimeout,
+		MaxIncomingStreams:   100_000, // Prevent stream exhaustion attacks
+		MaxIncomingUniStreams: 10_000, // Limit unidirectional streams
 	}
 
 	// Listen for QUIC connections

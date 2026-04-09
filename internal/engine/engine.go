@@ -144,6 +144,9 @@ func NewEngine(cfg *config.Config, eventStore EventStorer, eventBus EventPublish
 		logThreshold:   cfg.WAF.Detection.Threshold.Log,
 	}
 
+	// Configure trusted proxies for X-Forwarded-For handling
+	SetTrustedProxies(cfg.TrustedProxies)
+
 	// Initialize empty pipeline
 	e.pipeline.Store(NewPipeline())
 

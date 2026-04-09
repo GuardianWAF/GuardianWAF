@@ -17,8 +17,8 @@ spec:
     spec:
       containers:
         - name: guardianwaf
-          image: guardianwaf/guardianwaf:latest
-          imagePullPolicy: Always
+          image: guardianwaf/guardianwaf:1.1.0
+          imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 8088

@@ -456,7 +456,7 @@ func (e *Engine) saveRule(rule *GeneratedRule) error {
 		return err
 	}
 
-	return os.WriteFile(filename, data, 0644)
+	return os.WriteFile(filename, data, 0600)
 }
 
 // Stop stops the remediation engine.

@@ -83,7 +83,9 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 	for _, f := range allFindings {
 		totalScore += f.Score
 	}
-	if totalScore > 0 {
+	if totalScore >= 50 {
+		action = engine.ActionBlock
+	} else if totalScore > 0 {
 		action = engine.ActionLog
 	}
 
@@ -156,6 +158,11 @@ func checkLocalhostPatterns(lower, location string) []engine.Finding {
 		{"http://[::1]", 85, "HTTP request to IPv6 loopback [::1] detected"},
 		{"https://[::1]", 85, "HTTPS request to IPv6 loopback [::1] detected"},
 		{"http://[0:0:0:0:0:0:0:1]", 85, "HTTP request to IPv6 loopback detected"},
+		{"http://[::ffff:127.0.0.1]", 85, "HTTP request to IPv4-mapped IPv6 loopback detected"},
+		{"http://[::ffff:7f00:1]", 85, "HTTP request to IPv4-mapped IPv6 loopback (hex) detected"},
+		{"http://[0:0:0:0:0:ffff:127.0.0.1]", 85, "HTTP request to full IPv4-mapped IPv6 loopback detected"},
+		{"http://[::ffff:169.254.169.254]", 90, "IPv4-mapped IPv6 metadata endpoint detected"},
+		{"http://[::ffff:a9fe:a9fe]", 90, "IPv4-mapped IPv6 metadata endpoint (hex) detected"},
 		{"http://0177.0.0.1", 85, "HTTP request to octal loopback 0177.0.0.1 detected"},
 	}
 
@@ -248,56 +255,61 @@ func checkPrivateIPs(lower, location string) []engine.Finding {
 func checkEncodedIPs(lower, location string) []engine.Finding {
 	var findings []engine.Finding
 
-	// Look for URL-like patterns with potential encoded IPs
+	// Look for URL-like patterns with potential encoded IPs — scan ALL occurrences
 	urlPrefixes := []string{"http://", "https://"}
 	for _, prefix := range urlPrefixes {
-		idx := strings.Index(lower, prefix)
-		if idx < 0 {
-			continue
-		}
-		hostStart := idx + len(prefix)
-		if hostStart >= len(lower) {
-			continue
-		}
-
-		// Extract host
-		hostEnd := hostStart
-		for hostEnd < len(lower) {
-			c := lower[hostEnd]
-			if c == '/' || c == ':' || c == '?' || c == '#' || c == ' ' {
+		searchFrom := 0
+		for searchFrom < len(lower) {
+			idx := strings.Index(lower[searchFrom:], prefix)
+			if idx < 0 {
 				break
 			}
-			hostEnd++
-		}
-		host := lower[hostStart:hostEnd]
-
-		// Check for decimal IP (single large number like 2130706433)
-		decIP := ParseDecimalIP(host)
-		if decIP != nil {
-			findings = append(findings, makeFinding(85, engine.SeverityCritical,
-				"Decimal encoded IP address detected: "+host,
-				extractContext(lower, host), location, 0.90))
-			if IsPrivateIP(decIP) || IsLoopback(decIP) {
-				findings = append(findings, makeFinding(85, engine.SeverityCritical,
-					"Decimal encoded IP resolves to private/loopback range",
-					extractContext(lower, host), location, 0.95))
+			idx += searchFrom
+			hostStart := idx + len(prefix)
+			if hostStart >= len(lower) {
+				break
 			}
-		}
 
-		// Check for octal IP (0177.0.0.1)
-		octalIP := ParseOctalIP(host)
-		if octalIP != nil {
-			findings = append(findings, makeFinding(85, engine.SeverityCritical,
-				"Octal encoded IP address detected: "+host,
-				extractContext(lower, host), location, 0.90))
-		}
+			// Extract host
+			hostEnd := hostStart
+			for hostEnd < len(lower) {
+				c := lower[hostEnd]
+				if c == '/' || c == ':' || c == '?' || c == '#' || c == ' ' {
+					break
+				}
+				hostEnd++
+			}
+			host := lower[hostStart:hostEnd]
+			searchFrom = hostEnd // advance past this URL for next iteration
 
-		// Check for hex IP (0x7f.0x0.0x0.0x1)
-		hexIP := ParseHexIP(host)
-		if hexIP != nil {
-			findings = append(findings, makeFinding(85, engine.SeverityCritical,
-				"Hex encoded IP address detected: "+host,
-				extractContext(lower, host), location, 0.90))
+			// Check for decimal IP (single large number like 2130706433)
+			decIP := ParseDecimalIP(host)
+			if decIP != nil {
+				findings = append(findings, makeFinding(85, engine.SeverityCritical,
+					"Decimal encoded IP address detected: "+host,
+					extractContext(lower, host), location, 0.90))
+				if IsPrivateIP(decIP) || IsLoopback(decIP) {
+					findings = append(findings, makeFinding(85, engine.SeverityCritical,
+						"Decimal encoded IP resolves to private/loopback range",
+						extractContext(lower, host), location, 0.95))
+				}
+			}
+
+			// Check for octal IP (0177.0.0.1)
+			octalIP := ParseOctalIP(host)
+			if octalIP != nil {
+				findings = append(findings, makeFinding(85, engine.SeverityCritical,
+					"Octal encoded IP address detected: "+host,
+					extractContext(lower, host), location, 0.90))
+			}
+
+			// Check for hex IP (0x7f.0x0.0x0.0x1)
+			hexIP := ParseHexIP(host)
+			if hexIP != nil {
+				findings = append(findings, makeFinding(85, engine.SeverityCritical,
+					"Hex encoded IP address detected: "+host,
+					extractContext(lower, host), location, 0.90))
+			}
 		}
 	}
 
@@ -310,25 +322,31 @@ func checkURLCredential(lower, location string) []engine.Finding {
 
 	urlPrefixes := []string{"http://", "https://"}
 	for _, prefix := range urlPrefixes {
-		idx := strings.Index(lower, prefix)
-		if idx < 0 {
-			continue
-		}
-		afterScheme := lower[idx+len(prefix):]
+		searchStr := lower
+		offset := 0
+		for {
+			idx := strings.Index(searchStr, prefix)
+			if idx < 0 {
+				break
+			}
+			afterScheme := searchStr[idx+len(prefix):]
 
-		// Find the first / after the authority
-		slashIdx := strings.Index(afterScheme, "/")
-		authority := afterScheme
-		if slashIdx >= 0 {
-			authority = afterScheme[:slashIdx]
-		}
+			// Find the first / after the authority
+			slashIdx := strings.Index(afterScheme, "/")
+			authority := afterScheme
+			if slashIdx >= 0 {
+				authority = afterScheme[:slashIdx]
+			}
 
-		// Check for @ in authority part
-		if strings.Contains(authority, "@") {
-			findings = append(findings, makeFinding(70, engine.SeverityHigh,
-				"URL with @ sign detected (possible credential injection or redirect)",
-				extractContext(lower, "@"), location, 0.75))
-			break
+			// Check for @ in authority part
+			if strings.Contains(authority, "@") {
+				findings = append(findings, makeFinding(70, engine.SeverityHigh,
+					"URL with @ sign detected (possible credential injection or redirect)",
+					extractContext(lower, "@"), location, 0.75))
+			}
+
+			offset += idx + len(prefix)
+			searchStr = lower[offset:]
 		}
 	}
 

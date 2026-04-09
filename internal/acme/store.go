@@ -166,6 +166,11 @@ func (s *CertDiskStore) StartRenewal(checkInterval time.Duration) {
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("[ERROR] ACME cert renewal panic: %v\n", r)
+			}
+		}()
 		ticker := time.NewTicker(checkInterval)
 		defer ticker.Stop()
 
@@ -244,9 +249,22 @@ func (s *CertDiskStore) keyPath(primary string) string {
 func sanitizeDomain(d string) string {
 	d = strings.ToLower(d)
 	d = strings.ReplaceAll(d, "*", "_wildcard_")
+	d = strings.ReplaceAll(d, "..", "_")
 	d = strings.ReplaceAll(d, "/", "_")
+	d = strings.ReplaceAll(d, "\\", "_")
 	d = strings.ReplaceAll(d, ":", "_")
-	return d
+	d = strings.ReplaceAll(d, "\x00", "")
+	// Strip any remaining characters that aren't alphanumeric, dot, dash, or underscore
+	var sb strings.Builder
+	for _, c := range d {
+		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '_' {
+			sb.WriteRune(c)
+		}
+	}
+	if sb.Len() == 0 {
+		return "_invalid_"
+	}
+	return sb.String()
 }
 
 func fileExists(path string) bool {

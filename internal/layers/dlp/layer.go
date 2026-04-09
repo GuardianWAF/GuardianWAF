@@ -32,6 +32,7 @@ type Config struct {
 	ScanFileUploads     bool     `yaml:"scan_file_uploads"`     // Scan multipart file uploads
 	BlockExecutableFiles bool    `yaml:"block_executable_files"` // Block executable file uploads
 	BlockArchiveFiles   bool     `yaml:"block_archive_files"`   // Block archive file uploads
+	BlockDangerousWebExtensions bool `yaml:"block_dangerous_web_extensions"` // Block dangerous web extensions (.php, .jsp, etc.)
 	CustomPatterns      map[string]string `yaml:"custom_patterns"` // Custom regex patterns
 }
 
@@ -49,6 +50,7 @@ func DefaultConfig() *Config {
 		ScanFileUploads:      true,
 		BlockExecutableFiles: true,
 		BlockArchiveFiles:    false,
+		BlockDangerousWebExtensions: true,
 		CustomPatterns:       make(map[string]string),
 	}
 }
@@ -393,6 +395,17 @@ func (l *Layer) ScanFileUploads(body []byte, contentType string) (*ScanResult, e
 			continue
 		}
 
+		if l.config.BlockDangerousWebExtensions && isDangerousWebFile(filename) {
+			allMatches = append(allMatches, Match{
+				Type:     PatternCustom,
+				Severity: SeverityHigh,
+				Value:    filename,
+				Masked:   "[DANGEROUS_WEB_FILE_BLOCKED]",
+			})
+			totalRiskScore += 50
+			continue
+		}
+
 		// Read file content
 		partData, err := io.ReadAll(io.LimitReader(part, l.config.MaxFileSize+1))
 		if err != nil {
@@ -449,6 +462,40 @@ func isArchiveFile(filename string) bool {
 	for _, ext := range archiveExts {
 		if strings.HasSuffix(lowerName, ext) {
 			return true
+		}
+	}
+	return false
+}
+
+// isDangerousWebFile checks if a file has a dangerous web server extension
+// that could enable server-side code execution (e.g., .php, .jsp, .asp).
+// Also blocks double extensions like .php.jpg that bypass naive filters.
+func isDangerousWebFile(filename string) bool {
+	dangerousExts := []string{
+		".php", ".php3", ".php4", ".php5", ".php7", ".phps", ".phtml",
+		".asp", ".aspx", ".ascx", ".ashx", ".asmx", ".asa",
+		".jsp", ".jspx", ".jsw", ".jspa", ".jspm",
+		".cgi", ".pl", ".py", ".rb",
+		".cfm", ".cfc",
+		".wsdl", ".xslt",
+	}
+	lowerName := strings.ToLower(filename)
+	// Check direct extension
+	for _, ext := range dangerousExts {
+		if strings.HasSuffix(lowerName, ext) {
+			return true
+		}
+	}
+	// Check double extensions (e.g., shell.php.jpg — strip last extension and recheck)
+	if strings.Count(lowerName, ".") >= 2 {
+		lastDot := strings.LastIndex(lowerName, ".")
+		if lastDot > 0 {
+			stripped := lowerName[:lastDot]
+			for _, ext := range dangerousExts {
+				if strings.HasSuffix(stripped, ext) {
+					return true
+				}
+			}
 		}
 	}
 	return false

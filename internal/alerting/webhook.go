@@ -9,7 +9,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -79,6 +81,10 @@ func NewManager(targets []WebhookTarget) *Manager {
 	}
 
 	for _, t := range targets {
+		// Warn if webhook URL uses plain HTTP — credentials/tokens in headers may leak
+		if strings.HasPrefix(t.URL, "http://") {
+			fmt.Printf("WARNING: webhook %q uses insecure HTTP URL: %s (headers and alert data may be intercepted)\n", t.Name, t.URL)
+		}
 		wh := webhook{config: t, lastFire: &sync.Map{}}
 		wh.cooldown = t.Cooldown
 		if wh.cooldown <= 0 {
@@ -396,6 +402,10 @@ func pagerdutyPayload(a *Alert) map[string]any {
 
 // AddWebhook adds a new webhook target at runtime.
 func (m *Manager) AddWebhook(target WebhookTarget) {
+	if err := ValidateWebhookURL(target.URL); err != nil {
+		m.logFn("error", fmt.Sprintf("webhook %q rejected: %v", target.Name, err))
+		return
+	}
 	wh := webhook{
 		config:   target,
 		cooldown: target.Cooldown,
@@ -492,4 +502,27 @@ func (m *Manager) TestAlert(targetName string) error {
 
 	m.mu.RUnlock()
 	return fmt.Errorf("target %s not found", targetName)
+}
+
+// ValidateWebhookURL checks that a webhook URL uses HTTPS and does not
+// point to internal/private/loopback addresses (SSRF prevention).
+func ValidateWebhookURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+	if u.Scheme != "https" {
+		return fmt.Errorf("webhook URL must use HTTPS, got %q", u.Scheme)
+	}
+	host := u.Hostname()
+	if host == "localhost" || strings.HasSuffix(host, ".internal") {
+		return fmt.Errorf("webhook URL must not target localhost or internal hosts")
+	}
+	ip := net.ParseIP(host)
+	if ip != nil {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+			return fmt.Errorf("webhook URL must not target private/loopback/link-local addresses")
+		}
+	}
+	return nil
 }

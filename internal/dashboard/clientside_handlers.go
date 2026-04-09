@@ -92,7 +92,7 @@ func (h *ClientSideHandler) handleConfig(w http.ResponseWriter, r *http.Request)
 
 		// Reload config
 		if err := h.dashboard.engine.Reload(newCfg); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, sanitizeErr(err), http.StatusInternalServerError)
 			return
 		}
 

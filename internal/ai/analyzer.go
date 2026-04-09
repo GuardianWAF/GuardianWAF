@@ -162,6 +162,12 @@ func (a *Analyzer) Stop() {
 // loop is the main background processing loop.
 func (a *Analyzer) loop(eventCh <-chan engine.Event) {
 	defer a.wg.Done()
+	defer func() {
+		if r := recover(); r != nil {
+			// AI analyzer panic recovery — prevent silent failure of threat analysis
+			fmt.Printf("[ERROR] AI analyzer loop panic: %v\n", r)
+		}
+	}()
 
 	ticker := time.NewTicker(a.config.BatchInterval)
 	defer ticker.Stop()

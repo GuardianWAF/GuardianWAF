@@ -178,20 +178,15 @@ func checkShellMetachars(_, lower, location string) []engine.Finding {
 				findings = append(findings, makeFinding(score, engine.SeverityHigh,
 					s.desc+" (recon: "+cmd+")",
 					extractContext(lower, s.sep), location, 0.85))
-				break
-			}
-			if isNetworkCommand(cmd) {
+			} else if isNetworkCommand(cmd) {
 				score := max(s.score, 75)
 				findings = append(findings, makeFinding(score, engine.SeverityCritical,
 					s.desc+" (network: "+cmd+")",
 					extractContext(lower, s.sep), location, 0.90))
-				break
-			}
-			if IsCommand(cmd) {
+			} else if IsCommand(cmd) {
 				findings = append(findings, makeFinding(s.score, engine.SeverityHigh,
 					s.desc+" ("+cmd+")",
 					extractContext(lower, s.sep), location, 0.80))
-				break
 			}
 		}
 	}

@@ -140,7 +140,10 @@ func (c *Client) ListContainers(labelPrefix string) ([]Container, error) {
 			ID string `json:"ID"`
 		}
 		if unmarshalErr := json.Unmarshal([]byte(line), &row); unmarshalErr == nil && row.ID != "" {
-			ids = append(ids, row.ID)
+			// Validate container ID to prevent command injection
+			if isSafeContainerRef(row.ID) {
+				ids = append(ids, row.ID)
+			}
 		}
 	}
 

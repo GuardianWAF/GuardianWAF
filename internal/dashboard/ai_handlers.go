@@ -1,8 +1,12 @@
 package dashboard
 
 import (
+	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/guardianwaf/guardianwaf/internal/ai"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
@@ -40,7 +44,7 @@ func (d *Dashboard) handleAIProviders(w http.ResponseWriter, r *http.Request) {
 		// Get from analyzer (shares cache)
 		providers, err := d.aiAnalyzer.GetCatalog()
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "failed to fetch providers: " + err.Error()})
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "failed to fetch providers"})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"providers": providers, "count": len(providers)})
@@ -50,7 +54,7 @@ func (d *Dashboard) handleAIProviders(w http.ResponseWriter, r *http.Request) {
 	// Standalone fetch — AI not enabled but we still show providers
 	providers, err := catalogCache.Summaries()
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "failed to fetch catalog: " + err.Error()})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "failed to fetch catalog"})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"providers": providers, "count": len(providers)})
@@ -109,6 +113,12 @@ func (d *Dashboard) handleAISetConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate BaseURL to prevent SSRF — reject private/loopback/reserved IPs
+	if err := validateAIEndpointURL(body.BaseURL); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": sanitizeErr(err)})
+		return
+	}
+
 	cfg := ai.ProviderConfig{
 		ProviderID:   body.ProviderID,
 		ProviderName: body.ProviderName,
@@ -119,7 +129,7 @@ func (d *Dashboard) handleAISetConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := d.aiAnalyzer.UpdateProvider(cfg); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
 		return
 	}
 
@@ -192,7 +202,7 @@ func (d *Dashboard) handleAIAnalyze(w http.ResponseWriter, r *http.Request) {
 		SortOrder: "desc",
 	})
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "failed to query events: " + err.Error()})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "failed to query events"})
 		return
 	}
 
@@ -203,7 +213,7 @@ func (d *Dashboard) handleAIAnalyze(w http.ResponseWriter, r *http.Request) {
 
 	result, err := d.aiAnalyzer.ManualAnalyze(evts)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
 		return
 	}
 
@@ -218,9 +228,32 @@ func (d *Dashboard) handleAITest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := d.aiAnalyzer.TestConnection(); err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"status": "error", "message": err.Error()})
+		writeJSON(w, http.StatusOK, map[string]any{"status": "error", "message": sanitizeErr(err)})
 		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "message": "Connection successful"})
+}
+
+// validateAIEndpointURL rejects URLs pointing to private, loopback, or reserved
+// IP addresses to prevent SSRF via the AI provider base_url configuration.
+func validateAIEndpointURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("URL scheme must be http or https")
+	}
+	host := u.Hostname()
+	if strings.EqualFold(host, "localhost") {
+		return fmt.Errorf("AI endpoint URL must not target localhost")
+	}
+	ip := net.ParseIP(host)
+	if ip != nil {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+			return fmt.Errorf("AI endpoint URL must not target private/loopback/link-local addresses")
+		}
+	}
+	return nil
 }

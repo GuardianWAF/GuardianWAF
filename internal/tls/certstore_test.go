@@ -183,8 +183,8 @@ func TestTLSConfig(t *testing.T) {
 	if tlsCfg == nil {
 		t.Fatal("expected non-nil TLS config")
 	}
-	if tlsCfg.MinVersion != tls.VersionTLS12 {
-		t.Error("expected MinVersion TLS 1.2")
+	if tlsCfg.MinVersion != tls.VersionTLS13 {
+		t.Error("expected MinVersion TLS 1.3")
 	}
 	if tlsCfg.GetCertificate == nil {
 		t.Error("expected GetCertificate callback")

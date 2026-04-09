@@ -2,7 +2,7 @@
 # Build with: docker buildx build --platform linux/amd64,linux/arm64 -t ghcr.io/guardianwaf/guardianwaf:latest .
 
 # Stage 1: Build React dashboard
-FROM --platform=$BUILDPLATFORM node:22-alpine AS ui-builder
+FROM --platform=$BUILDPLATFORM node:22.14.0-alpine AS ui-builder
 
 WORKDIR /ui
 COPY internal/dashboard/ui/package.json internal/dashboard/ui/package-lock.json ./
@@ -11,7 +11,7 @@ COPY internal/dashboard/ui/ .
 RUN npm run build
 
 # Stage 2: Build Go binary
-FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.25.0-alpine AS builder
 
 ARG TARGETOS
 ARG TARGETARCH
@@ -37,7 +37,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -o guardianwaf ./cmd/guardianwaf
 
 # Stage 3: Runtime
-FROM alpine:3.20
+FROM alpine:3.21.3
 
 # Labels for GHCR
 LABEL org.opencontainers.image.title="GuardianWAF" \

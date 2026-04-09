@@ -131,9 +131,10 @@ func (cs *CertStore) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificat
 
 // TLSConfig returns a tls.Config using this store for certificate selection.
 // HTTP/2 is enabled by default via NextProtos negotiation.
+// TLS 1.3 is the minimum version — TLS 1.2 suites are not configurable in TLS 1.3.
 func (cs *CertStore) TLSConfig() *tls.Config {
 	return &tls.Config{
-		MinVersion:     tls.VersionTLS12,
+		MinVersion:     tls.VersionTLS13,
 		GetCertificate: cs.GetCertificate,
 		NextProtos:     []string{"h2", "http/1.1"},
 	}
@@ -148,6 +149,11 @@ func (cs *CertStore) StartReload(interval time.Duration) {
 	cs.wg.Add(1)
 	go func() {
 		defer cs.wg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("[ERROR] TLS cert reload panic: %v\n", r)
+			}
+		}()
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 

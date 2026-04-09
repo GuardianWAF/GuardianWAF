@@ -1,13 +1,22 @@
 package ai
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
+
+const encPrefix = "enc:" // prefix for encrypted API keys on disk
 
 const maxHistorySize = 100
 
@@ -68,8 +77,9 @@ type storeData struct {
 
 // Store manages persistent storage for AI configuration and analysis history.
 type Store struct {
-	mu   sync.RWMutex
-	path string // directory path
+	mu     sync.RWMutex
+	path   string // directory path
+	encKey []byte // AES-256 key for API key encryption (nil = plaintext)
 	data storeData
 }
 
@@ -92,6 +102,7 @@ func NewStore(dirPath string) *Store {
 	if err := os.MkdirAll(dirPath, 0o700); err != nil {
 		fallback := filepath.Join(os.TempDir(), "guardianwaf", "ai")
 		_ = os.MkdirAll(fallback, 0o700)
+		log.Printf("[WARN] AI store: cannot create %s (%v), falling back to %s — data may have weaker permissions", dirPath, err, fallback)
 		dirPath = fallback
 	}
 
@@ -109,6 +120,74 @@ func NewStore(dirPath string) *Store {
 	return s
 }
 
+// SetEncryptionKey sets the AES-256 key used to encrypt the API key at rest.
+// Derives a 32-byte key from the provided secret using SHA-256.
+// If secret is empty, encryption is disabled (plaintext storage).
+// When called on a store that has an unencrypted key, the next save will encrypt it.
+func (s *Store) SetEncryptionKey(secret string) {
+	if secret == "" {
+		s.mu.Lock()
+		s.encKey = nil
+		s.mu.Unlock()
+		return
+	}
+	h := sha256.Sum256([]byte(secret))
+	s.mu.Lock()
+	s.encKey = h[:]
+	// Decrypt API key if it was stored encrypted
+	if strings.HasPrefix(s.data.Config.APIKey, encPrefix) {
+		if dec, err := decryptValue(s.data.Config.APIKey[len(encPrefix):], s.encKey); err == nil {
+			s.data.Config.APIKey = dec
+		}
+	}
+	s.mu.Unlock()
+}
+
+// encryptValue encrypts a plaintext string using AES-256-GCM.
+// Returns base64-encoded nonce+ciphertext.
+func encryptValue(plaintext string, key []byte) (string, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return "", err
+	}
+	ciphertext := gcm.Seal(nonce, nonce, []byte(plaintext), nil)
+	return base64.StdEncoding.EncodeToString(ciphertext), nil
+}
+
+// decryptValue decrypts a base64-encoded AES-256-GCM ciphertext.
+func decryptValue(encoded string, key []byte) (string, error) {
+	data, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return "", err
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	if len(data) < gcm.NonceSize() {
+		return "", fmt.Errorf("ciphertext too short")
+	}
+	nonce := data[:gcm.NonceSize()]
+	ciphertext := data[gcm.NonceSize():]
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return "", err
+	}
+	return string(plaintext), nil
+}
+
 // save writes stored data to disk.
 func (s *Store) save() error {
 	dir := s.path
@@ -121,7 +200,16 @@ func (s *Store) save() error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("mkdir %s: %w", dir, err)
 	}
-	data, err := json.MarshalIndent(s.data, "", "  ")
+
+	// Create a copy of data for serialization — encrypt API key if encryption is enabled
+	saveData := s.data
+	if s.encKey != nil && saveData.Config.APIKey != "" && !strings.HasPrefix(saveData.Config.APIKey, encPrefix) {
+		if enc, err := encryptValue(saveData.Config.APIKey, s.encKey); err == nil {
+			saveData.Config.APIKey = encPrefix + enc
+		}
+	}
+
+	data, err := json.MarshalIndent(saveData, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal: %w", err)
 	}
