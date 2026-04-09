@@ -216,8 +216,11 @@ func (fs *FileStore) checkRotation() {
 		// This is a best-effort recovery
 		f, _ = os.OpenFile(rotatedName, os.O_WRONLY|os.O_APPEND, 0o644)
 	}
-	fs.file = f
-	fs.writer = bufio.NewWriterSize(f, 32*1024)
+	if f != nil {
+		fs.file = f
+		fs.writer = bufio.NewWriterSize(f, 32*1024)
+	}
+	// If f is nil, both attempts failed — keep previous file/writer to avoid panic
 
 	// Clean up old rotated files
 	fs.cleanupRotated(base, ext)

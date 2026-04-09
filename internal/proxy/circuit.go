@@ -37,6 +37,7 @@ type CircuitBreaker struct {
 	threshold    int32         // failures before opening
 	resetTimeout time.Duration // how long to stay open before half-open
 	lastFailure  atomic.Value  // stores time.Time of last failure
+	halfOpenProbe atomic.Bool  // true while a probe request is in-flight
 }
 
 // CircuitConfig configures the circuit breaker.
@@ -74,14 +75,20 @@ func (cb *CircuitBreaker) Allow() bool {
 		last, _ := cb.lastFailure.Load().(time.Time)
 		if time.Since(last) >= cb.resetTimeout {
 			// Transition to half-open: allow one probe
-			cb.state.CompareAndSwap(int32(CircuitOpen), int32(CircuitHalfOpen))
-			return true
+			if cb.state.CompareAndSwap(int32(CircuitOpen), int32(CircuitHalfOpen)) {
+				cb.halfOpenProbe.Store(true)
+				return true
+			}
+			// Another goroutine already transitioned; reject
+			return false
 		}
 		return false
 	case CircuitHalfOpen:
 		// Only one probe allowed — subsequent requests are rejected
-		// The probe result (RecordSuccess/RecordFailure) will determine next state
-		return true
+		if cb.halfOpenProbe.CompareAndSwap(true, false) {
+			return true
+		}
+		return false
 	}
 	return false
 }

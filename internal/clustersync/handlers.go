@@ -71,6 +71,8 @@ func (h *Handler) handleSync(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var event SyncEvent
+	// Limit request body to 10MB to prevent OOM from malicious nodes
+	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
 	if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -176,6 +178,7 @@ func (h *Handler) createCluster(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var cluster Cluster
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB limit
 	if err := json.NewDecoder(r.Body).Decode(&cluster); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -280,6 +283,7 @@ func (h *Handler) joinCluster(w http.ResponseWriter, r *http.Request, clusterID 
 	}
 
 	var node Node
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB limit
 	if err := json.NewDecoder(r.Body).Decode(&node); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -395,6 +399,10 @@ func (h *Handler) handleReplicationStatus(w http.ResponseWriter, r *http.Request
 }
 
 func (h *Handler) checkAuth(r *http.Request) bool {
+	// If no shared secret configured, allow all (cluster auth not enabled)
+	if h.manager.config.SharedSecret == "" {
+		return true
+	}
 	// Check shared secret auth using constant-time comparison
 	authHeader := r.Header.Get("X-Cluster-Auth")
 	if authHeader != "" && subtle.ConstantTimeCompare([]byte(authHeader), []byte(h.manager.config.SharedSecret)) == 1 {
