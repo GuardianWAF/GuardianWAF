@@ -12,26 +12,28 @@ linters:
     - unused
     - ineffassign
 
-linters-settings:
-  govet:
-    enable-all: false
-    enable:
-      - shadow
+  settings:
+    govet:
+      enable-all: false
+      enable:
+        - shadow
 
 issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - errcheck
-        - govet
-        - staticcheck
-    - path: internal/layers/apisecurity/jwt\.go
-      linters:
-        - staticcheck
-      text: "elliptic.Unmarshal has been deprecated"
-    - path: internal/acme/client\.go
-      linters:
-        - unparam
-      text: "result 1 .error. is always nil"
   max-issues-per-linter: 50
   max-same-issues: 5
+
+  excludes:
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+          - govet
+          - staticcheck
+      - path: internal/layers/apisecurity/jwt\.go
+        linters:
+          - staticcheck
+        text: "elliptic.Unmarshal has been deprecated"
+      - path: internal/acme/client\.go
+        linters:
+          - unparam
+        text: "result 1 .error. is always nil"
