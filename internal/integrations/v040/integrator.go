@@ -1151,22 +1151,6 @@ func (i *Integrator) WebSocketHandler() http.Handler {
 	return websocket.NewHandler(i.websocketLayer.GetSecurity())
 }
 
-// initGRPCLayer initializes the gRPC security layer.
-func (i *Integrator) initGRPCLayer() error {
-	grpcCfg := i.cfg.WAF.GRPC
-
-	// Use the new gRPC layer
-	layer, err := grpc.NewLayer(&grpcCfg)
-	if err != nil {
-		return err
-	}
-
-	i.grpcLayer = layer
-	log.Printf("[v0.4.0+] gRPC Security enabled (grpc_web=%v, reflection=%v)",
-		grpcCfg.GRPCWebEnabled, grpcCfg.ReflectionEnabled)
-	return nil
-}
-
 // GetGRPCLayer returns the gRPC layer.
 func (i *Integrator) GetGRPCLayer() *grpc.Layer {
 	return i.grpcLayer

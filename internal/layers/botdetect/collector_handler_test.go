@@ -7,8 +7,6 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
-
-	"github.com/guardianwaf/guardianwaf/internal/engine"
 )
 
 func TestBiometricCollector_HandleCollect(t *testing.T) {
@@ -300,9 +298,3 @@ func containsAt(s, substr string, start int) bool {
 }
 
 // MockRequestContext creates a mock request context for testing
-func mockRequestContext() *engine.RequestContext {
-	return &engine.RequestContext{
-		StartTime: time.Now(),
-		Headers:   make(map[string][]string),
-	}
-}
