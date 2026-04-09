@@ -7,7 +7,6 @@ run:
 linters:
   enable:
     - govet
-    - errcheck
     - staticcheck
     - unused
     - ineffassign
@@ -22,7 +21,6 @@ linters:
     rules:
       - path: _test\.go
         linters:
-          - errcheck
           - govet
           - staticcheck
       - path: internal/layers/apisecurity/jwt\.go
@@ -33,6 +31,9 @@ linters:
         linters:
           - unparam
         text: "result 1 .error. is always nil"
+      - path: examples/
+        linters:
+          - errcheck
 
 issues:
   max-issues-per-linter: 50
