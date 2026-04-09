@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sync"
 	"time"
 )
 
@@ -47,7 +46,6 @@ func DefaultConfig() *Config {
 type Cache struct {
 	config  *Config
 	backend Backend
-	mu      sync.RWMutex
 }
 
 // New creates a new cache with the specified backend.

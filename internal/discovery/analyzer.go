@@ -249,7 +249,7 @@ func containsSensitivePattern(pattern string) bool {
 		"payment", "credit", "card", "ssn", "personal",
 	}
 
-	lowerPattern := fmt.Sprintf("%s", pattern)
+	lowerPattern := pattern
 	for _, p := range sensitivePatterns {
 		if findSubstring(lowerPattern, p) >= 0 {
 			return true

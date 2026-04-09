@@ -106,32 +106,6 @@ func (h *Handlers) handleWAFConfigRoutes(w http.ResponseWriter, r *http.Request,
 	}
 }
 
-// handleTenantDetail handles get, update, delete operations.
-func (h *Handlers) handleTenantDetail(w http.ResponseWriter, r *http.Request) {
-	if !h.verifyKey(r) {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-	// Extract tenant ID from path /api/v1/tenants/{id}
-	path := strings.TrimPrefix(r.URL.Path, "/api/v1/tenants/")
-	if path == "" {
-		http.Error(w, "Tenant ID required", http.StatusBadRequest)
-		return
-	}
-
-	tenantID := strings.Split(path, "/")[0]
-
-	switch r.Method {
-	case http.MethodGet:
-		h.getTenant(w, r, tenantID)
-	case http.MethodPut:
-		h.updateTenant(w, r, tenantID)
-	case http.MethodDelete:
-		h.deleteTenant(w, r, tenantID)
-	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-	}
-}
 
 // CreateTenantRequest represents a create tenant request.
 type CreateTenantRequest struct {
@@ -261,33 +235,6 @@ func (h *Handlers) deleteTenant(w http.ResponseWriter, r *http.Request, tenantID
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleTenantWAFConfig handles GET and PUT for /api/v1/tenants/{id}/waf-config
-func (h *Handlers) handleTenantWAFConfig(w http.ResponseWriter, r *http.Request) {
-	if !h.verifyKey(r) {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-	// Extract tenant ID and verify path ends with /waf-config
-	path := strings.TrimPrefix(r.URL.Path, "/api/v1/tenants/")
-	if !strings.HasSuffix(path, "/waf-config") {
-		return // Not our route, let handleTenantDetail process
-	}
-
-	tenantID := strings.TrimSuffix(path, "/waf-config")
-	if tenantID == "" {
-		http.Error(w, "Tenant ID required", http.StatusBadRequest)
-		return
-	}
-
-	switch r.Method {
-	case http.MethodGet:
-		h.getTenantWAFConfig(w, r, tenantID)
-	case http.MethodPut:
-		h.updateTenantWAFConfig(w, r, tenantID)
-	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-	}
-}
 
 // getTenantWAFConfig returns the WAF config for a tenant.
 func (h *Handlers) getTenantWAFConfig(w http.ResponseWriter, r *http.Request, tenantID string) {

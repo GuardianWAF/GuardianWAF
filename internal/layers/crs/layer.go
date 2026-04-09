@@ -357,11 +357,6 @@ func (l *Layer) evaluateRule(rule *Rule, tx *Transaction) (bool, int, *engine.Fi
 		case "=":
 			tx.SetVar(varAction.Variable, varAction.Value)
 		case "+=":
-			// Add to existing value
-			existing := tx.GetVar(varAction.Variable)
-			if existing == "" {
-				existing = "0"
-			}
 			// For anomaly score, add numeric value
 			tx.AddAnomalyScore(score)
 		}

@@ -129,7 +129,7 @@ func (f *Formatter) formatCEF(event *Event) (string, error) {
 		fmt.Sprintf("rt=%s", formatCEFTimestamp(event.Timestamp)),
 		fmt.Sprintf("src=%s", event.SourceIP),
 		fmt.Sprintf("cs1=%s", event.Action),
-		fmt.Sprintf("cs1Label=action"),
+		"cs1Label=action",
 	}
 
 	if event.Method != "" {

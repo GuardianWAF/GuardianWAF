@@ -220,24 +220,6 @@ func TestTenantResponseWriter_Hijack(t *testing.T) {
 	}
 }
 
-func TestTenantResponseWriter_CloseNotify(t *testing.T) {
-	m := NewMiddleware(NewManager(10))
-	tenant, _ := m.manager.CreateTenant("Test", "Desc", []string{"test.com"}, nil)
-
-	rec := httptest.NewRecorder()
-	w := &tenantResponseWriter{
-		ResponseWriter: rec,
-		tenant:         tenant,
-		manager:        m.manager,
-	}
-
-	// Should return nil since basic recorder doesn't implement CloseNotifier
-	ch := w.CloseNotify()
-	if ch != nil {
-		t.Error("expected nil channel")
-	}
-}
-
 func TestGetTenantConfig(t *testing.T) {
 	m := NewMiddleware(NewManager(10))
 	tenant, _ := m.manager.CreateTenant("Test", "Desc", []string{"test.com"}, nil)

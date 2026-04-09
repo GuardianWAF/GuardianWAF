@@ -5,13 +5,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 )
-
-// Pre-compiled regex for extracting schema names from $ref paths.
-var reSchemaRef = regexp.MustCompile(`#/components/schemas/(\w+)`)
 
 // YAMLToJSON converts a simple YAML document to JSON.
 // This is a basic implementation that handles common OpenAPI YAML structures.
@@ -274,51 +270,4 @@ func SimpleYAMLUnmarshal(data []byte, v any) error {
 		return err
 	}
 	return json.Unmarshal(jsonData, v)
-}
-
-// resolveJSONRefs resolves JSON references ($ref) in a schema.
-func resolveJSONRefs(schema *Schema, components *Components) *Schema {
-	if schema == nil {
-		return nil
-	}
-
-	// Resolve $ref
-	if schema.Ref != "" && components != nil {
-		refName := extractRefName(schema.Ref)
-		if refSchema, ok := components.Schemas[refName]; ok {
-			return resolveJSONRefs(refSchema, components)
-		}
-	}
-
-	// Recursively resolve nested schemas
-	for key, prop := range schema.Properties {
-		schema.Properties[key] = resolveJSONRefs(prop, components)
-	}
-
-	if schema.Items != nil {
-		schema.Items = resolveJSONRefs(schema.Items, components)
-	}
-
-	for i, subSchema := range schema.AllOf {
-		schema.AllOf[i] = resolveJSONRefs(subSchema, components)
-	}
-
-	for i, subSchema := range schema.AnyOf {
-		schema.AnyOf[i] = resolveJSONRefs(subSchema, components)
-	}
-
-	for i, subSchema := range schema.OneOf {
-		schema.OneOf[i] = resolveJSONRefs(subSchema, components)
-	}
-
-	return schema
-}
-
-// extractRefName extracts the schema name from a $ref path.
-func extractRefName(ref string) string {
-	matches := reSchemaRef.FindStringSubmatch(ref)
-	if len(matches) > 1 {
-		return matches[1]
-	}
-	return ""
 }

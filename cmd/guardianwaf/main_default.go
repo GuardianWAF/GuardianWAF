@@ -667,25 +667,6 @@ func boolStr(b bool) string {
 	return "no"
 }
 
-// removeEmptyLines removes consecutive empty lines from config
-func removeEmptyLines(s string) string {
-	lines := strings.Split(s, "\n")
-	var result []string
-	emptyCount := 0
-	for _, line := range lines {
-		if strings.TrimSpace(line) == "" {
-			emptyCount++
-			if emptyCount <= 2 { // Keep max 2 consecutive empty lines
-				result = append(result, line)
-			}
-		} else {
-			emptyCount = 0
-			result = append(result, line)
-		}
-	}
-	return strings.Join(result, "\n")
-}
-
 // generateSecurePassword creates a random 16-character password.
 func generateSecurePassword() string {
 	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"

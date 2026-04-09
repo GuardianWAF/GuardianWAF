@@ -237,7 +237,7 @@ func TestParseClientCertificate(t *testing.T) {
 	pemData := []byte(`-----BEGIN CERTIFICATE-----
 MIIBkTCB+wIJAKHBfpE
 -----END CERTIFICATE-----`)
-	_, err = ParseClientCertificate(pemData)
+	ParseClientCertificate(pemData)
 	// This will fail because the data is incomplete
 	// Just verify it doesn't panic
 }

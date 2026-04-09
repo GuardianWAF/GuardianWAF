@@ -249,30 +249,6 @@ func (g *SchemaGenerator) generateRequestBody(endpoint *Endpoint) *RequestBody {
 	}
 }
 
-// parameterToOpenAPI converts a Parameter to OpenAPI format.
-func parameterToOpenAPI(param Parameter) Parameter {
-	// Already in correct format
-	return param
-}
-
-// schemaForType creates a schema for a data type.
-func schemaForType(dataType string) Schema {
-	switch dataType {
-	case "integer":
-		return Schema{Type: "integer"}
-	case "number":
-		return Schema{Type: "number"}
-	case "boolean":
-		return Schema{Type: "boolean"}
-	case "array":
-		return Schema{Type: "array", Items: &Schema{Type: "string"}}
-	case "object":
-		return Schema{Type: "object"}
-	default:
-		return Schema{Type: "string"}
-	}
-}
-
 // Helper functions
 
 func sanitizeOperationID(pattern string) string {

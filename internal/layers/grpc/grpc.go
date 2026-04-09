@@ -68,9 +68,6 @@ const (
 	StatusUnavailable        = 14
 	StatusDataLoss           = 15
 	StatusUnauthenticated    = 16
-
-	// WebSocket GUID for protocol upgrade
-	websocketGUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 )
 
 // Frame represents an HTTP/2 frame.

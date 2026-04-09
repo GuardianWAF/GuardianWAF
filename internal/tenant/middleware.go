@@ -127,14 +127,6 @@ func (w *tenantResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return nil, nil, fmt.Errorf("hijacking not supported")
 }
 
-// CloseNotify implements http.CloseNotifier (for older Go versions).
-func (w *tenantResponseWriter) CloseNotify() <-chan bool {
-	if c, ok := w.ResponseWriter.(http.CloseNotifier); ok {
-		return c.CloseNotify()
-	}
-	return nil
-}
-
 // GetTenant extracts the tenant from the context.
 func GetTenant(ctx context.Context) *Tenant {
 	if tenant, ok := ctx.Value(TenantContextKey).(*Tenant); ok {
