@@ -14,7 +14,20 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version-file: 'go.mod'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: internal/dashboard/ui/package-lock.json
+
+      - name: Build dashboard
+        working-directory: internal/dashboard/ui
+        run: npm ci --no-audit --no-fund && npm run build
+
+      - name: Copy dashboard assets
+        run: mkdir -p internal/dashboard/dist && cp -r internal/dashboard/ui/dist/* internal/dashboard/dist/
 
       - name: Vet
         run: go vet ./...
@@ -29,7 +42,20 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version-file: 'go.mod'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: internal/dashboard/ui/package-lock.json
+
+      - name: Build dashboard
+        working-directory: internal/dashboard/ui
+        run: npm ci --no-audit --no-fund && npm run build
+
+      - name: Copy dashboard assets
+        run: mkdir -p internal/dashboard/dist && cp -r internal/dashboard/ui/dist/* internal/dashboard/dist/
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
