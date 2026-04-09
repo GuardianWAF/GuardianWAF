@@ -427,7 +427,9 @@ func (c *Cluster) broadcast(msg *Message) {
 			continue
 		}
 		go func(n *Node) {
-			if err := c.sendMessage(n, msg); err != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := c.sendMessage(ctx, n, msg); err != nil {
 				log.Printf("[cluster] warning: failed to send message to node %s: %v", n.ID, err)
 			}
 		}(node)
@@ -435,7 +437,7 @@ func (c *Cluster) broadcast(msg *Message) {
 }
 
 // sendMessage sends a message to a specific node.
-func (c *Cluster) sendMessage(node *Node, msg *Message) error {
+func (c *Cluster) sendMessage(ctx context.Context, node *Node, msg *Message) error {
 	url := fmt.Sprintf("http://%s:%d/cluster/message", node.Address, node.Port)
 
 	data, err := json.Marshal(msg)
@@ -443,7 +445,7 @@ func (c *Cluster) sendMessage(node *Node, msg *Message) error {
 		return err
 	}
 
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
 	if err != nil {
 		return err
 	}

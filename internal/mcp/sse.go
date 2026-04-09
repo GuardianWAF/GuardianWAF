@@ -172,7 +172,12 @@ func (h *SSEHandler) broadcastResponse(resp JSONRPCResponse) {
 		default:
 		}
 		client.mu.Lock()
-		fmt.Fprintf(client.w, "event: message\ndata: %s\n\n", string(data))
+		if _, err := fmt.Fprintf(client.w, "event: message\ndata: %s\n\n", string(data)); err != nil {
+			client.mu.Unlock()
+			close(client.done)
+			delete(h.clients, client)
+			continue
+		}
 		client.flusher.Flush()
 		client.mu.Unlock()
 	}

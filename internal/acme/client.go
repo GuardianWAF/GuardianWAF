@@ -197,7 +197,8 @@ func (c *Client) ObtainCertificate(domains []string, challengeHandler *HTTP01Han
 // --- Internal methods ---
 
 func (c *Client) fetchDirectory() (*directory, error) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.directoryURL, http.NoBody)
 	if err != nil {
 		return nil, err
@@ -377,7 +378,8 @@ func (c *Client) getNonce() (string, error) {
 	}
 	c.mu.Unlock()
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, c.directory.NewNonce, http.NoBody)
 	if err != nil {
 		return "", err
@@ -452,7 +454,9 @@ func (c *Client) signedPost(url string, payload any, useJWK bool) (*http.Respons
 	}
 	body, _ := json.Marshal(jws)
 
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, bytes.NewReader(body))
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}

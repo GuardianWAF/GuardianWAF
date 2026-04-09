@@ -234,7 +234,8 @@ func (m *Manager) send(wc *WebhookTarget, alert *Alert) {
 		return
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, wc.URL, bytes.NewReader(body))
 	if err != nil {
 		m.failed.Add(1)

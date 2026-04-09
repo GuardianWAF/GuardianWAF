@@ -3,10 +3,10 @@ package threatintel
 import (
 	"bufio"
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -21,7 +21,7 @@ type FeedConfig struct {
 	URL           string        `yaml:"url"`     // URL for type="url"
 	Refresh       time.Duration `yaml:"refresh"` // Refresh interval
 	Format        string        `yaml:"format"`  // "json", "jsonl", "csv"
-	SkipSSLVerify bool          `yaml:"skip_ssl_verify"`
+	SkipSSLVerify bool          `yaml:"skip_ssl_verify"` // Deprecated: field is not wired to user config; TLS verification is always enforced
 }
 
 // FeedManager manages a single threat feed source.
@@ -52,7 +52,7 @@ type ThreatInfo struct {
 func NewFeedManager(config *FeedConfig) *FeedManager {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	if config.SkipSSLVerify {
-		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // user-configured per-feed option
+		log.Printf("[threat-intel] WARNING: SkipSSLVerify is deprecated and ignored — TLS verification is always enforced for feed URLs")
 	}
 	return &FeedManager{
 		config: *config,
