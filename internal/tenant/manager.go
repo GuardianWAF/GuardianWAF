@@ -258,6 +258,24 @@ func (m *Manager) GetTenant(id string) *Tenant {
 	return m.tenants[id]
 }
 
+// IsTenantActive returns whether the tenant is active (thread-safe).
+func (m *Manager) IsTenantActive(id string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	t, ok := m.tenants[id]
+	if !ok {
+		return false
+	}
+	return t.Active
+}
+
+// GetDefaultTenantID returns the default tenant ID (thread-safe).
+func (m *Manager) GetDefaultTenantID() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.defaultTenantID
+}
+
 // GetTenantByDomain returns the tenant for a given domain.
 func (m *Manager) GetTenantByDomain(domain string) *Tenant {
 	m.mu.RLock()
@@ -766,7 +784,11 @@ func (m *Manager) AddTenantRule(tenantID string, rule map[string]any) error {
 	}
 
 	// Convert map to Rule
-	ruleID, err := generateTenantID(rule["name"].(string))
+	name, _ := rule["name"].(string)
+	if name == "" {
+		return fmt.Errorf("rule name is required")
+	}
+	ruleID, err := generateTenantID(name)
 	if err != nil {
 		return err
 	}

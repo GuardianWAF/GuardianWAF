@@ -44,7 +44,7 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		}
 
 		// Check if tenant is active
-		if !tenant.Active {
+		if !m.manager.IsTenantActive(tenant.ID) {
 			http.Error(w, "Tenant is not active", http.StatusForbidden)
 			return
 		}
@@ -185,7 +185,7 @@ func (m *Middleware) RequireAdmin(next http.Handler) http.Handler {
 		}
 
 		// Check if this is the default/admin tenant
-		if m.manager.defaultTenantID != "" && tenant.ID != m.manager.defaultTenantID {
+		if m.manager.GetDefaultTenantID() != "" && tenant.ID != m.manager.GetDefaultTenantID() {
 			http.Error(w, "Admin access required", http.StatusForbidden)
 			return
 		}

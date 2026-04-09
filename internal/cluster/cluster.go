@@ -86,7 +86,7 @@ type Cluster struct {
 	localNode *Node
 	nodes     map[string]*Node
 	mu        sync.RWMutex
-	state     NodeState
+	state     atomic.Value // stores NodeState
 	isLeader  atomic.Bool
 
 	// Channels
@@ -98,6 +98,7 @@ type Cluster struct {
 
 	// Handlers
 	handlers map[MessageType]MessageHandler
+	handlerMu sync.RWMutex
 
 	// HTTP client
 	httpClient *http.Client
@@ -199,7 +200,6 @@ func New(cfg *Config) (*Cluster, error) {
 			JoinedAt: time.Now(),
 		},
 		nodes:    make(map[string]*Node),
-		state:    StateJoining,
 		events:   make(chan Event, 100),
 		stopCh:   make(chan struct{}),
 		handlers: make(map[MessageType]MessageHandler),
@@ -215,6 +215,7 @@ func New(cfg *Config) (*Cluster, error) {
 	// Register default handlers
 	c.registerDefaultHandlers()
 
+	c.state.Store(StateJoining)
 	return c, nil
 }
 
@@ -236,11 +237,14 @@ func (c *Cluster) Start() error {
 
 	// Start background tasks
 	go c.heartbeatLoop()
+	// Initialize state
+	c.state.Store(StateJoining)
+
 	go c.failureDetector()
 	go c.stateSyncLoop()
 
 	// Mark as active
-	c.state = StateActive
+	c.state.Store(StateActive)
 	c.localNode.State = StateActive
 	c.nodes[c.localNode.ID] = c.localNode
 
@@ -404,7 +408,9 @@ func (c *Cluster) IsIPBanned(ip string) bool {
 
 // RegisterHandler registers a message handler.
 func (c *Cluster) RegisterHandler(msgType MessageType, handler MessageHandler) {
+	c.handlerMu.Lock()
 	c.handlers[msgType] = handler
+	c.handlerMu.Unlock()
 }
 
 // broadcast sends a message to all nodes.
@@ -489,12 +495,6 @@ func (c *Cluster) handleJoin(node *Node) {
 		node.LastHeartbeat = time.Now()
 		c.nodes[node.ID] = node
 
-		// Send event
-		c.events <- Event{
-			Type:      EventNodeJoin,
-			Node:      node,
-			Timestamp: time.Now(),
-		}
 	}
 
 	// If no leader exists, start election
@@ -502,7 +502,18 @@ func (c *Cluster) handleJoin(node *Node) {
 	if c.getLeaderUnlocked() == nil {
 		msg = c.startLeaderElection()
 	}
+
+	joinEvent := Event{
+		Type:      EventNodeJoin,
+		Node:      node,
+		Timestamp: time.Now(),
+	}
 	c.mu.Unlock()
+
+	select {
+	case c.events <- joinEvent:
+	default:
+	}
 
 	if msg != nil {
 		c.broadcast(msg)
@@ -519,23 +530,28 @@ func (c *Cluster) handleLeave(nodeID string) {
 	}
 
 	node.State = StateLeaving
-	c.events <- Event{
+	leaveEvent := Event{
 		Type:      EventNodeLeave,
 		Node:      node,
 		Timestamp: time.Now(),
 	}
-
 	delete(c.nodes, nodeID)
-
-	// If leader left, start election
-	var msg *Message
-	if node.IsLeader {
-		msg = c.startLeaderElection()
-	}
 	c.mu.Unlock()
 
-	if msg != nil {
-		c.broadcast(msg)
+	select {
+	case c.events <- leaveEvent:
+	default:
+	}
+	return
+
+	// If leader left, start election
+	if node.IsLeader {
+		c.mu.Lock()
+		msg := c.startLeaderElection()
+		c.mu.Unlock()
+		if msg != nil {
+			c.broadcast(msg)
+		}
 	}
 }
 
@@ -559,7 +575,7 @@ func (c *Cluster) startLeaderElection() *Message {
 
 	c.isLeader.Store(true)
 	c.localNode.IsLeader = true
-	c.state = StateLeader
+	c.state.Store(StateLeader)
 
 	return &Message{
 		Type:      MsgLeaderElection,
@@ -606,6 +622,7 @@ func (c *Cluster) failureDetector() {
 func (c *Cluster) checkFailedNodes() {
 	c.mu.Lock()
 	var msg *Message
+	var failEvents []Event
 	for _, node := range c.nodes {
 		if node.ID == c.localNode.ID {
 			continue
@@ -614,11 +631,11 @@ func (c *Cluster) checkFailedNodes() {
 		if node.State == StateActive &&
 			time.Since(node.LastHeartbeat) > c.config.HeartbeatTimeout {
 			node.State = StateFailed
-			c.events <- Event{
+			failEvents = append(failEvents, Event{
 				Type:      EventNodeFail,
 				Node:      node,
 				Timestamp: time.Now(),
-			}
+			})
 
 			// If leader failed, start election
 			if node.IsLeader {
@@ -627,6 +644,13 @@ func (c *Cluster) checkFailedNodes() {
 		}
 	}
 	c.mu.Unlock()
+
+	for _, evt := range failEvents {
+		select {
+		case c.events <- evt:
+		default:
+		}
+	}
 
 	if msg != nil {
 		c.broadcast(msg)
@@ -724,7 +748,10 @@ func (c *Cluster) handleMessageHTTP(w http.ResponseWriter, r *http.Request) {
 	c.mu.Unlock()
 
 	// Handle message
-	if handler, exists := c.handlers[msg.Type]; exists {
+	c.handlerMu.RLock()
+	handler, exists := c.handlers[msg.Type]
+	c.handlerMu.RUnlock()
+	if exists {
 		if err := handler(&msg); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -751,7 +778,7 @@ func (c *Cluster) handleNodesHTTP(w http.ResponseWriter, r *http.Request) {
 func (c *Cluster) handleHealthHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(map[string]any{
-		"status":    c.state,
+		"status":    c.state.Load().(NodeState),
 		"node_id":   c.localNode.ID,
 		"is_leader": c.IsLeader(),
 		"nodes":     c.GetNodeCount(),
@@ -820,10 +847,10 @@ func (c *Cluster) registerDefaultHandlers() {
 
 		if msg.From == c.localNode.ID {
 			c.isLeader.Store(true)
-			c.state = StateLeader
+			c.state.Store(StateLeader)
 		} else {
 			c.isLeader.Store(false)
-			c.state = StateActive
+			c.state.Store(StateActive)
 		}
 
 		return nil

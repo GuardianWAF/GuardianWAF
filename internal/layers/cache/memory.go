@@ -15,6 +15,7 @@ type MemoryBackend struct {
 	lru      *list.List // LRU eviction
 	size     int64      // Current size in bytes
 	mu       sync.RWMutex
+	stopCh   chan struct{}
 }
 
 // cacheItem represents a cached item.
@@ -34,6 +35,7 @@ func NewMemoryBackend(maxSizeMB int) *MemoryBackend {
 		maxSize: maxSizeMB,
 		data:    make(map[string]*list.Element),
 		lru:     list.New(),
+		stopCh:  make(chan struct{}),
 	}
 
 	// Start cleanup goroutine
@@ -44,10 +46,10 @@ func NewMemoryBackend(maxSizeMB int) *MemoryBackend {
 
 // Get retrieves a value from the cache.
 func (mb *MemoryBackend) Get(ctx context.Context, key string) ([]byte, error) {
-	mb.mu.RLock()
-	elem, ok := mb.data[key]
-	mb.mu.RUnlock()
+	mb.mu.Lock()
+	defer mb.mu.Unlock()
 
+	elem, ok := mb.data[key]
 	if !ok {
 		return nil, fmt.Errorf("key not found: %s", key)
 	}
@@ -56,14 +58,12 @@ func (mb *MemoryBackend) Get(ctx context.Context, key string) ([]byte, error) {
 
 	// Check expiry
 	if time.Now().After(item.expiresAt) {
-		_ = mb.Delete(ctx, key) // Best effort delete
+		mb.deleteLocked(key, elem)
 		return nil, fmt.Errorf("key expired: %s", key)
 	}
 
 	// Move to front (most recently used)
-	mb.mu.Lock()
 	mb.lru.MoveToFront(elem)
-	mb.mu.Unlock()
 
 	return item.value, nil
 }
@@ -124,28 +124,31 @@ func (mb *MemoryBackend) Delete(ctx context.Context, key string) error {
 		return nil
 	}
 
+	mb.deleteLocked(key, elem)
+	return nil
+}
+
+// deleteLocked removes an element. Caller must hold mb.mu.
+func (mb *MemoryBackend) deleteLocked(key string, elem *list.Element) {
 	item := elem.Value.(*cacheItem)
 	mb.size -= int64(len(item.key) + len(item.value))
 	mb.lru.Remove(elem)
 	delete(mb.data, key)
-
-	return nil
 }
 
 // Exists checks if a key exists in the cache.
 func (mb *MemoryBackend) Exists(ctx context.Context, key string) (bool, error) {
-	mb.mu.RLock()
-	elem, ok := mb.data[key]
-	mb.mu.RUnlock()
+	mb.mu.Lock()
+	defer mb.mu.Unlock()
 
+	elem, ok := mb.data[key]
 	if !ok {
 		return false, nil
 	}
 
-	// Check expiry
 	item := elem.Value.(*cacheItem)
 	if time.Now().After(item.expiresAt) {
-		_ = mb.Delete(ctx, key) // Best effort delete
+		mb.deleteLocked(key, elem)
 		return false, nil
 	}
 
@@ -185,8 +188,9 @@ func (mb *MemoryBackend) Clear(ctx context.Context) error {
 	return nil
 }
 
-// Close closes the memory backend.
+// Close stops the cleanup goroutine and clears the cache.
 func (mb *MemoryBackend) Close() error {
+	close(mb.stopCh)
 	return mb.Clear(context.Background())
 }
 
@@ -195,19 +199,24 @@ func (mb *MemoryBackend) cleanupExpired() {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		mb.mu.Lock()
-		now := time.Now()
+	for {
+		select {
+		case <-ticker.C:
+			mb.mu.Lock()
+			now := time.Now()
 
-		for key, elem := range mb.data {
-			item := elem.Value.(*cacheItem)
-			if now.After(item.expiresAt) {
-				mb.size -= int64(len(item.key) + len(item.value))
-				mb.lru.Remove(elem)
-				delete(mb.data, key)
+			for key, elem := range mb.data {
+				item := elem.Value.(*cacheItem)
+				if now.After(item.expiresAt) {
+					mb.size -= int64(len(item.key) + len(item.value))
+					mb.lru.Remove(elem)
+					delete(mb.data, key)
+				}
 			}
+			mb.mu.Unlock()
+		case <-mb.stopCh:
+			return
 		}
-		mb.mu.Unlock()
 	}
 }
 

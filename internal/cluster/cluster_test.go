@@ -57,8 +57,8 @@ func TestNewCluster(t *testing.T) {
 		t.Error("config mismatch")
 	}
 
-	if cluster.state != StateJoining {
-		t.Errorf("state = %s, want joining", cluster.state)
+	if cluster.state.Load() != StateJoining {
+		t.Errorf("state = %v, want joining", cluster.state.Load())
 	}
 }
 
@@ -501,7 +501,7 @@ func TestHTTP_handleHealthHTTP(t *testing.T) {
 		t.Fatalf("New failed: %v", err)
 	}
 
-	cluster.state = StateActive
+	cluster.state.Store(StateActive)
 	cluster.localNode.State = StateActive
 
 	req := httptest.NewRequest(http.MethodGet, "/cluster/health", nil)

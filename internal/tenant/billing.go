@@ -360,5 +360,9 @@ func (bm *BillingManager) load() error {
 }
 
 func generateInvoiceID(tenantID string) string {
-	return fmt.Sprintf("INV-%s-%d", tenantID[:8], time.Now().Unix())
+	prefix := tenantID
+	if len(prefix) > 8 {
+		prefix = prefix[:8]
+	}
+	return fmt.Sprintf("INV-%s-%d", prefix, time.Now().Unix())
 }

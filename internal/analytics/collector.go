@@ -52,6 +52,7 @@ type Collector struct {
 	series     map[string]*TimeSeriesBuffer
 	mu         sync.RWMutex
 	config     *Config
+	stopCh     chan struct{}
 }
 
 // GaugeValue holds a float64 gauge value.
@@ -254,6 +255,7 @@ func NewCollector(cfg *Config) *Collector {
 		histograms: make(map[string]*Histogram),
 		series:     make(map[string]*TimeSeriesBuffer),
 		config:     cfg,
+		stopCh:     make(chan struct{}),
 	}
 
 	// Ensure storage directory exists
@@ -465,8 +467,13 @@ func (c *Collector) flushLoop() {
 	ticker := time.NewTicker(c.config.FlushInterval)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		c.Flush()
+	for {
+		select {
+		case <-ticker.C:
+			c.Flush()
+		case <-c.stopCh:
+			return
+		}
 	}
 }
 
@@ -505,8 +512,9 @@ func (c *Collector) Reset() {
 	c.series = make(map[string]*TimeSeriesBuffer)
 }
 
-// Close stops the collector.
+// Close stops the collector and flushes pending data.
 func (c *Collector) Close() error {
+	close(c.stopCh)
 	return c.Flush()
 }
 

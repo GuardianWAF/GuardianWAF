@@ -2,8 +2,10 @@ package ratelimit
 
 import (
 	"path"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
@@ -227,16 +229,14 @@ func matchPath(pattern, p string) bool {
 func (l *Layer) trackViolation(ip string, rule *Rule) {
 	key := "violation:" + rule.ID + ":" + ip
 
-	var count int64
-	if val, ok := l.violations.Load(key); ok {
-		count = *val.(*int64)
-	}
-	count++
-	countCopy := count
-	l.violations.Store(key, &countCopy)
+	// Use LoadOrStore to get or create the counter atomically
+	newPtr := new(atomic.Int64)
+	actual, _ := l.violations.LoadOrStore(key, newPtr)
+	counter := actual.(*atomic.Int64)
+	count := counter.Add(1)
 
 	if int(count) >= rule.AutoBanAfter && l.OnAutoBan != nil {
-		l.OnAutoBan(ip, "rate limit exceeded: "+rule.ID+" ("+string(rune('0'+min(count, 9)))+" violations)")
+		l.OnAutoBan(ip, "rate limit exceeded: "+rule.ID+" ("+strconv.FormatInt(min(count, 9), 10)+" violations)")
 	}
 }
 

@@ -168,7 +168,7 @@ func (m *Manager) HandleEvent(event *engine.Event) {
 		// Cooldown per IP
 		if wh.cooldown > 0 {
 			if last, ok := wh.lastFire.Load(event.ClientIP); ok {
-				if time.Since(last.(time.Time)) < wh.cooldown {
+				if t, _ := last.(time.Time); !t.IsZero() && time.Since(t) < wh.cooldown {
 					continue
 				}
 			}
@@ -196,7 +196,7 @@ func (m *Manager) HandleEvent(event *engine.Event) {
 		// Cooldown per IP
 		if et.cooldown > 0 {
 			if last, ok := et.lastFire.Load(event.ClientIP); ok {
-				if time.Since(last.(time.Time)) < et.cooldown {
+				if t, _ := last.(time.Time); !t.IsZero() && time.Since(t) < et.cooldown {
 					continue
 				}
 			}

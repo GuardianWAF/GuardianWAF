@@ -58,12 +58,14 @@ func DefaultConfig() *Config {
 
 // Recorder handles request recording.
 type Recorder struct {
-	config     *Config
-	mu         sync.Mutex
+	config      *Config
+	mu          sync.Mutex
 	currentFile *os.File
 	currentSize int64
 	fileIndex   int
 	buffer      *bufio.Writer
+	stopCh      chan struct{}
+	closed      bool
 }
 
 // RecordedRequest represents a captured HTTP request.
@@ -98,6 +100,7 @@ func NewRecorder(cfg *Config) (*Recorder, error) {
 
 	r := &Recorder{
 		config: cfg,
+		stopCh: make(chan struct{}),
 	}
 
 	// Open initial file
@@ -330,15 +333,26 @@ func (r *Recorder) cleanupRoutine() {
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		r.cleanupOldFiles()
+	for {
+		select {
+		case <-ticker.C:
+			r.cleanupOldFiles()
+		case <-r.stopCh:
+			return
+		}
 	}
 }
 
-// Close closes the recorder.
+// Close stops the recorder and closes the current file.
 func (r *Recorder) Close() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	if r.closed {
+		return nil
+	}
+	r.closed = true
+	close(r.stopCh)
 
 	if r.buffer != nil {
 		r.buffer.Flush()
