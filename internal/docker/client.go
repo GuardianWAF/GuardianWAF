@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -199,7 +200,7 @@ func (c *Client) ListContainers(labelPrefix string) ([]Container, error) {
 			parts := strings.SplitN(portKey, "/", 2)
 			if len(parts) >= 1 {
 				var port int
-				_, _ = fmt.Sscanf(parts[0], "%d", &port)
+				port, _ = strconv.Atoi(parts[0])
 				proto := "tcp"
 				if len(parts) == 2 {
 					proto = parts[1]

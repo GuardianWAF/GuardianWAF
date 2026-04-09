@@ -58,7 +58,15 @@ func (m *maskingResponseWriter) Write(p []byte) (int, error) {
 		return m.ResponseWriter.Write(p)
 	}
 
-	m.buf.Write(p)
+	if _, err := m.buf.Write(p); err != nil {
+		// Buffer write failed (memory pressure) — flush unmasked and switch to direct
+		if m.buf.Len() > 0 {
+			_, _ = m.ResponseWriter.Write(m.buf.Bytes())
+			m.buf.Reset()
+		}
+		m.direct = true
+		return m.ResponseWriter.Write(p)
+	}
 	return len(p), nil
 }
 

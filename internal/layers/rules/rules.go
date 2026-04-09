@@ -8,6 +8,7 @@ import (
 	"net"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -430,6 +431,11 @@ func toString(v any) string {
 
 func toFloat(s string) float64 {
 	var f float64
-	_, _ = fmt.Sscanf(s, "%f", &f)
+	_, err := fmt.Sscanf(s, "%f", &f)
+	if err != nil {
+		if n, err := strconv.ParseFloat(s, 64); err == nil {
+			return n
+		}
+	}
 	return f
 }
