@@ -366,6 +366,9 @@ func analyzeNaturalPauses(events []MouseEvent) float64 {
 	}
 
 	ratio := float64(pauseCount) / float64(len(events)-1)
+	if math.IsNaN(ratio) || math.IsInf(ratio, 0) {
+		return 0
+	}
 	// Some pauses are natural
 	if ratio > 0.1 && ratio < 0.5 {
 		return 30
@@ -445,6 +448,9 @@ func analyzeBezierCurves(movements []Movement) float64 {
 	}
 
 	ratio := float64(curveCount) / float64(len(movements)-2)
+	if math.IsNaN(ratio) || math.IsInf(ratio, 0) {
+		return 0
+	}
 	if ratio > 0.3 {
 		return 35
 	}

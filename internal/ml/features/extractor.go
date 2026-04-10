@@ -144,6 +144,9 @@ func calculateEntropy(s string) float64 {
 	// Calculate entropy
 	entropy := 0.0
 	length := float64(utf8.RuneCountInString(s))
+	if length == 0 {
+		return 0
+	}
 	for _, count := range freq {
 		p := float64(count) / length
 		entropy -= p * math.Log2(p)

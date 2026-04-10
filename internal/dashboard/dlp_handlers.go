@@ -124,6 +124,13 @@ func (h *DLPHandler) handleAddPattern(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "id, name, pattern, and action are required", http.StatusBadRequest)
 		return
 	}
+	if len(req.Pattern) > 4096 {
+		http.Error(w, "pattern too long (max 4096 chars)", http.StatusBadRequest)
+		return
+	}
+	if req.Score < 0 {
+		req.Score = 0
+	}
 
 	pattern := &DLPPatternInfo{
 		ID:          req.ID,

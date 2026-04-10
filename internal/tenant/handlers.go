@@ -77,6 +77,13 @@ func (h *Handlers) handleTenantRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tenantID := strings.Split(path, "/")[0]
+		// Validate tenant ID — only allow alphanumeric, dash, underscore
+		for _, c := range tenantID {
+			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_') {
+				http.Error(w, "Invalid tenant ID", http.StatusBadRequest)
+				return
+			}
+		}
 
 	// Check if this is a WAF config sub-path
 	if strings.HasSuffix(path, "/waf-config") {

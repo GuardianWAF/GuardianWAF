@@ -112,6 +112,17 @@ func (h *VirtualPatchHandler) handleAddPatch(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "id, name, and pattern are required", http.StatusBadRequest)
 		return
 	}
+	if len(req.Pattern) > 4096 {
+		http.Error(w, "pattern too long (max 4096 chars)", http.StatusBadRequest)
+		return
+	}
+	if len(req.Name) > 256 {
+		http.Error(w, "name too long (max 256 chars)", http.StatusBadRequest)
+		return
+	}
+	if req.Score < 0 {
+		req.Score = 0
+	}
 
 	// Create custom patch
 	patch := &VirtualPatchInfo{

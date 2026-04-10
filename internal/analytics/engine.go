@@ -179,9 +179,13 @@ func (e *Engine) AnalyzeTrend(metric string, labels map[string]string, from, to 
 	}
 
 	// Aggregate points by interval
+	intervalSecs := int64(interval.Seconds())
+	if intervalSecs <= 0 {
+		intervalSecs = 1
+	}
 	buckets := make(map[int64][]float64)
 	for _, p := range ts.Points {
-		bucket := p.Timestamp.Unix() / int64(interval.Seconds())
+		bucket := p.Timestamp.Unix() / intervalSecs
 		buckets[bucket] = append(buckets[bucket], p.Value)
 	}
 

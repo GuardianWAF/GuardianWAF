@@ -63,7 +63,9 @@ func (s *Store) Init() error {
 	indexPath := filepath.Join(s.basePath, "index.json")
 	data, err := os.ReadFile(indexPath)
 	if err == nil {
-		_ = json.Unmarshal(data, &s.index)
+		if unmarshalErr := json.Unmarshal(data, &s.index); unmarshalErr != nil {
+			fmt.Printf("[tenant-store] warning: failed to parse %s: %v\n", indexPath, unmarshalErr)
+		}
 	}
 
 	return nil
