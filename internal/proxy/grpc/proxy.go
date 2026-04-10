@@ -105,9 +105,11 @@ func NewProxy(cfg *Config) (*Proxy, error) {
 
 	// Build HTTP/2 transport for gRPC
 	p.transport = &http.Transport{
-		ForceAttemptHTTP2: true,
-		MaxIdleConns:      100,
-		IdleConnTimeout:   90 * time.Second,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:  10 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
 	}
 
 	// Initialize validator if enabled

@@ -27,6 +27,7 @@ type sseClient struct {
 	w       http.ResponseWriter
 	flusher http.Flusher
 	done    chan struct{}
+	closed  bool // guarded by mu on parent SSEHandler
 	mu      sync.Mutex // Protects writes to w
 }
 
@@ -86,7 +87,10 @@ func (h *SSEHandler) handleSSE(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		h.mu.Lock()
 		delete(h.clients, client)
-		close(client.done)
+		if !client.closed {
+			client.closed = true
+			close(client.done)
+		}
 		h.mu.Unlock()
 	}()
 
@@ -174,7 +178,10 @@ func (h *SSEHandler) broadcastResponse(resp JSONRPCResponse) {
 		client.mu.Lock()
 		if _, err := fmt.Fprintf(client.w, "event: message\ndata: %s\n\n", string(data)); err != nil {
 			client.mu.Unlock()
-			close(client.done)
+			if !client.closed {
+				client.closed = true
+				close(client.done)
+			}
 			delete(h.clients, client)
 			continue
 		}
