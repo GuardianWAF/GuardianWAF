@@ -216,8 +216,12 @@ func (s *Store) save() error {
 		return fmt.Errorf("marshal: %w", err)
 	}
 	target := filepath.Join(dir, "ai_config.json")
-	if err := os.WriteFile(target, data, 0o600); err != nil {
-		return fmt.Errorf("save to %s: %w", target, err)
+	tmp := target + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return fmt.Errorf("write temp: %w", err)
+	}
+	if err := os.Rename(tmp, target); err != nil {
+		return fmt.Errorf("rename to %s: %w", target, err)
 	}
 	return nil
 }

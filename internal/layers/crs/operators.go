@@ -392,17 +392,37 @@ func Transform(value string, transformations []string) string {
 	return result
 }
 
-// urlDecode decodes URL-encoded string.
+// urlDecode decodes URL-encoded string (full percent-decoding).
 func urlDecode(s string) string {
-	// Simple URL decode - proper implementation would handle all cases
-	result := s
-	result = strings.ReplaceAll(result, "%20", " ")
-	result = strings.ReplaceAll(result, "%2B", "+")
-	result = strings.ReplaceAll(result, "%2F", "/")
-	result = strings.ReplaceAll(result, "%3F", "?")
-	result = strings.ReplaceAll(result, "%3D", "=")
-	result = strings.ReplaceAll(result, "%26", "&")
-	return result
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] == '%' && i+2 < len(s) {
+			hi, okHi := hexVal(s[i+1])
+			lo, okLo := hexVal(s[i+2])
+			if okHi && okLo {
+				b.WriteByte(hi<<4 | lo)
+				i += 2
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
+// hexVal returns the hex digit value and true if c is a valid hex char.
+func hexVal(c byte) (byte, bool) {
+	switch {
+	case c >= '0' && c <= '9':
+		return c - '0', true
+	case c >= 'a' && c <= 'f':
+		return c - 'a' + 10, true
+	case c >= 'A' && c <= 'F':
+		return c - 'A' + 10, true
+	default:
+		return 0, false
+	}
 }
 
 // urlEncode URL-encodes a string.

@@ -49,7 +49,11 @@ func Detect(input, location string) []engine.Finding {
 	}
 
 	// 3. Scan HTML tags for event handlers and dangerous patterns
-	tags := scanTags(analysisStr)
+	// Fast path: skip tag scanning if no < present
+	var tags []htmlTag
+	if strings.ContainsRune(analysisStr, '<') {
+		tags = scanTags(analysisStr)
+	}
 	for _, tag := range tags {
 		// SVG vectors: <svg/onload=...> — score 85
 		if tag.Name == "svg" {

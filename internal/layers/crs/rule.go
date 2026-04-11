@@ -145,6 +145,10 @@ type Transaction struct {
 	requestBodyOnce sync.Once
 	responseBodyStr string
 	responseBodyOnce sync.Once
+
+	// Reusable resolver and evaluator to avoid per-rule allocation
+	resolver *VariableResolver
+	evaluator *OperatorEvaluator
 }
 
 // NewTransaction creates a new transaction for rule evaluation.

@@ -155,7 +155,7 @@ func (s *Service) VerifyHandler() http.Handler {
 		})
 
 		// Sanitize redirect path — must be a safe site-relative path
-		if redirect == "" || redirect[0] != '/' || (len(redirect) > 1 && redirect[1] == '/') {
+		if redirect == "" || redirect[0] != '/' || (len(redirect) > 1 && redirect[1] == '/') || strings.ContainsAny(redirect, "\\@") {
 			redirect = "/"
 		}
 

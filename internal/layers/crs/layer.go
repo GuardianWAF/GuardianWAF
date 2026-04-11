@@ -278,13 +278,17 @@ func (l *Layer) createTransaction(ctx *engine.RequestContext) *Transaction {
 		tx.RequestBody = ctx.Body
 	}
 
+	tx.resolver = NewVariableResolver(tx)
+	tx.evaluator = NewOperatorEvaluator()
 	return tx
 }
 
 // evaluateRule evaluates a single rule against transaction.
 func (l *Layer) evaluateRule(rule *Rule, tx *Transaction) (bool, int, *engine.Finding) {
-	resolver := NewVariableResolver(tx)
-	evaluator := NewOperatorEvaluator()
+	resolver := tx.resolver
+	evaluator := tx.evaluator
+	resolver.transaction = tx
+	evaluator.captureGroups = evaluator.captureGroups[:0]
 
 	// Evaluate variables
 	matched := false
