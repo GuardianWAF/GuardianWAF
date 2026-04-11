@@ -167,6 +167,8 @@ func checkLocalhostPatterns(lower, location string) []engine.Finding {
 		{"http://[::ffff:169.254.169.254]", 90, "IPv4-mapped IPv6 metadata endpoint detected"},
 		{"http://[::ffff:a9fe:a9fe]", 90, "IPv4-mapped IPv6 metadata endpoint (hex) detected"},
 		{"http://0177.0.0.1", 85, "HTTP request to octal loopback 0177.0.0.1 detected"},
+			{"http://127.1", 80, "HTTP request to abbreviated loopback 127.1 detected"},
+			{"https://127.1", 80, "HTTPS request to abbreviated loopback 127.1 detected"},
 	}
 
 	for _, p := range patterns {
@@ -312,6 +314,46 @@ func checkEncodedIPs(lower, location string) []engine.Finding {
 				findings = append(findings, makeFinding(85, engine.SeverityCritical,
 					"Hex encoded IP address detected: "+host,
 					extractContext(lower, host), location, 0.90))
+				if IsPrivateIP(hexIP) || IsLoopback(hexIP) || IsMetadataEndpoint(hexIP) {
+					findings = append(findings, makeFinding(85, engine.SeverityCritical,
+						"Hex encoded IP resolves to private/loopback/metadata range",
+						extractContext(lower, host), location, 0.95))
+				}
+			}
+
+			// Check for abbreviated IP (127.1, 10.1, 192.168.1)
+			abbrIP := ParseAbbreviatedIP(host)
+			if abbrIP != nil {
+				findings = append(findings, makeFinding(80, engine.SeverityCritical,
+					"Abbreviated IP address detected: "+host,
+					extractContext(lower, host), location, 0.85))
+				if IsPrivateIP(abbrIP) || IsLoopback(abbrIP) || IsMetadataEndpoint(abbrIP) {
+					findings = append(findings, makeFinding(85, engine.SeverityCritical,
+						"Abbreviated IP resolves to private/loopback/metadata range",
+						extractContext(lower, host), location, 0.95))
+				}
+			}
+
+			// Check for single hex number IP (0x7f000001)
+			hexSingle := ParseHexSingleIP(host)
+			if hexSingle != nil {
+				findings = append(findings, makeFinding(85, engine.SeverityCritical,
+					"Hex single-number encoded IP address detected: "+host,
+					extractContext(lower, host), location, 0.90))
+				if IsPrivateIP(hexSingle) || IsLoopback(hexSingle) || IsMetadataEndpoint(hexSingle) {
+					findings = append(findings, makeFinding(85, engine.SeverityCritical,
+						"Hex encoded IP resolves to private/loopback/metadata range",
+						extractContext(lower, host), location, 0.95))
+				}
+			}
+
+			// Add private/loopback check for octal IPs
+			if octalIP != nil {
+				if IsPrivateIP(octalIP) || IsLoopback(octalIP) || IsMetadataEndpoint(octalIP) {
+					findings = append(findings, makeFinding(85, engine.SeverityCritical,
+						"Octal encoded IP resolves to private/loopback/metadata range",
+						extractContext(lower, host), location, 0.95))
+				}
 			}
 		}
 	}

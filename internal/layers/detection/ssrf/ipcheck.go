@@ -243,3 +243,139 @@ func parseHexUint8(s string) (byte, bool) {
 	}
 	return byte(n), true
 }
+
+// parseFlexibleUint parses a number string in decimal, octal (0 prefix), or hex (0x prefix).
+// Returns the parsed value and true, or 0 and false if invalid.
+func parseFlexibleUint(s string) (uint64, bool) {
+	if s == "" {
+		return 0, false
+	}
+	if strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0X") {
+		hexStr := s[2:]
+		if hexStr == "" {
+			return 0, false
+		}
+		var n uint64
+		for _, c := range hexStr {
+			n <<= 4
+			switch {
+			case c >= '0' && c <= '9':
+				n += uint64(c - '0')
+			case c >= 'a' && c <= 'f':
+				n += uint64(c-'a') + 10
+			case c >= 'A' && c <= 'F':
+				n += uint64(c-'A') + 10
+			default:
+				return 0, false
+			}
+		}
+		return n, true
+	}
+	if strings.HasPrefix(s, "0") && len(s) > 1 {
+		// Octal
+		var n uint64
+		for _, c := range s {
+			if c < '0' || c > '7' {
+				return 0, false
+			}
+			n = n*8 + uint64(c-'0')
+		}
+		return n, true
+	}
+	// Decimal
+	var n uint64
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+		n = n*10 + uint64(c-'0')
+	}
+	return n, true
+}
+
+// ParseAbbreviatedIP parses abbreviated IP forms (2 or 3 dot-separated parts).
+// Follows POSIX inet_aton rules:
+//   - A.B   → A.0.0.B  (A is 8-bit, B is 24-bit host)
+//   - A.B.C → A.B.0.C  (A,B are 8-bit, C is 16-bit host)
+//
+// Each part can be decimal, octal (0 prefix), or hex (0x prefix).
+// Returns nil if the input is not a valid abbreviated IP.
+func ParseAbbreviatedIP(s string) IPv4 {
+	parts := strings.Split(s, ".")
+	if len(parts) < 2 || len(parts) > 3 {
+		return nil
+	}
+
+	parsed := make([]uint64, len(parts))
+	for i, part := range parts {
+		if part == "" {
+			return nil
+		}
+		n, ok := parseFlexibleUint(part)
+		if !ok {
+			return nil
+		}
+		parsed[i] = n
+	}
+
+	switch len(parts) {
+	case 2:
+		// A.B → A is first octet (8-bit), B is 24-bit host
+		if parsed[0] > 255 || parsed[1] > 0xFFFFFF {
+			return nil
+		}
+		return IPv4{
+			byte(parsed[0]),
+			byte(parsed[1] >> 16),
+			byte(parsed[1] >> 8),
+			byte(parsed[1]),
+		}
+	case 3:
+		// A.B.C → A is first (8-bit), B is second (8-bit), C is 16-bit host
+		if parsed[0] > 255 || parsed[1] > 255 || parsed[2] > 0xFFFF {
+			return nil
+		}
+		return IPv4{
+			byte(parsed[0]),
+			byte(parsed[1]),
+			byte(parsed[2] >> 8),
+			byte(parsed[2]),
+		}
+	}
+	return nil
+}
+
+// ParseHexSingleIP parses a single hex number as an IP address (e.g., 0x7f000001 → 127.0.0.1).
+// Returns nil if the input is not a valid hex-encoded IP.
+func ParseHexSingleIP(s string) IPv4 {
+	if !strings.HasPrefix(s, "0x") && !strings.HasPrefix(s, "0X") {
+		return nil
+	}
+	hexStr := s[2:]
+	if hexStr == "" || len(hexStr) > 8 {
+		return nil
+	}
+	var n uint64
+	for _, c := range hexStr {
+		n <<= 4
+		switch {
+		case c >= '0' && c <= '9':
+			n += uint64(c - '0')
+		case c >= 'a' && c <= 'f':
+			n += uint64(c-'a') + 10
+		case c >= 'A' && c <= 'F':
+			n += uint64(c-'A') + 10
+		default:
+			return nil
+		}
+	}
+	if n > 0xFFFFFFFF {
+		return nil
+	}
+	return IPv4{
+		byte(n >> 24),
+		byte(n >> 16),
+		byte(n >> 8),
+		byte(n),
+	}
+}

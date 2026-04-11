@@ -2,6 +2,7 @@ package response
 
 import (
 	"net/http"
+	"strings"
 )
 
 // SecurityHeaders defines the security headers to inject into responses.
@@ -31,30 +32,39 @@ func DefaultSecurityHeaders() SecurityHeaders {
 }
 
 // Apply adds security headers to the response writer.
-// Only non-empty header values are set.
+// Only non-empty header values are set. Values containing CR or LF are
+// rejected to prevent header injection (defense-in-depth).
 func (sh *SecurityHeaders) Apply(w http.ResponseWriter) {
 	if sh.HSTS != "" {
-		w.Header().Set("Strict-Transport-Security", sh.HSTS)
+		setSafeHeader(w, "Strict-Transport-Security", sh.HSTS)
 	}
 	if sh.XContentTypeOptions != "" {
-		w.Header().Set("X-Content-Type-Options", sh.XContentTypeOptions)
+		setSafeHeader(w, "X-Content-Type-Options", sh.XContentTypeOptions)
 	}
 	if sh.XFrameOptions != "" {
-		w.Header().Set("X-Frame-Options", sh.XFrameOptions)
+		setSafeHeader(w, "X-Frame-Options", sh.XFrameOptions)
 	}
 	if sh.ReferrerPolicy != "" {
-		w.Header().Set("Referrer-Policy", sh.ReferrerPolicy)
+		setSafeHeader(w, "Referrer-Policy", sh.ReferrerPolicy)
 	}
 	if sh.PermissionsPolicy != "" {
-		w.Header().Set("Permissions-Policy", sh.PermissionsPolicy)
+		setSafeHeader(w, "Permissions-Policy", sh.PermissionsPolicy)
 	}
 	if sh.ContentSecurityPolicy != "" {
-		w.Header().Set("Content-Security-Policy", sh.ContentSecurityPolicy)
+		setSafeHeader(w, "Content-Security-Policy", sh.ContentSecurityPolicy)
 	}
 	if sh.XXSSProtection != "" {
-		w.Header().Set("X-XSS-Protection", sh.XXSSProtection)
+		setSafeHeader(w, "X-XSS-Protection", sh.XXSSProtection)
 	}
 	if sh.CacheControl != "" {
-		w.Header().Set("Cache-Control", sh.CacheControl)
+		setSafeHeader(w, "Cache-Control", sh.CacheControl)
 	}
+}
+
+// setSafeHeader sets a header only if the value contains no CR/LF characters.
+func setSafeHeader(w http.ResponseWriter, key, value string) {
+	if strings.ContainsAny(value, "\r\n") {
+		return
+	}
+	w.Header().Set(key, value)
 }
