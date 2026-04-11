@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
+	"time"
 )
 
 // Config holds the configuration for the API Security layer.
@@ -68,18 +69,19 @@ func (l *Layer) Name() string { return "api_security" }
 
 // Process validates API authentication.
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
+	start := time.Now()
 	// Check if API security is enabled (tenant config takes precedence)
 	enabled := l.config.Enabled
 	if ctx.TenantWAFConfig != nil && !ctx.TenantWAFConfig.APISecurity.Enabled {
 		enabled = false
 	}
 	if !enabled {
-		return engine.LayerResult{Action: engine.ActionPass}
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
 	// Check if path should be skipped
 	if l.shouldSkipPath(ctx.Path) {
-		return engine.LayerResult{Action: engine.ActionPass}
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
 	var findings []engine.Finding
@@ -100,7 +102,8 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 						Description:  "JWT validation failed: " + err.Error(),
 						Location:     "header:Authorization",
 					}},
-					Score: 60,
+					Score:    60,
+		Duration: time.Since(start),
 				}
 			}
 
@@ -109,7 +112,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 			ctx.Metadata["auth_type"] = "jwt"
 			ctx.Metadata["auth_subject"] = claims.Subject
 
-			return engine.LayerResult{Action: engine.ActionPass}
+			return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 		}
 	}
 
@@ -129,7 +132,8 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 						Description:  "API key validation failed: " + err.Error(),
 						Location:     "api_key",
 					}},
-					Score: 60,
+					Score:    60,
+		Duration: time.Since(start),
 				}
 			}
 
@@ -138,7 +142,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 			ctx.Metadata["api_key_name"] = keyConfig.Name
 			ctx.Metadata["api_key_rate_limit"] = keyConfig.RateLimit
 
-			return engine.LayerResult{Action: engine.ActionPass}
+			return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 		}
 	}
 
@@ -158,10 +162,11 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 			Action:   engine.ActionBlock,
 			Findings: findings,
 			Score:    40,
+		Duration: time.Since(start),
 		}
 	}
 
-	return engine.LayerResult{Action: engine.ActionPass}
+	return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 }
 
 func (l *Layer) shouldSkipPath(path string) bool {

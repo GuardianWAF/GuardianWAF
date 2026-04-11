@@ -1,8 +1,10 @@
 package detection
 
 import (
+	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
@@ -98,6 +100,8 @@ func (l *Layer) RemoveExclusion(pathPrefix string) bool {
 }
 
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
+	start := time.Now()
+
 	// Check if detection is enabled (tenant config takes precedence)
 	enabled := l.config.Enabled
 	var tenantDet *config.DetectionConfig
@@ -108,7 +112,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		}
 	}
 	if !enabled {
-		return engine.LayerResult{Action: engine.ActionPass}
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
 	var allFindings []engine.Finding
@@ -137,6 +141,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		Action:   action,
 		Findings: allFindings,
 		Score:    totalScore,
+		Duration: time.Since(start),
 	}
 }
 
@@ -169,10 +174,8 @@ func (l *Layer) getExclusions(tenantDet *config.DetectionConfig) []Exclusion {
 func (l *Layer) isExcludedWithTenant(detectorName, path string, exclusions []Exclusion) bool {
 	for _, exc := range exclusions {
 		if strings.HasPrefix(path, exc.PathPrefix) {
-			for _, d := range exc.Detectors {
-				if d == detectorName {
-					return true
-				}
+			if slices.Contains(exc.Detectors, detectorName) {
+				return true
 			}
 		}
 	}

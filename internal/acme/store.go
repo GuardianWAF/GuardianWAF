@@ -195,7 +195,12 @@ func (s *CertDiskStore) StartRenewal(checkInterval time.Duration) {
 
 // StopRenewal stops the background renewal goroutine.
 func (s *CertDiskStore) StopRenewal() {
-	close(s.stopCh)
+	select {
+	case <-s.stopCh:
+		return
+	default:
+		close(s.stopCh)
+	}
 	s.wg.Wait()
 }
 

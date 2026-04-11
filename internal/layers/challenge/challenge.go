@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"strconv"
@@ -40,7 +41,7 @@ func DefaultConfig() Config {
 		// CSPRNG failure — log warning and continue with insecure key.
 		// This should never happen on a正常运行 system.
 		// The process is likely running in a broken/forked state.
-		fmt.Printf("warning: crypto/rand.Read failed: %v\n", err)
+		log.Fatalf("FATAL: crypto/rand.Read failed — cannot generate secure challenge key: %v", err)
 	}
 
 	return Config{
@@ -62,8 +63,8 @@ func NewService(cfg Config) *Service {
 	if len(cfg.SecretKey) == 0 {
 		key := make([]byte, 32)
 		if _, err := rand.Read(key); err != nil {
-			// CSPRNG failure — continue with zero key (less secure but functional)
-			fmt.Printf("warning: crypto/rand.Read failed: %v\n", err)
+			// CSPRNG failure — zero key is predictable, fail hard
+			log.Fatalf("FATAL: crypto/rand.Read failed — cannot generate secure challenge key: %v", err)
 		}
 		cfg.SecretKey = key
 	}
@@ -113,6 +114,7 @@ func (s *Service) VerifyHandler() http.Handler {
 			return
 		}
 
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB max
 		if err := r.ParseForm(); err != nil {
 			http.Error(w, "Bad request", http.StatusBadRequest)
 			return
@@ -152,8 +154,8 @@ func (s *Service) VerifyHandler() http.Handler {
 			SameSite: http.SameSiteLaxMode,
 		})
 
-		// Sanitize redirect path — must be relative
-		if redirect == "" || redirect[0] != '/' {
+		// Sanitize redirect path — must be a safe site-relative path
+		if redirect == "" || redirect[0] != '/' || (len(redirect) > 1 && redirect[1] == '/') {
 			redirect = "/"
 		}
 
@@ -234,8 +236,8 @@ func (s *Service) generateChallenge() string {
 	if _, err := rand.Read(b); err != nil {
 		// Fallback: read from crypto/rand reader directly
 		if _, err := io.ReadFull(rand.Reader, b); err != nil {
-			// crypto/rand unavailable, b remains zeros (less secure but functional)
-			fmt.Printf("warning: crypto/rand.Read and io.ReadFull both failed: %v\n", err)
+			// crypto/rand unavailable — fail hard rather than using predictable nonce
+			log.Fatalf("FATAL: crypto/rand and io.ReadFull both failed — cannot generate secure nonce: %v", err)
 		}
 	}
 	return hex.EncodeToString(b)

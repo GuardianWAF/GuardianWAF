@@ -596,3 +596,24 @@ When reporting issues, include:
 ---
 
 *Last updated: 2026-04-04*
+
+## Log Rotation
+
+GuardianWAF writes structured logs to stdout/stderr. For production deployments, use external log rotation:
+
+- **Docker:** Configure log drivers (`json-file` with max-size/max-file, or `local` driver)
+  ```yaml
+  services:
+    guardianwaf:
+      logging:
+        driver: json-file
+        options:
+          max-size: "50m"
+          max-file: "5"
+  ```
+- **Kubernetes:** Container logs are rotated by kubelet (configure `--container-log-max-size` and `--container-log-max-files`)
+- **systemd:** Use `journal` with `SystemMaxUse=` and `SystemMaxFileSize=` settings
+- **Bare metal:** Pipe to `logrotate` or use `slog` JSON output with file rotation
+
+Event JSONL files are rotated automatically at 100MB. No external configuration needed.
+

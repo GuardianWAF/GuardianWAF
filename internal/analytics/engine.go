@@ -348,7 +348,14 @@ func (e *Engine) GetTopN(metric string, n int, from, to time.Time) []TopNItem {
 	// Get all series for this metric
 	allMetrics := e.collector.GetAllMetrics()
 
-	counters := allMetrics["counters"].(map[string]int64)
+	countersRaw, ok := allMetrics["counters"]
+	if !ok {
+		return nil
+	}
+	counters, ok := countersRaw.(map[string]int64)
+	if !ok {
+		return nil
+	}
 
 	var items []TopNItem
 	for key, value := range counters {

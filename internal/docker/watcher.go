@@ -14,13 +14,15 @@ type Watcher struct {
 	labelPrefix  string
 	network      string
 	pollInterval time.Duration
-	onChange     func() // called when services change
-	logFn        func(level, msg string)
 
 	mu       sync.RWMutex
 	services map[string]*DiscoveredService // containerID → service
 	stopCh   chan struct{}
 	wg       sync.WaitGroup
+
+	callbackMu sync.RWMutex
+	onChange   func()
+	logFn      func(level, msg string)
 }
 
 // NewWatcher creates a Docker container watcher.
@@ -47,18 +49,22 @@ func NewWatcher(client *Client, labelPrefix, network string, pollInterval time.D
 
 // SetOnChange sets the callback for when services change.
 func (w *Watcher) SetOnChange(fn func()) {
+	w.callbackMu.Lock()
 	w.onChange = fn
+	w.callbackMu.Unlock()
 }
 
 // SetLogger sets the log function.
 func (w *Watcher) SetLogger(fn func(level, msg string)) {
+	w.callbackMu.Lock()
 	w.logFn = fn
+	w.callbackMu.Unlock()
 }
 
 // Start begins watching Docker for container changes.
 // It does an initial sync, then tries event streaming with poll fallback.
 func (w *Watcher) Start() {
-	w.logFn("WARN", "Docker socket is mounted — if GuardianWAF is compromised, attackers can read all container configs, env vars, and network topology. Use NewTLSClient() to connect via Docker TLS instead.")
+	w.safeLog("WARN", "Docker socket is mounted — if GuardianWAF is compromised, attackers can read all container configs, env vars, and network topology. Use NewTLSClient() to connect via Docker TLS instead.")
 
 	// Initial sync
 	w.sync()
@@ -69,7 +75,12 @@ func (w *Watcher) Start() {
 
 // Stop gracefully stops the watcher.
 func (w *Watcher) Stop() {
-	close(w.stopCh)
+	select {
+	case <-w.stopCh:
+		return
+	default:
+		close(w.stopCh)
+	}
 	w.wg.Wait()
 }
 
@@ -111,7 +122,7 @@ func (w *Watcher) loop() {
 		// Try event-driven mode first
 		err := w.streamEvents()
 		if err != nil {
-			w.logFn("warn", "Docker event stream disconnected: "+err.Error()+", falling back to polling")
+			w.safeLog("warn", "Docker event stream disconnected: "+err.Error()+", falling back to polling")
 		}
 
 		// If streaming fails, fall back to polling
@@ -138,7 +149,7 @@ func (w *Watcher) streamEvents() error {
 		errCh <- w.client.StreamEvents(ctx, w.labelPrefix, eventCh)
 	}()
 
-	w.logFn("info", "Docker event stream connected")
+	w.safeLog("info", "Docker event stream connected")
 
 	for {
 		select {
@@ -178,12 +189,12 @@ func (w *Watcher) pollLoop() {
 func (w *Watcher) handleEvent(event Event) {
 	switch event.Action {
 	case "start":
-		w.logFn("info", "Docker: container started: "+sanitizeLogValue(event.Actor.Attributes["name"]))
+		w.safeLog("info", "Docker: container started: "+sanitizeLogValue(event.Actor.Attributes["name"]))
 		w.sync()
 		w.notifyChange()
 
 	case "stop", "die", "destroy":
-		w.logFn("info", "Docker: container stopped: "+sanitizeLogValue(event.Actor.Attributes["name"]))
+		w.safeLog("info", "Docker: container stopped: "+sanitizeLogValue(event.Actor.Attributes["name"]))
 		w.mu.Lock()
 		delete(w.services, event.Actor.ID)
 		w.mu.Unlock()
@@ -196,7 +207,7 @@ func (w *Watcher) handleEvent(event Event) {
 func (w *Watcher) sync() bool {
 	containers, err := w.client.ListContainers(w.labelPrefix)
 	if err != nil {
-		w.logFn("warn", "Docker: list containers failed: "+err.Error())
+		w.safeLog("warn", "Docker: list containers failed: "+err.Error())
 		return false
 	}
 
@@ -226,14 +237,26 @@ func (w *Watcher) sync() bool {
 		w.services[services[i].ContainerID] = &services[i]
 	}
 
-	w.logFn("info", "Docker: discovered "+itoa(len(services))+" services")
+	w.safeLog("info", "Docker: discovered "+itoa(len(services))+" services")
 	return true
 }
 
 // notifyChange calls the onChange callback if set.
 func (w *Watcher) notifyChange() {
-	if w.onChange != nil {
-		w.onChange()
+	w.callbackMu.RLock()
+	fn := w.onChange
+	w.callbackMu.RUnlock()
+	if fn != nil {
+		fn()
+	}
+}
+
+func (w *Watcher) safeLog(level, msg string) {
+	w.callbackMu.RLock()
+	fn := w.logFn
+	w.callbackMu.RUnlock()
+	if fn != nil {
+		fn(level, msg)
 	}
 }
 

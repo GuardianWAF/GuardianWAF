@@ -7,6 +7,11 @@ import (
 	"testing"
 )
 
+func TestMain(m *testing.M) {
+	testAllowPrivate = true // allow httptest servers in tests
+	os.Exit(m.Run())
+}
+
 func TestNew(t *testing.T) {
 	db := New()
 	if db.Count() != 0 {

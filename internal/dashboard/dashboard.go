@@ -239,6 +239,7 @@ func (d *Dashboard) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 4096) // API keys are short
 	key := r.FormValue("key")
 	if subtle.ConstantTimeCompare([]byte(key), []byte(d.apiKey)) != 1 {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -1433,6 +1434,8 @@ func (d *Dashboard) SetAlertingStatsFn(fn func() any) {
 // SetTenantManager injects the multi-tenant manager.
 func (d *Dashboard) SetTenantManager(manager tenantManagerInterface) {
 	d.tenantManager = manager
+	adminHandler := NewTenantAdminHandler(d, manager)
+	adminHandler.RegisterRoutes(d.mux)
 }
 
 func (d *Dashboard) handleGetRules(w http.ResponseWriter, r *http.Request) {
@@ -1650,17 +1653,16 @@ func (b *SSEBroadcaster) HandleSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	// Check client cap
-	b.mu.RLock()
-	count := len(b.clients)
-	b.mu.RUnlock()
-	if count >= b.maxClients {
+	// Check client cap and register atomically
+	ch := make(chan string, 64)
+	b.mu.Lock()
+	if len(b.clients) >= b.maxClients {
+		b.mu.Unlock()
 		http.Error(w, "too many SSE connections", http.StatusServiceUnavailable)
 		return
 	}
-
-	ch := make(chan string, 64)
-	b.addClient(ch)
+	b.clients[ch] = struct{}{}
+	b.mu.Unlock()
 	defer b.removeClient(ch)
 
 	fmt.Fprintf(w, "data: {\"type\":\"connected\"}\n\n")
@@ -1907,7 +1909,9 @@ func (d *Dashboard) handleAddWebhook(w http.ResponseWriter, r *http.Request) {
 		cooldown = 30 * time.Second
 	}
 
-	cfg := d.engine.Config()
+	origCfg := d.engine.Config()
+	cfgCopy := *origCfg
+	cfg := &cfgCopy
 	cfg.Alerting.Webhooks = append(cfg.Alerting.Webhooks, config.WebhookConfig{
 		Name:     body.Name,
 		URL:      body.URL,
@@ -1936,7 +1940,9 @@ func (d *Dashboard) handleDeleteWebhook(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	cfg := d.engine.Config()
+	origCfg := d.engine.Config()
+	cfgCopy := *origCfg
+	cfg := &cfgCopy
 	found := false
 	for i, w := range cfg.Alerting.Webhooks {
 		if w.Name == name {
@@ -2008,7 +2014,9 @@ func (d *Dashboard) handleAddEmail(w http.ResponseWriter, r *http.Request) {
 		cooldown = 5 * time.Minute
 	}
 
-	cfg := d.engine.Config()
+	origCfg := d.engine.Config()
+	cfgCopy := *origCfg
+	cfg := &cfgCopy
 	cfg.Alerting.Emails = append(cfg.Alerting.Emails, config.EmailConfig{
 		Name:     body.Name,
 		SMTPHost: body.SMTPHost,
@@ -2042,7 +2050,9 @@ func (d *Dashboard) handleDeleteEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg := d.engine.Config()
+	origCfg := d.engine.Config()
+	cfgCopy := *origCfg
+	cfg := &cfgCopy
 	found := false
 	for i, e := range cfg.Alerting.Emails {
 		if e.Name == name {

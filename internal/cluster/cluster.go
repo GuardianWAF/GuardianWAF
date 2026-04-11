@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"sync"
@@ -94,6 +95,7 @@ type Cluster struct {
 	// Channels
 	events    chan Event
 	stopCh    chan struct{}
+	wg        sync.WaitGroup
 
 	// State sync
 	stateSync *StateSync
@@ -238,6 +240,7 @@ func (c *Cluster) Start() error {
 	}
 
 	// Start background tasks
+	c.wg.Add(3)
 	go c.heartbeatLoop()
 	// Initialize state
 	c.state.Store(StateJoining)
@@ -259,7 +262,14 @@ func (c *Cluster) Stop() error {
 		return nil
 	}
 
-	close(c.stopCh)
+	select {
+	case <-c.stopCh:
+		return nil
+	default:
+		close(c.stopCh)
+	}
+
+	c.wg.Wait()
 
 	// Notify other nodes we're leaving
 	c.broadcast(&Message{
@@ -351,10 +361,14 @@ func (c *Cluster) BanIP(ip string, ttl time.Duration) {
 	c.stateSync.mu.Unlock()
 
 	// Broadcast to other nodes
-	payload, _ := json.Marshal(map[string]any{
+	payload, err := json.Marshal(map[string]any{
 		"ip":  ip,
 		"ttl": ttl.Seconds(),
 	})
+	if err != nil {
+		log.Printf("[cluster] failed to marshal IP ban payload: %v", err)
+		return
+	}
 
 	c.broadcast(&Message{
 		Type:      MsgIPBan,
@@ -375,7 +389,11 @@ func (c *Cluster) UnbanIP(ip string) {
 	c.stateSync.mu.Unlock()
 
 	// Broadcast to other nodes
-	payload, _ := json.Marshal(map[string]string{"ip": ip})
+	payload, err := json.Marshal(map[string]string{"ip": ip})
+	if err != nil {
+		log.Printf("[cluster] failed to marshal IP unban payload: %v", err)
+		return
+	}
 
 	c.broadcast(&Message{
 		Type:      MsgIPUnban,
@@ -442,12 +460,12 @@ func (c *Cluster) sendMessage(ctx context.Context, node *Node, msg *Message) err
 
 	data, err := json.Marshal(msg)
 	if err != nil {
-		return err
+		return fmt.Errorf("marshaling cluster message: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
 	if err != nil {
-		return err
+		return fmt.Errorf("creating request to node %s: %w", node.ID, err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if c.config.AuthSecret != "" {
@@ -456,13 +474,15 @@ func (c *Cluster) sendMessage(ctx context.Context, node *Node, msg *Message) err
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("sending to node %s: %w", node.ID, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("node returned status %d", resp.StatusCode)
 	}
+
+	_, _ = io.Copy(io.Discard, resp.Body)
 
 	return nil
 }
@@ -481,7 +501,10 @@ func (c *Cluster) joinCluster() error {
 func (c *Cluster) joinViaSeed(seed string) error {
 	url := fmt.Sprintf("http://%s/cluster/join", seed)
 
-	data, _ := json.Marshal(c.localNode)
+	data, err := json.Marshal(c.localNode)
+	if err != nil {
+		return fmt.Errorf("failed to marshal local node: %w", err)
+	}
 
 	req, reqErr := http.NewRequest(http.MethodPost, url, bytes.NewReader(data))
 	if reqErr != nil {
@@ -501,6 +524,8 @@ func (c *Cluster) joinViaSeed(seed string) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("seed returned status %d", resp.StatusCode)
 	}
+
+	_, _ = io.Copy(io.Discard, resp.Body)
 
 	return nil
 }
@@ -606,6 +631,7 @@ func (c *Cluster) startLeaderElection() *Message {
 
 // heartbeatLoop sends periodic heartbeats.
 func (c *Cluster) heartbeatLoop() {
+	defer c.wg.Done()
 	ticker := time.NewTicker(c.config.HeartbeatInterval)
 	defer ticker.Stop()
 
@@ -625,6 +651,7 @@ func (c *Cluster) heartbeatLoop() {
 
 // failureDetector detects failed nodes.
 func (c *Cluster) failureDetector() {
+	defer c.wg.Done()
 	ticker := time.NewTicker(c.config.HeartbeatTimeout)
 	defer ticker.Stop()
 
@@ -679,6 +706,7 @@ func (c *Cluster) checkFailedNodes() {
 
 // stateSyncLoop periodically syncs state.
 func (c *Cluster) stateSyncLoop() {
+	defer c.wg.Done()
 	if !c.IsLeader() {
 		return
 	}
@@ -700,7 +728,11 @@ func (c *Cluster) stateSyncLoop() {
 func (c *Cluster) syncState() {
 	state := c.stateSync.Clone()
 
-	payload, _ := json.Marshal(state)
+	payload, err := json.Marshal(state)
+	if err != nil {
+		log.Printf("[cluster] failed to marshal state sync: %v", err)
+		return
+	}
 
 	c.broadcast(&Message{
 		Type:      MsgStateSync,

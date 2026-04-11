@@ -94,6 +94,9 @@ func (t *AttemptTracker) RecordAttempt(attempt *LoginAttempt) {
 	}
 	ipRec.mu.Lock()
 	ipRec.Attempts = append(ipRec.Attempts, now)
+	if len(ipRec.Attempts) > 1000 {
+		ipRec.Attempts = ipRec.Attempts[len(ipRec.Attempts)-500:]
+	}
 	ipRec.mu.Unlock()
 
 	// Record email attempt (with size cap)
@@ -106,6 +109,9 @@ func (t *AttemptTracker) RecordAttempt(attempt *LoginAttempt) {
 			}
 			emailRec.mu.Lock()
 			emailRec.Attempts = append(emailRec.Attempts, now)
+			if len(emailRec.Attempts) > 1000 {
+				emailRec.Attempts = emailRec.Attempts[len(emailRec.Attempts)-500:]
+			}
 			emailRec.mu.Unlock()
 		}
 

@@ -1,6 +1,10 @@
 package xss
 
-import "github.com/guardianwaf/guardianwaf/internal/engine"
+import (
+	"time"
+
+	"github.com/guardianwaf/guardianwaf/internal/engine"
+)
 
 // Detector implements the engine.Detector interface for XSS detection.
 type Detector struct {
@@ -41,8 +45,9 @@ func (d *Detector) Patterns() []string {
 
 // Process scans the request context for XSS patterns.
 func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
+	start := time.Now()
 	if !d.enabled {
-		return engine.LayerResult{Action: engine.ActionPass}
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
 	var allFindings []engine.Finding
@@ -116,5 +121,6 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 		Action:   action,
 		Findings: allFindings,
 		Score:    totalScore,
+		Duration: time.Since(start),
 	}
 }

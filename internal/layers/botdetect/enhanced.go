@@ -101,6 +101,7 @@ func DefaultEnhancedConfig() EnhancedConfig {
 type EnhancedLayer struct {
 	config   EnhancedConfig
 	behavior *BehaviorManager
+	cfgMu    sync.RWMutex
 
 	// New components
 	challengeProvider challenge.Provider
@@ -171,9 +172,17 @@ func (l *EnhancedLayer) Name() string {
 	return "botdetect-enhanced"
 }
 
+// snapshotConfig returns a copy of the current config under RLock.
+func (l *EnhancedLayer) snapshotConfig() EnhancedConfig {
+	l.cfgMu.RLock()
+	defer l.cfgMu.RUnlock()
+	return l.config
+}
+
 // Process analyzes the request for bot indicators.
 func (l *EnhancedLayer) Process(ctx *engine.RequestContext) engine.LayerResult {
-	if !l.config.Enabled {
+	cfg := l.snapshotConfig()
+	if !cfg.Enabled {
 		return engine.LayerResult{Action: engine.ActionPass}
 	}
 
@@ -182,28 +191,28 @@ func (l *EnhancedLayer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	totalScore := 0
 
 	// 1. TLS Fingerprint analysis
-	if l.config.TLSFingerprint.Enabled && ctx.TLSVersion > 0 {
+	if cfg.TLSFingerprint.Enabled && ctx.TLSVersion > 0 {
 		fpScore, fpFindings := l.analyzeTLSFingerprint(ctx)
 		totalScore += fpScore
 		findings = append(findings, fpFindings...)
 	}
 
 	// 2. User-Agent analysis
-	if l.config.UserAgent.Enabled {
+	if cfg.UserAgent.Enabled {
 		uaScore, uaFindings := l.analyzeUA(ctx)
 		totalScore += uaScore
 		findings = append(findings, uaFindings...)
 	}
 
 	// 3. Behavioral analysis
-	if l.config.Behavior.Enabled && l.behavior != nil {
+	if cfg.Behavior.Enabled && l.behavior != nil {
 		behaviorScore, behaviorFindings := l.analyzeBehavior(ctx)
 		totalScore += behaviorScore
 		findings = append(findings, behaviorFindings...)
 	}
 
 	// 4. Browser fingerprinting (NEW)
-	if l.config.BrowserFingerprint.Enabled && l.fingerprinter != nil {
+	if cfg.BrowserFingerprint.Enabled && l.fingerprinter != nil {
 		fpData := l.fingerprinter.ExtractFromRequest(ctx.Request)
 		fpAnalysis := l.fingerprinter.Analyze(fpData)
 
@@ -224,11 +233,11 @@ func (l *EnhancedLayer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	}
 
 	// 5. Biometric analysis (NEW) - if session data exists
-	if l.config.Biometric.Enabled && l.biometricDetector != nil {
+	if cfg.Biometric.Enabled && l.biometricDetector != nil {
 		sessionID := ctx.Request.Header.Get("X-Session-ID")
 		if sessionID != "" {
 			session := l.getSession(sessionID)
-			if session != nil && len(session.MouseEvents) >= l.config.Biometric.MinEvents {
+			if session != nil && len(session.MouseEvents) >= cfg.Biometric.MinEvents {
 				bioAnalysis := l.biometricDetector.AnalyzeSession(session)
 				if bioAnalysis.IsBot {
 					totalScore += int(100 - bioAnalysis.HumanScore)
@@ -251,14 +260,14 @@ func (l *EnhancedLayer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	// Determine action
 	action := engine.ActionPass
 	if totalScore > 0 {
-		switch l.config.Mode {
+		switch cfg.Mode {
 		case "enforce":
 			switch {
 			case totalScore >= 80:
 				action = engine.ActionBlock
 			case totalScore >= 50:
 				// Challenge if CAPTCHA is configured
-				if l.config.Challenge.Enabled && l.challengeProvider != nil {
+				if cfg.Challenge.Enabled && l.challengeProvider != nil {
 					action = engine.ActionChallenge
 				} else {
 					action = engine.ActionLog

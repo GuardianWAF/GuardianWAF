@@ -112,7 +112,7 @@ func NewStore(dirPath string) *Store {
 	configFile := filepath.Join(dirPath, "ai_config.json")
 	if data, err := os.ReadFile(configFile); err == nil {
 		if unmarshalErr := json.Unmarshal(data, &s.data); unmarshalErr != nil {
-			fmt.Printf("[ai-store] warning: failed to parse %s: %v\n", configFile, unmarshalErr)
+			fmt.Printf("[ai-store] warning: failed to parse AI config: %v\n", unmarshalErr)
 		}
 	} else {
 		// First run — write empty config so file always exists

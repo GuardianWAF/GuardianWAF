@@ -16,6 +16,7 @@ type MemoryBackend struct {
 	size     int64      // Current size in bytes
 	mu       sync.RWMutex
 	stopCh   chan struct{}
+	wg       sync.WaitGroup
 }
 
 // cacheItem represents a cached item.
@@ -39,6 +40,7 @@ func NewMemoryBackend(maxSizeMB int) *MemoryBackend {
 	}
 
 	// Start cleanup goroutine
+	mb.wg.Add(1)
 	go mb.cleanupExpired()
 
 	return mb
@@ -190,12 +192,19 @@ func (mb *MemoryBackend) Clear(ctx context.Context) error {
 
 // Close stops the cleanup goroutine and clears the cache.
 func (mb *MemoryBackend) Close() error {
-	close(mb.stopCh)
+	select {
+	case <-mb.stopCh:
+		return nil
+	default:
+		close(mb.stopCh)
+	}
+	mb.wg.Wait()
 	return mb.Clear(context.Background())
 }
 
 // cleanupExpired periodically removes expired items.
 func (mb *MemoryBackend) cleanupExpired() {
+	defer mb.wg.Done()
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 

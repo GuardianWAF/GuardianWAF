@@ -2,6 +2,7 @@ package xxe
 
 import (
 	"strings"
+	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 )
@@ -40,8 +41,9 @@ func (d *Detector) Patterns() []string {
 // Process scans the request context for XXE patterns.
 // Only triggered when Content-Type contains "xml", "soap", or "rss".
 func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
+	start := time.Now()
 	if !d.enabled {
-		return engine.LayerResult{Action: engine.ActionPass}
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
 	// Only scan XML-like content types, but also scan if body looks like XML
@@ -50,7 +52,7 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 		body := strings.TrimSpace(ctx.BodyString)
 		if !strings.HasPrefix(body, "<?xml") && !strings.HasPrefix(body, "<!DOCTYPE") &&
 			!strings.HasPrefix(strings.ToLower(body), "<!doctype") {
-			return engine.LayerResult{Action: engine.ActionPass}
+			return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 		}
 	}
 
@@ -91,6 +93,7 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 		Action:   action,
 		Findings: allFindings,
 		Score:    totalScore,
+		Duration: time.Since(start),
 	}
 }
 

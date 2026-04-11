@@ -101,7 +101,9 @@ func (l *Layer) Cleanup(maxAge time.Duration) {
 // Process checks the request against all rate limit rules.
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	// Check if rate limiting is enabled (tenant config takes precedence)
+	l.mu.RLock()
 	enabled := l.config.Enabled
+	l.mu.RUnlock()
 	if ctx.TenantWAFConfig != nil && !ctx.TenantWAFConfig.RateLimit.Enabled {
 		enabled = false
 	}

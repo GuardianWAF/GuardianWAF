@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
+	"time"
 )
 
 // Layer provides WebSocket security as a WAF layer.
@@ -41,20 +42,24 @@ func (l *Layer) Name() string {
 // Process implements the layer interface.
 // Validates WebSocket handshake requests.
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
+	start := time.Now()
 	result := engine.LayerResult{
 		Action: engine.ActionPass,
 	}
 
 	if !l.config.Enabled || l.security == nil {
-		return result
+		result.Duration = time.Since(start)
+	return result
 	}
 	if ctx.TenantWAFConfig != nil && !ctx.TenantWAFConfig.WebSocket.Enabled {
-		return result
+		result.Duration = time.Since(start)
+	return result
 	}
 
 	// Check if this is a WebSocket upgrade request
 	if !isWebSocketUpgrade(ctx.Request) {
-		return result
+		result.Duration = time.Since(start)
+	return result
 	}
 
 	// Validate the handshake
@@ -67,7 +72,8 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 			Description:  fmt.Sprintf("Invalid WebSocket handshake: %v", err),
 			Severity:     engine.SeverityHigh,
 		})
-		return result
+		result.Duration = time.Since(start)
+	return result
 	}
 
 	// Check connection limit
@@ -81,9 +87,11 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 			Description:  fmt.Sprintf("Max concurrent WebSocket connections reached for IP: %s", ip),
 			Severity:     engine.SeverityMedium,
 		})
-		return result
+		result.Duration = time.Since(start)
+	return result
 	}
 
+	result.Duration = time.Since(start)
 	return result
 }
 

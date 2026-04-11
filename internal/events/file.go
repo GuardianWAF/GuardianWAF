@@ -31,6 +31,7 @@ type FileStore struct {
 	filePath string
 	maxSize  int64 // max file size before rotation
 	dropped  atomic.Int64 // count of dropped events
+	closed   bool // guard against double-close of ch
 }
 
 // NewFileStore creates a new FileStore that writes JSONL to the specified file.
@@ -96,6 +97,14 @@ func (fs *FileStore) Dropped() int64 {
 
 // Close stops the background writer, drains remaining events, flushes the buffer, and closes the file.
 func (fs *FileStore) Close() error {
+	fs.mu.Lock()
+	if fs.closed {
+		fs.mu.Unlock()
+		return nil
+	}
+	fs.closed = true
+	fs.mu.Unlock()
+
 	close(fs.ch)
 	<-fs.done // wait for writeLoop to finish
 
@@ -106,6 +115,7 @@ func (fs *FileStore) Close() error {
 		fs.file.Close()
 		return err
 	}
+	_ = fs.file.Sync()
 	return fs.file.Close()
 }
 
@@ -172,6 +182,9 @@ func (fs *FileStore) flush() {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 	fs.writer.Flush()
+	// Sync to OS to reduce data loss window on crash.
+	// Best-effort — ignore errors to avoid blocking the write loop.
+	_ = fs.file.Sync()
 }
 
 // checkRotation checks if the file exceeds maxSize and rotates if necessary.
@@ -188,7 +201,9 @@ func (fs *FileStore) checkRotation() {
 		return
 	}
 
-	fs.file.Close()
+	// Close current file before rename (required on Windows where open files cannot be renamed)
+	oldFile := fs.file
+	oldFile.Close()
 
 	// Rename current file with timestamp
 	ts := time.Now().Format("20060102-150405")
@@ -200,8 +215,8 @@ func (fs *FileStore) checkRotation() {
 	}
 	rotatedName := base + "-" + ts + ext
 	if renameErr := os.Rename(fs.filePath, rotatedName); renameErr != nil {
-		// If rename fails, continue with the current file
-		f, _ := os.OpenFile(fs.filePath, os.O_WRONLY|os.O_APPEND, 0o600)
+		// If rename fails, reopen the original file
+		f, _ := os.OpenFile(fs.filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 		if f != nil {
 			fs.file = f
 			fs.writer = bufio.NewWriterSize(f, 32*1024)
@@ -213,16 +228,21 @@ func (fs *FileStore) checkRotation() {
 	f, err := os.OpenFile(fs.filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		// If we can't create a new file, try to reopen with the rotated name
-		// This is a best-effort recovery
 		f, _ = os.OpenFile(rotatedName, os.O_WRONLY|os.O_APPEND, 0o600)
 	}
 	if f != nil {
 		fs.file = f
 		fs.writer = bufio.NewWriterSize(f, 32*1024)
+	} else {
+		// Both attempts failed -- reopen original path as last resort
+		f2, f2err := os.OpenFile(fs.filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+		if f2err == nil {
+			fs.file = f2
+			fs.writer = bufio.NewWriterSize(f2, 32*1024)
+		}
+		// If even that fails, fs.file/fs.writer are stale but writes just fail silently
 	}
-	// If f is nil, both attempts failed — keep previous file/writer to avoid panic
 
-	// Clean up old rotated files
 	fs.cleanupRotated(base, ext)
 }
 
@@ -230,8 +250,10 @@ func (fs *FileStore) checkRotation() {
 // Must be called with fs.mu held.
 func (fs *FileStore) cleanupRotated(base, ext string) {
 	dir := "."
-	if idx := strings.LastIndex(base, "/"); idx >= 0 {
+	// Use filepath.Separator for cross-platform compatibility
+	if idx := strings.LastIndexAny(base, "/\\"); idx >= 0 {
 		dir = base[:idx]
+		base = base[idx+1:]
 	}
 
 	entries, err := os.ReadDir(dir)
@@ -239,7 +261,7 @@ func (fs *FileStore) cleanupRotated(base, ext string) {
 		return
 	}
 
-	prefix := base[strings.LastIndex(base, "/")+1:] + "-"
+	prefix := base + "-"
 	var rotated []string
 	for _, e := range entries {
 		if e.IsDir() {
@@ -254,12 +276,8 @@ func (fs *FileStore) cleanupRotated(base, ext string) {
 	sort.Sort(sort.Reverse(sort.StringSlice(rotated)))
 
 	// Remove files beyond retention limit
-	dirPrefix := ""
-	if dir != "." {
-		dirPrefix = dir + "/"
-	}
 	for i := defaultMaxRotated; i < len(rotated); i++ {
-		_ = os.Remove(dirPrefix + rotated[i])
+		_ = os.Remove(dir + string(os.PathSeparator) + rotated[i])
 	}
 }
 

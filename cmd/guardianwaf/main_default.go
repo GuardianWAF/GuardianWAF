@@ -703,7 +703,7 @@ func generateDashboardPassword() string {
 // envForEntropy returns a small amount of process-specific data to mix into
 // fallback password generation. Not a replacement for CSPRNG.
 func envForEntropy() string {
-	return fmt.Sprintf("%d", time.Now().Nanosecond())
+	return fmt.Sprintf("%d", time.Now().UnixNano())
 }
 
 // --------------------------------------------------------------------------
@@ -779,10 +779,10 @@ func cmdServe(args []string) {
 				return
 			}
 			if cfg.Logging.Format == "json" {
-				fmt.Fprintf(os.Stdout, `{"ts":%q,"ip":%q,"method":%q,"path":%q,"status":%d,"action":%q,"score":%d,"dur_us":%s,"ua":%q,"findings":%d}`+"\n",
+				fmt.Fprintf(os.Stdout, `{"ts":%q,"ip":%q,"method":%q,"path":%q,"status":%d,"action":%q,"score":%d,"dur_us":%s,"ua":%q,"findings":%d,"request_id":%q}`+"\n",
 					entry.Timestamp, entry.ClientIP, entry.Method, entry.Path,
 					entry.StatusCode, entry.Action, entry.Score, entry.Duration,
-					entry.UserAgent, entry.Findings)
+					entry.UserAgent, entry.Findings, entry.RequestID)
 			} else {
 				fmt.Fprintf(os.Stdout, "%s %s %s %s %d %s score=%d dur=%sus findings=%d\n",
 					entry.Timestamp, sanitizeLogField(entry.ClientIP), entry.Method, sanitizeLogField(entry.Path),
@@ -848,6 +848,13 @@ func cmdServe(args []string) {
 	// Mount challenge verification endpoint
 	if challengeSvc != nil {
 		serveMux.Handle(challenge.VerifyPath, challengeSvc.VerifyHandler())
+	}
+
+	csReportHandler := clientside.NewReportHandler()
+	// Mount client-side report endpoints
+	if csReportHandler != nil {
+		serveMux.Handle("/_guardian/report", csReportHandler)
+		serveMux.HandleFunc("/_guardian/csp-report", csReportHandler.ServeCSPReport)
 	}
 
 	// Mount upstream proxy or default handler
@@ -916,7 +923,9 @@ func cmdServe(args []string) {
 					if err := os.MkdirAll(cfg.TLS.ACME.CacheDir, 0o700); err != nil {
 						fmt.Fprintf(os.Stderr, "Warning: failed to create ACME cache dir: %v\n", err)
 					} else {
-						_ = os.WriteFile(accountKeyPath, keyPEM, 0o600)
+						if err := os.WriteFile(accountKeyPath, keyPEM, 0o600); err != nil {
+							fmt.Fprintf(os.Stderr, "Warning: failed to write ACME account key: %v\n", err)
+						}
 					}
 				}
 				// Register account
@@ -1436,7 +1445,11 @@ func cmdServe(args []string) {
 	}
 
 	// 4. Stop cleanup goroutine
-	close(cleanupStop)
+	select {
+	case <-cleanupStop:
+	default:
+		close(cleanupStop)
+	}
 
 	// 5. Stop Docker watcher and AI analyzer
 	if dockerWatcher != nil {
@@ -1549,10 +1562,10 @@ func cmdSidecar(args []string) {
 				return
 			}
 			if cfg.Logging.Format == "json" {
-				fmt.Fprintf(os.Stdout, `{"ts":%q,"ip":%q,"method":%q,"path":%q,"status":%d,"action":%q,"score":%d,"dur_us":%s,"ua":%q,"findings":%d}`+"\n",
+				fmt.Fprintf(os.Stdout, `{"ts":%q,"ip":%q,"method":%q,"path":%q,"status":%d,"action":%q,"score":%d,"dur_us":%s,"ua":%q,"findings":%d,"request_id":%q}`+"\n",
 					entry.Timestamp, entry.ClientIP, entry.Method, entry.Path,
 					entry.StatusCode, entry.Action, entry.Score, entry.Duration,
-					entry.UserAgent, entry.Findings)
+					entry.UserAgent, entry.Findings, entry.RequestID)
 			} else {
 				fmt.Fprintf(os.Stdout, "%s %s %s %s %d %s score=%d dur=%sus findings=%d\n",
 					entry.Timestamp, sanitizeLogField(entry.ClientIP), entry.Method, sanitizeLogField(entry.Path),
@@ -1600,6 +1613,11 @@ func cmdSidecar(args []string) {
 		fmt.Fprintf(w, "# TYPE guardianwaf_latency_avg_microseconds gauge\n")
 		fmt.Fprintf(w, "guardianwaf_latency_avg_microseconds %d\n", s.AvgLatencyUs)
 	})
+
+	// Mount client-side report endpoints (sidecar)
+	csRH := clientside.NewReportHandler()
+	mux.Handle("/_guardian/report", csRH)
+	mux.HandleFunc("/_guardian/csp-report", csRH.ServeCSPReport)
 
 	var proxyHandler http.Handler
 	if len(cfg.Upstreams) > 0 && len(cfg.Routes) > 0 {
@@ -2439,6 +2457,7 @@ func addLayers(eng *engine.Engine, cfg *config.Config) {
 			Exclusions: cfg.WAF.ClientSide.Exclusions,
 		})
 		eng.AddLayer(engine.OrderedLayer{Layer: csLayer, Order: 590})
+
 		eng.Logs.Info("Client-side protection layer enabled")
 	}
 
@@ -3201,13 +3220,17 @@ func (a *mcpEngineAdapter) GetCRSRules(phase int, severity string) (any, error) 
 		"rules":   []any{},
 	}, nil
 }
-func (a *mcpEngineAdapter) EnableCRSRule(ruleID string, enabled bool) error { return nil }
+func (a *mcpEngineAdapter) EnableCRSRule(ruleID string, enabled bool) error {
+	return fmt.Errorf("not implemented: CRS rule management")
+}
 func (a *mcpEngineAdapter) SetParanoiaLevel(level int) error {
 	cfg := a.engine.Config()
 	cfg.WAF.CRS.ParanoiaLevel = level
 	return a.engine.Reload(cfg)
 }
-func (a *mcpEngineAdapter) AddCRSExclusion(ruleID, path, parameter, reason string) error { return nil }
+func (a *mcpEngineAdapter) AddCRSExclusion(ruleID, path, parameter, reason string) error {
+	return fmt.Errorf("not implemented: CRS exclusion management")
+}
 
 // New Feature Methods - Virtual Patch
 func (a *mcpEngineAdapter) GetVirtualPatches(severity string, activeOnly bool) (any, error) {
@@ -3216,11 +3239,15 @@ func (a *mcpEngineAdapter) GetVirtualPatches(severity string, activeOnly bool) (
 		"patches": []any{},
 	}, nil
 }
-func (a *mcpEngineAdapter) EnableVirtualPatch(patchID string, enabled bool) error { return nil }
-func (a *mcpEngineAdapter) AddCustomPatch(id, name, description, cveID, pattern, patternType, target, action, severity string, score int) error {
-	return nil
+func (a *mcpEngineAdapter) EnableVirtualPatch(patchID string, enabled bool) error {
+	return fmt.Errorf("not implemented: virtual patch management")
 }
-func (a *mcpEngineAdapter) UpdateCVEDatabase() error { return nil }
+func (a *mcpEngineAdapter) AddCustomPatch(id, name, description, cveID, pattern, patternType, target, action, severity string, score int) error {
+	return fmt.Errorf("not implemented: custom patch management")
+}
+func (a *mcpEngineAdapter) UpdateCVEDatabase() error {
+	return fmt.Errorf("not implemented: CVE database update")
+}
 
 // New Feature Methods - API Validation
 func (a *mcpEngineAdapter) GetAPISchemas() (any, error) {
@@ -3229,8 +3256,12 @@ func (a *mcpEngineAdapter) GetAPISchemas() (any, error) {
 		"schemas": []any{},
 	}, nil
 }
-func (a *mcpEngineAdapter) UploadAPISchema(name, content, format string, strictMode bool) error { return nil }
-func (a *mcpEngineAdapter) RemoveAPISchema(name string) error { return nil }
+func (a *mcpEngineAdapter) UploadAPISchema(name, content, format string, strictMode bool) error {
+	return fmt.Errorf("not implemented: API schema upload")
+}
+func (a *mcpEngineAdapter) RemoveAPISchema(name string) error {
+	return fmt.Errorf("not implemented: API schema removal")
+}
 func (a *mcpEngineAdapter) SetAPIValidationMode(validateRequest, validateResponse, strictMode, blockOnViolation *bool) error {
 	cfg := a.engine.Config()
 	if validateRequest != nil {
@@ -3275,7 +3306,9 @@ func (a *mcpEngineAdapter) SetClientSideMode(mode string, magecartDetection, age
 	}
 	return a.engine.Reload(cfg)
 }
-func (a *mcpEngineAdapter) AddSkimmingDomain(domain string) error { return nil }
+func (a *mcpEngineAdapter) AddSkimmingDomain(domain string) error {
+	return fmt.Errorf("not implemented: skimming domain management")
+}
 func (a *mcpEngineAdapter) GetCSPReports(limit int) (any, error) {
 	return map[string]any{"reports": []any{}}, nil
 }
@@ -3287,8 +3320,12 @@ func (a *mcpEngineAdapter) GetDLPAlerts(limit int, patternType string) (any, err
 		"alerts":  []any{},
 	}, nil
 }
-func (a *mcpEngineAdapter) AddDLPPattern(id, name, pattern, description, action string, score int) error { return nil }
-func (a *mcpEngineAdapter) RemoveDLPPattern(id string) error                                             { return nil }
+func (a *mcpEngineAdapter) AddDLPPattern(id, name, pattern, description, action string, score int) error {
+	return fmt.Errorf("not implemented: DLP pattern management")
+}
+func (a *mcpEngineAdapter) RemoveDLPPattern(id string) error {
+	return fmt.Errorf("not implemented: DLP pattern removal")
+}
 func (a *mcpEngineAdapter) TestDLPPattern(pattern, testData string) (any, error) {
 	return map[string]any{"matched": false, "matches": []any{}}, nil
 }

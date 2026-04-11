@@ -108,6 +108,14 @@ export const api = {
   regenerateApiKey: (id: string) =>
     request<{ api_key: string }>('/api/v1/tenants/' + id + '/apikey', { method: 'POST' }),
 
+  // Admin tenant management (backend at /api/admin/tenants)
+  adminGetTenants: () => request<{tenants: AdminTenant[]}>('/api/admin/tenants'),
+  adminGetTenant: (id: string) => request<any>('/api/admin/tenants/' + id),
+  adminCreateTenant: (data: any) => request<{tenant: any, api_key: string}>('/api/admin/tenants', { method: 'POST', body: JSON.stringify(data) }),
+  adminUpdateTenant: (id: string, data: any) => request<any>('/api/admin/tenants/' + id, { method: 'PUT', body: JSON.stringify(data) }),
+  adminDeleteTenant: (id: string) => request<void>('/api/admin/tenants/' + id, { method: 'DELETE' }),
+  adminRegenerateKey: (id: string) => request<{api_key: string}>('/api/admin/tenants/' + id + '/regenerate-key', { method: 'POST', body: JSON.stringify({}) }),
+
   // Cluster Sync
   getClusters: () => request<Cluster[]>('/api/clusters'),
   getCluster: (id: string) => request<Cluster>('/api/clusters/' + id),
@@ -361,6 +369,20 @@ export interface Tenant {
   updated_at: string
   plan?: string
   quota?: ResourceQuota
+}
+
+export interface AdminTenant {
+  id: string
+  name: string
+  email: string
+  status: 'active' | 'suspended' | 'trial' | 'expired'
+  plan: 'free' | 'basic' | 'pro' | 'enterprise'
+  domains: string[]
+  created_at: string
+  usage: {
+    requests_this_month: number
+    blocked_requests: number
+  }
 }
 
 export interface ResourceQuota {

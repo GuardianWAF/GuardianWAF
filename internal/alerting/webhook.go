@@ -53,6 +53,9 @@ type Manager struct {
 	httpClient   *http.Client
 	logFn        func(level, msg string)
 
+	// Semaphore to limit concurrent webhook/email goroutines
+	sem chan struct{}
+
 	// Stats
 	sent   atomic.Int64
 	failed atomic.Int64
@@ -78,6 +81,7 @@ func NewManager(targets []WebhookTarget) *Manager {
 	m := &Manager{
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 		logFn:      func(_, _ string) {},
+		sem:        make(chan struct{}, 32), // max 32 concurrent webhook/email sends
 	}
 
 	for _, t := range targets {
@@ -182,8 +186,16 @@ func (m *Manager) HandleEvent(event *engine.Event) {
 			wh.lastFire.Store(event.ClientIP, time.Now())
 		}
 
-		// Fire async
-		go m.send(&wh.config, &alert)
+		// Fire async with concurrency limit
+		select {
+		case m.sem <- struct{}{}:
+			go func(wc *WebhookTarget, a *Alert) {
+				defer func() { <-m.sem }()
+				m.send(wc, a)
+			}(&wh.config, &alert)
+		default:
+			m.failed.Add(1)
+		}
 	}
 
 	// Prune stale cooldown entries per webhook (keep last 1000)
@@ -509,6 +521,7 @@ func (m *Manager) TestAlert(targetName string) error {
 				Score:     testAlert.Score,
 				UserAgent: testAlert.UserAgent,
 			}
+			m.mu.RUnlock()
 			m.SendEmail(et, &event)
 			return nil
 		}
@@ -528,14 +541,36 @@ func ValidateWebhookURL(rawURL string) error {
 	if u.Scheme != "https" {
 		return fmt.Errorf("webhook URL must use HTTPS, got %q", u.Scheme)
 	}
-	host := u.Hostname()
-	if host == "localhost" || strings.HasSuffix(host, ".internal") {
-		return fmt.Errorf("webhook URL must not target localhost or internal hosts")
+	return validateHostNotPrivate(u.Hostname())
+}
+
+// validateHostNotPrivate checks that a hostname does not resolve to a
+// private, loopback, or link-local IP address. Protects against both
+// direct IP and DNS rebinding attacks.
+func validateHostNotPrivate(host string) error {
+	if host == "localhost" || strings.HasSuffix(host, ".internal") || strings.HasSuffix(host, ".local") {
+		return fmt.Errorf("must not target localhost or internal hosts")
 	}
-	ip := net.ParseIP(host)
-	if ip != nil {
+	// Check if host is already a raw IP
+	if ip := net.ParseIP(host); ip != nil {
 		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
-			return fmt.Errorf("webhook URL must not target private/loopback/link-local addresses")
+			return fmt.Errorf("must not target private/loopback/link-local addresses")
+		}
+		return nil
+	}
+	// Hostname — resolve DNS and check all resulting IPs (prevents DNS rebinding)
+	addrs, err := net.LookupHost(host)
+	if err != nil {
+		// If DNS resolution fails, allow through — will fail at connection time
+		return nil
+	}
+	for _, addr := range addrs {
+		ip := net.ParseIP(addr)
+		if ip == nil {
+			continue
+		}
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+			return fmt.Errorf("hostname resolves to private/loopback address %s", ip)
 		}
 	}
 	return nil

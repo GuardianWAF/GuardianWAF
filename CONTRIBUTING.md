@@ -2,7 +2,7 @@
 
 ## Development Setup
 1. Clone the repository
-2. Ensure Go 1.23+ is installed
+2. Ensure Go 1.25+ is installed
 3. Run `make test` to verify everything works
 
 ## Guidelines
@@ -22,4 +22,4 @@
 - Use `gofumpt` for formatting
 - Use `any` instead of `interface{}`
 - Use built-in `min`/`max` functions
-- Use `range N` for simple loops (Go 1.22+)
+- Use `range N` for simple loops (Go 1.25+)

@@ -2,6 +2,7 @@ package dlp
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 )
@@ -23,11 +24,12 @@ func NewEngineLayer(cfg *Config) *EngineLayer {
 // Note: DLP is typically applied to request/response bodies, so this
 // processes the request context and adds findings if PII is detected.
 func (el *EngineLayer) Process(ctx *engine.RequestContext) engine.LayerResult {
+	start := time.Now()
 	if !el.config.Enabled {
-		return engine.LayerResult{Action: engine.ActionPass}
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 	if ctx.TenantWAFConfig != nil && !ctx.TenantWAFConfig.DLP.Enabled {
-		return engine.LayerResult{Action: engine.ActionPass}
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
 	// Scan request body if present
@@ -37,7 +39,9 @@ func (el *EngineLayer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		if len(contentType) > 0 && el.config.ScanFileUploads {
 			result, err := el.Layer.ScanFileUploads(ctx.Body, contentType[0])
 			if err == nil && !result.Safe {
-				return el.handleScanResult(ctx, result, "file_upload")
+				r := el.handleScanResult(ctx, result, "file_upload")
+				r.Duration = time.Since(start)
+				return r
 			}
 		}
 
@@ -48,7 +52,9 @@ func (el *EngineLayer) Process(ctx *engine.RequestContext) engine.LayerResult {
 			}
 			result := el.scanContent(body)
 		if !result.Safe {
-			return el.handleScanResult(ctx, result, "body")
+			r := el.handleScanResult(ctx, result, "body")
+			r.Duration = time.Since(start)
+			return r
 		}
 	}
 

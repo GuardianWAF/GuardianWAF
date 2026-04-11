@@ -59,6 +59,7 @@ type AccessLogEntry struct {
 	Duration   string `json:"duration_us"`
 	UserAgent  string `json:"user_agent"`
 	Findings   int    `json:"findings"`
+	RequestID  string `json:"request_id"`
 }
 
 // TenantContext holds tenant information for request isolation.
@@ -167,11 +168,15 @@ func NewEngine(cfg *config.Config, eventStore EventStorer, eventBus EventPublish
 
 // SetChallengeService injects the JS challenge service into the engine.
 func (e *Engine) SetChallengeService(svc ChallengeChecker) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	e.challengeSvc = svc
 }
 
 // SetAccessLog sets a callback for structured access logging.
 func (e *Engine) SetAccessLog(fn AccessLogFunc) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	e.accessLogFn = fn
 }
 
@@ -274,6 +279,12 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 			}
 		}()
 
+		// Snapshot challenge service and access log under read lock
+		e.mu.RLock()
+		challengeSvc := e.challengeSvc
+		accessLogFn := e.accessLogFn
+		e.mu.RUnlock()
+
 		// Acquire context and run pipeline (inline, not via Check,
 		// so we can access metadata before the context is released)
 		ctx := AcquireContext(r, e.paranoiaLevel, e.maxBodySize)
@@ -308,8 +319,8 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 		}
 
 		// If challenge, check for valid cookie first — if present, downgrade to pass
-		if finalAction == ActionChallenge && e.challengeSvc != nil {
-			if e.challengeSvc.HasValidCookie(r, ctx.ClientIP) {
+		if finalAction == ActionChallenge && challengeSvc != nil {
+			if challengeSvc.HasValidCookie(r, ctx.ClientIP) {
 				finalAction = ActionPass
 			}
 		}
@@ -363,8 +374,8 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 		e.eventBus.Publish(event)
 
 		// Structured access log
-		if e.accessLogFn != nil {
-			e.accessLogFn(AccessLogEntry{
+		if accessLogFn != nil {
+			accessLogFn(AccessLogEntry{
 				Timestamp:  event.Timestamp.Format("2006-01-02T15:04:05.000Z07:00"),
 				ClientIP:   event.ClientIP,
 				Method:     event.Method,
@@ -375,6 +386,7 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 				Duration:   fmt.Sprintf("%d", result.Duration.Microseconds()),
 				UserAgent:  event.UserAgent,
 				Findings:   len(result.Findings),
+				RequestID:  event.RequestID,
 			})
 		}
 
@@ -389,8 +401,8 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 			_, _ = w.Write([]byte(blockPage(event.RequestID, event.Score)))
 			return
 		case ActionChallenge:
-			if e.challengeSvc != nil {
-				e.challengeSvc.ServeChallengePage(w, r)
+			if challengeSvc != nil {
+				challengeSvc.ServeChallengePage(w, r)
 				return
 			}
 			// Fallback if no challenge service: block

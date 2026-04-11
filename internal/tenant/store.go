@@ -55,7 +55,7 @@ func (s *Store) Init() error {
 	defer s.mu.Unlock()
 
 	// Create directory if not exists
-	if err := os.MkdirAll(s.basePath, 0755); err != nil {
+	if err := os.MkdirAll(s.basePath, 0o700); err != nil {
 		return fmt.Errorf("creating tenant directory: %w", err)
 	}
 

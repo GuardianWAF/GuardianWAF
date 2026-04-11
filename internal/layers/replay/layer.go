@@ -57,18 +57,19 @@ func (l *Layer) Order() int {
 
 // Process implements the layer interface.
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
+	start := time.Now()
 	if !l.config.Enabled || l.recorder == nil {
-		return engine.LayerResult{Action: engine.ActionPass}
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
 	// Tenant-level override
 	if ctx.TenantWAFConfig != nil && !ctx.TenantWAFConfig.Replay.Enabled {
-		return engine.LayerResult{Action: engine.ActionPass}
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
 	// Store request for async recording
 	// Actual recording happens in response phase via RecordResponse
-	return engine.LayerResult{Action: engine.ActionPass}
+	return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 }
 
 // RecordResponse captures the complete request/response cycle.
@@ -210,6 +211,9 @@ func (m *Manager) GetReplayStats() ReplayStats {
 
 // Close closes the manager.
 func (m *Manager) Close() error {
+	if m.replayer != nil {
+		m.replayer.Stop()
+	}
 	if m.recorder != nil {
 		return m.recorder.Close()
 	}

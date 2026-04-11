@@ -191,7 +191,10 @@ func (p *Proxy) handleGRPC(w http.ResponseWriter, r *http.Request, targetURL str
 	w.WriteHeader(resp.StatusCode)
 
 	// Copy response body
-	n, _ := io.Copy(w, resp.Body)
+	n, err := io.Copy(w, resp.Body)
+	if err != nil {
+		p.recordError()
+	}
 	p.recordTraffic(int64(n), 0)
 }
 

@@ -89,6 +89,7 @@ type Engine struct {
 	stats     Stats
 	statsMu   sync.RWMutex
 	stopCh    chan struct{}
+	wg       sync.WaitGroup
 }
 
 // NewEngine creates a new remediation engine.
@@ -111,6 +112,7 @@ func NewEngine(cfg *Config) (*Engine, error) {
 	}
 
 	// Start background tasks
+	e.wg.Add(1)
 	go e.cleanupLoop()
 
 	return e, nil
@@ -407,6 +409,7 @@ func (e *Engine) isDailyLimitReached() bool {
 
 // cleanupLoop periodically cleans up expired rules.
 func (e *Engine) cleanupLoop() {
+	defer e.wg.Done()
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
 
@@ -461,7 +464,13 @@ func (e *Engine) saveRule(rule *GeneratedRule) error {
 
 // Stop stops the remediation engine.
 func (e *Engine) Stop() {
-	close(e.stopCh)
+	select {
+	case <-e.stopCh:
+		return
+	default:
+		close(e.stopCh)
+	}
+	e.wg.Wait()
 }
 
 // Helper functions

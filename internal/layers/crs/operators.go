@@ -1,6 +1,7 @@
 package crs
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"regexp"
@@ -32,14 +33,21 @@ func matchWithTimeout(re *regexp.Regexp, s string) []string {
 		submatches []string
 	}
 	done := make(chan result, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	go func() {
-		done <- result{submatches: re.FindStringSubmatch(s)}
+		matches := re.FindStringSubmatch(s)
+		select {
+		case <-ctx.Done():
+			return
+		case done <- result{submatches: matches}:
+		}
 	}()
 	select {
 	case r := <-done:
 		return r.submatches
 	case <-time.After(regexExecutionTimeout):
-		return nil // Timeout — treat as non-match to fail open safely
+		return nil // cancel() ensures goroutine can exit via ctx.Done()
 	}
 }
 

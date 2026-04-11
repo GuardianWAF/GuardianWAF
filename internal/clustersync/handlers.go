@@ -113,8 +113,16 @@ func (h *Handler) handleEvents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get events from all handlers
-	events := make([]*SyncEvent, 0)
+	// Snapshot handlers under lock to avoid data race
+	h.manager.mu.RLock()
+	handlers := make([]SyncHandler, 0, len(h.manager.handlers))
 	for _, handler := range h.manager.handlers {
+		handlers = append(handlers, handler)
+	}
+	h.manager.mu.RUnlock()
+
+	events := make([]*SyncEvent, 0)
+	for _, handler := range handlers {
 		if h, ok := handler.(interface {
 			List(since time.Time) ([]*SyncEvent, error)
 		}); ok {

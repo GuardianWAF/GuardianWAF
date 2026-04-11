@@ -38,12 +38,18 @@ type DomainRepConfig struct {
 	CheckRedirects bool `yaml:"check_redirects"`
 }
 
+// cidrEntry holds a pre-parsed CIDR network with its threat info.
+type cidrEntry struct {
+	network *net.IPNet
+	info    *ThreatInfo
+}
+
 // Layer implements engine.Layer for threat intelligence.
 type Layer struct {
 	config      Config
 	ipCache     *Cache
 	domainCache *Cache
-	cidrCache   map[string]*ThreatInfo // CIDR prefixes for lookup
+	cidrCache   []cidrEntry // pre-parsed CIDR ranges for lookup
 	feeds       []*FeedManager
 	mu          sync.RWMutex
 	started     bool
@@ -65,7 +71,7 @@ func NewLayer(cfg *Config) (*Layer, error) {
 		config:      *cfg,
 		ipCache:     NewCache(cacheSize, cacheTTL),
 		domainCache: NewCache(cacheSize/10, cacheTTL),
-		cidrCache:   make(map[string]*ThreatInfo),
+		cidrCache:   make([]cidrEntry, 0),
 	}
 
 	// Initialize feed managers
@@ -118,13 +124,15 @@ func (l *Layer) Stop() {
 
 // Process checks IP and domain reputation.
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
+	start := time.Now()
+
 	// Check if threat intel is enabled (tenant config takes precedence)
 	enabled := l.config.Enabled
 	if ctx.TenantWAFConfig != nil && !ctx.TenantWAFConfig.ThreatIntel.Enabled {
 		enabled = false
 	}
 	if !enabled {
-		return engine.LayerResult{Action: engine.ActionPass}
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
 	var findings []engine.Finding
@@ -146,7 +154,8 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 							MatchedValue: ctx.ClientIP.String(),
 							Location:     "ip",
 						}},
-						Score: info.Score,
+						Score:    info.Score,
+						Duration: time.Since(start),
 					}
 				}
 				findings = append(findings, engine.Finding{
@@ -201,10 +210,11 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 			Action:   engine.ActionPass,
 			Findings: findings,
 			Score:    totalScore,
+			Duration: time.Since(start),
 		}
 	}
 
-	return engine.LayerResult{Action: engine.ActionPass}
+	return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 }
 
 // checkIP looks up an IP in the cache and CIDR ranges.
@@ -216,18 +226,13 @@ func (l *Layer) checkIP(ip net.IP) (*ThreatInfo, bool) {
 		return info, true
 	}
 
-	// Check CIDR ranges
+	// Check CIDR ranges (pre-parsed networks, no per-request parsing)
 	l.mu.RLock()
-	for cidr, info := range l.cidrCache {
-		_, network, err := net.ParseCIDR(cidr)
-		if err != nil {
-			continue
-		}
-		if network.Contains(ip) {
+	for _, entry := range l.cidrCache {
+		if entry.network.Contains(ip) {
 			l.mu.RUnlock()
-			// Cache the result for this specific IP
-			l.ipCache.Set(ipStr, info)
-			return info, true
+			l.ipCache.Set(ipStr, entry.info)
+			return entry.info, true
 		}
 	}
 	l.mu.RUnlock()
@@ -265,6 +270,9 @@ func (l *Layer) updateEntries(entries []ThreatEntry) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
+	// Rebuild cidrCache from scratch to evict stale entries
+	l.cidrCache = make([]cidrEntry, 0, len(entries))
+
 	for _, e := range entries {
 		if e.Info == nil {
 			continue
@@ -274,7 +282,10 @@ func (l *Layer) updateEntries(entries []ThreatEntry) {
 			l.ipCache.Set(e.IP, e.Info)
 		}
 		if e.CIDR != "" {
-			l.cidrCache[e.CIDR] = e.Info
+			_, network, err := net.ParseCIDR(e.CIDR)
+			if err == nil {
+				l.cidrCache = append(l.cidrCache, cidrEntry{network: network, info: e.Info})
+			}
 		}
 		if e.Domain != "" {
 			l.domainCache.Set(strings.ToLower(e.Domain), e.Info)

@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
+	"time"
 )
 
 // Pre-compiled regex for OpenAPI path parameter replacement.
@@ -350,14 +351,15 @@ func (l *Layer) getAdditionalProperties(schema *Schema) bool {
 
 // Process validates the request against OpenAPI schemas.
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
+	start := time.Now()
 	l.mu.RLock()
 	enabled := l.enabled
 	l.mu.RUnlock()
 	if !enabled || !l.config.ValidateRequest {
-		return engine.LayerResult{Action: engine.ActionPass}
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 	if ctx.TenantWAFConfig != nil && !ctx.TenantWAFConfig.APIValidation.Enabled {
-		return engine.LayerResult{Action: engine.ActionPass}
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
 	l.mu.RLock()
@@ -379,7 +381,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 				},
 			}
 		}
-		return engine.LayerResult{Action: engine.ActionPass}
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
 	// Find matching route
@@ -399,7 +401,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 				},
 			}
 		}
-		return engine.LayerResult{Action: engine.ActionPass}
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
 	// Validate request

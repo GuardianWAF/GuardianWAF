@@ -58,20 +58,22 @@ func (l *Layer) SetEnabled(enabled bool) {
 
 // Process analyzes requests for client-side threats and registers response hooks.
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
+	start := time.Now()
+
 	l.mu.RLock()
 	enabled := l.enabled
 	l.mu.RUnlock()
 	if !enabled {
-		return engine.LayerResult{Action: engine.ActionPass}
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 	if ctx.TenantWAFConfig != nil && !ctx.TenantWAFConfig.ClientSide.Enabled {
-		return engine.LayerResult{Action: engine.ActionPass}
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
 	// Check exclusions
 	for _, path := range l.config.Exclusions {
 		if strings.HasPrefix(ctx.Path, path) {
-			return engine.LayerResult{Action: engine.ActionPass}
+			return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 		}
 	}
 
@@ -105,7 +107,8 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	}
 
 	return engine.LayerResult{
-		Action: engine.ActionPass,
+		Action:   engine.ActionPass,
+		Duration: time.Since(start),
 	}
 }
 
@@ -305,21 +308,22 @@ func (l *Layer) InjectAgent(body []byte) []byte {
 	// Generate agent script
 	agentScript := l.generateAgentScript()
 
-	// Inject based on position
+	// Inject based on position (case-insensitive tag matching)
+	lower := strings.ToLower(bodyStr)
 	switch l.config.AgentInjection.InjectPosition {
 	case "head":
 		// Inject before </head>
-		if idx := strings.Index(bodyStr, "</head>"); idx != -1 {
+		if idx := strings.Index(lower, "</head>"); idx != -1 {
 			return []byte(bodyStr[:idx] + agentScript + bodyStr[idx:])
 		}
 	case "body-end":
 		// Inject before </body>
-		if idx := strings.Index(bodyStr, "</body>"); idx != -1 {
+		if idx := strings.Index(lower, "</body>"); idx != -1 {
 			return []byte(bodyStr[:idx] + agentScript + bodyStr[idx:])
 		}
 	default:
 		// Default: inject after <head> or at start of <body>
-		if idx := strings.Index(bodyStr, "<head>"); idx != -1 {
+		if idx := strings.Index(lower, "<head>"); idx != -1 {
 			headEnd := idx + len("<head>")
 			return []byte(bodyStr[:headEnd] + agentScript + bodyStr[headEnd:])
 		}
@@ -336,6 +340,7 @@ func (l *Layer) generateAgentScript() string {
 	}
 
 	script := `<script data-guardian="security-agent">(function(){`
+		script += `function gwafReport(type,data){try{fetch("/_guardian/report",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:type,data:data,url:location.href,ts:Date.now()})}).catch(function(){});}catch(e){}}`
 
 	// DOM monitoring
 	if l.config.AgentInjection.MonitorDOM {
@@ -345,7 +350,7 @@ func (l *Layer) generateAgentScript() string {
 				if (mutation.type === 'childList') {
 					mutation.addedNodes.forEach(function(node) {
 						if (node.tagName === 'SCRIPT') {
-							console.log('[GuardianWAF] Script injected:', node.src || 'inline');
+							gwafReport('script_injected', {src: node.src || 'inline'});
 						}
 					});
 				}
@@ -360,7 +365,7 @@ func (l *Layer) generateAgentScript() string {
 		script += `
 		document.querySelectorAll('form').forEach(function(form) {
 			form.addEventListener('submit', function(e) {
-				console.log('[GuardianWAF] Form submit:', form.action);
+				gwafReport('form_submit', {action: form.action, method: form.method});
 			});
 		});
 		`
@@ -371,13 +376,13 @@ func (l *Layer) generateAgentScript() string {
 		script += `
 		var originalFetch = window.fetch;
 		window.fetch = function(...args) {
-			console.log('[GuardianWAF] Fetch:', args[0]);
+			gwafReport('fetch', {url: String(args[0])});
 			return originalFetch.apply(this, args);
 		};
 		if (window.XMLHttpRequest) {
 			var originalXHROpen = XMLHttpRequest.prototype.open;
 			XMLHttpRequest.prototype.open = function(...args) {
-				console.log('[GuardianWAF] XHR:', args[1]);
+				gwafReport('xhr', {method: args[0], url: args[1]});
 				return originalXHROpen.apply(this, args);
 			};
 		}

@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -25,6 +26,10 @@ type DB struct {
 	mu     sync.RWMutex
 	ranges []ipRange
 }
+
+// testAllowPrivate allows tests to bypass SSRF URL validation for httptest servers.
+// Must never be set to true in production code.
+var testAllowPrivate bool
 
 type ipRange struct {
 	start   uint32
@@ -186,11 +191,13 @@ func (db *DB) StartAutoRefresh(path, downloadURL string, interval time.Duration)
 			case <-ticker.C:
 				// Try to download fresh data
 				if downloadURL != "" {
-					if err := downloadDB(downloadURL, path); err == nil {
-						_ = db.Reload(path)
+					if err := downloadDB(downloadURL, path); err != nil {
+						fmt.Printf("[WARN] GeoIP download failed: %v\n", err)
+					} else if err := db.Reload(path); err != nil {
+						fmt.Printf("[WARN] GeoIP reload after download failed: %v\n", err)
 					}
-				} else {
-					_ = db.Reload(path)
+				} else if err := db.Reload(path); err != nil {
+					fmt.Printf("[WARN] GeoIP reload failed: %v\n", err)
 				}
 			case <-stop:
 				return
@@ -208,8 +215,11 @@ func CountryName(code string) string {
 	return code
 }
 
-// AutoDownloadURL is the default URL for DB-IP Lite (free, no license key needed).
-const AutoDownloadURL = "https://download.db-ip.com/free/dbip-country-lite-2025-03.csv.gz"
+// autoDownloadURL returns the DB-IP Lite download URL for the current month.
+func autoDownloadURL() string {
+	return fmt.Sprintf("https://download.db-ip.com/free/dbip-country-lite-%s.csv.gz",
+		time.Now().Format("2006-01"))
+}
 
 // LoadOrDownload tries to load from path. If file doesn't exist or is older than
 // maxAge, downloads from the given URL (or AutoDownloadURL if empty).
@@ -227,7 +237,7 @@ func LoadOrDownload(path, downloadURL string, maxAge time.Duration) (*DB, error)
 
 	// Download
 	if downloadURL == "" {
-		downloadURL = AutoDownloadURL
+		downloadURL = autoDownloadURL()
 	}
 
 	if err := downloadDB(downloadURL, path); err != nil {
@@ -241,22 +251,37 @@ func LoadOrDownload(path, downloadURL string, maxAge time.Duration) (*DB, error)
 	return LoadCSV(path)
 }
 
+// geoipDownloadClient is a shared HTTP client for GeoIP database downloads.
+var geoipDownloadClient = &http.Client{Timeout: 60 * time.Second}
+
 // downloadDB downloads a GeoIP CSV (optionally gzipped) from URL to path.
-func downloadDB(url, path string) error {
-	client := &http.Client{Timeout: 60 * time.Second}
+func downloadDB(downloadURL, path string) error {
+	// SSRF protection: reject URLs targeting private/loopback addresses
+	if !testAllowPrivate {
+		if err := validateURLNotPrivate(downloadURL); err != nil {
+			return fmt.Errorf("download URL rejected: %w", err)
+		}
+	}
+
+	// Warn on non-HTTPS download URLs
+	if strings.HasPrefix(downloadURL, "http://") {
+		fmt.Printf("WARNING: GeoIP download URL is not HTTPS: %s (data may be tampered with in transit)\n", downloadURL)
+	}
+
 	ctx := context.Background()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, http.NoBody)
 	if err != nil {
 		return err
 	}
-	resp, err := client.Do(req)
+	resp, err := geoipDownloadClient.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("HTTP %d from %s", resp.StatusCode, url)
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return fmt.Errorf("HTTP %d from %s", resp.StatusCode, downloadURL)
 	}
 
 	// Ensure parent directory exists
@@ -277,7 +302,7 @@ func downloadDB(url, path string) error {
 	var reader io.Reader = io.LimitReader(resp.Body, maxDownloadSize)
 
 	// Auto-detect gzip by URL suffix or Content-Type
-	if strings.HasSuffix(url, ".gz") || strings.Contains(resp.Header.Get("Content-Type"), "gzip") {
+	if strings.HasSuffix(downloadURL, ".gz") || strings.Contains(resp.Header.Get("Content-Type"), "gzip") {
 		gz, gzErr := gzip.NewReader(reader)
 		if gzErr != nil {
 			return fmt.Errorf("gzip decode: %w", gzErr)
@@ -291,6 +316,26 @@ func downloadDB(url, path string) error {
 }
 
 // --- Helpers ---
+
+// validateURLNotPrivate checks that a URL does not resolve to a private,
+// loopback, or link-local IP address (SSRF prevention).
+func validateURLNotPrivate(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+	host := u.Hostname()
+	if host == "localhost" || strings.HasSuffix(host, ".internal") || strings.HasSuffix(host, ".local") {
+		return fmt.Errorf("must not target localhost or internal hosts")
+	}
+	ip := net.ParseIP(host)
+	if ip != nil {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+			return fmt.Errorf("must not target private/loopback/link-local addresses")
+		}
+	}
+	return nil
+}
 
 func ipToUint32(ip net.IP) uint32 {
 	v4 := ip.To4()

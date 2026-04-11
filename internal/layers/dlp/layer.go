@@ -7,16 +7,19 @@ import (
 	"mime/multipart"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 )
 
 // Layer provides DLP scanning for request and response bodies.
 type Layer struct {
-	registry    *PatternRegistry
-	config      *Config
-	scanRequest bool
+	registry     *PatternRegistry
+	config       *Config
+	scanRequest  bool
 	scanResponse bool
+	mu           sync.RWMutex
 }
 
 // Config for DLP layer.
@@ -123,17 +126,27 @@ func (l *Layer) Order() int {
 	return 550
 }
 
+// snapshotConfig returns a copy of the current config under RLock.
+func (l *Layer) snapshotConfig() Config {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return *l.config
+}
+
 // Process implements the engine.Layer interface.
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
-	if !l.config.Enabled {
-		return engine.LayerResult{Action: engine.ActionPass}
+	start := time.Now()
+	cfg := l.snapshotConfig()
+	if !cfg.Enabled {
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 	if ctx.TenantWAFConfig != nil && !ctx.TenantWAFConfig.DLP.Enabled {
-		return engine.LayerResult{Action: engine.ActionPass}
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
 	result := engine.LayerResult{
-		Action: engine.ActionPass,
+		Action:   engine.ActionPass,
+		Duration: time.Since(start),
 	}
 
 	// Scan request if enabled and request body exists
@@ -152,7 +165,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 					Location:     "body",
 				})
 			}
-			if l.config.BlockOnMatch {
+			if cfg.BlockOnMatch {
 				result.Action = engine.ActionBlock
 			}
 		}
@@ -191,7 +204,8 @@ func severityScore(s Severity) int {
 
 // ScanRequest scans an HTTP request body for sensitive data.
 func (l *Layer) ScanRequest(r *http.Request) (*ScanResult, error) {
-	if !l.config.Enabled || !l.scanRequest {
+	cfg := l.snapshotConfig()
+	if !cfg.Enabled || !l.scanRequest {
 		return &ScanResult{Safe: true}, nil
 	}
 
@@ -202,7 +216,7 @@ func (l *Layer) ScanRequest(r *http.Request) (*ScanResult, error) {
 	}
 
 	// Read body
-	body, err := io.ReadAll(io.LimitReader(r.Body, int64(l.config.MaxBodySize)))
+	body, err := io.ReadAll(io.LimitReader(r.Body, int64(cfg.MaxBodySize)))
 	if err != nil {
 		return nil, err
 	}
@@ -218,7 +232,8 @@ func (l *Layer) ScanRequest(r *http.Request) (*ScanResult, error) {
 
 // ScanResponse scans an HTTP response body for sensitive data.
 func (l *Layer) ScanResponse(body []byte, contentType string) (*ScanResult, []byte) {
-	if !l.config.Enabled || !l.scanResponse {
+	cfg := l.snapshotConfig()
+	if !cfg.Enabled || !l.scanResponse {
 		return &ScanResult{Safe: true}, body
 	}
 
@@ -226,7 +241,7 @@ func (l *Layer) ScanResponse(body []byte, contentType string) (*ScanResult, []by
 		return &ScanResult{Safe: true}, body
 	}
 
-	if len(body) > l.config.MaxBodySize {
+	if len(body) > cfg.MaxBodySize {
 		// Body too large, skip scanning
 		return &ScanResult{Safe: true}, body
 	}
@@ -234,7 +249,7 @@ func (l *Layer) ScanResponse(body []byte, contentType string) (*ScanResult, []by
 	result := l.scanContent(string(body))
 
 	// Mask response if configured
-	if l.config.MaskResponse && len(result.Matches) > 0 {
+	if cfg.MaskResponse && len(result.Matches) > 0 {
 		masked := l.maskContent(string(body), result.Matches)
 		return result, []byte(masked)
 	}
@@ -339,7 +354,8 @@ func (l *Layer) AddCustomPattern(name string, pattern *Pattern) {
 
 // ScanFileUploads scans multipart file uploads for sensitive content.
 func (l *Layer) ScanFileUploads(body []byte, contentType string) (*ScanResult, error) {
-	if !l.config.Enabled || !l.config.ScanFileUploads {
+	cfg := l.snapshotConfig()
+	if !cfg.Enabled || !cfg.ScanFileUploads {
 		return &ScanResult{Safe: true}, nil
 	}
 
@@ -373,7 +389,7 @@ func (l *Layer) ScanFileUploads(body []byte, contentType string) (*ScanResult, e
 		}
 
 		// Check file type restrictions
-		if l.config.BlockExecutableFiles && isExecutableFile(filename) {
+		if cfg.BlockExecutableFiles && isExecutableFile(filename) {
 			allMatches = append(allMatches, Match{
 				Type:     PatternCustom,
 				Severity: SeverityHigh,
@@ -384,7 +400,7 @@ func (l *Layer) ScanFileUploads(body []byte, contentType string) (*ScanResult, e
 			continue
 		}
 
-		if l.config.BlockArchiveFiles && isArchiveFile(filename) {
+		if cfg.BlockArchiveFiles && isArchiveFile(filename) {
 			allMatches = append(allMatches, Match{
 				Type:     PatternCustom,
 				Severity: SeverityMedium,
@@ -395,7 +411,7 @@ func (l *Layer) ScanFileUploads(body []byte, contentType string) (*ScanResult, e
 			continue
 		}
 
-		if l.config.BlockDangerousWebExtensions && isDangerousWebFile(filename) {
+		if cfg.BlockDangerousWebExtensions && isDangerousWebFile(filename) {
 			allMatches = append(allMatches, Match{
 				Type:     PatternCustom,
 				Severity: SeverityHigh,
@@ -407,12 +423,12 @@ func (l *Layer) ScanFileUploads(body []byte, contentType string) (*ScanResult, e
 		}
 
 		// Read file content
-		partData, err := io.ReadAll(io.LimitReader(part, l.config.MaxFileSize+1))
+		partData, err := io.ReadAll(io.LimitReader(part, cfg.MaxFileSize+1))
 		if err != nil {
 			continue
 		}
 
-		if int64(len(partData)) > l.config.MaxFileSize {
+		if int64(len(partData)) > cfg.MaxFileSize {
 			allMatches = append(allMatches, Match{
 				Type:     PatternCustom,
 				Severity: SeverityLow,

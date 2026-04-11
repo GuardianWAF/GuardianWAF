@@ -417,9 +417,10 @@ type IPACLConfig struct {
 
 // AutoBanConfig controls automatic IP banning behavior.
 type AutoBanConfig struct {
-	Enabled    bool          `yaml:"enabled"`
-	DefaultTTL time.Duration `yaml:"default_ttl"`
-	MaxTTL     time.Duration `yaml:"max_ttl"`
+	Enabled           bool          `yaml:"enabled"`
+	DefaultTTL        time.Duration `yaml:"default_ttl"`
+	MaxTTL            time.Duration `yaml:"max_ttl"`
+	MaxAutoBanEntries int           `yaml:"max_auto_ban_entries"` // 0 = unlimited
 }
 
 // RateLimitConfig holds the global rate-limiting toggle and individual rules.

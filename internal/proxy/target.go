@@ -4,6 +4,7 @@ package proxy
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -138,6 +139,11 @@ func NewTarget(rawURL string, weight int) (*Target, error) {
 
 	// Wire error handler for circuit breaker
 	t.proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+		// Drain the request body so the connection can be reused for keep-alive.
+		if r.Body != nil {
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 1<<20))
+			r.Body.Close()
+		}
 		t.circuit.RecordFailure()
 		http.Error(w, "502 Bad Gateway", http.StatusBadGateway)
 	}
@@ -201,4 +207,12 @@ func (t *Target) ActiveConns() int64 {
 // CircuitState returns the target's circuit breaker state.
 func (t *Target) CircuitState() CircuitState {
 	return t.circuit.State()
+}
+
+// Close releases resources held by the target, including idle transport connections.
+// Call this when removing a target during routing reconfiguration.
+func (t *Target) Close() {
+	if tr, ok := t.proxy.Transport.(*http.Transport); ok {
+		tr.CloseIdleConnections()
+	}
 }

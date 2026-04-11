@@ -1,5 +1,7 @@
 package botdetect
 
+import "sync"
+
 // FingerprintCategory classifies a JA3/JA4 fingerprint.
 type FingerprintCategory int
 
@@ -30,6 +32,9 @@ type FingerprintInfo struct {
 	Category FingerprintCategory
 	Score    int // Threat score (0-100)
 }
+
+// fingerprintMu protects concurrent access to fingerprintDB and ja4FingerprintDB.
+var fingerprintMu sync.RWMutex
 
 // fingerprintDB maps JA3 hashes to known fingerprint info.
 // In a production deployment these would be populated from an external source;
@@ -89,6 +94,8 @@ var ja4FingerprintDB = map[string]FingerprintInfo{
 // LookupFingerprint returns the fingerprint info for a JA3 hash.
 // Returns an entry with FingerprintUnknown if the hash is not in the database.
 func LookupFingerprint(ja3Hash string) FingerprintInfo {
+	fingerprintMu.RLock()
+	defer fingerprintMu.RUnlock()
 	if info, ok := fingerprintDB[ja3Hash]; ok {
 		return info
 	}
@@ -102,6 +109,8 @@ func LookupFingerprint(ja3Hash string) FingerprintInfo {
 // LookupJA4Fingerprint returns the fingerprint info for a JA4 fingerprint.
 // Returns an entry with FingerprintUnknown if the fingerprint is not in the database.
 func LookupJA4Fingerprint(ja4Full string) FingerprintInfo {
+	fingerprintMu.RLock()
+	defer fingerprintMu.RUnlock()
 	if info, ok := ja4FingerprintDB[ja4Full]; ok {
 		return info
 	}
@@ -114,20 +123,28 @@ func LookupJA4Fingerprint(ja4Full string) FingerprintInfo {
 
 // AddFingerprint adds or updates a JA3 fingerprint in the database.
 func AddFingerprint(ja3Hash string, info FingerprintInfo) {
+	fingerprintMu.Lock()
 	fingerprintDB[ja3Hash] = info
+	fingerprintMu.Unlock()
 }
 
 // RemoveFingerprint removes a JA3 fingerprint from the database.
 func RemoveFingerprint(ja3Hash string) {
+	fingerprintMu.Lock()
 	delete(fingerprintDB, ja3Hash)
+	fingerprintMu.Unlock()
 }
 
 // AddJA4Fingerprint adds or updates a JA4 fingerprint in the database.
 func AddJA4Fingerprint(ja4Full string, info FingerprintInfo) {
+	fingerprintMu.Lock()
 	ja4FingerprintDB[ja4Full] = info
+	fingerprintMu.Unlock()
 }
 
 // RemoveJA4Fingerprint removes a JA4 fingerprint from the database.
 func RemoveJA4Fingerprint(ja4Full string) {
+	fingerprintMu.Lock()
 	delete(ja4FingerprintDB, ja4Full)
+	fingerprintMu.Unlock()
 }

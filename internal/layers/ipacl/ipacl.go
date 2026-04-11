@@ -18,9 +18,10 @@ type Config struct {
 
 // AutoBanConfig configures the auto-ban feature.
 type AutoBanConfig struct {
-	Enabled    bool
-	DefaultTTL time.Duration
-	MaxTTL     time.Duration
+	Enabled           bool
+	DefaultTTL        time.Duration
+	MaxTTL            time.Duration
+	MaxAutoBanEntries int
 }
 
 type autoBanEntry struct {
@@ -67,23 +68,25 @@ func (l *Layer) Name() string { return "ipacl" }
 
 // Process checks the request's client IP against whitelist, blacklist, and auto-ban.
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
+	start := time.Now()
+
 	// Check if IP ACL is enabled (tenant config takes precedence)
 	enabled := l.config.Enabled
 	if ctx.TenantWAFConfig != nil && !ctx.TenantWAFConfig.IPACL.Enabled {
 		enabled = false
 	}
 	if !enabled {
-		return engine.LayerResult{Action: engine.ActionPass}
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
 	ip := ctx.ClientIP
 	if ip == nil {
-		return engine.LayerResult{Action: engine.ActionPass}
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
 	// 1. Check whitelist first -- if match, skip ALL remaining checks
 	if _, found := l.whitelist.Lookup(ip); found {
-		return engine.LayerResult{Action: engine.ActionPass}
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
 	// 2. Check blacklist
@@ -99,7 +102,8 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 				MatchedValue: ip.String(),
 				Location:     "ip",
 			}},
-			Score: 100,
+			Score:    100,
+			Duration: time.Since(start),
 		}
 	}
 
@@ -116,11 +120,12 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 				MatchedValue: ip.String(),
 				Location:     "ip",
 			}},
-			Score: 100,
+			Score:    100,
+			Duration: time.Since(start),
 		}
 	}
 
-	return engine.LayerResult{Action: engine.ActionPass}
+	return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 }
 
 // AddWhitelist adds an IP or CIDR to the whitelist at runtime.
@@ -168,6 +173,9 @@ func (l *Layer) AddAutoBan(ip, reason string, ttl time.Duration) {
 		entry.ExpiresAt.Store(time.Now().Add(ttl))
 		entry.Reason = reason
 	} else {
+		if l.config.AutoBan.MaxAutoBanEntries > 0 && len(l.autoBan) >= l.config.AutoBan.MaxAutoBanEntries {
+			return
+		}
 		var expiresAt atomic.Value
 		expiresAt.Store(time.Now().Add(ttl))
 		l.autoBan[ip] = &autoBanEntry{

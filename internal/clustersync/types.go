@@ -2,6 +2,8 @@
 package clustersync
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"sync"
 	"time"
 )
@@ -155,5 +157,9 @@ func DefaultConfig() *Config {
 }
 
 func generateNodeID() string {
-	return "gwaf-" + time.Now().Format("20060102-150405")
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		return "gwaf-" + time.Now().Format("20060102-150405.000")
+	}
+	return "gwaf-" + hex.EncodeToString(b)
 }

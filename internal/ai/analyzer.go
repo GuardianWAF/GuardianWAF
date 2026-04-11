@@ -155,7 +155,12 @@ func (a *Analyzer) Start(eventCh <-chan engine.Event) {
 
 // Stop gracefully stops the analyzer.
 func (a *Analyzer) Stop() {
-	close(a.stopCh)
+	select {
+	case <-a.stopCh:
+		return
+	default:
+		close(a.stopCh)
+	}
 	a.wg.Wait()
 }
 

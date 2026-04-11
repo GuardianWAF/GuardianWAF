@@ -59,10 +59,6 @@ interface ApiKeyRotation {
   rotation_reason?: string
 }
 
-interface RegenerateResponse {
-  api_key: string
-}
-
 const ROTATION_INTERVALS = [
   { value: 'never', label: 'Never (Manual Only)', days: 0 },
   { value: '30days', label: 'Every 30 Days', days: 30 },
@@ -100,7 +96,7 @@ export default function TenantDetailPage() {
 
   const loadTenant = async () => {
     try {
-      const data = await api.get<Tenant>(`/admin/tenants/${id}`)
+      const data = await api.adminGetTenant(id!)
       setTenant(data)
       setForm({
         name: data.name || '',
@@ -136,7 +132,7 @@ export default function TenantDetailPage() {
   const handleSave = async () => {
     setSaving(true)
     try {
-      await api.put(`/admin/tenants/${id}`, {
+      await api.adminUpdateTenant(id!, {
         name: form.name,
         email: form.email,
         plan: form.plan,
@@ -165,9 +161,7 @@ export default function TenantDetailPage() {
     }
 
     try {
-      const response = await api.post<RegenerateResponse>(`/admin/tenants/${id}/regenerate-key`, {
-        reason: rotationReason
-      })
+      const response = await api.adminRegenerateKey(id!)
       setNewApiKey(response.api_key)
       setShowRotationModal(false)
       setRotationReason('')
@@ -197,7 +191,7 @@ export default function TenantDetailPage() {
   const handleDelete = async () => {
     if (!confirm('Are you sure you want to delete this tenant? This cannot be undone.')) return
     try {
-      await api.delete(`/admin/tenants/${id}`)
+      await api.adminDeleteTenant(id!)
       toast({ title: 'Success', description: 'Tenant deleted' })
       window.location.href = '/tenants'
     } catch (error) {

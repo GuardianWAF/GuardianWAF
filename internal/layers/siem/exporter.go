@@ -73,7 +73,7 @@ func NewExporter(cfg *Config) *Exporter {
 	// Validate endpoint URL to prevent SSRF
 	if cfg.Endpoint != "" {
 		if err := validateSIEMEndpoint(cfg.Endpoint); err != nil {
-			log.Printf("[siem] WARNING: endpoint URL validation: %v", err)
+			log.Printf("[siem] WARNING: endpoint URL validation failed: %v", err)
 		}
 	}
 
@@ -335,22 +335,41 @@ func (e *Exporter) formatTextBatch(events []*Event) []byte {
 }
 
 // validateSIEMEndpoint checks that the SIEM endpoint URL is safe (not targeting internal networks).
+// It resolves DNS to detect hostnames that point to private/internal IPs.
 func validateSIEMEndpoint(rawURL string) error {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return fmt.Errorf("invalid URL: %w", err)
 	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return fmt.Errorf("URL scheme must be http or https, got %q", u.Scheme)
+	if u.Scheme != "https" {
+		return fmt.Errorf("SIEM endpoint must use HTTPS, got %q", u.Scheme)
 	}
-	host := u.Hostname()
-	if strings.EqualFold(host, "localhost") || strings.HasSuffix(host, ".internal") {
+	return validateSIEMHostNotPrivate(u.Hostname())
+}
+
+// validateSIEMHostNotPrivate checks that a hostname does not resolve to a private/internal IP.
+func validateSIEMHostNotPrivate(host string) error {
+	if host == "localhost" || strings.HasSuffix(host, ".internal") || strings.HasSuffix(host, ".local") {
 		return fmt.Errorf("SIEM endpoint must not target localhost or internal hosts")
 	}
-	ip := net.ParseIP(host)
-	if ip != nil {
+	if ip := net.ParseIP(host); ip != nil {
 		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
 			return fmt.Errorf("SIEM endpoint must not target private/loopback addresses")
+		}
+		return nil
+	}
+	// DNS resolution check to prevent SSRF via hostnames resolving to private IPs
+	addrs, err := net.LookupHost(host)
+	if err != nil {
+		return fmt.Errorf("SIEM endpoint hostname DNS lookup failed: %w", err)
+	}
+	for _, addr := range addrs {
+		ip := net.ParseIP(addr)
+		if ip == nil {
+			continue
+		}
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+			return fmt.Errorf("SIEM endpoint hostname resolves to private address %s", ip)
 		}
 	}
 	return nil

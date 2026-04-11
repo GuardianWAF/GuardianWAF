@@ -2,6 +2,7 @@
 package canary
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
@@ -74,11 +75,15 @@ func DefaultConfig() *Config {
 
 // Canary manages traffic splitting between versions.
 type Canary struct {
-	config     *Config
-	mu         sync.RWMutex
-	haltCanary atomic.Bool
-	stats      *Stats
-	stopCh     chan struct{}
+	config        *Config
+	mu            sync.RWMutex
+	haltCanary    atomic.Bool
+	healthCount   atomic.Int32
+	stats         *Stats
+	stopCh        chan struct{}
+	wg            sync.WaitGroup
+	httpClient    *http.Client
+	headerValueRe *regexp.Regexp
 }
 
 // Stats tracks canary performance.
@@ -104,15 +109,21 @@ func New(cfg *Config) (*Canary, error) {
 	}
 
 	c := &Canary{
-		config: cfg,
-		stats:  &Stats{},
-		stopCh: make(chan struct{}),
+		config:     cfg,
+		stats:      &Stats{},
+		stopCh:     make(chan struct{}),
+		httpClient: &http.Client{Timeout: cfg.HealthCheck.Timeout},
+	}
+
+	if cfg.HeaderValue != "" {
+		c.headerValueRe = regexp.MustCompile(cfg.HeaderValue)
 	}
 
 	c.stats.Healthy.Store(true)
 
 	// Start health check if enabled
 	if cfg.HealthCheck.Enabled {
+		c.wg.Add(1)
 		go c.healthCheckLoop()
 	}
 
@@ -168,10 +179,9 @@ func (c *Canary) checkHeader(r *http.Request) bool {
 		return false
 	}
 
-	// If specific value configured, check match
-	if c.config.HeaderValue != "" {
-		matched, _ := regexp.MatchString(c.config.HeaderValue, value)
-		return matched
+	// If specific value configured, check match using pre-compiled regex
+	if c.headerValueRe != nil {
+		return c.headerValueRe.MatchString(value)
 	}
 
 	return true
@@ -220,7 +230,7 @@ func (c *Canary) checkPercentage(r *http.Request) bool {
 	// Try to use request ID or IP for consistent routing
 	key := r.Header.Get("X-Request-ID")
 	if key == "" {
-		key = r.RemoteAddr + r.UserAgent()
+		key = r.RemoteAddr
 	}
 
 	// Hash-based consistent routing
@@ -301,6 +311,7 @@ func (c *Canary) checkCanaryHealth() {
 
 // healthCheckLoop periodically checks canary health.
 func (c *Canary) healthCheckLoop() {
+	defer c.wg.Done()
 	ticker := time.NewTicker(c.config.HealthCheck.Interval)
 	defer ticker.Stop()
 
@@ -316,14 +327,35 @@ func (c *Canary) healthCheckLoop() {
 
 // performHealthCheck checks if canary upstream is healthy.
 func (c *Canary) performHealthCheck() {
-	// This would make an HTTP request to canary upstream
-	// Simplified implementation
 	c.stats.LastHealthCheck = time.Now()
 
-	// If canary was halted but health check passes, consider unhalting
-	if c.haltCanary.Load() {
-		// Canary remains halted - explicit un halt required after health check pass
+	url := c.config.CanaryUpstream + c.config.HealthCheck.Path
+	ctx, cancel := context.WithTimeout(context.Background(), c.config.HealthCheck.Timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		c.healthCount.Store(0)
 		return
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		c.healthCount.Store(0)
+		return
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+		count := c.healthCount.Add(1)
+		// Auto-unhalt after 3 consecutive successful health checks
+		if c.haltCanary.Load() && count >= 3 {
+			c.haltCanary.Store(false)
+			c.stats.Healthy.Store(true)
+			c.healthCount.Store(0)
+		}
+	} else {
+		c.healthCount.Store(0)
 	}
 }
 
@@ -392,7 +424,12 @@ func (c *Canary) AdjustPercentage(pct int) error {
 
 // Close stops the canary manager.
 func (c *Canary) Close() error {
-	close(c.stopCh)
+	select {
+	case <-c.stopCh:
+	default:
+		close(c.stopCh)
+	}
+	c.wg.Wait()
 	return nil
 }
 

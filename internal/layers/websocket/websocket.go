@@ -151,6 +151,7 @@ type Security struct {
 	connections map[string]*Connection
 	connMu      sync.RWMutex
 	stopCh      chan struct{}
+	wg          sync.WaitGroup
 }
 
 // NewSecurity creates a new WebSocket security instance.
@@ -166,6 +167,7 @@ func NewSecurity(cfg *Config) (*Security, error) {
 	}
 
 	// Start cleanup routine
+	s.wg.Add(1)
 	go s.cleanupLoop()
 
 	return s, nil
@@ -521,6 +523,7 @@ func GenerateAcceptKey(key string) string {
 
 // cleanupLoop periodically cleans up stale connections.
 func (s *Security) cleanupLoop() {
+	defer s.wg.Done()
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
@@ -577,7 +580,13 @@ func (s *Security) GetStats() Stats {
 
 // Stop stops the WebSocket security.
 func (s *Security) Stop() {
-	close(s.stopCh)
+	select {
+	case <-s.stopCh:
+		return
+	default:
+		close(s.stopCh)
+	}
+	s.wg.Wait()
 }
 
 // Stats holds WebSocket statistics.

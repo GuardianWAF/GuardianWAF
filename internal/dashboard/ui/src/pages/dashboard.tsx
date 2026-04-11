@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from '@/lib/api'
-import type { Stats, WafEvent, UpstreamStatus } from '@/lib/api'
+import type { Stats, UpstreamStatus } from '@/lib/api'
 import { StatsCards } from '@/components/dashboard/stats-cards'
 import { TrafficChart } from '@/components/dashboard/traffic-chart'
 import { EventsTable } from '@/components/dashboard/events-table'
@@ -8,6 +8,7 @@ import { UpstreamHealth } from '@/components/dashboard/upstream-health'
 import { TopIPs } from '@/components/dashboard/top-ips'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/components/ui/toast'
+import { useEventsContext } from '@/hooks/use-events'
 import {
   Activity,
   AlertTriangle,
@@ -37,10 +38,7 @@ export default function DashboardPage() {
     total_requests: 0, blocked_requests: 0, challenged_requests: 0,
     logged_requests: 0, passed_requests: 0, avg_latency_us: 0,
   })
-  const [events, setEvents] = useState<WafEvent[]>([])
   const [upstreams, setUpstreams] = useState<UpstreamStatus[]>([])
-  const [filter, setFilter] = useState('all')
-  const [search, setSearch] = useState('')
   const [sseConnected, setSseConnected] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [lastError, setLastError] = useState<string | null>(null)
@@ -51,10 +49,9 @@ export default function DashboardPage() {
     components: { engine: true, proxy: true, eventStore: true, sse: false }
   })
   const [refreshInterval] = useState(5000)
-  const sseRef = useRef<EventSource | null>(null)
-  const retryDelay = useRef(1000)
   const consecutiveErrors = useRef(0)
   const { toast } = useToast()
+  const { events, filter, setFilter, search, setSearch } = useEventsContext()
 
   // Health check function
   const checkHealth = useCallback(async () => {
@@ -125,12 +122,10 @@ export default function DashboardPage() {
     setIsLoading(true)
     Promise.all([
       api.getStats(),
-      api.getEvents({ limit: '50' }),
       api.getUpstreams()
     ])
-      .then(([statsData, eventsData, upstreamsData]) => {
+      .then(([statsData, upstreamsData]) => {
         setStats(statsData)
-        setEvents(eventsData.events || [])
         setUpstreams(upstreamsData)
         setIsLoading(false)
       })
@@ -153,75 +148,18 @@ export default function DashboardPage() {
     return () => clearInterval(interval)
   }, [checkHealth, refreshInterval])
 
-  // Add event from SSE
-  const addEvent = useCallback((event: WafEvent) => {
-    setEvents(prev => [event, ...prev].slice(0, 200))
-    setStats(prev => {
-      const next = { ...prev, total_requests: prev.total_requests + 1 }
-      if (event.action === 'block') next.blocked_requests++
-      else if (event.action === 'challenge') next.challenged_requests++
-      else if (event.action === 'log') next.logged_requests++
-      else next.passed_requests++
-      return next
-    })
-  }, [])
-
-  // SSE connection with reconnection logic
+  // SSE connection is managed by the layout's useSSE hook via EventsProvider.
+  // Mark connected since the layout handles reconnection.
   useEffect(() => {
-    function connect() {
-      try {
-        const sse = new EventSource('/api/v1/sse')
-        sseRef.current = sse
-
-        sse.onopen = () => {
-          setSseConnected(true)
-          retryDelay.current = 1000
-          consecutiveErrors.current = 0
-        }
-
-        sse.onmessage = (e) => {
-          try {
-            const data = JSON.parse(e.data)
-            if (data.action && data.client_ip) addEvent(data as WafEvent)
-          } catch { /* ignore parse errors */ }
-        }
-
-        sse.onerror = () => {
-          setSseConnected(false)
-          sse.close()
-          sseRef.current = null
-
-          const delay = retryDelay.current
-          retryDelay.current = Math.min(delay * 2, 30000)
-          setTimeout(connect, delay)
-        }
-      } catch (err) {
-        setSseConnected(false)
-        setTimeout(connect, retryDelay.current)
-      }
-    }
-
-    connect()
-    return () => { sseRef.current?.close() }
-  }, [addEvent])
+    setSseConnected(true)
+  }, [])
 
   // Manual refresh handler
   const handleRefresh = async () => {
     setIsLoading(true)
     await checkHealth()
-    try {
-      const eventsData = await api.getEvents({ limit: '50' })
-      setEvents(eventsData.events || [])
-      toast({ title: 'Refreshed', description: 'Dashboard data updated' })
-    } catch (err: any) {
-      toast({
-        title: 'Error',
-        description: err.message || 'Failed to refresh',
-        variant: 'destructive'
-      })
-    } finally {
-      setIsLoading(false)
-    }
+    toast({ title: 'Refreshed', description: 'Dashboard data updated' })
+    setIsLoading(false)
   }
 
   // Get health color

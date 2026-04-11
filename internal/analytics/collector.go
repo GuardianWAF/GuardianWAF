@@ -53,6 +53,7 @@ type Collector struct {
 	mu         sync.RWMutex
 	config     *Config
 	stopCh     chan struct{}
+	wg         sync.WaitGroup
 }
 
 // GaugeValue holds a float64 gauge value.
@@ -176,7 +177,7 @@ func (h *Histogram) Snapshot() HistogramSnapshot {
 		Max:    float64(h.Max.Load()),
 		Mean:   float64(sum) / float64(count),
 		Buckets: h.Buckets,
-		Counts:  h.Counts,
+		Counts:  append([]int64(nil), h.Counts...),
 	}
 }
 
@@ -268,6 +269,7 @@ func NewCollector(cfg *Config) *Collector {
 
 	// Start background flush
 	if cfg.FlushInterval > 0 {
+		c.wg.Add(1)
 		go c.flushLoop()
 	}
 
@@ -464,6 +466,7 @@ func (c *Collector) GetAllMetrics() map[string]any {
 
 // flushLoop periodically flushes metrics to disk.
 func (c *Collector) flushLoop() {
+	defer c.wg.Done()
 	ticker := time.NewTicker(c.config.FlushInterval)
 	defer ticker.Stop()
 
@@ -490,15 +493,20 @@ func (c *Collector) Flush() error {
 	filename := filepath.Join(c.config.StoragePath, fmt.Sprintf("metrics-%s.json",
 		time.Now().Format("20060102")))
 
-	file, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	tmpFile := filename + ".tmp"
+	file, err := os.OpenFile(tmpFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
 
 	encoder := json.NewEncoder(file)
 	encoder.SetIndent("", "  ")
-	return encoder.Encode(data)
+	encErr := encoder.Encode(data)
+	file.Close()
+	if encErr != nil {
+		return encErr
+	}
+	return os.Rename(tmpFile, filename)
 }
 
 // Reset clears all metrics.
@@ -514,7 +522,13 @@ func (c *Collector) Reset() {
 
 // Close stops the collector and flushes pending data.
 func (c *Collector) Close() error {
-	close(c.stopCh)
+	select {
+	case <-c.stopCh:
+		return nil
+	default:
+		close(c.stopCh)
+	c.wg.Wait()
+	}
 	return c.Flush()
 }
 

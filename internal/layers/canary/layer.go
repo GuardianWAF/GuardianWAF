@@ -55,11 +55,12 @@ func (l *Layer) Order() int {
 
 // Process implements the layer interface.
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
+	start := time.Now()
 	if !l.config.Enabled || l.canary == nil {
-		return engine.LayerResult{Action: engine.ActionPass}
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 	if ctx.TenantWAFConfig != nil && !ctx.TenantWAFConfig.Canary.Enabled {
-		return engine.LayerResult{Action: engine.ActionPass}
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
 	// Mark request for canary routing
@@ -68,7 +69,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		ctx.Metadata["canary_upstream"] = l.canary.config.CanaryUpstream
 	}
 
-	return engine.LayerResult{Action: engine.ActionPass}
+	return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 }
 
 // GetCanary returns the canary manager.

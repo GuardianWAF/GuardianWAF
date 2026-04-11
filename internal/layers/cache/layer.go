@@ -97,16 +97,17 @@ func (l *Layer) Order() int {
 
 // Process implements the layer interface.
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
+	start := time.Now()
 	if !l.config.Enabled || !l.cache.IsEnabled() {
-		return engine.LayerResult{Action: engine.ActionPass}
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 	if ctx.TenantWAFConfig != nil && !ctx.TenantWAFConfig.Cache.Enabled {
-		return engine.LayerResult{Action: engine.ActionPass}
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
 	// Check if request is cacheable
 	if !l.isCacheable(ctx) {
-		return engine.LayerResult{Action: engine.ActionPass}
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
 	// Generate cache key
@@ -121,11 +122,11 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 			_ = l.cache.Delete(context.Background(), key)
 		} else {
 			// Return cached response - pass through to indicate cache hit
-			return engine.LayerResult{Action: engine.ActionPass}
+			return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 		}
 	}
 
-	return engine.LayerResult{Action: engine.ActionPass}
+	return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 }
 
 // isCacheable checks if a request should be cached.

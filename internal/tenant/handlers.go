@@ -287,7 +287,11 @@ func (h *Handlers) getTenantWAFConfig(w http.ResponseWriter, r *http.Request, te
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(tenant.Config); err != nil {
+	cfg := tenant.Config
+	if cfg == nil {
+		cfg = config.DefaultConfig()
+	}
+	if err := json.NewEncoder(w).Encode(cfg); err != nil {
 		// Client disconnected
 		_ = err
 	}
@@ -309,9 +313,13 @@ func (h *Handlers) updateTenantWAFConfig(w http.ResponseWriter, r *http.Request,
 	}
 
 	// Merge with existing config - only update WAF section
+	// Copy to avoid mutating shared state between GetTenant and UpdateTenant
 	updatedConfig := tenant.Config
 	if updatedConfig == nil {
-		updatedConfig = &config.Config{}
+		updatedConfig = config.DefaultConfig()
+	} else {
+		cfg := *updatedConfig
+		updatedConfig = &cfg
 	}
 	updatedConfig.WAF = wafCfg
 
@@ -325,6 +333,10 @@ func (h *Handlers) updateTenantWAFConfig(w http.ResponseWriter, r *http.Request,
 	}
 
 	tenant = h.manager.GetTenant(tenantID)
+	if tenant == nil {
+		http.Error(w, "Tenant not found after update", http.StatusNotFound)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(tenant); err != nil {
 		// Client disconnected, error ignored

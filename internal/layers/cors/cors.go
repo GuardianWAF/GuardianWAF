@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 )
@@ -93,34 +94,43 @@ func compileWildcard(pattern string) *regexp.Regexp {
 // Name returns the layer name.
 func (l *Layer) Name() string { return "cors" }
 
+// snapshotConfig returns a copy of the current config under RLock.
+func (l *Layer) snapshotConfig() Config {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.config
+}
+
 // Process validates CORS requests and sets response headers.
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
+	start := time.Now()
+
 	// Check if CORS is enabled (tenant config takes precedence)
-	enabled := l.config.Enabled
+	cfg := l.snapshotConfig()
 	if ctx.TenantWAFConfig != nil && !ctx.TenantWAFConfig.CORS.Enabled {
-		enabled = false
+		cfg.Enabled = false
 	}
-	if !enabled {
-		return engine.LayerResult{Action: engine.ActionPass}
+	if !cfg.Enabled {
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
 	// Get Origin header
 	origin := getHeader(ctx.Headers, "Origin")
 	if origin == "" {
 		// Not a CORS request
-		return engine.LayerResult{Action: engine.ActionPass}
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
 	// Reject "null" origin when credentials are enabled — prevents sandbox iframe abuse
 	// (sandboxed iframes and data: URIs send Origin: null, which should not be reflected
 	// with Access-Control-Allow-Credentials: true)
-	if origin == "null" && l.config.AllowCredentials {
-		return engine.LayerResult{Action: engine.ActionPass} // no CORS headers
+	if origin == "null" && cfg.AllowCredentials {
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)} // no CORS headers
 	}
 
 	// Validate origin against allowlist
 	if !l.isOriginAllowed(origin) {
-		if l.config.StrictMode {
+		if cfg.StrictMode {
 			return engine.LayerResult{
 				Action: engine.ActionBlock,
 				Findings: []engine.Finding{{
@@ -132,20 +142,21 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 					MatchedValue: origin,
 					Location:     "header:Origin",
 				}},
-				Score: 30,
+				Score:    30,
+				Duration: time.Since(start),
 			}
 		}
 		// Non-strict: pass but don't add CORS headers (browser will block)
-		return engine.LayerResult{Action: engine.ActionPass}
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
 	// Preflight request (OPTIONS with Access-Control-Request-Method)
 	if ctx.Method == "OPTIONS" && hasHeader(ctx.Headers, "Access-Control-Request-Method") {
-		return l.handlePreflight(ctx, origin)
+		return l.handlePreflight(ctx, origin, &cfg, start)
 	}
 
 	// Regular CORS request - set CORS headers via metadata
-	l.setCORSHeaders(ctx, origin)
+	l.setCORSHeaders(ctx, origin, &cfg)
 	return engine.LayerResult{Action: engine.ActionPass}
 }
 
@@ -170,12 +181,12 @@ func (l *Layer) isOriginAllowed(origin string) bool {
 }
 
 // handlePreflight handles CORS preflight OPTIONS requests.
-func (l *Layer) handlePreflight(ctx *engine.RequestContext, origin string) engine.LayerResult {
+func (l *Layer) handlePreflight(ctx *engine.RequestContext, origin string, cfg *Config, start time.Time) engine.LayerResult {
 	// Validate requested method
 	reqMethod := getHeader(ctx.Headers, "Access-Control-Request-Method")
-	if reqMethod != "" && len(l.config.AllowMethods) > 0 {
-		if !contains(l.config.AllowMethods, reqMethod) {
-			if l.config.StrictMode {
+	if reqMethod != "" && len(cfg.AllowMethods) > 0 {
+		if !contains(cfg.AllowMethods, reqMethod) {
+			if cfg.StrictMode {
 				return engine.LayerResult{
 					Action: engine.ActionBlock,
 					Findings: []engine.Finding{{
@@ -195,11 +206,11 @@ func (l *Layer) handlePreflight(ctx *engine.RequestContext, origin string) engin
 
 	// Validate requested headers
 	reqHeaders := getHeader(ctx.Headers, "Access-Control-Request-Headers")
-	if reqHeaders != "" && len(l.config.AllowHeaders) > 0 {
+	if reqHeaders != "" && len(cfg.AllowHeaders) > 0 {
 		headers := parseHeaderList(reqHeaders)
 		for _, h := range headers {
-			if !containsFold(l.config.AllowHeaders, h) {
-				if l.config.StrictMode {
+			if !containsFold(cfg.AllowHeaders, h) {
+				if cfg.StrictMode {
 					return engine.LayerResult{
 						Action: engine.ActionBlock,
 						Findings: []engine.Finding{{
@@ -219,14 +230,14 @@ func (l *Layer) handlePreflight(ctx *engine.RequestContext, origin string) engin
 	}
 
 	// Set preflight response headers via metadata
-	l.setPreflightHeaders(ctx, origin)
-	return engine.LayerResult{Action: engine.ActionPass}
+	l.setPreflightHeaders(ctx, origin, cfg)
+	return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 }
 
 // setCORSHeaders sets CORS headers for regular requests via response hook.
-func (l *Layer) setCORSHeaders(ctx *engine.RequestContext, origin string) {
+func (l *Layer) setCORSHeaders(ctx *engine.RequestContext, origin string, cfg *Config) {
 	allowCreds := "false"
-	if l.config.AllowCredentials {
+	if cfg.AllowCredentials {
 		allowCreds = "true"
 	}
 
@@ -237,8 +248,8 @@ func (l *Layer) setCORSHeaders(ctx *engine.RequestContext, origin string) {
 	}
 
 	// Set expose headers
-	if len(l.config.ExposeHeaders) > 0 {
-		ctx.Metadata["cors_expose_headers"] = strings.Join(l.config.ExposeHeaders, ", ")
+	if len(cfg.ExposeHeaders) > 0 {
+		ctx.Metadata["cors_expose_headers"] = strings.Join(cfg.ExposeHeaders, ", ")
 	}
 
 	// Register response hook to add headers
@@ -246,9 +257,9 @@ func (l *Layer) setCORSHeaders(ctx *engine.RequestContext, origin string) {
 }
 
 // setPreflightHeaders sets CORS headers for preflight responses.
-func (l *Layer) setPreflightHeaders(ctx *engine.RequestContext, origin string) {
+func (l *Layer) setPreflightHeaders(ctx *engine.RequestContext, origin string, cfg *Config) {
 	allowCreds := "false"
-	if l.config.AllowCredentials {
+	if cfg.AllowCredentials {
 		allowCreds = "true"
 	}
 
@@ -257,16 +268,16 @@ func (l *Layer) setPreflightHeaders(ctx *engine.RequestContext, origin string) {
 		"Access-Control-Allow-Credentials": allowCreds,
 	}
 
-	if len(l.config.AllowMethods) > 0 {
-		headers["Access-Control-Allow-Methods"] = strings.Join(l.config.AllowMethods, ", ")
+	if len(cfg.AllowMethods) > 0 {
+		headers["Access-Control-Allow-Methods"] = strings.Join(cfg.AllowMethods, ", ")
 	}
 
-	if len(l.config.AllowHeaders) > 0 {
-		headers["Access-Control-Allow-Headers"] = strings.Join(l.config.AllowHeaders, ", ")
+	if len(cfg.AllowHeaders) > 0 {
+		headers["Access-Control-Allow-Headers"] = strings.Join(cfg.AllowHeaders, ", ")
 	}
 
-	if l.config.MaxAgeSeconds > 0 {
-		headers["Access-Control-Max-Age"] = intToStr(l.config.MaxAgeSeconds)
+	if cfg.MaxAgeSeconds > 0 {
+		headers["Access-Control-Max-Age"] = intToStr(cfg.MaxAgeSeconds)
 	}
 
 	ctx.Metadata["cors_preflight_headers"] = headers

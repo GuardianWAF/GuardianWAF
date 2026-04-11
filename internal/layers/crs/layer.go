@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
+	"time"
 )
 
 // Layer implements the OWASP Core Rule Set WAF layer.
@@ -160,11 +161,15 @@ func (l *Layer) buildRuleMaps() {
 
 // Process implements the engine.Layer interface.
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
-	if !l.config.Enabled {
-		return engine.LayerResult{Action: engine.ActionPass}
+	start := time.Now()
+	l.mu.RLock()
+	enabled := l.config.Enabled
+	l.mu.RUnlock()
+	if !enabled {
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 	if ctx.TenantWAFConfig != nil && !ctx.TenantWAFConfig.CRS.Enabled {
-		return engine.LayerResult{Action: engine.ActionPass}
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
 	// Create transaction from context

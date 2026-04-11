@@ -9,9 +9,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 )
@@ -36,10 +40,16 @@ type Manager struct {
 	// Handlers for different entity types
 	handlers map[string]SyncHandler
 
+	// Shared HTTP client for node communication
+	httpClient *http.Client
+
 	// Background tasks
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+
+	// Vector clock for conflict detection
+	vectorClock map[string]int64
 
 	// Stats
 	stats SyncStats
@@ -57,16 +67,18 @@ type SyncHandler interface {
 func NewManager(config *Config) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
 	m := &Manager{
-		config:     config,
-		nodes:      make(map[string]*Node),
-		clusters:   make(map[string]*Cluster),
-		health:     make(map[string]bool),
-		eventQueue: make(chan *SyncEvent, 1000),
-		eventLog:   make([]*SyncEvent, 0, 1000),
-		lastSync:   make(map[string]time.Time),
-		handlers:   make(map[string]SyncHandler),
-		ctx:        ctx,
-		cancel:     cancel,
+		config:      config,
+		nodes:       make(map[string]*Node),
+		clusters:    make(map[string]*Cluster),
+		health:      make(map[string]bool),
+		eventQueue:  make(chan *SyncEvent, 1000),
+		eventLog:    make([]*SyncEvent, 0, 1000),
+		lastSync:    make(map[string]time.Time),
+		handlers:    make(map[string]SyncHandler),
+		vectorClock: make(map[string]int64),
+		ctx:         ctx,
+		cancel:      cancel,
+		httpClient:  &http.Client{Timeout: 30 * time.Second},
 	}
 
 	// Create local node
@@ -107,6 +119,11 @@ func (m *Manager) Start() error {
 			}
 			if node.ID == m.config.NodeID {
 				continue // Skip local node
+			}
+			// Validate peer URL for SSRF protection
+			if err := validatePeerURL(node.Address); err != nil {
+				log.Printf("[clustersync] WARNING: peer node address rejected: %s: %v", node.Address, err)
+				continue
 			}
 			m.mu.Lock()
 			m.nodes[node.ID] = &node
@@ -245,6 +262,11 @@ func (m *Manager) RemoveCluster(clusterID string) error {
 
 // AddNodeToCluster adds a node to a cluster.
 func (m *Manager) AddNodeToCluster(clusterID string, node *Node) error {
+	// Validate peer URL for SSRF protection
+	if err := validatePeerURL(node.Address); err != nil {
+		return fmt.Errorf("peer address rejected: %w", err)
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -460,7 +482,7 @@ func (m *Manager) checkNodeHealth() {
 }
 
 func (m *Manager) pingNode(node *Node) bool {
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := m.httpClient
 	req, err := http.NewRequest("GET", node.Address+"/api/cluster/health", nil)
 	if err != nil {
 		return false
@@ -472,6 +494,8 @@ func (m *Manager) pingNode(node *Node) bool {
 		return false
 	}
 	defer resp.Body.Close()
+
+	_, _ = io.Copy(io.Discard, resp.Body)
 
 	return resp.StatusCode == http.StatusOK
 }
@@ -520,7 +544,6 @@ func (m *Manager) sendEventToNode(node *Node, event *SyncEvent) error {
 		return err
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
 	req, err := http.NewRequest("POST", node.Address+"/api/cluster/sync", bytes.NewReader(data))
 	if err != nil {
 		return err
@@ -529,13 +552,14 @@ func (m *Manager) sendEventToNode(node *Node, event *SyncEvent) error {
 	req.Header.Set("X-Cluster-Auth", m.config.SharedSecret)
 	req.Header.Set("X-Source-Node", m.config.NodeID)
 
-	resp, err := client.Do(req)
+	resp, err := m.httpClient.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64*1024))
 		return fmt.Errorf("sync failed: %d", resp.StatusCode)
 	}
 
@@ -567,7 +591,6 @@ func (m *Manager) syncFromNode(node *Node) {
 	lastSync := m.lastSync[node.ID]
 	m.mu.RUnlock()
 
-	client := &http.Client{Timeout: 30 * time.Second}
 	url := fmt.Sprintf("%s/api/cluster/events?since=%d", node.Address, lastSync.Unix())
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -576,13 +599,14 @@ func (m *Manager) syncFromNode(node *Node) {
 	}
 	req.Header.Set("X-Cluster-Auth", m.config.SharedSecret)
 
-	resp, err := client.Do(req)
+	resp, err := m.httpClient.Do(req)
 	if err != nil {
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64*1024))
 		return
 	}
 
@@ -590,6 +614,7 @@ func (m *Manager) syncFromNode(node *Node) {
 	if err := json.NewDecoder(resp.Body).Decode(&events); err != nil {
 		return
 	}
+	_, _ = io.Copy(io.Discard, resp.Body)
 
 	for _, event := range events {
 		if err := m.ReceiveEvent(event); err != nil {
@@ -609,6 +634,12 @@ func (m *Manager) checkConflict(event *SyncEvent) (bool, *SyncEvent) {
 	// Check if we have a newer version of this entity
 	for _, e := range m.eventLog {
 		if e.EntityType == event.EntityType && e.EntityID == event.EntityID {
+			if e.VectorClock != nil && event.VectorClock != nil {
+				if isConcurrent(e.VectorClock, event.VectorClock) {
+					return true, e
+				}
+				continue
+			}
 			if e.Timestamp > event.Timestamp {
 				return true, e
 			}
@@ -643,13 +674,50 @@ func (m *Manager) getNodePriority(nodeID string) int {
 }
 
 func (m *Manager) getVectorClock() map[string]int64 {
-	return map[string]int64{
-		m.config.NodeID: time.Now().UnixNano(),
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.vectorClock[m.config.NodeID]++
+	cp := make(map[string]int64, len(m.vectorClock))
+	for k, v := range m.vectorClock {
+		cp[k] = v
 	}
+	return cp
 }
 
 func (m *Manager) updateVectorClock(remote map[string]int64) {
-	// Merge vector clocks (simplified)
+	if remote == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for k, v := range remote {
+		if cur, ok := m.vectorClock[k]; !ok || v > cur {
+			m.vectorClock[k] = v
+		}
+	}
+}
+
+// isConcurrent returns true if two vector clocks represent concurrent writes
+// (neither happened-before the other).
+func isConcurrent(a, b map[string]int64) bool {
+	aLessB, bLessA := false, false
+	for k, va := range a {
+		if vb, ok := b[k]; ok {
+			if va < vb {
+				aLessB = true
+			} else if va > vb {
+				bLessA = true
+			}
+		} else {
+			bLessA = true
+		}
+	}
+	for k := range b {
+		if _, ok := a[k]; !ok {
+			aLessB = true
+		}
+	}
+	return aLessB && bLessA
 }
 
 func (m *Manager) isInScope(cluster *Cluster, entityType string) bool {
@@ -668,6 +736,41 @@ func (m *Manager) isInScope(cluster *Cluster, entityType string) bool {
 
 // Utility functions
 
+// validatePeerURL checks that a peer node URL is valid and warns about
+// non-HTTPS endpoints. Unlike external URL validation, cluster peer URLs
+// are expected to be on private networks, so private IPs are allowed
+// but scheme and format are still validated.
+func validatePeerURL(address string) error {
+	u, err := url.Parse(address)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("peer URL must use http or https scheme, got %q", u.Scheme)
+	}
+	host := u.Hostname()
+	if host == "" {
+		return fmt.Errorf("peer URL has empty host")
+	}
+	// Warn on non-HTTPS peer URLs
+	if u.Scheme == "http" {
+		log.Printf("[clustersync] WARNING: peer %s uses HTTP — cluster traffic may be intercepted", address)
+	}
+	// Warn on localhost/loopback (likely misconfiguration for cluster peers)
+	if host == "localhost" || strings.HasSuffix(host, ".local") {
+		log.Printf("[clustersync] WARNING: peer %s targets localhost/local — may be misconfigured", address)
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.IsLoopback() {
+			log.Printf("[clustersync] WARNING: peer %s targets loopback address — may be misconfigured", address)
+		}
+		if ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+			return fmt.Errorf("must not target link-local/unspecified addresses")
+		}
+	}
+	return nil
+}
+
 func generateEventID() string {
 	return fmt.Sprintf("evt-%d-%s", time.Now().UnixNano(), generateRandomString(8))
 }
@@ -681,7 +784,10 @@ func calculateChecksum(data map[string]any) string {
 	if data == nil {
 		return ""
 	}
-	jsonData, _ := json.Marshal(data)
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return ""
+	}
 	hash := sha256.Sum256(jsonData)
 	return hex.EncodeToString(hash[:16])
 }

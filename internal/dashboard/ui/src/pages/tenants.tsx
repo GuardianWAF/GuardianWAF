@@ -5,32 +5,11 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { useToast } from '@/components/ui/toast'
 import { api } from '@/lib/api'
+import type { AdminTenant } from '@/lib/api'
 import { Plus, Search, Edit, Trash2, Copy, RefreshCw, BarChart3 } from 'lucide-react'
 
-interface Tenant {
-  id: string
-  name: string
-  email: string
-  status: 'active' | 'suspended' | 'trial' | 'expired'
-  plan: 'free' | 'basic' | 'pro' | 'enterprise'
-  domains: string[]
-  created_at: string
-  usage: {
-    requests_this_month: number
-    blocked_requests: number
-  }
-}
-
-interface TenantsResponse {
-  tenants: Tenant[]
-}
-
-interface APIKeyResponse {
-  api_key: string
-}
-
 export default function TenantsPage() {
-  const [tenants, setTenants] = useState<Tenant[]>([])
+  const [tenants, setTenants] = useState<AdminTenant[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const { toast } = useToast()
@@ -41,7 +20,7 @@ export default function TenantsPage() {
 
   const loadTenants = async () => {
     try {
-      const response = await api.get<TenantsResponse>('/admin/tenants')
+      const response = await api.adminGetTenants()
       setTenants(response.tenants || [])
     } catch (error) {
       toast({
@@ -58,7 +37,7 @@ export default function TenantsPage() {
     if (!confirm('Are you sure you want to delete this tenant?')) return
 
     try {
-      await api.delete(`/admin/tenants/${id}`)
+      await api.adminDeleteTenant(id)
       toast({ title: 'Success', description: 'Tenant deleted' })
       loadTenants()
     } catch (error) {
@@ -77,7 +56,7 @@ export default function TenantsPage() {
 
   const handleRegenerateKey = async (id: string) => {
     try {
-      const response = await api.post<APIKeyResponse>(`/admin/tenants/${id}/regenerate-key`, {})
+      const response = await api.adminRegenerateKey(id)
       toast({ title: 'Success', description: 'New API key: ' + response.api_key })
       loadTenants()
     } catch (error) {

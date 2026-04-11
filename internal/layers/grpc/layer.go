@@ -6,6 +6,7 @@ import (
 
 	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
+	"time"
 )
 
 // Layer provides gRPC security as a WAF layer.
@@ -43,20 +44,24 @@ func (l *Layer) Name() string {
 // Process implements the layer interface.
 // Validates gRPC requests and enforces security policies.
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
+	start := time.Now()
 	result := engine.LayerResult{
 		Action: engine.ActionPass,
 	}
 
 	if !l.config.Enabled || l.security == nil {
-		return result
+		result.Duration = time.Since(start)
+	return result
 	}
 	if ctx.TenantWAFConfig != nil && !ctx.TenantWAFConfig.GRPC.Enabled {
-		return result
+		result.Duration = time.Since(start)
+	return result
 	}
 
 	// Check if this is a gRPC request
 	if !IsGRPCRequest(ctx.Request) {
-		return result
+		result.Duration = time.Since(start)
+	return result
 	}
 
 	// Validate the request
@@ -69,9 +74,11 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 			Description:  fmt.Sprintf("gRPC validation failed: %v", err),
 			Severity:     engine.SeverityHigh,
 		})
-		return result
+		result.Duration = time.Since(start)
+	return result
 	}
 
+	result.Duration = time.Since(start)
 	return result
 }
 

@@ -2,6 +2,7 @@ package cmdi
 
 import (
 	"strings"
+	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 )
@@ -40,8 +41,9 @@ func (d *Detector) Patterns() []string {
 
 // Process scans the request context for command injection patterns.
 func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
+	start := time.Now()
 	if !d.enabled {
-		return engine.LayerResult{Action: engine.ActionPass}
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
 	var allFindings []engine.Finding
@@ -91,6 +93,7 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 		Action:   action,
 		Findings: allFindings,
 		Score:    totalScore,
+		Duration: time.Since(start),
 	}
 }
 

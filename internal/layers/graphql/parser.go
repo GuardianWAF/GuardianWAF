@@ -544,8 +544,10 @@ func splitArgs(content string) []string {
 	return args
 }
 
+// reNumber matches integer and decimal numbers.
+var reNumber = regexp.MustCompile(`^-?\d+(\.\d+)?$`)
+
 // isNumber checks if a string is a number.
 func isNumber(str string) bool {
-	match, _ := regexp.MatchString(`^-?\d+(\.\d+)?$`, str)
-	return match
+	return reNumber.MatchString(str)
 }

@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"net/url"
 	"testing"
+
+	"github.com/guardianwaf/guardianwaf/internal/engine"
 )
 
 func TestIsGraphQLRequest(t *testing.T) {
@@ -227,7 +229,13 @@ func TestLayer_Analyze(t *testing.T) {
 				},
 			}
 
-			result, err := layer.Analyze(req)
+				wafCtx := &engine.RequestContext{
+					Request:      req,
+					Method:       "GET",
+					QueryParams:  req.URL.Query(),
+				}
+				
+				result, err := layer.Analyze(wafCtx)
 			if err != nil {
 				t.Fatalf("Analyze failed: %v", err)
 			}
@@ -295,7 +303,12 @@ func TestLayer_Stats(t *testing.T) {
 				RawQuery: "query={users{id}}",
 			},
 		}
-		layer.Analyze(req)
+			wafCtx := &engine.RequestContext{
+				Request:     req,
+				Method:      "GET",
+				QueryParams: req.URL.Query(),
+			}
+			layer.Analyze(wafCtx)
 	}
 
 	stats := layer.Stats()

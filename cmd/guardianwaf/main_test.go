@@ -810,7 +810,7 @@ mcp:
 	}
 
 	// Send a request
-	req, _ := http.NewRequestWithContext(context.Background(), "GET", fmt.Sprintf("http://%s/api/v1/health", addr), nil)
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", fmt.Sprintf("http://%s/healthz", addr), nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err == nil {
 		resp.Body.Close()
@@ -866,7 +866,7 @@ func TestCLI_Sidecar_Startup(t *testing.T) {
 	}
 
 	// Hit the healthz endpoint
-	r, _ := http.NewRequestWithContext(context.Background(), "GET", fmt.Sprintf("http://%s/api/v1/health", addr), nil)
+	r, _ := http.NewRequestWithContext(context.Background(), "GET", fmt.Sprintf("http://%s/healthz", addr), nil)
 	resp, err := http.DefaultClient.Do(r)
 	if err != nil {
 		cmd.Process.Kill()
@@ -925,7 +925,7 @@ func TestStartDashboard_Endpoints(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Test /healthz (no auth required)
-	r, _ := http.NewRequestWithContext(context.Background(), "GET", fmt.Sprintf("http://%s/api/v1/health", addr), nil)
+	r, _ := http.NewRequestWithContext(context.Background(), "GET", fmt.Sprintf("http://%s/healthz", addr), nil)
 	resp, err := http.DefaultClient.Do(r)
 	if err != nil {
 		t.Fatalf("healthz request failed: %v", err)

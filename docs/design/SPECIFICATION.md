@@ -20,8 +20,8 @@
 | Config File | `guardianwaf.yaml` or `guardianwaf.yml` |
 | Short Name | `gwaf` (for CLI aliases) |
 | Tagline | "Zero-dependency WAF. One binary. Total protection." |
-| Min Go Version | 1.22 |
-| License | Apache 2.0 |
+| Min Go Version | 1.25 |
+| License | MIT |
 
 ### 1.2 Value Proposition
 

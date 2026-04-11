@@ -124,7 +124,10 @@ func (r *Replayer) ReplayFile(ctx context.Context, filePath string, filter Repla
 		return nil, fmt.Errorf("replayer is disabled")
 	}
 
+	ctx, cancel := context.WithCancel(ctx)
+
 	r.mu.Lock()
+	r.cancelFunc = cancel
 	r.running = true
 	r.stats = ReplayStats{
 		StartedAt: time.Now().UTC(),
@@ -133,7 +136,9 @@ func (r *Replayer) ReplayFile(ctx context.Context, filePath string, filter Repla
 	r.mu.Unlock()
 
 	defer func() {
+		cancel()
 		r.mu.Lock()
+		r.cancelFunc = nil
 		r.running = false
 		r.stats.CompletedAt = time.Now().UTC()
 		r.mu.Unlock()

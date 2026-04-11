@@ -321,7 +321,7 @@ func (bm *BillingManager) save() error {
 	_ = os.MkdirAll(filepath.Dir(bm.storePath), 0755)
 	file, err := os.Create(bm.storePath)
 	if err != nil {
-		return err
+		return fmt.Errorf("creating billing store file: %w", err)
 	}
 	defer file.Close()
 

@@ -3,6 +3,7 @@
 package graphql
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -63,19 +64,28 @@ func New(cfg Config) (*Layer, error) {
 	}, nil
 }
 
-// Analyze analyzes an HTTP request for GraphQL security issues.
-func (l *Layer) Analyze(req *http.Request) (*Result, error) {
+// snapshotConfig returns a copy of the current config under RLock.
+func (l *Layer) snapshotConfig() Config {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.config
+}
+
+// Analyze analyzes a request context for GraphQL security issues.
+func (l *Layer) Analyze(ctx *engine.RequestContext) (*Result, error) {
 	if !l.Enabled() {
 		return &Result{Score: 0, Blocked: false}, nil
 	}
 
 	// Check if this is a GraphQL request
-	if !isGraphQLRequest(req) {
+	if !isGraphQLRequest(ctx.Request) {
 		return &Result{Score: 0, Blocked: false}, nil
 	}
 
+	cfg := l.snapshotConfig()
+
 	// Parse GraphQL query
-	queries, err := extractQueries(req)
+	queries, err := extractQueries(ctx)
 	if err != nil {
 		return &Result{
 			Score:   25,
@@ -85,13 +95,13 @@ func (l *Layer) Analyze(req *http.Request) (*Result, error) {
 	}
 
 	// Check batch size
-	if len(queries) > l.config.MaxBatchSize {
+	if len(queries) > cfg.MaxBatchSize {
 		return &Result{
 			Score:   80,
 			Blocked: true,
 			Issues: []Issue{{
 				Type:        "batch_too_large",
-				Description: fmt.Sprintf("Batch size %d exceeds maximum %d", len(queries), l.config.MaxBatchSize),
+				Description: fmt.Sprintf("Batch size %d exceeds maximum %d", len(queries), cfg.MaxBatchSize),
 			}},
 		}, nil
 	}
@@ -112,7 +122,7 @@ func (l *Layer) Analyze(req *http.Request) (*Result, error) {
 		}
 
 		// Analyze query
-		analysis := l.analyzeQuery(ast)
+		analysis := l.analyzeQuery(ast, &cfg)
 		allIssues = append(allIssues, analysis.Issues...)
 		totalScore += analysis.Score
 	}
@@ -140,16 +150,16 @@ func (l *Layer) Analyze(req *http.Request) (*Result, error) {
 }
 
 // analyzeQuery analyzes a single GraphQL query.
-func (l *Layer) analyzeQuery(ast *AST) *Analysis {
+func (l *Layer) analyzeQuery(ast *AST, cfg *Config) *Analysis {
 	issues := []Issue{}
 	score := 0
 
 	// Check depth
 	depth := calculateDepth(ast)
-	if depth > l.config.MaxDepth {
+	if depth > cfg.MaxDepth {
 		issues = append(issues, Issue{
 			Type:        "depth_exceeded",
-			Description: fmt.Sprintf("Query depth %d exceeds maximum %d", depth, l.config.MaxDepth),
+			Description: fmt.Sprintf("Query depth %d exceeds maximum %d", depth, cfg.MaxDepth),
 			Severity:    "high",
 		})
 		score += 40
@@ -157,17 +167,17 @@ func (l *Layer) analyzeQuery(ast *AST) *Analysis {
 
 	// Check complexity
 	complexity := calculateComplexity(ast)
-	if complexity > l.config.MaxComplexity {
+	if complexity > cfg.MaxComplexity {
 		issues = append(issues, Issue{
 			Type:        "complexity_exceeded",
-			Description: fmt.Sprintf("Query complexity %d exceeds maximum %d", complexity, l.config.MaxComplexity),
+			Description: fmt.Sprintf("Query complexity %d exceeds maximum %d", complexity, cfg.MaxComplexity),
 			Severity:    "high",
 		})
 		score += 40
 	}
 
 	// Check introspection
-	if l.config.BlockIntrospection && hasIntrospection(ast) {
+	if cfg.BlockIntrospection && hasIntrospection(ast) {
 		issues = append(issues, Issue{
 			Type:        "introspection_blocked",
 			Description: "Introspection queries are not allowed",
@@ -178,10 +188,10 @@ func (l *Layer) analyzeQuery(ast *AST) *Analysis {
 
 	// Check aliases
 	aliases := countAliases(ast)
-	if aliases > l.config.MaxAliases {
+	if aliases > cfg.MaxAliases {
 		issues = append(issues, Issue{
 			Type:        "too_many_aliases",
-			Description: fmt.Sprintf("Query has %d aliases, maximum is %d", aliases, l.config.MaxAliases),
+			Description: fmt.Sprintf("Query has %d aliases, maximum is %d", aliases, cfg.MaxAliases),
 			Severity:    "medium",
 		})
 		score += 25
@@ -305,21 +315,22 @@ func (l *Layer) Name() string {
 // Process implements the engine.Layer interface.
 // It analyzes the request for GraphQL security issues and returns a LayerResult.
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
-	if !l.Enabled() {
-		return engine.LayerResult{Action: engine.ActionPass}
-	}
-	if ctx.TenantWAFConfig != nil && !ctx.TenantWAFConfig.GraphQL.Enabled {
-		return engine.LayerResult{Action: engine.ActionPass}
-	}
-
 	start := time.Now()
 
+	if !l.Enabled() {
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
+	}
+	if ctx.TenantWAFConfig != nil && !ctx.TenantWAFConfig.GraphQL.Enabled {
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
+	}
+
 	// Use the existing Analyze method
-	result, err := l.Analyze(ctx.Request)
+	result, err := l.Analyze(ctx)
 	if err != nil {
 		return engine.LayerResult{
-			Action: engine.ActionPass,
-			Score:  0,
+			Action:   engine.ActionPass,
+			Score:    0,
+			Duration: time.Since(start),
 		}
 	}
 
@@ -385,25 +396,57 @@ func isGraphQLRequest(req *http.Request) bool {
 	return false
 }
 
-// extractQueries extracts GraphQL queries from the request.
-func extractQueries(req *http.Request) ([]string, error) {
+// extractQueries extracts GraphQL queries from the request context.
+func extractQueries(ctx *engine.RequestContext) ([]string, error) {
 	// GET request with query parameter
-	if req.Method == "GET" {
-		query := req.URL.Query().Get("query")
-		if query != "" {
-			return []string{query}, nil
+	if ctx.Method == "GET" {
+		if vals, ok := ctx.QueryParams["query"]; ok && len(vals) > 0 && vals[0] != "" {
+			return []string{vals[0]}, nil
 		}
 		return nil, fmt.Errorf("no query found")
 	}
 
 	// POST request with JSON body
-	if req.Method == "POST" {
-		// Try to read from request context or body
-		// For now, return empty (actual implementation would read body)
-		return []string{}, nil
+	if ctx.Method == "POST" {
+		body := ctx.BodyString
+		if body == "" {
+			return nil, fmt.Errorf("empty body")
+		}
+
+		// Try JSON envelope: {"query": "...", ...}
+		var jsonBody struct {
+			Query string `json:"query"`
+		}
+		if err := json.Unmarshal(ctx.Body, &jsonBody); err == nil && jsonBody.Query != "" {
+			return []string{jsonBody.Query}, nil
+		}
+
+		// Try batch JSON: [{"query": "..."}, ...]
+		var batchBody []struct {
+			Query string `json:"query"`
+		}
+		if err := json.Unmarshal(ctx.Body, &batchBody); err == nil && len(batchBody) > 0 {
+			queries := make([]string, 0, len(batchBody))
+			for _, b := range batchBody {
+				if b.Query != "" {
+					queries = append(queries, b.Query)
+				}
+			}
+			if len(queries) > 0 {
+				return queries, nil
+			}
+		}
+
+		// Fallback: treat entire body as raw GraphQL query
+		trimmed := strings.TrimSpace(body)
+		if trimmed != "" {
+			return []string{trimmed}, nil
+		}
+
+		return nil, fmt.Errorf("no query found in body")
 	}
 
-	return nil, fmt.Errorf("unsupported method: %s", req.Method)
+	return nil, fmt.Errorf("unsupported method: %s", ctx.Method)
 }
 
 // calculateDepth calculates the maximum depth of a GraphQL query.

@@ -23,9 +23,10 @@ func DefaultConfig() *Config {
 			IPACL: IPACLConfig{
 				Enabled: true,
 				AutoBan: AutoBanConfig{
-					Enabled:    true,
-					DefaultTTL: 1 * time.Hour,
-					MaxTTL:     24 * time.Hour,
+					Enabled:           true,
+					DefaultTTL:        1 * time.Hour,
+					MaxTTL:            24 * time.Hour,
+					MaxAutoBanEntries: 100000,
 				},
 			},
 			RateLimit: RateLimitConfig{

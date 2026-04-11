@@ -104,44 +104,51 @@ func (l *Layer) Name() string { return "ato_protection" }
 
 // Process checks for ATO attack patterns.
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
+	start := time.Now()
+
 	// Check if ATO protection is enabled (tenant config takes precedence)
 	enabled := l.config.Enabled
 	if ctx.TenantWAFConfig != nil && !ctx.TenantWAFConfig.ATOProtection.Enabled {
 		enabled = false
 	}
 	if !enabled {
-		return engine.LayerResult{Action: engine.ActionPass}
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
 	// Only check login paths
 	if !l.isLoginPath(ctx.Path) {
-		return engine.LayerResult{Action: engine.ActionPass}
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
 	// Only check POST requests
 	if ctx.Method != "POST" {
-		return engine.LayerResult{Action: engine.ActionPass}
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
 	// Extract credentials from body
 	email := l.extractEmail(ctx.BodyString)
 	if email == "" {
-		return engine.LayerResult{Action: engine.ActionPass}
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
 	// Check if IP is already blocked
 	if blocked, reason := l.tracker.IsIPBlocked(ctx.ClientIP); blocked {
-		return l.blockResult(ctx, "ip_blocked", reason, 100)
+		result := l.blockResult(ctx, "ip_blocked", reason, 100)
+		result.Duration = time.Since(start)
+		return result
 	}
 
 	// Check if email is already blocked
 	if blocked, reason := l.tracker.IsEmailBlocked(email); blocked {
-		return l.blockResult(ctx, "email_blocked", reason, 100)
+		result := l.blockResult(ctx, "email_blocked", reason, 100)
+		result.Duration = time.Since(start)
+		return result
 	}
 
 	// Check brute force
 	if l.config.BruteForce.Enabled {
 		if result := l.checkBruteForce(ctx, email); result.Action == engine.ActionBlock {
+			result.Duration = time.Since(start)
 			return result
 		}
 	}
@@ -149,6 +156,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	// Check credential stuffing
 	if l.config.CredStuffing.Enabled {
 		if result := l.checkCredentialStuffing(ctx, email); result.Action == engine.ActionBlock {
+			result.Duration = time.Since(start)
 			return result
 		}
 	}
@@ -158,6 +166,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		password := l.extractPassword(ctx.BodyString)
 		if password != "" {
 			if result := l.checkPasswordSpray(ctx, password); result.Action == engine.ActionBlock {
+				result.Duration = time.Since(start)
 				return result
 			}
 		}
@@ -166,6 +175,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	// Check impossible travel
 	if l.config.Travel.Enabled {
 		if result := l.checkImpossibleTravel(ctx, email); result.Action == engine.ActionBlock {
+			result.Duration = time.Since(start)
 			return result
 		}
 	}
@@ -177,7 +187,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		Time:  time.Now(),
 	})
 
-	return engine.LayerResult{Action: engine.ActionPass}
+	return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 }
 
 // PostProcess handles successful login (to clear counters).
@@ -275,8 +285,14 @@ func (l *Layer) checkImpossibleTravel(ctx *engine.RequestContext, email string) 
 	}
 	timeDiff := time.Since(lastTime).Hours()
 
+	// Require minimum 1 minute between logins to avoid false positives
+	// from rapid successive requests (near-zero timeDiff inflates speed).
+	if timeDiff < 1.0/60.0 {
+		return engine.LayerResult{Action: engine.ActionPass}
+	}
+
 	// Check if travel is impossible
-	if timeDiff > 0 && timeDiff <= cfg.MaxTimeHours {
+	if timeDiff <= cfg.MaxTimeHours {
 		speed := distance / timeDiff // km/h
 		// If speed > 1000 km/h (roughly speed of sound), it's impossible
 		if speed > 1000 && distance > cfg.MaxDistanceKm {

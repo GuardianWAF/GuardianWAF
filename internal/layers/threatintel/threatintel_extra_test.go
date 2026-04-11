@@ -231,7 +231,7 @@ func TestFeedManager_LoadURL(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	fm := NewFeedManager(&FeedConfig{Type: "url", URL: srv.URL, Format: "json"})
+	fm := NewFeedManager(&FeedConfig{Type: "url", URL: srv.URL, Format: "json", AllowPrivateURLs: true})
 	entries, err := fm.LoadOnce(context.Background())
 	if err != nil {
 		t.Fatalf("LoadOnce URL failed: %v", err)
@@ -250,7 +250,7 @@ func TestFeedManager_LoadURL_ErrorStatus(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	fm := NewFeedManager(&FeedConfig{Type: "url", URL: srv.URL, Format: "json"})
+	fm := NewFeedManager(&FeedConfig{Type: "url", URL: srv.URL, Format: "json", AllowPrivateURLs: true})
 	_, err := fm.LoadOnce(context.Background())
 	if err == nil {
 		t.Error("expected error for 500 status")
@@ -577,7 +577,7 @@ func TestProcess_DomainBlocked_HighScore(t *testing.T) {
 // --- FeedManager Start/Stop/refreshLoop ---
 
 func TestFeedManager_StartStop_Immediate(t *testing.T) {
-	fm := NewFeedManager(&FeedConfig{Type: "url", URL: "http://127.0.0.1:1/feed", Refresh: 0})
+	fm := NewFeedManager(&FeedConfig{Type: "url", URL: "http://127.0.0.1:1/feed", Refresh: 0, AllowPrivateURLs: true})
 	fm.Start()
 	// Should not panic even with refresh=0
 	time.Sleep(50 * time.Millisecond)
@@ -595,9 +595,10 @@ func TestFeedManager_StartStop_WithRefresh(t *testing.T) {
 
 	var updatedEntries []ThreatEntry
 	fm := NewFeedManager(&FeedConfig{
-		Type:    "url",
-		URL:     srv.URL + "/feed",
-		Refresh: 100 * time.Millisecond,
+		Type:             "url",
+		URL:              srv.URL + "/feed",
+		Refresh:          100 * time.Millisecond,
+		AllowPrivateURLs: true,
 	})
 	fm.SetUpdateCallback(func(entries []ThreatEntry) {
 		updatedEntries = entries
@@ -623,7 +624,7 @@ func TestFeedManager_loadURL_InvalidStatus(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	fm := NewFeedManager(&FeedConfig{Type: "url", URL: srv.URL + "/feed"})
+	fm := NewFeedManager(&FeedConfig{Type: "url", URL: srv.URL + "/feed", AllowPrivateURLs: true})
 	_, err := fm.LoadOnce(context.Background())
 	if err == nil {
 		t.Error("expected error for non-200 status")
@@ -631,7 +632,7 @@ func TestFeedManager_loadURL_InvalidStatus(t *testing.T) {
 }
 
 func TestFeedManager_loadURL_Unreachable(t *testing.T) {
-	fm := NewFeedManager(&FeedConfig{Type: "url", URL: "http://127.0.0.1:1/feed"})
+	fm := NewFeedManager(&FeedConfig{Type: "url", URL: "http://127.0.0.1:1/feed", AllowPrivateURLs: true})
 	_, err := fm.LoadOnce(context.Background())
 	if err == nil {
 		t.Error("expected error for unreachable URL")
@@ -719,7 +720,7 @@ func TestFeedManager_loadURL_Jsonl(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	fm := NewFeedManager(&FeedConfig{Type: "url", URL: srv.URL + "/feed"})
+	fm := NewFeedManager(&FeedConfig{Type: "url", URL: srv.URL + "/feed", AllowPrivateURLs: true})
 	entries, err := fm.LoadOnce(context.Background())
 	if err != nil {
 		t.Fatalf("LoadOnce URL: %v", err)
@@ -771,14 +772,23 @@ func TestLayer_WithFeed(t *testing.T) {
 	}
 }
 
-// Cover checkIP with invalid CIDR in cache.
-func TestCheckIP_InvalidCIDR(t *testing.T) {
+// Cover checkIP with CIDR cache entries.
+func TestCheckIP_CIDRCache(t *testing.T) {
 	layer, _ := NewLayer(&Config{Enabled: true})
-	layer.cidrCache["not-a-valid-cidr"] = &ThreatInfo{Score: 50, Type: "test"}
+	_, network, _ := net.ParseCIDR("10.0.0.0/8")
+	layer.cidrCache = append(layer.cidrCache, cidrEntry{
+		network: network,
+		info:    &ThreatInfo{Score: 50, Type: "test"},
+	})
 
-	info, ok := layer.checkIP(net.ParseIP("1.2.3.4"))
+	info, ok := layer.checkIP(net.ParseIP("10.1.2.3"))
+	if !ok || info.Score != 50 {
+		t.Errorf("expected match for 10.1.2.3 in 10.0.0.0/8, got ok=%v info=%+v", ok, info)
+	}
+
+	info, ok = layer.checkIP(net.ParseIP("192.168.1.1"))
 	if ok {
-		t.Errorf("expected no match for invalid CIDR, got %+v", info)
+		t.Errorf("expected no match for 192.168.1.1, got %+v", info)
 	}
 }
 

@@ -2,6 +2,7 @@ package sanitizer
 
 import (
 	"sync"
+	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 )
@@ -33,6 +34,8 @@ func (l *Layer) SetEnabled(enabled bool) {
 
 // Process normalizes and validates the request.
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
+	start := time.Now()
+
 	// Check if sanitizer is enabled (tenant config takes precedence)
 	l.mu.RLock()
 	enabled := l.enabled
@@ -41,7 +44,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		enabled = false
 	}
 	if !enabled {
-		return engine.LayerResult{Action: engine.ActionPass}
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
 	// Step 1: Normalize all inputs
@@ -94,5 +97,6 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		Action:   action,
 		Findings: findings,
 		Score:    totalScore,
+		Duration: time.Since(start),
 	}
 }

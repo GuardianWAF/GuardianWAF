@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash"
+	"io"
 	"log"
 	"math/big"
 	"net/http"
@@ -157,7 +158,9 @@ func (v *JWTValidator) Validate(tokenString string) (*JWTClaims, error) {
 	key := v.publicKey
 	if jwtHeader.Kid != "" && v.jwksCache != nil {
 		if k, ok := v.jwksCache.Load(jwtHeader.Kid); ok {
-			key = k.(crypto.PublicKey)
+			if pk, valid := k.(crypto.PublicKey); valid {
+				key = pk
+			}
 		}
 	}
 
@@ -390,6 +393,7 @@ func (v *JWTValidator) fetchJWKS() {
 	if err := json.NewDecoder(resp.Body).Decode(&jwks); err != nil {
 		return
 	}
+	_, _ = io.Copy(io.Discard, resp.Body)
 
 	for _, key := range jwks.Keys {
 		var pubKey crypto.PublicKey
@@ -508,13 +512,25 @@ func (p *asn1Parser) parseValue(out any) error {
 	// Parse two INTEGERs
 	esig := out.(*struct{ R, S *big.Int })
 
+	if len(seq) < 2 {
+		return fmt.Errorf("signature SEQUENCE too short")
+	}
 	seq = seq[1:] // skip INTEGER tag
 	l1, _ := parseLengthFrom(&seq)
+	if l1 > len(seq) {
+		return fmt.Errorf("invalid R length")
+	}
 	esig.R = new(big.Int).SetBytes(stripLeadingZeros(seq[:l1]))
 	seq = seq[l1:]
 
+	if len(seq) < 2 {
+		return fmt.Errorf("signature SEQUENCE too short for S")
+	}
 	seq = seq[1:] // skip INTEGER tag
 	l2, _ := parseLengthFrom(&seq)
+	if l2 > len(seq) {
+		return fmt.Errorf("invalid S length")
+	}
 	esig.S = new(big.Int).SetBytes(stripLeadingZeros(seq[:l2]))
 
 	return nil

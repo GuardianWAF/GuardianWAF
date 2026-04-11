@@ -156,6 +156,7 @@ type Security struct {
 	methodRateLimiters map[string]*RateLimiter
 	rateLimitMu sync.RWMutex
 	stopCh   chan struct{}
+	wg       sync.WaitGroup
 }
 
 // RateLimiter implements token bucket rate limiting.
@@ -218,6 +219,7 @@ func NewSecurity(cfg *config.GRPCConfig) (*Security, error) {
 	}
 
 	// Start cleanup routine
+	s.wg.Add(1)
 	go s.cleanupLoop()
 
 	return s, nil
@@ -225,11 +227,18 @@ func NewSecurity(cfg *config.GRPCConfig) (*Security, error) {
 
 // Stop stops the security instance.
 func (s *Security) Stop() {
-	close(s.stopCh)
+	select {
+	case <-s.stopCh:
+		return
+	default:
+		close(s.stopCh)
+	}
+	s.wg.Wait()
 }
 
 // cleanupLoop periodically cleans up stale streams.
 func (s *Security) cleanupLoop() {
+	defer s.wg.Done()
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 

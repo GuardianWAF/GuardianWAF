@@ -1,6 +1,7 @@
 package botdetect
 
 import (
+	"sync"
 	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
@@ -71,6 +72,7 @@ func DefaultConfig() Config {
 type Layer struct {
 	config   Config
 	behavior *BehaviorManager
+	mu       sync.RWMutex
 }
 
 // NewLayer creates a new bot detection layer with the given configuration.
@@ -96,15 +98,22 @@ func (l *Layer) Name() string {
 	return "botdetect"
 }
 
+// snapshotConfig returns a copy of the current config under RLock.
+func (l *Layer) snapshotConfig() Config {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.config
+}
+
 // Process analyzes the request for bot indicators using JA3 fingerprinting,
 // User-Agent analysis, and behavioral patterns.
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	// Check if bot detection is enabled (tenant config takes precedence)
-	enabled := l.config.Enabled
+	cfg := l.snapshotConfig()
 	if ctx.TenantWAFConfig != nil && !ctx.TenantWAFConfig.BotDetection.Enabled {
-		enabled = false
+		cfg.Enabled = false
 	}
-	if !enabled {
+	if !cfg.Enabled {
 		return engine.LayerResult{Action: engine.ActionPass}
 	}
 
@@ -113,21 +122,21 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	totalScore := 0
 
 	// 1. TLS Fingerprint analysis
-	if l.config.TLSFingerprint.Enabled && ctx.TLSVersion > 0 {
+	if cfg.TLSFingerprint.Enabled && ctx.TLSVersion > 0 {
 		fpScore, fpFindings := l.analyzeTLSFingerprint(ctx)
 		totalScore += fpScore
 		findings = append(findings, fpFindings...)
 	}
 
 	// 2. User-Agent analysis
-	if l.config.UserAgent.Enabled {
+	if cfg.UserAgent.Enabled {
 		uaScore, uaFindings := l.analyzeUA(ctx)
 		totalScore += uaScore
 		findings = append(findings, uaFindings...)
 	}
 
 	// 3. Behavioral analysis
-	if l.config.Behavior.Enabled && l.behavior != nil {
+	if cfg.Behavior.Enabled && l.behavior != nil {
 		ip := ""
 		if ctx.ClientIP != nil {
 			ip = ctx.ClientIP.String()
@@ -157,7 +166,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	// Determine action based on score and mode
 	action := engine.ActionPass
 	if totalScore > 0 {
-		switch l.config.Mode {
+		switch cfg.Mode {
 		case "enforce":
 			switch {
 			case totalScore >= 80:
@@ -265,7 +274,8 @@ func (l *Layer) analyzeUA(ctx *engine.RequestContext) (int, []engine.Finding) {
 	}
 
 	// Apply config filters
-	if ua == "" && !l.config.UserAgent.BlockEmpty {
+	cfg := l.snapshotConfig()
+	if ua == "" && !cfg.UserAgent.BlockEmpty {
 		return 0, nil
 	}
 

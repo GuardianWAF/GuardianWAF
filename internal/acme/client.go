@@ -285,6 +285,7 @@ func (c *Client) completeAuthorization(authzURL string, handler *HTTP01Handler) 
 	if err != nil {
 		return err
 	}
+	io.Copy(io.Discard, io.LimitReader(challengeResp.Body, 1<<20))
 	challengeResp.Body.Close()
 
 	// Poll authorization until valid or invalid
@@ -298,9 +299,11 @@ func (c *Client) completeAuthorization(authzURL string, handler *HTTP01Handler) 
 
 		var pollAuthz authorization
 		if err := json.NewDecoder(pollResp.Body).Decode(&pollAuthz); err != nil {
-			pollResp.Body.Close()
+			io.Copy(io.Discard, io.LimitReader(pollResp.Body, 1<<20))
+		pollResp.Body.Close()
 			return fmt.Errorf("failed to decode authorization response: %w", err)
 		}
+		io.Copy(io.Discard, io.LimitReader(pollResp.Body, 1<<20))
 		pollResp.Body.Close()
 
 		if pollAuthz.Status == "valid" {
@@ -342,9 +345,11 @@ func (c *Client) pollCertificate(orderURL string) ([]byte, error) {
 
 		var o order
 		if err := json.NewDecoder(resp.Body).Decode(&o); err != nil {
+			io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
 			resp.Body.Close()
 			return nil, fmt.Errorf("failed to decode order response: %w", err)
 		}
+		io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
 		resp.Body.Close()
 
 		if o.Status == "valid" && o.Certificate != "" {
@@ -388,6 +393,7 @@ func (c *Client) getNonce() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
 	resp.Body.Close()
 	return resp.Header.Get("Replay-Nonce"), nil
 }
@@ -422,13 +428,19 @@ func (c *Client) signedPost(url string, payload any, useJWK bool) (*http.Respons
 		header["kid"] = c.accountURL
 	}
 
-	headerJSON, _ := json.Marshal(header)
+	headerJSON, err := json.Marshal(header)
+	if err != nil {
+		return nil, fmt.Errorf("marshal JWS header: %w", err)
+	}
 	headerB64 := base64.RawURLEncoding.EncodeToString(headerJSON)
 
 	// Payload
 	var payloadB64 string
 	if payload != nil {
-		payloadJSON, _ := json.Marshal(payload)
+		payloadJSON, err := json.Marshal(payload)
+		if err != nil {
+			return nil, fmt.Errorf("marshal JWS payload: %w", err)
+		}
 		payloadB64 = base64.RawURLEncoding.EncodeToString(payloadJSON)
 	} else {
 		payloadB64 = "" // POST-as-GET
@@ -456,7 +468,10 @@ func (c *Client) signedPost(url string, payload any, useJWK bool) (*http.Respons
 		"payload":   payloadB64,
 		"signature": sigB64,
 	}
-	body, _ := json.Marshal(jws)
+	body, err := json.Marshal(jws)
+	if err != nil {
+		return nil, fmt.Errorf("marshal JWS body: %w", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

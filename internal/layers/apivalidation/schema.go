@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // Pre-compiled regex patterns for format validation (avoids recompilation per request).
@@ -20,7 +21,8 @@ var (
 	reHostname = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$`)
 
 	// userPatternCache caches user-defined regex patterns from API schemas.
-	userPatternCache sync.Map // string → *regexp.Regexp
+	userPatternCache     sync.Map       // string → *regexp.Regexp
+	userPatternCacheSize atomic.Int64   // track cache size for cap enforcement
 )
 
 // Config holds API validation configuration.
@@ -749,6 +751,11 @@ func getCachedPattern(pattern string) (*regexp.Regexp, error) {
 	if err != nil {
 		return nil, err
 	}
-	userPatternCache.Store(pattern, re)
+	// Enforce cache cap — return compiled regex without caching if over limit
+	if userPatternCacheSize.Load() < 10000 {
+		if _, loaded := userPatternCache.LoadOrStore(pattern, re); !loaded {
+			userPatternCacheSize.Add(1)
+		}
+	}
 	return re, nil
 }

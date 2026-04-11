@@ -72,8 +72,7 @@ func (p *Pipeline) Execute(ctx *RequestContext) PipelineResult {
 		delete(timing, k)
 	}
 	result := PipelineResult{
-		Action:      ActionPass,
-		LayerTiming: timing,
+		Action: ActionPass,
 	}
 
 	for _, ol := range layers {
@@ -87,7 +86,7 @@ func (p *Pipeline) Execute(ctx *RequestContext) PipelineResult {
 		layerStart := time.Now()
 		lr := layer.Process(ctx)
 		elapsed := time.Since(layerStart)
-		result.LayerTiming[layer.Name()] = elapsed
+		timing[layer.Name()] = elapsed
 
 		// Accumulate findings
 		if len(lr.Findings) > 0 {
@@ -102,6 +101,13 @@ func (p *Pipeline) Execute(ctx *RequestContext) PipelineResult {
 			result.TotalScore = ctx.Accumulator.Total()
 			result.Duration = time.Since(start)
 			ctx.Action = ActionBlock
+			// Copy timing data and return pooled map
+			timingCopy := make(map[string]time.Duration, len(timing))
+			for k, v := range timing {
+				timingCopy[k] = v
+			}
+			timingMapPool.Put(timing)
+			result.LayerTiming = timingCopy
 			return result // early return
 		case ActionLog:
 			if result.Action != ActionBlock {
@@ -117,6 +123,13 @@ func (p *Pipeline) Execute(ctx *RequestContext) PipelineResult {
 	result.TotalScore = ctx.Accumulator.Total()
 	result.Duration = time.Since(start)
 	ctx.Action = result.Action
+	// Copy timing data and return pooled map
+	timingCopy := make(map[string]time.Duration, len(timing))
+	for k, v := range timing {
+		timingCopy[k] = v
+	}
+	timingMapPool.Put(timing)
+	result.LayerTiming = timingCopy
 	return result
 }
 

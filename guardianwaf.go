@@ -26,6 +26,7 @@
 package guardianwaf
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 
@@ -190,7 +191,7 @@ func New(cfg Config, opts ...Option) (*Engine, error) {
 	bus := events.NewEventBus()
 	eng, err := engine.NewEngine(internalCfg, store, bus)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("creating engine: %w", err)
 	}
 
 	addDefaultLayers(eng, internalCfg)
@@ -217,7 +218,7 @@ func New(cfg Config, opts ...Option) (*Engine, error) {
 func NewFromFile(path string, opts ...Option) (*Engine, error) {
 	cfg, err := config.LoadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("loading config file %q: %w", path, err)
 	}
 	config.LoadEnv(cfg)
 
@@ -229,7 +230,7 @@ func NewFromFile(path string, opts ...Option) (*Engine, error) {
 	bus := events.NewEventBus()
 	eng, err := engine.NewEngine(cfg, store, bus)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("creating engine: %w", err)
 	}
 
 	addDefaultLayers(eng, cfg)

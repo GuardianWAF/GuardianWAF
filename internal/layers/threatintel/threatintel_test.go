@@ -176,11 +176,15 @@ func TestCheckIP_CIDR(t *testing.T) {
 
 	// Add CIDR range
 	layer.mu.Lock()
-	layer.cidrCache["192.0.2.0/24"] = &ThreatInfo{
-		Score:  85,
-		Type:   "spam",
-		Source: "test",
-	}
+	_, network, _ := net.ParseCIDR("192.0.2.0/24")
+	layer.cidrCache = append(layer.cidrCache, cidrEntry{
+		network: network,
+		info: &ThreatInfo{
+			Score:  85,
+			Type:   "spam",
+			Source: "test",
+		},
+	})
 	layer.mu.Unlock()
 
 	// IP in CIDR should match
@@ -255,7 +259,8 @@ func TestStats(t *testing.T) {
 	layer.AddIP("10.0.0.2", &ThreatInfo{Score: 50})
 	layer.AddDomain("test.com", &ThreatInfo{Score: 50})
 	layer.mu.Lock()
-	layer.cidrCache["192.0.2.0/24"] = &ThreatInfo{Score: 50}
+	_, network, _ := net.ParseCIDR("192.0.2.0/24")
+	layer.cidrCache = append(layer.cidrCache, cidrEntry{network: network, info: &ThreatInfo{Score: 50}})
 	layer.mu.Unlock()
 
 	stats := layer.Stats()

@@ -54,6 +54,7 @@ type AlertManager struct {
 	// Bounded dispatch channel
 	dispatchCh chan *Alert
 	stopCh     chan struct{}
+	wg        sync.WaitGroup
 }
 
 // NewAlertManager creates a new alert manager.
@@ -68,6 +69,7 @@ func NewAlertManager() *AlertManager {
 		stopCh:      make(chan struct{}),
 	}
 	// Start bounded dispatch workers
+	am.wg.Add(1)
 	go am.dispatchLoop()
 	return am
 }
@@ -274,6 +276,7 @@ func (am *AlertManager) Cleanup(maxAge time.Duration) {
 
 // dispatchLoop runs a bounded dispatch worker that calls handlers sequentially.
 func (am *AlertManager) dispatchLoop() {
+	defer am.wg.Done()
 	for {
 		select {
 		case alert := <-am.dispatchCh:
@@ -293,7 +296,13 @@ func (am *AlertManager) dispatchLoop() {
 
 // Close stops the dispatch loop.
 func (am *AlertManager) Close() {
-	close(am.stopCh)
+	select {
+	case <-am.stopCh:
+		return
+	default:
+		close(am.stopCh)
+	}
+	am.wg.Wait()
 }
 
 func generateAlertID() string {

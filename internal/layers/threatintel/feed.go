@@ -9,20 +9,26 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
 // FeedConfig configures a threat intelligence feed source.
 type FeedConfig struct {
-	Type          string        `yaml:"type"`    // "file" or "url"
-	Path          string        `yaml:"path"`    // File path for type="file"
-	URL           string        `yaml:"url"`     // URL for type="url"
-	Refresh       time.Duration `yaml:"refresh"` // Refresh interval
-	Format        string        `yaml:"format"`  // "json", "jsonl", "csv"
-	SkipSSLVerify bool          `yaml:"skip_ssl_verify"` // Deprecated: field is not wired to user config; TLS verification is always enforced
+	Type             string        `yaml:"type"`    // "file" or "url"
+	Path             string        `yaml:"path"`    // File path for type="file"
+	URL              string        `yaml:"url"`     // URL for type="url"
+	Refresh          time.Duration `yaml:"refresh"` // Refresh interval
+	Format           string        `yaml:"format"`  // "json", "jsonl", "csv"
+	SkipSSLVerify    bool          `yaml:"skip_ssl_verify"`  // Deprecated: field is not wired to user config; TLS verification is always enforced
+	AllowPrivateURLs bool          `yaml:"-"`                // Allow private/local URLs (testing only, never from config file)
 }
+
+// maxFeedEntries caps the number of entries parsed from a feed to prevent memory exhaustion.
+const maxFeedEntries = 500000
 
 // FeedManager manages a single threat feed source.
 type FeedManager struct {
@@ -30,6 +36,7 @@ type FeedManager struct {
 	client   *http.Client
 	stopCh   chan struct{}
 	onUpdate func([]ThreatEntry)
+	wg       sync.WaitGroup
 }
 
 // ThreatEntry represents a single threat intelligence entry.
@@ -91,16 +98,24 @@ func (f *FeedManager) Start() {
 
 	// Start refresh loop
 	if f.config.Refresh > 0 {
+		f.wg.Add(1)
 		go f.refreshLoop()
 	}
 }
 
 // Stop stops the refresh loop.
 func (f *FeedManager) Stop() {
-	close(f.stopCh)
+	select {
+	case <-f.stopCh:
+		return
+	default:
+		close(f.stopCh)
+	}
+	f.wg.Wait()
 }
 
 func (f *FeedManager) refreshLoop() {
+	defer f.wg.Done()
 	ticker := time.NewTicker(f.config.Refresh)
 	defer ticker.Stop()
 
@@ -128,6 +143,13 @@ func (f *FeedManager) loadFile() ([]ThreatEntry, error) {
 }
 
 func (f *FeedManager) loadURL(ctx context.Context) ([]ThreatEntry, error) {
+	// Validate feed URL for SSRF protection
+	if !f.config.AllowPrivateURLs {
+		if err := validateFeedURL(f.config.URL); err != nil {
+			return nil, fmt.Errorf("feed URL rejected: %w", err)
+		}
+	}
+
 	// Warn on non-HTTPS feed URLs — threat feed data controls WAF blocking decisions
 	if strings.HasPrefix(f.config.URL, "http://") {
 		fmt.Printf("WARNING: threat intel feed URL is not HTTPS: %s (data may be tampered with in transit)\n", f.config.URL)
@@ -145,6 +167,7 @@ func (f *FeedManager) loadURL(ctx context.Context) ([]ThreatEntry, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, resp.Body)
 		return nil, fmt.Errorf("feed returned status %d", resp.StatusCode)
 	}
 
@@ -218,6 +241,9 @@ func (f *FeedManager) parseJSONL(r io.Reader) ([]ThreatEntry, error) {
 			Domain: entry.Domain,
 			Info:   info,
 		})
+		if len(entries) >= maxFeedEntries {
+			break
+		}
 	}
 
 	return entries, scanner.Err()
@@ -264,6 +290,9 @@ func (f *FeedManager) parseJSON(r io.Reader) ([]ThreatEntry, error) {
 		})
 	}
 
+	if len(entries) > maxFeedEntries {
+		entries = entries[:maxFeedEntries]
+	}
 	return entries, nil
 }
 
@@ -325,6 +354,9 @@ func (f *FeedManager) parseCSV(r io.Reader) ([]ThreatEntry, error) {
 		}
 
 		entries = append(entries, entry)
+		if len(entries) >= maxFeedEntries {
+			break
+		}
 	}
 
 	return entries, scanner.Err()
@@ -347,4 +379,23 @@ func parseInt(s string) (int, error) {
 		n = -n
 	}
 	return n, nil
+}
+
+// validateFeedURL checks that a feed URL does not target private/internal networks (SSRF protection).
+func validateFeedURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+	host := u.Hostname()
+	if host == "localhost" || strings.HasSuffix(host, ".internal") || strings.HasSuffix(host, ".local") {
+		return fmt.Errorf("feed URL must not target localhost or internal hosts")
+	}
+	ip := net.ParseIP(host)
+	if ip != nil {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+			return fmt.Errorf("feed URL must not target private/loopback/link-local addresses")
+		}
+	}
+	return nil
 }

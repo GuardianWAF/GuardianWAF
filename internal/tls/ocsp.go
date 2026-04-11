@@ -1,17 +1,16 @@
 package tls
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/sha1"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/asn1"
-	"encoding/base64"
 	"fmt"
 	"io"
 	"math/big"
 	"net/http"
-	"strings"
 	"time"
 )
 
@@ -40,6 +39,10 @@ var oidOCSPNoCheck = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 1, 5}
 
 // FetchOCSPResponse fetches an OCSP response for the given certificate from its
 // OCSP responder. Returns the raw DER-encoded response suitable for TLS stapling.
+
+// ocspHTTPClient is a shared HTTP client for OCSP lookups.
+var ocspHTTPClient = &http.Client{Timeout: 10 * time.Second}
+
 func FetchOCSPResponse(issuer, leaf *x509.Certificate) ([]byte, error) {
 	if len(issuer.Raw) == 0 || len(leaf.Raw) == 0 {
 		return nil, fmt.Errorf("missing certificate data")
@@ -57,21 +60,21 @@ func FetchOCSPResponse(issuer, leaf *x509.Certificate) ([]byte, error) {
 	}
 
 	// Send OCSP request via HTTP
-	httpReq, err := http.NewRequest("POST", ocspURL, strings.NewReader(base64.StdEncoding.EncodeToString(reqData)))
+	httpReq, err := http.NewRequest("POST", ocspURL, bytes.NewReader(reqData))
 	if err != nil {
 		return nil, fmt.Errorf("creating OCSP HTTP request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/ocsp-request")
 	httpReq.Header.Set("Accept", "application/ocsp-response")
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(httpReq)
+	resp, err := ocspHTTPClient.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("OCSP HTTP request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, resp.Body)
 		return nil, fmt.Errorf("OCSP responder returned status %d", resp.StatusCode)
 	}
 

@@ -199,8 +199,10 @@ func (c *Client) ListContainers(labelPrefix string) ([]Container, error) {
 		for portKey := range d.Config.ExposedPorts {
 			parts := strings.SplitN(portKey, "/", 2)
 			if len(parts) >= 1 {
-				var port int
-				port, _ = strconv.Atoi(parts[0])
+				port, portErr := strconv.Atoi(parts[0])
+				if portErr != nil {
+					continue // skip malformed port spec
+				}
 				proto := "tcp"
 				if len(parts) == 2 {
 					proto = parts[1]

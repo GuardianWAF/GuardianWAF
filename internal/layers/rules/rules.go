@@ -104,7 +104,11 @@ func (l *Layer) RemoveRule(id string) bool {
 	defer l.mu.Unlock()
 	for i, r := range l.rules {
 		if r.ID == id {
-			l.rules = append(l.rules[:i], l.rules[i+1:]...)
+			// Copy to new slice to avoid mutating shared backing array
+			newRules := make([]Rule, len(l.rules)-1)
+			copy(newRules, l.rules[:i])
+			copy(newRules[i:], l.rules[i+1:])
+			l.rules = newRules
 			return true
 		}
 	}
@@ -143,7 +147,8 @@ func (l *Layer) UpdateRule(rule Rule) bool {
 // Process evaluates all enabled rules against the request.
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	l.mu.RLock()
-	globalRules := l.rules
+	globalRules := make([]Rule, len(l.rules))
+	copy(globalRules, l.rules)
 	l.mu.RUnlock()
 
 	// Get all rules (global + tenant-specific)
@@ -324,7 +329,9 @@ func (l *Layer) regexMatch(pattern, value string) bool {
 			return false
 		}
 		l.mu.Lock()
-		l.regexCache[pattern] = re
+		if len(l.regexCache) < 10000 {
+			l.regexCache[pattern] = re
+		}
 		l.mu.Unlock()
 	}
 

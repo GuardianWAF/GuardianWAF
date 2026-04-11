@@ -110,15 +110,6 @@ const PLANS: Plan[] = [
   }
 ]
 
-interface CreateResponse {
-  tenant: {
-    id: string
-    name: string
-    created_at: string
-  }
-  api_key: string
-}
-
 export default function TenantNewPage() {
   const [step, setStep] = useState<Step>(1)
   const [loading, setLoading] = useState(false)
@@ -218,7 +209,7 @@ export default function TenantNewPage() {
     try {
       const quota = form.customConfig ? customQuota : selectedPlan.quota
 
-      const response = await api.post<CreateResponse>('/admin/tenants', {
+      const response = await api.adminCreateTenant({
         name: form.name,
         description: form.description,
         plan: form.plan,

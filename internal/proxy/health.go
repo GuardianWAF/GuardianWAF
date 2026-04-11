@@ -84,7 +84,12 @@ func (hc *HealthChecker) Start() {
 
 // Stop stops the health checker and waits for it to finish.
 func (hc *HealthChecker) Stop() {
-	close(hc.stopCh)
+	select {
+	case <-hc.stopCh:
+		return
+	default:
+		close(hc.stopCh)
+	}
 	hc.wg.Wait()
 }
 

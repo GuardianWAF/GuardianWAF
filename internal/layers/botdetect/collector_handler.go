@@ -216,6 +216,7 @@ func (c *BiometricCollector) HandleChallengeVerify(w http.ResponseWriter, r *htt
 	}
 
 	// Get token from form
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB max
 	token := r.FormValue("token")
 	if token == "" {
 		http.Error(w, "Missing token", http.StatusBadRequest)
