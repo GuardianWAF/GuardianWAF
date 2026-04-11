@@ -76,11 +76,11 @@ func classifyIP(ip net.IP, host string) error {
 	return nil
 }
 // allowPrivateTargets is set to true in tests to allow httptest.NewServer URLs.
-var allowPrivateTargets bool
+var allowPrivateTargets atomic.Bool
 
 // AllowPrivateTargets enables private/reserved IP targets for testing.
 func AllowPrivateTargets() {
-	allowPrivateTargets = true
+	allowPrivateTargets.Store(true)
 }
 
 func NewTarget(rawURL string, weight int) (*Target, error) {
@@ -93,7 +93,7 @@ func NewTarget(rawURL string, weight int) (*Target, error) {
 	}
 
 	// SSRF prevention: block targets resolving to private/reserved IPs
-	if !allowPrivateTargets {
+	if !allowPrivateTargets.Load() {
 		if err := isPrivateOrReservedIP(u.Host); err != nil {
 			return nil, err
 		}

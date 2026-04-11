@@ -99,7 +99,7 @@ func (hc *HealthChecker) checkAll(ctx context.Context) {
 	for _, t := range targets {
 		// SSRF TOCTOU mitigation: re-check DNS on each health check to detect
 		// DNS rebinding attacks that change a public IP to a private one.
-		if !allowPrivateTargets {
+		if !allowPrivateTargets.Load() {
 			if err := isPrivateOrReservedIP(t.URL.Host); err != nil {
 				t.SetHealthy(false)
 				t.lastCheck.Store(time.Now())

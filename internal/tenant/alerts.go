@@ -1,6 +1,7 @@
 package tenant
 
 import (
+	"crypto/rand"
 	"fmt"
 	"sync"
 	"time"
@@ -306,5 +307,10 @@ func (am *AlertManager) Close() {
 }
 
 func generateAlertID() string {
-	return fmt.Sprintf("ALERT-%d", time.Now().UnixNano())
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback to timestamp (extremely unlikely)
+		return fmt.Sprintf("ALERT-%d", time.Now().UnixNano())
+	}
+	return fmt.Sprintf("ALERT-%x", b)
 }

@@ -1678,7 +1678,11 @@ func (b *SSEBroadcaster) HandleSSE(w http.ResponseWriter, r *http.Request) {
 	for {
 		select {
 		case msg := <-ch:
-			fmt.Fprintf(w, "data: %s\n\n", msg)
+			// Split on newlines per SSE spec: each line gets its own "data:" prefix
+			for _, line := range strings.Split(msg, "\n"  ) {
+				fmt.Fprintf(w, "data: %s\n", line)
+			}
+			fmt.Fprint(w, "\n" )
 			flusher.Flush()
 		case <-ctx.Done():
 			return

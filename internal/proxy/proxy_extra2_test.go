@@ -9,7 +9,7 @@ import (
 )
 
 func init() {
-	allowPrivateTargets = true
+	allowPrivateTargets.Store(true)
 }
 
 // --- NewHealthChecker ---

@@ -145,6 +145,8 @@ type PublicTenant struct {
 }
 
 func sanitizeTenant(t *Tenant) PublicTenant {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
 	return PublicTenant{
 		ID:          t.ID,
 		Name:        t.Name,

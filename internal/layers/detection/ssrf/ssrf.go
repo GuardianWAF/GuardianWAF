@@ -76,6 +76,26 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 		}
 	}
 
+	// 6. User-Agent header (halved scores - common vector but high false-positive rate)
+	if uas, ok := ctx.Headers["User-Agent"]; ok {
+		for _, v := range uas {
+			for _, f := range Detect(v, "header") {
+				f.Score = f.Score / 2
+				allFindings = append(allFindings, f)
+			}
+		}
+	}
+
+	// 7. Custom headers commonly used for SSRF (X-Forwarded-Host, X-Original-URL, etc.)
+	ssrfHeaders := []string{"X-Forwarded-Host", "X-Forwarded-Proto", "X-Original-URL", "X-Rewrite-URL"}
+	for _, hdr := range ssrfHeaders {
+		if vals, ok := ctx.Headers[hdr]; ok {
+			for _, v := range vals {
+				allFindings = append(allFindings, Detect(v, "header")...)
+			}
+		}
+	}
+
 	// Apply multiplier
 	for i := range allFindings {
 		allFindings[i].Score = int(float64(allFindings[i].Score) * d.multiplier)

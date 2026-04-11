@@ -8,7 +8,7 @@ import (
 
 func init() {
 	// Allow private/reserved IPs in tests (httptest.NewServer uses 127.0.0.1).
-	allowPrivateTargets = true
+	allowPrivateTargets.Store(true)
 }
 
 func TestCircuitState_String(t *testing.T) {

@@ -21,6 +21,9 @@ import (
 )
 
 // Manager handles cluster synchronization.
+//
+// Lock ordering: Manager.mu must be acquired before Cluster.mu.
+// Never hold Cluster.mu while acquiring Manager.mu, or deadlock may occur.
 type Manager struct {
 	config *Config
 

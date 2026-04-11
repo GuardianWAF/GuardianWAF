@@ -329,9 +329,14 @@ func (l *Layer) regexMatch(pattern, value string) bool {
 			return false
 		}
 		l.mu.Lock()
-		if len(l.regexCache) < 10000 {
-			l.regexCache[pattern] = re
+		if len(l.regexCache) >= 10000 {
+			// Evict a random entry to make room
+			for k := range l.regexCache {
+				delete(l.regexCache, k)
+				break
+			}
 		}
+		l.regexCache[pattern] = re
 		l.mu.Unlock()
 	}
 

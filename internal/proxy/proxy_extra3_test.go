@@ -10,7 +10,7 @@ import (
 )
 
 func init() {
-	allowPrivateTargets = true
+	allowPrivateTargets.Store(true)
 }
 
 func TestWeightedRoundRobin_ZeroTotalWeight(t *testing.T) {
