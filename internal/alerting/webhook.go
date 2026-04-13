@@ -79,8 +79,16 @@ type Stats struct {
 // NewManager creates an alerting manager with the given webhook targets.
 func NewManager(targets []WebhookTarget) *Manager {
 	m := &Manager{
-		httpClient: &http.Client{Timeout: 10 * time.Second},
-		sem:        make(chan struct{}, 32), // max 32 concurrent webhook/email sends
+		httpClient: &http.Client{
+			Timeout: 10 * time.Second,
+			Transport: &http.Transport{
+				DialContext:           webhookSSRFDialContext(),
+				IdleConnTimeout:       90 * time.Second,
+				TLSHandshakeTimeout:  10 * time.Second,
+				ResponseHeaderTimeout: 30 * time.Second,
+			},
+		},
+		sem: make(chan struct{}, 32), // max 32 concurrent webhook/email sends
 	}
 
 	for _, t := range targets {
@@ -596,4 +604,33 @@ func validateHostNotPrivate(host string) error {
 		}
 	}
 	return nil
+}
+
+// webhookSSRFDialContext returns a DialContext that validates resolved IPs at
+// connection time to prevent DNS rebinding (TOCTOU) attacks on webhook targets.
+func webhookSSRFDialContext() func(ctx context.Context, network, addr string) (net.Conn, error) {
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		// Skip SSRF check in tests (test servers use localhost/private IPs)
+		if allowWebhookPrivate.Load() {
+			return dialer.DialContext(ctx, network, addr)
+		}
+		host, _, err := net.SplitHostPort(addr)
+		if err != nil {
+			host = addr
+		}
+		// Validate at connection time (catches DNS rebinding)
+		if err := validateHostNotPrivate(host); err != nil {
+			return nil, fmt.Errorf("webhook SSRF: %w", err)
+		}
+		return dialer.DialContext(ctx, network, addr)
+	}
+}
+
+// allowWebhookPrivate allows private IPs for webhook connections (testing only).
+var allowWebhookPrivate atomic.Bool
+
+// AllowWebhookPrivateTargets enables private/reserved IP targets for webhook testing.
+func AllowWebhookPrivateTargets() {
+	allowWebhookPrivate.Store(true)
 }

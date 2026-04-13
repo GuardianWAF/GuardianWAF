@@ -5,11 +5,17 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 )
+
+func TestMain(m *testing.M) {
+	AllowWebhookPrivateTargets()
+	os.Exit(m.Run())
+}
 
 func testEvent(action engine.Action, score int, ip string) *engine.Event {
 	return &engine.Event{

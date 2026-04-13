@@ -55,7 +55,9 @@ type Config struct {
 	HeartbeatTimeout  time.Duration `yaml:"heartbeat_timeout"`
 	LeaderElectionTimeout time.Duration `yaml:"leader_election_timeout"`
 	MaxNodes       int           `yaml:"max_nodes"`
-	AuthSecret     string        `yaml:"auth_secret"` // shared secret for cluster API authentication
+	AuthSecret     string        `yaml:"auth_secret"`   // shared secret for cluster API authentication
+	TLSCertFile    string        `yaml:"tls_cert_file"` // TLS certificate for intra-cluster communication
+	TLSKeyFile     string        `yaml:"tls_key_file"`  // TLS private key for intra-cluster communication
 }
 
 // DefaultConfig returns default cluster config.
@@ -470,7 +472,11 @@ func (c *Cluster) broadcast(msg *Message) {
 
 // sendMessage sends a message to a specific node.
 func (c *Cluster) sendMessage(ctx context.Context, node *Node, msg *Message) error {
-	url := fmt.Sprintf("http://%s:%d/cluster/message", node.Address, node.Port)
+	scheme := "http"
+	if c.config.TLSCertFile != "" && c.config.TLSKeyFile != "" {
+		scheme = "https"
+	}
+	url := fmt.Sprintf("%s://%s:%d/cluster/message", scheme, node.Address, node.Port)
 
 	data, err := json.Marshal(msg)
 	if err != nil {
@@ -803,8 +809,19 @@ func (c *Cluster) startHTTPServer() {
 		IdleTimeout:       60 * time.Second,
 	}
 
-	if err := c.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Printf("[cluster] warning: HTTP server failed: %v", err)
+	// Warn if AuthSecret is used over plain HTTP -- the secret is sent in cleartext
+	if c.config.AuthSecret != "" && (c.config.TLSCertFile == "" || c.config.TLSKeyFile == "") {
+		log.Printf("[cluster] WARNING: AuthSecret is configured but TLS is not enabled -- cluster auth secret will be sent in cleartext. Configure tls_cert_file and tls_key_file for secure cluster communication.")
+	}
+
+	if c.config.TLSCertFile != "" && c.config.TLSKeyFile != "" {
+		if err := c.httpServer.ListenAndServeTLS(c.config.TLSCertFile, c.config.TLSKeyFile); err != nil && err != http.ErrServerClosed {
+			log.Printf("[cluster] warning: HTTPS server failed: %v", err)
+		}
+	} else {
+		if err := c.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("[cluster] warning: HTTP server failed: %v", err)
+		}
 	}
 }
 

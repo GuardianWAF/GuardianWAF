@@ -2,6 +2,7 @@ package siem
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -85,6 +86,7 @@ func NewExporter(cfg *Config) *Exporter {
 	}
 
 	transport := &http.Transport{
+		DialContext:           siemSSRFDialContext(),
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: false, // Always enforce TLS verification
 		},
@@ -401,4 +403,21 @@ func (e *Exporter) Name() string {
 // IsEnabled returns whether the exporter is enabled.
 func (e *Exporter) IsEnabled() bool {
 	return e.config.Enabled
+}
+
+// siemSSRFDialContext returns a DialContext that validates resolved IPs at
+// connection time to prevent DNS rebinding (TOCTOU) attacks on SIEM endpoints.
+func siemSSRFDialContext() func(ctx context.Context, network, addr string) (net.Conn, error) {
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, _, err := net.SplitHostPort(addr)
+		if err != nil {
+			host = addr
+		}
+		// Validate at connection time (catches DNS rebinding)
+		if err := validateSIEMHostNotPrivate(host); err != nil {
+			return nil, fmt.Errorf("SIEM SSRF: %w", err)
+		}
+		return dialer.DialContext(ctx, network, addr)
+	}
 }

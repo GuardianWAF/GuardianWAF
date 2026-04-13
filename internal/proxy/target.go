@@ -3,6 +3,7 @@
 package proxy
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -83,6 +84,38 @@ func AllowPrivateTargets() {
 	allowPrivateTargets.Store(true)
 }
 
+// SSRFDialContext returns a DialContext function that validates the resolved IP
+// against private/reserved ranges at connection time. This prevents DNS rebinding
+// attacks where DNS resolves to a public IP at validation time but to a private IP
+// at actual connection time (TOCTOU gap).
+func SSRFDialContext() func(ctx context.Context, network, addr string) (net.Conn, error) {
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		if allowPrivateTargets.Load() {
+			return dialer.DialContext(ctx, network, addr)
+		}
+
+		host, _, err := net.SplitHostPort(addr)
+		if err != nil {
+			host = addr
+		}
+
+		// Resolve the hostname to check IPs before dialing
+		ips, err := net.LookupIP(host)
+		if err != nil {
+			return nil, fmt.Errorf("SSRF dial: DNS lookup failed for %q: %w", host, err)
+		}
+
+		for _, ip := range ips {
+			if err := classifyIP(ip, host); err != nil {
+				return nil, err
+			}
+		}
+
+		return dialer.DialContext(ctx, network, addr)
+	}
+}
+
 // PrivateTargetsAllowed reports whether private targets are allowed (for testing).
 func PrivateTargetsAllowed() bool {
 	return allowPrivateTargets.Load()
@@ -131,6 +164,7 @@ func NewTarget(rawURL string, weight int) (*Target, error) {
 	}
 
 	transport := &http.Transport{
+		DialContext:           SSRFDialContext(),
 		MaxIdleConns:        100,
 		MaxIdleConnsPerHost: 20,
 		IdleConnTimeout:     90 * time.Second,

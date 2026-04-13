@@ -133,6 +133,9 @@ func (c *BiometricCollector) processMouseEvent(sessionID string, event Biometric
 }
 
 // processKeyboardEvent converts and records a keyboard event.
+// Actual key content is sanitized - only timing data and non-character key
+// identities (Shift, Backspace, etc.) are retained for bot detection.
+// Printable characters are replaced with a placeholder to prevent PII capture.
 func (c *BiometricCollector) processKeyboardEvent(sessionID string, event BiometricEvent) {
 	var eventType string
 	switch event.Subtype {
@@ -146,12 +149,39 @@ func (c *BiometricCollector) processKeyboardEvent(sessionID string, event Biomet
 		return
 	}
 
+	// Sanitize key content - retain only non-printable/special key identities
+	sanitizedKey := sanitizeKey(event.Key)
+	sanitizedCode := event.Code // Code (e.g., "KeyA", "ShiftLeft") is not PII
+
 	c.enhancedLayer.RecordBiometricEvent(sessionID, biometric.KeyEvent{
-		Key:       event.Key,
+		Key:       sanitizedKey,
 		Type:      eventType,
 		Timestamp: event.Timestamp,
-		Code:      event.Code,
+		Code:      sanitizedCode,
 	})
+}
+
+// nonPIIKeys are key values that are safe to retain (modifiers, navigation, etc.).
+var nonPIIKeys = map[string]bool{
+	"Shift": true, "Control": true, "Alt": true, "Meta": true,
+	"Backspace": true, "Delete": true, "Tab": true, "Enter": true,
+	"Escape": true, "CapsLock": true,
+	"ArrowUp": true, "ArrowDown": true, "ArrowLeft": true, "ArrowRight": true,
+	"Home": true, "End": true, "PageUp": true, "PageDown": true,
+	"Insert": true, "NumLock": true, "ScrollLock": true, "Pause": true,
+	"PrintScreen": true, "ContextMenu": true,
+	"F1": true, "F2": true, "F3": true, "F4": true, "F5": true, "F6": true,
+	"F7": true, "F8": true, "F9": true, "F10": true, "F11": true, "F12": true,
+}
+
+// sanitizeKey strips printable character content from key values, replacing
+// them with a placeholder. Only modifier/navigation/function keys are retained.
+func sanitizeKey(key string) string {
+	if nonPIIKeys[key] {
+		return key
+	}
+	// Replace all printable characters with a generic placeholder
+	return "*"
 }
 
 // processScrollEvent converts and records a scroll event.

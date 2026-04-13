@@ -7,6 +7,7 @@ package config
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -1002,11 +1003,11 @@ func makeScalar(val string, lineNum int) *Node {
 	// Quoted strings
 	if len(val) >= 2 {
 		if val[0] == '"' && val[len(val)-1] == '"' {
-			n.Value = unescapeDoubleQuoted(val[1 : len(val)-1])
+			n.Value = expandEnvVars(unescapeDoubleQuoted(val[1 : len(val)-1]))
 			return n
 		}
 		if val[0] == '\'' && val[len(val)-1] == '\'' {
-			n.Value = unescapeSingleQuoted(val[1 : len(val)-1])
+			n.Value = expandEnvVars(unescapeSingleQuoted(val[1 : len(val)-1]))
 			return n
 		}
 	}
@@ -1022,7 +1023,7 @@ func makeScalar(val string, lineNum int) *Node {
 	}
 
 	// Numbers: leave as-is in string form
-	n.Value = val
+	n.Value = expandEnvVars(val)
 	return n
 }
 
@@ -1108,4 +1109,61 @@ func (p *parser) skipBlankAndComments() {
 // lineNum returns the current 1-based line number.
 func (p *parser) lineNum() int {
 	return p.pos + 1
+}
+
+// expandEnvVars replaces ${VAR} and ${VAR:-default} patterns in a string with
+// environment variable values. This allows secrets to be referenced from env vars
+// instead of being stored as plaintext in YAML config files.
+//
+// Patterns:
+//   ${VAR}         — replaced with the value of VAR; empty string if unset
+//   ${VAR:-default} — replaced with the value of VAR; "default" if unset
+//   $$             — literal $ (escape)
+func expandEnvVars(s string) string {
+	var buf strings.Builder
+	buf.Grow(len(s))
+	i := 0
+	for i < len(s) {
+		if s[i] == '$' {
+			// Escaped dollar sign
+			if i+1 < len(s) && s[i+1] == '$' {
+				buf.WriteByte('$')
+				i += 2
+				continue
+			}
+			// Env var reference ${VAR} or ${VAR:-default}
+			if i+1 < len(s) && s[i+1] == '{' {
+				end := strings.IndexByte(s[i+2:], '}')
+				if end >= 0 {
+					expr := s[i+2 : i+2+end]
+					varName := expr
+					defaultVal := ""
+					if idx := strings.Index(expr, ":-"); idx >= 0 {
+						varName = expr[:idx]
+						defaultVal = expr[idx+2:]
+					}
+					// Validate var name: alphanumeric + underscore only
+					valid := len(varName) > 0
+					for _, c := range varName {
+						if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
+							valid = false
+							break
+						}
+					}
+					if valid {
+						val := os.Getenv(varName)
+						if val == "" {
+							val = defaultVal
+						}
+						buf.WriteString(val)
+						i = i + 2 + end + 1
+						continue
+					}
+				}
+			}
+		}
+		buf.WriteByte(s[i])
+		i++
+	}
+	return buf.String()
 }
