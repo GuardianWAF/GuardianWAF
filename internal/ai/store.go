@@ -16,6 +16,8 @@ import (
 	"time"
 )
 
+const encKeyFile = "ai_enc_key" // file storing the auto-generated encryption key
+
 const encPrefix = "enc:" // prefix for encrypted API keys on disk
 
 const maxHistorySize = 100
@@ -110,11 +112,21 @@ func NewStore(dirPath string) *Store {
 
 	s := &Store{path: dirPath}
 
+	// Auto-generate and persist encryption key for API key at-rest encryption.
+	// This ensures API keys are always encrypted even without a dashboard API key.
+	s.loadOrCreateEncKey()
+
 	// Try loading existing config
 	configFile := filepath.Join(dirPath, "ai_config.json")
 	if data, err := os.ReadFile(configFile); err == nil {
 		if unmarshalErr := json.Unmarshal(data, &s.data); unmarshalErr != nil {
 			fmt.Printf("[ai-store] warning: failed to parse AI config: %v\n", unmarshalErr)
+		}
+		// Decrypt API key if encrypted with auto-generated key
+		if s.encKey != nil && strings.HasPrefix(s.data.Config.APIKey, encPrefix) {
+			if dec, err := decryptValue(s.data.Config.APIKey[len(encPrefix):], s.encKey); err == nil {
+				s.data.Config.APIKey = dec
+			}
 		}
 	} else {
 		// First run — write empty config so file always exists
@@ -363,4 +375,30 @@ func (s *Store) WithinLimits(maxTokensHour, maxTokensDay int64, maxReqsHour int)
 		return false
 	}
 	return true
+}
+
+// loadOrCreateEncKey loads or auto-generates an encryption key file.
+// The key is stored in a separate file (ai_enc_key) with 0600 permissions.
+// This ensures API keys are always encrypted at rest, even without a dashboard API key.
+func (s *Store) loadOrCreateEncKey() {
+	keyPath := filepath.Join(s.path, encKeyFile)
+
+	// Try loading existing key
+	if data, err := os.ReadFile(keyPath); err == nil && len(data) == 32 {
+		s.encKey = data
+		return
+	}
+
+	// Generate new random key
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		log.Printf("[ai-store] WARNING: crypto/rand failed — API key encryption disabled: %v", err)
+		return
+	}
+
+	// Persist the key
+	if err := os.WriteFile(keyPath, key, 0o600); err != nil {
+		log.Printf("[ai-store] WARNING: failed to persist encryption key — API key may not survive restart: %v", err)
+	}
+	s.encKey = key
 }

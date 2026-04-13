@@ -2043,3 +2043,104 @@ func TestBlockSequenceItemMapWithNestedValue(t *testing.T) {
 	}
 	assertEqual(t, items[0].GetPath("nested", "deep").String(), "value")
 }
+
+// --- Env Var Expansion Tests ---
+
+func TestExpandEnvVars_Simple(t *testing.T) {
+	t.Setenv("GWAF_TEST_KEY", "secret123")
+	result := expandEnvVars("key: ${GWAF_TEST_KEY}")
+	if result != "key: secret123" {
+		t.Errorf("expected 'key: secret123', got %q", result)
+	}
+}
+
+func TestExpandEnvVars_Default(t *testing.T) {
+	// GWAF_NONEXISTENT_VAR should not be set
+	result := expandEnvVars("key: ${GWAF_NONEXISTENT_VAR:-fallback}")
+	if result != "key: fallback" {
+		t.Errorf("expected 'key: fallback', got %q", result)
+	}
+}
+
+func TestExpandEnvVars_DefaultWithEnvSet(t *testing.T) {
+	t.Setenv("GWAF_MY_VAR", "actual")
+	result := expandEnvVars("val: ${GWAF_MY_VAR:-unused}")
+	if result != "val: actual" {
+		t.Errorf("expected 'val: actual', got %q", result)
+	}
+}
+
+func TestExpandEnvVars_EscapedDollar(t *testing.T) {
+	result := expandEnvVars("price: $$100")
+	if result != "price: $100" {
+		t.Errorf("expected 'price: $100', got %q", result)
+	}
+}
+
+func TestExpandEnvVars_NoVars(t *testing.T) {
+	result := expandEnvVars("plain text")
+	if result != "plain text" {
+		t.Errorf("expected 'plain text', got %q", result)
+	}
+}
+
+func TestExpandEnvVars_EmptyVar(t *testing.T) {
+	t.Setenv("GWAF_EMPTY_VAR", "")
+	result := expandEnvVars("val: ${GWAF_EMPTY_VAR:-default}")
+	if result != "val: default" {
+		t.Errorf("expected 'val: default', got %q", result)
+	}
+}
+
+func TestExpandEnvVars_Multiple(t *testing.T) {
+	t.Setenv("GWAF_HOST", "example.com")
+	t.Setenv("GWAF_PORT", "5432")
+	result := expandEnvVars("host: ${GWAF_HOST}\nport: ${GWAF_PORT}")
+	if result != "host: example.com\nport: 5432" {
+		t.Errorf("expected expanded values, got %q", result)
+	}
+}
+
+func TestExpandEnvVars_UnsetNoDefault(t *testing.T) {
+	result := expandEnvVars("key: ${GWAF_DEFINITELY_NOT_SET_XYZ}")
+	if result != "key: " {
+		t.Errorf("expected 'key: ', got %q", result)
+	}
+}
+
+func TestYAMLParser_EnvVarExpansion(t *testing.T) {
+	t.Setenv("GWAF_YAML_TEST_SECRET", "my_api_key_123")
+	input := "api_key: ${GWAF_YAML_TEST_SECRET}"
+	n, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatalf("ParseYAML error: %v", err)
+	}
+	val := getStringField(t, n, "api_key")
+	if val != "my_api_key_123" {
+		t.Errorf("expected 'my_api_key_123', got %q", val)
+	}
+}
+
+func TestYAMLParser_EnvVarDefaultExpansion(t *testing.T) {
+	input := "password: ${GWAF_NO_SUCH_VAR:-default_pass}"
+	n, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatalf("ParseYAML error: %v", err)
+	}
+	val := getStringField(t, n, "password")
+	if val != "default_pass" {
+		t.Errorf("expected 'default_pass', got %q", val)
+	}
+}
+
+func getStringField(t *testing.T, n *Node, key string) string {
+	t.Helper()
+	if n.Kind != MapNode {
+		t.Fatalf("expected MapNode, got %v", n.Kind)
+	}
+	v, ok := n.MapItems[key]
+	if !ok {
+		t.Fatalf("key %q not found", key)
+	}
+	return v.Value
+}
