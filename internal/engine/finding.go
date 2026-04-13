@@ -95,12 +95,7 @@ func paranoiaToMultiplier(level int) float64 {
 func (sa *ScoreAccumulator) Add(f *Finding) {
 	f.MatchedValue = truncateEvidence(f.MatchedValue, 200)
 	sa.findings = append(sa.findings, *f)
-	// Cap totalScore at 10000 to prevent overflow from adversarial accumulation
-	if sa.totalScore+f.Score > 10000 {
-		sa.totalScore = 10000
-	} else {
-		sa.totalScore += f.Score
-	}
+	sa.totalScore += f.Score
 }
 
 // AddMultiple adds multiple findings
@@ -110,9 +105,15 @@ func (sa *ScoreAccumulator) AddMultiple(findings []Finding) {
 	}
 }
 
-// Total returns the total accumulated score with paranoia multiplier applied
+// Total returns the total accumulated score with paranoia multiplier applied.
+// The final score is capped at 10000 to prevent overflow from adversarial accumulation,
+// applied after the multiplier so the cap is consistent across all paranoia levels.
 func (sa *ScoreAccumulator) Total() int {
-	return int(float64(sa.totalScore) * sa.multiplier)
+	raw := int(float64(sa.totalScore) * sa.multiplier)
+	if raw > 10000 {
+		return 10000
+	}
+	return raw
 }
 
 // Exceeds returns true if the accumulated score exceeds the threshold

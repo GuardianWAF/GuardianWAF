@@ -1979,7 +1979,7 @@ func (d *Dashboard) handleAlertingStatus(w http.ResponseWriter, r *http.Request)
 	for _, w := range cfg.Alerting.Webhooks {
 		webhooks = append(webhooks, map[string]any{
 			"name":      w.Name,
-			"url":       w.URL,
+			"url":       maskURL(w.URL),
 			"type":      w.Type,
 			"events":    w.Events,
 			"min_score": w.MinScore,
@@ -1993,7 +1993,6 @@ func (d *Dashboard) handleAlertingStatus(w http.ResponseWriter, r *http.Request)
 			"smtp_host": e.SMTPHost,
 			"smtp_port": e.SMTPPort,
 			"from":      e.From,
-			"to":        e.To,
 			"use_tls":   e.UseTLS,
 			"events":    e.Events,
 			"min_score": e.MinScore,
@@ -2026,7 +2025,7 @@ func (d *Dashboard) handleGetWebhooks(w http.ResponseWriter, r *http.Request) {
 	for _, w := range cfg.Alerting.Webhooks {
 		webhooks = append(webhooks, map[string]any{
 			"name":      w.Name,
-			"url":       w.URL,
+			"url":       maskURL(w.URL),
 			"type":      w.Type,
 			"events":    w.Events,
 			"min_score": w.MinScore,
@@ -2253,4 +2252,14 @@ func deepCopyConfig(cfg *config.Config) *config.Config {
 		return &cp2
 	}
 	return cp
+}
+
+// maskURL masks sensitive parts of a URL, showing only scheme and host.
+// e.g. "https://user:pass@hooks.example.com/v1/secret?token=abc" → "https://hooks.example.com"
+func maskURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "***"
+	}
+	return u.Scheme + "://" + u.Host
 }

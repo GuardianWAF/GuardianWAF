@@ -315,7 +315,14 @@ func (m *Manager) GetTenantByAPIKey(apiKey string) *Tenant {
 	defer m.mu.RUnlock()
 
 	for _, tenant := range m.tenants {
-		if verifyAPIKey(tenant.APIKeyHash, apiKey) {
+		if matched, legacy := verifyAPIKey(tenant.APIKeyHash, apiKey); matched {
+			if legacy {
+				// Auto-upgrade unsalted hash to salted hash
+				tenant.mu.Lock()
+				tenant.APIKeyHash = hashAPIKey(apiKey)
+				tenant.mu.Unlock()
+				log.Printf("[tenant] upgraded legacy unsalted API key hash for tenant %s", tenant.ID)
+			}
 			return tenant
 		}
 	}
@@ -727,19 +734,26 @@ func hashAPIKey(apiKey string) string {
 }
 
 // verifyAPIKey checks if an API key matches a stored salt$hash.
-func verifyAPIKey(storedHash, apiKey string) bool {
+// Returns (matched, legacy) where legacy is true if the hash was unsalted.
+func verifyAPIKey(storedHash, apiKey string) (matched bool, legacy bool) {
 	parts := strings.SplitN(storedHash, "$", 2)
 	if len(parts) != 2 {
 		// Legacy unsalted hash — backwards compatible fallback
 		expected := sha256.Sum256([]byte(apiKey))
-		return subtle.ConstantTimeCompare([]byte(storedHash), []byte(hex.EncodeToString(expected[:]))) == 1
+		if subtle.ConstantTimeCompare([]byte(storedHash), []byte(hex.EncodeToString(expected[:]))) == 1 {
+			return true, true
+		}
+		return false, false
 	}
 	salt, err := hex.DecodeString(parts[0])
 	if err != nil {
-		return false
+		return false, false
 	}
 	hash := sha256.Sum256(append(salt, []byte(apiKey)...))
-	return subtle.ConstantTimeCompare([]byte(parts[1]), []byte(hex.EncodeToString(hash[:]))) == 1
+	if subtle.ConstantTimeCompare([]byte(parts[1]), []byte(hex.EncodeToString(hash[:]))) == 1 {
+		return true, false
+	}
+	return false, false
 }
 
 func matchWildcard(domain, pattern string) bool {

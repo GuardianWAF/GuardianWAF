@@ -1,7 +1,6 @@
 package dashboard
 
 import (
-	"crypto/subtle"
 	"net/http"
 	"strings"
 	"time"
@@ -22,27 +21,34 @@ func NewTenantAdminHandler(d *Dashboard, manager tenantManagerInterface) *Tenant
 }
 
 // RegisterRoutes registers tenant admin routes.
+// All admin routes use the dashboard's central authentication check
+// (session cookie or API key) to stay consistent with the main authWrap middleware.
 func (h *TenantAdminHandler) RegisterRoutes(mux *http.ServeMux) {
-	// Admin API routes (require master API key)
-	mux.HandleFunc("/api/admin/tenants", h.handleTenants)
-	mux.HandleFunc("/api/admin/tenants/", h.handleTenantDetail)
-	mux.HandleFunc("/api/admin/stats", h.handleStats)
-	mux.HandleFunc("/api/admin/billing", h.handleBilling)
-	mux.HandleFunc("/api/admin/billing/", h.handleBillingDetail)
-	mux.HandleFunc("/api/admin/alerts", h.handleAlerts)
-	mux.HandleFunc("/api/admin/usage", h.handleAllUsage)
-	mux.HandleFunc("/api/admin/usage/", h.handleUsageDetail)
-	mux.HandleFunc("/api/admin/tenants/rules", h.handleTenantRules)
-	mux.HandleFunc("/api/admin/tenants/rules/", h.handleTenantRuleDetail)
+	auth := func(handler http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			if !h.dashboard.isAuthenticated(r) {
+				writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
+				return
+			}
+			handler(w, r)
+		}
+	}
+
+	// Admin API routes (require authentication via session cookie or API key)
+	mux.HandleFunc("/api/admin/tenants", auth(h.handleTenants))
+	mux.HandleFunc("/api/admin/tenants/", auth(h.handleTenantDetail))
+	mux.HandleFunc("/api/admin/stats", auth(h.handleStats))
+	mux.HandleFunc("/api/admin/billing", auth(h.handleBilling))
+	mux.HandleFunc("/api/admin/billing/", auth(h.handleBillingDetail))
+	mux.HandleFunc("/api/admin/alerts", auth(h.handleAlerts))
+	mux.HandleFunc("/api/admin/usage", auth(h.handleAllUsage))
+	mux.HandleFunc("/api/admin/usage/", auth(h.handleUsageDetail))
+	mux.HandleFunc("/api/admin/tenants/rules", auth(h.handleTenantRules))
+	mux.HandleFunc("/api/admin/tenants/rules/", auth(h.handleTenantRuleDetail))
 }
 
 // handleTenants handles list and create operations.
 func (h *TenantAdminHandler) handleTenants(w http.ResponseWriter, r *http.Request) {
-	if !h.verifyAdminKey(r) {
-		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
-		return
-	}
-
 	switch r.Method {
 	case http.MethodGet:
 		h.listTenants(w, r)
@@ -55,11 +61,6 @@ func (h *TenantAdminHandler) handleTenants(w http.ResponseWriter, r *http.Reques
 
 // handleTenantDetail handles get, update, delete operations.
 func (h *TenantAdminHandler) handleTenantDetail(w http.ResponseWriter, r *http.Request) {
-	if !h.verifyAdminKey(r) {
-		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
-		return
-	}
-
 	path := strings.TrimPrefix(r.URL.Path, "/api/admin/tenants/")
 	if path == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "tenant ID required"})
@@ -84,14 +85,6 @@ func (h *TenantAdminHandler) handleTenantDetail(w http.ResponseWriter, r *http.R
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
 	}
-}
-
-func (h *TenantAdminHandler) verifyAdminKey(r *http.Request) bool {
-	adminKey := r.Header.Get("X-Admin-Key")
-	if adminKey == "" {
-		adminKey = r.Header.Get("X-API-Key")
-	}
-	return subtle.ConstantTimeCompare([]byte(adminKey), []byte(h.dashboard.apiKey)) == 1
 }
 
 func (h *TenantAdminHandler) listTenants(w http.ResponseWriter, r *http.Request) {
@@ -238,11 +231,6 @@ func (h *TenantAdminHandler) regenerateAPIKey(w http.ResponseWriter, r *http.Req
 }
 
 func (h *TenantAdminHandler) handleStats(w http.ResponseWriter, r *http.Request) {
-	if !h.verifyAdminKey(r) {
-		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
-		return
-	}
-
 	if h.manager == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"error":   "multi-tenant mode not enabled",
@@ -259,11 +247,6 @@ func (h *TenantAdminHandler) handleStats(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *TenantAdminHandler) handleBilling(w http.ResponseWriter, r *http.Request) {
-	if !h.verifyAdminKey(r) {
-		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
-		return
-	}
-
 	if h.manager == nil || h.manager.BillingManager() == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"error": "billing not enabled",
@@ -284,11 +267,6 @@ func (h *TenantAdminHandler) handleBilling(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *TenantAdminHandler) handleBillingDetail(w http.ResponseWriter, r *http.Request) {
-	if !h.verifyAdminKey(r) {
-		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
-		return
-	}
-
 	if h.manager == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"error": "multi-tenant mode not enabled",
@@ -361,11 +339,6 @@ func (h *TenantAdminHandler) handleBillingDetail(w http.ResponseWriter, r *http.
 }
 
 func (h *TenantAdminHandler) handleAllUsage(w http.ResponseWriter, r *http.Request) {
-	if !h.verifyAdminKey(r) {
-		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
-		return
-	}
-
 	if h.manager == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"error": "multi-tenant mode not enabled",
@@ -387,11 +360,6 @@ func (h *TenantAdminHandler) handleAllUsage(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *TenantAdminHandler) handleUsageDetail(w http.ResponseWriter, r *http.Request) {
-	if !h.verifyAdminKey(r) {
-		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
-		return
-	}
-
 	if h.manager == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"error": "multi-tenant mode not enabled",
@@ -422,11 +390,6 @@ func (h *TenantAdminHandler) handleUsageDetail(w http.ResponseWriter, r *http.Re
 }
 
 func (h *TenantAdminHandler) handleAlerts(w http.ResponseWriter, r *http.Request) {
-	if !h.verifyAdminKey(r) {
-		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
-		return
-	}
-
 	if h.manager == nil || h.manager.AlertManager() == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"error": "alerts not enabled",
@@ -449,11 +412,6 @@ func (h *TenantAdminHandler) handleAlerts(w http.ResponseWriter, r *http.Request
 }
 
 func (h *TenantAdminHandler) handleTenantRules(w http.ResponseWriter, r *http.Request) {
-	if !h.verifyAdminKey(r) {
-		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
-		return
-	}
-
 	if h.manager == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"error": "multi-tenant mode not enabled",
@@ -499,11 +457,6 @@ func (h *TenantAdminHandler) handleTenantRules(w http.ResponseWriter, r *http.Re
 }
 
 func (h *TenantAdminHandler) handleTenantRuleDetail(w http.ResponseWriter, r *http.Request) {
-	if !h.verifyAdminKey(r) {
-		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
-		return
-	}
-
 	if h.manager == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"error": "multi-tenant mode not enabled",

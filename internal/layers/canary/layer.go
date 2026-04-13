@@ -64,7 +64,13 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	}
 
 	// Mark request for canary routing
-	if l.canary.ShouldRouteToCanary(ctx.Request) {
+	// Inject GeoIP country from pipeline metadata into request context
+	// so that geographic strategy uses IP-based country, not spoofable headers.
+	req := ctx.Request
+	if country, ok := ctx.Metadata["country_code"].(string); ok && country != "" {
+		req = SetCountryContext(req, country)
+	}
+	if l.canary.ShouldRouteToCanary(req) {
 		ctx.Metadata["canary"] = true
 		l.canary.mu.RLock()
 		ctx.Metadata["canary_upstream"] = l.canary.config.CanaryUpstream

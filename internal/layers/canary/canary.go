@@ -13,6 +13,21 @@ import (
 	"time"
 )
 
+// countryContextKey is the context key for GeoIP-resolved country code.
+type contextKey string
+
+const countryContextKey = contextKey("geoip_country")
+
+// SetCountryContext sets the GeoIP-resolved country code on the request context.
+// This should be called by the engine pipeline after GeoIP resolution so that
+// the canary geographic strategy uses IP-based country rather than spoofable headers.
+func SetCountryContext(r *http.Request, country string) *http.Request {
+	if country == "" {
+		return r
+	}
+	return r.WithContext(context.WithValue(r.Context(), countryContextKey, country))
+}
+
 // Strategy defines how traffic is split between stable and canary.
 type Strategy string
 
@@ -204,13 +219,28 @@ func (c *Canary) checkCookie(r *http.Request) bool {
 	return true
 }
 
-// checkGeographic routes based on region (requires GeoIP).
+// checkGeographic routes based on region using request context country code.
+// Requires GeoIP to be enabled in the WAF pipeline so that the country is resolved
+// from the client IP rather than from client-controlled headers.
+// Falls back to CF-IPCountry/X-Country-Code headers only when GeoIP country is
+// not available in the request context — only use this behind a trusted reverse proxy.
 func (c *Canary) checkGeographic(r *http.Request) bool {
-	// Extract region from request (would need GeoIP integration)
-	// For now, use CF-IPCountry header as example
-	country := r.Header.Get("CF-IPCountry")
+	// Prefer GeoIP-resolved country from request context (set by engine pipeline)
+	country := ""
+	if ctx := r.Context().Value(countryContextKey); ctx != nil {
+		if s, ok := ctx.(string); ok {
+			country = s
+		}
+	}
+
+	// Fallback to headers only if GeoIP did not provide country.
+	// WARNING: These headers are client-controlled and can be spoofed.
+	// Only use this strategy behind a trusted reverse proxy (e.g., Cloudflare).
 	if country == "" {
-		country = r.Header.Get("X-Country-Code")
+		country = r.Header.Get("CF-IPCountry")
+		if country == "" {
+			country = r.Header.Get("X-Country-Code")
+		}
 	}
 
 	for _, region := range c.config.Regions {
