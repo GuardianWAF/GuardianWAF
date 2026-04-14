@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -585,14 +586,18 @@ func TestFeedManager_StartStop_Immediate(t *testing.T) {
 }
 
 func TestFeedManager_StartStop_WithRefresh(t *testing.T) {
+	var mu sync.Mutex
 	callCount := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
 		callCount++
+		mu.Unlock()
 		w.WriteHeader(200)
 		_, _ = w.Write([]byte(`{"ip":"1.2.3.4","score":50,"type":"test"}` + "\n"))
 	}))
 	defer srv.Close()
 
+	var entriesMu sync.Mutex
 	var updatedEntries []ThreatEntry
 	fm := NewFeedManager(&FeedConfig{
 		Type:             "url",
@@ -601,7 +606,9 @@ func TestFeedManager_StartStop_WithRefresh(t *testing.T) {
 		AllowPrivateURLs: true,
 	})
 	fm.SetUpdateCallback(func(entries []ThreatEntry) {
+		entriesMu.Lock()
 		updatedEntries = entries
+		entriesMu.Unlock()
 	})
 
 	fm.Start()
@@ -610,10 +617,16 @@ func TestFeedManager_StartStop_WithRefresh(t *testing.T) {
 	// Wait for initial load + at least one refresh
 	time.Sleep(250 * time.Millisecond)
 
-	if callCount < 2 {
-		t.Errorf("expected at least 2 calls (initial+refresh), got %d", callCount)
+	mu.Lock()
+	cc := callCount
+	mu.Unlock()
+	if cc < 2 {
+		t.Errorf("expected at least 2 calls (initial+refresh), got %d", cc)
 	}
-	if len(updatedEntries) == 0 {
+	entriesMu.Lock()
+	hasEntries := len(updatedEntries) > 0
+	entriesMu.Unlock()
+	if !hasEntries {
 		t.Error("expected entries via update callback")
 	}
 }
