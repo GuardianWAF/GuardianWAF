@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"math/big"
+	"net/http"
 	"testing"
 	"time"
 )
@@ -240,6 +241,213 @@ MIIBkTCB+wIJAKHBfpE
 	ParseClientCertificate(pemData)
 	// This will fail because the data is incomplete
 	// Just verify it doesn't panic
+}
+
+func TestService_GetTrustLevel(t *testing.T) {
+	service, _ := NewService(&Config{
+		Enabled:    true,
+		SessionTTL: 1 * time.Hour,
+	})
+
+	// Add a session
+	sessionID := "test-session"
+	service.sessions[sessionID] = &ClientIdentity{
+		ClientID:        "test-client",
+		SessionID:       sessionID,
+		AuthenticatedAt: time.Now(),
+		TrustLevel:      TrustLevelHigh,
+	}
+
+	// Create request with session header
+	req := &http.Request{}
+	req.Header = make(http.Header)
+	req.Header.Set("X-ZeroTrust-Session", sessionID)
+
+	level := service.GetTrustLevel(req)
+	if level != TrustLevelHigh {
+		t.Errorf("GetTrustLevel = %v, want %v", level, TrustLevelHigh)
+	}
+}
+
+func TestService_GetTrustLevel_NoSession(t *testing.T) {
+	service, _ := NewService(&Config{
+		Enabled:    true,
+		SessionTTL: 1 * time.Hour,
+	})
+
+	req := &http.Request{}
+	req.Header = make(http.Header)
+	// No session header set
+
+	level := service.GetTrustLevel(req)
+	if level != TrustLevelNone {
+		t.Errorf("GetTrustLevel = %v, want %v", level, TrustLevelNone)
+	}
+}
+
+func TestService_VerifyClientCertificate_Nil(t *testing.T) {
+	service, _ := NewService(&Config{
+		Enabled: true,
+	})
+
+	_, err := service.VerifyClientCertificate(nil)
+	if err == nil {
+		t.Error("expected error for nil certificate")
+	}
+}
+
+func TestService_VerifyClientCertificate_Expired(t *testing.T) {
+	service, _ := NewService(&Config{
+		Enabled: true,
+	})
+
+	// Create an expired certificate
+	cert := &x509.Certificate{
+		NotBefore: time.Now().Add(-2 * time.Hour),
+		NotAfter:  time.Now().Add(-1 * time.Hour), // Expired
+		Subject:   pkix.Name{CommonName: "test-client"},
+	}
+
+	_, err := service.VerifyClientCertificate(cert)
+	if err == nil {
+		t.Error("expected error for expired certificate")
+	}
+}
+
+func TestService_VerifyClientCertificate_NotYetValid(t *testing.T) {
+	service, _ := NewService(&Config{
+		Enabled: true,
+	})
+
+	// Create a not-yet-valid certificate
+	cert := &x509.Certificate{
+		NotBefore: time.Now().Add(1 * time.Hour),
+		NotAfter:  time.Now().Add(2 * time.Hour),
+		Subject:   pkix.Name{CommonName: "test-client"},
+	}
+
+	_, err := service.VerifyClientCertificate(cert)
+	if err == nil {
+		t.Error("expected error for not-yet-valid certificate")
+	}
+}
+
+func TestService_VerifyDeviceAttestation(t *testing.T) {
+	service, _ := NewService(&Config{
+		Enabled: true,
+	})
+
+	device, err := service.VerifyDeviceAttestation("device-123", []byte("attestation-data"))
+	if err != nil {
+		t.Fatalf("VerifyDeviceAttestation failed: %v", err)
+	}
+
+	if device.DeviceID != "device-123" {
+		t.Errorf("DeviceID = %s, want device-123", device.DeviceID)
+	}
+
+	if device.TrustLevel != TrustLevelHigh {
+		t.Errorf("TrustLevel = %v, want %v", device.TrustLevel, TrustLevelHigh)
+	}
+
+	if len(device.AttestationData) == 0 {
+		t.Error("expected attestation data to be stored")
+	}
+}
+
+func TestService_GetClientIdentity_Expired(t *testing.T) {
+	service, _ := NewService(&Config{
+		Enabled:    true,
+		SessionTTL: 1 * time.Second,
+	})
+
+	// Add an expired session
+	sessionID := "expired-session"
+	service.sessions[sessionID] = &ClientIdentity{
+		ClientID:        "test-client",
+		SessionID:       sessionID,
+		AuthenticatedAt: time.Now().Add(-2 * time.Second),
+		TrustLevel:      TrustLevelHigh,
+	}
+
+	// GetClientIdentity should return nil for expired sessions
+	identity := service.GetClientIdentity(sessionID)
+	if identity != nil {
+		t.Error("expected nil for expired session")
+	}
+}
+
+func TestService_GetClientIdentity_NotFound(t *testing.T) {
+	service, _ := NewService(&Config{
+		Enabled:    true,
+		SessionTTL: 1 * time.Hour,
+	})
+
+	identity := service.GetClientIdentity("non-existent")
+	if identity != nil {
+		t.Error("expected nil for non-existent session")
+	}
+}
+
+func TestExtractClientID(t *testing.T) {
+	cert := &x509.Certificate{
+		Subject:     pkix.Name{CommonName: "test-client-001"},
+		SerialNumber: big.NewInt(9876543210),
+	}
+
+	clientID := extractClientID(cert)
+	if clientID != "test-client-001" {
+		t.Errorf("extractClientID = %s, want test-client-001", clientID)
+	}
+}
+
+func TestExtractClientID_NoCommonName(t *testing.T) {
+	cert := &x509.Certificate{
+		Subject:     pkix.Name{CommonName: ""},
+		SerialNumber: big.NewInt(12345),
+	}
+
+	clientID := extractClientID(cert)
+	if clientID != "12345" {
+		t.Errorf("extractClientID = %s, want 12345", clientID)
+	}
+}
+
+func TestGenerateSessionID(t *testing.T) {
+	id1 := generateSessionID()
+	id2 := generateSessionID()
+
+	if id1 == "" {
+		t.Error("expected non-empty session ID")
+	}
+
+	if id1 == id2 {
+		t.Error("expected unique session IDs")
+	}
+}
+
+func TestService_CheckAccess_RequireMTLS(t *testing.T) {
+	service, _ := NewService(&Config{
+		Enabled:     true,
+		RequireMTLS: true,
+	})
+
+	err := service.CheckAccess(nil, "/api/data")
+	if err == nil {
+		t.Error("expected error when mTLS required and identity is nil")
+	}
+}
+
+func TestService_CheckAccess_NoRequireMTLS(t *testing.T) {
+	service, _ := NewService(&Config{
+		Enabled:     true,
+		RequireMTLS: false,
+	})
+
+	err := service.CheckAccess(nil, "/api/data")
+	if err != nil {
+		t.Errorf("unexpected error when mTLS not required: %v", err)
+	}
 }
 
 func TestContextFunctions(t *testing.T) {
