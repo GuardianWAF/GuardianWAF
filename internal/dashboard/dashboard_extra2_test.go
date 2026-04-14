@@ -819,6 +819,7 @@ func TestSetSaveFn_Error(t *testing.T) {
 func TestHandleSSE_DelegatesToBroadcaster(t *testing.T) {
 	d := newTestDashboard(t, "")
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/api/v1/sse", nil).WithContext(ctx)
@@ -837,7 +838,6 @@ func TestHandleSSE_DelegatesToBroadcaster(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		// SSE stream keeps connection open; cancel triggers ServeHTTP to return
-		cancel()
 		<-headerCh // now ServeHTTP has returned, header writes are done
 		ct := w.Header().Get("Content-Type")
 		if ct != "text/event-stream" {
