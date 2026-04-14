@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/ai"
 	"github.com/guardianwaf/guardianwaf/internal/docker"
@@ -817,9 +818,7 @@ func TestSetSaveFn_Error(t *testing.T) {
 
 func TestHandleSSE_DelegatesToBroadcaster(t *testing.T) {
 	d := newTestDashboard(t, "")
-	// Use a cancellable context so the SSE handler unblocks
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/api/v1/sse", nil).WithContext(ctx)
@@ -831,12 +830,20 @@ func TestHandleSSE_DelegatesToBroadcaster(t *testing.T) {
 		headerCh <- w.Header().Get("Content-Type")
 	}()
 
-	// Wait for goroutine to complete
-	ct := <-headerCh
-	if ct != "text/event-stream" {
-		t.Errorf("expected text/event-stream, got %s", ct)
+	select {
+	case ct := <-headerCh:
+		if ct != "text/event-stream" {
+			t.Errorf("expected text/event-stream, got %s", ct)
+		}
+	case <-time.After(2 * time.Second):
+		// SSE stream keeps connection open; cancel triggers ServeHTTP to return
+		cancel()
+		<-headerCh // now ServeHTTP has returned, header writes are done
+		ct := w.Header().Get("Content-Type")
+		if ct != "text/event-stream" {
+			t.Errorf("expected text/event-stream, got %s", ct)
+		}
 	}
-	cancel()
 }
 
 // =====================================================================
