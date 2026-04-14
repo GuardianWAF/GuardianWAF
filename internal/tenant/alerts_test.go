@@ -1,6 +1,7 @@
 package tenant
 
 import (
+	"sync"
 	"testing"
 	"time"
 )
@@ -68,9 +69,12 @@ func TestAlertManager_TriggerAlert_Cooldown(t *testing.T) {
 func TestAlertManager_TriggerAlert_WithHandler(t *testing.T) {
 	am := NewAlertManager()
 
+	var mu sync.Mutex
 	received := make([]*Alert, 0)
 	handler := func(alert *Alert) {
+		mu.Lock()
 		received = append(received, alert)
+		mu.Unlock()
 	}
 
 	am.RegisterHandler(handler)
@@ -80,13 +84,14 @@ func TestAlertManager_TriggerAlert_WithHandler(t *testing.T) {
 	// Handler is called asynchronously
 	time.Sleep(10 * time.Millisecond)
 
+	mu.Lock()
 	if len(received) != 1 {
 		t.Errorf("expected 1 alert received, got %d", len(received))
 	}
-
 	if received[0].ID != alert.ID {
 		t.Errorf("received alert ID = %s, want %s", received[0].ID, alert.ID)
 	}
+	mu.Unlock()
 }
 
 func TestAlertManager_CheckQuotaAlert(t *testing.T) {
