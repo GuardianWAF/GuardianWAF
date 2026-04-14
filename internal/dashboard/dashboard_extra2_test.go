@@ -7,9 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/ai"
 	"github.com/guardianwaf/guardianwaf/internal/docker"
