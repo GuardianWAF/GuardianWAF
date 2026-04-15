@@ -23,21 +23,28 @@ flowchart TB
             Dash[":9443 Dashboard"]
         end
 
-        subgraph Pipeline["13-Layer Pipeline"]
+        subgraph Pipeline["20-Layer Pipeline"]
             direction TB
+            L0["95: Canary<br/>Traffic Splitting"]
             L1["100: IP ACL<br/>Radix Tree CIDR"]
             L2["125: Threat Intel<br/>Reputation Feeds"]
+            L2b["145: Replay Recorder<br/>JSONL Sampling"]
             L3["150: CORS<br/>Origin Validation"]
             L4["150: Custom Rules<br/>Geo-aware"]
             L5["200: Rate Limit<br/>Token Bucket"]
-            L6["250: ATO Protection<br/>Brute Force"]
+            L6["250: ATO Protection<br/>Brute Force/Stuffing"]
             L7["275: API Security<br/>JWT/API Key"]
-            L8["300: Sanitizer<br/>Normalization"]
+            L7b["280: API Validation<br/>OpenAPI Schema"]
+            L8["300: Sanitizer<br/>Multi-layer Decode"]
+            L8b["350: CRS<br/>OWASP ModSecurity"]
             L9["400: Detection<br/>6 Detectors"]
-            L10["500: Bot Detection<br/>JA3/JA4"]
+            L9b["450: Virtual Patch<br/>CVE/NVD"]
+            L9c["475: DLP + ML<br/>Masking + Anomaly"]
+            L10["500: Bot Detection<br/>JA3/JA4/Fingerprint"]
+            L10b["590: Client-Side<br/>RASP-lite Agent"]
             L11["600: Response<br/>Headers/Masking"]
 
-            L1 --> L2 --> L3 --> L4 --> L5 --> L6 --> L7 --> L8 --> L9 --> L10 --> L11
+            L0 --> L1 --> L2 --> L2b --> L3 --> L4 --> L5 --> L6 --> L7 --> L7b --> L8 --> L8b --> L9 --> L9b --> L9c --> L10 --> L10b --> L11
         end
 
         subgraph Challenge["Challenge Layer"]
@@ -109,7 +116,7 @@ flowchart TB
 sequenceDiagram
     actor Client
     participant WAF as GuardianWAF
-    participant Pipeline as 13-Layer Pipeline
+    participant Pipeline as 20-Layer Pipeline
     participant Challenge as JS Challenge
     participant Proxy as Reverse Proxy
     participant Backend as Backend Server
@@ -391,7 +398,7 @@ flowchart TB
     subgraph Internal_Pkgs["Internal Packages"]
         Engine["engine/<br/>Pipeline & Scoring"]
         ConfigPkg["config/<br/>YAML Parser"]
-        Layers["layers/<br/>13 WAF Layers"]
+        Layers["layers/<br/>20 WAF Layers"]
         Proxy["proxy/<br/>Reverse Proxy"]
         Dashboard["dashboard/<br/>React UI"]
         MCP["mcp/<br/>AI Integration"]

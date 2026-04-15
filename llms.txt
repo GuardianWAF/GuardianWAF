@@ -2,35 +2,81 @@
 
 > Zero-dependency Web Application Firewall for Go. One binary. Total protection.
 
-GuardianWAF is a high-performance WAF written entirely in Go stdlib (no external dependencies). It protects web applications from SQL injection, XSS, path traversal, command injection, XXE, SSRF, and bot attacks using a tokenizer-based scoring engine.
+GuardianWAF is a high-performance WAF written in Go stdlib (only external dependency: `quic-go` for optional HTTP/3, build with `-tags http3`). It protects web applications via a layered scoring pipeline.
 
 ## Key Features
 
-- Zero external dependencies (Go stdlib only)
-- Tokenizer-based detection with scoring engine
+- Zero external Go dependencies (stdlib only)
+- 20-layer pipeline with per-request score accumulation
 - 6 attack detectors: SQLi, XSS, LFI/path traversal, command injection, XXE, SSRF
-- IP ACL with radix tree and auto-ban
-- Token bucket rate limiting
-- Bot detection (JA3 fingerprint, User-Agent, behavioral analysis)
-- Request sanitization and normalization
-- Response protection (security headers, data masking)
-- Custom YAML parser (no gopkg.in/yaml.v3)
-- HTTP middleware or standalone reverse proxy
-- MCP (Model Context Protocol) server for AI integration
-- Real-time event bus with pub/sub
+- OWASP CRS (ModSecurity rule set) — native Go SecLang parser
+- Virtual patching with automatic NVD/CVE feed integration
+- IP ACL (radix tree), rate limiting (token bucket), ATO protection (4 patterns)
+- Bot detection: JA3/JA4 TLS fingerprinting, UA heuristics, browser fingerprinting
+- DLP: credit cards (Luhn), SSN, API keys, custom patterns, in-flight masking
+- SIEM export: CEF, LEEF, JSON, Syslog, Splunk HEC, Elasticsearch
+- Zero Trust: mTLS + device attestation, graduated trust levels (None→Maximum)
+- Response caching: in-memory LRU or Redis backend, stale-while-revalidate
+- Multi-tenant isolation, per-tenant WAF config overrides
+- Real-time dashboard (React + Vite + TailwindCSS) embedded in binary
+- MCP server (15 tools) for AI agent integration
+- HTTP middleware or standalone reverse proxy with full load balancing
 
 ## Architecture
 
-The WAF uses a layered pipeline architecture:
+GuardianWAF uses a layered pipeline. Layers implement `Layer` interface (`Name() + Process(ctx) LayerResult`), sorted by `Order` constant. The pipeline short-circuits on `ActionBlock`. Scores accumulate via `ScoreAccumulator`.
 
-1. IP ACL Layer (order 100) - Whitelist/blacklist/auto-ban
-2. Rate Limit Layer (order 200) - Token bucket rate limiting
-3. Sanitizer Layer (order 300) - Input normalization and validation
-4. Detection Layer (order 400) - Attack pattern detection (SQLi, XSS, etc.)
-5. Bot Detection Layer (order 500) - JA3, User-Agent, behavior analysis
-6. Response Layer (order 600) - Security headers, data masking
+### Layer Pipeline (execution order)
 
-Each layer produces findings with scores. Scores are accumulated and compared against thresholds to determine block/log/pass actions.
+| Order | Layer | Description |
+|-------|-------|-------------|
+| 95 | Canary | Traffic splitting for canary deployments (FNV hash or sticky cookie) |
+| 100 | IP ACL | Radix tree CIDR matching, auto-ban (lock-free atomic expiry) |
+| 125 | Threat Intel | IP/domain reputation feeds (file + HTTP), LRU cache |
+| 145 | Replay Recorder | Request recording to JSONL (sampling, before WAF decisions) |
+| 150 | CORS | Origin allowlist (exact + wildcard regex), preflight caching |
+| 150 | Custom Rules | Geo-aware rules with dashboard CRUD |
+| 200 | Rate Limit | Token bucket per IP/path, auto-ban callback to IP ACL |
+| 250 | ATO Protection | Brute force, credential stuffing, password spray, impossible travel |
+| 275 | API Security | JWT validation (RS256/ES256/HS256), API key auth |
+| 280 | API Validation | Request/response schema validation (OpenAPI 3.0) |
+| 285 | gRPC | gRPC frame inspection, method allow/deny policy (in development) |
+| 300 | Sanitizer | Multi-layer decode normalization; writes ctx.Normalized* fields |
+| 350 | CRS | OWASP ModSecurity Core Rule Set (native Go SecLang parser) |
+| 400 | Detection | 6 detectors: sqli, xss, lfi, cmdi, xxe, ssrf (each in own package) |
+| 450 | Virtual Patch | CVE-based patches, NVD API v2 auto-update |
+| 475 | DLP / Anomaly | Data Loss Prevention + optional ML anomaly detection (ONNX) |
+| 500 | Bot Detection | JA3/JA4, UA heuristics, browser fingerprint, CAPTCHA |
+| 590 | Client-Side | JS agent injection (RASP-lite: Magecart/DOM monitoring) |
+| 600 | Response | Security headers, stack trace stripping, data masking, block pages |
+| — | JS Challenge | SHA-256 PoW for score 40–79 with browser session |
+| — | AI Analysis | Background batch threat analysis (OpenAI-compatible, cost-limited) |
+| — | WebSocket | Transparent WebSocket upgrade forwarding with frame limits |
+| — | Cache | In-memory LRU or Redis response cache (stale-while-revalidate) |
+| — | SIEM | Async event export to external SIEM (6 formats) |
+| — | Zero Trust | mTLS + device attestation middleware (pre-pipeline) |
+
+**Scoring**: block at ≥50 (default), log at ≥25. Score 40–79 + browser → JS challenge. Each layer adds to `ScoreAccumulator`; no single layer's score exceeds 100.
+
+### Request Context (`internal/engine/context.go`)
+
+`RequestContext` is pooled via `sync.Pool` (zero-allocation hot path):
+- Acquired via `AcquireContext()` — parses HTTP, decompresses body (gzip/deflate), extracts client IP
+- Carries `TenantID` and `TenantWAFConfig` (read directly by layers, race-free)
+- `Normalized*` fields written by Sanitizer layer, read by CRS and Detection
+- `JA4*` fields populated from custom TLS handler data
+
+### Multi-Tenancy (`internal/tenant/`)
+
+- Per-tenant `WAFConfig` overrides read directly from `ctx.TenantWAFConfig`
+- Domain-based tenant resolution via virtual hosts
+- Separate rate tracking, rules, alerts, billing per tenant
+
+### Configuration Priority
+
+`defaults` → `YAML file` → `GWAF_*` env vars → `CLI flags`
+
+Custom YAML parser (no external yaml library). Per-domain overrides via `VirtualHostConfig.WAF *WAFConfig`.
 
 ## Quick Start (Library)
 
@@ -38,77 +84,73 @@ Each layer produces findings with scores. Scores are accumulated and compared ag
 import "github.com/guardianwaf/guardianwaf"
 
 waf, err := guardianwaf.New(guardianwaf.Config{
-    Mode: guardianwaf.ModeEnforce,
+    Mode:      guardianwaf.ModeEnforce,
     Threshold: guardianwaf.ThresholdConfig{Block: 50, Log: 25},
 })
-if err != nil {
-    log.Fatal(err)
-}
+if err != nil { log.Fatal(err) }
 defer waf.Close()
 
-http.ListenAndServe(":8088", waf.Middleware(myHandler))
+http.ListenAndServe(":8080", waf.Middleware(myHandler))
 ```
 
 ## Quick Start (Binary)
 
 ```bash
-guardianwaf serve -c guardianwaf.yaml
-guardianwaf sidecar --upstream http://localhost:3000
-guardianwaf check --url "/search?q=' OR 1=1 --"
-guardianwaf validate -c guardianwaf.yaml
+guardianwaf serve -c guardianwaf.yaml    # Standalone reverse proxy + dashboard (:9443)
+guardianwaf sidecar --upstream http://localhost:3000  # Lightweight (no dashboard)
+guardianwaf check --url "/search?q=' OR 1=1 --"      # Dry-run scoring
+guardianwaf validate -c guardianwaf.yaml             # Config validation
 ```
 
 ## Public API
 
-- `guardianwaf.New(cfg Config, opts ...Option) (*Engine, error)` - Create engine programmatically
-- `guardianwaf.NewFromFile(path string, opts ...Option) (*Engine, error)` - Create from YAML
-- `guardianwaf.NewWithDefaults(opts ...Option) (*Engine, error)` - Create with defaults
-- `engine.Middleware(next http.Handler) http.Handler` - HTTP middleware
-- `engine.Check(r *http.Request) Result` - Check request without proxying
-- `engine.OnEvent(fn func(Event))` - Register event callback
-- `engine.Stats() Stats` - Get runtime statistics
-- `engine.Close() error` - Shut down
+- `New(cfg, ...Option) (*Engine, error)` — programmatic creation
+- `NewFromFile(path, ...Option) (*Engine, error)` — from YAML
+- `engine.Middleware(http.Handler) http.Handler` — HTTP middleware
+- `engine.Check(*http.Request) Result` — dry-run, no proxy
+- `engine.OnEvent(func(Event))` — event callback
+- `engine.Stats() Stats` — runtime statistics
+- `engine.Close() error` — shutdown
 
 ### Functional Options
 
-- `WithMode(mode string)` - Set enforce/monitor/disabled
-- `WithThreshold(block, log int)` - Set score thresholds
-- `WithDetector(name string, enabled bool, multiplier float64)` - Configure detector
-- `WithMaxBodySize(size int64)` - Set max body size
-- `WithBotDetection(enabled bool)` - Toggle bot detection
+- `WithMode(mode string)` — enforce / monitor / disabled
+- `WithThreshold(block, log int)` — score thresholds
+- `WithDetector(name string, enabled bool, multiplier float64)` — per-detector config
+- `WithMaxBodySize(size int64)` — body buffer limit
+- `WithBotDetection(enabled bool)` — bot detection toggle
 
-## Configuration
-
-YAML configuration with environment variable overrides (GWAF_* prefix).
-See `examples/standalone/guardianwaf.yaml` for complete example.
-
-## Module Path
-
-`github.com/guardianwaf/guardianwaf`
-
-## Project Structure
+## Package Layout
 
 ```
-cmd/guardianwaf/         CLI entry point (serve, sidecar, check, validate)
+cmd/guardianwaf/         CLI (serve, sidecar, check, validate)
 internal/
-  config/                YAML parsing, defaults, validation, env overlay
-  engine/                Core engine, pipeline, context pool, events, findings
-  events/                Event bus (pub/sub), memory store, file store
-  layers/
-    ipacl/               IP ACL with radix tree
-    ratelimit/           Token bucket rate limiter
-    sanitizer/           Input normalization and validation
-    detection/           Attack detection framework
-      sqli/              SQL injection tokenizer
-      xss/               XSS parser and pattern matcher
-      lfi/               Path traversal detector
-      cmdi/              Command injection detector
-      xxe/               XML entity injection detector
-      ssrf/              Server-side request forgery detector
-    botdetect/           Bot detection (JA3, UA, behavior)
-    response/            Security headers, data masking, error pages
-  proxy/                 Reverse proxy, load balancer, health checks
-  mcp/                   Model Context Protocol server
-  tls/                   TLS manager, ACME, SNI
-  analytics/             Analytics engine, top-K, ring buffer
+  engine/                Pipeline, scoring, RequestContext pool, events, block pages
+  config/                Custom YAML parser, config structs, env overlay
+  layers/                All 20 WAF layers (see pipeline table above)
+    detection/           6 detectors: sqli/ xss/ lfi/ cmdi/ xxe/ ssrf/
+  proxy/                 Reverse proxy, LB (RR/weighted/least-conn/ip-hash), circuit breaker
+  tls/                   TLS cert store, SNI, hot-reload, HTTP/2
+  http3/                 HTTP/3/QUIC stub (active with -tags http3)
+  dashboard/             React+Vite+TailwindCSS UI, REST API, SSE, React Flow topology
+  mcp/                   MCP JSON-RPC server (15 tools)
+  events/                Ring buffer, JSONL file, event bus (pub/sub)
+  ai/                    OpenAI-compatible batch analyzer, cost control, models.dev catalog
+  docker/                Auto-discovery: Unix socket / named pipe / Docker CLI
+  geoip/                 GeoIP database with auto-refresh
+  acme/                  ACME/Let's Encrypt HTTP-01
+  tenant/                Multi-tenant isolation, billing, per-tenant rules
+  analytics/             Analytics engine, API handlers
+  cluster/               Cluster mode, Raft consensus (ADR 0023)
+  clustersync/           Cross-node state synchronization
+guardianwaf.go           Public library API entry point
+options.go               Functional options
 ```
+
+## Architecture Decision Records
+
+38 ADRs in `docs/adr/` document every significant design decision. See `docs/adr/README.md` for the full index.
+
+## Module
+
+`github.com/guardianwaf/guardianwaf` (Go 1.25+)
