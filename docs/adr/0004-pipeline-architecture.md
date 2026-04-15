@@ -193,10 +193,9 @@ Exclusion matching uses `ctx.NormalizedPath` when available (written by the Sani
 | File | Purpose |
 |------|---------|
 | `internal/engine/pipeline.go` | Pipeline struct, Execute(), AddLayer(), SetExclusions() |
-| `internal/engine/layer.go` | Layer, OrderedLayer, LayerResult, Action, Finding type definitions |
+| `internal/engine/layer.go` | Layer interface, OrderedLayer struct, LayerResult, Action, Finding, LayerOrder constants (100–600, 16 defined) |
 | `internal/engine/context.go` | RequestContext struct, AcquireContext(), ReleaseContext() |
 | `internal/engine/scoring.go` | ScoreAccumulator, Add(), AddMultiple(), Total() |
-| `internal/engine/ordered_layers.go` | OrderedLayer wrappers that embed Layer + Order (all 20+ layers) |
 
 ## References
 
