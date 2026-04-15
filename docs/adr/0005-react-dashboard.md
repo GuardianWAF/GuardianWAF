@@ -160,9 +160,8 @@ The React dashboard (14 pages, all route through React Router SPA with SSE real-
 
 | File | Purpose |
 |------|---------|
-| `internal/dashboard/dashboard.go` | HTTP handler, embed.FS declaration, route wiring |
-| `internal/dashboard/api.go` | REST API handlers (events, stats, config) |
-| `internal/dashboard/sse.go` | SSE endpoint and event broadcaster |
+| `internal/dashboard/dashboard.go` | HTTP handler, embed.FS declaration, route wiring, SSE broadcaster |
+| `internal/dashboard/` | REST API handlers (events, stats, config, ai, config editor, routing graph) |
 | `internal/dashboard/ui/` | React 19 source (Vite project) |
 | `internal/dashboard/dist/` | Built React assets (embed.FS target) |
 | `Makefile` (`ui` target) | `cd internal/dashboard/ui && npm install && npm run build` |
