@@ -170,7 +170,7 @@ Command:  guardianwaf sidecar --upstream localhost:8088
 +---------------------------------------------------------------------+
 ```
 
-### 2.2 Core Engine — 20+ Layer Pipeline
+### 2.2 Core Engine — 16-Layer Pipeline
 
 Every HTTP request passes through a pipeline. The diagram below shows the 6 primary registered stages (simplified conceptual view — additional stages run between these steps in the full design):
 
