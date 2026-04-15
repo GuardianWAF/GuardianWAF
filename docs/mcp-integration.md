@@ -27,7 +27,7 @@ The MCP server supports two transports:
 - **stdio** — JSON-RPC over stdin/stdout (local process, for Claude Code CLI)
 - **SSE** — Server-Sent Events over HTTP (remote, for Claude Desktop, VS Code, web clients)
 
-Both transports expose the same 15 tools.
+Both transports expose the same 44 tools (21 base + 23 extended: CRS, Virtual Patch, API Validation, Client-Side, DLP, HTTP/3).
 
 ---
 
@@ -139,7 +139,7 @@ Once configured, you can ask Claude natural language questions like:
 
 ---
 
-## All 15 MCP Tools
+## All 15 Base MCP Tools
 
 ### 1. guardianwaf_get_stats
 
