@@ -101,7 +101,7 @@ Define the `Layer` interface that all WAF processing layers implement. Interface
 - [ ] `LayerResult` struct contains Action, Findings, Score, Duration
 - [ ] Action constants defined: Pass, Block, Log, Challenge
 - [ ] `Detector` interface extends Layer with introspection methods
-- [ ] `LayerOrder` constants defined for all 6 layer types
+- [ ] `LayerOrder` constants defined for all 20+ layer types
 - [ ] All types are exported and well-documented with Go doc comments
 
 ---
@@ -1653,10 +1653,10 @@ Implement a Model Context Protocol (MCP) server for AI-assisted WAF management. 
 **Dependencies:** Task 74, Task 11, Task 33, Task 36, Task 67
 
 **Description:**
-Implement all 15 MCP tools. Tools: (1) `get_stats` — current WAF statistics, (2) `get_events` — query recent events with filters, (3) `get_event` — get single event by ID, (4) `check_request` — dry-run a request through detection, (5) `add_whitelist` — add IP/CIDR to whitelist, (6) `remove_whitelist` — remove from whitelist, (7) `add_blacklist` — add to blacklist, (8) `remove_blacklist` — remove from blacklist, (9) `add_ratelimit` — add rate limit rule, (10) `remove_ratelimit` — remove rate limit rule, (11) `add_exclusion` — add detector exclusion for path, (12) `remove_exclusion` — remove exclusion, (13) `get_config` — get current config as YAML, (14) `update_config` — update and reload config, (15) `get_health` — health status of WAF and backends. Each tool handler validates input parameters, calls the appropriate engine/layer method, and returns a structured result. All handlers return `content` array with `text` type entries (MCP response format).
+Implement all 44 MCP tools (21 base + 23 extended). Tools: (1) `guardianwaf_get_stats` — current WAF statistics, (2) `guardianwaf_get_events` — query recent events with filters, (3) `guardianwaf_add_whitelist` — add IP/CIDR to whitelist, (4) `guardianwaf_remove_whitelist` — remove from whitelist, (5) `guardianwaf_add_blacklist` — add to blacklist, (6) `guardianwaf_remove_blacklist` — remove from blacklist, (7) `guardianwaf_add_ratelimit` — add rate limit rule, (8) `guardianwaf_remove_ratelimit` — remove rate limit rule, (9) `guardianwaf_add_exclusion` — add detector exclusion for path, (10) `guardianwaf_remove_exclusion` — remove exclusion, (11) `guardianwaf_set_mode` — set WAF mode, (12) `guardianwaf_get_config` — get current config as YAML, (13) `guardianwaf_test_request` — dry-run a request through detection, (14) `guardianwaf_get_top_ips` — top IPs by request/block count, (15) `guardianwaf_get_detectors` — detector configuration, + 23 extended tools (CRS, Virtual Patch, API Validation, Client-Side, DLP, HTTP/3 management). Each tool handler validates input parameters, calls the appropriate engine/layer method, and returns a structured result. All handlers return `content` array with `text` type entries (MCP response format).
 
 **Acceptance Criteria:**
-- [ ] All 15 tools implemented
+- [ ] All 44 tools implemented
 - [ ] Each tool has JSON Schema parameter definition
 - [ ] Input validation for all parameters
 - [ ] Correct MCP response format (content array)
@@ -1677,12 +1677,12 @@ Implement all 15 MCP tools. Tools: (1) `get_stats` — current WAF statistics, (
 **Dependencies:** Task 74, Task 75
 
 **Description:**
-Test suite for MCP server and tools. Server tests: initialize handshake, tools/list returns all 15 tools, unknown method returns error, invalid JSON returns parse error, malformed params return invalid params error. Tool tests: each tool tested with valid input and expected output, each tool tested with invalid input and expected error. Integration test: simulate a complete MCP session — initialize, list tools, call get_stats, add a whitelist entry, verify with get_config, check a request, get events. Use `io.Pipe` for stdin/stdout simulation. Verify JSON-RPC message format (id, jsonrpc version, result/error structure).
+Test suite for MCP server and tools. Server tests: initialize handshake, tools/list returns all 44 tools, unknown method returns error, invalid JSON returns parse error, malformed params return invalid params error. Tool tests: each tool tested with valid input and expected output, each tool tested with invalid input and expected error. Integration test: simulate a complete MCP session — initialize, list tools, call get_stats, add a whitelist entry, verify with get_config, check a request, get events. Use `io.Pipe` for stdin/stdout simulation. Verify JSON-RPC message format (id, jsonrpc version, result/error structure).
 
 **Acceptance Criteria:**
 - [ ] Server handshake tested
 - [ ] tools/list tested
-- [ ] Each of 15 tools tested with valid input
+- [ ] Each of 44 tools tested with valid input
 - [ ] Each tool tested with invalid input
 - [ ] JSON-RPC error format verified
 - [ ] Full session integration test
@@ -1861,7 +1861,7 @@ Create comprehensive test fixture datasets. Attack payloads: curate from public 
 **Dependencies:** Task 70
 
 **Description:**
-Create production Docker configuration. `Dockerfile`: multi-stage build — stage 1 (`builder`): use `golang:1.22-alpine`, copy source, run `go build` with `-ldflags` for version info, static linking (`CGO_ENABLED=0`). Stage 2 (`runtime`): use `alpine:3.19` (or `scratch` for absolute minimum), copy binary from builder, copy default config, create non-root user (`guardianwaf`), expose ports 8088 (HTTP), 8443 (HTTPS), 9090 (dashboard), set entrypoint to binary. Labels: maintainer, description, version. `docker-compose.yml`: GuardianWAF service with volume mount for config and certs, environment variable overrides, health check (`/healthz`), resource limits (256MB memory, 0.5 CPU). Optional services: example backend (nginx), second backend (for load balancing demo). Networks: `waf-net` bridge network.
+Create production Docker configuration. `Dockerfile`: multi-stage build — stage 1 (`builder`): use `golang:1.25-alpine`, copy source, run `go build` with `-ldflags` for version info, static linking (`CGO_ENABLED=0`). Stage 2 (`runtime`): use `alpine:3.19` (or `scratch` for absolute minimum), copy binary from builder, copy default config, create non-root user (`guardianwaf`), expose ports 8088 (HTTP), 8443 (HTTPS), 9090 (dashboard), set entrypoint to binary. Labels: maintainer, description, version. `docker-compose.yml`: GuardianWAF service with volume mount for config and certs, environment variable overrides, health check (`/healthz`), resource limits (256MB memory, 0.5 CPU). Optional services: example backend (nginx), second backend (for load balancing demo). Networks: `waf-net` bridge network.
 
 **Acceptance Criteria:**
 - [ ] Multi-stage build (builder + runtime)
@@ -1907,11 +1907,11 @@ Create working examples for all deployment modes. **Standalone** (`examples/stan
 **Dependencies:** Task 1
 
 **Description:**
-Create GitHub Actions workflows. **ci.yml** (runs on push and PR): matrix: Go 1.22.x and 1.23.x on ubuntu-latest. Steps: checkout, setup Go, cache modules, `go mod tidy` + check no diff, `golangci-lint run`, `go test -race -cover ./...` (with coverage report), `go test -bench=. ./...` (benchmarks run but don't fail on regression), `go build ./cmd/guardianwaf` for linux/amd64+arm64 and darwin/amd64+arm64 and windows/amd64. Upload coverage to step summary. Fail on: lint errors, test failures, build failures. **release.yml** (runs on tag push `v*`): checkout, setup Go, run GoReleaser (uses `.goreleaser.yml`), create GitHub Release with changelog, upload binaries, build and push Docker image to GitHub Container Registry (`ghcr.io`).
+Create GitHub Actions workflows. **ci.yml** (runs on push and PR): matrix: Go 1.25.x and 1.26.x on ubuntu-latest. Steps: checkout, setup Go, cache modules, `go mod tidy` + check no diff, `golangci-lint run`, `go test -race -cover ./...` (with coverage report), `go test -bench=. ./...` (benchmarks run but don't fail on regression), `go build ./cmd/guardianwaf` for linux/amd64+arm64 and darwin/amd64+arm64 and windows/amd64. Upload coverage to step summary. Fail on: lint errors, test failures, build failures. **release.yml** (runs on tag push `v*`): checkout, setup Go, run GoReleaser (uses `.goreleaser.yml`), create GitHub Release with changelog, upload binaries, build and push Docker image to GitHub Container Registry (`ghcr.io`).
 
 **Acceptance Criteria:**
 - [ ] CI runs on push and PR
-- [ ] Go version matrix (1.22, 1.23)
+- [ ] Go version matrix (1.25, 1.26)
 - [ ] Module tidy check
 - [ ] Lint check with golangci-lint
 - [ ] Tests with race detector and coverage

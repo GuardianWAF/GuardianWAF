@@ -164,13 +164,16 @@ Inference is **skipped** if the request has already been blocked by an earlier l
 
 ## Implementation Locations
 
+**Note**: `internal/ml/onnx/` exists with `model.go` (POC stub). `features.go` and
+`sliding_window.go` are planned but do not exist yet. `scripts/train_model.py` is also planned.
+
 | File | Purpose |
 |------|---------|
-| `internal/ml/onnx/model.go` | ONNX Runtime wrapper, session management |
-| `internal/ml/onnx/features.go` | Feature extraction from `RequestContext` |
-| `internal/layers/anomaly/layer.go` | Pipeline layer (Order 475) |
-| `internal/layers/anomaly/sliding_window.go` | Per-IP time-based feature computation |
-| `scripts/train_model.py` | Offline training script (scikit-learn → ONNX) |
+| `internal/ml/onnx/model.go` | ONNX Runtime wrapper, session management (POC stub) |
+| `internal/ml/onnx/features.go` | Feature extraction from `RequestContext` (planned) |
+| `internal/ml/anomaly/layer.go` | Pipeline layer (Order 475 — same slot as DLP; order subject to change) |
+| `internal/ml/anomaly/sliding_window.go` | Per-IP time-based feature computation (planned) |
+| `scripts/train_model.py` | Offline training script (scikit-learn → ONNX) (planned) |
 | `internal/config/config.go` | `MLConfig` struct addition |
 
 ## References

@@ -6,12 +6,14 @@ GuardianWAF uses a tokenizer-based scoring engine to detect attacks. Instead of 
 
 ## How Scoring Works
 
-Every request flows through a 6-layer pipeline:
+Every request flows through a 20+ layer pipeline (simplified view):
 
 ```
 Request → IP ACL → Rate Limit → Sanitizer → Detection → Bot Detect → Response
            100       200          300          400          500         600
 ```
+
+The full pipeline includes additional layers between these stages: Cluster (75), WebSocket Security (76), gRPC Security (78), Canary (95), Threat Intel (125), Replay (145), CORS (150), Custom Rules (150), ATO Protection (250), API Security (275), API Validation (280), CRS (350), Virtual Patch (450), DLP (475), Client-Side (590), and Response (600).
 
 The detection layer (order 400) runs all enabled detectors. Each detector produces **findings** with individual scores. The cumulative score determines the action:
 

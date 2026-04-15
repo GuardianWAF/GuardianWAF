@@ -170,44 +170,47 @@ Command:  guardianwaf sidecar --upstream localhost:8088
 +---------------------------------------------------------------------+
 ```
 
-### 2.2 Core Engine — 6-Layer Pipeline
+### 2.2 Core Engine — 20+ Layer Pipeline
 
-Every HTTP request passes through a strict 6-layer pipeline. Each layer is an independent Go package implementing the `Layer` interface. Layers execute sequentially; any layer can short-circuit the pipeline by returning `ActionBlock`.
+Every HTTP request passes through a pipeline. The diagram below shows the 6 primary registered stages (simplified conceptual view — additional stages run between these steps in the full design):
+
+Currently **16 layers are registered** in the engine pipeline: IP ACL(100) through Response(600).
+The full **planned** pipeline includes 5 additional early-stage layers: Cluster(75), WebSocket(76), gRPC(78), Canary(95), Replay(145). These packages exist but are not yet wired into the main engine pipeline.
 
 ```
                             REQUEST
                                |
                                v
                   +------------------------+
-             1    |   IP ACCESS CONTROL    |  Radix tree lookup
+             1    |   IP ACCESS CONTROL    |  Radix tree lookup (Order 100)
                   |   internal/layers/     |  O(k) where k = prefix bits
                   |   ipacl/               |
                   +-----------+------------+
                        PASS   |   BLOCK -> 403
                               v
                   +------------------------+
-             2    |    RATE LIMITER        |  Token bucket per scope
+             2    |    RATE LIMITER        |  Token bucket per scope (Order 200)
                   |    internal/layers/    |  (IP, IP+path, global)
                   |    ratelimit/          |
                   +-----------+------------+
                        PASS   |   BLOCK -> 429
                               v
                   +------------------------+
-             3    |  REQUEST SANITIZER     |  Normalize, validate, clean
+             3    |  REQUEST SANITIZER     |  Normalize, validate, clean (Order 300)
                   |  internal/layers/      |  URL decode, null bytes,
                   |  sanitizer/            |  path canonicalization
                   +-----------+------------+
                        PASS   |   BLOCK -> 400 (malformed)
                               v
                   +------------------------+
-             4    |  DETECTION ENGINE      |  SQLi, XSS, LFI, CMDi,
+             4    |  DETECTION ENGINE      |  SQLi, XSS, LFI, CMDi, (Order 400)
                   |  internal/layers/      |  XXE, SSRF tokenizers
                   |  detection/            |  Score accumulation
                   +-----------+------------+
                        PASS   |   BLOCK -> 403 (score >= threshold)
                               v
                   +------------------------+
-             5    |   BOT DETECTION        |  JA3/JA4, UA analysis,
+             5    |   BOT DETECTION        |  JA3/JA4, UA analysis, (Order 500)
                   |   internal/layers/     |  behavioral scoring
                   |   botdetect/           |
                   +-----------+------------+
@@ -220,13 +223,25 @@ Every HTTP request passes through a strict 6-layer pipeline. Each layer is an in
                             |
                             v
                   +------------------------+
-             6    |  RESPONSE PROTECTION   |  Security headers,
+             6    |  RESPONSE PROTECTION   |  Security headers, (Order 600)
                   |  internal/layers/      |  data masking,
                   |  response/             |  error sanitization
                   +-----------+------------+
                               |
                               v
                            RESPONSE
+
+Full pipeline order: Cluster(75) → WebSocket(76) → gRPC(78) → Canary(95) →
+IP ACL(100) → Threat Intel(125) → Replay(145) → CORS(150) → Custom Rules(150) →
+Rate Limit(200) → ATO(250) → API Security(275) → API Validation(280) →
+Sanitizer(300) → CRS(350) → Detection(400) → Virtual Patch(450) →
+DLP(475) → Bot Detection(500) → Client-Side(590) → Response(600)
+
+**Note:** Currently 16 layers are registered in the engine pipeline (IP ACL through Response).
+The 5 early-stage layers (Cluster/75, WebSocket/76, gRPC/78, Canary/95, Replay/145) are
+implemented as packages but not yet registered in the main engine pipeline. They are
+included in the full pipeline order above as planned future registrations.
+```
 ```
 
 **Layer Properties:**

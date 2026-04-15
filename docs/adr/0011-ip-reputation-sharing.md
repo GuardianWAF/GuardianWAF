@@ -140,6 +140,8 @@ Only share minimal threat data:
 
 ## Implementation Locations
 
+**Note**: This ADR describes a proposed feature. The files below represent the intended implementation structure — `internal/layers/threatintel/sharing.go`, `bloom.go`, and `deaddrop.go` do not yet exist.
+
 | File | Purpose |
 |------|---------|
 | `internal/layers/threatintel/sharing.go` | Gossip protocol |

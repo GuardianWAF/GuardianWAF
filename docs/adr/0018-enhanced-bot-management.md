@@ -206,13 +206,17 @@ bot_detection:
 
 ## Implementation Locations
 
+**Note**: `internal/layers/botdetect/` exists with base bot detection (layer, JA3/JA4, UA, behavior).
+The enhanced features below are planned: `fingerprint/fingerprinter.go`, `biometric/detector.go`,
+`web/` (goodbot), `challenge/` (CAPTCHA), and `clientside/agent.js`.
+
 | File | Purpose |
 |------|---------|
-| `internal/layers/botdetect/fingerprint.go` | FP token issuance and verification |
-| `internal/layers/botdetect/biometrics.go` | Biometric summary parsing and scoring |
-| `internal/layers/botdetect/goodbot.go` | rDNS verification and ASN checking |
-| `internal/layers/botdetect/captcha.go` | CAPTCHA challenge flow |
-| `internal/layers/clientside/agent.js` | JS biometric/fingerprint collector |
+| `internal/layers/botdetect/fingerprint/fingerprinter.go` | FP token issuance and verification (planned) |
+| `internal/layers/botdetect/biometric/detector.go` | Biometric summary parsing and scoring (planned) |
+| `internal/layers/botdetect/web/` | rDNS verification and ASN checking (planned) |
+| `internal/layers/botdetect/challenge/` | CAPTCHA challenge flow (planned: hcaptcha.go exists) |
+| `internal/layers/clientside/agent.js` | JS biometric/fingerprint collector (planned) |
 | `internal/config/config.go` | `BotDetectionConfig` extensions |
 
 ## References

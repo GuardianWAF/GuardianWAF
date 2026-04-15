@@ -2,7 +2,7 @@
 
 **Author:** Ersin Koc / ECOSTACK TECHNOLOGY OU
 **Module:** `github.com/guardianwaf/guardianwaf`
-**Go Version:** 1.22+
+**Go Version:** 1.25+
 **Date:** 2026-03-16
 
 > This document bridges the "what" (SPECIFICATION.md) to the "how" (TASKS.md). It records
@@ -77,15 +77,8 @@ type RequestContext struct {
     DecodedBody      []byte              // URL-decoded, null-stripped body
     BodyContentType  ContentType          // enum: FormData, JSON, XML, Raw, None
 
-    // Pipeline results — written by layers
-    Findings     []Finding         // pre-allocated capacity 8, grows if needed
-    TotalScore   int
-    Action       Action            // enum: Allow, Log, Block
-    BlockReason  string            // human-readable, set by the blocking layer
-
     // Timing
     StartTime    time.Time
-    LayerTimings [6]time.Duration  // one slot per layer, indexed by LayerID
 
     // Identifiers
     RequestID    string            // 16-byte hex, generated at construction
@@ -100,9 +93,7 @@ type RequestContext struct {
 | Decision | Rationale | Alternatives Considered |
 |----------|-----------|------------------------|
 | Pre-allocate via `sync.Pool` | Eliminates a ~200-byte heap allocation per request. At 50K RPS that is 10 MB/s of GC pressure removed. | Fresh allocation per request — simpler but GC cost unacceptable. |
-| Fixed-size `LayerTimings [6]time.Duration` | Array lives inline in the struct (no pointer chase, no slice header). Six layers is a compile-time constant. | Slice — adds 24 bytes of header + pointer indirection. Map — absurd overhead. |
-| `Findings` slice pre-allocated to cap 8 | Most requests produce 0 findings (clean traffic). Attacks rarely exceed 5-6 findings. Cap 8 covers 99.9% without re-allocation. The backing array is part of the pooled struct's associated buffer. | Linked list — poor cache locality. Channel — wrong abstraction. |
-| `NormalizedQuery` map cap 16 | HTTP requests rarely carry more than 10-12 query params. Pre-allocated map avoids the first few grow-and-rehash cycles. | Flat `[][2]string` slice — faster iteration but O(n) lookup by key; detection layers look up specific params. |
+| `NormalizedQuery` map pre-allocated | HTTP requests rarely carry more than 10-12 query params. Pre-allocated map avoids the first few grow-and-rehash cycles. | Flat `[][2]string` slice — faster iteration but O(n) lookup by key; detection layers look up specific params. |
 | `net.IP` for RemoteIP | Stdlib type, directly usable with radix tree bit operations. Parsed once at construction, not per-layer. | `string` — requires re-parsing for CIDR comparison every time. `uint32/[16]byte` — loses IPv4/IPv6 abstraction. |
 
 **Pool lifecycle:**
@@ -118,11 +109,21 @@ type RequestContext struct {
                                            ▼
                                   ┌──────────────────┐
                                   │  Layer 1 (IPACL) │
-                                  │  Layer 2 (Rate)  │
-                                  │  Layer 3 (Sanit) │
-                                  │  Layer 4 (Detect)│
-                                  │  Layer 5 (Bot)   │
-                                  │  Layer 6 (Resp)  │
+                                  │  Layer 2 (ThreatIntel) │
+                                  │  Layer 3 (CORS)  │
+                                  │  Layer 4 (Custom Rules) │
+                                  │  Layer 5 (Rate Limit)  │
+                                  │  Layer 6 (ATO)   │
+                                  │  Layer 7 (API Security) │
+                                  │  Layer 8 (API Validation) │
+                                  │  Layer 9 (Sanitizer) │
+                                  │  Layer 10 (CRS)  │
+                                  │  Layer 11 (Detection) │
+                                  │  Layer 12 (Virtual Patch) │
+                                  │  Layer 13 (DLP)  │
+                                  │  Layer 14 (Bot Detection) │
+                                  │  Layer 15 (Client-Side) │
+                                  │  Layer 16 (Response) │
                                   └────────┬─────────┘
                                            │
                                reset + Put() back to pool

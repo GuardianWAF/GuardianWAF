@@ -93,6 +93,8 @@ Support multiple exporters (build tags):
 
 ### Implementation Locations
 
+**Note**: This ADR describes a proposed feature. `internal/tracing/` does not yet exist in the codebase — the files below represent the intended implementation structure.
+
 | File | Purpose |
 |------|---------|
 | `internal/tracing/tracer.go` | Tracer singleton, config, shutdown |

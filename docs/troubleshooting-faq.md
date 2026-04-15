@@ -47,13 +47,13 @@ export PATH=$PATH:/usr/local/bin
 **A:**
 ```bash
 # Check image exists
-docker pull ghcr.io/guardianwaf/guardianwaf:v0.3.0
+docker pull ghcr.io/guardianwaf/guardianwaf:v0.4.0
 
 # If auth required
 echo $GITHUB_TOKEN | docker login ghcr.io -u USERNAME --password-stdin
 
 # Use specific version
-docker pull ghcr.io/guardianwaf/guardianwaf:v0.3.0
+docker pull ghcr.io/guardianwaf/guardianwaf:v0.4.0
 ```
 
 ---
@@ -351,7 +351,7 @@ ls -la /path/to/data
 # Run with debug
 docker run -it --rm \
   -v $(pwd)/config.yaml:/etc/guardianwaf/config.yaml \
-  ghcr.io/guardianwaf/guardianwaf:v0.3.0 \
+  ghcr.io/guardianwaf/guardianwaf:v0.4.0 \
   serve -c /etc/guardianwaf/config.yaml
 ```
 

@@ -80,7 +80,9 @@ All WAF processing flows through a **layer pipeline** (`internal/engine/pipeline
 
 ### Layer Order Constants
 
-Defined in `internal/engine/layer.go`:
+Defined in `internal/engine/layer.go`. 16 layers are registered in the main pipeline; 5 early-stage layers exist but are NOT yet wired in.
+
+**Registered (in pipeline):**
 
 | Order | Layer | Description |
 |-------|-------|-------------|
@@ -100,14 +102,18 @@ Defined in `internal/engine/layer.go`:
 | 500 | Bot Detection | JA3/JA4 TLS fingerprinting, UA, behavioral analysis |
 | 590 | Client-Side | Client-side protection injection |
 | 600 | Response | Security headers, data masking, branded block pages |
-| — | JS Challenge | SHA-256 proof-of-work for suspicious requests (score 40-79) |
-| — | AI Analysis | Background batch threat analysis via LLM (configurable provider) |
-| — | gRPC Proxy | gRPC protocol handling |
-| — | WebSocket | Transparent WebSocket upgrade forwarding |
-| — | Cache | In-memory response caching layer |
-| — | Canary | Canary/deployment testing layer |
-| — | Replay | Request recording and replay for testing |
-| — | SIEM | Security event export to external SIEM systems |
+
+**Planned but not registered in pipeline yet:**
+
+| Order | Layer | Status |
+|-------|-------|--------|
+| 75 | Cluster | Package exists (`internal/cluster/`), uses HTTP gossip + leader election (NOT Raft); not in main pipeline |
+| 76 | WebSocket | Package exists (`internal/layers/websocket/`), Order 76 not in layer.go |
+| 78 | gRPC | Package exists (`internal/layers/grpc/`), Order 78 not in layer.go |
+| 95 | Canary | Package exists (`internal/layers/canary/`), Order 95 not in layer.go |
+| 145 | Replay | Package exists (`internal/layers/replay/`), Order 145 not in layer.go |
+
+JS Challenge (score 40-79), AI Analysis, Cache, and SIEM are also not yet implemented.
 
 ### Scoring System
 
@@ -154,16 +160,20 @@ Key config files:
 - `internal/tls/` — TLS cert store, SNI-based cert selection, hot-reload, HTTP/2 support
 - `internal/http3/` — HTTP/3/QUIC support (build with `-tags http3`, stub otherwise)
 - `internal/dashboard/` — Web UI (React+Vite+TailwindCSS), REST API, SSE, config editor, AI page, routing topology graph (React Flow)
-- `internal/mcp/` — MCP JSON-RPC server (15 tools: get_stats, get_events, add_blacklist, etc.)
+- `internal/mcp/` — MCP JSON-RPC server (44 tools: get_stats, get_events, add_blacklist, etc.)
 - `internal/events/` — Event storage (memory ring buffer, JSONL file, event bus)
-- `internal/ai/` — AI threat analysis (provider catalog from models.dev, OpenAI-compatible client, batch analyzer, cost control, JSON store)
+- `internal/ai/` — AI threat analysis (models.dev catalog, OpenAI client, batch analyzer, remediation)
 - `internal/docker/` — Docker auto-discovery (Unix socket/CLI, label-based routing, event watcher)
 - `internal/geoip/` — GeoIP database with auto-refresh
 - `internal/acme/` — ACME/Let's Encrypt auto-certificate (HTTP-01)
 - `internal/tenant/` — Multi-tenant management (isolation, billing, rate limits, per-tenant rules)
 - `internal/analytics/` — Analytics engine and API handlers
-- `internal/cluster/` — Cluster mode support
-- `internal/clustersync/` — Cross-node state synchronization
+- `internal/alerting/` — Webhook and email alerting (Slack, Discord, PagerDuty, SMTP)
+- `internal/cluster/` — Cluster mode (HTTP gossip + leader election; NOT Raft — see ADR 0023)
+- `internal/clustersync/` — Cross-node state synchronization (gRPC-lite over TCP)
+- `internal/discovery/` — Passive API discovery and path clustering
+- `internal/integrations/` — Third-party integrations (v040)
+- `internal/ml/` — ML anomaly detection (ONNX model, Isolation Forest — separate from AI batch analysis)
 - `internal/layers/graphql/` — GraphQL protection (parser + security layer, in-development pipeline integration)
 - `internal/layers/zerotrust/` — Zero Trust middleware/service (in-development)
 - `guardianwaf.go` + `options.go` — Public library API

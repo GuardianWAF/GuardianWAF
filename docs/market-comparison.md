@@ -242,7 +242,7 @@ Imperva:       Cloud dependency
 
 ### 4.3 MCP Integration
 
-**Rakiplerde yok:** GuardianWAF'de 21 tool ile MCP server.
+**Rakiplerde yok:** GuardianWAF'de 44 tool ile MCP server.
 
 ```json
 // Claude Code ile entegrasyon

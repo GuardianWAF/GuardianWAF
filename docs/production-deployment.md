@@ -1,6 +1,6 @@
 # GuardianWAF Production Deployment Guide
 
-This guide covers production deployment best practices for GuardianWAF v0.3.0.
+This guide covers production deployment best practices for GuardianWAF v0.4.0.
 
 ## Table of Contents
 
@@ -60,7 +60,7 @@ version: '3.8'
 
 services:
   guardianwaf:
-    image: ghcr.io/guardianwaf/guardianwaf:v0.3.0
+    image: ghcr.io/guardianwaf/guardianwaf:v0.4.0
     container_name: guardianwaf
     restart: unless-stopped
     ports:
@@ -167,7 +167,7 @@ spec:
       serviceAccountName: guardianwaf
       containers:
       - name: guardianwaf
-        image: ghcr.io/guardianwaf/guardianwaf:v0.3.0
+        image: ghcr.io/guardianwaf/guardianwaf:v0.4.0
         ports:
         - name: http
           containerPort: 8080
@@ -572,4 +572,4 @@ guardianwaf migrate-config --from 0.2 --to 0.3 --config config.yaml
 
 ---
 
-*Last updated: 2026-04-04 for GuardianWAF v0.3.0*
+*Last updated: 2026-04-15 for GuardianWAF v0.4.0*

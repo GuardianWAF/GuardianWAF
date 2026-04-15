@@ -318,7 +318,7 @@ type TenantContext struct {
 
 **Transport**: stdio (JSON-RPC 2.0) or SSE
 
-**Tool Handlers** (15+ tools):
+**Tool Handlers** (44 tools):
 - `get_stats`, `get_events`, `add_blacklist`, `remove_blacklist`
 - `get_top_ips`, `get_detectors`, `test_request`
 - Alerting, CRS, Virtual Patch, API Validation, Client-Side, DLP management

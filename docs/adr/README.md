@@ -41,7 +41,7 @@ the decision made, and the consequences.
 
 | ADR | Title | Status |
 |-----|-------|--------|
-| [0010](./0010-dynamic-rules-api.md) | Dynamic Rules API | Implemented |
+| [0010](./0010-dynamic-rules-api.md) | Dynamic Rules API | Proposed |
 | [0011](./0011-ip-reputation-sharing.md) | IP Reputation Sharing | Proposed |
 | [0012](./0012-graphql-protection.md) | Enhanced GraphQL Protection | Implemented |
 | [0014](./0014-wasm-sandbox.md) | WebAssembly Sandbox for Rule Evaluation | Proposed |
@@ -55,21 +55,25 @@ the decision made, and the consequences.
 | [0013](./0013-multi-region-support.md) | Multi-Region Support | Proposed |
 | [0015](./0015-distributed-event-store.md) | Distributed Event Store | Proposed |
 | [0023](./0023-high-availability-raft.md) | High Availability with Raft Consensus | Proposed |
-| [0026](./0026-response-caching-layer.md) | Response Caching Layer | Implemented |
 
 ### WAF Pipeline Layers (by order)
 
 | ADR | Order | Layer | Status |
 |-----|-------|-------|--------|
-| [0036](./0036-canary-deployments.md) | 95 | Canary Deployment | Implemented |
+| [0024](./0024-zero-trust-network-access.md) | 70 | Zero Trust (mTLS) | Proposed — not registered in pipeline |
+| (internal/cluster/) | 75 | Cluster | Proposed — not registered in pipeline |
+| [0035](./0035-websocket-proxy.md) | 76 | WebSocket | Proposed — not registered in pipeline |
+| [0019](./0019-grpc-protocol-support.md) | 78 | gRPC | Proposed — not registered in pipeline |
+| [0036](./0036-canary-deployments.md) | 95 | Canary Deployment | Proposed — not registered in pipeline |
 | [0028](./0028-ip-acl-radix-tree.md) | 100 | IP ACL (Radix Tree) | Implemented |
 | [0034](./0034-threat-intelligence.md) | 125 | Threat Intelligence | Implemented |
-| [0037](./0037-request-replay.md) | 145 | Request Recording & Replay | Implemented |
+| [0037](./0037-request-replay.md) | 145 | Request Recording & Replay | Proposed — not registered in pipeline |
 | [0031](./0031-cors-layer.md) | 150 | CORS Validation | Implemented |
 | [0029](./0029-rate-limiting-token-bucket.md) | 200 | Rate Limiting (Token Bucket) | Implemented |
 | [0030](./0030-ato-protection.md) | 250 | ATO Protection | Implemented |
-| [0017](./0017-api-discovery-schema-validation.md) | 280 | API Discovery & Schema Validation | Proposed |
-| [0019](./0019-grpc-protocol-support.md) | 285 | gRPC Protocol Support | Proposed |
+| (internal/layers/apisecurity/) | 275 | API Security | Implemented |
+| (internal/layers/apivalidation/) | 280 | API Validation | Implemented |
+| [0017](./0017-api-discovery-schema-validation.md) | TBD | API Discovery & Schema Validation | Proposed |
 | [0033](./0033-request-sanitizer.md) | 300 | Request Sanitizer | Implemented |
 | [0032](./0032-owasp-crs-integration.md) | 350 | OWASP CRS | Implemented |
 | [0003](./0003-tokenizer-based-detection.md) | 400 | Detection Engine | Accepted |
@@ -85,8 +89,8 @@ the decision made, and the consequences.
 | ADR | Title | Status |
 |-----|-------|--------|
 | [0012](./0012-graphql-protection.md) | GraphQL Protection | Implemented |
+| [0035](./0035-websocket-proxy.md) | WebSocket Proxy | Proposed |
 | [0019](./0019-grpc-protocol-support.md) | gRPC Protocol Support | Proposed |
-| [0035](./0035-websocket-proxy.md) | WebSocket Proxy | Implemented |
 
 ### Enterprise & Compliance
 
@@ -94,14 +98,15 @@ the decision made, and the consequences.
 |-----|-------|--------|
 | [0020](./0020-advanced-dlp.md) | Advanced DLP Pattern Engine | Proposed |
 | [0022](./0022-compliance-reporting.md) | Compliance & Reporting Framework | Proposed |
-| [0024](./0024-zero-trust-network-access.md) | Zero Trust Network Access (mTLS) | Implemented |
+| [0024](./0024-zero-trust-network-access.md) | Zero Trust Network Access (mTLS) | Proposed — not registered in pipeline |
 
 ### Developer Experience
 
 | ADR | Title | Status |
 |-----|-------|--------|
-| [0036](./0036-canary-deployments.md) | Canary Deployments | Implemented |
-| [0037](./0037-request-replay.md) | Request Recording & Replay | Implemented |
+| [0026](./0026-response-caching-layer.md) | — | Response Caching | Proposed — not registered in pipeline |
+| [0036](./0036-canary-deployments.md) | 95 | Canary Deployments | Proposed — not registered in pipeline |
+| [0037](./0037-request-replay.md) | 145 | Request Recording & Replay | Proposed — not registered in pipeline |
 
 ---
 

@@ -170,13 +170,15 @@ client_side:
 
 ## Implementation Locations
 
+**Note**: `internal/layers/clientside/` exists with `layer.go`, `config.go`, `report_handler.go` (implemented). Order 590 is defined in `layer.go` and registered in the main pipeline. The files below (`injector.go`, `beacon.go`, `csp_report.go`, `agent/`) are planned but do not exist yet.
+
 | File | Purpose |
 |------|---------|
-| `internal/layers/clientside/injector.go` | HTML response rewriting |
-| `internal/layers/clientside/beacon.go` | Beacon endpoint handler |
-| `internal/layers/clientside/csp_report.go` | CSP violation report handler |
-| `internal/layers/clientside/agent/agent.js` | Browser agent (vanilla JS, no dependencies) |
-| `internal/layers/clientside/agent/build.go` | `//go:generate` embed script |
+| `internal/layers/clientside/injector.go` | HTML response rewriting (planned) |
+| `internal/layers/clientside/beacon.go` | Beacon endpoint handler (planned) |
+| `internal/layers/clientside/csp_report.go` | CSP violation report handler (planned) |
+| `internal/layers/clientside/agent/agent.js` | Browser agent (vanilla JS, no dependencies) (planned) |
+| `internal/layers/clientside/agent/build.go` | `//go:generate` embed script (planned) |
 
 ## References
 

@@ -207,13 +207,15 @@ This ensures:
 
 ## Implementation Locations
 
+**Note**: This ADR describes a proposed feature. The current event store (`internal/events/`) supports memory and JSONL file backends. Redis, PostgreSQL, and S3 adapters (`store_redis.go`, `store_postgres.go`, `store_s3.go`) do not yet exist.
+
 | File | Purpose |
 |------|---------|
-| `internal/events/store_redis.go` | Redis event store adapter |
-| `internal/events/store_postgres.go` | PostgreSQL adapter |
-| `internal/events/store_s3.go` | S3 archival adapter |
-| `internal/events/aggregator.go` | Event aggregation |
-| `internal/events/stream.go` | Real-time SSE streaming |
+| `internal/events/store_redis.go` | Redis event store adapter (planned) |
+| `internal/events/store_postgres.go` | PostgreSQL adapter (planned) |
+| `internal/events/store_s3.go` | S3 archival adapter (planned) |
+| `internal/events/aggregator.go` | Event aggregation (planned) |
+| `internal/events/stream.go` | Real-time SSE streaming (planned) |
 | `internal/config/events.go` | Configuration schema |
 
 ## References

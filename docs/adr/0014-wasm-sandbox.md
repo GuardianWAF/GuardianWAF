@@ -200,11 +200,13 @@ var AllowedImports = []string{
 
 ## Implementation Locations
 
+**Note**: This ADR describes a proposed feature. `internal/wasm/` and `rulesdk/` do not yet exist in the codebase — the files below represent the intended implementation structure.
+
 | File | Purpose |
 |------|---------|
-| `internal/layers/rules/wasm_runtime.go` | Wasmtime integration |
-| `internal/layers/rules/wasm_sandbox.go` | Security sandbox |
-| `internal/layers/rules/wasm_imports.go` | Guardian imports |
+| `internal/wasm/runtime.go` | Wasmtime integration |
+| `internal/wasm/sandbox.go` | Security sandbox |
+| `internal/wasm/imports.go` | Guardian imports |
 | `rulesdk/` | Go SDK for rule authors |
 | `cmd/rulesdk/` | CLI for compiling rules |
 

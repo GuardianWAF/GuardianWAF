@@ -183,6 +183,9 @@ For large bodies (>1MB by default), inspection is skipped and a `Finding` of typ
 
 ## Implementation Locations
 
+**Note**: `internal/layers/dlp/` exists with `layer.go`, `engine_layer.go`, `patterns.go`. The files
+below describe the planned Advanced DLP implementation.
+
 | File | Purpose |
 |------|---------|
 | `internal/layers/dlp/engine.go` | Pattern engine, match loop |
