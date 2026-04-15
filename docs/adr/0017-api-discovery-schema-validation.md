@@ -148,13 +148,16 @@ The exported spec uses `x-guardian-*` extensions to carry traffic statistics.
 
 ## Implementation Locations
 
+**Note**: API Validation layer exists at `internal/layers/apivalidation/` with `layer.go`, `schema.go`, `yaml.go`.
+Discovery is being built at `internal/discovery/` (analyzer, clustering, collector, engine, manager, schema, storage).
+
 | File | Purpose |
 |------|---------|
-| `internal/layers/apivalidation/validator.go` | JSON Schema validation against `RequestContext` |
-| `internal/layers/apivalidation/openapi.go` | OpenAPI 3.0 parser and schema loader |
-| `internal/discovery/worker.go` | Background discovery goroutine |
-| `internal/discovery/cluster.go` | Path template clustering |
-| `internal/discovery/inventory.go` | Endpoint inventory store (JSON-backed) |
+| `internal/layers/apivalidation/validator.go` | JSON Schema validation against `RequestContext` (planned) |
+| `internal/layers/apivalidation/openapi.go` | OpenAPI 3.0 parser and schema loader (planned) |
+| `internal/discovery/worker.go` | Background discovery goroutine (planned) |
+| `internal/discovery/cluster.go` | Path template clustering (planned) |
+| `internal/discovery/inventory.go` | Endpoint inventory store (JSON-backed) (planned) |
 | `internal/dashboard/api_inventory.go` | REST handlers for inventory and schema CRUD |
 
 ## References

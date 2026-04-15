@@ -202,6 +202,8 @@ compliance:
 
 ## Implementation Locations
 
+**Note**: `internal/compliance/` does not exist yet — all files below are planned.
+
 | File | Purpose |
 |------|---------|
 | `internal/compliance/registry.go` | Control definition loader (YAML) |
