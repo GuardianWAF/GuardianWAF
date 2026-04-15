@@ -7,7 +7,7 @@ GuardianWAF is a high-performance WAF written in Go stdlib (only external depend
 ## Key Features
 
 - Zero external Go dependencies (stdlib only)
-- 20-layer pipeline with per-request score accumulation
+- 16-layer pipeline with per-request score accumulation
 - 6 attack detectors: SQLi, XSS, LFI/path traversal, command injection, XXE, SSRF
 - OWASP CRS (ModSecurity rule set) — native Go SecLang parser
 - Virtual patching with automatic NVD/CVE feed integration
@@ -127,7 +127,7 @@ cmd/guardianwaf/         CLI (serve, sidecar, check, validate)
 internal/
   engine/                Pipeline, scoring, RequestContext pool, events, block pages
   config/                Custom YAML parser, config structs, env overlay
-  layers/                All 20 WAF layers (see pipeline table above)
+  layers/                All 16 registered WAF layers (see pipeline table above)
     detection/           6 detectors: sqli/ xss/ lfi/ cmdi/ xxe/ ssrf/
   proxy/                 Reverse proxy, LB (RR/weighted/least-conn/ip-hash), circuit breaker
   tls/                   TLS cert store, SNI, hot-reload, HTTP/2
