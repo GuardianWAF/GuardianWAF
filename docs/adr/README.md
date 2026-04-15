@@ -100,8 +100,8 @@ the decision made, and the consequences.
 
 | ADR | Title | Status |
 |-----|-------|--------|
-| [0036](./0036-canary-deployments.md) | Canary Deployments | Implemented |
-| [0037](./0037-request-replay.md) | Request Recording & Replay | Implemented |
+| [0036](./0036-canary-deployments.md) | Canary Deployments | Proposed |
+| [0037](./0037-request-replay.md) | Request Recording & Replay | Proposed |
 
 ---
 
