@@ -170,7 +170,7 @@ Key config files:
 
 ## Architecture Decision Records
 
-`docs/adr/` contains 27 ADRs covering key design decisions — see `docs/adr/` for the full list. Key themes: zero-dependencies, pipeline architecture, multi-tenancy, ML/AI detection, gRPC, DLP, SIEM, Zero Trust, caching, virtual patching, HA/Raft, compliance.
+`docs/adr/` contains 38 ADRs — every significant design decision has a corresponding ADR. See `docs/adr/` for the full list. Key themes: zero-dependencies, pipeline architecture, multi-tenancy, ML/AI detection, gRPC, DLP, SIEM, Zero Trust, caching, virtual patching, HA/Raft, compliance, all individual WAF layers.
 
 ## Docker Auto-Discovery
 
