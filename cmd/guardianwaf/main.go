@@ -40,6 +40,7 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/layers/apisecurity"
 	"github.com/guardianwaf/guardianwaf/internal/layers/apivalidation"
 	"github.com/guardianwaf/guardianwaf/internal/layers/ato"
+	"github.com/guardianwaf/guardianwaf/internal/layers/graphql"
 	"github.com/guardianwaf/guardianwaf/internal/layers/botdetect"
 	"github.com/guardianwaf/guardianwaf/internal/layers/challenge"
 	"github.com/guardianwaf/guardianwaf/internal/layers/clientside"
@@ -2536,6 +2537,21 @@ func addLayers(eng *engine.Engine, cfg *config.Config) {
 		})
 		eng.AddLayer(engine.OrderedLayer{Layer: apiValLayer, Order: 280})
 		eng.Logs.Info("API validation layer enabled")
+	}
+
+	// 2.6. GraphQL Security layer (Order 285) - query depth, introspection, alias limits
+	if cfg.WAF.GraphQL.Enabled {
+		graphqlLayer := graphql.NewLayer(graphql.Config{
+			Enabled:            cfg.WAF.GraphQL.Enabled,
+			MaxDepth:           cfg.WAF.GraphQL.MaxDepth,
+			MaxComplexity:      cfg.WAF.GraphQL.MaxComplexity,
+			BlockIntrospection: cfg.WAF.GraphQL.BlockIntrospection,
+			AllowListEnabled:   len(cfg.WAF.GraphQL.AllowEndpoints) > 0,
+			MaxAliases:         10,
+			MaxBatchSize:       5,
+		})
+		eng.AddLayer(engine.OrderedLayer{Layer: graphqlLayer, Order: engine.OrderGraphQL})
+		eng.Logs.Info("GraphQL security layer enabled")
 	}
 
 	// 3. Sanitizer layer (Order 300)

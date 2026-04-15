@@ -72,6 +72,7 @@ const (
 	OrderATO         = 250
 	OrderAPISecurity = 275
 	OrderAPIValidation = 280
+	OrderGraphQL      = 285 // GraphQL query depth/complexity/introspection limits
 	OrderSanitizer   = 300
 	OrderDiscovery   = 310 // Passive API discovery (OpenAPI generation)
 	OrderCRS         = 350 // OWASP CRS after sanitization

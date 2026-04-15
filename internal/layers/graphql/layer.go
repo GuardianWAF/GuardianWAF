@@ -1,5 +1,5 @@
 // Package graphql provides GraphQL security detection and protection.
-// Layer order: 450 (between API Security and Sanitizer)
+// Layer order: 285 (between API Validation and Sanitizer)
 package graphql
 
 import (
@@ -312,6 +312,11 @@ func (l *Layer) updateMetrics(result *Result) {
 // Name returns the layer name for the WAF pipeline.
 func (l *Layer) Name() string {
 	return "graphql-security"
+}
+
+// Order returns the layer execution order.
+func (l *Layer) Order() int {
+	return 285
 }
 
 // Process implements the engine.Layer interface.

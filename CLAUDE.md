@@ -80,14 +80,20 @@ All WAF processing flows through a **layer pipeline** (`internal/engine/pipeline
 
 ### Layer Order Constants
 
-Defined in `internal/engine/layer.go`. 16 layers are registered in the main pipeline; 5 early-stage layers exist but are NOT yet wired in.
+Defined in `internal/engine/layer.go`. **24 layers** are registered in the main pipeline.
 
 **Registered (in pipeline):**
 
 | Order | Layer | Description |
 |-------|-------|-------------|
+| 75 | Cluster | HTTP gossip + leader election; distributes IP bans across nodes |
+| 76 | WebSocket | WebSocket handshake validation, connection limits |
+| 78 | gRPC | gRPC request validation, method allowlists |
+| 95 | Canary | Canary release routing (% traffic to canary upstream) |
 | 100 | IP ACL | Radix tree CIDR matching, runtime add/remove, auto-ban |
 | 125 | Threat Intel | IP/domain reputation feeds with LRU cache |
+| 140 | Cache | Response caching (memory/Redis backend) |
+| 145 | Replay | Request/response recording for testing |
 | 150 | CORS | Origin validation, preflight caching |
 | 150 | Custom Rules | Geo-aware rule engine with dashboard CRUD |
 | 200 | Rate Limit | Token bucket per IP/path, auto-ban |
@@ -95,25 +101,20 @@ Defined in `internal/engine/layer.go`. 16 layers are registered in the main pipe
 | 275 | API Security | JWT validation (RS256/ES256/HS256), API key auth |
 | 280 | API Validation | Request/response schema validation (YAML-defined schemas) |
 | 300 | Sanitizer | Normalize + validate requests |
+| 310 | API Discovery | Passive API endpoint discovery, OpenAPI generation |
 | 350 | CRS | OWASP ModSecurity Core Rule Set parser and executor |
 | 400 | Detection | 6 detectors: sqli, xss, lfi, cmdi, xxe, ssrf (each in own subdirectory) |
 | 450 | Virtual Patch | Virtual patching layer |
+| 473 | ML Anomaly | ONNX-based Isolation Forest anomaly detection |
 | 475 | DLP | Data Loss Prevention (credit cards, SSNs, API keys, PII) |
+| 480 | AI Remediation | Generated rules from AI threat analysis verdicts |
 | 500 | Bot Detection | JA3/JA4 TLS fingerprinting, UA, behavioral analysis |
 | 590 | Client-Side | Client-side protection injection |
 | 600 | Response | Security headers, data masking, branded block pages |
 
-**Planned but not registered in pipeline yet:**
-
-| Order | Layer | Status |
-|-------|-------|--------|
-| 75 | Cluster | Package exists (`internal/cluster/`), uses HTTP gossip + leader election (NOT Raft); not in main pipeline |
-| 76 | WebSocket | Package exists (`internal/layers/websocket/`), Order 76 not in layer.go |
-| 78 | gRPC | Package exists (`internal/layers/grpc/`), Order 78 not in layer.go |
-| 95 | Canary | Package exists (`internal/layers/canary/`), Order 95 not in layer.go |
-| 145 | Replay | Package exists (`internal/layers/replay/`), Order 145 not in layer.go |
-
-JS Challenge (score 40-79), AI Analysis, Cache, and SIEM are also not yet implemented.
+**Not yet implemented:**
+- JS Challenge (score 40-79 → client proof-of-work)
+- SIEM integration layer
 
 ### Scoring System
 
