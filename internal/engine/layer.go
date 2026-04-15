@@ -66,6 +66,8 @@ const (
 	OrderCORS        = 150
 	OrderRules       = 150
 	OrderCanary      = 95
+	OrderCache       = 140 // Caching layer (memory/Redis)
+	OrderReplay      = 145
 	OrderRateLimit   = 200
 	OrderATO         = 250
 	OrderAPISecurity = 275
@@ -79,7 +81,6 @@ const (
 	OrderDLP          = 475 // DLP before bot detection
 	OrderBotDetect   = 500
 	OrderClientSide  = 590 // Client-side protection before response
-	OrderReplay      = 145
 	OrderResponse    = 600
 )
 

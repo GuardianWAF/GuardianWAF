@@ -57,6 +57,7 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/layers/websocket"
 	"github.com/guardianwaf/guardianwaf/internal/layers/grpc"
 	"github.com/guardianwaf/guardianwaf/internal/layers/canary"
+	"github.com/guardianwaf/guardianwaf/internal/layers/cache"
 	"github.com/guardianwaf/guardianwaf/internal/layers/replay"
 	"github.com/guardianwaf/guardianwaf/internal/cluster"
 	"github.com/guardianwaf/guardianwaf/internal/discovery"
@@ -2328,6 +2329,35 @@ func addLayers(eng *engine.Engine, cfg *config.Config) {
 		} else {
 			eng.AddLayer(engine.OrderedLayer{Layer: corsLayer, Order: engine.OrderCORS})
 			eng.Logs.Infof("CORS security enabled (%d allowed origins)", len(cfg.WAF.CORS.AllowOrigins))
+		}
+	}
+
+	// 1c2. Cache layer (Order 140)
+	if cfg.WAF.Cache.Enabled {
+		cacheBackend, err := cache.New(&cache.Config{
+			Enabled:   cfg.WAF.Cache.Enabled,
+			Backend:   cfg.WAF.Cache.Backend,
+			TTL:       cfg.WAF.Cache.TTL,
+			MaxSize:   cfg.WAF.Cache.MaxSize,
+			RedisAddr: cfg.WAF.Cache.RedisAddr,
+			RedisPass: cfg.WAF.Cache.RedisPass,
+			RedisDB:   cfg.WAF.Cache.RedisDB,
+			Prefix:    cfg.WAF.Cache.Prefix,
+		})
+		if err != nil {
+			slog.Warn("failed to create cache backend", "error", err)
+		} else {
+			cacheLayer := cache.NewLayer(cacheBackend, &cache.LayerConfig{
+				Enabled:       cfg.WAF.Cache.Enabled,
+				CacheTTL:      cfg.WAF.Cache.TTL,
+				CacheMethods:  cfg.WAF.Cache.CacheMethods,
+				CacheStatus:   cfg.WAF.Cache.CacheStatusCodes,
+				SkipPaths:     cfg.WAF.Cache.SkipPaths,
+				MaxCacheSize:  cfg.WAF.Cache.MaxCacheSize,
+				StaleWhileRevalidate: cfg.WAF.Cache.StaleWhileRevalidate,
+			})
+			eng.AddLayer(engine.OrderedLayer{Layer: cacheLayer, Order: engine.OrderCache})
+			eng.Logs.Infof("Cache layer enabled (%s backend)", cfg.WAF.Cache.Backend)
 		}
 	}
 
