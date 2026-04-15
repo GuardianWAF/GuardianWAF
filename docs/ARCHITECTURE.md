@@ -23,7 +23,7 @@ flowchart TB
             Dash[":9443 Dashboard"]
         end
 
-        subgraph Pipeline["20+ Layer Pipeline"]
+        subgraph Pipeline["16-Layer Pipeline"]
             direction TB
             LC["75: Cluster<br/>Leader Election/Ban Sync"]
             LW["76: WebSocket<br/>Security Handshake"]
@@ -119,7 +119,7 @@ flowchart TB
 sequenceDiagram
     actor Client
     participant WAF as GuardianWAF
-    participant Pipeline as 20-Layer Pipeline
+    participant Pipeline as 16-Layer Pipeline
     participant Challenge as JS Challenge
     participant Proxy as Reverse Proxy
     participant Backend as Backend Server
