@@ -301,6 +301,10 @@ func DefaultConfig() *Config {
 				RetryDelay:         5 * time.Second,
 				Clusters:           []ClusterMembership{},
 			},
+			Cluster: ClusterConfig{
+				Enabled: false,
+				Config:  nil,
+			},
 			Remediation: RemediationConfig{
 				Enabled:             false,
 				AutoApply:           false,

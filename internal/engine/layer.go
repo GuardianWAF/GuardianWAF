@@ -58,10 +58,14 @@ type Detector interface {
 
 // LayerOrder constants define execution order in the pipeline
 const (
+	OrderCluster     = 75
+	OrderWebSocket   = 76
+	OrderGRPC        = 78
 	OrderIPACL       = 100
 	OrderThreatIntel = 125
 	OrderCORS        = 150
 	OrderRules       = 150
+	OrderCanary      = 95
 	OrderRateLimit   = 200
 	OrderATO         = 250
 	OrderAPISecurity = 275
@@ -73,6 +77,7 @@ const (
 	OrderDLP         = 475 // DLP before bot detection
 	OrderBotDetect   = 500
 	OrderClientSide  = 590 // Client-side protection before response
+	OrderReplay      = 145
 	OrderResponse    = 600
 )
 

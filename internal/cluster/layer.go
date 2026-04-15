@@ -48,6 +48,11 @@ func (l *Layer) Name() string {
 	return "cluster"
 }
 
+// Order returns the layer order.
+func (l *Layer) Order() int {
+	return 75
+}
+
 // Process implements the layer interface.
 // Checks if the request IP is banned cluster-wide.
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {

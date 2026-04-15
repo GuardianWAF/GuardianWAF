@@ -39,6 +39,11 @@ func (l *Layer) Name() string {
 	return "websocket"
 }
 
+// Order returns the layer order.
+func (l *Layer) Order() int {
+	return 76
+}
+
 // Process implements the layer interface.
 // Validates WebSocket handshake requests.
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {

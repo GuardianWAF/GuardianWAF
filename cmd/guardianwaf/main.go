@@ -54,6 +54,11 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/layers/rules"
 	"github.com/guardianwaf/guardianwaf/internal/layers/sanitizer"
 	"github.com/guardianwaf/guardianwaf/internal/layers/threatintel"
+	"github.com/guardianwaf/guardianwaf/internal/layers/websocket"
+	"github.com/guardianwaf/guardianwaf/internal/layers/grpc"
+	"github.com/guardianwaf/guardianwaf/internal/layers/canary"
+	"github.com/guardianwaf/guardianwaf/internal/layers/replay"
+	"github.com/guardianwaf/guardianwaf/internal/cluster"
 	"github.com/guardianwaf/guardianwaf/internal/mcp"
 	"github.com/guardianwaf/guardianwaf/internal/proxy"
 	"github.com/guardianwaf/guardianwaf/internal/tenant"
@@ -2139,6 +2144,112 @@ func loadConfig(path string, explicitPath bool) *config.Config {
 func addLayers(eng *engine.Engine, cfg *config.Config) {
 	// Track IP ACL layer for auto-ban integration
 	var ipaclLayer *ipacl.Layer
+
+	// 0. Cluster layer (Order 75) — distributed coordination, IP ban propagation
+	if cfg.WAF.Cluster.Enabled {
+		var clusterConfig *cluster.Config
+		if cfg.WAF.Cluster.Config != nil {
+			clusterConfig, _ = cfg.WAF.Cluster.Config.(*cluster.Config)
+		}
+		clusterLayer, err := cluster.NewLayer(&cluster.LayerConfig{
+			Enabled: cfg.WAF.Cluster.Enabled,
+			Config:  clusterConfig,
+		})
+		if err != nil {
+			slog.Warn("failed to create cluster layer", "error", err)
+		} else {
+			eng.AddLayer(engine.OrderedLayer{Layer: clusterLayer, Order: engine.OrderCluster})
+			clusterLayer.Start()
+			eng.Logs.Info("Cluster layer enabled")
+		}
+	}
+
+	// 0b. WebSocket security layer (Order 76)
+	if cfg.WAF.WebSocket.Enabled {
+		wsLayer := websocket.NewLayer(&websocket.Config{
+			Enabled:               cfg.WAF.WebSocket.Enabled,
+			AllowedOrigins:        cfg.WAF.WebSocket.AllowedOrigins,
+			AllowedHosts:          cfg.WAF.WebSocket.AllowedHosts,
+			MaxFrameSize:          cfg.WAF.WebSocket.MaxFrameSize,
+			MaxMessageSize:        cfg.WAF.WebSocket.MaxMessageSize,
+			MaxConnectionsPerIP:   cfg.WAF.WebSocket.MaxConnectionsPerIP,
+			MaxConcurrentPerIP:    cfg.WAF.WebSocket.MaxConcurrentPerIP,
+			HandshakeTimeout:       cfg.WAF.WebSocket.HandshakeTimeout,
+			ReadBufferSize:        cfg.WAF.WebSocket.ReadBufferSize,
+			WriteBufferSize:       cfg.WAF.WebSocket.WriteBufferSize,
+			EnableCompression:     cfg.WAF.WebSocket.EnableCompression,
+			CompressionMode:       cfg.WAF.WebSocket.CompressionMode,
+			ValidateOrigin:        cfg.WAF.WebSocket.ValidateOrigin,
+			BlockPingPongFlooding: cfg.WAF.WebSocket.BlockPingPongFlooding,
+			BlockSlowloris:        cfg.WAF.WebSocket.BlockSlowloris,
+			SlowlorisTimeout:      cfg.WAF.WebSocket.SlowlorisTimeout,
+		})
+		eng.AddLayer(engine.OrderedLayer{Layer: wsLayer, Order: engine.OrderWebSocket})
+		eng.Logs.Info("WebSocket security layer enabled")
+	}
+
+	// 0c. gRPC security layer (Order 78)
+	if cfg.WAF.GRPC.Enabled {
+		grpcLayer := grpc.NewLayer(&cfg.WAF.GRPC)
+		if grpcLayer != nil {
+			eng.AddLayer(engine.OrderedLayer{Layer: grpcLayer, Order: engine.OrderGRPC})
+			eng.Logs.Info("gRPC security layer enabled")
+		}
+	}
+
+	// 0d. Canary release layer (Order 95)
+	if cfg.WAF.Canary.Enabled {
+		canaryLayer, err := canary.NewLayer(&canary.LayerConfig{
+			Enabled: cfg.WAF.Canary.Enabled,
+			Config: &canary.Config{
+				Enabled:          cfg.WAF.Canary.Enabled,
+				CanaryUpstream:   cfg.WAF.Canary.CanaryUpstream,
+				CanaryVersion:    cfg.WAF.Canary.CanaryVersion,
+				Weight:           cfg.WAF.Canary.Weight,
+				Stickiness:       cfg.WAF.Canary.Stickiness,
+				HeaderName:       cfg.WAF.Canary.HeaderName,
+				CookieName:       cfg.WAF.Canary.CookieName,
+				PathPrefix:       cfg.WAF.Canary.PathPrefix,
+				Strategies:       cfg.WAF.Canary.Strategies,
+				HealthCheckPath:  cfg.WAF.Canary.HealthCheckPath,
+				HealthCheckInterval: cfg.WAF.Canary.HealthCheckInterval,
+			},
+		})
+		if err != nil {
+			slog.Warn("failed to create canary layer", "error", err)
+		} else {
+			eng.AddLayer(engine.OrderedLayer{Layer: canaryLayer, Order: engine.OrderCanary})
+			eng.Logs.Infof("Canary release layer enabled (%s -> %s %.0f%%)",
+				cfg.WAF.Canary.CanaryUpstream, cfg.WAF.Canary.CanaryVersion, cfg.WAF.Canary.Weight*100)
+		}
+	}
+
+	// 0e. Replay layer (Order 145) — request/response recording for testing
+	if cfg.WAF.Replay.Enabled {
+		replayLayer, err := replay.NewLayer(&replay.LayerConfig{
+			Enabled: cfg.WAF.Replay.Enabled,
+			Recorder: &replay.Config{
+				Enabled:         cfg.WAF.Replay.Enabled,
+				StoragePath:     cfg.WAF.Replay.StoragePath,
+				Format:          replay.RecordFormat(cfg.WAF.Replay.Format),
+				MaxFileSize:     cfg.WAF.Replay.MaxFileSize,
+				MaxFiles:        cfg.WAF.Replay.MaxFiles,
+				RetentionDays:   cfg.WAF.Replay.RetentionDays,
+				CaptureRequest:  cfg.WAF.Replay.CaptureRequest,
+				CaptureResponse: cfg.WAF.Replay.CaptureResponse,
+				CaptureHeaders:  cfg.WAF.Replay.CaptureHeaders,
+				SkipPaths:       cfg.WAF.Replay.SkipPaths,
+				SkipMethods:     cfg.WAF.Replay.SkipMethods,
+				Compress:        cfg.WAF.Replay.Compress,
+			},
+		})
+		if err != nil {
+			slog.Warn("failed to create replay layer", "error", err)
+		} else {
+			eng.AddLayer(engine.OrderedLayer{Layer: replayLayer, Order: engine.OrderReplay})
+			eng.Logs.Infof("Replay layer enabled (storage: %s)", cfg.WAF.Replay.StoragePath)
+		}
+	}
 
 	// 1. IP ACL layer (Order 100)
 	if cfg.WAF.IPACL.Enabled {

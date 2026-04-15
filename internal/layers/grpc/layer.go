@@ -41,6 +41,11 @@ func (l *Layer) Name() string {
 	return "grpc"
 }
 
+// Order returns the layer order.
+func (l *Layer) Order() int {
+	return 78
+}
+
 // Process implements the layer interface.
 // Validates gRPC requests and enforces security policies.
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {

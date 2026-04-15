@@ -213,6 +213,7 @@ type WAFConfig struct {
 	Canary           CanaryConfig           `yaml:"canary"`
 	Analytics        AnalyticsConfig        `yaml:"analytics"`
 	ClusterSync      ClusterSyncConfig      `yaml:"cluster_sync"`
+	Cluster          ClusterConfig          `yaml:"cluster"`
 	Remediation      RemediationConfig      `yaml:"remediation"`
 	WebSocket        WebSocketConfig        `yaml:"websocket"`
 	CRS              CRSConfig              `yaml:"crs"`
@@ -355,6 +356,14 @@ type ClusterSyncConfig struct {
 	ConflictResolution string              `yaml:"conflict_resolution"` // "last_write_wins", "source_priority", "manual"
 	MaxRetries         int                 `yaml:"max_retries"`
 	RetryDelay         time.Duration       `yaml:"retry_delay"`
+}
+
+// ClusterConfig controls the cluster layer (distributed coordination).
+type ClusterConfig struct {
+	Enabled bool `yaml:"enabled"`
+	// Config is the cluster package config (internal/cluster.Config).
+	// Stored as any to avoid circular import; parsed from YAML as an interface{} node.
+	Config any `yaml:"cluster_config"`
 }
 
 // DeepCopy returns a complete copy of the Config, isolating shared slices and maps.
