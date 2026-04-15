@@ -19,7 +19,7 @@ GuardianWAF is a high-performance WAF written in Go stdlib (only external depend
 - Response caching: in-memory LRU or Redis backend, stale-while-revalidate
 - Multi-tenant isolation, per-tenant WAF config overrides
 - Real-time dashboard (React + Vite + TailwindCSS) embedded in binary
-- MCP server (15 tools) for AI agent integration
+- MCP server (44 tools) for AI agent integration
 - HTTP middleware or standalone reverse proxy with full load balancing
 
 ## Architecture

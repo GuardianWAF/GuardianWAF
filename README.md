@@ -98,7 +98,7 @@ GuardianWAF is a production-grade Web Application Firewall written in pure Go wi
 - In-memory or file-based event storage (up to 100K events)
 
 **Developer Experience**
-- MCP server with 21 tools over stdio + SSE transports (Claude Code, Claude Desktop, VS Code)
+- MCP server with 44 tools over stdio + SSE transports (Claude Code, Claude Desktop, VS Code)
 - Functional options API for library mode
 - Event callbacks for custom alerting
 - `check` command for dry-run request testing
@@ -657,7 +657,7 @@ fmt.Printf("Score: %d, Blocked: %v, Findings: %d\n",
 
 GuardianWAF includes a built-in [Model Context Protocol](https://modelcontextprotocol.io) server that enables AI agents to monitor, query, and manage the WAF through structured tool calls. Two transports: **stdio** (local CLI) and **SSE** (remote HTTP with API key auth).
 
-**15 MCP tools:**
+**44 MCP tools:**
 
 | Category | Tools |
 |---|---|

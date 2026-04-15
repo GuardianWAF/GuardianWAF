@@ -154,7 +154,7 @@ Key config files:
 - `internal/tls/` — TLS cert store, SNI-based cert selection, hot-reload, HTTP/2 support
 - `internal/http3/` — HTTP/3/QUIC support (build with `-tags http3`, stub otherwise)
 - `internal/dashboard/` — Web UI (React+Vite+TailwindCSS), REST API, SSE, config editor, AI page, routing topology graph (React Flow)
-- `internal/mcp/` — MCP JSON-RPC server (15 tools: get_stats, get_events, add_blacklist, etc.)
+- `internal/mcp/` — MCP JSON-RPC server (44 tools: get_stats, get_events, add_blacklist, etc.)
 - `internal/events/` — Event storage (memory ring buffer, JSONL file, event bus)
 - `internal/ai/` — AI threat analysis (provider catalog from models.dev, OpenAI-compatible client, batch analyzer, cost control, JSON store)
 - `internal/docker/` — Docker auto-discovery (Unix socket/CLI, label-based routing, event watcher)
