@@ -1,6 +1,6 @@
 # GuardianWAF Production Deployment Guide
 
-This guide covers production deployment best practices for GuardianWAF v0.3.0.
+This guide covers production deployment best practices for GuardianWAF v0.4.0.
 
 ## Table of Contents
 
@@ -572,4 +572,4 @@ guardianwaf migrate-config --from 0.2 --to 0.3 --config config.yaml
 
 ---
 
-*Last updated: 2026-04-04 for GuardianWAF v0.3.0*
+*Last updated: 2026-04-15 for GuardianWAF v0.4.0*
