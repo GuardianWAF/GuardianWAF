@@ -125,13 +125,14 @@ All rule changes are atomic:
 
 ## Implementation Locations
 
-**Note**: This ADR describes a proposed feature. The files below represent the intended implementation structure — corresponding files do not yet exist in the codebase.
+**Note**: `internal/layers/rules/` exists (rules.go) — the layer is registered. The REST API
+(`api.go`, `store.go`, `validator.go`) does not exist yet.
 
 | File | Purpose |
 |------|---------|
-| `internal/rules/api.go` | REST API handlers |
-| `internal/rules/store.go` | In-memory rule store with atomic updates |
-| `internal/rules/validator.go` | Rule validation logic |
+| `internal/rules/api.go` | REST API handlers (planned) |
+| `internal/rules/store.go` | In-memory rule store with atomic updates (planned) |
+| `internal/rules/validator.go` | Rule validation logic (planned) |
 | `internal/dashboard/api/routes.go` | Route registration |
 
 ## References
