@@ -68,7 +68,9 @@ the decision made, and the consequences.
 | [0031](./0031-cors-layer.md) | 150 | CORS Validation | Implemented |
 | [0029](./0029-rate-limiting-token-bucket.md) | 200 | Rate Limiting (Token Bucket) | Implemented |
 | [0030](./0030-ato-protection.md) | 250 | ATO Protection | Implemented |
-| [0017](./0017-api-discovery-schema-validation.md) | 280 | API Discovery & Schema Validation | Proposed |
+| (internal/layers/apisecurity/) | 275 | API Security | Implemented |
+| (internal/layers/apivalidation/) | 280 | API Validation | Implemented |
+| [0017](./0017-api-discovery-schema-validation.md) | TBD | API Discovery & Schema Validation | Proposed |
 | [0019](./0019-grpc-protocol-support.md) | 285 | gRPC Protocol Support | Proposed |
 | [0033](./0033-request-sanitizer.md) | 300 | Request Sanitizer | Implemented |
 | [0032](./0032-owasp-crs-integration.md) | 350 | OWASP CRS | Implemented |
