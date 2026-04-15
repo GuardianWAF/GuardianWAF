@@ -147,12 +147,11 @@ When `.proto` files are provided, a future enhancement can decode field values f
 
 ## Implementation Locations
 
-**Note**: `internal/layers/grpc/` exists with `layer.go`, `grpc.go`, `handler.go`. The files
-below (`frame.go`, `policy.go`, `stream.go`, `reflection.go`) are planned but do not exist yet.
+**Note**: `internal/layers/grpc/` exists with `layer.go`, `grpc.go`, `handler.go`. Order 285 is planned but not yet defined in `layer.go` and the layer is not registered in the main pipeline. The files below (`frame.go`, `policy.go`, `stream.go`, `reflection.go`) are planned but do not exist yet.
 
 | File | Purpose |
 |------|---------|
-| `internal/layers/grpc/layer.go` | Pipeline layer (Order 285) (exists) |
+| `internal/layers/grpc/layer.go` | Pipeline layer (Order 285) (exists — not yet registered in pipeline) |
 | `internal/layers/grpc/frame.go` | 5-byte gRPC frame header parser (planned) |
 | `internal/layers/grpc/policy.go` | Method allow/deny policy engine (planned) |
 | `internal/layers/grpc/stream.go` | Streaming frame counter and limiter (planned) |

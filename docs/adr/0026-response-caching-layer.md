@@ -169,12 +169,14 @@ cache:
 
 ## Implementation Locations
 
+**Note**: `internal/layers/cache/` exists with `cache.go`, `memory.go`, `redis.go`, and `layer.go`. However, the cache layer is not registered in the main pipeline (no `AddLayer` call for cache in `main.go`).
+
 | File | Purpose |
 |------|---------|
 | `internal/layers/cache/cache.go` | `Backend` interface, `Cache` wrapper, configuration |
 | `internal/layers/cache/memory.go` | In-process LRU cache backend |
 | `internal/layers/cache/redis.go` | Redis backend |
-| `internal/layers/cache/layer.go` | WAF pipeline layer — eligibility checks, key computation, hit/miss logic |
+| `internal/layers/cache/layer.go` | WAF pipeline layer — eligibility checks, key computation, hit/miss logic (exists — not registered in pipeline) |
 
 ## References
 

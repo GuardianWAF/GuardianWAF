@@ -170,8 +170,7 @@ client_side:
 
 ## Implementation Locations
 
-**Note**: `internal/layers/clientside/` exists (layer.go, config.go, report_handler.go).
-The files below (`injector.go`, `beacon.go`, `csp_report.go`, `agent/`) are planned.
+**Note**: `internal/layers/clientside/` exists with `layer.go`, `config.go`, `report_handler.go` (implemented). Order 590 is defined in `layer.go` and registered in the main pipeline. The files below (`injector.go`, `beacon.go`, `csp_report.go`, `agent/`) are planned but do not exist yet.
 
 | File | Purpose |
 |------|---------|

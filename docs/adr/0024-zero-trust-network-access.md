@@ -1,7 +1,7 @@
 # ADR 0024: Zero Trust Network Access (ZTNA)
 
 **Date:** 2026-04-15
-**Status:** Implemented
+**Status:** Proposed
 **Deciders:** GuardianWAF Team
 
 ---
@@ -185,10 +185,12 @@ zerotrust:
 
 ## Implementation Locations
 
+**Note**: `internal/layers/zerotrust/` exists with `service.go` and `middleware.go`. However, the Zero Trust layer is not registered in the main pipeline (no `OrderZeroTrust` constant in `layer.go`, no `AddLayer` call in `main.go`). It's implemented as a standalone middleware, not as a pipeline layer.
+
 | File | Purpose |
 |------|---------|
-| `internal/layers/zerotrust/service.go` | Trust level computation, device registry, session management |
-| `internal/layers/zerotrust/middleware.go` | HTTP middleware — applies policy, issues session tokens |
+| `internal/layers/zerotrust/service.go` | Trust level computation, device registry, session management (exists — not in pipeline) |
+| `internal/layers/zerotrust/middleware.go` | HTTP middleware — applies policy, issues session tokens (exists — not in pipeline) |
 | `internal/config/config.go` | `ZeroTrustConfig` struct |
 
 ## References

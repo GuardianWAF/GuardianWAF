@@ -172,8 +172,7 @@ cluster:
 
 ## Implementation Locations
 
-**Note**: `internal/cluster/` exists (cluster.go, layer.go) — provides HTTP gossip + leader election.
-The Raft implementation files below (`raft/`, `state/`) are planned but do not exist yet.
+**Note**: `internal/cluster/` exists (cluster.go, layer.go) — provides HTTP gossip + leader election (NOT yet using Raft). Cluster mode is not registered in the main pipeline. The Raft implementation files below (`raft/`, `state/`) and cluster dashboard handlers are planned but do not exist yet.
 
 | File | Purpose |
 |------|---------|
@@ -183,7 +182,7 @@ The Raft implementation files below (`raft/`, `state/`) are planned but do not e
 | `internal/cluster/raft/transport.go` | Binary framing RPC over TCP (planned) |
 | `internal/cluster/state/machine.go` | WAF state machine (ban list, rules, counters) (planned) |
 | `internal/cluster/state/commands.go` | Command type definitions and serialization (planned) |
-| `internal/dashboard/cluster.go` | Cluster health dashboard handlers (planned) |
+| `internal/dashboard/cluster.go` | Cluster health dashboard handlers (planned — does not exist yet) |
 | `internal/config/config.go` | `ClusterConfig` extension |
 
 ## References
