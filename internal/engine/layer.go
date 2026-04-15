@@ -58,6 +58,7 @@ type Detector interface {
 
 // LayerOrder constants define execution order in the pipeline
 const (
+	OrderSIEM        = 1  // SIEM event forwarding (passive, first)
 	OrderCluster     = 75
 	OrderWebSocket   = 76
 	OrderGRPC        = 78
@@ -78,6 +79,7 @@ const (
 	OrderCRS         = 350 // OWASP CRS after sanitization
 	OrderDetection   = 400
 	OrderVirtualPatch = 450 // Virtual patches after detection
+	OrderChallenge    = 430 // JS proof-of-work challenge (bot mitigation)
 	OrderAnomaly      = 473 // ML anomaly detection (ONNX) before DLP
 	OrderRemediation  = 480 // AI remediation layer (generated rules) after anomaly
 	OrderDLP          = 475 // DLP before bot detection

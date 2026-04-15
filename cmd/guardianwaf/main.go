@@ -60,6 +60,7 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/layers/canary"
 	"github.com/guardianwaf/guardianwaf/internal/layers/cache"
 	"github.com/guardianwaf/guardianwaf/internal/layers/replay"
+	"github.com/guardianwaf/guardianwaf/internal/layers/siem"
 	"github.com/guardianwaf/guardianwaf/internal/cluster"
 	"github.com/guardianwaf/guardianwaf/internal/discovery"
 	"github.com/guardianwaf/guardianwaf/internal/ai/remediation"
@@ -826,6 +827,11 @@ func cmdServe(args []string) {
 			return fmt.Errorf("creating challenge service: %w", svcErr)
 		}
 		eng.SetChallengeService(challengeSvc)
+
+		// Challenge layer (Order 430) — checks for valid cookie
+		challengeLayer := challenge.NewLayer(&chCfg)
+		eng.AddLayer(engine.OrderedLayer{Layer: challengeLayer, Order: engine.OrderChallenge})
+		eng.Logs.Info("JS challenge layer enabled")
 	}
 
 	// 8. Build handler
@@ -2150,7 +2156,30 @@ func addLayers(eng *engine.Engine, cfg *config.Config) {
 	// Track IP ACL layer for auto-ban integration
 	var ipaclLayer *ipacl.Layer
 
-	// 0. Cluster layer (Order 75) — distributed coordination, IP ban propagation
+	// 0. SIEM event forwarding layer (Order 1) — passive, runs first
+	if cfg.WAF.SIEM.Enabled {
+		siemLayer, err := siem.NewLayer(&siem.Config{
+			Enabled:       cfg.WAF.SIEM.Enabled,
+			Endpoint:      cfg.WAF.SIEM.Endpoint,
+			Format:        siem.Format(cfg.WAF.SIEM.Format),
+			APIKey:        cfg.WAF.SIEM.APIKey,
+			Index:         cfg.WAF.SIEM.Index,
+			BatchSize:     cfg.WAF.SIEM.BatchSize,
+			FlushInterval: cfg.WAF.SIEM.FlushInterval,
+			Timeout:       cfg.WAF.SIEM.Timeout,
+			SkipVerify:    cfg.WAF.SIEM.SkipVerify,
+			Fields:        cfg.WAF.SIEM.Fields,
+		})
+		if err != nil {
+			slog.Warn("failed to create SIEM layer", "error", err)
+		} else {
+			eng.AddLayer(engine.OrderedLayer{Layer: siemLayer, Order: engine.OrderSIEM})
+			siemLayer.Exporter().Start()
+			eng.Logs.Info("SIEM layer enabled", "endpoint", cfg.WAF.SIEM.Endpoint)
+		}
+	}
+
+	// 0a. Cluster layer (Order 75) — distributed coordination, IP ban propagation
 	if cfg.WAF.Cluster.Enabled {
 		var clusterConfig *cluster.Config
 		if cfg.WAF.Cluster.Config != nil {
