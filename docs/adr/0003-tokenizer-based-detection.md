@@ -137,12 +137,11 @@ Scores are per-detector and independent. The pipeline accumulates them via `Scor
 | `internal/layers/detection/sqli/patterns.go` | SQLi pattern definitions and scoring rules |
 | `internal/layers/detection/sqli/sqli.go` | Detector implementation, score thresholds |
 | `internal/layers/detection/xss/tokenizer.go` | HTML/JS tokenizer for XSS detection |
-| `internal/layers/detection/lfi/tokenizer.go` | Path traversal tokenizer (path separators, null bytes, URL encoding) |
-| `internal/layers/detection/cmdi/tokenizer.go` | Command injection tokenizer (pipes, redirects, metacharacters) |
-| `internal/layers/detection/xxe/tokenizer.go` | XML external entity tokenizer |
-| `internal/layers/detection/ssrf/tokenizer.go` | SSRF URL tokenizer (scheme validation, private IP detection) |
-| `internal/layers/detection/shared/patterns.go` | Shared pattern library (URL patterns, IP patterns) |
-| `ADR 0033` | Request Sanitizer — 9-step normalization before detection |
+| `internal/layers/detection/lfi/lfi.go` | LFI detector with sensitive path checking |
+| `internal/layers/detection/cmdi/cmdi.go` | Command injection detector with shell metacharacter patterns |
+| `internal/layers/detection/xxe/xxe.go` | XML external entity detector |
+| `internal/layers/detection/ssrf/ssrf.go` | SSRF URL detector with private IP checking |
+| `internal/layers/detection/detector.go` | Base detector interface and shared utilities |
 
 ## References
 
