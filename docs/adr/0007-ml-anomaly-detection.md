@@ -60,15 +60,15 @@ Feature extractor computes per-request feature vectors:
 
 ## Implementation Locations
 
-**Note**: `internal/ml/anomaly/layer.go` exists. `onnx.go` and `features.go` are planned but do not exist yet.
-The layer is not registered in the main engine pipeline.
+**Note**: `internal/ml/anomaly/layer.go` exists. `onnx.go`, `features.go`, and `internal/ml/models/`
+are planned but do not exist yet. The layer is not registered in the main engine pipeline.
 
 | File | Purpose |
 |------|---------|
 | `internal/ml/anomaly/layer.go` | Pipeline layer (Order 475 — same slot as DLP; order subject to change) |
-| `internal/ml/anomaly/onnx.go` | ONNX model loading and inference |
-| `internal/ml/anomaly/features.go` | Feature vector extraction from RequestContext |
-| `internal/ml/models/` | Trained ONNX model files (shipped separately) |
+| `internal/ml/anomaly/onnx.go` | ONNX model loading and inference (planned) |
+| `internal/ml/anomaly/features.go` | Feature vector extraction from RequestContext (planned) |
+| `internal/ml/models/` | Trained ONNX model files (shipped separately) (planned) |
 | `internal/config/config.go` | `AnomalyConfig` struct |
 
 ## References
