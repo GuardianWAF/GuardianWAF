@@ -113,8 +113,8 @@ Defined in `internal/engine/layer.go`. **24 layers** are registered in the main 
 | 600 | Response | Security headers, data masking, branded block pages |
 
 **Not yet implemented:**
-- JS Challenge (score 40-79 → client proof-of-work)
-- SIEM integration layer
+- JS Challenge (score 40-79 → client proof-of-work) — challenge.Service exists, needs a pipeline layer wrapper
+- SIEM layer — siem.Exporter exists, needs layer wrapper for pipeline
 
 ### Scoring System
 
