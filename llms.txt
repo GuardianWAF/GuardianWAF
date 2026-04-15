@@ -133,7 +133,7 @@ internal/
   tls/                   TLS cert store, SNI, hot-reload, HTTP/2
   http3/                 HTTP/3/QUIC stub (active with -tags http3)
   dashboard/             React+Vite+TailwindCSS UI, REST API, SSE, React Flow topology
-  mcp/                   MCP JSON-RPC server (15 tools)
+  mcp/                   MCP JSON-RPC server (44 tools)
   events/                Ring buffer, JSONL file, event bus (pub/sub)
   ai/                    OpenAI-compatible batch analyzer, cost control, models.dev catalog
   docker/                Auto-discovery: Unix socket / named pipe / Docker CLI
@@ -141,7 +141,7 @@ internal/
   acme/                  ACME/Let's Encrypt HTTP-01
   tenant/                Multi-tenant isolation, billing, per-tenant rules
   analytics/             Analytics engine, API handlers
-  cluster/               Cluster mode, Raft consensus (ADR 0023)
+  cluster/               Cluster mode, HTTP gossip + leader election (ADR 0023)
   clustersync/           Cross-node state synchronization
 guardianwaf.go           Public library API entry point
 options.go               Functional options

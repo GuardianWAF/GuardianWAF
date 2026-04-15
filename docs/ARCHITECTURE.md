@@ -23,8 +23,11 @@ flowchart TB
             Dash[":9443 Dashboard"]
         end
 
-        subgraph Pipeline["20-Layer Pipeline"]
+        subgraph Pipeline["20+ Layer Pipeline"]
             direction TB
+            LC["75: Cluster<br/>Leader Election/Ban Sync"]
+            LW["76: WebSocket<br/>Security Handshake"]
+            LG["78: gRPC<br/>Security"]
             L0["95: Canary<br/>Traffic Splitting"]
             L1["100: IP ACL<br/>Radix Tree CIDR"]
             L2["125: Threat Intel<br/>Reputation Feeds"]
@@ -44,7 +47,7 @@ flowchart TB
             L10b["590: Client-Side<br/>RASP-lite Agent"]
             L11["600: Response<br/>Headers/Masking"]
 
-            L0 --> L1 --> L2 --> L2b --> L3 --> L4 --> L5 --> L6 --> L7 --> L7b --> L8 --> L8b --> L9 --> L9b --> L9c --> L10 --> L10b --> L11
+            LC --> LW --> LG --> L0 --> L1 --> L2 --> L2b --> L3 --> L4 --> L5 --> L6 --> L7 --> L7b --> L8 --> L8b --> L9 --> L9b --> L9c --> L10 --> L10b --> L11
         end
 
         subgraph Challenge["Challenge Layer"]
@@ -67,7 +70,7 @@ flowchart TB
 
         subgraph Management["Management"]
             Dashboard["React Dashboard<br/>SSE Real-time"]
-            MCP["MCP Server<br/>21 Tools"]
+            MCP["MCP Server<br/>44 Tools"]
             API["REST API"]
             Metrics["/metrics<br/>Prometheus"]
         end
@@ -344,7 +347,7 @@ flowchart TB
     end
 
     subgraph MCP_Server["GuardianWAF MCP Server"]
-        subgraph Tools["21 Tools"]
+        subgraph Tools["44 Tools<br/>(21 base + 23 extended)"]
             T1["get_stats"]
             T2["get_events"]
             T3["add_blacklist"]
