@@ -153,13 +153,16 @@ For a database of 500 patches (each with 1–3 patterns), matching a typical req
 
 ## Implementation Locations
 
+**Note**: `data/virtualpatch/builtin.yaml` does not exist yet — built-in patches are
+not yet embedded in the binary. Other listed files exist at `internal/layers/virtualpatch/`.
+
 | File | Purpose |
 |------|---------|
 | `internal/layers/virtualpatch/layer.go` | WAF pipeline layer (Order 450), pattern matching |
 | `internal/layers/virtualpatch/cve.go` | Patch database, CVE struct, load/save |
 | `internal/layers/virtualpatch/nvd.go` | NVD API v2 client, SSRF-safe URL validation |
 | `internal/layers/virtualpatch/generator.go` | Heuristic pattern generator from CVE description |
-| `data/virtualpatch/builtin.yaml` | Curated built-in patches (embedded in binary) |
+| `data/virtualpatch/builtin.yaml` | Curated built-in patches (planned — not yet embedded) |
 | `internal/config/config.go` | `VirtualPatchConfig` struct |
 
 ## References
