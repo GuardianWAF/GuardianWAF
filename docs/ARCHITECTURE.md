@@ -401,7 +401,7 @@ flowchart TB
     subgraph Internal_Pkgs["Internal Packages"]
         Engine["engine/<br/>Pipeline & Scoring"]
         ConfigPkg["config/<br/>YAML Parser"]
-        Layers["layers/<br/>20+ WAF Layers"]
+        Layers["layers/<br/>16 WAF Layers"]
         Proxy["proxy/<br/>Reverse Proxy"]
         Dashboard["dashboard/<br/>React UI"]
         MCP["mcp/<br/>AI Integration"]
