@@ -1,7 +1,7 @@
 # ADR 0037: Request Recording and Replay
 
 **Date:** 2026-04-15
-**Status:** Implemented
+**Status:** Proposed
 **Deciders:** GuardianWAF Team
 
 ---
@@ -122,6 +122,10 @@ replay:
 - Original WAF actions reflect the state at record time; replaying after a configuration change (e.g., new threshold) may produce expected divergences that appear as noise in the report
 
 ## Implementation Locations
+
+**Note**: `internal/layers/replay/` package exists. The layer is not yet registered in the
+main engine pipeline (`main.go`/`guardianwaf.go`). `Order 145` is not defined in
+`internal/engine/layer.go`. Registration in the pipeline is pending.
 
 | File | Purpose |
 |------|---------|

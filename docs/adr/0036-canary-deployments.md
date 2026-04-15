@@ -1,7 +1,7 @@
 # ADR 0036: Canary Deployment Layer
 
 **Date:** 2026-04-15
-**Status:** Implemented
+**Status:** Proposed
 **Deciders:** GuardianWAF Team
 
 ---
@@ -121,6 +121,10 @@ canary:
 - Shadow mode doubles backend load — must ensure the canary upstream is provisioned for 100% traffic before enabling shadow mode
 
 ## Implementation Locations
+
+**Note**: `internal/layers/canary/` package exists. The layer is not yet registered in the
+main engine pipeline (`main.go`/`guardianwaf.go`). `Order 95` is not defined in
+`internal/engine/layer.go`. Registration in the pipeline is pending.
 
 | File | Purpose |
 |------|---------|

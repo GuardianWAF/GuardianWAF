@@ -172,7 +172,10 @@ Command:  guardianwaf sidecar --upstream localhost:8088
 
 ### 2.2 Core Engine — 20+ Layer Pipeline
 
-Every HTTP request passes through a 20+ layer pipeline. The diagram below shows the 6 key stages (simplified conceptual view — the full pipeline includes additional stages between each step):
+Every HTTP request passes through a pipeline. The diagram below shows the 6 primary registered stages (simplified conceptual view — additional stages run between these steps in the full design):
+
+Currently **16 layers are registered** in the engine pipeline: IP ACL(100) through Response(600).
+The full **planned** pipeline includes 5 additional early-stage layers: Cluster(75), WebSocket(76), gRPC(78), Canary(95), Replay(145). These packages exist but are not yet wired into the main engine pipeline.
 
 ```
                             REQUEST
@@ -233,6 +236,11 @@ IP ACL(100) → Threat Intel(125) → Replay(145) → CORS(150) → Custom Rules
 Rate Limit(200) → ATO(250) → API Security(275) → API Validation(280) →
 Sanitizer(300) → CRS(350) → Detection(400) → Virtual Patch(450) →
 DLP(475) → Bot Detection(500) → Client-Side(590) → Response(600)
+
+**Note:** Currently 16 layers are registered in the engine pipeline (IP ACL through Response).
+The 5 early-stage layers (Cluster/75, WebSocket/76, gRPC/78, Canary/95, Replay/145) are
+implemented as packages but not yet registered in the main engine pipeline. They are
+included in the full pipeline order above as planned future registrations.
 ```
 ```
 

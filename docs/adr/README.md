@@ -61,10 +61,10 @@ the decision made, and the consequences.
 
 | ADR | Order | Layer | Status |
 |-----|-------|-------|--------|
-| [0036](./0036-canary-deployments.md) | 95 | Canary Deployment | Implemented |
+| [0036](./0036-canary-deployments.md) | 95 | Canary Deployment | Proposed |
 | [0028](./0028-ip-acl-radix-tree.md) | 100 | IP ACL (Radix Tree) | Implemented |
 | [0034](./0034-threat-intelligence.md) | 125 | Threat Intelligence | Implemented |
-| [0037](./0037-request-replay.md) | 145 | Request Recording & Replay | Implemented |
+| [0037](./0037-request-replay.md) | 145 | Request Recording & Replay | Proposed |
 | [0031](./0031-cors-layer.md) | 150 | CORS Validation | Implemented |
 | [0029](./0029-rate-limiting-token-bucket.md) | 200 | Rate Limiting (Token Bucket) | Implemented |
 | [0030](./0030-ato-protection.md) | 250 | ATO Protection | Implemented |
