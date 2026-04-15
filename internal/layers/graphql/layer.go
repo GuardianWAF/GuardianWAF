@@ -44,12 +44,14 @@ type Config struct {
 }
 
 // DefaultConfig returns default GraphQL security configuration.
+// BlockIntrospection is true by default to prevent schema enumeration attacks.
+// Note: GraphQL layer is not in the default 16-layer pipeline — must be explicitly added.
 func DefaultConfig() Config {
 	return Config{
 		Enabled:            true,
 		MaxDepth:           10,
 		MaxComplexity:      1000,
-		BlockIntrospection: false,
+		BlockIntrospection: true, // Block schema introspection by default (VULN-008)
 		AllowListEnabled:   false,
 		MaxAliases:         10,
 		MaxBatchSize:       5,
