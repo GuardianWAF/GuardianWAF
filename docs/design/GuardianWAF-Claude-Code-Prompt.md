@@ -35,8 +35,8 @@ You are building **GuardianWAF** from scratch — a production-grade Web Applica
 - **Single binary.** `go build` produces one executable. No sidecar processes, no Docker requirements (though Docker support is provided), no external databases.
 - **Configuration via YAML.** Custom YAML parser (subset — no anchors/aliases needed, just maps, lists, scalars, comments).
 - **100% test coverage target** for detection engine. Other packages target 80%+.
-- **Go 1.22+ minimum.** Use modern Go features: range over int, enhanced routing patterns in net/http, etc.
-- **No `any` or `interface{}` in public APIs.** Use generics or concrete types.
+- **Go 1.25+ minimum.** Use modern Go features: range over int, enhanced routing patterns in net/http, slices.Concat, min/max builtins, etc.
+- **Use `any` (not `interface{}`).** This project uses Go 1.25+ style.
 - **`golangci-lint` clean.** No linter warnings with default configuration.
 
 ---

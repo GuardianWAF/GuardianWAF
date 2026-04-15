@@ -2,7 +2,7 @@
 
 **Author:** Ersin Koc / ECOSTACK TECHNOLOGY OU
 **Module:** `github.com/guardianwaf/guardianwaf`
-**Go Version:** 1.22+
+**Go Version:** 1.25+
 **Date:** 2026-03-16
 
 > This document bridges the "what" (SPECIFICATION.md) to the "how" (TASKS.md). It records
