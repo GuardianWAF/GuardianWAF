@@ -86,7 +86,7 @@ the decision made, and the consequences.
 |-----|-------|--------|
 | [0012](./0012-graphql-protection.md) | GraphQL Protection | Implemented |
 | [0019](./0019-grpc-protocol-support.md) | gRPC Protocol Support | Proposed |
-| [0035](./0035-websocket-proxy.md) | WebSocket Proxy | Implemented |
+| [0035](./0035-websocket-proxy.md) | WebSocket Proxy | Proposed |
 
 ### Enterprise & Compliance
 

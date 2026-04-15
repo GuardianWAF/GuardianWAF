@@ -1,7 +1,7 @@
 # ADR 0035: WebSocket Proxy
 
 **Date:** 2026-04-15
-**Status:** Implemented
+**Status:** Proposed
 **Deciders:** GuardianWAF Team
 
 ---
@@ -117,6 +117,10 @@ gwaf_websocket_closed_total{code}
 - WebSocket connections are long-lived; a single attacker connection consumes a goroutine pair and file descriptors for its duration — resource exhaustion requires connection count limits at the proxy level
 
 ## Implementation Locations
+
+**Note**: `internal/layers/websocket/` package exists. The layer is not yet registered in the
+main engine pipeline (`main.go`/`guardianwaf.go`). `Order 76` is not defined in
+`internal/engine/layer.go`. Registration in the pipeline is pending.
 
 | File | Purpose |
 |------|---------|
