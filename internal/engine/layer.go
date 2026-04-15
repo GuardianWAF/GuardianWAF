@@ -78,6 +78,7 @@ const (
 	OrderDetection   = 400
 	OrderVirtualPatch = 450 // Virtual patches after detection
 	OrderAnomaly      = 473 // ML anomaly detection (ONNX) before DLP
+	OrderRemediation  = 480 // AI remediation layer (generated rules) after anomaly
 	OrderDLP          = 475 // DLP before bot detection
 	OrderBotDetect   = 500
 	OrderClientSide  = 590 // Client-side protection before response

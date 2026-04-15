@@ -61,6 +61,7 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/layers/replay"
 	"github.com/guardianwaf/guardianwaf/internal/cluster"
 	"github.com/guardianwaf/guardianwaf/internal/discovery"
+	"github.com/guardianwaf/guardianwaf/internal/ai/remediation"
 	"github.com/guardianwaf/guardianwaf/internal/ml/anomaly"
 	"github.com/guardianwaf/guardianwaf/internal/mcp"
 	"github.com/guardianwaf/guardianwaf/internal/proxy"
@@ -2654,6 +2655,21 @@ func addLayers(eng *engine.Engine, cfg *config.Config) {
 		})
 		eng.AddLayer(engine.OrderedLayer{Layer: dlpLayer, Order: engine.OrderDLP})
 		eng.Logs.Info("DLP layer enabled")
+	}
+
+	// 4.85. AI Remediation layer (Order 480) — generated rules from AI analysis
+	if cfg.WAF.AIAnalysis.Enabled {
+		remediationLayer, err := remediation.NewLayer(&remediation.Config{
+			Enabled:               cfg.WAF.AIAnalysis.Enabled,
+			AutoApply:            cfg.WAF.AIAnalysis.AutoBlock,
+			ConfidenceThreshold: float64(cfg.WAF.AIAnalysis.MinScore),
+		})
+		if err != nil {
+			slog.Warn("failed to create AI remediation layer", "error", err)
+		} else {
+			eng.AddLayer(engine.OrderedLayer{Layer: remediationLayer, Order: engine.OrderRemediation})
+			eng.Logs.Info("AI remediation layer enabled")
+		}
 	}
 
 	// 5. Bot Detection layer (Order 500)

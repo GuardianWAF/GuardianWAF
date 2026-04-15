@@ -2,8 +2,11 @@ package remediation
 
 import (
 	"fmt"
+	"net/http"
 	"testing"
 	"time"
+
+	"github.com/guardianwaf/guardianwaf/internal/engine"
 )
 
 func TestDefaultConfig(t *testing.T) {
@@ -648,11 +651,14 @@ func TestLayer_Process_Disabled(t *testing.T) {
 		t.Fatalf("NewLayer failed: %v", err)
 	}
 
-	ctx := &RequestContext{Path: "/api/test"}
+	ctx := &engine.RequestContext{
+		Path: "/api/test",
+		Request: &http.Request{},
+	}
 	result := layer.Process(ctx)
 
-	if result != nil {
-		t.Error("should return nil when disabled")
+	if result.Action != engine.ActionPass {
+		t.Error("should return ActionPass when disabled")
 	}
 }
 

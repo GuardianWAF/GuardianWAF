@@ -1,11 +1,15 @@
 package remediation
 
 import (
+	"bytes"
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
+
+	"github.com/guardianwaf/guardianwaf/internal/engine"
 )
 
 // maxHandlerBodySize limits the request body for remediation API endpoints.
@@ -270,32 +274,48 @@ func (l *Layer) Name() string {
 	return "remediation"
 }
 
-// Process implements the layer interface.
+// Order returns the layer execution order (runs after AI analysis, before response).
+func (l *Layer) Order() int {
+	return 480
+}
+
+// Process implements the engine.Layer interface.
 // Checks if request matches any active remediation rules.
-func (l *Layer) Process(ctx any) any {
+func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
+	result := engine.LayerResult{Action: engine.ActionPass}
+
 	if !l.config.Enabled || l.engine == nil {
-		return nil
+		return result
 	}
 
-	// Get request context
-	rctx, ok := ctx.(*RequestContext)
-	if !ok {
-		return nil
+	// Build remediation request context
+	rctx := &RequestContext{
+		Path: ctx.Path,
+		Body: "",
+	}
+	if ctx.Request != nil && ctx.Request.Body != nil {
+		body, _ := io.ReadAll(ctx.Request.Body)
+		rctx.Body = string(body)
+		ctx.Request.Body = io.NopCloser(bytes.NewBuffer(body))
 	}
 
 	// Check against active rules
 	for _, rule := range l.engine.GetActiveRules() {
 		if l.matchesRule(rctx, rule) {
-			return &BlockResult{
-				Blocked:  true,
-				Reason:   fmt.Sprintf("Matched remediation rule: %s", rule.Name),
-				Score:    100,
-				Response: http.StatusForbidden,
-			}
+			result.Action = engine.ActionBlock
+			result.Score = 100
+			result.Findings = append(result.Findings, engine.Finding{
+				DetectorName: "remediation",
+				Category:     "ai_remediation",
+				Severity:     engine.SeverityCritical,
+				Score:        100,
+				Description: fmt.Sprintf("Matched remediation rule: %s", rule.Name),
+			})
+			return result
 		}
 	}
 
-	return nil
+	return result
 }
 
 // matchesRule checks if request matches a rule.
