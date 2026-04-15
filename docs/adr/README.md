@@ -41,7 +41,7 @@ the decision made, and the consequences.
 
 | ADR | Title | Status |
 |-----|-------|--------|
-| [0010](./0010-dynamic-rules-api.md) | Dynamic Rules API | Implemented |
+| [0010](./0010-dynamic-rules-api.md) | Dynamic Rules API | Proposed |
 | [0011](./0011-ip-reputation-sharing.md) | IP Reputation Sharing | Proposed |
 | [0012](./0012-graphql-protection.md) | Enhanced GraphQL Protection | Implemented |
 | [0014](./0014-wasm-sandbox.md) | WebAssembly Sandbox for Rule Evaluation | Proposed |
