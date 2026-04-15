@@ -137,16 +137,24 @@ Nodes represent WAF proxy instances and backend upstreams; edges represent route
 
 ### Dashboard Pages
 
+The React dashboard (14 pages, all route through React Router SPA with SSE real-time updates):
+
 | Route | Component | Purpose |
 |-------|-----------|---------|
-| `/` | Overview | KPI cards, recent events feed, attack distribution chart |
-| `/events` | Event Log | Filterable event table with export |
-| `/topology` | React Flow Graph | Live routing topology with health status |
+| `/` | Dashboard | KPI cards, recent events feed, attack distribution chart |
+| `/logs` | Event Log | Filterable event table with export |
+| `/routing` | Routing Topology | React Flow graph, upstreams, health status |
 | `/rules` | Rule Editor | CRUD for custom WAF rules |
-| `/upstreams` | Upstream Manager | Backend target management, health checks |
-| `/analytics` | Analytics | Traffic trends, top attackers, per-tenant stats |
+| `/clusters` | Clusters | Cluster node status, leader election |
+| `/cluster/:id` | Cluster Detail | Per-node metrics and ban sync |
+| `/ssl` | SSL/TLS | Certificate management, ACME, SNI |
+| `/alerting` | Alerting | Webhooks, email targets, test alerts |
 | `/config` | Config Editor | YAML config viewer with validation |
-| `/settings` | Settings | WAF mode, thresholds, alerting channels |
+| `/ai` | AI Analysis | Provider config, model selection, analysis history |
+| `/tenants` | Tenant Manager | Multi-tenant management |
+| `/tenant/new` | New Tenant | Tenant onboarding form |
+| `/tenant/:id` | Tenant Detail | Per-tenant analytics, rules, billing |
+| `/tenant/:id/analytics` | Tenant Analytics | Per-tenant traffic trends |
 
 ## Implementation Locations
 

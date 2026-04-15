@@ -84,7 +84,7 @@ Get server version information.
 ```json
 {
   "version": "0.1.0",
-  "go_version": "go1.23",
+  "go_version": "go1.25",
   "name": "GuardianWAF"
 }
 ```
