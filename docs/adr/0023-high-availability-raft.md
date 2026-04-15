@@ -172,15 +172,18 @@ cluster:
 
 ## Implementation Locations
 
+**Note**: `internal/cluster/` exists (cluster.go, layer.go) — provides HTTP gossip + leader election.
+The Raft implementation files below (`raft/`, `state/`) are planned but do not exist yet.
+
 | File | Purpose |
 |------|---------|
-| `internal/cluster/raft/raft.go` | Core Raft state machine (leader election, log) |
-| `internal/cluster/raft/log.go` | Persistent log storage |
-| `internal/cluster/raft/snapshot.go` | State machine snapshot/restore |
-| `internal/cluster/raft/transport.go` | Binary framing RPC over TCP |
-| `internal/cluster/state/machine.go` | WAF state machine (ban list, rules, counters) |
-| `internal/cluster/state/commands.go` | Command type definitions and serialization |
-| `internal/dashboard/cluster.go` | Cluster health dashboard handlers |
+| `internal/cluster/raft/raft.go` | Core Raft state machine (leader election, log) (planned) |
+| `internal/cluster/raft/log.go` | Persistent log storage (planned) |
+| `internal/cluster/raft/snapshot.go` | State machine snapshot/restore (planned) |
+| `internal/cluster/raft/transport.go` | Binary framing RPC over TCP (planned) |
+| `internal/cluster/state/machine.go` | WAF state machine (ban list, rules, counters) (planned) |
+| `internal/cluster/state/commands.go` | Command type definitions and serialization (planned) |
+| `internal/dashboard/cluster.go` | Cluster health dashboard handlers (planned) |
 | `internal/config/config.go` | `ClusterConfig` extension |
 
 ## References
