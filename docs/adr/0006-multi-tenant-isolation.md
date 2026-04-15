@@ -147,7 +147,7 @@ The swap is a single atomic pointer assignment — no locking required for read 
 | `internal/engine/context.go` | `RequestContext.TenantID`, `RequestContext.TenantWAFConfig` |
 | `internal/config/config.go` | `VirtualHostConfig`, `TenantWAFConfig` structs |
 | `internal/config/findvh_test.go` | Virtual host → tenant resolution tests |
-| `internal/tenant/tenant.go` | Tenant registry, billing, rate tracking per tenant |
+| `internal/tenant/manager.go` | Tenant registry, billing, rate tracking per tenant |
 | `internal/engine/engine.go` | Tenant resolution at request entry (called once per request) |
 | `internal/layers/ratelimit/ratelimit.go` | Per-tenant rate limit bucket namespacing (`tenantID:key`) |
 | `internal/layers/ipacl/ipacl.go` | Per-tenant IP ban list namespacing |

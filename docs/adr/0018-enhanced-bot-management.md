@@ -216,7 +216,7 @@ The enhanced features below are planned: `fingerprint/fingerprinter.go`, `biomet
 | `internal/layers/botdetect/biometric/detector.go` | Biometric summary parsing and scoring (planned) |
 | `internal/layers/botdetect/web/` | rDNS verification and ASN checking (planned) |
 | `internal/layers/botdetect/challenge/` | CAPTCHA challenge flow (planned: hcaptcha.go exists) |
-| `internal/layers/clientside/agent.js` | JS biometric/fingerprint collector (planned) |
+| `internal/layers/clientside/agent/agent.js` | JS biometric/fingerprint collector (planned) |
 | `internal/config/config.go` | `BotDetectionConfig` extensions |
 
 ## References

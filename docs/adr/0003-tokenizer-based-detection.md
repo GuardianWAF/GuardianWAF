@@ -136,7 +136,7 @@ Scores are per-detector and independent. The pipeline accumulates them via `Scor
 | `internal/layers/detection/sqli/tokenizer.go` | SQL tokenizer (string literals, keywords, operators, comments) |
 | `internal/layers/detection/sqli/patterns.go` | SQLi pattern definitions and scoring rules |
 | `internal/layers/detection/sqli/sqli.go` | Detector implementation, score thresholds |
-| `internal/layers/detection/xss/tokenizer.go` | HTML/JS tokenizer for XSS detection |
+| `internal/layers/detection/xss/parser.go` | HTML/JS parser for XSS detection |
 | `internal/layers/detection/lfi/lfi.go` | LFI detector with sensitive path checking |
 | `internal/layers/detection/cmdi/cmdi.go` | Command injection detector with shell metacharacter patterns |
 | `internal/layers/detection/xxe/xxe.go` | XML external entity detector |
