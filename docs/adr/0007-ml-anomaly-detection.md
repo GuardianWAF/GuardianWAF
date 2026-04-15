@@ -60,11 +60,12 @@ Feature extractor computes per-request feature vectors:
 
 ## Implementation Locations
 
-**Note**: This ADR describes a proposed feature. The files listed below do not yet exist in the codebase — they represent the intended implementation structure.
+**Note**: `internal/ml/anomaly/layer.go` exists. `onnx.go` and `features.go` are planned but do not exist yet.
+The layer is not registered in the main engine pipeline.
 
 | File | Purpose |
 |------|---------|
-| `internal/ml/anomaly/layer.go` | Pipeline layer (Order 475) |
+| `internal/ml/anomaly/layer.go` | Pipeline layer (Order 475 — same slot as DLP; order subject to change) |
 | `internal/ml/anomaly/onnx.go` | ONNX model loading and inference |
 | `internal/ml/anomaly/features.go` | Feature vector extraction from RequestContext |
 | `internal/ml/models/` | Trained ONNX model files (shipped separately) |

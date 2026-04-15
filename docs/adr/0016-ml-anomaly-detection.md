@@ -168,8 +168,8 @@ Inference is **skipped** if the request has already been blocked by an earlier l
 |------|---------|
 | `internal/ml/onnx/model.go` | ONNX Runtime wrapper, session management |
 | `internal/ml/onnx/features.go` | Feature extraction from `RequestContext` |
-| `internal/layers/anomaly/layer.go` | Pipeline layer (Order 475) |
-| `internal/layers/anomaly/sliding_window.go` | Per-IP time-based feature computation |
+| `internal/ml/anomaly/layer.go` | Pipeline layer (Order 475 — same slot as DLP; order subject to change) |
+| `internal/ml/anomaly/sliding_window.go` | Per-IP time-based feature computation |
 | `scripts/train_model.py` | Offline training script (scikit-learn → ONNX) |
 | `internal/config/config.go` | `MLConfig` struct addition |
 
