@@ -1,39 +1,38 @@
 # ADR 0012: Enhanced GraphQL Protection
 
 **Date:** 2026-04-15
-**Status:** Proposed
+**Status:** Implemented
 **Deciders:** GuardianWAF Team
 
 ---
 
 ## Context
 
-GuardianWAF has a GraphQL protection layer (`internal/layers/graphql/`) but it may need enhancement. Current implementation covers:
-- Query depth limiting
-- Basic field validation
+GraphQL APIs face unique attack vectors that traditional WAF rules miss:
 
-However, GraphQL APIs face additional attack vectors:
 - **Query complexity attacks** — Intentionally complex queries that exhaust server resources
 - **Batch query attacks** — Large batches of queries in one request
 - **Alias abuse** — Multiple aliases with heavy operations
 - **Introspection abuse** — Excessive introspection queries
 - **Field suggestion DoS** — Exploiting typo tolerance in fields
+- **Query depth attacks** — Intentionally deep nesting that exhausts resolvers
+
+GuardianWAF's `internal/layers/graphql/` provides foundational GraphQL protection including depth limiting, field validation, and introspection controls.
 
 ## Decision
 
 Enhance GraphQL protection with comprehensive security controls.
 
-### Current Implementation Review
+### Current Implementation (`internal/layers/graphql/`)
 
-```go
-// internal/layers/graphql/graphql.go (existing)
-- QueryDepthLimit: max nesting depth
-- FieldLimit: max fields per query
-```
+The existing layer provides:
+- Query depth limiting (`QueryDepthLimit`)
+- Field validation (`FieldLimit`)
+- Basic introspection controls
 
 ### Proposed Enhancements
 
-### 1. Query Complexity Analysis
+#### 1. Query Complexity Analysis
 
 Assign complexity scores to fields and reject queries exceeding threshold:
 
@@ -50,9 +49,7 @@ graphql:
       deepNested: 15
 ```
 
-### 2. Batch Query Limits
-
-Limit number of operations per request:
+#### 2. Batch Query Limits
 
 ```yaml
 graphql:
@@ -61,9 +58,7 @@ graphql:
     max_batch_size: 100kb     # Max total request size
 ```
 
-### 3. Alias Abuse Prevention
-
-Detect excessive aliases with heavy operations:
+#### 3. Alias Abuse Prevention
 
 ```yaml
 graphql:
@@ -72,21 +67,17 @@ graphql:
     max_alias_depth: 5
 ```
 
-### 4. Introspection Controls
-
-Restrict introspection in production:
+#### 4. Introspection Controls
 
 ```yaml
 graphql:
   introspection:
     enabled: false            # Disable in production
-    allow_schema: false        # Allow __schema queries
-    allow_type: false          # Allow __type queries
+    allow_schema: false
+    allow_type: false
 ```
 
-### 5. Rate Limiting
-
-Apply per-client GraphQL-specific limits:
+#### 5. Rate Limiting
 
 ```yaml
 graphql:
@@ -96,32 +87,6 @@ graphql:
     subscriptions_per_minute: 10
 ```
 
-### 6. Field Suggestion DoS Mitigation
-
-Prevent exploitation of GraphQL's field suggestion (typo tolerance):
-
-```yaml
-graphql:
-  suggestion:
-    enabled: true
-    max_suggestions: 3        # Limit typo suggestions
-    similarity_threshold: 0.8 # Minimum similarity to suggest
-```
-
-### 7. Query Whitelisting
-
-Allow only approved queries (operations) in production:
-
-```yaml
-graphql:
-  whitelist:
-    enabled: false
-    operations:
-      - "GetUser(id: ID!): User"
-      - "ListPosts(limit: Int): [Post]"
-      - "CreatePost(input: CreatePostInput!): Post"
-```
-
 ### Detection Actions
 
 | Threat Type | Action | Score |
@@ -129,20 +94,21 @@ graphql:
 | Query too deep | Block | +30 |
 | Query too complex | Block | +40 |
 | Too many aliases | Block | +25 |
-| Introspection in prod | Log/Challegne | +15 |
+| Introspection in prod | Log/Challenge | +15 |
 | Batch size exceeded | Block | +35 |
 | Rate limit exceeded | Block | +50 |
-| Field suggestion DoS | Block | +30 |
 
 ## Consequences
 
 ### Positive
+
 - Comprehensive GraphQL attack surface coverage
 - Prevents resource exhaustion attacks
 - Production-safe introspection controls
 - Query complexity management
 
 ### Negative
+
 - Configuration complexity increases
 - False positives possible with complex legitimate queries
 - Performance overhead for complexity analysis
@@ -151,15 +117,13 @@ graphql:
 
 | File | Purpose |
 |------|---------|
-| `internal/layers/graphql/complexity.go` | Query complexity analysis |
-| `internal/layers/graphql/batch.go` | Batch operation limiting |
-| `internal/layers/graphql/alias.go` | Alias abuse detection |
-| `internal/layers/graphql/introspection.go` | Introspection controls |
-| `internal/layers/graphql/suggestion.go` | Field suggestion DoS |
-| `internal/layers/graphql/whitelist.go` | Query whitelisting |
+| `internal/layers/graphql/layer.go` | GraphQL security layer |
+| `internal/layers/graphql/parser.go` | GraphQL query parser and validator |
+| `internal/layers/graphql/layer_test.go` | Layer tests |
+
+Enhancements (complexity, batch limits, alias abuse) are planned future work — corresponding files do not yet exist.
 
 ## References
 
-- [GraphQL Security](https://graphql.org/learn/queries/)
 - [OWASP GraphQL Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/GraphQL_Cheat_Sheet.html)
-- [GuardianWAF GraphQL Layer](../ARCHITECTURE.md#layer-order)
+- [GraphQL Security](https://graphql.org/learn/queries/)

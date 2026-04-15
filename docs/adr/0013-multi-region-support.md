@@ -190,6 +190,8 @@ cluster:
 
 ## Implementation Locations
 
+**Note**: This ADR describes a proposed feature. `internal/multiregion/` does not exist; `internal/cluster/` provides cluster coordination (leader election, IP ban sync, rate limit sync) but not multi-region failover. The files below represent the intended multi-region implementation.
+
 | File | Purpose |
 |------|---------|
 | `internal/cluster/redis_store.go` | Redis event store adapter |
