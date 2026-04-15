@@ -170,44 +170,44 @@ Command:  guardianwaf sidecar --upstream localhost:8088
 +---------------------------------------------------------------------+
 ```
 
-### 2.2 Core Engine — 6-Layer Pipeline
+### 2.2 Core Engine — 20+ Layer Pipeline
 
-Every HTTP request passes through a strict 6-layer pipeline. Each layer is an independent Go package implementing the `Layer` interface. Layers execute sequentially; any layer can short-circuit the pipeline by returning `ActionBlock`.
+Every HTTP request passes through a 20+ layer pipeline. The diagram below shows the 6 key stages (simplified conceptual view — the full pipeline includes additional stages between each step):
 
 ```
                             REQUEST
                                |
                                v
                   +------------------------+
-             1    |   IP ACCESS CONTROL    |  Radix tree lookup
+             1    |   IP ACCESS CONTROL    |  Radix tree lookup (Order 100)
                   |   internal/layers/     |  O(k) where k = prefix bits
                   |   ipacl/               |
                   +-----------+------------+
                        PASS   |   BLOCK -> 403
                               v
                   +------------------------+
-             2    |    RATE LIMITER        |  Token bucket per scope
+             2    |    RATE LIMITER        |  Token bucket per scope (Order 200)
                   |    internal/layers/    |  (IP, IP+path, global)
                   |    ratelimit/          |
                   +-----------+------------+
                        PASS   |   BLOCK -> 429
                               v
                   +------------------------+
-             3    |  REQUEST SANITIZER     |  Normalize, validate, clean
+             3    |  REQUEST SANITIZER     |  Normalize, validate, clean (Order 300)
                   |  internal/layers/      |  URL decode, null bytes,
                   |  sanitizer/            |  path canonicalization
                   +-----------+------------+
                        PASS   |   BLOCK -> 400 (malformed)
                               v
                   +------------------------+
-             4    |  DETECTION ENGINE      |  SQLi, XSS, LFI, CMDi,
+             4    |  DETECTION ENGINE      |  SQLi, XSS, LFI, CMDi, (Order 400)
                   |  internal/layers/      |  XXE, SSRF tokenizers
                   |  detection/            |  Score accumulation
                   +-----------+------------+
                        PASS   |   BLOCK -> 403 (score >= threshold)
                               v
                   +------------------------+
-             5    |   BOT DETECTION        |  JA3/JA4, UA analysis,
+             5    |   BOT DETECTION        |  JA3/JA4, UA analysis, (Order 500)
                   |   internal/layers/     |  behavioral scoring
                   |   botdetect/           |
                   +-----------+------------+
@@ -220,13 +220,20 @@ Every HTTP request passes through a strict 6-layer pipeline. Each layer is an in
                             |
                             v
                   +------------------------+
-             6    |  RESPONSE PROTECTION   |  Security headers,
+             6    |  RESPONSE PROTECTION   |  Security headers, (Order 600)
                   |  internal/layers/      |  data masking,
                   |  response/             |  error sanitization
                   +-----------+------------+
                               |
                               v
                            RESPONSE
+
+Full pipeline order: Cluster(75) → WebSocket(76) → gRPC(78) → Canary(95) →
+IP ACL(100) → Threat Intel(125) → Replay(145) → CORS(150) → Custom Rules(150) →
+Rate Limit(200) → ATO(250) → API Security(275) → API Validation(280) →
+Sanitizer(300) → CRS(350) → Detection(400) → Virtual Patch(450) →
+DLP(475) → Bot Detection(500) → Client-Side(590) → Response(600)
+```
 ```
 
 **Layer Properties:**

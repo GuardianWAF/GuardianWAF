@@ -101,7 +101,7 @@ Define the `Layer` interface that all WAF processing layers implement. Interface
 - [ ] `LayerResult` struct contains Action, Findings, Score, Duration
 - [ ] Action constants defined: Pass, Block, Log, Challenge
 - [ ] `Detector` interface extends Layer with introspection methods
-- [ ] `LayerOrder` constants defined for all 6 layer types
+- [ ] `LayerOrder` constants defined for all 20+ layer types
 - [ ] All types are exported and well-documented with Go doc comments
 
 ---
