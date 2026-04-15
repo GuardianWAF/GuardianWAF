@@ -24,7 +24,7 @@ version: '3.8'
 
 services:
   guardianwaf:
-    image: ghcr.io/guardianwaf/guardianwaf:v0.3.0
+    image: ghcr.io/guardianwaf/guardianwaf:v0.4.0
     container_name: guardianwaf
     restart: unless-stopped
     
@@ -120,7 +120,7 @@ spec:
       
       containers:
       - name: guardianwaf
-        image: ghcr.io/guardianwaf/guardianwaf:v0.3.0
+        image: ghcr.io/guardianwaf/guardianwaf:v0.4.0
         
         securityContext:
           allowPrivilegeEscalation: false
@@ -477,7 +477,7 @@ version: '3.8'
 
 services:
   guardianwaf:
-    image: ghcr.io/guardianwaf/guardianwaf:v0.3.0
+    image: ghcr.io/guardianwaf/guardianwaf:v0.4.0
     secrets:
       - api_key
       - smtp_password

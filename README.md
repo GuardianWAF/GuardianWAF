@@ -780,7 +780,7 @@ guardianwaf/
 │   ├── dashboard/         # React UI, REST API, SSE, routing graph, AI page, Docker services
 │   ├── ai/                # AI threat analysis (models.dev catalog, OpenAI client, batch analyzer)
 │   ├── docker/            # Docker auto-discovery (socket client, label parser, event watcher)
-│   ├── mcp/               # MCP JSON-RPC server and 15 tool definitions
+│   ├── mcp/               # MCP JSON-RPC server and 44 tool definitions
 │   ├── geoip/             # GeoIP database with auto-download and runtime refresh
 │   └── events/            # Event storage (memory ring buffer, JSONL file, event bus)
 ├── guardianwaf.go         # Public API for library mode

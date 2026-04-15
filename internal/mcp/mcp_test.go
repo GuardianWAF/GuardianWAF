@@ -863,7 +863,7 @@ func TestEOFReturnsNil(t *testing.T) {
 }
 
 func TestBulkToolCallsAllTools(t *testing.T) {
-	// Test that each of the 15 tools can be called successfully
+	// Test that each of the 44 tools can be called successfully
 	toolCalls := []struct {
 		name string
 		args map[string]any

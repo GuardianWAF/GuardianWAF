@@ -60,7 +60,7 @@ version: '3.8'
 
 services:
   guardianwaf:
-    image: ghcr.io/guardianwaf/guardianwaf:v0.3.0
+    image: ghcr.io/guardianwaf/guardianwaf:v0.4.0
     container_name: guardianwaf
     restart: unless-stopped
     ports:
@@ -167,7 +167,7 @@ spec:
       serviceAccountName: guardianwaf
       containers:
       - name: guardianwaf
-        image: ghcr.io/guardianwaf/guardianwaf:v0.3.0
+        image: ghcr.io/guardianwaf/guardianwaf:v0.4.0
         ports:
         - name: http
           containerPort: 8080
