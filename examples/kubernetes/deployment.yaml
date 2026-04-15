@@ -45,7 +45,16 @@ spec:
           volumeMounts:
             - name: config
               mountPath: /etc/guardianwaf
+            # Mount TLS certificates from cert-manager secret
+            - name: tls-cert
+              mountPath: /etc/tls
+              readOnly: true
       volumes:
         - name: config
           configMap:
             name: guardianwaf-config
+        # TLS certificate secret (created by cert-manager)
+        - name: tls-cert
+          secret:
+            secretName: guardianwaf-tls
+            optional: false

@@ -79,6 +79,7 @@ type eventSummary struct {
 	Score     int      `json:"score"`
 	Action    string   `json:"action"`
 	Findings  []string `json:"findings"`
+	TenantID  string   `json:"tenant_id,omitempty"`
 }
 
 // aiResponse is the expected JSON response from the AI.
@@ -113,11 +114,12 @@ func NewAnalyzer(cfg AnalyzerConfig, store *Store, catalogURL string) *Analyzer 
 	}
 
 	a := &Analyzer{
-		store:   store,
-		config:  cfg,
-		catalog: NewCatalogCache(catalogURL),
-		stopCh:  make(chan struct{}),
-		logs:    func(_, _ string) {}, // noop default
+		store:    store,
+		config:   cfg,
+		catalog:  NewCatalogCache(catalogURL),
+		stopCh:   make(chan struct{}),
+		logs:     func(_, _ string) {}, // noop default
+		pending:  make([]eventSummary, 0, cfg.BatchSize), // pre-allocated to avoid slice reallocation
 	}
 
 	// Initialize client from stored config if available
@@ -231,6 +233,7 @@ func (a *Analyzer) collectEvent(ev engine.Event) {
 		Score:     ev.Score,
 		Action:    ev.Action.String(),
 		Findings:  findings,
+		TenantID:  ev.TenantID,
 	})
 }
 
@@ -258,9 +261,15 @@ func (a *Analyzer) flushBatch() {
 		return
 	}
 
-	// Build prompt
+	// Build prompt using strings.Builder for efficiency
+	var sb strings.Builder
+	sb.Grow(64 + len(batch)*128) // pre-allocate: header ~64 bytes + ~128 bytes per event estimate
+	sb.WriteString("Analyze these ")
+	sb.WriteString(fmt.Sprintf("%d", len(batch)))
+	sb.WriteString(" WAF events:\n\n")
 	eventsJSON, _ := json.Marshal(batch)
-	userContent := fmt.Sprintf("Analyze these %d WAF events:\n\n%s", len(batch), string(eventsJSON))
+	sb.Write(eventsJSON)
+	userContent := sb.String()
 
 	// Call AI
 	start := time.Now()
@@ -366,9 +375,12 @@ func (a *Analyzer) ManualAnalyze(events []engine.Event) (*AnalysisResult, error)
 			ClientIP:  ev.ClientIP,
 			Method:    ev.Method,
 			Path:      ev.Path,
+			Query:     ev.Query,
+			UA:        truncate(ev.UserAgent, 80),
 			Score:     ev.Score,
 			Action:    ev.Action.String(),
 			Findings:  findings,
+			TenantID:  ev.TenantID,
 		})
 	}
 

@@ -357,7 +357,715 @@ type ClusterSyncConfig struct {
 	RetryDelay         time.Duration       `yaml:"retry_delay"`
 }
 
-// ClusterMembership defines which clusters this node belongs to.
+// DeepCopy returns a complete copy of the Config, isolating shared slices and maps.
+// This replaces the json.Marshal/Unmarshal approach which causes GC pressure for large configs.
+func (c *Config) DeepCopy() *Config {
+	if c == nil {
+		return nil
+	}
+	out := *c // shallow copy of scalar fields
+
+	// Scalars copied by assignment above.
+	// Structs need field-by-field copy:
+	out.TLS = c.TLS.DeepCopy()
+	out.WAF = c.WAF.DeepCopy()
+	out.Dashboard = c.Dashboard.DeepCopy()
+	out.MCP = c.MCP.DeepCopy()
+	out.Docker = c.Docker.DeepCopy()
+	out.Alerting = c.Alerting.DeepCopy()
+	out.Logging = c.Logging.DeepCopy()
+	out.Events = c.Events.DeepCopy()
+	out.Tenant = c.Tenant.DeepCopy()
+
+	// Slices need element-by-element deep copy:
+	if c.Upstreams != nil {
+		out.Upstreams = make([]UpstreamConfig, len(c.Upstreams))
+		for i := range c.Upstreams {
+			out.Upstreams[i] = c.Upstreams[i].DeepCopy()
+		}
+	}
+	if c.Routes != nil {
+		out.Routes = make([]RouteConfig, len(c.Routes))
+		for i := range c.Routes {
+			out.Routes[i] = c.Routes[i].DeepCopy()
+		}
+	}
+	if c.VirtualHosts != nil {
+		out.VirtualHosts = make([]VirtualHostConfig, len(c.VirtualHosts))
+		for i := range c.VirtualHosts {
+			out.VirtualHosts[i] = c.VirtualHosts[i].DeepCopy()
+		}
+	}
+	if c.TrustedProxies != nil {
+		out.TrustedProxies = make([]string, len(c.TrustedProxies))
+		copy(out.TrustedProxies, c.TrustedProxies)
+	}
+
+	return &out
+}
+
+func (c *TLSConfig) DeepCopy() TLSConfig {
+	out := *c
+	out.ACME = c.ACME.DeepCopy()
+	out.HTTP3 = c.HTTP3.DeepCopy()
+	return out
+}
+
+func (c *ACMEConfig) DeepCopy() ACMEConfig {
+	out := *c
+	if c.Domains != nil {
+		out.Domains = make([]string, len(c.Domains))
+		copy(out.Domains, c.Domains)
+	}
+	return out
+}
+
+func (c *HTTP3Config) DeepCopy() HTTP3Config {
+	return *c
+}
+
+func (c *UpstreamConfig) DeepCopy() UpstreamConfig {
+	out := *c
+	if c.Targets != nil {
+		out.Targets = make([]TargetConfig, len(c.Targets))
+		copy(out.Targets, c.Targets)
+	}
+	out.HealthCheck = c.HealthCheck.DeepCopy()
+	return out
+}
+
+func (c *TargetConfig) DeepCopy() TargetConfig {
+	return *c
+}
+
+func (c *HealthCheckConfig) DeepCopy() HealthCheckConfig {
+	return *c
+}
+
+func (c *RouteConfig) DeepCopy() RouteConfig {
+	out := *c
+	if c.Methods != nil {
+		out.Methods = make([]string, len(c.Methods))
+		copy(out.Methods, c.Methods)
+	}
+	return out
+}
+
+func (c *VirtualHostConfig) DeepCopy() VirtualHostConfig {
+	out := *c
+	if c.Domains != nil {
+		out.Domains = make([]string, len(c.Domains))
+		copy(out.Domains, c.Domains)
+	}
+	if c.Routes != nil {
+		out.Routes = make([]RouteConfig, len(c.Routes))
+		for i := range c.Routes {
+			out.Routes[i] = c.Routes[i].DeepCopy()
+		}
+	}
+	if c.WAF != nil {
+		waf := c.WAF.DeepCopy()
+		out.WAF = &waf
+	}
+	return out
+}
+
+func (c *VHostTLSConfig) DeepCopy() VHostTLSConfig {
+	return *c
+}
+
+func (c *DashboardConfig) DeepCopy() DashboardConfig {
+	return *c
+}
+
+func (c *MCPConfig) DeepCopy() MCPConfig {
+	return *c
+}
+
+func (c *LogConfig) DeepCopy() LogConfig {
+	return *c
+}
+
+func (c *EventsConfig) DeepCopy() EventsConfig {
+	return *c
+}
+
+func (c *AlertingConfig) DeepCopy() AlertingConfig {
+	return *c
+}
+
+func (c *DockerConfig) DeepCopy() DockerConfig {
+	return *c
+}
+
+func (c *TenantConfig) DeepCopy() TenantConfig {
+	out := *c
+	if c.Tenants != nil {
+		out.Tenants = make([]TenantDefinition, len(c.Tenants))
+		for i := range c.Tenants {
+			out.Tenants[i] = c.Tenants[i].DeepCopy()
+		}
+	}
+	out.DefaultQuota = c.DefaultQuota.DeepCopy()
+	return out
+}
+
+func (c *TenantDefinition) DeepCopy() TenantDefinition {
+	out := *c
+	if c.Domains != nil {
+		out.Domains = make([]string, len(c.Domains))
+		copy(out.Domains, c.Domains)
+	}
+	out.Quota = c.Quota.DeepCopy()
+	return out
+}
+
+func (c *ResourceQuotaConfig) DeepCopy() ResourceQuotaConfig {
+	return *c
+}
+
+func (c *CustomRulesConfig) DeepCopy() CustomRulesConfig {
+	out := *c
+	if c.Rules != nil {
+		out.Rules = make([]CustomRule, len(c.Rules))
+		for i := range c.Rules {
+			out.Rules[i] = c.Rules[i].DeepCopy()
+		}
+	}
+	return out
+}
+
+func (c *CustomRule) DeepCopy() CustomRule {
+	out := *c
+	if c.Conditions != nil {
+		out.Conditions = make([]RuleCondition, len(c.Conditions))
+		copy(out.Conditions, c.Conditions)
+	}
+	return out
+}
+
+func (c *RuleCondition) DeepCopy() RuleCondition {
+	out := *c
+	// Value is any, shallow copy handles scalar strings
+	return out
+}
+
+func (c *GeoIPConfig) DeepCopy() GeoIPConfig {
+	return *c
+}
+
+func (c *SIEMConfig) DeepCopy() SIEMConfig {
+	out := *c
+	if c.Fields != nil {
+		out.Fields = make(map[string]string, len(c.Fields))
+		for k, v := range c.Fields {
+			out.Fields[k] = v
+		}
+	}
+	return out
+}
+
+func (c *RemediationConfig) DeepCopy() RemediationConfig {
+	out := *c
+	if c.ExcludedPaths != nil {
+		out.ExcludedPaths = make([]string, len(c.ExcludedPaths))
+		copy(out.ExcludedPaths, c.ExcludedPaths)
+	}
+	return out
+}
+
+func (c *WebSocketConfig) DeepCopy() WebSocketConfig {
+	out := *c
+	if c.AllowedOrigins != nil {
+		out.AllowedOrigins = make([]string, len(c.AllowedOrigins))
+		copy(out.AllowedOrigins, c.AllowedOrigins)
+	}
+	if c.BlockedExtensions != nil {
+		out.BlockedExtensions = make([]string, len(c.BlockedExtensions))
+		copy(out.BlockedExtensions, c.BlockedExtensions)
+	}
+	return out
+}
+
+func (c *ClusterMembership) DeepCopy() ClusterMembership {
+	out := *c
+	if c.Nodes != nil {
+		out.Nodes = make([]ClusterNodeConfig, len(c.Nodes))
+		copy(out.Nodes, c.Nodes)
+	}
+	return out
+}
+
+func (c *ClusterNodeConfig) DeepCopy() ClusterNodeConfig {
+	return *c
+}
+
+func (c *ClusterSyncConfig) DeepCopy() ClusterSyncConfig {
+	out := *c
+	if c.Clusters != nil {
+		out.Clusters = make([]ClusterMembership, len(c.Clusters))
+		for i := range c.Clusters {
+			out.Clusters[i] = c.Clusters[i].DeepCopy()
+		}
+	}
+	return out
+}
+
+func (c *IPACLConfig) DeepCopy() IPACLConfig {
+	out := *c
+	if c.Whitelist != nil {
+		out.Whitelist = make([]string, len(c.Whitelist))
+		copy(out.Whitelist, c.Whitelist)
+	}
+	if c.Blacklist != nil {
+		out.Blacklist = make([]string, len(c.Blacklist))
+		copy(out.Blacklist, c.Blacklist)
+	}
+	out.AutoBan = c.AutoBan.DeepCopy()
+	return out
+}
+
+func (c *AutoBanConfig) DeepCopy() AutoBanConfig {
+	return *c
+}
+
+func (c *RateLimitConfig) DeepCopy() RateLimitConfig {
+	out := *c
+	if c.Rules != nil {
+		out.Rules = make([]RateLimitRule, len(c.Rules))
+		for i := range c.Rules {
+			out.Rules[i] = c.Rules[i].DeepCopy()
+		}
+	}
+	return out
+}
+
+func (c *RateLimitRule) DeepCopy() RateLimitRule {
+	out := *c
+	if c.Paths != nil {
+		out.Paths = make([]string, len(c.Paths))
+		copy(out.Paths, c.Paths)
+	}
+	return out
+}
+
+func (c *SanitizerConfig) DeepCopy() SanitizerConfig {
+	out := *c
+	if c.AllowedMethods != nil {
+		out.AllowedMethods = make([]string, len(c.AllowedMethods))
+		copy(out.AllowedMethods, c.AllowedMethods)
+	}
+	if c.PathOverrides != nil {
+		out.PathOverrides = make([]PathOverride, len(c.PathOverrides))
+		copy(out.PathOverrides, c.PathOverrides)
+	}
+	return out
+}
+
+func (c *PathOverride) DeepCopy() PathOverride {
+	return *c
+}
+
+func (c *ThreatIntelConfig) DeepCopy() ThreatIntelConfig {
+	out := *c
+	if c.Feeds != nil {
+		out.Feeds = make([]ThreatFeedConfig, len(c.Feeds))
+		copy(out.Feeds, c.Feeds)
+	}
+	return out
+}
+
+func (c *ThreatFeedConfig) DeepCopy() ThreatFeedConfig {
+	return *c
+}
+
+func (c *CORSConfig) DeepCopy() CORSConfig {
+	out := *c
+	if c.AllowOrigins != nil {
+		out.AllowOrigins = make([]string, len(c.AllowOrigins))
+		copy(out.AllowOrigins, c.AllowOrigins)
+	}
+	if c.AllowMethods != nil {
+		out.AllowMethods = make([]string, len(c.AllowMethods))
+		copy(out.AllowMethods, c.AllowMethods)
+	}
+	if c.AllowHeaders != nil {
+		out.AllowHeaders = make([]string, len(c.AllowHeaders))
+		copy(out.AllowHeaders, c.AllowHeaders)
+	}
+	if c.ExposeHeaders != nil {
+		out.ExposeHeaders = make([]string, len(c.ExposeHeaders))
+		copy(out.ExposeHeaders, c.ExposeHeaders)
+	}
+	return out
+}
+
+func (c *ATOProtectionConfig) DeepCopy() ATOProtectionConfig {
+	out := *c
+	if c.LoginPaths != nil {
+		out.LoginPaths = make([]string, len(c.LoginPaths))
+		copy(out.LoginPaths, c.LoginPaths)
+	}
+	out.BruteForce = c.BruteForce.DeepCopy()
+	out.CredStuffing = c.CredStuffing.DeepCopy()
+	out.PasswordSpray = c.PasswordSpray.DeepCopy()
+	out.Travel = c.Travel.DeepCopy()
+	return out
+}
+
+func (c *BruteForceConfig) DeepCopy() BruteForceConfig { return *c }
+func (c *CredentialStuffingConfig) DeepCopy() CredentialStuffingConfig { return *c }
+func (c *PasswordSprayConfig) DeepCopy() PasswordSprayConfig { return *c }
+func (c *ImpossibleTravelConfig) DeepCopy() ImpossibleTravelConfig { return *c }
+
+func (c *APISecurityConfig) DeepCopy() APISecurityConfig {
+	out := *c
+	if c.SkipPaths != nil {
+		out.SkipPaths = make([]string, len(c.SkipPaths))
+		copy(out.SkipPaths, c.SkipPaths)
+	}
+	out.JWT = c.JWT.DeepCopy()
+	out.APIKeys = c.APIKeys.DeepCopy()
+	return out
+}
+
+func (c *JWTConfig) DeepCopy() JWTConfig {
+	out := *c
+	if c.Algorithms != nil {
+		out.Algorithms = make([]string, len(c.Algorithms))
+		copy(out.Algorithms, c.Algorithms)
+	}
+	return out
+}
+
+func (c *APIKeysConfig) DeepCopy() APIKeysConfig {
+	out := *c
+	if c.Keys != nil {
+		out.Keys = make([]APIKeyConfig, len(c.Keys))
+		copy(out.Keys, c.Keys)
+	}
+	return out
+}
+
+func (c *APIKeyConfig) DeepCopy() APIKeyConfig { return *c }
+
+func (c *APIValidationConfig) DeepCopy() APIValidationConfig {
+	out := *c
+	if c.Schemas != nil {
+		out.Schemas = make([]SchemaSourceConfig, len(c.Schemas))
+		copy(out.Schemas, c.Schemas)
+	}
+	return out
+}
+
+func (c *SchemaSourceConfig) DeepCopy() SchemaSourceConfig { return *c }
+
+func (c *DetectionConfig) DeepCopy() DetectionConfig {
+	out := *c
+	if c.Detectors != nil {
+		out.Detectors = make(map[string]DetectorConfig, len(c.Detectors))
+		for k, v := range c.Detectors {
+			out.Detectors[k] = v
+		}
+	}
+	if c.Exclusions != nil {
+		out.Exclusions = make([]ExclusionConfig, len(c.Exclusions))
+		copy(out.Exclusions, c.Exclusions)
+	}
+	return out
+}
+
+func (c *ExclusionConfig) DeepCopy() ExclusionConfig {
+	out := *c
+	if c.Detectors != nil {
+		out.Detectors = make([]string, len(c.Detectors))
+		copy(out.Detectors, c.Detectors)
+	}
+	return out
+}
+
+func (c *BotDetectionConfig) DeepCopy() BotDetectionConfig {
+	out := *c
+	out.TLSFingerprint = c.TLSFingerprint.DeepCopy()
+	out.UserAgent = c.UserAgent.DeepCopy()
+	out.Behavior = c.Behavior.DeepCopy()
+	out.Enhanced = c.Enhanced.DeepCopy()
+	return out
+}
+
+func (c *TLSFingerprintConfig) DeepCopy() TLSFingerprintConfig { return *c }
+func (c *UAConfig) DeepCopy() UAConfig { return *c }
+func (c *BehaviorConfig) DeepCopy() BehaviorConfig { return *c }
+
+func (c *EnhancedBotDetectionConfig) DeepCopy() EnhancedBotDetectionConfig {
+	out := *c
+	out.Biometric = c.Biometric.DeepCopy()
+	out.BrowserFingerprint = c.BrowserFingerprint.DeepCopy()
+	out.Captcha = c.Captcha.DeepCopy()
+	return out
+}
+
+func (c *BiometricDetectionConfig) DeepCopy() BiometricDetectionConfig { return *c }
+func (c *BrowserFingerprintConfig) DeepCopy() BrowserFingerprintConfig { return *c }
+func (c *CaptchaChallengeConfig) DeepCopy() CaptchaChallengeConfig { return *c }
+
+func (c *ChallengeConfig) DeepCopy() ChallengeConfig { return *c }
+
+func (c *ResponseConfig) DeepCopy() ResponseConfig {
+	out := *c
+	out.SecurityHeaders = c.SecurityHeaders.DeepCopy()
+	out.DataMasking = c.DataMasking.DeepCopy()
+	out.ErrorPages = c.ErrorPages.DeepCopy()
+	return out
+}
+
+func (c *SecurityHeadersConfig) DeepCopy() SecurityHeadersConfig {
+	out := *c
+	out.HSTS = c.HSTS.DeepCopy()
+	return out
+}
+
+func (c *HSTSConfig) DeepCopy() HSTSConfig { return *c }
+func (c *DataMaskingConfig) DeepCopy() DataMaskingConfig { return *c }
+func (c *ErrorPagesConfig) DeepCopy() ErrorPagesConfig { return *c }
+
+func (c *ClientSideConfig) DeepCopy() ClientSideConfig {
+	out := *c
+	if c.Exclusions != nil {
+		out.Exclusions = make([]string, len(c.Exclusions))
+		copy(out.Exclusions, c.Exclusions)
+	}
+	out.MagecartDetection = c.MagecartDetection.DeepCopy()
+	out.AgentInjection = c.AgentInjection.DeepCopy()
+	out.CSP = c.CSP.DeepCopy()
+	return out
+}
+
+func (c *MagecartDetectionConfig) DeepCopy() MagecartDetectionConfig {
+	out := *c
+	if c.KnownSkimmingDomains != nil {
+		out.KnownSkimmingDomains = make([]string, len(c.KnownSkimmingDomains))
+		copy(out.KnownSkimmingDomains, c.KnownSkimmingDomains)
+	}
+	return out
+}
+
+func (c *AgentInjectionConfig) DeepCopy() AgentInjectionConfig {
+	out := *c
+	if c.ProtectedPaths != nil {
+		out.ProtectedPaths = make([]string, len(c.ProtectedPaths))
+		copy(out.ProtectedPaths, c.ProtectedPaths)
+	}
+	return out
+}
+
+func (c *CSPHeaderConfig) DeepCopy() CSPHeaderConfig {
+	out := *c
+	copyStringSlice := func(src []string) []string {
+		if src == nil {
+			return nil
+		}
+		dst := make([]string, len(src))
+		copy(dst, src)
+		return dst
+	}
+	out.DefaultSrc = copyStringSlice(c.DefaultSrc)
+	out.ScriptSrc = copyStringSlice(c.ScriptSrc)
+	out.StyleSrc = copyStringSlice(c.StyleSrc)
+	out.ImgSrc = copyStringSlice(c.ImgSrc)
+	out.ConnectSrc = copyStringSlice(c.ConnectSrc)
+	out.FontSrc = copyStringSlice(c.FontSrc)
+	out.ObjectSrc = copyStringSlice(c.ObjectSrc)
+	out.MediaSrc = copyStringSlice(c.MediaSrc)
+	out.FrameSrc = copyStringSlice(c.FrameSrc)
+	out.FrameAncestors = copyStringSlice(c.FrameAncestors)
+	out.FormAction = copyStringSlice(c.FormAction)
+	return out
+}
+
+func (c *DLPConfig) DeepCopy() DLPConfig {
+	out := *c
+	if c.Patterns != nil {
+		out.Patterns = make([]string, len(c.Patterns))
+		copy(out.Patterns, c.Patterns)
+	}
+	return out
+}
+
+func (c *ZeroTrustConfig) DeepCopy() ZeroTrustConfig {
+	out := *c
+	if c.AllowBypassPaths != nil {
+		out.AllowBypassPaths = make([]string, len(c.AllowBypassPaths))
+		copy(out.AllowBypassPaths, c.AllowBypassPaths)
+	}
+	return out
+}
+
+func (c *CacheConfig) DeepCopy() CacheConfig {
+	out := *c
+	if c.CacheMethods != nil {
+		out.CacheMethods = make([]string, len(c.CacheMethods))
+		copy(out.CacheMethods, c.CacheMethods)
+	}
+	if c.SkipPaths != nil {
+		out.SkipPaths = make([]string, len(c.SkipPaths))
+		copy(out.SkipPaths, c.SkipPaths)
+	}
+	return out
+}
+
+func (c *ReplayConfig) DeepCopy() ReplayConfig {
+	out := *c
+	if c.CaptureHeaders != nil {
+		out.CaptureHeaders = make([]string, len(c.CaptureHeaders))
+		copy(out.CaptureHeaders, c.CaptureHeaders)
+	}
+	if c.SkipPaths != nil {
+		out.SkipPaths = make([]string, len(c.SkipPaths))
+		copy(out.SkipPaths, c.SkipPaths)
+	}
+	if c.SkipMethods != nil {
+		out.SkipMethods = make([]string, len(c.SkipMethods))
+		copy(out.SkipMethods, c.SkipMethods)
+	}
+	out.Replay = c.Replay.DeepCopy()
+	return out
+}
+
+func (c *ReplayEngineConfig) DeepCopy() ReplayEngineConfig {
+	out := *c
+	if c.Headers != nil {
+		out.Headers = make(map[string]string, len(c.Headers))
+		for k, v := range c.Headers {
+			out.Headers[k] = v
+		}
+	}
+	return out
+}
+
+func (c *CanaryConfig) DeepCopy() CanaryConfig {
+	out := *c
+	if c.Regions != nil {
+		out.Regions = make([]string, len(c.Regions))
+		copy(out.Regions, c.Regions)
+	}
+	if c.Metadata != nil {
+		out.Metadata = make(map[string]string, len(c.Metadata))
+		for k, v := range c.Metadata {
+			out.Metadata[k] = v
+		}
+	}
+	return out
+}
+
+func (c *AnalyticsConfig) DeepCopy() AnalyticsConfig { return *c }
+
+func (c *AIAnalysisConfig) DeepCopy() AIAnalysisConfig { return *c }
+
+func (c *MLAnomalyConfig) DeepCopy() MLAnomalyConfig { return *c }
+
+func (c *APIDiscoveryConfig) DeepCopy() APIDiscoveryConfig { return *c }
+
+func (c *GraphQLConfig) DeepCopy() GraphQLConfig {
+	out := *c
+	if c.AllowEndpoints != nil {
+		out.AllowEndpoints = make([]string, len(c.AllowEndpoints))
+		copy(out.AllowEndpoints, c.AllowEndpoints)
+	}
+	return out
+}
+
+func (c *GRPCConfig) DeepCopy() GRPCConfig {
+	out := *c
+	if c.ProtoPaths != nil {
+		out.ProtoPaths = make([]string, len(c.ProtoPaths))
+		copy(out.ProtoPaths, c.ProtoPaths)
+	}
+	if c.AllowedServices != nil {
+		out.AllowedServices = make([]string, len(c.AllowedServices))
+		copy(out.AllowedServices, c.AllowedServices)
+	}
+	if c.BlockedServices != nil {
+		out.BlockedServices = make([]string, len(c.BlockedServices))
+		copy(out.BlockedServices, c.BlockedServices)
+	}
+	if c.AllowedMethods != nil {
+		out.AllowedMethods = make([]string, len(c.AllowedMethods))
+		copy(out.AllowedMethods, c.AllowedMethods)
+	}
+	if c.BlockedMethods != nil {
+		out.BlockedMethods = make([]string, len(c.BlockedMethods))
+		copy(out.BlockedMethods, c.BlockedMethods)
+	}
+	if c.MethodRateLimits != nil {
+		out.MethodRateLimits = make([]GRPCRateLimit, len(c.MethodRateLimits))
+		copy(out.MethodRateLimits, c.MethodRateLimits)
+	}
+	return out
+}
+
+func (c *GRPCRateLimit) DeepCopy() GRPCRateLimit { return *c }
+
+func (c *VirtualPatchConfig) DeepCopy() VirtualPatchConfig {
+	out := *c
+	if c.BlockSeverity != nil {
+		out.BlockSeverity = make([]string, len(c.BlockSeverity))
+		copy(out.BlockSeverity, c.BlockSeverity)
+	}
+	return out
+}
+
+func (c *CRSConfig) DeepCopy() CRSConfig {
+	out := *c
+	if c.Exclusions != nil {
+		out.Exclusions = make([]string, len(c.Exclusions))
+		copy(out.Exclusions, c.Exclusions)
+	}
+	if c.DisabledRules != nil {
+		out.DisabledRules = make([]string, len(c.DisabledRules))
+		copy(out.DisabledRules, c.DisabledRules)
+	}
+	return out
+}
+
+func (c *WAFConfig) DeepCopy() WAFConfig {
+	out := *c
+	out.IPACL = c.IPACL.DeepCopy()
+	out.CustomRules = c.CustomRules.DeepCopy()
+	out.GeoIP = c.GeoIP.DeepCopy()
+	out.ThreatIntel = c.ThreatIntel.DeepCopy()
+	out.CORS = c.CORS.DeepCopy()
+	out.RateLimit = c.RateLimit.DeepCopy()
+	out.ATOProtection = c.ATOProtection.DeepCopy()
+	out.APISecurity = c.APISecurity.DeepCopy()
+	out.APIValidation = c.APIValidation.DeepCopy()
+	out.Sanitizer = c.Sanitizer.DeepCopy()
+	out.Detection = c.Detection.DeepCopy()
+	out.BotDetection = c.BotDetection.DeepCopy()
+	out.Challenge = c.Challenge.DeepCopy()
+	out.Response = c.Response.DeepCopy()
+	out.ClientSide = c.ClientSide.DeepCopy()
+	out.AIAnalysis = c.AIAnalysis.DeepCopy()
+	out.MLAnomaly = c.MLAnomaly.DeepCopy()
+	out.APIDiscovery = c.APIDiscovery.DeepCopy()
+	out.GraphQL = c.GraphQL.DeepCopy()
+	out.GRPC = c.GRPC.DeepCopy()
+	out.Tenant = c.Tenant.DeepCopy()
+	out.DLP = c.DLP.DeepCopy()
+	out.ZeroTrust = c.ZeroTrust.DeepCopy()
+	out.SIEM = c.SIEM.DeepCopy()
+	out.Cache = c.Cache.DeepCopy()
+	out.Replay = c.Replay.DeepCopy()
+	out.Canary = c.Canary.DeepCopy()
+	out.Analytics = c.Analytics.DeepCopy()
+	out.ClusterSync = c.ClusterSync.DeepCopy()
+	out.Remediation = c.Remediation.DeepCopy()
+	out.WebSocket = c.WebSocket.DeepCopy()
+	out.CRS = c.CRS.DeepCopy()
+	out.VirtualPatch = c.VirtualPatch.DeepCopy()
+	return out
+}
+
 type ClusterMembership struct {
 	ID            string            `yaml:"id"`
 	Name          string            `yaml:"name"`

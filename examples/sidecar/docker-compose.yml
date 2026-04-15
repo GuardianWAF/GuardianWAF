@@ -2,23 +2,77 @@ version: "3.9"
 
 services:
   # GuardianWAF sidecar proxy
+  # Full-featured sidecar with WAF protection, TLS, and health checks
   guardianwaf:
     image: ghcr.io/guardianwaf/guardianwaf:latest
+    container_name: guardianwaf-sidecar
     ports:
-      - "8088:8088"
-    command: ["sidecar", "--upstream", "http://app:3000", "--listen", ":8088"]
+      - "8080:8080"    # HTTP (WAF proxy)
+      - "9443:9443"    # HTTPS (TLS termination)
+    command: >
+      sidecar
+      --upstream http://app:3000
+      --listen :8080
+      --tls-listen :9443
+      --tls-cert /etc/guardianwaf/tls.crt
+      --tls-key /etc/guardianwaf/tls.key
     environment:
+      # WAF mode: enforce (block) | monitor (log only) | disabled
       - GWAF_MODE=enforce
+      # TLS settings
+      - GWAF_TLS_ENABLED=true
+      # WAF detection thresholds
+      - GWAF_WAF_DETECTION_THRESHOLD_BLOCK=50
+      - GWAF_WAF_DETECTION_THRESHOLD_LOG=25
+    volumes:
+      # Mount TLS certificate and key
+      - ./tls:/etc/guardianwaf/tls:ro
+      # Mount custom WAF config (optional)
+      # - ./guardianwaf.yaml:/etc/guardianwaf/guardianwaf.yaml:ro
     depends_on:
-      - app
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     restart: unless-stopped
+    networks:
+      - waf-net
+    # Resource limits for production
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: 0.5
+        reservations:
+          memory: 64M
+          cpus: 0.1
 
   # Your application
   app:
-    image: golang:1.23-alpine
+    image: golang:1.25-alpine
+    container_name: backend-app
     working_dir: /app
     volumes:
       - ../backend:/app
     command: ["go", "run", "main.go"]
     expose:
       - "3000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+    networks:
+      - waf-net
+    environment:
+      - PORT=3000
+
+networks:
+  waf-net:
+    driver: bridge

@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"net"
@@ -62,6 +61,7 @@ type AccessLogEntry struct {
 	UserAgent  string `json:"user_agent"`
 	Findings   int    `json:"findings"`
 	RequestID  string `json:"request_id"`
+	TenantID   string `json:"tenant_id,omitempty"`
 }
 
 // TenantContext holds tenant information for request isolation.
@@ -364,6 +364,7 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 				UserAgent:  event.UserAgent,
 				Findings:   len(result.Findings),
 				RequestID:  event.RequestID,
+				TenantID:   ctx.TenantID,
 			})
 		}
 
@@ -415,14 +416,10 @@ func applyResponseHook(w http.ResponseWriter, metadata map[string]any) {
 // Updates thresholds and config atomically.
 // The config is deep-copied to prevent caller mutations from affecting the engine.
 func (e *Engine) Reload(cfg *config.Config) error {
-	// Deep copy via JSON round-trip to isolate shared slices/maps
-	data, err := json.Marshal(cfg)
-	if err != nil {
-		return fmt.Errorf("config marshal for reload: %w", err)
-	}
-	cfgCopy := &config.Config{}
-	if err := json.Unmarshal(data, cfgCopy); err != nil {
-		return fmt.Errorf("config unmarshal for reload: %w", err)
+	// Deep copy via Config.DeepCopy() to avoid GC pressure from JSON marshal/unmarshal
+	cfgCopy := cfg.DeepCopy()
+	if cfgCopy == nil {
+		return fmt.Errorf("config deep copy returned nil")
 	}
 
 	e.mu.Lock()

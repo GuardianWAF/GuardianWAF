@@ -13,6 +13,14 @@ data:
     routes:
       - path: /
         upstream: backend
+    # TLS configuration - certificates mounted from cert-manager
+    tls:
+      enabled: true
+      listen: ":9443"
+      # Certificate files managed by cert-manager
+      cert_file: "/etc/tls/tls.crt"
+      key_file: "/etc/tls/tls.key"
+      http_redirect: true    # Redirect HTTP -> HTTPS
     waf:
       detection:
         threshold:
@@ -21,3 +29,30 @@ data:
     dashboard:
       enabled: true
       listen: ":9443"
+---
+# cert-manager Certificate resource for automatic ACME/Let's Encrypt
+# Install cert-manager: kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: guardianwaf-tls
+  namespace: default
+spec:
+  # Replace with your actual domain(s)
+  dnsNames:
+    - waf.example.com
+    - dashboard.example.com
+  secretName: guardianwaf-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+    group: cert-manager.io
+  # ACME challenge: cert-manager handles HTTP-01 automatically
+  # Ensure port 80 is accessible for the ACME http-01 challenge solver
+  acme:
+    config:
+      - http01:
+          ingressClass: nginx
+        domains:
+          - waf.example.com
+          - dashboard.example.com

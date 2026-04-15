@@ -81,6 +81,9 @@ type Event struct {
 	Referer     string `json:"referer,omitempty"`
 	Host        string `json:"host,omitempty"`
 
+	// Tenant identification (multi-tenancy)
+	TenantID string `json:"tenant_id,omitempty"`
+
 	// TLS information
 	TLSVersion     string `json:"tls_version,omitempty"`
 	TLSCipherSuite string `json:"tls_cipher,omitempty"`
@@ -129,6 +132,7 @@ func NewEvent(ctx *RequestContext, statusCode int) Event {
 		Duration:   time.Since(ctx.StartTime),
 		StatusCode: statusCode,
 		UserAgent:  userAgent,
+		TenantID:   ctx.TenantID,
 	}
 
 	// Parse User-Agent into structured fields

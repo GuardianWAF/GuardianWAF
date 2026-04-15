@@ -1,0 +1,38 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: guardianwaf
+  annotations:
+    # Use nginx ingress controller
+    kubernetes.io/ingress.class: "nginx"
+    # Redirect HTTP to HTTPS
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    # Use cert-manager for TLS
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  tls:
+    - hosts:
+        - waf.example.com
+        - dashboard.example.com
+      secretName: guardianwaf-tls
+  rules:
+    - host: waf.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: guardianwaf
+                port:
+                  number: 8088
+    - host: dashboard.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: guardianwaf
+                port:
+                  number: 9443

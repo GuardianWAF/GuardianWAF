@@ -1,4 +1,4 @@
-.PHONY: build test lint bench fuzz clean run docker-build smoke docker-test ui ui-dev help fmt tidy
+.PHONY: build test lint bench fuzz clean run docker-build smoke docker-test ui ui-dev help fmt tidy e2e e2e-headed e2e-list
 
 BINARY=guardianwaf
 VERSION?=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -68,6 +68,32 @@ fmt:
 tidy:
 	go mod tidy
 
+# E2E tests (requires GuardianWAF server running on E2E_BASE_URL)
+E2E_BASE_URL ?= http://localhost:9443
+E2E_API_KEY ?= test-api-key
+
+e2e:
+	@echo "Running E2E tests against $(E2E_BASE_URL)..."
+	cd tests/e2e/playwright && npm install --silent 2>/dev/null; \
+	E2E_BASE_URL=$(E2E_BASE_URL) E2E_API_KEY=$(E2E_API_KEY) \
+	npx playwright test --project=chromium
+
+e2e-headed:
+	@echo "Running E2E tests (headed) against $(E2E_BASE_URL)..."
+	cd tests/e2e/playwright && npm install --silent 2>/dev/null; \
+	E2E_BASE_URL=$(E2E_BASE_URL) E2E_API_KEY=$(E2E_API_KEY) \
+	npx playwright test --project=chromium --headed
+
+e2e-list:
+	@echo "Available E2E tests:"
+	cd tests/e2e/playwright && npx playwright test --list 2>/dev/null | head -100
+
+e2e-all:
+	@echo "Running E2E tests (all browsers) against $(E2E_BASE_URL)..."
+	cd tests/e2e/playwright && npm install --silent 2>/dev/null; \
+	E2E_BASE_URL=$(E2E_BASE_URL) E2E_API_KEY=$(E2E_API_KEY) \
+	npx playwright test
+
 help:
 	@echo "GuardianWAF build targets:"
 	@echo "  build        Build dashboard UI + Go binary"
@@ -77,6 +103,9 @@ help:
 	@echo "  lint         Run golangci-lint"
 	@echo "  bench        Run benchmarks with memory stats"
 	@echo "  fuzz         Run fuzz tests (30s each)"
+	@echo "  e2e          Run Playwright E2E tests (requires running server)"
+	@echo "  e2e-headed   Run E2E tests in headed mode"
+	@echo "  e2e-list     List all E2E tests"
 	@echo "  cover        Generate coverage report (HTML)"
 	@echo "  vet          Run go vet"
 	@echo "  fmt          Format code with gofmt -s"
