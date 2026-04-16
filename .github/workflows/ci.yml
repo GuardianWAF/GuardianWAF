@@ -153,3 +153,60 @@ jobs:
             go install golang.org/x/perf/cmd/benchstat@latest
             benchstat benchmark-base.txt benchmark-new.txt || true
           fi
+
+
+  # Security scanning jobs
+  govulncheck:
+    needs: [actions-hardened]
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v5
+      with:
+        go-version-file: 'go.mod'
+    - name: Run govulncheck
+      run: go install golang.org/x/vuln/cmd/govulncheck@latest && govulncheck ./...
+
+  gosec:
+    needs: [actions-hardened]
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v5
+      with:
+        go-version-file: 'go.mod'
+    - name: Run gosec
+      run: |
+        go install github.com/securego/gosec/v2/cmd/gosec@latest
+        gosec -no-fail ./...
+
+  trufflehog:
+    needs: [actions-hardened]
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: Scan for secrets
+      run: |
+        go install github.com/trufflesecurity/trufflehog@latest
+        trufflehog filesystem --no-update --fail .
+      env:
+        SKIP_TRUFFLEHOG_UPDATE_CHECK: true
+
+  trivy-docker:
+    needs: [actions-hardened]
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Run Trivy vulnerability scanner on base image
+      run: |
+        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+          aquasec/trivy:latest image \
+          --severity HIGH,CRITICAL \
+          --exit-code 0 \
+          --no-progress \
+          golang:1.25-alpine
+    - name: Scan Dockerfile for misconfigs
+      run: |
+        docker run --rm -v $(pwd):/workspace aquasec/trivy:latest config /workspace --exit-code 0
