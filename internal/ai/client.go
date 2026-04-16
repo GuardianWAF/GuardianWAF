@@ -46,20 +46,19 @@ func NewClient(cfg ClientConfig) *Client {
 	if maxTokens == 0 {
 		maxTokens = 2048
 	}
-	// Warn if endpoint is not HTTPS (API key transmitted in cleartext)
+	// Validate endpoint is not SSRF-vulnerable (private/internal IPs)
 	if cfg.BaseURL != "" {
 		if u, err := url.Parse(cfg.BaseURL); err == nil {
 			if u.Scheme == "http" {
 				log.Printf("[ai] WARNING: AI endpoint uses HTTP — API key will be sent in cleartext. Use HTTPS.")
 			}
-			// Warn about internal endpoints (SSRF risk)
 			host := u.Hostname()
 			if ip := net.ParseIP(host); ip != nil {
-				if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
-					log.Printf("[ai] WARNING: AI endpoint targets a private/loopback address")
+				if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+					log.Fatalf("[ai] FATAL: AI endpoint targets a private/loopback address: %s", host)
 				}
 			} else if strings.EqualFold(host, "localhost") {
-				log.Printf("[ai] WARNING: AI endpoint targets localhost")
+				log.Fatalf("[ai] FATAL: AI endpoint targets localhost — SSRF risk")
 			}
 		}
 	}

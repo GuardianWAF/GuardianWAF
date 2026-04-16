@@ -145,24 +145,22 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 
 		key := l.bucketKey(rule, tenantID, ip, reqPath)
 		bucket := l.getOrCreateBucket(key, rule)
-		if bucket == nil {
-			// Bucket limit reached — block if rule requires it, otherwise skip
-			if rule.Action == "block" {
-				finding := engine.Finding{
-					DetectorName: "ratelimit",
-					Category:     "ratelimit",
-					Score:        70,
-					Severity:     engine.SeverityHigh,
-					Description:  "Rate limit system overloaded — bucket limit reached: " + rule.ID,
-					MatchedValue: key,
-					Location:     "ip",
-				}
-				findings = append(findings, finding)
-				totalScore += finding.Score
-				blocked = true
-			}
-			continue
+	if bucket == nil {
+		// Bucket limit (500K) reached — system overload. Block all to prevent bypass.
+		finding := engine.Finding{
+			DetectorName: "ratelimit",
+			Category:    "ratelimit",
+			Score:       85,
+			Severity:    engine.SeverityHigh,
+			Description: "Rate limit system overloaded — bucket limit reached: " + rule.ID,
+			MatchedValue: key,
+			Location:    "ip",
 		}
+		findings = append(findings, finding)
+		totalScore += finding.Score
+		blocked = true
+		continue
+	}
 
 		if !bucket.Allow() {
 			finding := engine.Finding{

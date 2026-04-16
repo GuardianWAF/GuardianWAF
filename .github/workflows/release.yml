@@ -4,9 +4,14 @@ on:
   push:
     tags: ['v*']
 
+# Scope permissions per job, least privilege principle
 permissions:
   contents: write
-  packages: write
+
+# Prevent concurrent releases
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   goreleaser:

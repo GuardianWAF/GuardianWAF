@@ -383,6 +383,14 @@ func (v *JWTValidator) fetchJWKS() {
 		return
 	}
 
+	// Re-validate JWKS URL on each fetch to prevent DNS rebinding attacks.
+	// The initial validation at startup only checked the hostname; DNS could have
+	// changed since then to point to a private/internal address.
+	if err := validateJWKSURL(v.config.JWKSURL); err != nil {
+		log.Printf("[jwt] fetchJWKS: JWKS URL validation failed: %v", err)
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
