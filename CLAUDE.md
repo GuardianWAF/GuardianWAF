@@ -140,10 +140,45 @@ The `serve` command (`cmd/guardianwaf/main.go`) wires all 29 layers into the pip
 
 Priority: `defaults` → `YAML file` → `environment variables (GWAF_ prefix)` → `CLI flags`
 
+Config path resolution (`config.ResolveConfigPath`): explicit path → `GWAF_CONFIG_PATH` env → `GWAF_ENV` env (`guardianwaf.staging.yaml`) → `guardianwaf.yaml`
+
 Key config files:
 - `internal/config/config.go` — All config structs (mirrors YAML schema)
 - Custom YAML parser (not using yaml struct tags for loading — uses Node tree)
 - Per-domain WAF overrides via `VirtualHostConfig.WAF *WAFConfig`
+
+### Distributed Tracing
+
+`internal/tracing/` — Zero-dependency OpenTelemetry-compatible tracing:
+- Per-request root span + per-layer child spans with WAF action/score attributes
+- Configurable sampling rate and exporters (stdout, noop, pluggable via `Exporter` interface)
+- Enabled via `tracing.enabled: true` in config or `GWAF_TRACING_ENABLED=true`
+- `ctx.TraceSpan` on `RequestContext` carries the span through the pipeline
+
+### Feature Flags
+
+`internal/feature/` — Lightweight config-driven feature flags:
+- Global flags via YAML `features:` map or `GWAF_FEATURE_<NAME>=true` env vars
+- Per-tenant overrides via `feature.SetTenant(tenantID, name, enabled)`
+- Thread-safe registry with `feature.IsEnabled(name)` / `feature.IsEnabledFor(tenantID, name)`
+
+### Observability
+
+- Prometheus `/metrics` endpoint (requests, blocks, latency, GeoIP status)
+- `/healthz` endpoint (JSON status for K8s probes, includes GeoIP readiness)
+- Built-in distributed tracing (see above)
+- Structured access logging (JSON or text format) with `RotatingFileWriter` for file output
+- Log rotation: configurable size/age/backup limits (`logging.max_size_mb`, `logging.max_backups`, `logging.max_age_days`)
+- Real-time SSE event streaming to dashboard
+- Core Web Vitals monitoring via `POST /api/v1/cwv` beacon endpoint
+- Application log buffer with level filtering
+- `X-Correlation-ID` header propagated through proxy and across cluster nodes
+
+### State Persistence
+
+- IP auto-bans persisted to JSON via `ipacl.AutoBanConfig.PersistPath` (configurable interval, graceful shutdown flush)
+- Events persisted via `events.PersistentMemoryStore` (wraps MemoryStore with JSONL replay on startup)
+- Event ring buffer also available as JSONL file via `events.storage: file`
 
 ### Public API (Library Mode)
 
@@ -179,12 +214,15 @@ Key config files:
 - `internal/discovery/` — Passive API discovery and path clustering
 - `internal/integrations/` — Third-party integrations (v040)
 - `internal/ml/` — ML anomaly detection (ONNX model, Isolation Forest — separate from AI batch analysis)
+- `internal/tracing/` — Zero-dependency distributed tracing (OpenTelemetry-compatible API, sampling, exporters)
+- `internal/feature/` — Config-driven feature flags (YAML, env vars, per-tenant overrides)
 - `internal/layers/zerotrust/` — Zero Trust middleware/service (in-development, not yet wired)
+- `tests/reliability/` — Flaky test detection (JSONL-based pass/fail tracking across CI runs)
 - `guardianwaf.go` + `options.go` — Public library API
 
 ## Architecture Decision Records
 
-`docs/adr/` contains 38 ADRs — every significant design decision has a corresponding ADR. See `docs/adr/` for the full list. Key themes: zero-dependencies, pipeline architecture, multi-tenancy, ML/AI detection, gRPC, DLP, SIEM, Zero Trust, caching, virtual patching, HA/Raft, compliance, all individual WAF layers.
+`docs/adr/` contains 43 ADRs — every significant design decision has a corresponding ADR. See `docs/adr/` for the full list. Key themes: zero-dependencies, pipeline architecture, multi-tenancy, ML/AI detection, gRPC, DLP, SIEM, Zero Trust, caching, virtual patching, HA/Raft, compliance, all individual WAF layers.
 
 ## Docker Auto-Discovery
 
@@ -235,15 +273,6 @@ guardianwaf validate  # Config file validation
 - Wildcard domain support (*.example.com)
 - TLS termination with SNI cert selection, cert hot-reload, HTTP/2
 - WebSocket proxy support (Upgrade header forwarding)
-
-## Observability
-
-- Prometheus `/metrics` endpoint (requests, blocks, latency)
-- `/healthz` endpoint (JSON status for K8s probes)
-- Structured access logging (JSON or text format)
-- Log level filtering (debug/info/warn/error)
-- Real-time SSE event streaming to dashboard
-- Application log buffer with level filtering
 
 <!-- rtk-instructions v2 -->
 # RTK (Rust Token Killer)
