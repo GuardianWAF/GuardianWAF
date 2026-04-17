@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"runtime"
 	"runtime/debug"
 	"sync"
 	"time"
@@ -145,6 +146,17 @@ func (lb *LogBuffer) Warnf(format string, args ...any) {
 // Errorf logs a formatted error message.
 func (lb *LogBuffer) Errorf(format string, args ...any) {
 	lb.Add("error", fmt.Sprintf(format, args...))
+}
+
+// ErrorWithStack logs an error message with a runtime stack trace.
+func (lb *LogBuffer) ErrorWithStack(msg string) {
+	const depth = 32
+	pcs := make([]uintptr, depth)
+	n := runtime.Callers(2, pcs)
+	pcs = pcs[:n]
+	buf := make([]byte, 4096)
+	n = runtime.Stack(buf, false)
+	lb.Add("error", msg+"\n"+string(buf[:n]))
 }
 
 // Recent returns the most recent N log entries in reverse chronological order.

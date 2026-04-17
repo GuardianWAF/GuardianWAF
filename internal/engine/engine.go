@@ -282,7 +282,7 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 		// Panic recovery — prevent a single request from crashing the server
 		defer func() {
 			if rv := recover(); rv != nil {
-				e.Logs.Errorf("PANIC recovered in WAF middleware: %v", rv)
+				e.Logs.ErrorWithStack(fmt.Sprintf("PANIC recovered in WAF middleware: %v", rv))
 				// Best-effort error response — may fail if headers already sent
 				http.Error(w, "500 Internal Server Error", http.StatusInternalServerError)
 			}

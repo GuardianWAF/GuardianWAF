@@ -1490,6 +1490,9 @@ type LogConfig struct {
 	LogAllowed bool   `yaml:"log_allowed"`
 	LogBlocked bool   `yaml:"log_blocked"`
 	LogBody    bool   `yaml:"log_body"`
+	MaxSizeMB  int    `yaml:"max_size_mb"`  // Max log file size before rotation (default: 100)
+	MaxBackups int    `yaml:"max_backups"`  // Max rotated files to keep (default: 5)
+	MaxAgeDays int    `yaml:"max_age_days"` // Max days to keep rotated files (default: 30)
 }
 
 // EventsConfig controls security event storage.

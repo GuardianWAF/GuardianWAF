@@ -46,6 +46,28 @@ func (ve *ValidationError) addError(field, message string) {
 	ve.Errors = append(ve.Errors, FieldError{Field: field, Message: message})
 }
 
+// ResolveConfigPath determines the config file path based on environment.
+// Resolution order:
+//   1. Explicit path argument (if non-empty)
+//   2. GWAF_CONFIG_PATH environment variable
+//   3. GWAF_ENV environment variable -> guardianwaf.{env}.yaml
+//   4. guardianwaf.yaml (default)
+func ResolveConfigPath(explicit string) string {
+	if explicit != "" {
+		return explicit
+	}
+	if p := os.Getenv("GWAF_CONFIG_PATH"); p != "" {
+		return p
+	}
+	if env := os.Getenv("GWAF_ENV"); env != "" {
+		name := "guardianwaf." + env + ".yaml"
+		if _, err := os.Stat(name); err == nil {
+			return name
+		}
+	}
+	return "guardianwaf.yaml"
+}
+
 // LoadFile reads a YAML config file, parses it, and returns a populated Config.
 // Starts with defaults, then overlays values from the file.
 func LoadFile(path string) (*Config, error) {
@@ -585,6 +607,35 @@ func LoadEnv(cfg *Config) {
 		"GWAF_TLS_LISTEN":    func(v string) { cfg.TLS.Listen = v },
 		"GWAF_TLS_CERT_FILE": func(v string) { cfg.TLS.CertFile = v },
 		"GWAF_TLS_KEY_FILE":  func(v string) { cfg.TLS.KeyFile = v },
+
+		"GWAF_TRACING_ENABLED": func(v string) {
+			if b, err := strconv.ParseBool(v); err == nil {
+				cfg.Tracing.Enabled = b
+			}
+		},
+		"GWAF_TRACING_SERVICE_NAME":  func(v string) { cfg.Tracing.ServiceName = v },
+		"GWAF_TRACING_SAMPLING_RATE": func(v string) {
+			if f, err := strconv.ParseFloat(v, 64); err == nil {
+				cfg.Tracing.SamplingRate = f
+			}
+		},
+		"GWAF_TRACING_EXPORTER_TYPE": func(v string) { cfg.Tracing.ExporterType = v },
+
+		"GWAF_LOGGING_MAX_SIZE_MB": func(v string) {
+			if i, err := strconv.Atoi(v); err == nil {
+				cfg.Logging.MaxSizeMB = i
+			}
+		},
+		"GWAF_LOGGING_MAX_BACKUPS": func(v string) {
+			if i, err := strconv.Atoi(v); err == nil {
+				cfg.Logging.MaxBackups = i
+			}
+		},
+		"GWAF_LOGGING_MAX_AGE_DAYS": func(v string) {
+			if i, err := strconv.Atoi(v); err == nil {
+				cfg.Logging.MaxAgeDays = i
+			}
+		},
 	}
 	for key, setter := range envMap {
 		if val := os.Getenv(key); val != "" {

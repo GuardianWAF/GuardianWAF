@@ -799,6 +799,18 @@ func cmdServe(args []string) {
 	}
 	eng.Logs.Infof("Engine initialized in %s mode (block=%d, log=%d)", cfg.Mode, cfg.WAF.Detection.Threshold.Block, cfg.WAF.Detection.Threshold.Log)
 
+	// 6a. Set up log rotation if file output configured
+	if cfg.Logging.Output != "" && cfg.Logging.Output != "stdout" && cfg.Logging.Output != "stderr" {
+		logWriter, err := engine.ParseLogOutput(cfg.Logging.Output, cfg.Logging.MaxSizeMB, cfg.Logging.MaxBackups, cfg.Logging.MaxAgeDays)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to open log file %s: %v
+", cfg.Logging.Output, err)
+			osExit(1)
+		}
+		slog.SetDefault(slog.New(slog.NewJSONHandler(logWriter, nil)))
+		eng.Logs.Infof("Log rotation enabled: file=%s max_size=%dMB backups=%d max_age=%dd", cfg.Logging.Output, cfg.Logging.MaxSizeMB, cfg.Logging.MaxBackups, cfg.Logging.MaxAgeDays)
+	}
+
 	// 6b. Set up structured access logging
 	if cfg.Logging.LogBlocked || cfg.Logging.LogAllowed {
 		logBlocked := cfg.Logging.LogBlocked
@@ -2192,6 +2204,10 @@ func isDefaultPath(path string) bool {
 }
 
 func loadConfig(path string, explicitPath bool) *config.Config {
+	// Resolve config path: explicit > GWAF_CONFIG_PATH > GWAF_ENV profile > default
+	if !explicitPath {
+		path = config.ResolveConfigPath(path)
+	}
 	// Use platform-specific default if no path specified
 	if path == "" {
 		path = DefaultConfigPath()
