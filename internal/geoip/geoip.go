@@ -158,6 +158,16 @@ func (db *DB) Count() int {
 	return len(db.ranges)
 }
 
+// Ready returns true if the database has loaded IP ranges and can serve lookups.
+func (db *DB) Ready() bool {
+	if db == nil {
+		return false
+	}
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+	return len(db.ranges) > 0
+}
+
 // Reload reloads the database from a CSV file, atomically swapping the data.
 func (db *DB) Reload(path string) error {
 	fresh, err := LoadCSV(path)

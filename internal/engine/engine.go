@@ -36,6 +36,8 @@ type Stats struct {
 	LoggedRequests     int64
 	PassedRequests     int64
 	AvgLatencyUs       int64 // average latency in microseconds
+	GeoIPReady         bool
+	GeoIPRanges        int64
 }
 
 // ChallengeChecker is the interface for the JS challenge service.
@@ -120,6 +122,10 @@ type Engine struct {
 	maxBodySize    atomic.Int64
 	blockThreshold atomic.Int32
 	logThreshold   atomic.Int32
+
+	// GeoIP status (set via SetGeoIPReady)
+	geoipReady atomic.Bool
+	geoipCount atomic.Int64
 
 	mu sync.RWMutex // protects cfg
 }
@@ -483,7 +489,15 @@ func (e *Engine) Stats() Stats {
 		LoggedRequests:     e.loggedRequests.Load(),
 		PassedRequests:     e.passedRequests.Load(),
 		AvgLatencyUs:       avgLatency,
+		GeoIPReady:         e.geoipReady.Load(),
+		GeoIPRanges:        e.geoipCount.Load(),
 	}
+}
+
+// SetGeoIPStatus updates the GeoIP readiness state exposed via Stats and health checks.
+func (e *Engine) SetGeoIPStatus(ready bool, count int) {
+	e.geoipReady.Store(ready)
+	e.geoipCount.Store(int64(count))
 }
 
 // EventStore returns the engine's event store.

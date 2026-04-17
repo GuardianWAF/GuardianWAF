@@ -843,8 +843,16 @@ func cmdServe(args []string) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		s := eng.Stats()
-		fmt.Fprintf(w, `{"status":"ok","mode":%q,"total_requests":%d,"blocked_requests":%d}`,
-			cfg.Mode, s.TotalRequests, s.BlockedRequests)
+		geoipStatus := "disabled"
+		if cfg.WAF.GeoIP.Enabled {
+			if s.GeoIPReady {
+				geoipStatus = "ready"
+			} else {
+				geoipStatus = "unavailable"
+			}
+		}
+		fmt.Fprintf(w, `{"status":"ok","mode":%q,"total_requests":%d,"blocked_requests":%d,"geoip":%q}`,
+			cfg.Mode, s.TotalRequests, s.BlockedRequests, geoipStatus)
 	})
 
 	// Prometheus-compatible metrics endpoint
@@ -869,6 +877,22 @@ func cmdServe(args []string) {
 		fmt.Fprintf(w, "# HELP guardianwaf_latency_avg_microseconds Average request latency in microseconds.\n")
 		fmt.Fprintf(w, "# TYPE guardianwaf_latency_avg_microseconds gauge\n")
 		fmt.Fprintf(w, "guardianwaf_latency_avg_microseconds %d\n", s.AvgLatencyUs)
+		fmt.Fprintf(w, "# HELP guardianwaf_geoip_ready Whether the GeoIP database is loaded and ready.
+")
+		fmt.Fprintf(w, "# TYPE guardianwaf_geoip_ready gauge
+")
+		geoipVal := 0
+		if s.GeoIPReady {
+			geoipVal = 1
+		}
+		fmt.Fprintf(w, "guardianwaf_geoip_ready %d
+", geoipVal)
+		fmt.Fprintf(w, "# HELP guardianwaf_geoip_ranges_total Number of IP ranges in the GeoIP database.
+")
+		fmt.Fprintf(w, "# TYPE guardianwaf_geoip_ranges_total gauge
+")
+		fmt.Fprintf(w, "guardianwaf_geoip_ranges_total %d
+", s.GeoIPRanges)
 	})
 
 	// Mount challenge verification endpoint
@@ -1143,6 +1167,11 @@ func cmdServe(args []string) {
 			var gDB *geoip.DB
 			if cfg.WAF.GeoIP.Enabled {
 				gDB, _ = loadGeoIP(cfg, eng)
+				if gDB != nil {
+					eng.SetGeoIPStatus(true, gDB.Count())
+				} else {
+					eng.SetGeoIPStatus(false, 0)
+				}
 			}
 
 			// Register GeoIP lookup for events (same pattern as dashboard)
@@ -1728,6 +1757,22 @@ func cmdSidecar(args []string) {
 		fmt.Fprintf(w, "# HELP guardianwaf_latency_avg_microseconds Average request latency in microseconds.\n")
 		fmt.Fprintf(w, "# TYPE guardianwaf_latency_avg_microseconds gauge\n")
 		fmt.Fprintf(w, "guardianwaf_latency_avg_microseconds %d\n", s.AvgLatencyUs)
+		fmt.Fprintf(w, "# HELP guardianwaf_geoip_ready Whether the GeoIP database is loaded and ready.
+")
+		fmt.Fprintf(w, "# TYPE guardianwaf_geoip_ready gauge
+")
+		geoipVal := 0
+		if s.GeoIPReady {
+			geoipVal = 1
+		}
+		fmt.Fprintf(w, "guardianwaf_geoip_ready %d
+", geoipVal)
+		fmt.Fprintf(w, "# HELP guardianwaf_geoip_ranges_total Number of IP ranges in the GeoIP database.
+")
+		fmt.Fprintf(w, "# TYPE guardianwaf_geoip_ranges_total gauge
+")
+		fmt.Fprintf(w, "guardianwaf_geoip_ranges_total %d
+", s.GeoIPRanges)
 	})
 
 	// Mount client-side report endpoints (sidecar)

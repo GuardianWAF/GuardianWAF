@@ -14,7 +14,6 @@ import {
   Globe,
   BarChart3,
   DollarSign,
-  TrendingUp,
   AlertTriangle,
   Calendar,
   Clock,
@@ -338,9 +337,8 @@ export default function TenantAnalyticsPage() {
             <div className="text-sm text-gray-500">
               {blockedPercentage}% blocked
             </div>
-            <div className="mt-2 flex items-center gap-2 text-sm">
-              <TrendingUp className="w-4 h-4 text-green-500" />
-              <span className="text-green-600">+12% from last period</span>
+            <div className="mt-2 text-sm text-gray-500">
+              {usage.total_requests.toLocaleString()} all-time total
             </div>
           </CardContent>
         </Card>
@@ -529,6 +527,13 @@ export default function TenantAnalyticsPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
+              {history.length === 0 && (
+                <div className="text-center py-8 text-gray-500">
+                  <BarChart3 className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">Usage history will appear as traffic is processed.</p>
+                  <p className="text-xs mt-1">Data is aggregated per time window and refreshed automatically.</p>
+                </div>
+              )}
               {history.map((item, index) => (
                 <div key={index} className="flex items-center gap-4">
                   <div className="w-16 text-xs text-gray-500">
