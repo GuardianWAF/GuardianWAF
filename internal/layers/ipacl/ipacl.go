@@ -1,6 +1,8 @@
 package ipacl
 
 import (
+	"encoding/json"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -22,6 +24,8 @@ type AutoBanConfig struct {
 	DefaultTTL        time.Duration
 	MaxTTL            time.Duration
 	MaxAutoBanEntries int
+	PersistPath       string        // File path to persist bans across restarts (empty = no persistence)
+	PersistInterval   time.Duration // How often to save (default: 30s)
 }
 
 type autoBanEntry struct {
@@ -37,6 +41,7 @@ type Layer struct {
 	blacklist *RadixTree
 	autoBan   map[string]*autoBanEntry // IP string -> entry
 	mu        sync.RWMutex             // protects autoBan
+	stopCh    chan struct{}            // signals persistence goroutine to stop
 }
 
 // NewLayer creates a new IP ACL layer from the given config.
@@ -46,6 +51,17 @@ func NewLayer(cfg *Config) (*Layer, error) {
 		whitelist: NewRadixTree(),
 		blacklist: NewRadixTree(),
 		autoBan:   make(map[string]*autoBanEntry),
+		stopCh:    make(chan struct{}),
+	}
+
+	// Load persisted bans and start periodic save if configured
+	if cfg.AutoBan.PersistPath != "" {
+		l.LoadBans(cfg.AutoBan.PersistPath)
+		interval := cfg.AutoBan.PersistInterval
+		if interval == 0 {
+			interval = 30 * time.Second
+		}
+		go l.persistLoop(interval)
 	}
 
 	for _, cidr := range cfg.Whitelist {
@@ -250,4 +266,72 @@ func (l *Layer) isAutoBanned(ip string) bool {
 	}
 	expiresAt, _ := entry.ExpiresAt.Load().(time.Time)
 	return time.Now().Before(expiresAt)
+}
+
+
+// Stop signals the persistence goroutine to stop and flushes bans to disk.
+func (l *Layer) Stop() {
+	if l.config.AutoBan.PersistPath != "" {
+		select {
+		case l.stopCh <- struct{}{}:
+		default:
+		}
+		l.SaveBans(l.config.AutoBan.PersistPath)
+	}
+}
+
+// persistLoop periodically saves bans to disk.
+func (l *Layer) persistLoop(interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			l.SaveBans(l.config.AutoBan.PersistPath)
+		case <-l.stopCh:
+			return
+		}
+	}
+}
+
+// SaveBans writes active (non-expired) bans to a JSON file.
+func (l *Layer) SaveBans(path string) {
+	bans := l.ActiveBans()
+	if len(bans) == 0 {
+		os.Remove(path)
+		return
+	}
+	data, err := json.Marshal(bans)
+	if err != nil {
+		return
+	}
+	os.WriteFile(path, data, 0600)
+}
+
+// LoadBans loads persisted bans from a JSON file.
+// Expired bans are skipped automatically.
+func (l *Layer) LoadBans(path string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	var bans []BanEntry
+	if err := json.Unmarshal(data, &bans); err != nil {
+		return
+	}
+	now := time.Now()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, b := range bans {
+		if now.After(b.ExpiresAt) {
+			continue
+		}
+		var expiresAt atomic.Value
+		expiresAt.Store(b.ExpiresAt)
+		l.autoBan[b.IP] = &autoBanEntry{
+			ExpiresAt: expiresAt,
+			Reason:    b.Reason,
+			Count:     b.Count,
+		}
+	}
 }

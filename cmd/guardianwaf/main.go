@@ -1616,6 +1616,13 @@ func cmdServe(args []string) {
 		}
 	}
 
+	// 4b. Flush IP ACL auto-ban persistence
+	if ipaclLayer != nil {
+		if s, ok := ipaclLayer.(interface{ Stop() }); ok {
+			s.Stop()
+		}
+	}
+
 	// 5. Stop cleanup goroutine
 	select {
 	case <-cleanupStop:
@@ -2404,9 +2411,11 @@ func addLayers(eng *engine.Engine, cfg *config.Config) {
 			Whitelist: cfg.WAF.IPACL.Whitelist,
 			Blacklist: cfg.WAF.IPACL.Blacklist,
 			AutoBan: ipacl.AutoBanConfig{
-				Enabled:    cfg.WAF.IPACL.AutoBan.Enabled,
-				DefaultTTL: cfg.WAF.IPACL.AutoBan.DefaultTTL,
-				MaxTTL:     cfg.WAF.IPACL.AutoBan.MaxTTL,
+				Enabled:         cfg.WAF.IPACL.AutoBan.Enabled,
+				DefaultTTL:      cfg.WAF.IPACL.AutoBan.DefaultTTL,
+				MaxTTL:          cfg.WAF.IPACL.AutoBan.MaxTTL,
+				PersistPath:     cfg.WAF.IPACL.AutoBan.PersistPath,
+				PersistInterval: cfg.WAF.IPACL.AutoBan.PersistInterval,
 			},
 		})
 		if err != nil {

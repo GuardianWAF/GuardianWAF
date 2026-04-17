@@ -1140,6 +1140,8 @@ type AutoBanConfig struct {
 	DefaultTTL        time.Duration `yaml:"default_ttl"`
 	MaxTTL            time.Duration `yaml:"max_ttl"`
 	MaxAutoBanEntries int           `yaml:"max_auto_ban_entries"` // 0 = unlimited
+	PersistPath       string        `yaml:"persist_path"`         // File path to persist bans (empty = no persistence)
+	PersistInterval   time.Duration `yaml:"persist_interval"`     // Save interval (default: 30s)
 }
 
 // RateLimitConfig holds the global rate-limiting toggle and individual rules.
