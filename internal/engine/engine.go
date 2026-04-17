@@ -410,7 +410,8 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 			})
 		}
 
-		// Write response
+		// Set correlation headers: on request (for upstream proxy) and response (for client)
+		r.Header.Set("X-Correlation-ID", event.RequestID)
 		w.Header().Set("X-GuardianWAF-RequestID", event.RequestID)
 
 		switch finalAction {

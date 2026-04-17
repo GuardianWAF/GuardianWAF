@@ -28,6 +28,7 @@ type Config struct {
 	Tenant         TenantConfig    `yaml:"tenant"`
 	TrustedProxies []string        `yaml:"trusted_proxies"` // CIDRs/IPs whose X-Forwarded-For/X-Real-IP headers are trusted
 	Tracing        TracingConfig   `yaml:"tracing"`
+	Features       map[string]bool `yaml:"features"`
 }
 
 // AlertingConfig controls webhook and email-based alert delivery.

@@ -3,6 +3,7 @@
 package tenant
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -724,37 +725,76 @@ func generateAPIKey() (string, error) {
 	return "gwaf_" + hex.EncodeToString(b), nil
 }
 
-// hashAPIKey hashes an API key with a per-tenant salt to prevent rainbow table attacks.
-// Returns "salt$hash" format.
+// apiKeyHashIterations is the number of HMAC-SHA256 iterations for key derivation.
+// Provides brute-force resistance comparable to PBKDF2 with 100k rounds.
+const apiKeyHashIterations = 100000
+
+// hashAPIKey hashes an API key using iterated HMAC-SHA256 (PBKDF2-like) with a
+// random salt. Returns "v2$salt$hash" format. The v2 prefix distinguishes from
+// legacy single-pass SHA256 hashes for backwards compatibility.
 func hashAPIKey(apiKey string) string {
 	salt := make([]byte, 16)
 	if _, err := rand.Read(salt); err != nil {
-		// Fallback: use timestamp as salt (still better than no salt)
 		salt = []byte(fmt.Sprintf("%d", time.Now().UnixNano()))
 	}
-	hash := sha256.Sum256(append(salt, []byte(apiKey)...))
-	return hex.EncodeToString(salt) + "$" + hex.EncodeToString(hash[:])
+	derived := deriveKey([]byte(apiKey), salt, apiKeyHashIterations)
+	return "v2$" + hex.EncodeToString(salt) + "$" + hex.EncodeToString(derived)
 }
 
-// verifyAPIKey checks if an API key matches a stored salt$hash.
-// Returns (matched, legacy) where legacy is true if the hash was unsalted.
+// deriveKey performs iterated HMAC-SHA256 key derivation (PBKDF2-HMAC-SHA256).
+func deriveKey(password, salt []byte, iterations int) []byte {
+	mac := hmac.New(sha256.New, password)
+	mac.Write(salt)
+	result := mac.Sum(nil)
+	for range iterations - 1 {
+		mac.Reset()
+		result = mac.Sum(result)
+	}
+	out := make([]byte, len(result))
+	copy(out, result)
+	return out
+}
+
+// verifyAPIKey checks if an API key matches a stored hash.
+// Supports v2 (iterated HMAC), v1 (salted SHA256), and legacy (unsalted SHA256).
+// Returns (matched, legacy) where legacy is true if the hash should be rehashed.
 func verifyAPIKey(storedHash, apiKey string) (matched bool, legacy bool) {
-	parts := strings.SplitN(storedHash, "$", 2)
-	if len(parts) != 2 {
-		// Legacy unsalted hash — backwards compatible fallback
-		expected := sha256.Sum256([]byte(apiKey))
-		if subtle.ConstantTimeCompare([]byte(storedHash), []byte(hex.EncodeToString(expected[:]))) == 1 {
-			return true, true
+	parts := strings.Split(storedHash, "$")
+
+	// v2 format: v2$salt$hash
+	if len(parts) == 3 && parts[0] == "v2" {
+		salt, err := hex.DecodeString(parts[1])
+		if err != nil {
+			return false, false
+		}
+		expected, err := hex.DecodeString(parts[2])
+		if err != nil {
+			return false, false
+		}
+		derived := deriveKey([]byte(apiKey), salt, apiKeyHashIterations)
+		if subtle.ConstantTimeCompare(derived, expected) == 1 {
+			return true, false
 		}
 		return false, false
 	}
-	salt, err := hex.DecodeString(parts[0])
-	if err != nil {
+
+	// v1 format: salt$hash (single-pass salted SHA256)
+	if len(parts) == 2 {
+		salt, err := hex.DecodeString(parts[0])
+		if err != nil {
+			return false, false
+		}
+		hash := sha256.Sum256(append(salt, []byte(apiKey)...))
+		if subtle.ConstantTimeCompare([]byte(parts[1]), []byte(hex.EncodeToString(hash[:]))) == 1 {
+			return true, true // matched but should rehash to v2
+		}
 		return false, false
 	}
-	hash := sha256.Sum256(append(salt, []byte(apiKey)...))
-	if subtle.ConstantTimeCompare([]byte(parts[1]), []byte(hex.EncodeToString(hash[:]))) == 1 {
-		return true, false
+
+	// Legacy unsalted SHA256
+	expected := sha256.Sum256([]byte(apiKey))
+	if subtle.ConstantTimeCompare([]byte(storedHash), []byte(hex.EncodeToString(expected[:]))) == 1 {
+		return true, true // matched but should rehash to v2
 	}
 	return false, false
 }

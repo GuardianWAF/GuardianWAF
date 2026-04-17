@@ -218,21 +218,55 @@ func extractTenantID(r *http.Request) string {
 	return r.Header.Get("X-Tenant-ID")
 }
 
-// verifyTenantAPIKey checks if an API key matches a stored salt$hash.
-// Uses the same format as tenant.Manager.hashAPIKey.
+// verifyTenantAPIKey checks if an API key matches a stored hash.
+// Supports v2 (iterated HMAC), v1 (salted SHA256), and legacy (unsalted SHA256).
 func verifyTenantAPIKey(storedHash, apiKey string) bool {
-	parts := strings.SplitN(storedHash, "$", 2)
-	if len(parts) != 2 {
-		// Legacy unsalted hash
-		expected := sha256.Sum256([]byte(apiKey))
-		return subtle.ConstantTimeCompare([]byte(storedHash), []byte(hex.EncodeToString(expected[:]))) == 1
+	matched, _ := verifyAPIKeyHash(storedHash, apiKey)
+	return matched
+}
+
+// verifyAPIKeyHash mirrors tenant.verifyAPIKey to avoid circular imports.
+func verifyAPIKeyHash(storedHash, apiKey string) (matched bool, upgrade bool) {
+	parts := strings.Split(storedHash, "$")
+
+	// v2 format: v2$salt$hash
+	if len(parts) == 3 && parts[0] == "v2" {
+		salt, err := hex.DecodeString(parts[1])
+		if err != nil {
+			return false, false
+		}
+		expected, err := hex.DecodeString(parts[2])
+		if err != nil {
+			return false, false
+		}
+		derived := deriveAPIKey([]byte(apiKey), salt, 100000)
+		return subtle.ConstantTimeCompare(derived, expected) == 1, false
 	}
-	salt, _ := hex.DecodeString(parts[0])
-	if len(salt) != 16 {
-		return false
+
+	// v1 format: salt$hash
+	if len(parts) == 2 {
+		salt, _ := hex.DecodeString(parts[0])
+		hash := sha256.Sum256(append(salt, []byte(apiKey)...))
+		return subtle.ConstantTimeCompare([]byte(parts[1]), []byte(hex.EncodeToString(hash[:]))) == 1, true
 	}
-	hash := sha256.Sum256(append(salt, []byte(apiKey)...))
-	return subtle.ConstantTimeCompare([]byte(parts[1]), []byte(hex.EncodeToString(hash[:]))) == 1
+
+	// Legacy unsalted SHA256
+	expected := sha256.Sum256([]byte(apiKey))
+	return subtle.ConstantTimeCompare([]byte(storedHash), []byte(hex.EncodeToString(expected[:]))) == 1, true
+}
+
+// deriveAPIKey performs iterated HMAC-SHA256 key derivation.
+func deriveAPIKey(password, salt []byte, iterations int) []byte {
+	mac := hmac.New(sha256.New, password)
+	mac.Write(salt)
+	result := mac.Sum(nil)
+	for range iterations - 1 {
+		mac.Reset()
+		result = mac.Sum(result)
+	}
+	out := make([]byte, len(result))
+	copy(out, result)
+	return out
 }
 
 // isAuthenticated checks if the request has a valid session cookie, global dashboard API key,

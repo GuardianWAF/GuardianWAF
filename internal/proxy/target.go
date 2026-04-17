@@ -182,6 +182,15 @@ func NewTarget(rawURL string, weight int) (*Target, error) {
 		req.Header.Del("X-Forwarded-Host")
 		req.Header.Del("X-Forwarded-Proto")
 		req.Header.Del("X-Real-IP")
+
+			// Propagate correlation ID across hops. If the incoming request
+			// already carries X-Correlation-ID (e.g., from another WAF node),
+			// preserve it. Otherwise use X-GuardianWAF-RequestID if present.
+			if req.Header.Get("X-Correlation-ID") == "" {
+				if rid := req.Header.Get("X-GuardianWAF-RequestID"); rid != "" {
+					req.Header.Set("X-Correlation-ID", rid)
+				}
+			}
 	}
 
 	transport := &http.Transport{

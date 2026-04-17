@@ -70,6 +70,7 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/proxy"
 	"github.com/guardianwaf/guardianwaf/internal/tenant"
 	"github.com/guardianwaf/guardianwaf/internal/tracing"
+	"github.com/guardianwaf/guardianwaf/internal/feature"
 	gwaftls "github.com/guardianwaf/guardianwaf/internal/tls"
 )
 
@@ -783,6 +784,12 @@ func cmdServe(args []string) {
 			slog.Info("tracing enabled", "service", cfg.Tracing.ServiceName, "sampling_rate", cfg.Tracing.SamplingRate)
 		}
 	}
+
+	// 5a. Load feature flags from config and env
+	if len(cfg.Features) > 0 {
+		feature.LoadFromMap(cfg.Features)
+	}
+	feature.LoadFromEnv()
 
 	// 5. Create engine
 	eng, err := engine.NewEngine(cfg, eventStore, eventBus)
