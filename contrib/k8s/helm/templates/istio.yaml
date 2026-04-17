@@ -1,0 +1,44 @@
+{{- if and .Values.istio.enabled .Values.istio.virtualService.enabled }}
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: {{ include "guardianwaf.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "guardianwaf.labels" . | nindent 4 }}
+spec:
+  gateways:
+    {{- range .Values.istio.virtualService.gateways }}
+    - {{ . }}
+    {{- end }}
+  hosts:
+    {{- range .Values.istio.virtualService.hosts }}
+    - {{ . }}
+    {{- end }}
+  http:
+    - route:
+        - destination:
+            host: {{ include "guardianwaf.fullname" . }}
+            port:
+              number: {{ .Values.service.ports.http }}
+      {{- if .Values.istio.virtualService.retries }}
+      retries:
+        {{- toYaml .Values.istio.virtualService.retries | nindent 8 }}
+      {{- end }}
+---
+{{- end }}
+{{- if and .Values.istio.enabled .Values.istio.destinationRule.enabled }}
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: {{ include "guardianwaf.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "guardianwaf.labels" . | nindent 4 }}
+spec:
+  host: {{ include "guardianwaf.fullname" . }}
+  {{- if .Values.istio.destinationRule.trafficPolicy }}
+  trafficPolicy:
+    {{- toYaml .Values.istio.destinationRule.trafficPolicy | nindent 4 }}
+  {{- end }}
+{{- end }}

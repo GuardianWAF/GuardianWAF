@@ -35,6 +35,24 @@ func (a Action) MarshalJSON() ([]byte, error) {
 	return []byte(`"` + a.String() + `"`), nil
 }
 
+// UnmarshalJSON deserializes Action from a JSON string.
+func (a *Action) UnmarshalJSON(data []byte) error {
+	s := string(data)
+	switch s {
+	case `"pass"`:
+		*a = ActionPass
+	case `"block"`:
+		*a = ActionBlock
+	case `"log"`:
+		*a = ActionLog
+	case `"challenge"`:
+		*a = ActionChallenge
+	default:
+		*a = ActionPass
+	}
+	return nil
+}
+
 // LayerResult holds the outcome of a single layer's processing
 type LayerResult struct {
 	Action   Action

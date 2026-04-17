@@ -164,3 +164,32 @@ prometheus:
     interval: 30s
     path: /metrics
     labels: {}
+
+
+# Istio service mesh integration
+istio:
+  enabled: false
+  # Injection annotation: "enabled" or "disabled"
+  injection: enabled
+  # VirtualService configuration
+  virtualService:
+    enabled: false
+    gateways:
+      - mesh
+    hosts: []
+    # retries:
+    #   attempts: 3
+    #   perTryTimeout: 10s
+  # DestinationRule configuration
+  destinationRule:
+    enabled: false
+    # trafficPolicy:
+    #   connectionPool:
+    #     tcp:
+    #       maxConnections: 100
+    #     http:
+    #       h2UpgradePolicy: DEFAULT
+    #   outlierDetection:
+    #     consecutive5xxErrors: 5
+    #     interval: 30s
+    #     baseEjectionTime: 30s

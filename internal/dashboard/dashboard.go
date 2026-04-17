@@ -4,6 +4,7 @@
 package dashboard
 
 import (
+	"bytes"
 	"crypto/subtle"
 	"embed"
 	"encoding/json"
@@ -223,7 +224,11 @@ func New(eng *engine.Engine, store events.EventStore, apiKey string) *Dashboard 
 
 	// SPA serving — React build output from dist/ with fallback to legacy static/
 	d.mux.HandleFunc("GET /assets/", d.handleDistAssets)       // Vite hashed assets — public (content-hashed, no secrets)
-	d.mux.HandleFunc("GET /ssl", d.authWrap(d.handleSPA)) // SPA routes
+	// Core Web Vitals reporting endpoint (no auth - uses beacon API)
+	d.mux.HandleFunc("POST /api/v1/cwv", d.handleCWVReport)
+	d.mux.HandleFunc("GET /api/v1/cwv", d.authWrap(d.handleGetCWV))
+
+d.mux.HandleFunc("GET /ssl", d.authWrap(d.handleSPA)) // SPA routes
 	d.mux.HandleFunc("GET /config", d.authWrap(d.handleSPA))   // SPA routes
 	d.mux.HandleFunc("GET /routing", d.authWrap(d.handleSPA))  // SPA routes
 	d.mux.HandleFunc("GET /alerting", d.authWrap(d.handleSPA)) // SPA routes
@@ -1838,6 +1843,39 @@ func (d *Dashboard) handleSSE(w http.ResponseWriter, r *http.Request) {
 
 // handleSPA serves the React SPA's index.html for all non-API, non-asset routes.
 // This enables client-side routing (React Router).
+// cwvReport stores the latest Core Web Vitals metrics.
+var cwvMetrics sync.Map
+
+// handleCWVReport accepts Core Web Vitals beacon reports from the dashboard.
+func (d *Dashboard) handleCWVReport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST only"})
+		return
+	}
+	var report struct {
+		Name   string  `json:"name"`
+		Value  float64 `json:"value"`
+		Rating string  `json:"rating"`
+		Delta  float64 `json:"delta"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&report); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		return
+	}
+	cwvMetrics.Store(report.Name, report)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleGetCWV returns the latest Core Web Vitals metrics.
+func (d *Dashboard) handleGetCWV(w http.ResponseWriter, r *http.Request) {
+	metrics := make(map[string]any)
+	cwvMetrics.Range(func(key, value any) bool {
+		metrics[key.(string)] = value
+		return true
+	})
+	writeJSON(w, http.StatusOK, metrics)
+}
+
 func (d *Dashboard) handleSPA(w http.ResponseWriter, r *http.Request) {
 	// Try dist/index.html (React build)
 	data, err := distFS.ReadFile("dist/index.html")
@@ -1851,6 +1889,10 @@ func (d *Dashboard) handleSPA(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
+	cwv := []byte(`<script>new PerformanceObserver(function(l){for(var e of l.getEntries()){sendCWV(e.name,e.startTime)}}).observe({type:"largest-contentful-paint",buffered:true});new PerformanceObserver(function(l){for(var e of l.getEntries()){sendCWV(e.name,e.value,e.rating)}}).observe({type:"layout-shift",buffered:true});new PerformanceObserver(function(l){for(var e of l.getEntries()){sendCWV(e.name,e.processingStart-e.startTime)}}).observe({type:"first-input",buffered:true});function sendCWV(n,v,r){try{navigator.sendBeacon("/api/v1/cwv",JSON.stringify({name:n,value:Math.round(v),rating:r||"ok"}))}catch(e){}}</script>`)
+	if idx := bytes.LastIndex(data, []byte("</body>")); idx > 0 {
+		data = append(data[:idx], append(cwv, data[idx:]...)...)
+	}
 	_, _ = w.Write(data)
 }
 
