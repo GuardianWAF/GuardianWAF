@@ -17,6 +17,7 @@ const TenantAnalyticsPage = lazy(() => import('@/pages/tenant-analytics'))
 const ClustersPage = lazy(() => import('@/pages/clusters'))
 const ClusterDetailPage = lazy(() => import('@/pages/cluster-detail'))
 const SSLPage = lazy(() => import('@/pages/ssl'))
+const CompliancePage = lazy(() => import('@/pages/compliance'))
 
 function PageLoader() {
   return (
@@ -39,6 +40,7 @@ export function App() {
             <Route path="/alerting" element={<Suspense fallback={<PageLoader />}><AlertingPage /></Suspense>} />
             <Route path="/ssl" element={<Suspense fallback={<PageLoader />}><SSLPage /></Suspense>} />
             <Route path="/ai" element={<Suspense fallback={<PageLoader />}><AIPage /></Suspense>} />
+            <Route path="/compliance" element={<Suspense fallback={<PageLoader />}><CompliancePage /></Suspense>} />
             <Route path="/logs" element={<Suspense fallback={<PageLoader />}><LogsPage /></Suspense>} />
             <Route path="/tenants" element={<Suspense fallback={<PageLoader />}><TenantsPage /></Suspense>} />
             <Route path="/tenants/new" element={<Suspense fallback={<PageLoader />}><TenantNewPage /></Suspense>} />

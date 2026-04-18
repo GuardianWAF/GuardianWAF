@@ -44,7 +44,7 @@
 | Rate Limiting | Working -- token bucket with auto-ban |
 | Reverse Proxy | Working -- 4 LB strategies, health checks, circuit breaker |
 | TLS Termination | Working -- SNI, ACME, OCSP stapling |
-| Web Dashboard (React) | Working -- 14 pages, SSE, real-time stats |
+| Web Dashboard (React) | Working -- 15 pages, SSE, real-time stats |
 | REST API (44+ endpoints) | Working -- full CRUD with API key auth |
 | MCP Server (80+ tools) | Working -- JSON-RPC 2.0 over stdio/SSE |
 | Library Mode | Working -- functional options API |

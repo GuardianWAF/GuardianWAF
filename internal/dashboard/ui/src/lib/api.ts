@@ -148,6 +148,17 @@ export const api = {
 
   // Docker Services
   getDockerServices: () => request<{ enabled: boolean; services: DockerService[] }>('/api/v1/docker/services'),
+
+  // Compliance
+  getComplianceControls: (framework?: string) => {
+    const qs = framework ? '?framework=' + framework : ''
+    return request<ComplianceControlsResponse>('/api/v1/compliance/controls' + qs)
+  },
+  getComplianceReport: (framework: string, params?: Record<string, string>) => {
+    const qs = params ? '?' + new URLSearchParams(params).toString() : ''
+    return request<ComplianceReport>('/api/v1/compliance/report/' + framework + qs)
+  },
+  getAuditChain: () => request<AuditChainResponse>('/api/v1/compliance/audit-chain'),
 }
 
 // --- Types ---
@@ -602,4 +613,50 @@ export interface DockerService {
   health_path: string
   status: string
   labels: Record<string, string>
+}
+
+// Compliance Types
+export interface ComplianceControl {
+  id: string
+  name: string
+  frameworks: string[]
+  evidence: { type: string; description?: string }[]
+  passing_criteria: { metric: string; operator: string; threshold: number }[]
+}
+
+export interface ComplianceControlsResponse {
+  controls: ComplianceControl[]
+  frameworks: string[]
+}
+
+export interface ComplianceControlResult {
+  id: string
+  name: string
+  status: 'passing' | 'failing' | 'not_applicable' | 'no_evidence'
+  evidence?: Record<string, unknown>
+}
+
+export interface ComplianceReportSummary {
+  controls_passing: number
+  controls_failing: number
+  controls_not_applicable: number
+  overall_status: 'passing' | 'partial' | 'failing'
+}
+
+export interface ComplianceReport {
+  report_id: string
+  generated_at: string
+  period: { from: string; to: string }
+  tenant_id?: string
+  framework: string
+  summary: ComplianceReportSummary
+  controls: ComplianceControlResult[]
+  chain_hash?: string
+}
+
+export interface AuditChainResponse {
+  valid: number
+  length: number
+  errors: string[]
+  integrity: boolean
 }
