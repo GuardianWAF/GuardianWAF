@@ -89,7 +89,7 @@ Defined in `internal/engine/layer.go`. **29 layers** are registered in the main 
 | 1 | SIEM | Passive event forwarding to SIEM systems (Splunk, ELK, ArcSight) |
 | 75 | Cluster | HTTP gossip + leader election; distributes IP bans across nodes |
 | 76 | WebSocket | WebSocket handshake validation, connection limits |
-| 78 | gRPC | gRPC request validation, method allowlists |
+| 78 | gRPC | gRPC request validation, method allowlists, protobuf wire format + schema validation |
 | 85 | Zero Trust | mTLS client verification, device attestation, session trust levels |
 | 95 | Canary | Canary release routing (% traffic to canary upstream) |
 | 100 | IP ACL | Radix tree CIDR matching, runtime add/remove, auto-ban |
