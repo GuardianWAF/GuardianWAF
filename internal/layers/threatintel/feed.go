@@ -66,6 +66,27 @@ func NewFeedManager(config *FeedConfig) *FeedManager {
 	if config.SkipSSLVerify {
 		log.Printf("[threat-intel] WARNING: SkipSSLVerify is deprecated and ignored — TLS verification is always enforced for feed URLs")
 	}
+	// Prevent SSRF: validate resolved IPs unless explicitly allowed (tests only)
+	if !config.AllowPrivateURLs {
+		dialer := &net.Dialer{Timeout: 10 * time.Second}
+		transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				host = addr
+				port = ""
+			}
+			ips, err := net.LookupIP(host)
+			if err != nil {
+				return nil, fmt.Errorf("threat-intel SSRF dial: DNS lookup failed for %q: %w", host, err)
+			}
+			for _, ip := range ips {
+				if !ip.IsLoopback() && !ip.IsPrivate() && !ip.IsLinkLocalUnicast() && !ip.IsUnspecified() {
+					return dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+				}
+			}
+			return nil, fmt.Errorf("threat-intel SSRF dial: all IPs for %q are private/loopback", host)
+		}
+	}
 	return &FeedManager{
 		config: *config,
 		client: &http.Client{
@@ -399,7 +420,11 @@ func parseInt(s string) (int, error) {
 		if c < '0' || c > '9' {
 			return 0, fmt.Errorf("invalid integer")
 		}
-		n = n*10 + int(c-'0')
+		next := n*10 + int(c-'0')
+		if next < n {
+			return 0, fmt.Errorf("integer overflow")
+		}
+		n = next
 	}
 	if neg {
 		n = -n

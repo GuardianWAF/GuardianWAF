@@ -3,6 +3,7 @@ package events
 import (
 	"bufio"
 	"encoding/json"
+	"log"
 	"os"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
@@ -52,11 +53,17 @@ func (ps *PersistentMemoryStore) Store(event engine.Event) error {
 	}
 
 	if ps.file != nil {
+		ps.mu.Lock()
 		data, err := json.Marshal(event)
 		if err == nil {
-			ps.file.Write(data)
-			ps.file.Write([]byte("\n"))
+			if _, werr := ps.file.Write(data); werr != nil {
+				log.Printf("[events] failed to write event to JSONL: %v", werr)
+			}
+			if _, werr := ps.file.Write([]byte("\n")); werr != nil {
+				log.Printf("[events] failed to write newline to JSONL: %v", werr)
+			}
 		}
+		ps.mu.Unlock()
 	}
 
 	return nil

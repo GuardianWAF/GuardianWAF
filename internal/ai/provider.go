@@ -229,7 +229,7 @@ func FetchCatalog(catalogURL string) (*Catalog, error) {
 		return nil, fmt.Errorf("catalog HTTP %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 50*1024*1024)) // 50MB max
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 5*1024*1024)) // 5MB max
 	if err != nil {
 		return nil, fmt.Errorf("reading catalog: %w", err)
 	}

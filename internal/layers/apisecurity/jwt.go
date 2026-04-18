@@ -49,6 +49,7 @@ type JWTValidator struct {
 	jwksCache   *sync.Map // kid -> crypto.PublicKey
 	client      *http.Client
 	stopCh      chan struct{}
+	wg          sync.WaitGroup
 	ssrfChecked bool // tracks if JWKS URL SSRF validation passed
 }
 
@@ -100,8 +101,10 @@ func NewJWTValidator(cfg JWTConfig) (*JWTValidator, error) {
 			return nil, fmt.Errorf("JWKS URL rejected: %w", err)
 		}
 		v.ssrfChecked = true
-		go v.fetchJWKS()
-		go v.refreshJWKSPeriodically(5 * time.Minute)
+		v.wg.Add(1)
+		go func() { defer v.wg.Done(); v.fetchJWKS() }()
+		v.wg.Add(1)
+		go func() { defer v.wg.Done(); v.refreshJWKSPeriodically(5 * time.Minute) }()
 	}
 
 	// Warn if using default algorithm whitelist — production deployments should
@@ -494,6 +497,7 @@ func (v *JWTValidator) Stop() {
 	default:
 		close(v.stopCh)
 	}
+	v.wg.Wait()
 }
 
 // Helper functions

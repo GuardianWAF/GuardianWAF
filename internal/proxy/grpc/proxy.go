@@ -406,7 +406,14 @@ func copyHeaders(dst, src http.Header) {
 func writeGRPCError(w http.ResponseWriter, code int, message string) {
 	w.Header().Set("Content-Type", ContentTypeGRPC)
 	w.Header().Set("grpc-status", fmt.Sprintf("%d", code))
-	w.Header().Set("grpc-message", message)
+	// Sanitize message to prevent CRLF/header injection
+	safe := strings.Map(func(r rune) rune {
+		if r == '\r' || r == '\n' {
+			return ' '
+		}
+		return r
+	}, message)
+	w.Header().Set("grpc-message", safe)
 	w.WriteHeader(http.StatusOK) // gRPC always returns 200 OK with trailers
 	_, _ = w.Write([]byte{})    // Empty body - error ignored (client disconnect)
 }

@@ -60,11 +60,24 @@ func NewClient(cfg ClientConfig) *Client {
 				}
 			} else if strings.EqualFold(host, "localhost") {
 				log.Fatalf("[ai] FATAL: AI endpoint targets localhost — SSRF risk")
+			} else {
+				// Resolve hostname and validate all resulting IPs
+				addrs, err := net.LookupHost(host)
+				if err != nil {
+					log.Fatalf("[ai] FATAL: AI endpoint hostname %q DNS lookup failed: %v", host, err)
+				}
+				for _, addr := range addrs {
+					if ip := net.ParseIP(addr); ip != nil {
+						if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+							log.Fatalf("[ai] FATAL: AI endpoint hostname %q resolves to private/loopback address: %s", host, addr)
+						}
+					}
+				}
 			}
 		}
 	}
 
-	// Build HTTP client with optional TLS configuration
+	// Build HTTP client with SSRF-safe DialContext
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{
 			MinVersion: tls.VersionTLS12,
@@ -72,6 +85,9 @@ func NewClient(cfg ClientConfig) *Client {
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:  10 * time.Second,
 		ResponseHeaderTimeout: 30 * time.Second,
+	}
+	if !cfg.AllowPrivateEndpoint && !testAllowPrivate {
+		transport.DialContext = aiSSRFDialContext()
 	}
 	if cfg.TLSServerName != "" {
 		transport.TLSClientConfig.ServerName = cfg.TLSServerName
@@ -190,3 +206,32 @@ func (c *Client) TestConnection(ctx context.Context) error {
 
 // Note: Client is immutable after creation. Use Analyzer.UpdateProvider()
 // to swap the entire client atomically for thread safety.
+
+// aiSSRFDialContext returns a DialContext that validates resolved IPs at
+// connection time to prevent DNS rebinding SSRF attacks.
+func aiSSRFDialContext() func(ctx context.Context, network, addr string) (net.Conn, error) {
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			host = addr
+			port = ""
+		}
+		ips, err := net.LookupIP(host)
+		if err != nil {
+			return nil, fmt.Errorf("SSRF dial: DNS lookup failed for %q: %w", host, err)
+		}
+		var validIP net.IP
+		for _, ip := range ips {
+			if !ip.IsLoopback() && !ip.IsPrivate() && !ip.IsLinkLocalUnicast() && !ip.IsUnspecified() {
+				validIP = ip
+				break
+			}
+		}
+		if validIP == nil {
+			return nil, fmt.Errorf("SSRF dial: all IPs for %q are private/loopback", host)
+		}
+		target := net.JoinHostPort(validIP.String(), port)
+		return dialer.DialContext(ctx, network, target)
+	}
+}

@@ -156,6 +156,7 @@ func New(eng *engine.Engine, store events.EventStore, apiKey string) *Dashboard 
 	}
 
 	go d.cleanupLoginBuckets()
+	go cleanupRevokedSessionsLoop()
 
 	// Login/logout (always accessible)
 	d.mux.HandleFunc("GET /login", d.handleLoginPage)
@@ -266,7 +267,8 @@ func (d *Dashboard) SSE() *SSEBroadcaster {
 
 func (d *Dashboard) authWrap(handler http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !d.isAuthenticated(r) {
+		r, ok := d.isAuthenticated(r)
+		if !ok {
 			// API requests get 401 JSON, browser requests get redirected to login
 			if strings.HasPrefix(r.URL.Path, "/api/") {
 				writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
@@ -274,6 +276,16 @@ func (d *Dashboard) authWrap(handler http.HandlerFunc) http.HandlerFunc {
 				http.Redirect(w, r, "/login", http.StatusFound)
 			}
 			return
+		}
+
+		// Enforce tenant API key scoping: tenant keys cannot access admin-only endpoints
+		if getAuthType(r) == authTenant {
+			for _, prefix := range adminOnlyPrefixes {
+				if strings.HasPrefix(r.URL.Path, prefix) {
+					writeJSON(w, http.StatusForbidden, map[string]any{"error": "tenant-scoped API key cannot access this endpoint"})
+					return
+				}
+			}
 		}
 
 		// Refresh session cookie on each request (sliding idle timeout)
@@ -298,6 +310,8 @@ func (d *Dashboard) authWrap(handler http.HandlerFunc) http.HandlerFunc {
 // These endpoints expose sensitive runtime data (goroutine stacks, memory profiles).
 func (d *Dashboard) pprofWrap(handler http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Use RemoteAddr directly - never trust X-Forwarded-For for pprof access.
+		// If behind a reverse proxy, ensure pprof is not exposed externally.
 		host, _, err := net.SplitHostPort(r.RemoteAddr)
 		if err != nil {
 			http.Error(w, "connection error", http.StatusBadRequest)
@@ -317,7 +331,7 @@ func (d *Dashboard) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
-	if d.isAuthenticated(r) {
+	if _, ok := d.isAuthenticated(r); ok {
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
@@ -797,12 +811,12 @@ func (d *Dashboard) handleUpdateRouting(w http.ResponseWriter, r *http.Request) 
 					if v, ok := tm["url"].(string); ok {
 						parsed, urlErr := url.Parse(v)
 						if urlErr != nil {
-							writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid target URL: "+urlErr.Error()})
+							writeJSON(w, http.StatusBadRequest, map[string]any{"error": sanitizeErr(urlErr)})
 							return
 						}
 						if !proxy.PrivateTargetsAllowed() {
 						if ssrfErr := proxy.IsPrivateOrReservedIP(parsed.Hostname()); ssrfErr != nil {
-							writeJSON(w, http.StatusBadRequest, map[string]any{"error": "upstream target blocked: "+ssrfErr.Error()})
+							writeJSON(w, http.StatusBadRequest, map[string]any{"error": sanitizeErr(ssrfErr)})
 							return
 						}
 					}
@@ -895,7 +909,7 @@ func (d *Dashboard) handleUpdateRouting(w http.ResponseWriter, r *http.Request) 
 	config.ValidateRoutesExported(cfg.Routes, cfg.Upstreams, ve)
 	config.ValidateVirtualHostsExported(cfg.VirtualHosts, cfg.Upstreams, ve)
 	if ve.HasErrors() {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": ve.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": sanitizeErr(ve)})
 		return
 	}
 
@@ -1210,6 +1224,9 @@ func (d *Dashboard) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 			cfg.Alerting.Enabled = v
 		}
 	}
+
+	// Audit log for security-critical config changes
+	d.logSecurityConfigChanges(d.engine.Config(), cfg, r)
 
 	if err := d.engine.Reload(cfg); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
@@ -2487,9 +2504,7 @@ func (d *Dashboard) handleTestAlert(w http.ResponseWriter, r *http.Request) {
 func deepCopyConfig(cfg *config.Config) *config.Config {
 	data, err := json.Marshal(cfg)
 	if err != nil {
-		// Fallback: return a shallow copy (better than nothing)
-		cp := *cfg
-		return &cp
+		panic("deepCopyConfig: failed to marshal config: " + err.Error())
 	}
 	cp := &config.Config{}
 	if err := json.Unmarshal(data, cp); err != nil {
@@ -2507,4 +2522,32 @@ func maskURL(rawURL string) string {
 		return "***"
 	}
 	return u.Scheme + "://" + u.Host
+}
+
+// logSecurityConfigChanges logs when security features are disabled via the config API.
+func (d *Dashboard) logSecurityConfigChanges(oldCfg, newCfg *config.Config, r *http.Request) {
+	securityFields := []struct {
+		name string
+		old  bool
+		new  bool
+	}{
+		{"detection", oldCfg.WAF.Detection.Enabled, newCfg.WAF.Detection.Enabled},
+		{"rate_limit", oldCfg.WAF.RateLimit.Enabled, newCfg.WAF.RateLimit.Enabled},
+		{"sanitizer", oldCfg.WAF.Sanitizer.Enabled, newCfg.WAF.Sanitizer.Enabled},
+		{"bot_detection", oldCfg.WAF.BotDetection.Enabled, newCfg.WAF.BotDetection.Enabled},
+		{"challenge", oldCfg.WAF.Challenge.Enabled, newCfg.WAF.Challenge.Enabled},
+		{"ip_acl", oldCfg.WAF.IPACL.Enabled, newCfg.WAF.IPACL.Enabled},
+		{"cors", oldCfg.WAF.CORS.Enabled, newCfg.WAF.CORS.Enabled},
+		{"ato_protection", oldCfg.WAF.ATOProtection.Enabled, newCfg.WAF.ATOProtection.Enabled},
+		{"api_security", oldCfg.WAF.APISecurity.Enabled, newCfg.WAF.APISecurity.Enabled},
+		{"dlp", oldCfg.WAF.DLP.Enabled, newCfg.WAF.DLP.Enabled},
+		{"ml_anomaly", oldCfg.WAF.MLAnomaly.Enabled, newCfg.WAF.MLAnomaly.Enabled},
+		{"crs", oldCfg.WAF.CRS.Enabled, newCfg.WAF.CRS.Enabled},
+	}
+	clientIP := clientIPFromRequest(r)
+	for _, f := range securityFields {
+		if f.old && !f.new {
+			fmt.Printf("[SECURITY-AUDIT]  Security feature %q DISABLED by %s", f.name, clientIP)
+		}
+	}
 }

@@ -260,6 +260,19 @@ func validateAIEndpointURL(rawURL string) error {
 		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
 			return fmt.Errorf("AI endpoint URL must not target private/loopback/link-local addresses")
 		}
+		return nil
+	}
+	// Resolve hostname and validate all resulting IPs
+	addrs, err := net.LookupHost(host)
+	if err != nil {
+		return fmt.Errorf("DNS lookup failed for %q: %w", host, err)
+	}
+	for _, addr := range addrs {
+		if ip := net.ParseIP(addr); ip != nil {
+			if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+				return fmt.Errorf("AI endpoint hostname %q resolves to private/loopback address %s", host, addr)
+			}
+		}
 	}
 	return nil
 }

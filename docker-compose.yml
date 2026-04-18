@@ -4,7 +4,7 @@
 
 services:
   guardianwaf:
-    image: ghcr.io/guardianwaf/guardianwaf:latest
+    image: ghcr.io/guardianwaf/guardianwaf:latest  # pin to semver tag for production
     container_name: guardianwaf
     ports:
       - "18080:8088"   # HTTP proxy port

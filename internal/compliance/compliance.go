@@ -3,10 +3,12 @@
 package compliance
 
 import (
+	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -124,6 +126,7 @@ type Engine struct {
 	controls []Control
 	chain    []ChainEntry
 	lastHash string
+	file     *os.File // JSONL persistence file (nil if no persist_path configured)
 }
 
 // NewEngine creates a new compliance engine with built-in controls.
@@ -133,7 +136,47 @@ func NewEngine(cfg config.ComplianceConfig) *Engine {
 		controls: builtinControls(),
 		lastHash: "genesis",
 	}
+	e.replayChain(cfg.AuditTrail.PersistPath)
+	if cfg.AuditTrail.PersistPath != "" {
+		f, err := os.OpenFile(cfg.AuditTrail.PersistPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+		if err == nil {
+			e.file = f
+		}
+	}
 	return e
+}
+
+// Close flushes and closes the persistence file.
+func (e *Engine) Close() {
+	if e.file != nil {
+		e.file.Sync()
+		e.file.Close()
+	}
+}
+
+// replayChain loads audit chain entries from a JSONL file on startup.
+func (e *Engine) replayChain(path string) {
+	if path == "" {
+		return
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+
+	for scanner.Scan() {
+		var entry ChainEntry
+		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
+			continue
+		}
+		e.chain = append(e.chain, entry)
+		e.lastHash = entry.Hash
+	}
 }
 
 // Controls returns all registered controls.
@@ -275,6 +318,14 @@ func (e *Engine) AppendChain(entryType string, data any) ChainEntry {
 
 	e.chain = append(e.chain, entry)
 	e.lastHash = entry.Hash
+
+	// Append to JSONL file
+	if e.file != nil {
+		if data, err := json.Marshal(entry); err == nil {
+			e.file.Write(data)
+			e.file.Write([]byte("\n"))
+		}
+	}
 
 	return entry
 }

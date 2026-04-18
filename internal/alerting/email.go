@@ -144,19 +144,29 @@ func (m *Manager) buildSMTPMessage(from string, to []string, subject, body strin
 	return []byte(strings.Join(headers, "\r\n") + body)
 }
 
+// sanitizeTemplateValue strips control characters from event values used in templates.
+func sanitizeTemplateValue(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 && r != '\t' && r != '\n' && r != '\r' {
+			return -1
+		}
+		return r
+	}, s)
+}
+
 // buildEmailBody constructs the email body from template or default format.
 func (m *Manager) buildEmailBody(cfg config.EmailConfig, event *engine.Event) string {
 	if cfg.Template != "" {
 		// Simple template substitution
 		body := cfg.Template
-		body = strings.ReplaceAll(body, "{{EventID}}", event.ID)
-		body = strings.ReplaceAll(body, "{{ClientIP}}", event.ClientIP)
-		body = strings.ReplaceAll(body, "{{Method}}", event.Method)
-		body = strings.ReplaceAll(body, "{{Path}}", event.Path)
+		body = strings.ReplaceAll(body, "{{EventID}}", sanitizeTemplateValue(event.ID))
+		body = strings.ReplaceAll(body, "{{ClientIP}}", sanitizeTemplateValue(event.ClientIP))
+		body = strings.ReplaceAll(body, "{{Method}}", sanitizeTemplateValue(event.Method))
+		body = strings.ReplaceAll(body, "{{Path}}", sanitizeTemplateValue(event.Path))
 		body = strings.ReplaceAll(body, "{{Action}}", event.Action.String())
 		body = strings.ReplaceAll(body, "{{Score}}", fmt.Sprintf("%d", event.Score))
 		body = strings.ReplaceAll(body, "{{Timestamp}}", event.Timestamp.Format(time.RFC3339))
-		body = strings.ReplaceAll(body, "{{UserAgent}}", event.UserAgent)
+		body = strings.ReplaceAll(body, "{{UserAgent}}", sanitizeTemplateValue(event.UserAgent))
 		return body
 	}
 

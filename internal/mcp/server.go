@@ -4,6 +4,7 @@ package mcp
 
 import (
 	"bufio"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -131,7 +132,7 @@ func (s *Server) isAuthenticated(key string) bool {
 	if s.apiKey == "" {
 		return true // No auth required when no key is set
 	}
-	return key == s.apiKey
+	return subtle.ConstantTimeCompare([]byte(key), []byte(s.apiKey)) == 1
 }
 
 func (s *Server) checkAuth() bool {

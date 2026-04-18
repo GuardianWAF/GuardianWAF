@@ -93,6 +93,9 @@ func paranoiaToMultiplier(level int) float64 {
 
 // Add adds a finding to the accumulator
 func (sa *ScoreAccumulator) Add(f *Finding) {
+	if f.Score < 0 {
+		f.Score = 0
+	}
 	f.MatchedValue = truncateEvidence(f.MatchedValue, 200)
 	sa.findings = append(sa.findings, *f)
 	sa.totalScore += f.Score

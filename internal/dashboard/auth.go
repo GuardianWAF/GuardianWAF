@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -131,12 +132,28 @@ func verifySession(token, clientIP string) bool {
 // This provides immediate session invalidation on logout/compromise.
 func RevokeSession(token string) {
 	if token != "" {
-		revokedSessions.Store(token, true)
-		// Also remove from active sessions tracking
-		// We can't cheaply know which IP owns the token in stateless design,
-		// so we just mark it revoked — verifySession will reject it anyway.
-		// The activeSessions map for each IP will be cleaned up lazily on next
-		// session creation when the expired token is encountered.
+		revokedSessions.Store(token, time.Now())
+	}
+}
+
+// cleanupRevokedSessions removes revoked session tokens that have exceeded
+// sessionAbsMaxAge — they can never be valid anyway, so keeping them is wasteful.
+func cleanupRevokedSessions() {
+	cutoff := time.Now().Add(-sessionAbsMaxAge)
+	revokedSessions.Range(func(k, v any) bool {
+		if t, ok := v.(time.Time); ok && t.Before(cutoff) {
+			revokedSessions.Delete(k)
+		}
+		return true
+	})
+}
+
+// cleanupRevokedSessionsLoop runs periodic cleanup of expired revoked tokens.
+func cleanupRevokedSessionsLoop() {
+	ticker := time.NewTicker(sessionAbsMaxAge)
+	defer ticker.Stop()
+	for range ticker.C {
+		cleanupRevokedSessions()
 	}
 }
 
@@ -203,19 +220,29 @@ func clientIPFromRequest(r *http.Request) string {
 // Path format: /t/{tenant-id}/... (e.g. /t/tenant-abc/api/v1/events)
 // Header format: X-Tenant-ID header (for API clients)
 func extractTenantID(r *http.Request) string {
+	var raw string
 	// Try path prefix /t/{tenant-id}/
 	if strings.HasPrefix(r.URL.Path, "/t/") {
 		path := strings.TrimPrefix(r.URL.Path, "/t/")
 		if idx := strings.Index(path, "/"); idx > 0 {
-			return path[:idx]
-		}
-		// /t/{id} with nothing after is also valid tenant ref
-		if path != "" && !strings.Contains(path, "/") {
-			return path
+			raw = path[:idx]
+		} else if path != "" && !strings.Contains(path, "/") {
+			raw = path
 		}
 	}
-	// Fallback: X-Tenant-ID header
-	return r.Header.Get("X-Tenant-ID")
+	if raw == "" {
+		raw = r.Header.Get("X-Tenant-ID")
+	}
+	// Validate: max 64 chars, alphanumeric + dash + underscore + dot only
+	if len(raw) > 64 {
+		return ""
+	}
+	for _, c := range raw {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.') {
+			return ""
+		}
+	}
+	return raw
 }
 
 // verifyTenantAPIKey checks if an API key matches a stored hash.
@@ -280,30 +307,70 @@ func deriveAPIKey(password, salt []byte, iterations int) []byte {
 //
 // For multi-tenant deployments, per-tenant API keys should be used instead of the global
 // dashboard key. The global key grants system-wide access and should be rotated if compromised.
-func (d *Dashboard) isAuthenticated(r *http.Request) bool {
+// authTypeCtxKey and authTenantCtxKey are context keys for auth scoping.
+type authTypeCtxKey struct{}
+type authTenantCtxKey struct{}
+
+const (
+	authGlobalKey = "global_key"
+	authTenant    = "tenant_key"
+	authSession   = "session"
+)
+
+// adminOnlyPrefixes lists API path prefixes that require global key or session auth.
+// Tenant-scoped API keys are restricted to read-only data endpoints.
+var adminOnlyPrefixes = []string{
+	"/api/v1/config",
+	"/api/v1/routing",
+	"/api/v1/ipacl",
+	"/api/v1/bans",
+	"/api/v1/ai/config",
+	"/api/v1/ai/analyze",
+	"/api/v1/ai/test",
+	"/api/v1/alerting/webhooks",
+	"/api/v1/alerting/emails",
+	"/api/v1/alerting/test",
+	"/api/v1/rules",
+	"/api/v1/compliance",
+}
+
+func setAuthInfo(r *http.Request, authType, tenantID string) *http.Request {
+	ctx := context.WithValue(r.Context(), authTypeCtxKey{}, authType)
+	if tenantID != "" {
+		ctx = context.WithValue(ctx, authTenantCtxKey{}, tenantID)
+	}
+	return r.WithContext(ctx)
+}
+
+func getAuthType(r *http.Request) string {
+	if v, ok := r.Context().Value(authTypeCtxKey{}).(string); ok {
+		return v
+	}
+	return ""
+}
+
+func (d *Dashboard) isAuthenticated(r *http.Request) (*http.Request, bool) {
 	if d.apiKey == "" {
-		// This should never happen — main.go auto-generates an API key.
-		// Library users must set one via SetSessionSecret() or New(..., apiKey).
 		log.Printf("[ERROR] Dashboard API key is not configured — refusing request. Set apiKey before starting the dashboard.")
-		return false
+		return r, false
 	}
 
-	// Check API key header (for programmatic access)
+	// Check global API key header (for programmatic access)
 	if key := r.Header.Get("X-API-Key"); key != "" && subtle.ConstantTimeCompare([]byte(key), []byte(d.apiKey)) == 1 {
-		return true
+		return setAuthInfo(r, authGlobalKey, ""), true
 	}
-	// Reject API keys in query parameters — they leak via access logs, browser history, and Referer headers
+	// Reject API keys in query parameters
 	if r.URL.Query().Get("api_key") != "" {
 		log.Printf("[WARN] Rejected API key from query parameter from %s — use X-API-Key header only", r.RemoteAddr)
-		return false
+		return r, false
 	}
 
-	// Check per-tenant API key (AUTH-003): key is scoped to a specific tenant
+	// Check per-tenant API key (AUTH-003): scoped to a specific tenant
 	tenantID := extractTenantID(r)
 	if tenantID != "" && d.tenantAPIKeys != nil {
 		if hash, ok := d.tenantAPIKeys[tenantID]; ok {
 			if key := r.Header.Get("X-API-Key"); key != "" && verifyTenantAPIKey(hash, key) {
-				return true
+				return setAuthInfo(r, authTenant, tenantID), true
 			}
 		}
 	}
@@ -311,9 +378,12 @@ func (d *Dashboard) isAuthenticated(r *http.Request) bool {
 	// Check session cookie (for browser access)
 	cookie, err := r.Cookie(sessionCookieName)
 	if err != nil {
-		return false
+		return r, false
 	}
-	return verifySession(cookie.Value, clientIPFromRequest(r))
+	if verifySession(cookie.Value, clientIPFromRequest(r)) {
+		return setAuthInfo(r, authSession, ""), true
+	}
+	return r, false
 }
 
 // setSessionCookie sets the session cookie on the response with proper security flags.

@@ -127,6 +127,9 @@ func (rb *RedisBackend) readResponse() ([]byte, error) {
 		if size == -1 {
 			return nil, nil // nil bulk string
 		}
+		if size > 10*1024*1024 {
+			return nil, fmt.Errorf("redis bulk string too large: %d bytes", size)
+		}
 		buf := make([]byte, size+2) // +2 for \r\n
 		_, err = io.ReadFull(rb.reader, buf)
 		if err != nil {

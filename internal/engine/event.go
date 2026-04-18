@@ -1,7 +1,9 @@
 package engine
 
 import (
+	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -92,7 +94,37 @@ type Event struct {
 	ServerName     string `json:"sni,omitempty"`
 }
 
-// NewEvent creates an Event from a RequestContext after pipeline processing.
+// sensitiveQueryParamNames are redacted from event query strings to prevent
+// credential leakage in logs and dashboard displays. Case-insensitive matching.
+var sensitiveQueryParamNames = map[string]bool{
+	"token": true, "access_token": true, "refresh_token": true, "id_token": true,
+	"api_key": true, "apikey": true, "secret": true, "password": true, "passwd": true,
+	"credential": true, "private_key": true, "auth": true, "session_id": true,
+	"sessionid": true, "csrf_token": true, "xsrf_token": true, "jwt": true,
+	"authorization": true, "client_secret": true, "redirect_uri": true,
+}
+
+// redactSensitiveQueryParams replaces values of sensitive query parameters with "[REDACTED]".
+func redactSensitiveQueryParams(rawQuery string) string {
+	if rawQuery == "" || !strings.ContainsAny(rawQuery, "=") {
+		return rawQuery
+	}
+	vals, err := url.ParseQuery(rawQuery)
+	if err != nil {
+		return rawQuery // malformed — return as-is
+	}
+	changed := false
+	for key := range vals {
+		if sensitiveQueryParamNames[strings.ToLower(key)] {
+			vals[key] = []string{"[REDACTED]"}
+			changed = true
+		}
+	}
+	if !changed {
+		return rawQuery
+	}
+	return vals.Encode()
+}// NewEvent creates an Event from a RequestContext after pipeline processing.
 // statusCode is the HTTP response status code returned to the client.
 func NewEvent(ctx *RequestContext, statusCode int) Event {
 	var clientIP string
@@ -102,7 +134,7 @@ func NewEvent(ctx *RequestContext, statusCode int) Event {
 
 	var query string
 	if ctx.Request != nil {
-		query = ctx.Request.URL.RawQuery
+		query = redactSensitiveQueryParams(ctx.Request.URL.RawQuery)
 	}
 
 	var userAgent string

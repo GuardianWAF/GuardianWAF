@@ -235,10 +235,10 @@ func (l *Layer) extractAPIKey(headers, queryParams map[string][]string) string {
 		return key
 	}
 
-	// Try query parameter
+	// Try query parameter only if explicitly enabled
 	paramName := l.config.APIKeys.QueryParam
 	if paramName == "" {
-		paramName = "api_key"
+		return "" // Query param extraction disabled by default
 	}
 	if vals, ok := queryParams[paramName]; ok && len(vals) > 0 {
 		return vals[0]

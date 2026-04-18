@@ -294,7 +294,15 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		Body: "",
 	}
 	if ctx.Request != nil && ctx.Request.Body != nil {
-		body, _ := io.ReadAll(ctx.Request.Body)
+		body, err := io.ReadAll(io.LimitReader(ctx.Request.Body, 10*1024*1024))
+		if err != nil {
+			result.Findings = append(result.Findings, engine.Finding{
+				DetectorName: "ai_remediation",
+				Score:    0,
+				Description: "failed to read request body: " + err.Error(),
+			})
+			return result
+		}
 		rctx.Body = string(body)
 		ctx.Request.Body = io.NopCloser(bytes.NewBuffer(body))
 	}

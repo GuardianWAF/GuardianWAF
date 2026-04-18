@@ -190,7 +190,7 @@ func (h *APIValidationHandler) handleValidationConfig(w http.ResponseWriter, r *
 		}
 
 		// Get current config and update settings
-		newCfg := h.dashboard.engine.Config()
+		newCfg := deepCopyConfig(h.dashboard.engine.Config())
 		if req.ValidateRequest != nil {
 			newCfg.WAF.APIValidation.ValidateRequest = *req.ValidateRequest
 		}

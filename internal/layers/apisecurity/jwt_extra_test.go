@@ -1689,9 +1689,12 @@ func TestExtractAPIKey_QueryParam(t *testing.T) {
 	headers := map[string][]string{}
 	queryParams := map[string][]string{"api_key": {"query-key"}}
 	key := l.extractAPIKey(headers, queryParams)
-	if key != "query-key" {
-		t.Errorf("expected 'query-key', got %q", key)
+	if key != "" {
+		t.Errorf("expected empty key (query param disabled by default), got %q", key)
 	}
+
+
+
 }
 
 func TestExtractAPIKey_CustomQueryParam(t *testing.T) {
@@ -1803,11 +1806,12 @@ func TestLayerProcess_APIKeyViaQueryParam(t *testing.T) {
 	cfg := Config{
 		Enabled: true,
 		APIKeys: APIKeysConfig{
-			Enabled: true,
-			Keys: []APIKeyConfig{
-				{Name: "query-test", KeyHash: hashStr, Enabled: true},
+				Enabled:    true,
+				QueryParam: "api_key",
+				Keys: []APIKeyConfig{
+					{Name: "query-test", KeyHash: hashStr, Enabled: true},
+				},
 			},
-		},
 	}
 	layer, _ := NewLayer(&cfg)
 

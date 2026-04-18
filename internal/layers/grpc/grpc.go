@@ -586,7 +586,11 @@ func parseUint(s string) (int64, error) {
 		if c < '0' || c > '9' {
 			return 0, fmt.Errorf("invalid digit: %c", c)
 		}
-		result = result*10 + int64(c-'0')
+		next := result*10 + int64(c-'0')
+		if next < result {
+			return 0, fmt.Errorf("timeout value overflow")
+		}
+		result = next
 	}
 	return result, nil
 }

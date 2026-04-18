@@ -178,7 +178,7 @@ func (h *CRSHandler) handleConfig(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Get current config and update CRS settings
-		newCfg := h.dashboard.engine.Config()
+		newCfg := deepCopyConfig(h.dashboard.engine.Config())
 		newCfg.WAF.CRS.Enabled = req.Enabled
 		newCfg.WAF.CRS.ParanoiaLevel = req.ParanoiaLevel
 		newCfg.WAF.CRS.AnomalyThreshold = req.AnomalyThreshold

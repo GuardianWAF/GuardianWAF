@@ -103,7 +103,7 @@ func TestIsAuthenticated_NoAPIKey(t *testing.T) {
 	store := events.NewMemoryStore(100)
 	d := New(eng, store, "") // explicitly empty — should reject
 	req := httptest.NewRequest("GET", "/api/v1/stats", nil)
-	if d.isAuthenticated(req) {
+	if _, ok := d.isAuthenticated(req); ok {
 		t.Error("should NOT be authenticated when no API key configured")
 	}
 }
@@ -112,7 +112,7 @@ func TestIsAuthenticated_APIKeyHeader(t *testing.T) {
 	d := newTestDashboard(t, "secret-key")
 	req := httptest.NewRequest("GET", "/api/v1/stats", nil)
 	req.Header.Set("X-API-Key", "secret-key")
-	if !d.isAuthenticated(req) {
+	if _, ok := d.isAuthenticated(req); !ok {
 		t.Error("should be authenticated with correct API key header")
 	}
 }
@@ -120,7 +120,7 @@ func TestIsAuthenticated_APIKeyHeader(t *testing.T) {
 func TestIsAuthenticated_APIKeyQuery(t *testing.T) {
 	d := newTestDashboard(t, "secret-key")
 	req := httptest.NewRequest("GET", "/api/v1/stats?api_key=secret-key", nil)
-	if d.isAuthenticated(req) {
+	if _, ok := d.isAuthenticated(req); ok {
 		t.Error("API key in query parameter should be rejected — use X-API-Key header only")
 	}
 }
@@ -129,7 +129,7 @@ func TestIsAuthenticated_WrongKey(t *testing.T) {
 	d := newTestDashboard(t, "secret-key")
 	req := httptest.NewRequest("GET", "/api/v1/stats", nil)
 	req.Header.Set("X-API-Key", "wrong-key")
-	if d.isAuthenticated(req) {
+	if _, ok := d.isAuthenticated(req); ok {
 		t.Error("should not be authenticated with wrong key")
 	}
 }
@@ -140,7 +140,7 @@ func TestIsAuthenticated_SessionCookie(t *testing.T) {
 	req := httptest.NewRequest("GET", "/api/v1/stats", nil)
 	req.RemoteAddr = "192.0.2.1:1234"
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
-	if !d.isAuthenticated(req) {
+	if _, ok := d.isAuthenticated(req); !ok {
 		t.Error("should be authenticated with valid session cookie")
 	}
 }
@@ -148,7 +148,7 @@ func TestIsAuthenticated_SessionCookie(t *testing.T) {
 func TestIsAuthenticated_NoCreds(t *testing.T) {
 	d := newTestDashboard(t, "secret-key")
 	req := httptest.NewRequest("GET", "/api/v1/stats", nil)
-	if d.isAuthenticated(req) {
+	if _, ok := d.isAuthenticated(req); ok {
 		t.Error("should not be authenticated without credentials")
 	}
 }

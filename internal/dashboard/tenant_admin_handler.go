@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
@@ -167,7 +168,7 @@ func (h *TenantAdminHandler) getTenant(w http.ResponseWriter, r *http.Request, t
 		return
 	}
 
-	writeJSON(w, http.StatusOK, tenant)
+	writeJSON(w, http.StatusOK, sanitizeTenantResponse(tenant))
 }
 
 func (h *TenantAdminHandler) updateTenant(w http.ResponseWriter, r *http.Request, tenantID string) {
@@ -200,7 +201,7 @@ func (h *TenantAdminHandler) updateTenant(w http.ResponseWriter, r *http.Request
 	}
 
 	tenant := h.manager.GetTenant(tenantID)
-	writeJSON(w, http.StatusOK, tenant)
+	writeJSON(w, http.StatusOK, sanitizeTenantResponse(tenant))
 }
 
 func (h *TenantAdminHandler) deleteTenant(w http.ResponseWriter, r *http.Request, tenantID string) {
@@ -215,6 +216,20 @@ func (h *TenantAdminHandler) deleteTenant(w http.ResponseWriter, r *http.Request
 	}
 
 	writeJSON(w, http.StatusNoContent, nil)
+}
+
+// sanitizeTenantResponse strips sensitive fields (api_key_hash) from a tenant object.
+func sanitizeTenantResponse(tenant any) any {
+	data, err := json.Marshal(tenant)
+	if err != nil {
+		return tenant
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		return tenant
+	}
+	delete(m, "api_key_hash")
+	return m
 }
 
 func (h *TenantAdminHandler) regenerateAPIKey(w http.ResponseWriter, r *http.Request, tenantID string) {

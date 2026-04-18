@@ -13,5 +13,7 @@ RUN apk --no-cache add ca-certificates && \
 COPY --from=builder /app/guardianwaf /usr/local/bin/guardianwaf
 USER guardianwaf
 EXPOSE 8088
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+    CMD wget -qO- http://localhost:8088/healthz || exit 1
 ENTRYPOINT ["guardianwaf"]
 CMD ["sidecar", "--upstream", "http://localhost:3000"]

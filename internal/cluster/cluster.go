@@ -455,7 +455,9 @@ func (c *Cluster) broadcast(msg *Message) {
 		if node.ID == c.localNode.ID {
 			continue
 		}
+		c.wg.Add(1)
 		go func(n *Node) {
+			defer c.wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
 					log.Printf("[cluster] warning: send goroutine panic: %v", r)

@@ -735,7 +735,7 @@ const apiKeyHashIterations = 100000
 func hashAPIKey(apiKey string) string {
 	salt := make([]byte, 16)
 	if _, err := rand.Read(salt); err != nil {
-		salt = []byte(fmt.Sprintf("%d", time.Now().UnixNano()))
+		panic("crypto/rand failed: " + err.Error())
 	}
 	derived := deriveKey([]byte(apiKey), salt, apiKeyHashIterations)
 	return "v2$" + hex.EncodeToString(salt) + "$" + hex.EncodeToString(derived)

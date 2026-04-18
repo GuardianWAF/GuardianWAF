@@ -530,10 +530,11 @@ func (m *Manager) TestAlert(targetName string) error {
 
 	// Try webhooks first
 	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	for i := range m.webhooks {
 		if m.webhooks[i].config.Name == targetName {
 			cfg := m.webhooks[i].config
-			m.mu.RUnlock()
 			m.send(&cfg, &testAlert)
 			return nil
 		}
@@ -551,13 +552,11 @@ func (m *Manager) TestAlert(targetName string) error {
 				Score:     testAlert.Score,
 				UserAgent: testAlert.UserAgent,
 			}
-			m.mu.RUnlock()
 			m.SendEmail(et, &event)
 			return nil
 		}
 	}
 
-	m.mu.RUnlock()
 	return fmt.Errorf("target %s not found", targetName)
 }
 

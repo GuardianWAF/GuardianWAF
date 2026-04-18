@@ -693,7 +693,7 @@ func (i *Integrator) handleDiscoveryExport(w http.ResponseWriter, r *http.Reques
 	}
 
 	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Disposition", "attachment; filename="+filename)
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+filename+"\"")
 	_, _ = w.Write(data) // Client disconnect error ignored
 }
 

@@ -1675,8 +1675,9 @@ type ComplianceConfig struct {
 
 // AuditTrailConfig controls hash-chained audit trail.
 type AuditTrailConfig struct {
-	Enabled      bool   `yaml:"enabled"`
+	Enabled       bool   `yaml:"enabled"`
 	HashAlgorithm string `yaml:"hash_algorithm"` // "sha256" (default)
+	PersistPath   string `yaml:"persist_path"`   // JSONL file for audit chain persistence (survives restarts)
 }
 
 // RetentionConfig controls data retention per compliance framework.

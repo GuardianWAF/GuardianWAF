@@ -96,15 +96,27 @@ func (trm *TenantRulesManager) GetTenantRule(tenantID, ruleID string) *rules.Rul
 
 // AddTenantRule adds a rule to a tenant's rule set.
 func (trm *TenantRulesManager) AddTenantRule(tenantID string, rule rules.Rule, maxRules int) error {
-	// Check quota
-	currentRules := trm.GetTenantRules(tenantID)
-	if len(currentRules) >= maxRules && maxRules > 0 {
+	trm.mu.Lock()
+	defer trm.mu.Unlock()
+
+	layer, exists := trm.ruleSets[tenantID]
+	if !exists {
+		if maxRules <= 0 {
+			maxRules = trm.maxRules
+		}
+		cfg := &rules.Config{
+			Enabled: true,
+			Rules:   make([]rules.Rule, 0, maxRules),
+		}
+		layer = rules.NewLayer(cfg, nil)
+		trm.ruleSets[tenantID] = layer
+	}
+
+	// Check quota under the same lock
+	if maxRules > 0 && len(layer.Rules()) >= maxRules {
 		return ErrQuotaExceeded
 	}
 
-	layer := trm.GetRulesLayer(tenantID, maxRules)
-
-	// Add rule through layer
 	layer.AddRule(rule)
 	return nil
 }

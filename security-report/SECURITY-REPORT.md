@@ -1,367 +1,567 @@
-# GuardianWAF Security Report
+# GuardianWAF Security Assessment Report
 
-**Project:** GuardianWAF
-**Report Date:** 2026-04-16
-**Scan Scope:** Full codebase — Phase 4 Report Generation
-**Report Version:** 1.0
+**Date:** 2026-04-18
+**Scope:** Full codebase — 198 Go files (~77K lines), React dashboard (TypeScript)
+**Methodology:** 4-phase pipeline (Recon → Hunt → Verify → Report) with 6 parallel scanners
+**Scanners:** Injection, Access Control, Data Exposure, Server-Side/API, Infrastructure/Logic, Go Deep
 
 ---
 
 ## Executive Summary
 
-GuardianWAF is a zero-dependency Web Application Firewall written in Go (1.25+), module `github.com/guardianwaf/guardianwaf`. The only external Go dependency is `quic-go` (optional HTTP/3 support, disabled by default). The project ships a built-in React dashboard and MCP JSON-RPC server, with 25+ security layers in a pipeline architecture.
+GuardianWAF demonstrates **strong overall security posture**. The codebase uses constant-time comparisons for auth, SSRF DialContext protection in the proxy layer, body size limits on all endpoints, TLS 1.3 minimum, HMAC-SHA256 session tokens with IP binding, and proper CSRF/same-origin enforcement. No critical or high-severity vulnerabilities were found.
 
-This report presents findings from a comprehensive multi-phase security scan covering 339 Go files (~7,177 LOC) and ~30 TypeScript/React files (~2,624 LOC). The scan identified **90 verified security findings** across 8 attack categories, with **4 critical** and **27 high** severity issues requiring immediate attention.
+**22 medium-severity and 25 low-severity findings** were identified across 6 scan categories. The most impactful findings are:
 
-**Overall Risk Score: 54/100 (Medium)**
+1. **SSRF via DNS rebinding** in AI client (no DialContext hook)
+2. **Tenant API key scoping bypass** — per-tenant keys grant full admin access
+3. **Timing-vulnerable comparison** in MCP stdio server
+4. **CRLF injection** in gRPC proxy error responses
+5. **TOCTOU race** in tenant rule quota enforcement
 
-The project demonstrates strong security fundamentals — zero-dependency Go core, constant-time authentication comparisons, SSRF protection on JWKS fetching, and comprehensive input validation. However, critical gaps in WebSocket origin validation, rate limit bypass, cluster secret transmission, and CI/CD supply chain controls elevate the overall risk to medium.
+### Risk Distribution
 
----
+| Severity | Count | Action Required |
+|----------|-------|-----------------|
+| Critical | 0 | — |
+| High | 0 | — |
+| Medium | 22 | Fix before production |
+| Low | 25 | Fix when convenient |
+| Info | 8 | Awareness only |
 
-## Scan Statistics
+### Positive Security Controls Verified
 
-| Metric | Value |
-|--------|-------|
-| Total Files Scanned | 369 (339 Go + ~30 TypeScript) |
-| Lines of Code Analyzed | ~9,801 (7,177 Go + 2,624 TypeScript) |
-| Security Skills Executed | 48 |
-| Total Findings | 90 |
-| False Positives Eliminated | ~28 |
-| Scan Duration | Multi-phase (Phase 1-4) |
-| Critical Findings | 4 |
-| High Findings | 27 |
-| Medium Findings | 42 |
-| Low Findings | 17 |
-| Supply Chain Risk | Very Low (0 known CVEs) |
-
----
-
-## Risk Score Calculation
-
-The risk score (0-100) is derived from severity, confidence, and reachability:
-
-| Severity | Count | Avg Confidence | Reachability | Weighted Score |
-|----------|-------|----------------|--------------|----------------|
-| Critical | 4 | 86% | High (1.0) | 3.44 |
-| High | 27 | 83% | Med-High (0.75) | 16.80 |
-| Medium | 42 | 77% | Medium (0.5) | 16.17 |
-| Low | 17 | 75% | Low (0.25) | 3.19 |
-| **Raw Total** | **90** | — | — | **39.60** |
-
-**Normalized Risk Score: 54/100**
-
-**Risk Classification: MEDIUM**
-
-The 4 critical findings (WebSocket origin bypass, rate limit exhaustion, cluster auth over HTTP, pprof exposure) drive a disproportionate share of risk. Remediation of these 4 issues alone would reduce the score to approximately 35 (Medium-Low).
+- No `unsafe` package usage
+- No `InsecureSkipVerify: true` in production code
+- TLS 1.3 minimum on main listener
+- Constant-time comparison for all auth secrets (20+ locations)
+- SSRF protection with DNS-rebinding prevention via DialContext in proxy, webhook, SIEM
+- Decompression bomb protection (100:1 ratio check)
+- JWT `alg: none` rejection, algorithm confusion prevention
+- Proper session security (HttpOnly, Secure, SameSite=Strict, IP binding)
+- No SQL injection surface (no database)
+- No command injection surface (Docker client validates all input)
+- No XSS surface (JSON-only API, React auto-escaping)
+- Body size limits on all HTTP endpoints
 
 ---
 
-## Findings by Severity
+## Findings by Category
 
-### Critical (4 Findings)
+---
 
-#### VULN-001: WebSocket Origin Validation Bypass
-| Field | Value |
-|-------|-------|
-| **Severity** | Critical |
-| **Confidence** | 90% |
-| **CWE** | CWE-1385 (Missing Origin Validation in WebSocket) |
-| **File** | `internal/layers/websocket/websocket.go:187-193` |
-| **Reachability** | Network-adjacent attacker, no auth required |
-| **CVSS v3.1** | **8.1 (High)** — AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:N |
+### 1. Server-Side Request Forgery (SSRF)
 
-**Description:** The `ValidateHandshake` function checks `if len(s.config.AllowedOrigins) > 0` before performing origin validation. When `AllowedOrigins` is empty (the default), NO origin check is performed — the entire validation block is skipped. The `isAllowedOrigin` function (lines 224-269) has correct same-origin logic but is **dead code in the default configuration**. This allows any cross-origin WebSocket connection by default.
+#### SEC-001: SSRF via DNS Rebinding in AI Client (Medium)
+**CWE-918** | `internal/ai/client.go:50-89` | Confidence: HIGH
 
-**Exploit Scenario:** Attacker hosts a malicious page that initiates a WebSocket connection to the WAF's WebSocket endpoint, bypassing origin checks entirely, enabling session hijacking or data exfiltration.
+The AI client validates the base URL only at creation time and only checks raw IP literals. Hostnames are NOT resolved via DNS, and the HTTP transport has no `DialContext` hook to re-validate at connection time.
 
-**Remediation:**
 ```go
-// Fix: always check origin, use same-origin policy when AllowedOrigins is empty
-if !s.isAllowedOrigin(origin, r) {
-    return fmt.Errorf("origin not allowed: %s", origin)
+// Only checks raw IPs, not hostname DNS resolution:
+if ip := net.ParseIP(host); ip != nil {
+    if ip.IsLoopback() || ip.IsPrivate() { ... }
+} else if strings.EqualFold(host, "localhost") {
+    log.Fatalf(...)
+}
+// Hostname like "evil.internal" passes through unchecked!
+
+// HTTP client has NO DialContext hook:
+transport := &http.Transport{ ... } // no custom DialContext
+```
+
+**Impact:** An attacker who can modify the AI provider URL (via dashboard config API) could use DNS rebinding to reach internal services (metadata endpoints, localhost services).
+
+**Contrast:** The proxy layer (`internal/proxy/target.go:103-135`), webhook client (`internal/alerting/webhook.go:611-628`), and SIEM exporter all implement proper DialContext-level SSRF protection with DNS rebinding mitigation.
+
+**Recommendation:** Add a custom `DialContext` to the AI client's HTTP transport that resolves DNS, validates the IP, and dials the validated IP directly — matching the pattern used in `internal/proxy/target.go`.
+
+---
+
+#### SEC-002: SSRF — AI Endpoint URL Validation Skips DNS Resolution (Medium)
+**CWE-918** | `internal/dashboard/ai_handlers.go:246-265` | Confidence: HIGH
+
+The dashboard's `validateAIEndpointURL` function has the same gap: when a hostname is provided, `net.ParseIP` returns nil, and the function returns `nil` (no error) without resolving DNS to check if the hostname resolves to a private IP.
+
+**Recommendation:** Resolve hostnames via `net.LookupHost()` and check all resulting IPs, matching the pattern in `validateHostNotPrivate()` at `internal/alerting/webhook.go:580`.
+
+---
+
+#### SEC-003: SSRF Bypass via DNS Failure — Threat Intel & NVD Clients (Low)
+**CWE-918** | `internal/layers/threatintel/feed.go:427-431`, `internal/layers/virtualpatch/nvd.go:68-71` | Confidence: MEDIUM
+
+When DNS lookup fails in SSRF validation, the URL is allowed through. The webhook and SIEM clients mitigate this with DialContext hooks, but the threat intel feed and NVD clients do not have connection-time validation.
+
+**Recommendation:** Add DialContext hooks to threat intel and NVD HTTP clients, or block URLs when DNS fails.
+
+---
+
+### 2. Authentication & Access Control
+
+#### SEC-004: Timing-Vulnerable API Key Comparison in MCP stdio Server (Medium)
+**CWE-208** | `internal/mcp/server.go:130-135` | Confidence: HIGH
+
+```go
+return key == s.apiKey  // Standard string comparison — timing leak
+```
+
+The MCP stdio server uses standard string comparison instead of `subtle.ConstantTimeCompare`. The MCP SSE transport (`internal/mcp/sse.go:55`) correctly uses constant-time comparison, making this an oversight.
+
+**Recommendation:** Replace with `subtle.ConstantTimeCompare([]byte(key), []byte(s.apiKey)) == 1`.
+
+---
+
+#### SEC-005: Per-Tenant API Key Grants Full Dashboard Access (Medium)
+**CWE-639** | `internal/dashboard/auth.go:301-309` | Confidence: HIGH
+
+After a per-tenant API key is validated, `isAuthenticated()` returns `true` without recording which tenant was authenticated. The `authWrap` handler then grants full access to all dashboard endpoints, including admin-only operations (config update, IP ACL changes, ban management).
+
+```go
+if key := r.Header.Get("X-API-Key"); key != "" && verifyTenantAPIKey(hash, key) {
+    return true  // Full access granted — no tenant scoping!
 }
 ```
 
----
+Additionally, `extractTenantID` reads from `X-Tenant-ID` header or URL path — both client-controlled — allowing a tenant to impersonate other tenant IDs.
 
-#### VULN-002: Rate Limit Bucket Exhaustion Bypass
-| Field | Value |
-|-------|-------|
-| **Severity** | Critical |
-| **Confidence** | 75% |
-| **CWE** | CWE-770 (Allocation of Resources Without Limits) |
-| **File** | `internal/layers/ratelimit/ratelimit.go:148-149` |
-| **Reachability** | Remote attacker, no auth required |
-| **CVSS v3.1** | **7.5 (Medium)** — AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H |
+**Impact:** A tenant-scoped API key holder can access ALL dashboard API routes, not just their tenant-scoped data.
 
-**Description:** The `getOrCreateBucket()` function returns `nil` when `bucketCount >= maxBuckets` (500,000). When this happens, `bucket.Allow()` is never called — the rate limit check is silently **skipped entirely**. An attacker with many IPs (or a botnet) can exhaust the bucket limit and bypass rate limiting for all subsequent requests.
-
-**Exploit Scenario:** Attacker sends requests from 500,000+ distinct IPs to fill the bucket map. After the cap is reached, every subsequent request bypasses rate limiting, enabling unrestricted brute force or DDoS.
-
-**Remediation:** When bucket limit is reached, reject the request (return block) instead of silently skipping.
+**Recommendation:** Record the authenticated tenant ID in the request context and enforce tenant scoping on all endpoints. Reject tenant API keys on admin-only routes.
 
 ---
 
-#### VULN-003: Cluster Auth Secret Transmitted in Cleartext Over HTTP
-| Field | Value |
-|-------|-------|
-| **Severity** | Critical |
-| **Confidence** | 90% |
-| **CWE** | CWE-319 (Cleartext Transmission of Sensitive Data) |
-| **File** | `internal/cluster/cluster.go:491-495, 813-814` |
-| **Reachability** | Network attacker on cluster communication path |
-| **CVSS v3.1** | **7.1 (Medium)** — AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:H/A:N |
+#### SEC-006: MCP stdio Server Allows Unauthenticated Access When No API Key Set (Low)
+**CWE-306** | `internal/mcp/server.go:130-133` | Confidence: HIGH
 
-**Description:** When `AuthSecret` is configured but TLS is not enabled, the cluster authentication secret is transmitted in cleartext via the `X-Cluster-Auth` header in every inter-node HTTP request. A network eavesdropper can capture the secret and authenticate to other cluster nodes.
-
-**Exploit Scenario:** Network attacker captures `X-Cluster-Auth` header value, uses it to join cluster as a rogue node, receives full WAF configuration including per-tenant rules and API keys.
-
-**Remediation:** Require TLS (`tls_cert_file` + `tls_key_file`) when `AuthSecret` is configured. The existing warning at line 813-814 logs a warning but does NOT prevent transmission.
+When no API key is configured (default for stdio mode), all tool calls execute without authentication. This is intentional for local-only stdio transport, but would become critical if the stdio server were exposed via a network wrapper.
 
 ---
 
-#### VULN-004: Debug pprof Endpoints Exposed
-| Field | Value |
-|-------|-------|
-| **Severity** | Critical |
-| **Confidence** | 85% |
-| **CWE** | CWE-200 (Exposure of Sensitive Information) |
-| **File** | `internal/dashboard/dashboard.go:217-222` |
-| **Reachability** | Attacker with valid API key |
-| **CVSS v3.1** | **6.5 (Medium)** — AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:N/A:N |
+#### SEC-007: Undocumented X-Admin-Key Authentication Fallback (Low)
+**CWE-287** | `internal/tenant/handlers.go:31-42` | Confidence: HIGH
 
-**Description:** The `pprof` endpoints (`/debug/pprof/*`) are registered behind `authWrap()` which only requires the standard API key. These endpoints expose sensitive runtime data: goroutine stacks with local variables (Cmdline, Profile, Symbol, Trace), memory contents (Heap profile), and internal application state. Attackers with a valid API key can harvest this data for attack planning.
-
-**Exploit Scenario:** Attacker with valid API key accesses `/debug/pprof/heap` to find internal variable values, or `/debug/pprof/goroutine?debug=1` to map internal code structure for targeted exploitation.
-
-**Remediation:** Require a separate high-privilege key or disable pprof entirely in production. Add a separate `pprofAuthWrap` that requires additional authentication.
+The tenant handlers accept API keys via either `X-API-Key` or `X-Admin-Key` header. The fallback header is undocumented and could be missed by security audits and logging configurations.
 
 ---
 
-### High Findings (27)
+### 3. Injection
 
-| ID | Finding | CWE | File | Confidence |
-|----|---------|-----|------|------------|
-| VULN-005 | No Rate Limiting on Authentication Endpoints | CWE-307 | `ratelimit.go:16-25` | 90% |
-| VULN-006 | CI/CD — GitHub Actions Not Pinned to Commit SHAs | CWE-829 | `.github/workflows/*.yml` | 100% |
-| VULN-007 | CI/CD — No SAST Scanning in Pipeline | CWE-1194 | `.github/workflows/ci.yml` | 90% |
-| VULN-008 | CI/CD — No Container Vulnerability Scanning | CWE-1194 | `.github/workflows/release.yml` | 90% |
-| VULN-009 | CI/CD — No Secret Scanning | CWE-200 | `.github/workflows/` | 85% |
-| VULN-010 | CI/CD — No Go Dependency Vulnerability Scanning | CWE-1194 | `.github/workflows/` | 85% |
-| VULN-011 | Docker — Runs as Root | CWE-250 | `docker-compose.test.yml` | 100% |
-| VULN-012 | Docker — Missing Security Hardening | CWE-250 | `docker-compose.yml` | 100% |
-| VULN-013 | Docker — Mutable `latest` Tag | CWE-829 | `docker-compose.yml` | 100% |
-| VULN-014 | Docker — Missing Memory/CPU Resource Limits | CWE-400 | `docker-compose.yml` | 100% |
-| VULN-015 | IaC — Container Images Use `latest` Tag | CWE-829 | `contrib/k8s/*.yaml` | 100% |
-| VULN-016 | IaC — TLS Disabled in K8s ConfigMap | CWE-319 | `contrib/k8s/configmap.yaml` | 100% |
-| VULN-017 | IaC — GitHub Actions Unpinned SHAs | CWE-829 | `.github/workflows/` | 100% |
-| VULN-018 | JWT — JWKS SSRF Validation Only at Init, Not on Refresh | CWE-918 | `apisecurity/jwt.go:237-280` | 85% |
-| VULN-019 | SSRF — AI Client Only Warns on Private IPs, Doesn't Block | CWE-918 | `ai/client.go:55-63` | 80% |
-| VULN-020 | API — Offset-Based Event Pagination Allows Enumeration | CWE-200 | `dashboard/dashboard_handlers.go` | 75% |
-| VULN-021 | API — Legacy Per-Tenant API Key Uses Unsalted SHA256 | CWE-328 | `apisecurity/apikey.go` | 75% |
-| VULN-022 | Rate Limiting — Violations sync.Map Has No Cleanup | CWE-400 | `ratelimit/ratelimit.go` | 85% |
-| VULN-023 | Rate Limiting — Auto-Ban Counter Never Decrements | CWE-840 | `ratelimit/ratelimit.go:274-293` | 90% |
-| VULN-024 | Business Logic — Impossible Travel Bypass via Small Distances | CWE-840 | `ato/ato.go` | 65% |
-| VULN-025 | Business Logic — ATO Brute Force Per-Email Counter Issues | CWE-307 | `ato/ato.go` | 60% |
-| VULN-026 | Business Logic — Tenant Resolution Header-Based Impersonation | CWE-840 | `tenant/middleware.go:335-359` | 75% |
-| VULN-027 | WebSocket — Hardcoded 2MB Frame Size Inconsistent with 1MB Default | CWE-400 | `websocket/websocket.go:539` | 85% |
-| VULN-028 | CI/CD — Release Workflow Broad Write Permissions | CWE-284 | `.github/workflows/release.yml` | 80% |
-| VULN-029 | IaC — Missing Resource Limits in Kubernetes | CWE-400 | `contrib/k8s/deployment.yaml` | 85% |
+#### SEC-008: CRLF Injection in gRPC Proxy Error Responses (Medium)
+**CWE-113** | `internal/proxy/grpc/proxy.go:406-412` | Confidence: HIGH
+
+```go
+func writeGRPCError(w http.ResponseWriter, code int, message string) {
+    w.Header().Set("grpc-message", message)  // No CRLF sanitization
+    w.WriteHeader(http.StatusOK)
+}
+```
+
+The `message` parameter contains user-influenced data (e.g., `"method not allowed: <user_path>"`) and is written into an HTTP header without CRLF sanitization. The gRPC *security layer* at `internal/layers/grpc/grpc.go` correctly percent-encodes via `encodeGRPCMessage()`, but the gRPC *proxy* does not.
+
+**Recommendation:** Sanitize `message` by stripping `\r` and `\n` before setting the header, or use the existing `encodeGRPCMessage()` function.
 
 ---
 
-### Medium Findings (42)
+#### SEC-009: CRLF Injection in Content-Disposition Header (Low)
+**CWE-113** | `internal/integrations/v040/integrator.go:696` | Confidence: HIGH
 
-| ID | Finding | CWE | Confidence |
-|----|---------|-----|------------|
-| VULN-030 | JWT Default Algorithm Whitelist Restricts RS256/ES256 Only | CWE-327 | 90% |
-| VULN-031 | JWKS DNS Rebinding TOCTOU | CWE-918 | 75% |
-| VULN-032 | AI Catalog URL DNS Rebinding | CWE-918 | 70% |
-| VULN-033 | CORS — Wildcard Origin Default Config | CWE-942 | 90% |
-| VULN-034 | CORS — Missing `Vary: Origin` Header | CWE-291 | 85% |
-| VULN-035 | Session — Missing Pre-Login Session Invalidation | CWE-384 | 80% |
-| VULN-036 | Security Headers — CSP Missing `frame-ancestors` | CWE-1021 | 85% |
-| VULN-037 | Security Headers — Response Layer Defaults to SAMEORIGIN | CWE-1021 | 80% |
-| VULN-038 | File Upload — Extension Validation Without Magic Bytes | CWE-434 | 80% |
-| VULN-039 | Path Traversal — `handleDistAssets` Uses Strings.Contains | CWE-22 | 75% |
-| VULN-040 | Race Condition — GeoIP File TOCTOU | CWE-362 | 80% |
-| VULN-041 | Race Condition — TLS Certificate Hot-Reload TOCTOU | CWE-362 | 75% |
-| VULN-042 | Rate Limiting — No Per-User/Session Scope | CWE-307 | 80% |
-| VULN-043 | Auth — Static API Key with No MFA | CWE-308 | 85% |
-| VULN-044 | Auth — API Key Hash Uses Fast SHA256 | CWE-328 | 80% |
-| VULN-045 | Auth — Login Rate Limiting Per-Node Only | CWE-307 | 80% |
-| VULN-046 | JWT — Ed25519 Limited to Raw 32-byte Keys | CWE-347 | 70% |
-| VULN-047 | Open Redirect — HTTP-to-HTTPS Redirect Query Param Edge Case | CWE-601 | 70% |
-| VULN-048 | DLP — AI Analyze Endpoint Loads Unbounded Events | CWE-400 | 75% |
-| VULN-049 | Rate Limiting — TOCTOU Between Bucket Count Check and LoadOrStore | CWE-362 | 75% |
-| VULN-050 | Clientside CSP Hook Never Applied | CWE-1021 | 85% |
-| VULN-051 | CI/CD — No Concurrency Controls on CI Workflow | CWE-362 | 75% |
-| VULN-052 | CI/CD — Build Args Include GitHub Context Data | CWE-94 | 70% |
-| VULN-053 | API — DLP Pattern Test ReDoS | CWE-1333 | 70% |
-| VULN-054 | API — AI Endpoint URL Validation Bypassable via DNS Rebinding | CWE-918 | 70% |
-| VULN-055 | Tenant — Header-Based Resolution Bypass | CWE-840 | 75% |
-| VULN-056 | Rate Limiting — Per-IP Only, No Session/User Scope | CWE-307 | 80% |
-| VULN-057 | Docker — No Health Check in docker-compose.yml | CWE-665 | 85% |
-| VULN-059 | IaC — K8s Liveness Probe Points to Dashboard Port | CWE-665 | 70% |
-| VULN-060 | IaC — Missing Pod Disruption Budget | CWE-250 | 85% |
-| VULN-061 | IaC — Missing NetworkPolicy | CWE-250 | 85% |
-| VULN-062 | IaC — Missing Vertical Pod Autoscaler | CWE-400 | 85% |
-| VULN-063 | IaC — Missing Pod Topology Spread Constraints | CWE-250 | 85% |
-| VULN-064 | API — GeoIP Lookup Lacks Rate Limiting | CWE-307 | 80% |
-| VULN-065 | SMTP Password Could Leak in Error Logs | CWE-200 | 70% |
-| VULN-066 | ATO Per-Email Counter Reset on Password Change | CWE-307 | 60% |
-| VULN-067 | File Upload — MaxFileSize Check After Partial Read | CWE-400 | 65% |
-| VULN-068 | Tenant Rate Limiter Counter Reset on Auto-Ban Expiry | CWE-840 | 70% |
-| VULN-069 | Tenant Resolution Order Header-Based Impersonation | CWE-840 | 55% |
-| VULN-070 | Client Report JSON Unmarshal into map[string]any | CWE-943 | 40% |
+```go
+w.Header().Set("Content-Disposition", "attachment; filename="+filename)
+```
+
+Filename is currently hardcoded to `"api-spec.json"`, but the concatenation pattern is fragile. The dashboard's export handlers correctly quote the filename.
 
 ---
 
-### Low Findings (17)
+#### SEC-010: Email Template Injection (Low)
+**CWE-94** | `internal/alerting/email.go:148-160` | Confidence: MEDIUM
 
-| ID | Finding | CWE | Confidence |
-|----|---------|-----|------------|
-| VULN-071 | WebSocket — No Subprotocol Validation | — | 80% |
-| VULN-072 | WebSocket — No Extension Header Validation | — | 80% |
-| VULN-073 | Rate Limiting — Bucket Count Drift After Cleanup | — | 75% |
-| VULN-074 | Dashboard README Documents Incorrect Origin Validation Behavior | — | 90% |
-| VULN-075 | sync.Pool Context Field Reset Completeness Risk | — | 70% |
-| VULN-076 | Example Domains Not Updated in Kubernetes Manifests | — | 90% |
-| VULN-077 | Tenant Resolution Header-Based Impersonation (Low Confidence) | — | 55% |
-| VULN-078 | SMTP Password in Error Logs (Low Confidence) | — | 70% |
-| VULN-079 | insecureSkipVerify in CLI Test | — | 95% |
-| VULN-080 | Cluster Auth Secret Warning Logged Without Value | — | 90% |
-| VULN-081 | Build Args Include GitHub Context Data (Low) | — | 70% |
-| VULN-082 | Optional TLS Certificate May Cause Issues | — | 70% |
-| VULN-083 | Missing Vertical Pod Autoscaler (Low) | — | 85% |
-| VULN-084 | Missing Pod Topology Spread Constraints (Low) | — | 85% |
-| VULN-085 | API Validation Layer Uses any for JSON Parsing | — | 20% |
-| VULN-086 | Math/rand in Attack Simulation Tool | — | 90% |
-| VULN-087 | Dashboard README Inconsistent | — | 90% |
+Event data (ClientIP, UserAgent) from attacker-controlled requests is substituted into email templates via `strings.ReplaceAll` without sanitization. Email headers are properly sanitized via `sanitizeHeader()`, but body content is not.
+
+---
+
+### 4. Race Conditions & Concurrency
+
+#### SEC-011: TOCTOU Race in Tenant Rule Quota Enforcement (Medium)
+**CWE-367** | `internal/tenant/rules.go:98-110` | Confidence: HIGH
+
+```go
+func (trm *TenantRulesManager) AddTenantRule(tenantID string, rule rules.Rule, maxRules int) error {
+    currentRules := trm.GetTenantRules(tenantID)  // RLock + unlock
+    if len(currentRules) >= maxRules && maxRules > 0 {
+        return ErrQuotaExceeded
+    }
+    layer := trm.GetRulesLayer(tenantID, maxRules) // Separate lock acquisition
+    layer.AddRule(rule)
+    return nil
+}
+```
+
+The quota check releases the lock before adding the rule. Concurrent `AddTenantRule` calls could both pass the quota check before either adds the rule, exceeding per-tenant rule limits.
+
+**Recommendation:** Hold a write lock for the entire quota-check-and-add operation.
+
+---
+
+#### SEC-012: Config Mutation Without Deep Copy in CRS/ClientSide Handlers (Medium)
+**CWE-362** | `internal/dashboard/crs_handlers.go:181-191`, `internal/dashboard/clientside_handlers.go:80-96` | Confidence: HIGH
+
+Unlike `handleUpdateConfig` (which calls `deepCopyConfig`), the CRS and ClientSide config handlers directly mutate the shared config pointer returned by `engine.Config()`. This creates a data race with concurrent config readers.
+
+**Recommendation:** Call `deepCopyConfig()` before mutating, matching the pattern in `handleUpdateConfig`.
+
+---
+
+#### SEC-013: Persistent Event Store File Writes Without Synchronization (Low)
+**CWE-366** | `internal/events/persistent.go:49-62` | Confidence: HIGH
+
+The `Store` method writes to the JSONL file outside the lock. Concurrent writes could interleave partial lines.
+
+---
+
+#### SEC-014: deepCopyConfig Shallow Copy Fallback (Low)
+**CWE-362** | `internal/dashboard/dashboard.go:2487-2500` | Confidence: MEDIUM
+
+If JSON marshal fails, the fallback is a shallow copy that shares maps/slices with the original. Very low probability but creates a latent race.
+
+---
+
+#### SEC-015: Goroutine Leak in Cluster Broadcast (Low)
+**CWE-404** | `internal/cluster/cluster.go:458-469` | Confidence: HIGH
+
+The `broadcast` method launches goroutines per node without WaitGroup tracking. No clean cancellation path on shutdown.
+
+---
+
+#### SEC-016: Fire-and-forget JWKS Fetch Goroutine (Low)
+**CWE-404** | `internal/layers/apisecurity/jwt.go:103` | Confidence: HIGH
+
+Initial `fetchJWKS()` is launched without WaitGroup tracking. Mitigated by 10-second timeout.
+
+---
+
+### 5. Data Exposure
+
+#### SEC-017: Raw Query Strings Stored in WAF Events (Medium)
+**CWE-532** | `internal/engine/event.go:105` | Confidence: HIGH
+
+```go
+query = ctx.Request.URL.RawQuery
+```
+
+The raw query string (which may contain tokens, session IDs, PII parameters) is stored in every WAF event and persisted to event storage. This is by design for forensic analysis, but operators should be aware of the data sensitivity.
+
+**Recommendation:** Add configurable query parameter redaction for known sensitive parameter names (e.g., `token`, `session_id`, `password`, `api_key`).
+
+---
+
+#### SEC-018: Tenant Admin Handler Returns API Key Hashes (Medium)
+**CWE-200** | `internal/dashboard/tenant_admin_handler.go:158-171` | Confidence: HIGH
+
+The admin handler's `getTenant` and `listTenants` methods return the raw tenant object including `api_key_hash`. The tenant package's own handlers properly sanitize via `sanitizeTenant()`, but the admin handler bypasses this.
+
+**Recommendation:** Filter `api_key_hash` from GET responses, matching the pattern in `internal/tenant/handlers.go`.
+
+---
+
+#### SEC-019: Raw Errors Leaked in 3 API Responses (Low)
+**CWE-209** | `internal/dashboard/dashboard.go:800,805,898` | Confidence: HIGH
+
+Three locations bypass the `sanitizeErr()` function and return raw error details to clients. The rest of the codebase properly sanitizes errors.
+
+---
+
+#### SEC-020: pprof Endpoints on localhost (Low — Mitigated)
+**CWE-215** | `internal/dashboard/dashboard.go:220-225,297-313` | Confidence: HIGH
+
+pprof is restricted to localhost via `r.RemoteAddr` check. Secure for standalone deployments, but could be an issue if behind a reverse proxy making all connections appear as 127.0.0.1.
+
+---
+
+### 6. Cryptographic Issues
+
+#### SEC-021: Weak Crypto Fallback in Tenant API Key Hash Salt (Medium)
+**CWE-330** | `internal/tenant/manager.go:737-738` | Confidence: HIGH
+
+```go
+if _, err := rand.Read(salt); err != nil {
+    salt = []byte(fmt.Sprintf("%d", time.Now().UnixNano()))
+}
+```
+
+If `crypto/rand.Read` fails, the salt fallsbacks to a nanosecond timestamp — predictable if key creation time is known. The auth.go password generation correctly treats `crypto/rand` failure as fatal.
+
+**Recommendation:** Fail fatally on `crypto/rand` error instead of falling back.
+
+---
+
+#### SEC-022: JWT Algorithm Confusion Protection is Conditional (Low)
+**CWE-327** | `internal/layers/apisecurity/jwt.go:222-230` | Confidence: HIGH
+
+HMAC algorithms are only blocked when asymmetric key sources are configured. The default whitelist (RS256/ES256) is safe, but explicit permissive configuration could allow algorithm confusion.
+
+---
+
+### 7. Resource Exhaustion
+
+#### SEC-023: Unbounded Body Read in AI Remediation Handler (Medium)
+**CWE-770** | `internal/ai/remediation/handler.go:297` | Confidence: HIGH
+
+```go
+body, _ := io.ReadAll(ctx.Request.Body)  // No LimitReader, error ignored
+```
+
+Reads the original request body without `io.LimitReader`. Every other call site in the project uses `LimitReader`. The error is silently discarded.
+
+**Recommendation:** Wrap with `io.LimitReader(ctx.Request.Body, maxBodySize)` and check the error.
+
+---
+
+#### SEC-024: Redis Unbounded Bulk String Allocation (Medium)
+**CWE-770** | `internal/layers/cache/redis.go:123-135` | Confidence: HIGH
+
+```go
+size, err := strconv.Atoi(data)
+buf := make([]byte, size+2)  // No upper bound check
+```
+
+A compromised Redis server could report an extremely large bulk string size, causing OOM. No upper bound is enforced on `size` before allocation.
+
+**Recommendation:** Add a maximum size check (e.g., 10MB) before allocating the buffer.
+
+---
+
+#### SEC-025: Unbounded Revoked Sessions Map (Low)
+**CWE-770** | `internal/dashboard/auth.go:32-35,132-135` | Confidence: HIGH
+
+`revokedSessions sync.Map` grows indefinitely with no cleanup. Over time, frequent logins/logouts cause unbounded memory growth.
+
+**Recommendation:** Add periodic cleanup of expired session tokens from the revocation map.
+
+---
+
+#### SEC-026: 50MB Models.dev Catalog Fetch (Low)
+**CWE-770** | `internal/ai/provider.go:232` | Confidence: HIGH
+
+50MB limit is excessive for a JSON catalog. Most other external fetches use 1-10MB limits.
+
+---
+
+### 8. Input Validation
+
+#### SEC-027: gRPC Timeout Parsing Integer Overflow (Low)
+**CWE-190** | `internal/layers/grpc/grpc.go:548-577` | Confidence: HIGH
+
+Custom `parseUint` accumulates into `int64` without overflow checking. Impact is limited since the timeout is informational, not enforced.
+
+---
+
+#### SEC-028: Tenant ID Not Validated for Format/Length (Low)
+**CWE-20** | `internal/dashboard/auth.go:206-219` | Confidence: MEDIUM
+
+Tenant IDs from URL paths and `X-Tenant-ID` headers are not validated for length or character format.
+
+---
+
+#### SEC-029: Score Accumulator Accepts Negative Scores (Low)
+**CWE-20** | `internal/engine/finding.go:95-99` | Confidence: LOW
+
+No enforcement that detector scores are non-negative. Currently theoretical — all detectors produce positive scores.
+
+---
+
+#### SEC-030: Integer Overflow in Custom parseInt (Low)
+**CWE-190** | `internal/layers/threatintel/feed.go:391-408` | Confidence: MEDIUM
+
+Custom integer parser lacks overflow checking. Only affects threat intel feed scores.
+
+---
+
+### 9. CI/CD Security
+
+#### SEC-031: Unpinned GitHub Actions in Release Workflow (Medium)
+**CWE-1353** | `.github/workflows/release.yml:45,54,61,86,95,101,105` | Confidence: HIGH
+
+All third-party actions use version tags (`@v6`, `@v0`) instead of commit SHA pins. An attacker who compromises an action repo could replace the tag. The CI workflow has an `actions-hardened` job that defines SHA pins, but the release workflow does NOT use those pinned values.
+
+**Recommendation:** Pin all actions to commit SHAs. See OWASP CI/CD security guidelines.
+
+---
+
+#### SEC-032: Script Injection in CI Benchmark Job (Medium)
+**CWE-78** | `.github/workflows/ci.yml:145-161` | Confidence: HIGH
+
+```yaml
+git checkout origin/${{ github.base_ref }}
+```
+
+`github.base_ref` is used directly in a shell command without sanitization. A crafted branch name with shell metacharacters could execute arbitrary commands.
+
+**Recommendation:** Use environment variable: `env: BASE_REF: ${{ github.base_ref }}` then `git checkout "origin/${BASE_REF}"`.
+
+---
+
+#### SEC-033: CI Actions-Hardened Job is Advisory Only (Low)
+**CWE-1353** | `.github/workflows/ci.yml:17-29` | Confidence: HIGH
+
+The `actions-hardened` job reports pin violations but does not prevent actual jobs from using unpinned actions.
+
+---
+
+### 10. Session Management
+
+#### SEC-034: Session Token Rotation Without Old Token Revocation (Low)
+**CWE-613** | `internal/dashboard/dashboard.go:280-282` | Confidence: HIGH
+
+Every authenticated request generates a new session cookie. Previous tokens remain valid until they independently expire. Mitigated by IP binding and short expiry.
+
+---
+
+#### SEC-035: No CSRF Protection on GET Logout Without Origin Header (Low)
+**CWE-352** | `internal/dashboard/dashboard.go:455-478` | Confidence: MEDIUM
+
+GET logout only checks CSRF when the `Origin` header is present. Impact is limited to session invalidation.
+
+---
+
+### 11. Infrastructure
+
+#### SEC-036: Docker Compose Uses :latest Tag (Low)
+**CWE-829** | `docker-compose.yml:8` | Confidence: HIGH
+
+Dev compose uses `ghcr.io/guardianwaf/guardianwaf:latest`. The prod compose and release workflow use semver tags.
+
+---
+
+#### SEC-037: Sidecar Dockerfile Missing Health Check (Low)
+**CWE-778** | `examples/sidecar/Dockerfile` | Confidence: HIGH
+
+No HEALTHCHECK directive in the sidecar Dockerfile. Compensated by compose-level healthcheck.
+
+---
+
+#### SEC-038: 0.0.0.0 Default Bind Addresses (Info)
+**CWE-1327** | `internal/config/defaults.go:295`, `internal/cluster/cluster.go:67` | Confidence: HIGH
+
+Cluster sync and cluster modules default to `0.0.0.0`. Auth is enforced, but requires explicit configuration before production use.
+
+---
+
+### 12. Business Logic
+
+#### SEC-039: Dashboard Config API Allows Disabling All Security (Medium)
+**CWE-862** | `internal/dashboard/dashboard.go:1126-1228` | Confidence: HIGH
+
+The `PUT /api/v1/config` endpoint allows toggling off all security features. Requires authentication, but a compromised key enables total WAF disabling.
+
+**Recommendation:** Add confirmation/audit logging for security feature disable operations.
+
+---
+
+#### SEC-040: Compliance Audit Chain is In-Memory Only (Medium)
+**CWE-312** | `internal/compliance/compliance.go:120-127` | Confidence: HIGH
+
+The hash chain design is correct, but the chain is lost on restart. This undermines the compliance value — a restart allows rewriting history since there is no persisted genesis state.
+
+**Recommendation:** Persist the audit chain to disk (like events are persisted to JSONL).
+
+---
+
+### 13. API Security
+
+#### SEC-041: API Keys Accepted via Query Parameters in WAF API Security Layer (Medium)
+**CWE-598** | `internal/layers/apisecurity/apisecurity.go:228-248` | Confidence: HIGH
+
+The WAF's API security layer for protecting upstream APIs accepts API keys via query parameters by default (`api_key`). This leaks keys via access logs, browser history, and Referer headers. The dashboard correctly rejects query parameter keys.
+
+**Recommendation:** Make query parameter API key extraction opt-in rather than default behavior.
+
+---
+
+#### SEC-042: Silent Write Errors in Persistent Event Store (Low)
+**CWE-775** | `internal/events/persistent.go:56-59` | Confidence: HIGH
+
+File write errors are silently ignored. Events could be silently dropped on disk full or stale file descriptor.
+
+---
+
+#### SEC-043: Fragile Multi-Return RLock Pattern in Webhook TestAlert (Low)
+`internal/alerting/webhook.go:532-560` | Confidence: MEDIUM
+
+Multiple RUnlock points create a maintenance risk for future modifications.
 
 ---
 
 ## Remediation Roadmap
 
-### Phase 1: Immediate (Critical — Fix Within 1 Week)
+### Priority 1 — Fix Before Production (Medium Severity)
 
-| Finding | Remediation | Effort |
-|---------|-------------|--------|
-| **VULN-001** WebSocket Origin Bypass | Remove `if len(s.config.AllowedOrigins) > 0` guard in `websocket.go:188`; always call `isAllowedOrigin()` | Low |
-| **VULN-002** Rate Limit Bucket Exhaustion | Return block/error when bucket limit is reached instead of nil-skip in `ratelimit.go:148` | Low |
-| **VULN-003** Cluster Auth Over HTTP | Require TLS when `AuthSecret` is configured; add enforcement check in `cluster.go` | Medium |
-| **VULN-004** pprof Endpoints | Add separate `pprofAuthWrap` with elevated auth requirement, or disable in non-dev modes | Medium |
+| ID | Finding | Effort | File |
+|----|---------|--------|------|
+| SEC-001 | AI client SSRF — add DialContext hook | Medium | `internal/ai/client.go` |
+| SEC-002 | AI endpoint URL — add DNS resolution | Small | `internal/dashboard/ai_handlers.go` |
+| SEC-004 | MCP stdio timing-safe comparison | Small | `internal/mcp/server.go` |
+| SEC-005 | Tenant API key scoping | Medium | `internal/dashboard/auth.go` |
+| SEC-008 | gRPC proxy CRLF sanitization | Small | `internal/proxy/grpc/proxy.go` |
+| SEC-011 | TOCTOU in tenant rule quota | Small | `internal/tenant/rules.go` |
+| SEC-012 | Deep copy in CRS/ClientSide handlers | Small | `internal/dashboard/crs_handlers.go` |
+| SEC-021 | Fatal on crypto/rand failure | Small | `internal/tenant/manager.go` |
+| SEC-023 | LimitReader in remediation handler | Small | `internal/ai/remediation/handler.go` |
+| SEC-024 | Redis bulk string size limit | Small | `internal/layers/cache/redis.go` |
+| SEC-031 | Pin GitHub Actions to SHAs | Medium | `.github/workflows/release.yml` |
+| SEC-032 | Fix CI script injection | Small | `.github/workflows/ci.yml` |
+| SEC-039 | Audit log for security disable | Small | `internal/dashboard/dashboard.go` |
+| SEC-040 | Persist compliance audit chain | Medium | `internal/compliance/compliance.go` |
+| SEC-041 | Make query param API keys opt-in | Small | `internal/layers/apisecurity/apisecurity.go` |
+| SEC-017 | Query string redaction in events | Medium | `internal/engine/event.go` |
+| SEC-018 | Filter API key hash from admin responses | Small | `internal/dashboard/tenant_admin_handler.go` |
 
-**Risk Reduction:** These 4 fixes reduce the overall risk score from 54 to approximately 35.
+### Priority 2 — Fix When Convenient (Low Severity)
 
----
-
-### Phase 2: Short-Term (High — Fix Within 2–4 Weeks)
-
-| Category | Findings | Actions |
-|----------|----------|---------|
-| **CI/CD Supply Chain** | VULN-006, VULN-007, VULN-008, VULN-009, VULN-010, VULN-028 | Pin all GitHub Actions to SHA commits; add SAST (golangci-lint/gosec), Trivy container scanning, TruffleHog secret scanning, govulncheck |
-| **Docker Hardening** | VULN-011, VULN-012, VULN-013, VULN-014 | Add `USER guardianwaf`, `security_opt`, `cap_drop: ALL`, `read_only: true`, memory/CPU limits, pinned tags |
-| **IaC Hardening** | VULN-015, VULN-016, VULN-017, VULN-029 | Pin image tags to versions, enable TLS, add K8s resource limits |
-| **Rate Limiting Gaps** | VULN-005, VULN-022, VULN-023 | Add per-user/session rate limit scope; add violations cleanup; add auto-ban counter decrement |
-| **SSRF Gaps** | VULN-018, VULN-019 | Re-validate JWKS URL on refresh; make AI client block private IPs on fetch |
-
----
-
-### Phase 3: Medium-Term (Medium — Fix Within 1–2 Months)
-
-| Category | Count | Key Actions |
-|----------|-------|-------------|
-| JWT Security | 4 | Default algorithm warning improvement; JWKS refresh re-validation; Ed25519 key format support |
-| Authentication | 4 | Add MFA support; migrate SHA256 API keys to bcrypt; per-node login rate limit to distributed |
-| Session Security | 2 | Pre-login session invalidation; `Vary: Origin` header in CORS |
-| Security Headers | 3 | Add `frame-ancestors` to CSP; change `X-Frame-Options` default to `DENY` |
-| Business Logic | 4 | Impossible travel ML detection; per-email counter persistence across password changes; tenant header validation |
-| Container/K8s | 5 | Health checks; Pod Disruption Budget; NetworkPolicy; Vertical Pod Autoscaler; topology spread |
-| Race Conditions | 4 | GeoIP TOCTOU fix; TLS hot-reload TOCTOU fix; rate limit bucket TOCTOU fix |
-
----
-
-### Phase 4: Long-Term (Low — Hardening Over 3+ Months)
-
-| Category | Count | Actions |
-|----------|-------|---------|
-| WebSocket Hardening | 3 | Subprotocol validation; extension header validation; frame size config consistency |
-| Kubernetes Production | 4 | NetworkPolicy; Pod Disruption Budget; Vertical Pod Autoscaler; topology spread constraints |
-| Operational Hardening | 4 | Bucket drift monitoring; context sync.Pool completeness audits; example domain cleanup |
-| Code Quality | 4 | ReDoS-safe DLP pattern testing; API pagination tenant scoping; unbounded event loading fix |
-| Documentation | 2 | WebSocket README correction; dashboard README consistency |
-
----
-
-## False Positives Eliminated Summary
-
-The following categories were investigated and determined to be **false positives** or **not applicable**:
-
-| Category | Count | Determination |
-|----------|-------|---------------|
-| SQL Injection | — | N/A — No SQL database in codebase |
-| XXE | — | N/A — No XML parsing |
-| RCE | — | N/A — No RCE vectors |
-| LDAP Injection | — | N/A — No LDAP usage |
-| Deserialization | — | Secure — Safe formats only (JSON, gob for local disk) |
-| CSRF (Dashboard) | — | Secure — Origin/Referer validation + SameSite=Strict |
-| XSS | — | Secure — React JSX auto-escaping, `escapeHTML()` in Go |
-| Header Injection | — | Secure — Go net/http panics on CRLF; `setSafeHeader` provides defense |
-| Open Redirect | — | Secure — Host header validated, protocol-relative URLs stripped |
-| Cookie Security | — | Secure — HttpOnly, Secure, SameSite all correctly set |
-| Mass Assignment | — | Secure — Typed structs with explicit field allowlists |
-| Authorization/IDOR | — | Secure — All findings were positive confirmations |
-| SSRF in Proxy/Alerting/SIEM | — | Secure — `IsPrivateOrReservedIP` + DNS re-validation present |
-| JWT Algorithm Confusion | — | Secure — HMAC blocked when asymmetric keys configured |
-| JWT alg "none" rejection | — | Secure — Function explicitly rejects empty/none algo |
-| GraphQL Security Controls | — | Secure — max depth, complexity, introspection blocking all present |
-| CRS Regex Timeout | — | Secure — Go regexp is RE2 (linear); 5s timeout also applied |
-| IP ACL Count++ Race | — | FALSE POSITIVE — Count protected by `Layer.mu` mutex |
-| Math/rand in attack simulation | — | INFO — Testing tool, not production |
-| Secrets in test files | — | FALSE POSITIVE — Test/demo values only |
-| CMDi in Docker client | — | FALSE POSITIVE — `isSafeContainerRef()` allowlists all IDs |
-| Hardcoded credentials | — | SECURE — All from config/env, not hardcoded |
-| YAML unsafe tags | — | FALSE POSITIVE — Documentary only, parser does not support |
-| `dangerouslySetInnerHTML` in CodeBlock | — | FALSE POSITIVE — Content pre-HTML-encoded before use |
-| Theme localStorage | — | INFO — Non-sensitive UI preference |
-| sync.Map in rate limiting | — | SECURE — Appropriate for append-mostly workloads (ADR-0029) |
-
-**Total eliminated: ~28 findings**
+| ID | Finding | Effort |
+|----|---------|--------|
+| SEC-003 | SSRF DialContext for threat intel/NVD | Medium |
+| SEC-006 | MCP stdio auth documentation | Small |
+| SEC-007 | Document X-Admin-Key header | Small |
+| SEC-009 | Quote Content-Disposition filename | Small |
+| SEC-010 | Sanitize email template substitutions | Small |
+| SEC-013 | Synchronize persistent store file writes | Small |
+| SEC-014 | Handle deepCopyConfig failure better | Small |
+| SEC-015 | Add WaitGroup to cluster broadcast | Small |
+| SEC-016 | Add WaitGroup to JWKS fetch | Small |
+| SEC-019 | Apply sanitizeErr to 3 remaining error paths | Small |
+| SEC-020 | pprof reverse proxy awareness | Small |
+| SEC-022 | Document JWT algorithm scoping | Small |
+| SEC-025 | Add revoked sessions cleanup | Small |
+| SEC-026 | Reduce models.dev fetch limit | Small |
+| SEC-027 | Add overflow check to parseUint | Small |
+| SEC-028 | Validate tenant ID format | Small |
+| SEC-029 | Clamp negative scores in ScoreAccumulator | Small |
+| SEC-030 | Add overflow check to parseInt | Small |
+| SEC-033 | Enforce action pinning in CI | Medium |
+| SEC-034 | Document session rotation behavior | Small |
+| SEC-035 | Evaluate POST-only logout | Small |
+| SEC-036 | Pin docker-compose image tag | Small |
+| SEC-037 | Add health check to sidecar Dockerfile | Small |
+| SEC-042 | Log file write errors in persistent store | Small |
+| SEC-043 | Refactor webhook RLock pattern | Small |
 
 ---
 
-## Security Strengths
+## Categories With No Findings
 
-GuardianWAF demonstrates strong security fundamentals in several key areas:
-
-1. **Zero External Go Dependencies** — The core WAF engine has zero external dependencies, minimizing the attack surface and eliminating supply chain risk from Go code. The only dependency (`quic-go`) is optional and disabled by default.
-
-2. **Constant-Time Authentication Comparisons** — HMAC-signed session tokens, API key validation, and cluster auth all use constant-time comparisons to prevent timing attacks.
-
-3. **SSRF Protection on JWKS Fetching** — The JWT validator rejects private/reserved IPs when fetching JWKS, and refreshes validate URLs before each fetch (VULN-018 notes the refresh gap).
-
-4. **Trusted Proxy Support** — X-Forwarded-For is only trusted from configured CIDRs, preventing IP spoofing via forwarded headers.
-
-5. **SMTP Header Injection Prevention** — CRLF sanitization on all email headers (From, To, Subject) prevents SMTP header injection.
-
-6. **Decompression Bomb Detection** — 100:1 ratio limit on decompressed content prevents zip bomb attacks.
-
-7. **Multi-Tenant Isolation** — Per-tenant WAF config (`TenantWAFConfig`) is read directly by each layer in a race-free manner, ensuring complete tenant isolation.
-
-8. **Input Validation** — Comprehensive sanitization: max URL length, header count limits, null byte blocking, HTTP method allowlisting, encoding normalization.
-
-9. **React JSX Auto-Escaping** — The dashboard frontend benefits from React's built-in XSS prevention via automatic HTML escaping in JSX.
-
-10. **Docker Socket Not Mounted in Production** — `docker-compose.prod.yml` correctly does NOT mount the Docker socket, preventing container escape scenarios.
-
-11. **Cookie Security Attributes** — Dashboard sessions use `HttpOnly`, `Secure`, and `SameSite=Strict` flags correctly.
-
-12. **Synchronized Pool for Request Context** — `sync.Pool` allocation for `RequestContext` minimizes GC pressure and reduces zero-allocation hot paths.
-
----
-
-*Report generated by sc-report (Phase 4 Report Generator)*
-*Scan date: 2026-04-16*
-*Total findings: 90 (4 Critical, 27 High, 42 Medium, 17 Low)*
+| Category | Status | Notes |
+|----------|--------|-------|
+| SQL Injection | CLEAN | No database layer, no SQL query construction |
+| Command Injection | CLEAN | Docker client validates all input via `isSafeContainerRef` |
+| XSS | CLEAN | JSON-only API, React auto-escaping, `html.EscapeString` on login page |
+| XXE | CLEAN | No XML parsing anywhere |
+| LDAP Injection | CLEAN | No LDAP libraries or queries |
+| SSTI | CLEAN | No Go template engine usage |
+| Path Traversal | CLEAN | Assets served from `embed.FS`, path traversal checked |
+| Open Redirect | CLEAN | All redirects use hardcoded internal paths |
+| CORS (WAF Layer) | CLEAN | No origin reflection, explicit allowlist, null origin blocked |
+| WebSocket Origin | CLEAN | Proper same-origin enforcement |
+| Rate Limit IP Spoofing | CLEAN | Trusted proxy model properly implemented |
+| Unsafe Deserialization | CLEAN | No `gob.Decode`, no `json.Unmarshal` into `interface{}` |
+| Hardcoded Production Credentials | CLEAN | All production credentials are auto-generated or required |

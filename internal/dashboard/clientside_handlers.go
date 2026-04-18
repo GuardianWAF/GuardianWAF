@@ -77,7 +77,7 @@ func (h *ClientSideHandler) handleConfig(w http.ResponseWriter, r *http.Request)
 		}
 
 		// Get current config and update settings
-		newCfg := h.dashboard.engine.Config()
+		newCfg := deepCopyConfig(h.dashboard.engine.Config())
 		if req.Mode != nil {
 			newCfg.WAF.ClientSide.Mode = *req.Mode
 		}
