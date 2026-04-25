@@ -118,7 +118,7 @@ func parseAIAOCSP(data []byte) string {
 			return ""
 		}
 		for _, item := range outer {
-			url := parseAccessDescription(item.Bytes)
+			url := parseAccessDescription(item.FullBytes)
 			if url != "" {
 				return url
 			}
@@ -134,7 +134,7 @@ func parseAIAOCSP(data []byte) string {
 	}
 
 	for _, desc := range descs {
-		url := parseAccessDescription(desc.Bytes)
+		url := parseAccessDescription(desc.FullBytes)
 		if url != "" {
 			return url
 		}
