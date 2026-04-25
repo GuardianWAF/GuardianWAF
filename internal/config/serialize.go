@@ -206,7 +206,7 @@ func marshalInlineField(b *strings.Builder, key string, fv reflect.Value, indent
 		} else if elemKind == reflect.Struct {
 			// Bug 2 fix: struct slices inside sequence items — block style
 			fmt.Fprintf(b, "%s:\n", key)
-			childPrefix := strings.Repeat("  ", indent)
+			childPrefix := strings.Repeat("  ", indent+1)
 			for i := range fv.Len() {
 				elem := fv.Index(i)
 				et := elem.Type()
@@ -233,7 +233,6 @@ func marshalInlineField(b *strings.Builder, key string, fv reflect.Value, indent
 			}
 		}
 	case reflect.Struct:
-		// Bug 1 fix: was indent, must be indent+1 so child fields are indented under the key
 		fmt.Fprintf(b, "%s:\n", key)
 		marshalStruct(b, fv, fv.Type(), indent+1)
 	case reflect.Ptr:
