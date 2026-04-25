@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/quic-go/quic-go"
@@ -58,6 +59,7 @@ type Server struct {
 	handler      http.Handler
 	tlsConfig    *tls.Config
 	altSvcHeader string
+	wg           sync.WaitGroup
 }
 
 // NewServer creates a new HTTP/3 server.
@@ -131,8 +133,10 @@ func (s *Server) Start() error {
 	}
 	s.listener = ln
 
-	// Start serving in a goroutine
+	// Start serving in a tracked goroutine
+	s.wg.Add(1)
 	go func() {
+		defer s.wg.Done()
 		if err := s.http3Server.ServeListener(s.listener); err != nil && err != http.ErrServerClosed {
 					slog.Warn("HTTP/3 server error", "error", err)
 
@@ -154,7 +158,9 @@ func (s *Server) Stop() error {
 	}
 
 	// Close the HTTP/3 server
-	return s.http3Server.Close()
+	err := s.http3Server.Close()
+	s.wg.Wait() // Wait for serve goroutine to finish
+	return err
 }
 
 // AltSvcHeader returns the Alt-Svc header value for HTTP/2 upgrade hints.

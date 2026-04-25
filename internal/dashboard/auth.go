@@ -163,11 +163,17 @@ func cleanupRevokedSessions() {
 }
 
 // cleanupRevokedSessionsLoop runs periodic cleanup of expired revoked tokens.
-func cleanupRevokedSessionsLoop() {
+// Stops when the provided channel is closed.
+func cleanupRevokedSessionsLoop(stopCh <-chan struct{}) {
 	ticker := time.NewTicker(sessionAbsMaxAge)
 	defer ticker.Stop()
-	for range ticker.C {
-		cleanupRevokedSessions()
+	for {
+		select {
+		case <-ticker.C:
+			cleanupRevokedSessions()
+		case <-stopCh:
+			return
+		}
 	}
 }
 
@@ -281,18 +287,26 @@ func verifyAPIKeyHash(storedHash, apiKey string) (matched bool, upgrade bool) {
 	return subtle.ConstantTimeCompare([]byte(storedHash), []byte(hex.EncodeToString(expected[:]))) == 1, true
 }
 
-// deriveAPIKey performs iterated HMAC-SHA256 key derivation.
+// deriveAPIKey performs standard PBKDF2-HMAC-SHA256 key derivation.
 func deriveAPIKey(password, salt []byte, iterations int) []byte {
+	// U_1 = HMAC(password, salt)
 	mac := hmac.New(sha256.New, password)
 	mac.Write(salt)
 	result := mac.Sum(nil)
+
+	// U_i = HMAC(password, U_{i-1}); result ^= U_i
+	u := make([]byte, len(result))
+	copy(u, result)
+
 	for range iterations - 1 {
 		mac.Reset()
-		result = mac.Sum(result)
+		mac.Write(u)
+		u = mac.Sum(u[:0])
+		for i := range result {
+			result[i] ^= u[i]
+		}
 	}
-	out := make([]byte, len(result))
-	copy(out, result)
-	return out
+	return result
 }
 
 // isAuthenticated checks if the request has a valid session cookie, global dashboard API key,

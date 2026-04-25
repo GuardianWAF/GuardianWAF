@@ -156,7 +156,7 @@ func New(eng *engine.Engine, store events.EventStore, apiKey string) *Dashboard 
 	}
 
 	go d.cleanupLoginBuckets()
-	go cleanupRevokedSessionsLoop()
+	go cleanupRevokedSessionsLoop(d.loginStopCh)
 
 	// Login/logout (always accessible)
 	d.mux.HandleFunc("GET /login", d.handleLoginPage)

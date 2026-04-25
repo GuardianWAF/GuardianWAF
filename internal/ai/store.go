@@ -3,6 +3,7 @@ package ai
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -139,7 +140,7 @@ func NewStore(dirPath string) *Store {
 }
 
 // SetEncryptionKey sets the AES-256 key used to encrypt the API key at rest.
-// Derives a 32-byte key from the provided secret using SHA-256.
+// Derives a 32-byte key from the provided secret using iterated HMAC-SHA256.
 // If secret is empty, encryption is disabled (plaintext storage).
 // When called on a store that has an unencrypted key, the next save will encrypt it.
 func (s *Store) SetEncryptionKey(secret string) {
@@ -149,9 +150,11 @@ func (s *Store) SetEncryptionKey(secret string) {
 		s.mu.Unlock()
 		return
 	}
-	h := sha256.Sum256([]byte(secret))
+	// Salted key derivation with 10k iterations for brute-force resistance
+	salt := []byte("guardianwaf-ai-enc-v1")
+	derived := deriveStoreKey([]byte(secret), salt, 10000)
 	s.mu.Lock()
-	s.encKey = h[:]
+	s.encKey = derived
 	// Decrypt API key if it was stored encrypted
 	if strings.HasPrefix(s.data.Config.APIKey, encPrefix) {
 		if dec, err := decryptValue(s.data.Config.APIKey[len(encPrefix):], s.encKey); err == nil {
@@ -401,4 +404,24 @@ func (s *Store) loadOrCreateEncKey() {
 		log.Printf("[ai-store] WARNING: failed to persist encryption key — API key may not survive restart: %v", err)
 	}
 	s.encKey = key
+}
+
+// deriveStoreKey performs PBKDF2-HMAC-SHA256 key derivation for the AI store.
+func deriveStoreKey(password, salt []byte, iterations int) []byte {
+	mac := hmac.New(sha256.New, password)
+	mac.Write(salt)
+	result := mac.Sum(nil)
+
+	u := make([]byte, len(result))
+	copy(u, result)
+
+	for range iterations - 1 {
+		mac.Reset()
+		mac.Write(u)
+		u = mac.Sum(u[:0])
+		for i := range result {
+			result[i] ^= u[i]
+		}
+	}
+	return result
 }
