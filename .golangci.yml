@@ -1,6 +1,8 @@
-version: "2"
+run:
+  timeout: 5m
 
 linters:
+  disable-all: true
   enable:
     - govet
     - staticcheck
@@ -10,7 +12,7 @@ linters:
     - misspell
     - revive
 
-settings:
+linters-settings:
   govet:
     enable-all: false
     enable:
