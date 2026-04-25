@@ -212,12 +212,12 @@ jobs:
         docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
           aquasec/trivy:latest image \
           --severity HIGH,CRITICAL \
-          --exit-code 0 \
+          --exit-code 1 \
           --no-progress \
           golang:1.25-alpine
     - name: Scan Dockerfile for misconfigs
       run: |
-        docker run --rm -v $(pwd):/workspace aquasec/trivy:latest config /workspace --exit-code 0
+        docker run --rm -v $(pwd):/workspace aquasec/trivy:latest config /workspace --exit-code 1
 
   lighthouse:
     needs: [build-dashboard, build-go]

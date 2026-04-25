@@ -138,6 +138,15 @@ func verifySession(token, clientIP string) bool {
 func RevokeSession(token string) {
 	if token != "" {
 		revokedSessions.Store(token, time.Now())
+		// Proactive cleanup: if the map grows large, run cleanup immediately
+		count := 0
+		revokedSessions.Range(func(_, _ any) bool {
+			count++
+			return count < 10000
+		})
+		if count >= 10000 {
+			cleanupRevokedSessions()
+		}
 	}
 }
 
