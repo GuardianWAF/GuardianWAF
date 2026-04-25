@@ -136,3 +136,133 @@ func TestFormatDuration(t *testing.T) {
 		}
 	}
 }
+
+// TestMarshalYAML_UpstreamTargets verifies that Upstreams with nested Targets
+// and HealthCheck are fully serialized and survive a roundtrip.
+// Covers Bug 2 (struct slice in inline context) and Bug 1 (nested struct indentation).
+func TestMarshalYAML_UpstreamTargets(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Upstreams = []UpstreamConfig{
+		{
+			Name: "backend",
+			Targets: []TargetConfig{
+				{URL: "http://localhost:3000", Weight: 1},
+			},
+			HealthCheck: HealthCheckConfig{
+				Enabled:  true,
+				Interval: 30 * time.Second,
+				Path:     "/health",
+			},
+			LoadBalancer: "round_robin",
+		},
+	}
+
+	out := MarshalYAML(cfg)
+
+	if !strings.Contains(out, "targets:") {
+		t.Errorf("expected 'targets:' in output (Bug 2 regression); got:\n%s", out)
+	}
+	if !strings.Contains(out, "http://localhost:3000") {
+		t.Errorf("expected target URL in output; got:\n%s", out)
+	}
+	if !strings.Contains(out, "health_check:") {
+		t.Errorf("expected 'health_check:' in output; got:\n%s", out)
+	}
+
+	// Roundtrip: parse back and verify values (also catches Bug 1 indentation)
+	node, err := Parse([]byte(out))
+	if err != nil {
+		t.Fatalf("Parse error after marshal: %v\nYAML:\n%s", err, out)
+	}
+	cfg2 := DefaultConfig()
+	if err := PopulateFromNode(cfg2, node); err != nil {
+		t.Fatalf("PopulateFromNode error: %v", err)
+	}
+	if len(cfg2.Upstreams) != 1 {
+		t.Fatalf("expected 1 upstream after roundtrip, got %d", len(cfg2.Upstreams))
+	}
+	if len(cfg2.Upstreams[0].Targets) != 1 {
+		t.Fatalf("expected 1 target after roundtrip, got %d", len(cfg2.Upstreams[0].Targets))
+	}
+	if cfg2.Upstreams[0].Targets[0].URL != "http://localhost:3000" {
+		t.Errorf("target URL: got %q, want %q", cfg2.Upstreams[0].Targets[0].URL, "http://localhost:3000")
+	}
+	if !cfg2.Upstreams[0].HealthCheck.Enabled {
+		t.Error("expected health_check.enabled=true after roundtrip (Bug 1 regression)")
+	}
+}
+
+// TestMarshalYAML_VirtualHostRoutes verifies that VirtualHosts with nested
+// Routes are fully serialized and survive a roundtrip.
+// Covers Bug 2 (struct slice in inline context).
+func TestMarshalYAML_VirtualHostRoutes(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Upstreams = []UpstreamConfig{
+		{Name: "backend", Targets: []TargetConfig{{URL: "http://localhost:3000"}}},
+	}
+	cfg.VirtualHosts = []VirtualHostConfig{
+		{
+			Domains: []string{"api.example.com"},
+			Routes: []RouteConfig{
+				{Path: "/api", Upstream: "backend", Methods: []string{"GET", "POST"}},
+			},
+		},
+	}
+
+	out := MarshalYAML(cfg)
+
+	if !strings.Contains(out, "virtual_hosts:") {
+		t.Errorf("expected 'virtual_hosts:' in output; got:\n%s", out)
+	}
+	if !strings.Contains(out, "routes:") {
+		t.Errorf("expected 'routes:' in output (Bug 2 regression); got:\n%s", out)
+	}
+	if !strings.Contains(out, "/api") {
+		t.Errorf("expected route path '/api' in output; got:\n%s", out)
+	}
+
+	node, err := Parse([]byte(out))
+	if err != nil {
+		t.Fatalf("Parse error: %v\nYAML:\n%s", err, out)
+	}
+	cfg2 := DefaultConfig()
+	if err := PopulateFromNode(cfg2, node); err != nil {
+		t.Fatalf("PopulateFromNode error: %v", err)
+	}
+	if len(cfg2.VirtualHosts) != 1 {
+		t.Fatalf("expected 1 virtual host after roundtrip, got %d", len(cfg2.VirtualHosts))
+	}
+	if len(cfg2.VirtualHosts[0].Routes) != 1 {
+		t.Fatalf("expected 1 route after roundtrip, got %d", len(cfg2.VirtualHosts[0].Routes))
+	}
+	if cfg2.VirtualHosts[0].Routes[0].Path != "/api" {
+		t.Errorf("route path: got %q, want %q", cfg2.VirtualHosts[0].Routes[0].Path, "/api")
+	}
+}
+
+// TestMarshalYAML_VirtualHostWAFPointer verifies that the *WAFConfig pointer
+// field on VirtualHostConfig is serialized correctly.
+// Covers Bug 3 (missing reflect.Ptr case in marshalInlineField).
+func TestMarshalYAML_VirtualHostWAFPointer(t *testing.T) {
+	cfg := DefaultConfig()
+	perHostWAF := WAFConfig{}
+	perHostWAF.RateLimit.Enabled = true
+	perHostWAF.RateLimit.Rules = []RateLimitRule{
+		{ID: "vhost-limit", Scope: "ip", Limit: 50, Window: time.Minute, Action: "block"},
+	}
+	cfg.VirtualHosts = []VirtualHostConfig{
+		{
+			Domains: []string{"secure.example.com"},
+			WAF:     &perHostWAF,
+		},
+	}
+
+	out := MarshalYAML(cfg)
+
+	if !strings.Contains(out, "waf:") {
+		t.Errorf("expected 'waf:' block inside virtual_hosts entry (Bug 3 regression); got:\n%s", out)
+	}
+	if !strings.Contains(out, "vhost-limit") {
+		t.Errorf("expected rate limit rule id 'vhost-limit' in output; got:\n%s", out)
+	}
+}
