@@ -1,567 +1,296 @@
-# GuardianWAF Security Assessment Report
+# GuardianWAF Security Audit Report
 
-**Date:** 2026-04-18
-**Scope:** Full codebase — 198 Go files (~77K lines), React dashboard (TypeScript)
-**Methodology:** 4-phase pipeline (Recon → Hunt → Verify → Report) with 6 parallel scanners
-**Scanners:** Injection, Access Control, Data Exposure, Server-Side/API, Infrastructure/Logic, Go Deep
+**Date:** 2026-04-25
+**Auditor:** Claude Code Security Scanner (automated)
+**Scope:** Full codebase — 29 WAF layers, dashboard, proxy, MCP, tenant management, CI/CD, Docker
+**Methodology:** 4-phase pipeline (Recon → Hunt → Verify → Report), 48 security skill categories
 
 ---
 
 ## Executive Summary
 
-GuardianWAF demonstrates **strong overall security posture**. The codebase uses constant-time comparisons for auth, SSRF DialContext protection in the proxy layer, body size limits on all endpoints, TLS 1.3 minimum, HMAC-SHA256 session tokens with IP binding, and proper CSRF/same-origin enforcement. No critical or high-severity vulnerabilities were found.
+The audit examined the entire GuardianWAF codebase for security vulnerabilities across 10 categories: injection, authentication, access control, data exposure, cryptography, SSRF, race conditions, infrastructure, Go-specific issues, and logic flaws.
 
-**22 medium-severity and 25 low-severity findings** were identified across 6 scan categories. The most impactful findings are:
+**Overall Posture: STRONG** — The codebase demonstrates mature security practices including constant-time comparisons, HMAC-signed sessions with IP binding, PBKDF2-like key derivation, SSRF-aware dial contexts, panic recovery, and comprehensive input validation.
 
-1. **SSRF via DNS rebinding** in AI client (no DialContext hook)
-2. **Tenant API key scoping bypass** — per-tenant keys grant full admin access
-3. **Timing-vulnerable comparison** in MCP stdio server
-4. **CRLF injection** in gRPC proxy error responses
-5. **TOCTOU race** in tenant rule quota enforcement
+### Findings Summary
 
-### Risk Distribution
-
-| Severity | Count | Action Required |
-|----------|-------|-----------------|
-| Critical | 0 | — |
-| High | 0 | — |
-| Medium | 22 | Fix before production |
-| Low | 25 | Fix when convenient |
-| Info | 8 | Awareness only |
-
-### Positive Security Controls Verified
-
-- No `unsafe` package usage
-- No `InsecureSkipVerify: true` in production code
-- TLS 1.3 minimum on main listener
-- Constant-time comparison for all auth secrets (20+ locations)
-- SSRF protection with DNS-rebinding prevention via DialContext in proxy, webhook, SIEM
-- Decompression bomb protection (100:1 ratio check)
-- JWT `alg: none` rejection, algorithm confusion prevention
-- Proper session security (HttpOnly, Secure, SameSite=Strict, IP binding)
-- No SQL injection surface (no database)
-- No command injection surface (Docker client validates all input)
-- No XSS surface (JSON-only API, React auto-escaping)
-- Body size limits on all HTTP endpoints
+| Severity   | Count | Action Required |
+|------------|-------|-----------------|
+| CRITICAL   | 0     | — |
+| HIGH       | 3     | Fix before next release |
+| MEDIUM     | 12    | Fix within 1 sprint |
+| LOW        | 15    | Backlog / defense-in-depth |
+| INFO       | 8     | Awareness only |
+| **TOTAL**  | **38** | |
 
 ---
 
-## Findings by Category
+## HIGH Severity Findings
 
----
+### SEC-H01: DNS Rebinding SSRF in Webhook & SIEM Dial Contexts
 
-### 1. Server-Side Request Forgery (SSRF)
+**CVSS:** 6.5 (Medium-High) | **CWE:** CWE-367 (TOCTOU)
 
-#### SEC-001: SSRF via DNS Rebinding in AI Client (Medium)
-**CWE-918** | `internal/ai/client.go:50-89` | Confidence: HIGH
+**Files:**
+- `internal/alerting/webhook.go:610-627`
+- `internal/layers/siem/exporter.go:410-423`
 
-The AI client validates the base URL only at creation time and only checks raw IP literals. Hostnames are NOT resolved via DNS, and the HTTP transport has no `DialContext` hook to re-validate at connection time.
+**Issue:** The webhook and SIEM SSRF dial contexts validate the hostname, then pass the original `addr` (with hostname) to `dialer.DialContext()`. Go's dialer performs a second, independent DNS resolution. An attacker controlling DNS can return a public IP on first lookup and a private IP on the second — classic DNS rebinding TOCTOU.
 
+The proxy target's `SSRFDialContext` in `internal/proxy/target.go:103-137` does this **correctly** (dials validated IP directly). The webhook and SIEM contexts do not follow this pattern.
+
+**Fix:** Resolve DNS, validate, and dial the validated IP directly (replicate `proxy/target.go:SSRFDialContext` pattern):
 ```go
-// Only checks raw IPs, not hostname DNS resolution:
-if ip := net.ParseIP(host); ip != nil {
-    if ip.IsLoopback() || ip.IsPrivate() { ... }
-} else if strings.EqualFold(host, "localhost") {
-    log.Fatalf(...)
+ips, err := net.LookupIP(host)
+// ... validate ...
+target := net.JoinHostPort(validIP.String(), port)
+return dialer.DialContext(ctx, network, target)
+```
+
+---
+
+### SEC-H02: MCP SSE Handler Has No Client Connection Limit
+
+**CVSS:** 5.3 | **CWE:** CWE-770 (Uncontrolled Resource Consumption)
+
+**File:** `internal/mcp/sse.go:64-131`
+
+**Issue:** Unlike the dashboard SSE broadcaster which enforces `maxClients` (1000), the MCP SSE handler has no upper bound on concurrent connections. Each authenticated client consumes a goroutine, a struct, and a TCP connection. An attacker with a valid API key could open thousands of SSE connections to exhaust server memory.
+
+**Fix:** Add client count check before registering:
+```go
+h.mu.Lock()
+if len(h.clients) >= 256 {
+    h.mu.Unlock()
+    http.Error(w, "too many SSE connections", http.StatusServiceUnavailable)
+    return
 }
-// Hostname like "evil.internal" passes through unchecked!
-
-// HTTP client has NO DialContext hook:
-transport := &http.Transport{ ... } // no custom DialContext
+h.clients[client] = true
+h.mu.Unlock()
 ```
 
-**Impact:** An attacker who can modify the AI provider URL (via dashboard config API) could use DNS rebinding to reach internal services (metadata endpoints, localhost services).
+---
 
-**Contrast:** The proxy layer (`internal/proxy/target.go:103-135`), webhook client (`internal/alerting/webhook.go:611-628`), and SIEM exporter all implement proper DialContext-level SSRF protection with DNS rebinding mitigation.
+### SEC-H03: Website Workflow Uses Unpinned GitHub Actions
 
-**Recommendation:** Add a custom `DialContext` to the AI client's HTTP transport that resolves DNS, validates the IP, and dials the validated IP directly — matching the pattern used in `internal/proxy/target.go`.
+**CVSS:** 8.0 (Supply Chain) | **CWE:** CWE-1353
+
+**File:** `.github/workflows/website.yml`
+
+**Issue:** All actions use tag-only references (`@v4`) instead of pinned commit SHAs. The CI and release workflows correctly pin to SHAs. An attacker compromising any action repository could inject malicious code into the website deployment pipeline.
+
+**Fix:** Pin all actions to commit SHAs, consistent with `ci.yml` and `release.yml`.
 
 ---
 
-#### SEC-002: SSRF — AI Endpoint URL Validation Skips DNS Resolution (Medium)
-**CWE-918** | `internal/dashboard/ai_handlers.go:246-265` | Confidence: HIGH
+## MEDIUM Severity Findings
 
-The dashboard's `validateAIEndpointURL` function has the same gap: when a hostname is provided, `net.ParseIP` returns nil, and the function returns `nil` (no error) without resolving DNS to check if the hostname resolves to a private IP.
+### SEC-M01: MCP `processRequest` Skips Auth Check (Defense-in-Depth)
 
-**Recommendation:** Resolve hostnames via `net.LookupHost()` and check all resulting IPs, matching the pattern in `validateHostNotPrivate()` at `internal/alerting/webhook.go:580`.
+**File:** `internal/mcp/server.go:406-478`
 
----
+**Issue:** `processRequest` (used by `HandleRequestJSON`, called by SSE handler) does not check `s.authenticated` before processing `tools/call`. The SSE transport (`sse.go:49-61`) does authenticate, but `HandleRequestJSON` is a public exported method — if any caller invokes it directly, there is no auth gate.
 
-#### SEC-003: SSRF Bypass via DNS Failure — Threat Intel & NVD Clients (Low)
-**CWE-918** | `internal/layers/threatintel/feed.go:427-431`, `internal/layers/virtualpatch/nvd.go:68-71` | Confidence: MEDIUM
-
-When DNS lookup fails in SSRF validation, the URL is allowed through. The webhook and SIEM clients mitigate this with DialContext hooks, but the threat intel feed and NVD clients do not have connection-time validation.
-
-**Recommendation:** Add DialContext hooks to threat intel and NVD HTTP clients, or block URLs when DNS fails.
+**Fix:** Add authentication check to `processRequest` for `tools/call` method.
 
 ---
 
-### 2. Authentication & Access Control
+### SEC-M02: Webhook `NewManager` Bypasses SSRF Validation
 
-#### SEC-004: Timing-Vulnerable API Key Comparison in MCP stdio Server (Medium)
-**CWE-208** | `internal/mcp/server.go:130-135` | Confidence: HIGH
+**File:** `internal/alerting/webhook.go:80-109`
 
-```go
-return key == s.apiKey  // Standard string comparison — timing leak
-```
+**Issue:** `NewManager` accepts `[]WebhookTarget` and adds them directly without calling `ValidateWebhookURL`. Only `AddWebhook` (line 460) enforces HTTPS and private IP rejection. Config-loaded targets via YAML bypass SSRF validation.
 
-The MCP stdio server uses standard string comparison instead of `subtle.ConstantTimeCompare`. The MCP SSE transport (`internal/mcp/sse.go:55`) correctly uses constant-time comparison, making this an oversight.
-
-**Recommendation:** Replace with `subtle.ConstantTimeCompare([]byte(key), []byte(s.apiKey)) == 1`.
+**Fix:** Call `ValidateWebhookURL` in the `NewManager` constructor loop.
 
 ---
 
-#### SEC-005: Per-Tenant API Key Grants Full Dashboard Access (Medium)
-**CWE-639** | `internal/dashboard/auth.go:301-309` | Confidence: HIGH
+### SEC-M03: Session Registration TOCTOU Race Condition
 
-After a per-tenant API key is validated, `isAuthenticated()` returns `true` without recording which tenant was authenticated. The `authWrap` handler then grants full access to all dashboard endpoints, including admin-only operations (config update, IP ACL changes, ban management).
+**File:** `internal/dashboard/auth.go:163-204`
 
-```go
-if key := r.Header.Get("X-API-Key"); key != "" && verifyTenantAPIKey(hash, key) {
-    return true  // Full access granted — no tenant scoping!
-}
-```
+**Issue:** The count-check-evict-store sequence in `registerActiveSession` is not atomic. Two concurrent logins from the same IP could both pass the limit check, resulting in `MaxConcurrentSessionsPerIP + 1` sessions.
 
-Additionally, `extractTenantID` reads from `X-Tenant-ID` header or URL path — both client-controlled — allowing a tenant to impersonate other tenant IDs.
-
-**Impact:** A tenant-scoped API key holder can access ALL dashboard API routes, not just their tenant-scoped data.
-
-**Recommendation:** Record the authenticated tenant ID in the request context and enforce tenant scoping on all endpoints. Reject tenant API keys on admin-only routes.
+**Fix:** Use a per-IP mutex instead of `sync.Map` for active session tracking.
 
 ---
 
-#### SEC-006: MCP stdio Server Allows Unauthenticated Access When No API Key Set (Low)
-**CWE-306** | `internal/mcp/server.go:130-133` | Confidence: HIGH
+### SEC-M04: AI API Key Last 4 Characters Exposed in Dashboard
 
-When no API key is configured (default for stdio mode), all tool calls execute without authentication. This is intentional for local-only stdio transport, but would become critical if the stdio server were exposed via a network wrapper.
+**File:** `internal/dashboard/ai_handlers.go:72-78`
 
----
+**Issue:** The dashboard API returns the last 4 characters of the AI provider API key. For keys with known formats (e.g., `sk-proj-...`), this narrows the brute-force search space.
 
-#### SEC-007: Undocumented X-Admin-Key Authentication Fallback (Low)
-**CWE-287** | `internal/tenant/handlers.go:31-42` | Confidence: HIGH
-
-The tenant handlers accept API keys via either `X-API-Key` or `X-Admin-Key` header. The fallback header is undocumented and could be missed by security audits and logging configurations.
+**Fix:** Return only a boolean `api_key_set` field, or mask more aggressively.
 
 ---
 
-### 3. Injection
+### SEC-M05: Non-Standard Key Derivation in `deriveAPIKey`
 
-#### SEC-008: CRLF Injection in gRPC Proxy Error Responses (Medium)
-**CWE-113** | `internal/proxy/grpc/proxy.go:406-412` | Confidence: HIGH
+**File:** `internal/dashboard/auth.go:286-297`
 
-```go
-func writeGRPCError(w http.ResponseWriter, code int, message string) {
-    w.Header().Set("grpc-message", message)  // No CRLF sanitization
-    w.WriteHeader(http.StatusOK)
-}
-```
+**Issue:** The iterated HMAC construction is not standard PBKDF2. Each iteration appends the HMAC output to the accumulated result (`result = mac.Sum(result)`), rather than feeding the previous output back as the HMAC message. Still computationally expensive at 100k iterations, but has not undergone cryptographic scrutiny.
 
-The `message` parameter contains user-influenced data (e.g., `"method not allowed: <user_path>"`) and is written into an HTTP header without CRLF sanitization. The gRPC *security layer* at `internal/layers/grpc/grpc.go` correctly percent-encodes via `encodeGRPCMessage()`, but the gRPC *proxy* does not.
-
-**Recommendation:** Sanitize `message` by stripping `\r` and `\n` before setting the header, or use the existing `encodeGRPCMessage()` function.
+**Fix:** Correct the iteration logic to match PBKDF2-HMAC-SHA256 standard.
 
 ---
 
-#### SEC-009: CRLF Injection in Content-Disposition Header (Low)
-**CWE-113** | `internal/integrations/v040/integrator.go:696` | Confidence: HIGH
+### SEC-M06: No Validation Against Overly Broad Trusted Proxy CIDRs
 
-```go
-w.Header().Set("Content-Disposition", "attachment; filename="+filename)
-```
+**File:** `internal/engine/context.go:317-352`
 
-Filename is currently hardcoded to `"api-spec.json"`, but the concatenation pattern is fragile. The dashboard's export handlers correctly quote the filename.
+**Issue:** If `trusted_proxies: ["0.0.0.0/0"]` or `["::/0"]` is configured, all connections are treated as trusted, allowing any client to spoof X-Forwarded-For to bypass IP ACL, rate limiting, and session binding.
 
----
-
-#### SEC-010: Email Template Injection (Low)
-**CWE-94** | `internal/alerting/email.go:148-160` | Confidence: MEDIUM
-
-Event data (ClientIP, UserAgent) from attacker-controlled requests is substituted into email templates via `strings.ReplaceAll` without sanitization. Email headers are properly sanitized via `sanitizeHeader()`, but body content is not.
+**Fix:** Add validation in `SetTrustedProxies` to reject CIDRs covering all addresses.
 
 ---
 
-### 4. Race Conditions & Concurrency
+### SEC-M07: CORS Wildcard in Default Config
 
-#### SEC-011: TOCTOU Race in Tenant Rule Quota Enforcement (Medium)
-**CWE-367** | `internal/tenant/rules.go:98-110` | Confidence: HIGH
+**File:** `guardianwaf.yaml:90-91`
 
-```go
-func (trm *TenantRulesManager) AddTenantRule(tenantID string, rule rules.Rule, maxRules int) error {
-    currentRules := trm.GetTenantRules(tenantID)  // RLock + unlock
-    if len(currentRules) >= maxRules && maxRules > 0 {
-        return ErrQuotaExceeded
-    }
-    layer := trm.GetRulesLayer(tenantID, maxRules) // Separate lock acquisition
-    layer.AddRule(rule)
-    return nil
-}
-```
+**Issue:** `allowed_origins: ["*"]` combined with `allowed_headers: ["*"]` is overly permissive. While `allow_credentials: false` mitigates the worst case, this is not suitable for production.
 
-The quota check releases the lock before adding the rule. Concurrent `AddTenantRule` calls could both pass the quota check before either adds the rule, exceeding per-tenant rule limits.
-
-**Recommendation:** Hold a write lock for the entire quota-check-and-add operation.
+**Fix:** Restrict to specific domains in production deployments.
 
 ---
 
-#### SEC-012: Config Mutation Without Deep Copy in CRS/ClientSide Handlers (Medium)
-**CWE-362** | `internal/dashboard/crs_handlers.go:181-191`, `internal/dashboard/clientside_handlers.go:80-96` | Confidence: HIGH
+### SEC-M08: Trivy Scan Never Fails CI
 
-Unlike `handleUpdateConfig` (which calls `deepCopyConfig`), the CRS and ClientSide config handlers directly mutate the shared config pointer returned by `engine.Config()`. This creates a data race with concurrent config readers.
+**File:** `.github/workflows/ci.yml:214,220`
 
-**Recommendation:** Call `deepCopyConfig()` before mutating, matching the pattern in `handleUpdateConfig`.
+**Issue:** `--exit-code 0` means Trivy scans never fail the CI pipeline, even when HIGH/CRITICAL vulnerabilities are found.
 
----
-
-#### SEC-013: Persistent Event Store File Writes Without Synchronization (Low)
-**CWE-366** | `internal/events/persistent.go:49-62` | Confidence: HIGH
-
-The `Store` method writes to the JSONL file outside the lock. Concurrent writes could interleave partial lines.
+**Fix:** Change to `--exit-code 1` for the config scan.
 
 ---
 
-#### SEC-014: deepCopyConfig Shallow Copy Fallback (Low)
-**CWE-362** | `internal/dashboard/dashboard.go:2487-2500` | Confidence: MEDIUM
+### SEC-M09: Hardcoded API Key in Example Config
 
-If JSON marshal fails, the fallback is a shallow copy that shares maps/slices with the original. Very low probability but creates a latent race.
+**File:** `examples/standalone/guardianwaf.yaml:202`
 
----
+**Issue:** `api_key: "guardianwaf-demo-2024"` is a predictable hardcoded API key. Users may deploy without changing it.
 
-#### SEC-015: Goroutine Leak in Cluster Broadcast (Low)
-**CWE-404** | `internal/cluster/cluster.go:458-469` | Confidence: HIGH
-
-The `broadcast` method launches goroutines per node without WaitGroup tracking. No clean cancellation path on shutdown.
+**Fix:** Replace with env var placeholder: `${GWAF_DASHBOARD_API_KEY}`.
 
 ---
 
-#### SEC-016: Fire-and-forget JWKS Fetch Goroutine (Low)
-**CWE-404** | `internal/layers/apisecurity/jwt.go:103` | Confidence: HIGH
+### SEC-M10: Missing `securityContext` in Example K8s Deployments
 
-Initial `fetchJWKS()` is launched without WaitGroup tracking. Mitigated by 10-second timeout.
+**Files:** `examples/kubernetes/deployment.yaml`, `examples/kubernetes/sidecar-deployment.yaml`
 
----
+**Issue:** Example deployments run without security context, meaning the container may run as root. Production manifest (`contrib/k8s/deployment.yaml`) correctly includes full security context.
 
-### 5. Data Exposure
-
-#### SEC-017: Raw Query Strings Stored in WAF Events (Medium)
-**CWE-532** | `internal/engine/event.go:105` | Confidence: HIGH
-
-```go
-query = ctx.Request.URL.RawQuery
-```
-
-The raw query string (which may contain tokens, session IDs, PII parameters) is stored in every WAF event and persisted to event storage. This is by design for forensic analysis, but operators should be aware of the data sensitivity.
-
-**Recommendation:** Add configurable query parameter redaction for known sensitive parameter names (e.g., `token`, `session_id`, `password`, `api_key`).
+**Fix:** Add `securityContext` with `runAsNonRoot`, `allowPrivilegeEscalation: false`, etc.
 
 ---
 
-#### SEC-018: Tenant Admin Handler Returns API Key Hashes (Medium)
-**CWE-200** | `internal/dashboard/tenant_admin_handler.go:158-171` | Confidence: HIGH
+### SEC-M11: Helm Chart Exposes API Key as Plain Env Var
 
-The admin handler's `getTenant` and `listTenants` methods return the raw tenant object including `api_key_hash`. The tenant package's own handlers properly sanitize via `sanitizeTenant()`, but the admin handler bypasses this.
+**File:** `contrib/k8s/helm/templates/deployment.yaml:58-60`
 
-**Recommendation:** Filter `api_key_hash` from GET responses, matching the pattern in `internal/tenant/handlers.go`.
+**Issue:** When `apiKey.value` is set, the key is visible in `kubectl get pod -o yaml`. The chart supports `existingSecret` but the `value` fallback is a security trap.
 
----
-
-#### SEC-019: Raw Errors Leaked in 3 API Responses (Low)
-**CWE-209** | `internal/dashboard/dashboard.go:800,805,898` | Confidence: HIGH
-
-Three locations bypass the `sanitizeErr()` function and return raw error details to clients. The rest of the codebase properly sanitizes errors.
+**Fix:** Add deprecation warning for `value` field, recommend `existingSecret`.
 
 ---
 
-#### SEC-020: pprof Endpoints on localhost (Low — Mitigated)
-**CWE-215** | `internal/dashboard/dashboard.go:220-225,297-313` | Confidence: HIGH
+### SEC-M12: `.dockerignore` Does Not Exclude Secret Files
 
-pprof is restricted to localhost via `r.RemoteAddr` check. Secure for standalone deployments, but could be an issue if behind a reverse proxy making all connections appear as 127.0.0.1.
+**File:** `.dockerignore`
 
----
+**Issue:** Missing `.env`, `.env.*`, `*.pem`, `*.key` patterns. Accidentally placed secrets would enter the Docker build context.
 
-### 6. Cryptographic Issues
-
-#### SEC-021: Weak Crypto Fallback in Tenant API Key Hash Salt (Medium)
-**CWE-330** | `internal/tenant/manager.go:737-738` | Confidence: HIGH
-
-```go
-if _, err := rand.Read(salt); err != nil {
-    salt = []byte(fmt.Sprintf("%d", time.Now().UnixNano()))
-}
-```
-
-If `crypto/rand.Read` fails, the salt fallsbacks to a nanosecond timestamp — predictable if key creation time is known. The auth.go password generation correctly treats `crypto/rand` failure as fatal.
-
-**Recommendation:** Fail fatally on `crypto/rand` error instead of falling back.
+**Fix:** Add secret file patterns to `.dockerignore`.
 
 ---
 
-#### SEC-022: JWT Algorithm Confusion Protection is Conditional (Low)
-**CWE-327** | `internal/layers/apisecurity/jwt.go:222-230` | Confidence: HIGH
+## LOW Severity Findings
 
-HMAC algorithms are only blocked when asymmetric key sources are configured. The default whitelist (RS256/ES256) is safe, but explicit permissive configuration could allow algorithm confusion.
-
----
-
-### 7. Resource Exhaustion
-
-#### SEC-023: Unbounded Body Read in AI Remediation Handler (Medium)
-**CWE-770** | `internal/ai/remediation/handler.go:297` | Confidence: HIGH
-
-```go
-body, _ := io.ReadAll(ctx.Request.Body)  // No LimitReader, error ignored
-```
-
-Reads the original request body without `io.LimitReader`. Every other call site in the project uses `LimitReader`. The error is silently discarded.
-
-**Recommendation:** Wrap with `io.LimitReader(ctx.Request.Body, maxBodySize)` and check the error.
-
----
-
-#### SEC-024: Redis Unbounded Bulk String Allocation (Medium)
-**CWE-770** | `internal/layers/cache/redis.go:123-135` | Confidence: HIGH
-
-```go
-size, err := strconv.Atoi(data)
-buf := make([]byte, size+2)  // No upper bound check
-```
-
-A compromised Redis server could report an extremely large bulk string size, causing OOM. No upper bound is enforced on `size` before allocation.
-
-**Recommendation:** Add a maximum size check (e.g., 10MB) before allocating the buffer.
+| ID | Issue | File |
+|----|-------|------|
+| SEC-L01 | `classifyIP` missing `IsUnspecified()` check — allows `0.0.0.0` targets | `internal/proxy/target.go:70` |
+| SEC-L02 | Missing `IsMulticast()` in webhook/AI/SIEM SSRF validators | `alerting/webhook.go`, `ai/client.go`, `siem/exporter.go` |
+| SEC-L03 | Circuit breaker `RecordSuccess` unconditionally closes — stale success can preempt probe | `internal/proxy/circuit.go:98` |
+| SEC-L04 | Revoked sessions `sync.Map` grows unbounded (7-day cleanup interval) | `internal/dashboard/auth.go:36` |
+| SEC-L05 | AI encryption key stored as plaintext file (0600 perms) | `internal/ai/store.go:380-404` |
+| SEC-L06 | Single SHA-256 hash for encryption key derivation (no salt) | `internal/ai/store.go:145-162` |
+| SEC-L07 | Cluster/dashboard secrets stored as plaintext in memory | `internal/cluster/cluster.go:837` |
+| SEC-L08 | Tenant API key returned without enforcing TLS on response | `internal/tenant/handlers.go:192` |
+| SEC-L09 | Unprotected type assertion in webhook panic recovery path | `internal/alerting/webhook.go:262` |
+| SEC-L10 | Tenant broadcast defer order prevents `recover()` from catching panics | `internal/tenant/manager.go:839-843` |
+| SEC-L11 | Security tools installed with `@latest` in CI (not pinned) | `.github/workflows/ci.yml:176-200` |
+| SEC-L12 | `cleanupRevokedSessionsLoop` goroutine has no stop mechanism | `internal/dashboard/auth.go:152-158` |
+| SEC-L13 | Missing `\n` in security audit log Printf | `internal/dashboard/dashboard.go:2550` |
+| SEC-L14 | Unsanitized error in tenant middleware HTTP response | `internal/tenant/middleware.go:54` |
+| SEC-L15 | HTTP/3 server goroutine not tracked for graceful shutdown | `internal/http3/server.go:135-140` |
 
 ---
 
-#### SEC-025: Unbounded Revoked Sessions Map (Low)
-**CWE-770** | `internal/dashboard/auth.go:32-35,132-135` | Confidence: HIGH
-
-`revokedSessions sync.Map` grows indefinitely with no cleanup. Over time, frequent logins/logouts cause unbounded memory growth.
-
-**Recommendation:** Add periodic cleanup of expired session tokens from the revocation map.
-
----
-
-#### SEC-026: 50MB Models.dev Catalog Fetch (Low)
-**CWE-770** | `internal/ai/provider.go:232` | Confidence: HIGH
-
-50MB limit is excessive for a JSON catalog. Most other external fetches use 1-10MB limits.
-
----
-
-### 8. Input Validation
-
-#### SEC-027: gRPC Timeout Parsing Integer Overflow (Low)
-**CWE-190** | `internal/layers/grpc/grpc.go:548-577` | Confidence: HIGH
-
-Custom `parseUint` accumulates into `int64` without overflow checking. Impact is limited since the timeout is informational, not enforced.
-
----
-
-#### SEC-028: Tenant ID Not Validated for Format/Length (Low)
-**CWE-20** | `internal/dashboard/auth.go:206-219` | Confidence: MEDIUM
-
-Tenant IDs from URL paths and `X-Tenant-ID` headers are not validated for length or character format.
-
----
-
-#### SEC-029: Score Accumulator Accepts Negative Scores (Low)
-**CWE-20** | `internal/engine/finding.go:95-99` | Confidence: LOW
-
-No enforcement that detector scores are non-negative. Currently theoretical — all detectors produce positive scores.
-
----
-
-#### SEC-030: Integer Overflow in Custom parseInt (Low)
-**CWE-190** | `internal/layers/threatintel/feed.go:391-408` | Confidence: MEDIUM
-
-Custom integer parser lacks overflow checking. Only affects threat intel feed scores.
-
----
-
-### 9. CI/CD Security
-
-#### SEC-031: Unpinned GitHub Actions in Release Workflow (Medium)
-**CWE-1353** | `.github/workflows/release.yml:45,54,61,86,95,101,105` | Confidence: HIGH
-
-All third-party actions use version tags (`@v6`, `@v0`) instead of commit SHA pins. An attacker who compromises an action repo could replace the tag. The CI workflow has an `actions-hardened` job that defines SHA pins, but the release workflow does NOT use those pinned values.
-
-**Recommendation:** Pin all actions to commit SHAs. See OWASP CI/CD security guidelines.
-
----
-
-#### SEC-032: Script Injection in CI Benchmark Job (Medium)
-**CWE-78** | `.github/workflows/ci.yml:145-161` | Confidence: HIGH
-
-```yaml
-git checkout origin/${{ github.base_ref }}
-```
-
-`github.base_ref` is used directly in a shell command without sanitization. A crafted branch name with shell metacharacters could execute arbitrary commands.
-
-**Recommendation:** Use environment variable: `env: BASE_REF: ${{ github.base_ref }}` then `git checkout "origin/${BASE_REF}"`.
-
----
-
-#### SEC-033: CI Actions-Hardened Job is Advisory Only (Low)
-**CWE-1353** | `.github/workflows/ci.yml:17-29` | Confidence: HIGH
-
-The `actions-hardened` job reports pin violations but does not prevent actual jobs from using unpinned actions.
-
----
-
-### 10. Session Management
-
-#### SEC-034: Session Token Rotation Without Old Token Revocation (Low)
-**CWE-613** | `internal/dashboard/dashboard.go:280-282` | Confidence: HIGH
-
-Every authenticated request generates a new session cookie. Previous tokens remain valid until they independently expire. Mitigated by IP binding and short expiry.
-
----
-
-#### SEC-035: No CSRF Protection on GET Logout Without Origin Header (Low)
-**CWE-352** | `internal/dashboard/dashboard.go:455-478` | Confidence: MEDIUM
-
-GET logout only checks CSRF when the `Origin` header is present. Impact is limited to session invalidation.
-
----
-
-### 11. Infrastructure
-
-#### SEC-036: Docker Compose Uses :latest Tag (Low)
-**CWE-829** | `docker-compose.yml:8` | Confidence: HIGH
-
-Dev compose uses `ghcr.io/guardianwaf/guardianwaf:latest`. The prod compose and release workflow use semver tags.
-
----
-
-#### SEC-037: Sidecar Dockerfile Missing Health Check (Low)
-**CWE-778** | `examples/sidecar/Dockerfile` | Confidence: HIGH
-
-No HEALTHCHECK directive in the sidecar Dockerfile. Compensated by compose-level healthcheck.
-
----
-
-#### SEC-038: 0.0.0.0 Default Bind Addresses (Info)
-**CWE-1327** | `internal/config/defaults.go:295`, `internal/cluster/cluster.go:67` | Confidence: HIGH
-
-Cluster sync and cluster modules default to `0.0.0.0`. Auth is enforced, but requires explicit configuration before production use.
-
----
-
-### 12. Business Logic
-
-#### SEC-039: Dashboard Config API Allows Disabling All Security (Medium)
-**CWE-862** | `internal/dashboard/dashboard.go:1126-1228` | Confidence: HIGH
-
-The `PUT /api/v1/config` endpoint allows toggling off all security features. Requires authentication, but a compromised key enables total WAF disabling.
-
-**Recommendation:** Add confirmation/audit logging for security feature disable operations.
-
----
-
-#### SEC-040: Compliance Audit Chain is In-Memory Only (Medium)
-**CWE-312** | `internal/compliance/compliance.go:120-127` | Confidence: HIGH
-
-The hash chain design is correct, but the chain is lost on restart. This undermines the compliance value — a restart allows rewriting history since there is no persisted genesis state.
-
-**Recommendation:** Persist the audit chain to disk (like events are persisted to JSONL).
-
----
-
-### 13. API Security
-
-#### SEC-041: API Keys Accepted via Query Parameters in WAF API Security Layer (Medium)
-**CWE-598** | `internal/layers/apisecurity/apisecurity.go:228-248` | Confidence: HIGH
-
-The WAF's API security layer for protecting upstream APIs accepts API keys via query parameters by default (`api_key`). This leaks keys via access logs, browser history, and Referer headers. The dashboard correctly rejects query parameter keys.
-
-**Recommendation:** Make query parameter API key extraction opt-in rather than default behavior.
-
----
-
-#### SEC-042: Silent Write Errors in Persistent Event Store (Low)
-**CWE-775** | `internal/events/persistent.go:56-59` | Confidence: HIGH
-
-File write errors are silently ignored. Events could be silently dropped on disk full or stale file descriptor.
-
----
-
-#### SEC-043: Fragile Multi-Return RLock Pattern in Webhook TestAlert (Low)
-`internal/alerting/webhook.go:532-560` | Confidence: MEDIUM
-
-Multiple RUnlock points create a maintenance risk for future modifications.
+## Informational Findings (Verified Safe)
+
+| ID | Area | Status |
+|----|------|--------|
+| SEC-I01 | SQL Injection | No SQL database — N/A |
+| SEC-I02 | Template Injection (SSTI) | No template engine — N/A |
+| SEC-I03 | XXE | No XML parsing — N/A |
+| SEC-I04 | Docker CLI injection | `isSafeContainerRef()` properly sanitizes |
+| SEC-I05 | SMTP header injection | `sanitizeHeader()` strips CRLF |
+| SEC-I06 | JWT none/alg-confusion | Explicitly rejected + algorithm whitelisting |
+| SEC-I07 | Path traversal | `embed.FS` + `path.Clean()` + `..` check |
+| SEC-I08 | Rate limit correctness | Mutex-protected token bucket, IPv6 normalization |
 
 ---
 
 ## Remediation Roadmap
 
-### Priority 1 — Fix Before Production (Medium Severity)
+### Immediate (before next release)
 
-| ID | Finding | Effort | File |
-|----|---------|--------|------|
-| SEC-001 | AI client SSRF — add DialContext hook | Medium | `internal/ai/client.go` |
-| SEC-002 | AI endpoint URL — add DNS resolution | Small | `internal/dashboard/ai_handlers.go` |
-| SEC-004 | MCP stdio timing-safe comparison | Small | `internal/mcp/server.go` |
-| SEC-005 | Tenant API key scoping | Medium | `internal/dashboard/auth.go` |
-| SEC-008 | gRPC proxy CRLF sanitization | Small | `internal/proxy/grpc/proxy.go` |
-| SEC-011 | TOCTOU in tenant rule quota | Small | `internal/tenant/rules.go` |
-| SEC-012 | Deep copy in CRS/ClientSide handlers | Small | `internal/dashboard/crs_handlers.go` |
-| SEC-021 | Fatal on crypto/rand failure | Small | `internal/tenant/manager.go` |
-| SEC-023 | LimitReader in remediation handler | Small | `internal/ai/remediation/handler.go` |
-| SEC-024 | Redis bulk string size limit | Small | `internal/layers/cache/redis.go` |
-| SEC-031 | Pin GitHub Actions to SHAs | Medium | `.github/workflows/release.yml` |
-| SEC-032 | Fix CI script injection | Small | `.github/workflows/ci.yml` |
-| SEC-039 | Audit log for security disable | Small | `internal/dashboard/dashboard.go` |
-| SEC-040 | Persist compliance audit chain | Medium | `internal/compliance/compliance.go` |
-| SEC-041 | Make query param API keys opt-in | Small | `internal/layers/apisecurity/apisecurity.go` |
-| SEC-017 | Query string redaction in events | Medium | `internal/engine/event.go` |
-| SEC-018 | Filter API key hash from admin responses | Small | `internal/dashboard/tenant_admin_handler.go` |
+1. **SEC-H01** — Fix DNS rebinding SSRF in webhook/SIEM dial contexts
+2. **SEC-H02** — Add MCP SSE client connection limit
+3. **SEC-H03** — Pin GitHub Actions in `website.yml`
+4. **SEC-M01** — Add auth check to MCP `processRequest`
+5. **SEC-M09** — Replace hardcoded API key in example config
+6. **SEC-M10** — Add `securityContext` to example K8s deployments
 
-### Priority 2 — Fix When Convenient (Low Severity)
+### Short-term (within 1 sprint)
 
-| ID | Finding | Effort |
-|----|---------|--------|
-| SEC-003 | SSRF DialContext for threat intel/NVD | Medium |
-| SEC-006 | MCP stdio auth documentation | Small |
-| SEC-007 | Document X-Admin-Key header | Small |
-| SEC-009 | Quote Content-Disposition filename | Small |
-| SEC-010 | Sanitize email template substitutions | Small |
-| SEC-013 | Synchronize persistent store file writes | Small |
-| SEC-014 | Handle deepCopyConfig failure better | Small |
-| SEC-015 | Add WaitGroup to cluster broadcast | Small |
-| SEC-016 | Add WaitGroup to JWKS fetch | Small |
-| SEC-019 | Apply sanitizeErr to 3 remaining error paths | Small |
-| SEC-020 | pprof reverse proxy awareness | Small |
-| SEC-022 | Document JWT algorithm scoping | Small |
-| SEC-025 | Add revoked sessions cleanup | Small |
-| SEC-026 | Reduce models.dev fetch limit | Small |
-| SEC-027 | Add overflow check to parseUint | Small |
-| SEC-028 | Validate tenant ID format | Small |
-| SEC-029 | Clamp negative scores in ScoreAccumulator | Small |
-| SEC-030 | Add overflow check to parseInt | Small |
-| SEC-033 | Enforce action pinning in CI | Medium |
-| SEC-034 | Document session rotation behavior | Small |
-| SEC-035 | Evaluate POST-only logout | Small |
-| SEC-036 | Pin docker-compose image tag | Small |
-| SEC-037 | Add health check to sidecar Dockerfile | Small |
-| SEC-042 | Log file write errors in persistent store | Small |
-| SEC-043 | Refactor webhook RLock pattern | Small |
+7. **SEC-M02** — Add SSRF validation in webhook `NewManager`
+8. **SEC-M03** — Fix session registration TOCTOU
+9. **SEC-M04** — Mask AI API key more aggressively
+10. **SEC-M06** — Validate trusted proxy CIDRs
+11. **SEC-M08** — Fix Trivy exit code in CI
+12. **SEC-M12** — Add secret patterns to `.dockerignore`
+
+### Backlog (defense-in-depth)
+
+13. **SEC-M05** — Standardize key derivation to PBKDF2
+14. **SEC-M07** — Restrict CORS in default config
+15. **SEC-M11** — Deprecate `apiKey.value` in Helm chart
+16. All LOW severity findings (SEC-L01 through SEC-L15)
 
 ---
 
-## Categories With No Findings
+## Positive Security Observations
 
-| Category | Status | Notes |
-|----------|--------|-------|
-| SQL Injection | CLEAN | No database layer, no SQL query construction |
-| Command Injection | CLEAN | Docker client validates all input via `isSafeContainerRef` |
-| XSS | CLEAN | JSON-only API, React auto-escaping, `html.EscapeString` on login page |
-| XXE | CLEAN | No XML parsing anywhere |
-| LDAP Injection | CLEAN | No LDAP libraries or queries |
-| SSTI | CLEAN | No Go template engine usage |
-| Path Traversal | CLEAN | Assets served from `embed.FS`, path traversal checked |
-| Open Redirect | CLEAN | All redirects use hardcoded internal paths |
-| CORS (WAF Layer) | CLEAN | No origin reflection, explicit allowlist, null origin blocked |
-| WebSocket Origin | CLEAN | Proper same-origin enforcement |
-| Rate Limit IP Spoofing | CLEAN | Trusted proxy model properly implemented |
-| Unsafe Deserialization | CLEAN | No `gob.Decode`, no `json.Unmarshal` into `interface{}` |
-| Hardcoded Production Credentials | CLEAN | All production credentials are auto-generated or required |
+The following controls are properly implemented and deserve recognition:
+
+- **Constant-time comparisons** (`subtle.ConstantTimeCompare`) across all auth paths
+- **HMAC-SHA256 sessions** with IP binding, sliding + absolute expiry, per-IP concurrent limits
+- **100k-iteration key derivation** for API key hashing
+- **SSRF-aware dial context** in proxy (correct pattern — dials validated IP directly)
+- **Comprehensive CSRF protection** via Origin/Referer verification
+- **Cookie security**: HttpOnly, Secure, SameSite=Strict
+- **AES-256-GCM** for AI provider API key encryption at rest
+- **TLS 1.3 minimum** for main listener, TLS 1.2 for SMTP
+- **Atomic operations** for all shared state in hot paths
+- **Panic recovery** in all HTTP handler chains
+- **Body size limits**, decompression bomb protection (100:1 ratio)
+- **GraphQL depth/complexity/alias limits**
+- **SHA-256 hash chain** for compliance audit trail
+- **Query parameter API keys rejected** (prevents credential leakage)
+- **Error sanitization** strips file paths and stack traces
+- **Docker CLI arguments** validated against shell metacharacters
+- **Multi-stage Docker build** running as non-root with no shell
+- **CI workflow** pins actions to commit SHAs with verification

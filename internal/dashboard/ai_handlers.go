@@ -68,14 +68,10 @@ func (d *Dashboard) handleAIGetConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	store := d.aiAnalyzer.GetStore()
 	cfg := store.GetConfig()
-	// Mask API key for display - show only last 4 chars to prevent partial exposure
+	// Mask API key — show only whether a key is set, not partial content
 	maskedKey := ""
 	if cfg.APIKey != "" {
-		if len(cfg.APIKey) >= 8 {
-			maskedKey = "****" + cfg.APIKey[len(cfg.APIKey)-4:]
-		} else {
-			maskedKey = "****"
-		}
+		maskedKey = "****"
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"enabled":       true,

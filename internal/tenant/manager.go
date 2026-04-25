@@ -837,11 +837,11 @@ func (m *Manager) broadcast(entityType, entityID, action string, data map[string
 	case m.broadcastSem <- struct{}{}:
 		go func() {
 			defer func() {
-				<-m.broadcastSem
 				if r := recover(); r != nil {
 					log.Printf("[tenant] warning: broadcast goroutine panic: %v", r)
 				}
 			}()
+			defer func() { <-m.broadcastSem }()
 			if err := cs.BroadcastEvent(entityType, entityID, action, data); err != nil {
 				log.Printf("[tenant] warning: failed to broadcast event: %v", err)
 			}

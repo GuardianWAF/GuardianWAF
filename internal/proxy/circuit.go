@@ -94,10 +94,12 @@ func (cb *CircuitBreaker) Allow() bool {
 	return false
 }
 
-// RecordSuccess records a successful request. Resets failure count and closes circuit.
+// RecordSuccess records a successful request. Resets failure count and
+// only transitions from HalfOpen to Closed to prevent stale successes from
+// prematurely closing the circuit.
 func (cb *CircuitBreaker) RecordSuccess() {
 	cb.failures.Store(0)
-	cb.state.Store(int32(CircuitClosed))
+	cb.state.CompareAndSwap(int32(CircuitHalfOpen), int32(CircuitClosed))
 }
 
 // RecordFailure records a failed request. May open the circuit if threshold is reached.

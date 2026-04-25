@@ -199,7 +199,7 @@ waf:
 dashboard:
   enabled: true
   listen: ":9443"
-  api_key: "guardianwaf-demo-2024"  # Change this! Set a strong key
+  api_key: "${GWAF_DASHBOARD_API_KEY}"  # Set via environment variable — never use default in production
   tls: false
 
 mcp:

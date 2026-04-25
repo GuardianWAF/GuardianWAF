@@ -2547,7 +2547,7 @@ func (d *Dashboard) logSecurityConfigChanges(oldCfg, newCfg *config.Config, r *h
 	clientIP := clientIPFromRequest(r)
 	for _, f := range securityFields {
 		if f.old && !f.new {
-			fmt.Printf("[SECURITY-AUDIT]  Security feature %q DISABLED by %s", f.name, clientIP)
+			fmt.Printf("[SECURITY-AUDIT]  Security feature %q DISABLED by %s\n", f.name, clientIP)
 		}
 	}
 }

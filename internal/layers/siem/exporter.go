@@ -407,17 +407,34 @@ func (e *Exporter) IsEnabled() bool {
 
 // siemSSRFDialContext returns a DialContext that validates resolved IPs at
 // connection time to prevent DNS rebinding (TOCTOU) attacks on SIEM endpoints.
+// Resolves DNS, validates all IPs, then dials the validated IP directly — avoids
+// a second DNS resolution by the dialer that could be rebinding-attacked.
 func siemSSRFDialContext() func(ctx context.Context, network, addr string) (net.Conn, error) {
 	dialer := &net.Dialer{Timeout: 10 * time.Second}
 	return func(ctx context.Context, network, addr string) (net.Conn, error) {
-		host, _, err := net.SplitHostPort(addr)
+		host, port, err := net.SplitHostPort(addr)
 		if err != nil {
 			host = addr
+			port = ""
 		}
-		// Validate at connection time (catches DNS rebinding)
-		if err := validateSIEMHostNotPrivate(host); err != nil {
-			return nil, fmt.Errorf("SIEM SSRF: %w", err)
+		// Resolve DNS and validate all resulting IPs
+		ips, err := net.LookupIP(host)
+		if err != nil {
+			return nil, fmt.Errorf("SIEM SSRF: DNS lookup failed for %q: %w", host, err)
 		}
-		return dialer.DialContext(ctx, network, addr)
+		var validIP net.IP
+		for _, ip := range ips {
+			if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() || ip.IsMulticast() {
+				continue
+			}
+			validIP = ip
+			break
+		}
+		if validIP == nil {
+			return nil, fmt.Errorf("SIEM SSRF: no valid public IPs for %q", host)
+		}
+		// Dial the validated IP directly — avoids TOCTOU via DNS rebinding
+		target := net.JoinHostPort(validIP.String(), port)
+		return dialer.DialContext(ctx, network, target)
 	}
 }

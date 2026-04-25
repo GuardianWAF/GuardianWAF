@@ -39,7 +39,12 @@ var revokedSessions sync.Map
 // SESSION-003 mitigation. Each IP has a set of valid (non-expired,
 // non-revoked) sessions. When MaxConcurrentSessionsPerIP is exceeded,
 // oldest sessions are invalidated to make room for new ones.
-// Key: client IP string, Value: map of session token -> last access time.
+// Key: client IP string, Value: *ipSessionMap (with its own mutex).
+type ipSessionMap struct {
+	mu     sync.Mutex
+	tokens map[string]time.Time
+}
+
 var activeSessions sync.Map
 
 func init() {
@@ -163,44 +168,29 @@ func cleanupRevokedSessionsLoop() {
 func registerActiveSession(token, clientIP string) {
 	now := time.Now()
 
-	ipSessions, _ := activeSessions.LoadOrStore(clientIP, &sync.Map{})
-	sm := ipSessions.(*sync.Map)
+	v, _ := activeSessions.LoadOrStore(clientIP, &ipSessionMap{tokens: make(map[string]time.Time)})
+	sm := v.(*ipSessionMap)
 
-	// Count current sessions
-	count := 0
-	var oldestToken string
-	var oldestTime time.Time
-
-	sm.Range(func(k, v any) bool {
-		t := k.(string)
-		lt := v.(time.Time)
-		count++
-		if oldestTime.IsZero() || lt.Before(oldestTime) {
-			oldestTime = lt
-			oldestToken = t
-		}
-		return true
-	})
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
 
 	// Evict oldest sessions until under limit
-	for count >= MaxConcurrentSessionsPerIP && oldestToken != "" {
-		sm.Delete(oldestToken)
-		count--
-		// Find next oldest
-		oldestTime = time.Time{}
-		oldestToken = ""
-		sm.Range(func(k, v any) bool {
-			t := k.(string)
-			lt := v.(time.Time)
+	for len(sm.tokens) >= MaxConcurrentSessionsPerIP {
+		var oldestToken string
+		var oldestTime time.Time
+		for t, lt := range sm.tokens {
 			if oldestTime.IsZero() || lt.Before(oldestTime) {
 				oldestTime = lt
 				oldestToken = t
 			}
-			return true
-		})
+		}
+		if oldestToken == "" {
+			break
+		}
+		delete(sm.tokens, oldestToken)
 	}
 
-	sm.Store(token, now)
+	sm.tokens[token] = now
 }
 
 // clientIPFromRequest extracts the client IP from a request's RemoteAddr.

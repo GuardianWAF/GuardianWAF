@@ -430,6 +430,13 @@ func (s *Server) processRequest(req JSONRPCRequest) JSONRPCResponse {
 			Result:  map[string]any{"tools": AllTools()},
 		}
 	case "tools/call":
+		s.mu.Lock()
+		authed := s.authenticated
+		apiKey := s.apiKey
+		s.mu.Unlock()
+		if apiKey != "" && !authed {
+			return JSONRPCResponse{JSONRPC: "2.0", ID: req.ID, Error: &RPCError{Code: ErrCodeUnauthorized, Message: "authentication required"}}
+		}
 		return s.processToolsCall(req)
 	default:
 		return JSONRPCResponse{
