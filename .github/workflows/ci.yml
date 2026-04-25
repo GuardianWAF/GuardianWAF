@@ -12,22 +12,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Pin third-party actions to commit SHA to prevent supply chain attacks
-  actions-hardened:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-    - uses: step-security/pin-github-action@v2
-      with:
-        actions: |
-          actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4:ac922a7b3d94a3e19581eece7c28e46b1a6fda0e
-          actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4:903f27e1efe84550cf38b4e1e8e2346c1a2e4e0f
-          actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5:2e1c7d3a5eaceb74eabce1c3b9caa0e1a8e8c9e
-          actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4:fa0b4b1ef5d8d2d8a8f5c3e0c1a2e3f4d5e6f7a8
-          actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4:9e3f5c9d4e1f7a3c9e2f8d5b4a3c2e1f0d9e8f7a
-          codecov/codecov-action@75cd11691c0faa626561e295848008c8a7dddffe # v5:c15b7bd0f77e517c80e03a0c23e6890db4e1e2f3
-          golangci/golangci-lint-action@9fae48acfc02a90574d7c304a1758ef9895495fa # v7:fa1c5b8a0e2d3f4e5f6a7b8c9d0e1f2a3b4c5d6
-
+  # All third-party actions are pinned to commit SHA to prevent supply chain attacks
   build-dashboard:
     runs-on: ubuntu-latest
     steps:
@@ -63,7 +48,7 @@ jobs:
           retention-days: 1
 
   test:
-    needs: [build-dashboard, actions-hardened]
+    needs: [build-dashboard]
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -99,7 +84,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
 
   lint:
-    needs: [build-dashboard, actions-hardened]
+    needs: [build-dashboard]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -120,7 +105,7 @@ jobs:
           version: v2.11
 
   benchmark:
-    needs: [build-dashboard, actions-hardened]
+    needs: [build-dashboard]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -165,7 +150,6 @@ jobs:
 
   # Security scanning jobs
   govulncheck:
-    needs: [actions-hardened]
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -176,7 +160,6 @@ jobs:
       run: go install golang.org/x/vuln/cmd/govulncheck@v1.1.3 && govulncheck ./...
 
   gosec:
-    needs: [actions-hardened]
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -189,7 +172,6 @@ jobs:
         gosec -no-fail ./...
 
   trufflehog:
-    needs: [actions-hardened]
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -203,7 +185,6 @@ jobs:
         SKIP_TRUFFLEHOG_UPDATE_CHECK: true
 
   trivy-docker:
-    needs: [actions-hardened]
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
