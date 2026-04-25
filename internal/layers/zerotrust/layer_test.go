@@ -119,7 +119,9 @@ func TestLayer_ValidSessionPasses(t *testing.T) {
 		SessionID:       "sess-123",
 		AuthenticatedAt: time.Now(),
 	}
+	svc.mu.Lock()
 	svc.sessions["sess-123"] = identity
+	svc.mu.Unlock()
 
 	l := NewLayer(svc)
 	ctx := &engine.RequestContext{
