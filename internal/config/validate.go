@@ -583,8 +583,9 @@ func LoadEnv(cfg *Config) {
 			}
 		},
 
-		"GWAF_DASHBOARD_LISTEN":  func(v string) { cfg.Dashboard.Listen = v },
-		"GWAF_DASHBOARD_API_KEY": func(v string) { cfg.Dashboard.APIKey = v },
+		"GWAF_DASHBOARD_LISTEN":   func(v string) { cfg.Dashboard.Listen = v },
+		"GWAF_DASHBOARD_API_KEY":  func(v string) { cfg.Dashboard.APIKey = v },
+		"GWAF_DASHBOARD_ADMIN_KEY": func(v string) { cfg.Dashboard.AdminKey = v },
 		"GWAF_DASHBOARD_ENABLED": func(v string) {
 			if b, err := strconv.ParseBool(v); err == nil {
 				cfg.Dashboard.Enabled = b
