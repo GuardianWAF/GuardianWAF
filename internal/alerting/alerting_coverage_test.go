@@ -2,9 +2,14 @@ package alerting
 
 import (
 	"bufio"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -754,9 +759,127 @@ func TestSendEmail_DefaultSubject(t *testing.T) {
 	ResetEmailStats()
 }
 
-// TestIsEmailSent exercises the smtp.PlainAuth + smtp.SendMail path.
+// TestIsEmailSent_PlainAuth exercises the smtp.PlainAuth + smtp.SendMail path.
 func TestIsEmailSent_PlainAuth(t *testing.T) {
 	// Just verify the auth path is exercised by constructing PlainAuth
 	auth := smtp.PlainAuth("", "user", "pass", "localhost")
 	_ = auth
+}
+
+// startFakeSMTPServer starts a basic SMTP server that handles EHLO, AUTH, MAIL, RCPT, DATA, QUIT.
+func startFakeSMTPServer(t *testing.T) (net.Listener, int) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("cannot listen: %v", err)
+	}
+	_, portStr, _ := net.SplitHostPort(ln.Addr().String())
+	port := 0
+	fmt.Sscanf(portStr, "%d", &port)
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		handleSMTPSession(conn)
+	}()
+	return ln, port
+}
+
+func handleSMTPSession(conn net.Conn) {
+	fmt.Fprintf(conn, "220 test ESMTP\r\n")
+	scanner := bufio.NewScanner(conn)
+	for scanner.Scan() {
+		line := scanner.Text()
+		switch {
+		case strings.HasPrefix(line, "EHLO") || strings.HasPrefix(line, "HELO"):
+			fmt.Fprintf(conn, "250-test\r\n250 OK\r\n")
+		case strings.HasPrefix(line, "AUTH"):
+			fmt.Fprintf(conn, "235 Authentication successful\r\n")
+		case strings.HasPrefix(line, "MAIL FROM"):
+			fmt.Fprintf(conn, "250 OK\r\n")
+		case strings.HasPrefix(line, "RCPT TO"):
+			fmt.Fprintf(conn, "250 OK\r\n")
+		case strings.HasPrefix(line, "DATA"):
+			fmt.Fprintf(conn, "354 End data with <CR><LF>.<CR><LF>\r\n")
+			for scanner.Scan() {
+				if scanner.Text() == "." {
+					fmt.Fprintf(conn, "250 OK: Message accepted\r\n")
+					break
+				}
+			}
+		case strings.HasPrefix(line, "QUIT"):
+			fmt.Fprintf(conn, "221 Bye\r\n")
+			return
+		}
+	}
+}
+
+// TestSendTLS_WithTLSServer tests sendTLS using a TLS-wrapped SMTP server.
+func TestSendTLS_WithTLSServer(t *testing.T) {
+	// Generate ECDSA key and self-signed cert
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		DNSNames:     []string{"127.0.0.1"},
+		IPAddresses:  []net.IP{net.ParseIP("127.0.0.1")},
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("create cert: %v", err)
+	}
+	cert, err := x509.ParseCertificate(certDER)
+	_ = cert
+	if err != nil {
+		t.Fatalf("parse cert: %v", err)
+	}
+
+	// Create tls.Certificate manually
+	tlsCert := tls.Certificate{
+		Certificate: [][]byte{certDER},
+		PrivateKey:  key,
+		Leaf:        cert,
+	}
+
+	// Start TLS listener
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{tlsCert},
+	}
+	ln, err := tls.Listen("tcp", "127.0.0.1:0", tlsConfig)
+	if err != nil {
+		t.Skipf("cannot listen TLS: %v", err)
+	}
+	_, portStr, _ := net.SplitHostPort(ln.Addr().String())
+	port := 0
+	fmt.Sscanf(portStr, "%d", &port)
+
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		handleSMTPSession(conn)
+	}()
+	defer ln.Close()
+
+	m := NewManager(nil)
+	et := NewEmailTarget(config.EmailConfig{
+		Name: "tls-test", SMTPHost: "127.0.0.1", SMTPPort: port,
+		To: []string{"to@test.com"}, From: "from@test.com",
+		Username: "user", Password: "pass", UseTLS: true,
+	})
+	evt := &engine.Event{
+		ID: "evt-tls", Timestamp: time.Now(), ClientIP: "1.2.3.4",
+		Method: "GET", Path: "/test", Score: 80, UserAgent: "test",
+	}
+	evt.Action = engine.ActionBlock
+	ResetEmailStats()
+	m.SendEmail(et, evt)
+	time.Sleep(200 * time.Millisecond)
+	ResetEmailStats()
 }
