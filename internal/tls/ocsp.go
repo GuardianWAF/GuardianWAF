@@ -111,7 +111,7 @@ func parseAIAOCSP(data []byte) string {
 	var seq asn1.RawValue
 	rest, err := asn1.Unmarshal(data, &seq)
 	if err != nil || len(rest) > 0 {
-		// Try unwrapping outer sequence first
+		// Try parsing data directly as SEQUENCE OF AccessDescription
 		var outer []asn1.RawValue
 		rest2, err2 := asn1.Unmarshal(data, &outer)
 		if err2 != nil || len(rest2) > 0 {
@@ -126,14 +126,17 @@ func parseAIAOCSP(data []byte) string {
 		return ""
 	}
 
-	// seq is the SEQUENCE of AccessDescriptions
-	var descs []asn1.RawValue
-	_, err = asn1.Unmarshal(seq.Bytes, &descs)
-	if err != nil {
-		return ""
-	}
-
-	for _, desc := range descs {
+	// seq.Bytes contains the inner content of the outer SEQUENCE.
+	// It holds a series of DER-encoded AccessDescription SEQUENCEs.
+	// Iterate through them by repeatedly unmarshaling one RawValue at a time.
+	remaining := seq.Bytes
+	for len(remaining) > 0 {
+		var desc asn1.RawValue
+		var err error
+		remaining, err = asn1.Unmarshal(remaining, &desc)
+		if err != nil {
+			break
+		}
 		url := parseAccessDescription(desc.FullBytes)
 		if url != "" {
 			return url

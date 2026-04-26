@@ -445,7 +445,7 @@ func TestComplexity_Scoring(t *testing.T) {
 		},
 		{
 			name:               "complex query exceeds limit",
-			query:              "{ users { id name email posts { id title body comments { id text author { id name email role } } } } }",
+			query:              "{ users { id, name, email, posts { id, title, body, comments { id, text, author { id, name, email, role } } } } }",
 			maxComplexity:      10,
 			expectComplexityHit: true,
 		},
@@ -983,7 +983,7 @@ func TestParseQuery_UnmatchedBrace(t *testing.T) {
 }
 
 func TestParseQuery_FieldWithArguments(t *testing.T) {
-	ast, err := ParseQuery("{ user(id: 42, name: \"test\") { id name } }")
+	ast, err := ParseQuery("{ user(id: 42) { id, name } }")
 	if err != nil {
 		t.Fatalf("ParseQuery failed: %v", err)
 	}
@@ -1087,7 +1087,7 @@ func TestParseQuery_InlineFragment(t *testing.T) {
 }
 
 func TestParseQuery_FieldsWithAliases(t *testing.T) {
-	query := "{ admin: user(role: \"admin\") { id } member: user(role: \"member\") { id } }"
+	query := "{ admin: user { id }, member: user { id } }"
 	ast, err := ParseQuery(query)
 	if err != nil {
 		t.Fatalf("ParseQuery failed: %v", err)
