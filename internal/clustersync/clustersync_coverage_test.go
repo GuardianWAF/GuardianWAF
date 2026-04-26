@@ -1314,3 +1314,201 @@ func TestIsInScope_AllTypes(t *testing.T) {
 		}
 	}
 }
+
+// TestGetCluster_Found tests getCluster with existing cluster.
+func TestGetCluster_Found(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.SharedSecret = "secret"
+	m := NewManager(cfg)
+	h := NewHandler(m)
+	_ = m.AddCluster(&Cluster{ID: "c1", Name: "test", Nodes: []string{"n1"}})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/clusters/c1", nil)
+	req.Header.Set("X-Cluster-Auth", "secret")
+	w := httptest.NewRecorder()
+	h.getCluster(w, req, "c1")
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 for found cluster, got %d", w.Code)
+	}
+}
+
+// TestGetCluster_NotFound tests getCluster with non-existent cluster.
+func TestGetCluster_NotFound(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.SharedSecret = "secret"
+	m := NewManager(cfg)
+	h := NewHandler(m)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/clusters/nonexistent", nil)
+	req.Header.Set("X-Cluster-Auth", "secret")
+	w := httptest.NewRecorder()
+	h.getCluster(w, req, "nonexistent")
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for not found, got %d", w.Code)
+	}
+}
+
+// TestDeleteCluster_Unauthorized tests deleteCluster without auth.
+func TestDeleteCluster_Unauthorized(t *testing.T) {
+	cfg := DefaultConfig()
+	m := NewManager(cfg)
+	h := NewHandler(m)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/clusters/c1", nil)
+	w := httptest.NewRecorder()
+	h.deleteCluster(w, req, "c1")
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", w.Code)
+	}
+}
+
+// TestHandleReplicationStatus_OK tests handleReplicationStatus GET.
+func TestHandleReplicationStatus_OK(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.SharedSecret = "secret"
+	cfg.NodeID = "node-1"
+	m := NewManager(cfg)
+	h := NewHandler(m)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/cluster/replication", nil)
+	req.Header.Set("X-Cluster-Auth", "secret")
+	w := httptest.NewRecorder()
+	h.handleReplicationStatus(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+}
+
+// TestHandleReplicationStatus_Unauthorized tests handleReplicationStatus without auth.
+func TestHandleReplicationStatus_Unauthorized(t *testing.T) {
+	cfg := DefaultConfig()
+	m := NewManager(cfg)
+	h := NewHandler(m)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/cluster/replication", nil)
+	w := httptest.NewRecorder()
+	h.handleReplicationStatus(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", w.Code)
+	}
+}
+
+// TestJoinCluster_Unauthorized tests joinCluster without auth.
+func TestJoinCluster_Unauthorized(t *testing.T) {
+	cfg := DefaultConfig()
+	m := NewManager(cfg)
+	h := NewHandler(m)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/clusters/c1?action=join", strings.NewReader(`{"id":"n"}`))
+	w := httptest.NewRecorder()
+	h.joinCluster(w, req, "c1")
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", w.Code)
+	}
+}
+
+// TestJoinCluster_InvalidJSON tests joinCluster with bad JSON.
+func TestJoinCluster_InvalidJSON(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.SharedSecret = "secret"
+	m := NewManager(cfg)
+	h := NewHandler(m)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/clusters/c1?action=join", strings.NewReader("{bad"))
+	req.Header.Set("X-Cluster-Auth", "secret")
+	w := httptest.NewRecorder()
+	h.joinCluster(w, req, "c1")
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", w.Code)
+	}
+}
+
+// TestLeaveCluster_Unauthorized tests leaveCluster without auth.
+func TestLeaveCluster_Unauthorized(t *testing.T) {
+	cfg := DefaultConfig()
+	m := NewManager(cfg)
+	h := NewHandler(m)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/clusters/c1?action=leave&node_id=n1", nil)
+	w := httptest.NewRecorder()
+	h.leaveCluster(w, req, "c1")
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", w.Code)
+	}
+}
+
+// TestLeaveCluster_NoNodeID tests leaveCluster without node_id.
+func TestLeaveCluster_NoNodeID(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.SharedSecret = "secret"
+	m := NewManager(cfg)
+	h := NewHandler(m)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/clusters/c1?action=leave", nil)
+	req.Header.Set("X-Cluster-Auth", "secret")
+	w := httptest.NewRecorder()
+	h.leaveCluster(w, req, "c1")
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", w.Code)
+	}
+}
+
+// TestHandleStats_OK tests handleStats GET with auth.
+func TestHandleStats_OK(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.SharedSecret = "secret"
+	m := NewManager(cfg)
+	h := NewHandler(m)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/cluster/stats", nil)
+	req.Header.Set("X-Cluster-Auth", "secret")
+	w := httptest.NewRecorder()
+	h.handleStats(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+}
+
+// TestHandleNodes_OK tests handleNodes GET with auth.
+func TestHandleNodes_OK(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.SharedSecret = "secret"
+	m := NewManager(cfg)
+	h := NewHandler(m)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/cluster/nodes", nil)
+	req.Header.Set("X-Cluster-Auth", "secret")
+	w := httptest.NewRecorder()
+	h.handleNodes(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+}
+
+// TestHandleHealth_OK tests handleHealth GET.
+func TestHandleHealth_OK(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.SharedSecret = "secret"
+	m := NewManager(cfg)
+	h := NewHandler(m)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/cluster/health", nil)
+	req.Header.Set("X-Cluster-Auth", "secret")
+	w := httptest.NewRecorder()
+	h.handleHealth(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+}
