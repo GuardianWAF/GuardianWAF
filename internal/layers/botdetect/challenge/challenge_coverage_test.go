@@ -201,18 +201,24 @@ func TestHCaptcha_VerifyToken_ConnectionError(t *testing.T) {
 	}
 }
 
-// verifyTokenWithURL is a helper that calls VerifyToken with a custom URL
-// by temporarily replacing the provider's target. Since we can't change the URL
-// in VerifyToken directly, we use an internal method approach.
-// We create a test helper that makes the same logic but with a configurable URL.
-func (p *HCaptchaProvider) verifyTokenWithURL(token string, remoteIP string, serverURL string) (*VerificationResult, error) {
-	if token == "" {
-		return nil, http.ErrNoCookie // reuse a standard error for empty token
-	}
-	_ = serverURL // placeholder for test server URL override
+// redirectTransport is a custom RoundTripper that redirects requests to a test server.
+type redirectTransport struct {
+	target *url.URL
+}
 
-	// Actually, let's test via the standard VerifyToken by modifying the request
-	// We'll use a custom http.RoundTripper
+func (t *redirectTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	req.URL.Scheme = t.target.Scheme
+	req.URL.Host = t.target.Host
+	return http.DefaultTransport.RoundTrip(req)
+}
+
+// verifyTokenWithURL is a test helper that calls VerifyToken with requests
+// redirected to the given test server URL.
+func (p *HCaptchaProvider) verifyTokenWithURL(token string, remoteIP string, serverURL string) (*VerificationResult, error) {
+	parsed, _ := url.Parse(serverURL)
+	origTransport := p.client.Transport
+	p.client.Transport = &redirectTransport{target: parsed}
+	defer func() { p.client.Transport = origTransport }()
 	return p.VerifyToken(token, remoteIP)
 }
 
@@ -381,33 +387,11 @@ func TestTurnstile_VerifyToken_ConnectionError(t *testing.T) {
 
 // verifyTokenWithURL for Turnstile tests
 func (p *TurnstileProvider) verifyTokenWithURL(token string, remoteIP string, serverURL string) (*VerificationResult, error) {
-	// We need to test with a custom URL. Since the URL is hardcoded in VerifyToken,
-	// we'll use a custom transport that redirects requests.
-	origClient := p.client
-	p.client = &http.Client{
-		Timeout: origClient.Timeout,
-		Transport: &redirectTransport{
-			targetURL: serverURL,
-			base:      http.DefaultTransport,
-		},
-	}
-	defer func() { p.client = origClient }()
-
+	parsed, _ := url.Parse(serverURL)
+	origTransport := p.client.Transport
+	p.client.Transport = &redirectTransport{target: parsed}
+	defer func() { p.client.Transport = origTransport }()
 	return p.VerifyToken(token, remoteIP)
-}
-
-// redirectTransport redirects all requests to a target URL.
-type redirectTransport struct {
-	targetURL string
-	base      http.RoundTripper
-}
-
-func (t *redirectTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	// Redirect to test server
-	redirectReq := req.Clone(req.Context())
-	redirectReq.URL, _ = url.Parse(t.targetURL)
-	redirectReq.URL.RawQuery = req.URL.RawQuery
-	return t.base.RoundTrip(redirectReq)
 }
 
 // ---------------------------------------------------------------------------
