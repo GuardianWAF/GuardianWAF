@@ -77,6 +77,7 @@ type Dashboard struct {
 	apiKey          string
 	adminKey        string // Separate key for system admin operations (tenant management, billing, stats)
 	tenantAPIKeys   map[string]string // map[tenantID] -> SHA256 hash of per-tenant API key
+	tlsEnabled      bool              // Whether TLS is enabled for session cookies
 	// Fields below unchanged
 	upstreamsFn     func() any   // returns upstream status (injected to avoid circular imports)
 	rebuildFn       func() error // rebuilds proxy after config change
@@ -104,6 +105,17 @@ const (
 	loginWindow      = 5 * time.Minute  // window for counting attempts
 	loginLockout     = 15 * time.Minute // lockout duration after max attempts
 )
+
+// SetAPIKey sets the dashboard API key for login authentication.
+// This key is used to authenticate requests via the login form or X-API-Key header.
+func (d *Dashboard) SetAPIKey(key string) {
+	d.apiKey = key
+}
+
+// SetTLSEnabled sets whether TLS is enabled for session cookies.
+func (d *Dashboard) SetTLSEnabled(enabled bool) {
+	d.tlsEnabled = enabled
+}
 
 // SetAdminKey sets the system administrator API key.
 // This key grants exclusive access to /api/admin/* endpoints for cross-tenant
@@ -290,7 +302,7 @@ func (d *Dashboard) authWrap(handler http.HandlerFunc) http.HandlerFunc {
 
 		// Refresh session cookie on each request (sliding idle timeout)
 		if cookie, err := r.Cookie(sessionCookieName); err == nil && cookie.Value != "" {
-			setSessionCookie(w, r)
+			d.setSessionCookie(w, r)
 		}
 
 		// CSRF protection for state-changing requests authenticated via cookie
@@ -373,7 +385,7 @@ func (d *Dashboard) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.resetLoginAttempts(clientIP)
-	setSessionCookie(w, r)
+	d.setSessionCookie(w, r)
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 

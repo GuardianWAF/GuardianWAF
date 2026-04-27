@@ -3052,6 +3052,9 @@ func startDashboard(cfg *config.Config, eng *engine.Engine) (*http.Server, *dash
 		dash.SetComplianceEngine(compEngine)
 	}
 
+
+	dash.SetTLSEnabled(cfg.Dashboard.TLS)
+	
 	if cfg.Dashboard.AdminKey != "" {
 		dash.SetAdminKey(cfg.Dashboard.AdminKey)
 	} else {

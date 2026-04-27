@@ -94,6 +94,7 @@ export default function DashboardPage() {
 
       consecutiveErrors.current = 0
       setLastError(null)
+      setIsLoading(false)
     } catch (err: unknown) {
       consecutiveErrors.current++
       setLastError(err instanceof Error ? err.message : 'Connection error')

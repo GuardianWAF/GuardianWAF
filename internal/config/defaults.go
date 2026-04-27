@@ -1637,6 +1637,9 @@ func populateDashboard(dash *DashboardConfig, n *Node) error {
 	if v := n.Get("api_key"); v != nil && !v.IsNull {
 		dash.APIKey = v.String()
 	}
+	if v := n.Get("admin_key"); v != nil && !v.IsNull {
+		dash.AdminKey = v.String()
+	}
 	if v := n.Get("tls"); v != nil {
 		b, err := nodeBool(v)
 		if err != nil {

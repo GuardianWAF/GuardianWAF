@@ -400,16 +400,17 @@ func (d *Dashboard) isAuthenticated(r *http.Request) (*http.Request, bool) {
 }
 
 // setSessionCookie sets the session cookie on the response with proper security flags.
-func setSessionCookie(w http.ResponseWriter, r *http.Request) {
+func (d *Dashboard) setSessionCookie(w http.ResponseWriter, r *http.Request) {
 	token := signSession(clientIPFromRequest(r))
 	// Enforce concurrent session limit for this IP
 	registerActiveSession(token, clientIPFromRequest(r))
+
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   true, // Always require TLS for session cookies
+		Secure:   d.tlsEnabled, // Respect TLS configuration
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   int(sessionMaxAge.Seconds()),
 	})
