@@ -3052,9 +3052,6 @@ func startDashboard(cfg *config.Config, eng *engine.Engine) (*http.Server, *dash
 		dash.SetComplianceEngine(compEngine)
 	}
 
-	if cfg.Dashboard.APIKey != "" {
-		dash.SetAPIKey(cfg.Dashboard.APIKey)
-	}
 
 	dash.SetTLSEnabled(cfg.Dashboard.TLS)
 	
@@ -3062,7 +3059,7 @@ func startDashboard(cfg *config.Config, eng *engine.Engine) (*http.Server, *dash
 		dash.SetAdminKey(cfg.Dashboard.AdminKey)
 	} else {
 		keyBytes := make([]byte, 32)
-		if _, err := cryptoRand.Read(keyBytes); err == nil {
+		if _, err := rand.Read(keyBytes); err == nil {
 			dash.SetAdminKey(hex.EncodeToString(keyBytes))
 			fmt.Printf("Dashboard admin key not set — generated: %s\n", hex.EncodeToString(keyBytes))
 		}
