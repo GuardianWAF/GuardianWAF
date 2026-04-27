@@ -40,6 +40,7 @@ type Client struct {
 	httpClient   *http.Client
 	mu           sync.Mutex
 	nonces       []string // replay nonce pool
+	pollTimeout  time.Duration
 }
 
 // directory holds the ACME directory endpoints.
@@ -296,10 +297,16 @@ func (c *Client) completeAuthorization(authzURL string, handler *HTTP01Handler) 
 	}()
 
 	// Poll authorization until valid or invalid
+	authzTimeout := c.pollTimeout
+	if authzTimeout == 0 {
+		authzTimeout = 60 * time.Second
+	}
+	authzDeadline := time.NewTimer(authzTimeout)
+	defer authzDeadline.Stop()
 	for range 30 {
 		select {
 		case <-time.After(2 * time.Second):
-		case <-time.After(60 * time.Second):
+		case <-authzDeadline.C:
 			return fmt.Errorf("authorization poll timeout")
 		}
 
@@ -348,10 +355,16 @@ func (c *Client) finalizeOrder(finalizeURL string, csr []byte) error {
 }
 
 func (c *Client) pollCertificate(orderURL string) ([]byte, error) {
+	timeout := c.pollTimeout
+	if timeout == 0 {
+		timeout = 60 * time.Second
+	}
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
 	for range 30 {
 		select {
 		case <-time.After(2 * time.Second):
-		case <-time.After(60 * time.Second):
+		case <-deadline.C:
 			return nil, fmt.Errorf("certificate poll timeout")
 		}
 
@@ -360,15 +373,14 @@ func (c *Client) pollCertificate(orderURL string) ([]byte, error) {
 			return nil, err
 		}
 
-		defer func() {
-			io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
-			resp.Body.Close()
-		}()
-
 		var o order
 		if err := json.NewDecoder(resp.Body).Decode(&o); err != nil {
+			io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+			resp.Body.Close()
 			return nil, fmt.Errorf("failed to decode order response: %w", err)
 		}
+		io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+		resp.Body.Close()
 
 		if o.Status == "valid" && o.Certificate != "" {
 			return c.fetchCertificateChain(o.Certificate)

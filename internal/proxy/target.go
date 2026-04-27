@@ -68,6 +68,10 @@ func IsPrivateOrReservedIP(host string) error {
 }
 
 func classifyIP(ip net.IP, host string) error {
+	// Unspecified (0.0.0.0, ::) — would bind to all interfaces
+	if ip.IsUnspecified() {
+		return fmt.Errorf("target %q resolves to unspecified address %s — blocked by SSRF filter", host, ip)
+	}
 	if ip.IsLoopback() {
 		return fmt.Errorf("target %q resolves to loopback address %s — blocked by SSRF filter", host, ip)
 	}

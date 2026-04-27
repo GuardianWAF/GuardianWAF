@@ -88,6 +88,8 @@ threat_intel:
 cors:
   enabled: true
   allowed_origins:
+    # Restrict to specific origins in production. Using "*" is only suitable
+    # for local development or air-gapped deployments.
     - "*"
   allowed_methods:
     - GET

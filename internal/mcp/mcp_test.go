@@ -1774,6 +1774,17 @@ func (m *failEngine) SetHTTP3Config(enabled, enable0RTT, advertiseAltSvc *bool) 
 	return fmt.Errorf("fail")
 }
 
+// Alerting fail methods
+func (m *failEngine) AddWebhook(name, url, webhookType string, events []string, minScore int, cooldown string) error {
+	return fmt.Errorf("fail")
+}
+func (m *failEngine) RemoveWebhook(name string) error        { return fmt.Errorf("fail") }
+func (m *failEngine) AddEmailTarget(name, smtpHost string, smtpPort int, username, password, from string, to []string, useTLS bool, events []string, minScore int) error {
+	return fmt.Errorf("fail")
+}
+func (m *failEngine) RemoveEmailTarget(name string) error { return fmt.Errorf("fail") }
+func (m *failEngine) TestAlert(target string) error       { return fmt.Errorf("fail") }
+
 func TestHandleAddWhitelist_EngineError(t *testing.T) {
 	input := sendRequest(1, "tools/call", map[string]any{
 		"name":      "guardianwaf_add_whitelist",

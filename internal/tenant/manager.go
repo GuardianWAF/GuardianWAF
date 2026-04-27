@@ -741,18 +741,26 @@ func hashAPIKey(apiKey string) string {
 	return "v2$" + hex.EncodeToString(salt) + "$" + hex.EncodeToString(derived)
 }
 
-// deriveKey performs iterated HMAC-SHA256 key derivation (PBKDF2-HMAC-SHA256).
+// deriveKey performs standard PBKDF2-HMAC-SHA256 key derivation.
 func deriveKey(password, salt []byte, iterations int) []byte {
+	// U_1 = HMAC(password, salt)
 	mac := hmac.New(sha256.New, password)
 	mac.Write(salt)
 	result := mac.Sum(nil)
+
+	// U_i = HMAC(password, U_{i-1}); result ^= U_i
+	u := make([]byte, len(result))
+	copy(u, result)
+
 	for range iterations - 1 {
 		mac.Reset()
-		result = mac.Sum(result)
+		mac.Write(u)
+		u = mac.Sum(u[:0])
+		for i := range result {
+			result[i] ^= u[i]
+		}
 	}
-	out := make([]byte, len(result))
-	copy(out, result)
-	return out
+	return result
 }
 
 // verifyAPIKey checks if an API key matches a stored hash.
@@ -837,11 +845,11 @@ func (m *Manager) broadcast(entityType, entityID, action string, data map[string
 	case m.broadcastSem <- struct{}{}:
 		go func() {
 			defer func() {
-				<-m.broadcastSem
 				if r := recover(); r != nil {
 					log.Printf("[tenant] warning: broadcast goroutine panic: %v", r)
 				}
 			}()
+			defer func() { <-m.broadcastSem }()
 			if err := cs.BroadcastEvent(entityType, entityID, action, data); err != nil {
 				log.Printf("[tenant] warning: failed to broadcast event: %v", err)
 			}

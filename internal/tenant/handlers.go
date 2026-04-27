@@ -363,7 +363,7 @@ func (h *Handlers) RegenerateAPIKeyHandler(w http.ResponseWriter, r *http.Reques
 
 	tenantID := parts[0]
 
-	apiKey, err := h.manager.RegenerateAPIKey(tenantID)
+		apiKey, err := h.manager.RegenerateAPIKey(tenantID)
 	if err != nil {
 		http.Error(w, sanitizeErr(err), http.StatusNotFound)
 		return

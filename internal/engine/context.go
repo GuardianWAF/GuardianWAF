@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -51,6 +52,14 @@ func SetTrustedProxies(cidrs []string) {
 		_, cidr, err := net.ParseCIDR(s)
 		if err != nil {
 			continue
+		}
+		// Reject overly broad CIDRs that would trust all connections
+		if cidr.IP.IsUnspecified() {
+			ones, _ := cidr.Mask.Size()
+			if ones == 0 {
+				fmt.Printf("[engine] WARNING: rejecting overly broad trusted proxy CIDR %q — would trust all connections\n", s)
+				continue
+			}
 		}
 		parsed = append(parsed, cidr)
 	}

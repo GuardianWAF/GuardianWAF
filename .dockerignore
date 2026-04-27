@@ -25,3 +25,12 @@ CLAUDE.md
 .goreleaser.yml
 Makefile
 scripts/
+.env
+.env.*
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+credentials.json
+secrets.yml

@@ -39,7 +39,12 @@ var revokedSessions sync.Map
 // SESSION-003 mitigation. Each IP has a set of valid (non-expired,
 // non-revoked) sessions. When MaxConcurrentSessionsPerIP is exceeded,
 // oldest sessions are invalidated to make room for new ones.
-// Key: client IP string, Value: map of session token -> last access time.
+// Key: client IP string, Value: *ipSessionMap (with its own mutex).
+type ipSessionMap struct {
+	mu     sync.Mutex
+	tokens map[string]time.Time
+}
+
 var activeSessions sync.Map
 
 func init() {
@@ -133,6 +138,15 @@ func verifySession(token, clientIP string) bool {
 func RevokeSession(token string) {
 	if token != "" {
 		revokedSessions.Store(token, time.Now())
+		// Proactive cleanup: if the map grows large, run cleanup immediately
+		count := 0
+		revokedSessions.Range(func(_, _ any) bool {
+			count++
+			return count < 10000
+		})
+		if count >= 10000 {
+			cleanupRevokedSessions()
+		}
 	}
 }
 
@@ -149,11 +163,17 @@ func cleanupRevokedSessions() {
 }
 
 // cleanupRevokedSessionsLoop runs periodic cleanup of expired revoked tokens.
-func cleanupRevokedSessionsLoop() {
+// Stops when the provided channel is closed.
+func cleanupRevokedSessionsLoop(stopCh <-chan struct{}) {
 	ticker := time.NewTicker(sessionAbsMaxAge)
 	defer ticker.Stop()
-	for range ticker.C {
-		cleanupRevokedSessions()
+	for {
+		select {
+		case <-ticker.C:
+			cleanupRevokedSessions()
+		case <-stopCh:
+			return
+		}
 	}
 }
 
@@ -163,44 +183,29 @@ func cleanupRevokedSessionsLoop() {
 func registerActiveSession(token, clientIP string) {
 	now := time.Now()
 
-	ipSessions, _ := activeSessions.LoadOrStore(clientIP, &sync.Map{})
-	sm := ipSessions.(*sync.Map)
+	v, _ := activeSessions.LoadOrStore(clientIP, &ipSessionMap{tokens: make(map[string]time.Time)})
+	sm := v.(*ipSessionMap)
 
-	// Count current sessions
-	count := 0
-	var oldestToken string
-	var oldestTime time.Time
-
-	sm.Range(func(k, v any) bool {
-		t := k.(string)
-		lt := v.(time.Time)
-		count++
-		if oldestTime.IsZero() || lt.Before(oldestTime) {
-			oldestTime = lt
-			oldestToken = t
-		}
-		return true
-	})
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
 
 	// Evict oldest sessions until under limit
-	for count >= MaxConcurrentSessionsPerIP && oldestToken != "" {
-		sm.Delete(oldestToken)
-		count--
-		// Find next oldest
-		oldestTime = time.Time{}
-		oldestToken = ""
-		sm.Range(func(k, v any) bool {
-			t := k.(string)
-			lt := v.(time.Time)
+	for len(sm.tokens) >= MaxConcurrentSessionsPerIP {
+		var oldestToken string
+		var oldestTime time.Time
+		for t, lt := range sm.tokens {
 			if oldestTime.IsZero() || lt.Before(oldestTime) {
 				oldestTime = lt
 				oldestToken = t
 			}
-			return true
-		})
+		}
+		if oldestToken == "" {
+			break
+		}
+		delete(sm.tokens, oldestToken)
 	}
 
-	sm.Store(token, now)
+	sm.tokens[token] = now
 }
 
 // clientIPFromRequest extracts the client IP from a request's RemoteAddr.
@@ -282,18 +287,26 @@ func verifyAPIKeyHash(storedHash, apiKey string) (matched bool, upgrade bool) {
 	return subtle.ConstantTimeCompare([]byte(storedHash), []byte(hex.EncodeToString(expected[:]))) == 1, true
 }
 
-// deriveAPIKey performs iterated HMAC-SHA256 key derivation.
+// deriveAPIKey performs standard PBKDF2-HMAC-SHA256 key derivation.
 func deriveAPIKey(password, salt []byte, iterations int) []byte {
+	// U_1 = HMAC(password, salt)
 	mac := hmac.New(sha256.New, password)
 	mac.Write(salt)
 	result := mac.Sum(nil)
+
+	// U_i = HMAC(password, U_{i-1}); result ^= U_i
+	u := make([]byte, len(result))
+	copy(u, result)
+
 	for range iterations - 1 {
 		mac.Reset()
-		result = mac.Sum(result)
+		mac.Write(u)
+		u = mac.Sum(u[:0])
+		for i := range result {
+			result[i] ^= u[i]
+		}
 	}
-	out := make([]byte, len(result))
-	copy(out, result)
-	return out
+	return result
 }
 
 // isAuthenticated checks if the request has a valid session cookie, global dashboard API key,

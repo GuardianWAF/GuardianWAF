@@ -1467,6 +1467,7 @@ func TestPollCertificate_Timeout(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL + "/directory")
+	c.pollTimeout = 3 * time.Second
 	_ = c.Init(nil)
 	_ = c.Register("test@example.com")
 
@@ -1569,6 +1570,7 @@ func TestCompleteAuthorization_Timeout(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL + "/directory")
+	c.pollTimeout = 3 * time.Second
 	_ = c.Init(nil)
 	_ = c.Register("test@example.com")
 

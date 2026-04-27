@@ -120,6 +120,7 @@ export default function DashboardPage() {
 
   // Polling with adaptive interval (also handles initial load)
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     checkHealth()
     const interval = setInterval(() => {
       checkHealth()

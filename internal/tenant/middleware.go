@@ -51,7 +51,7 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 
 		// Check quota
 		if err := m.manager.CheckQuota(tenant); err != nil {
-			http.Error(w, err.Error(), http.StatusTooManyRequests)
+			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
 			return
 		}
 

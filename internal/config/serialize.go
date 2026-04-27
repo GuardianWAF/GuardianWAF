@@ -96,6 +96,12 @@ func marshalField(b *strings.Builder, prefix, key string, fv reflect.Value, inde
 		fmt.Fprintf(b, "%s%s:\n", prefix, key)
 		marshalStruct(b, fv, fv.Type(), indent+1)
 
+	case reflect.Ptr:
+		if fv.IsNil() {
+			return
+		}
+		marshalField(b, prefix, key, fv.Elem(), indent)
+
 	case reflect.Interface:
 		if fv.IsNil() {
 			return
@@ -186,20 +192,54 @@ func marshalInlineField(b *strings.Builder, key string, fv reflect.Value, indent
 	case reflect.Bool:
 		fmt.Fprintf(b, "%s: %t\n", key, fv.Bool())
 	case reflect.Slice:
-		// For inline slices in sequence items, use flow style [a, b, c]
 		if fv.Len() == 0 {
 			return
 		}
-		if fv.Type().Elem().Kind() == reflect.String {
+		elemKind := fv.Type().Elem().Kind()
+		if elemKind == reflect.String {
+			// flow style [a, b, c]
 			var items []string
 			for i := range fv.Len() {
 				items = append(items, fv.Index(i).String())
 			}
 			fmt.Fprintf(b, "%s: [%s]\n", key, strings.Join(items, ", "))
+		} else if elemKind == reflect.Struct {
+			// Bug 2 fix: struct slices inside sequence items — block style
+			fmt.Fprintf(b, "%s:\n", key)
+			childPrefix := strings.Repeat("  ", indent+1)
+			for i := range fv.Len() {
+				elem := fv.Index(i)
+				et := elem.Type()
+				first := true
+				for j := range et.NumField() {
+					field := et.Field(j)
+					ftag := field.Tag.Get("yaml")
+					if ftag == "" || ftag == "-" {
+						continue
+					}
+					fieldVal := elem.Field(j)
+					if isZeroValue(fieldVal) {
+						continue
+					}
+					if first {
+						fmt.Fprintf(b, "%s- ", childPrefix)
+						marshalInlineField(b, ftag, fieldVal, indent+1)
+						first = false
+					} else {
+						fmt.Fprintf(b, "%s  ", childPrefix)
+						marshalInlineField(b, ftag, fieldVal, indent+1)
+					}
+				}
+			}
 		}
 	case reflect.Struct:
 		fmt.Fprintf(b, "%s:\n", key)
-		marshalStruct(b, fv, fv.Type(), indent)
+		marshalStruct(b, fv, fv.Type(), indent+1)
+	case reflect.Ptr:
+		// Bug 3 fix: handle pointer fields (e.g. *WAFConfig in VirtualHostConfig)
+		if !fv.IsNil() {
+			marshalInlineField(b, key, fv.Elem(), indent)
+		}
 	case reflect.Interface:
 		if !fv.IsNil() {
 			marshalInlineField(b, key, fv.Elem(), indent)
@@ -248,6 +288,8 @@ func isZeroValue(v reflect.Value) bool {
 			}
 		}
 		return true
+	case reflect.Ptr:
+		return v.IsNil()
 	case reflect.Interface:
 		return v.IsNil()
 	}

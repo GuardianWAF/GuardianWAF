@@ -92,9 +92,12 @@ func NewManager(targets []WebhookTarget) *Manager {
 	}
 
 	for _, t := range targets {
-		// Warn if webhook URL uses plain HTTP — credentials/tokens in headers may leak
-		if strings.HasPrefix(t.URL, "http://") {
-			fmt.Printf("WARNING: webhook %q uses insecure HTTP URL: %s (headers and alert data may be intercepted)\n", t.Name, t.URL)
+		// Validate webhook URL — reject non-HTTPS and private IPs (skip in test mode)
+		if !allowWebhookPrivate.Load() {
+			if err := ValidateWebhookURL(t.URL); err != nil {
+				fmt.Printf("WARNING: webhook %q rejected: %v\n", t.Name, err)
+				continue
+			}
 		}
 		wh := webhook{config: t, lastFire: &sync.Map{}}
 		wh.cooldown = t.Cooldown
@@ -106,6 +109,13 @@ func NewManager(targets []WebhookTarget) *Manager {
 
 	m.logFn.Store(func(_, _ string) {})
 	return m
+}
+
+// log safely calls the stored log function with comma-ok type assertion.
+func (m *Manager) log(level, msg string) {
+	if logFn, ok := m.logFn.Load().(func(string, string)); ok {
+		logFn(level, msg)
+	}
 }
 
 // NewManagerWithEmail creates an alerting manager with both webhook and email targets.
@@ -202,9 +212,7 @@ func (m *Manager) HandleEvent(event *engine.Event) {
 				defer func() {
 					if r := recover(); r != nil {
 						m.failed.Add(1)
-						if logFn, ok := m.logFn.Load().(func(string, string)); ok {
-						logFn("error", fmt.Sprintf("webhook goroutine panic: %v", r))
-					}
+						m.log("error", fmt.Sprintf("webhook goroutine panic: %v", r))
 					}
 				}()
 				m.send(wc, a)
@@ -259,7 +267,7 @@ func (m *Manager) HandleEvent(event *engine.Event) {
 				defer func() {
 					if r := recover(); r != nil {
 						m.failed.Add(1)
-						m.logFn.Load().(func(string, string))("error", fmt.Sprintf("email goroutine panic: %v", r))
+						m.log("error", fmt.Sprintf("email goroutine panic: %v", r))
 					}
 				}()
 				m.SendEmail(et, ev)
@@ -307,7 +315,7 @@ func (m *Manager) send(wc *WebhookTarget, alert *Alert) {
 	resp, err := m.httpClient.Do(req)
 	if err != nil {
 		m.failed.Add(1)
-		m.logFn.Load().(func(string, string))("warn", fmt.Sprintf("Webhook %s failed: %v", wc.Name, err))
+		m.log("warn", fmt.Sprintf("Webhook %s failed: %v", wc.Name, err))
 		return
 	}
 	defer resp.Body.Close()
@@ -315,7 +323,7 @@ func (m *Manager) send(wc *WebhookTarget, alert *Alert) {
 
 	if resp.StatusCode >= 400 {
 		m.failed.Add(1)
-		m.logFn.Load().(func(string, string))("warn", fmt.Sprintf("Webhook %s returned %d", wc.Name, resp.StatusCode))
+		m.log("warn", fmt.Sprintf("Webhook %s returned %d", wc.Name, resp.StatusCode))
 		return
 	}
 
@@ -459,7 +467,7 @@ func pagerdutyPayload(a *Alert) map[string]any {
 // AddWebhook adds a new webhook target at runtime.
 func (m *Manager) AddWebhook(target WebhookTarget) {
 	if err := ValidateWebhookURL(target.URL); err != nil {
-		m.logFn.Load().(func(string, string))("error", fmt.Sprintf("webhook %q rejected: %v", target.Name, err))
+		m.log("error", fmt.Sprintf("webhook %q rejected: %v", target.Name, err))
 		return
 	}
 	wh := webhook{
@@ -473,7 +481,7 @@ func (m *Manager) AddWebhook(target WebhookTarget) {
 	m.mu.Lock()
 	m.webhooks = append(m.webhooks, wh)
 	m.mu.Unlock()
-	m.logFn.Load().(func(string, string))("info", fmt.Sprintf("Webhook target added: %s", target.Name))
+	m.log("info", fmt.Sprintf("Webhook target added: %s", target.Name))
 }
 
 // RemoveWebhook removes a webhook target by name. Returns true if found and removed.
@@ -483,7 +491,7 @@ func (m *Manager) RemoveWebhook(name string) bool {
 	for i, wh := range m.webhooks {
 		if wh.config.Name == name {
 			m.webhooks = append(m.webhooks[:i], m.webhooks[i+1:]...)
-			m.logFn.Load().(func(string, string))("info", fmt.Sprintf("Webhook target removed: %s", name))
+			m.log("info", fmt.Sprintf("Webhook target removed: %s", name))
 			return true
 		}
 	}
@@ -496,7 +504,7 @@ func (m *Manager) AddEmailTarget(cfg config.EmailConfig) {
 		m.mu.Lock()
 		m.emailTargets = append(m.emailTargets, NewEmailTarget(cfg))
 		m.mu.Unlock()
-		m.logFn.Load().(func(string, string))("info", fmt.Sprintf("Email target added: %s", cfg.Name))
+		m.log("info", fmt.Sprintf("Email target added: %s", cfg.Name))
 	}
 }
 
@@ -507,7 +515,7 @@ func (m *Manager) RemoveEmailTarget(name string) bool {
 	for i, et := range m.emailTargets {
 		if et.config.Name == name {
 			m.emailTargets = append(m.emailTargets[:i], m.emailTargets[i+1:]...)
-			m.logFn.Load().(func(string, string))("info", fmt.Sprintf("Email target removed: %s", name))
+			m.log("info", fmt.Sprintf("Email target removed: %s", name))
 			return true
 		}
 	}
@@ -607,6 +615,8 @@ func validateHostNotPrivate(host string) error {
 
 // webhookSSRFDialContext returns a DialContext that validates resolved IPs at
 // connection time to prevent DNS rebinding (TOCTOU) attacks on webhook targets.
+// Resolves DNS, validates all IPs, then dials the validated IP directly — avoids
+// a second DNS resolution by the dialer that could be rebinding-attacked.
 func webhookSSRFDialContext() func(ctx context.Context, network, addr string) (net.Conn, error) {
 	dialer := &net.Dialer{Timeout: 10 * time.Second}
 	return func(ctx context.Context, network, addr string) (net.Conn, error) {
@@ -614,15 +624,30 @@ func webhookSSRFDialContext() func(ctx context.Context, network, addr string) (n
 		if allowWebhookPrivate.Load() {
 			return dialer.DialContext(ctx, network, addr)
 		}
-		host, _, err := net.SplitHostPort(addr)
+		host, port, err := net.SplitHostPort(addr)
 		if err != nil {
 			host = addr
+			port = ""
 		}
-		// Validate at connection time (catches DNS rebinding)
-		if err := validateHostNotPrivate(host); err != nil {
-			return nil, fmt.Errorf("webhook SSRF: %w", err)
+		// Resolve DNS and validate all resulting IPs
+		ips, err := net.LookupIP(host)
+		if err != nil {
+			return nil, fmt.Errorf("webhook SSRF: DNS lookup failed for %q: %w", host, err)
 		}
-		return dialer.DialContext(ctx, network, addr)
+		var validIP net.IP
+		for _, ip := range ips {
+			if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() || ip.IsMulticast() {
+				continue
+			}
+			validIP = ip
+			break
+		}
+		if validIP == nil {
+			return nil, fmt.Errorf("webhook SSRF: no valid public IPs for %q", host)
+		}
+		// Dial the validated IP directly — avoids TOCTOU via DNS rebinding
+		target := net.JoinHostPort(validIP.String(), port)
+		return dialer.DialContext(ctx, network, target)
 	}
 }
 

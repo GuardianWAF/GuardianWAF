@@ -266,8 +266,8 @@ func TestAIGetConfig_WithAnalyzer(t *testing.T) {
 		t.Error("expected api_key_set=true")
 	}
 	mask, _ := result["api_key_mask"].(string)
-	if !strings.HasPrefix(mask, "****") || !strings.HasSuffix(mask, "5678") {
-		t.Errorf("expected masked key with only last 4 chars, got %s", mask)
+	if mask != "****" {
+		t.Errorf("expected masked key to be ****, got %s", mask)
 	}
 }
 

@@ -87,8 +87,9 @@ ingress:
   #       - waf.example.com
 
 # API key for dashboard access
+# WARNING: Do not use 'value' in production — it exposes the API key in plain
+# text in the pod spec (visible via kubectl get pod -o yaml). Use existingSecret.
 apiKey:
-  # Set to a pre-generated key, or leave empty to use existing secret
   value: ""
   existingSecret: ""
   existingSecretKey: "api-key"

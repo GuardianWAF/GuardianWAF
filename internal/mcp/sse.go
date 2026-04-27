@@ -31,6 +31,9 @@ type sseClient struct {
 	mu      sync.Mutex // Protects writes to w
 }
 
+// maxMCPSSEClients limits concurrent SSE connections to prevent resource exhaustion.
+const maxMCPSSEClients = 256
+
 // NewSSEHandler creates an HTTP handler that serves MCP over SSE.
 func NewSSEHandler(srv *Server, apiKey string) *SSEHandler {
 	return &SSEHandler{
@@ -81,6 +84,11 @@ func (h *SSEHandler) handleSSE(w http.ResponseWriter, r *http.Request) {
 	client := &sseClient{w: w, flusher: flusher, done: make(chan struct{})}
 
 	h.mu.Lock()
+	if len(h.clients) >= maxMCPSSEClients {
+		h.mu.Unlock()
+		http.Error(w, "too many SSE connections", http.StatusServiceUnavailable)
+		return
+	}
 	h.clients[client] = true
 	h.mu.Unlock()
 
