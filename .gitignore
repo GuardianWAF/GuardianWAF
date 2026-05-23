@@ -114,3 +114,5 @@ data/
 
 # AI remediation generated rules (thousands of JSON files)
 internal/ai/remediation/data/remediation/*.json
+
+.dfmt/
