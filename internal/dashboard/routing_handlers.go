@@ -181,12 +181,12 @@ func (d *Dashboard) handleUpdateRouting(w http.ResponseWriter, r *http.Request) 
 					if v, ok := tm["url"].(string); ok {
 						parsed, urlErr := url.Parse(v)
 						if urlErr != nil {
-							writeJSON(w, http.StatusBadRequest, map[string]any{"error": sanitizeErr(urlErr)})
+							writeError(w, http.StatusBadRequest, sanitizeErr(urlErr))
 							return
 						}
 						if !proxy.PrivateTargetsAllowed() {
 							if ssrfErr := proxy.IsPrivateOrReservedIP(parsed.Hostname()); ssrfErr != nil {
-								writeJSON(w, http.StatusBadRequest, map[string]any{"error": sanitizeErr(ssrfErr)})
+								writeError(w, http.StatusBadRequest, sanitizeErr(ssrfErr))
 								return
 							}
 						}
@@ -279,7 +279,7 @@ func (d *Dashboard) handleUpdateRouting(w http.ResponseWriter, r *http.Request) 
 	config.ValidateRoutesExported(cfg.Routes, cfg.Upstreams, ve)
 	config.ValidateVirtualHostsExported(cfg.VirtualHosts, cfg.Upstreams, ve)
 	if ve.HasErrors() {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": sanitizeErr(ve)})
+		writeError(w, http.StatusBadRequest, sanitizeErr(ve))
 		return
 	}
 

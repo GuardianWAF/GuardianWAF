@@ -230,18 +230,18 @@ func TestGetOrCreateBucket_MaxBucketsLimit(t *testing.T) {
 	defer engine.ReleaseContext(ctx)
 	result := layer.Process(ctx)
 
-	// When max buckets is reached, it should block with "system overloaded" finding
+	// When max buckets is reached, getOrCreateBucket returns the shared blocking bucket (tokens=0), so Allow() always returns false → rate limit exceeded (score 70).
 	if result.Action != engine.ActionBlock {
 		t.Errorf("expected block when max buckets reached, got %v", result.Action)
 	}
 	if len(result.Findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(result.Findings))
 	}
-	if result.Findings[0].Score != 85 {
-		t.Errorf("expected score 85 for overloaded, got %d", result.Findings[0].Score)
+	if result.Findings[0].Score != 70 {
+		t.Errorf("expected score 70 for rate limit exceeded, got %d", result.Findings[0].Score)
 	}
-	if result.Findings[0].MatchedValue == "" {
-		t.Error("expected non-empty MatchedValue in overloaded finding")
+	if result.Findings[0].Description != "Rate limit exceeded: max-test" {
+		t.Errorf("unexpected description: %s", result.Findings[0].Description)
 	}
 }
 

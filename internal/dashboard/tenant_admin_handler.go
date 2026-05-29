@@ -66,7 +66,7 @@ func (h *TenantAdminHandler) handleTenants(w http.ResponseWriter, r *http.Reques
 func (h *TenantAdminHandler) handleTenantDetail(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/api/admin/tenants/")
 	if path == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "tenant ID required"})
+		writeError(w, http.StatusBadRequest, "tenant ID required")
 		return
 	}
 
@@ -129,12 +129,12 @@ func (h *TenantAdminHandler) createTenant(w http.ResponseWriter, r *http.Request
 	}
 
 	if req.Name == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "name is required"})
+		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
 
 	if len(req.Domains) == 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "at least one domain is required"})
+		writeError(w, http.StatusBadRequest, "at least one domain is required")
 		return
 	}
 
@@ -194,7 +194,7 @@ func (h *TenantAdminHandler) updateTenant(w http.ResponseWriter, r *http.Request
 	}
 	for k := range update {
 		if !allowedKeys[k] {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "unknown field: " + k})
+			writeError(w, http.StatusBadRequest, "unknown field: "+k)
 			return
 		}
 	}
@@ -327,7 +327,7 @@ func (h *TenantAdminHandler) handleBillingDetail(w http.ResponseWriter, r *http.
 
 	path := strings.TrimPrefix(r.URL.Path, "/api/admin/billing/")
 	if path == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "tenant ID required"})
+		writeError(w, http.StatusBadRequest, "tenant ID required")
 		return
 	}
 
@@ -420,7 +420,7 @@ func (h *TenantAdminHandler) handleUsageDetail(w http.ResponseWriter, r *http.Re
 
 	path := strings.TrimPrefix(r.URL.Path, "/api/admin/usage/")
 	if path == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "tenant ID required"})
+		writeError(w, http.StatusBadRequest, "tenant ID required")
 		return
 	}
 
@@ -475,7 +475,7 @@ func (h *TenantAdminHandler) handleTenantRules(w http.ResponseWriter, r *http.Re
 		// List all rules across tenants or filter by tenant_id query param
 		tenantID := r.URL.Query().Get("tenant_id")
 		if tenantID == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "tenant_id query parameter required"})
+			writeError(w, http.StatusBadRequest, "tenant_id query parameter required")
 			return
 		}
 		rules := h.manager.GetTenantRules(tenantID)
@@ -494,11 +494,11 @@ func (h *TenantAdminHandler) handleTenantRules(w http.ResponseWriter, r *http.Re
 			return
 		}
 		if req.TenantID == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "tenant_id is required"})
+			writeError(w, http.StatusBadRequest, "tenant_id is required")
 			return
 		}
 		if err := h.manager.AddTenantRule(req.TenantID, req.Rule); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": sanitizeErr(err)})
+			writeError(w, http.StatusBadRequest, sanitizeErr(err))
 			return
 		}
 		writeJSON(w, http.StatusCreated, map[string]any{"status": "ok"})
@@ -518,13 +518,13 @@ func (h *TenantAdminHandler) handleTenantRuleDetail(w http.ResponseWriter, r *ht
 	// Path format: /api/admin/tenants/rules/{tenantID}/{ruleID}
 	path := strings.TrimPrefix(r.URL.Path, "/api/admin/tenants/rules/")
 	if path == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "tenant ID and rule ID required"})
+		writeError(w, http.StatusBadRequest, "tenant ID and rule ID required")
 		return
 	}
 
 	parts := strings.Split(path, "/")
 	if len(parts) < 2 {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "rule ID required"})
+		writeError(w, http.StatusBadRequest, "rule ID required")
 		return
 	}
 	tenantID := parts[0]

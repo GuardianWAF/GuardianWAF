@@ -99,7 +99,7 @@ func (d *Dashboard) handleGetEvents(w http.ResponseWriter, r *http.Request) {
 func (d *Dashboard) handleGetEvent(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "missing event ID"})
+		writeError(w, http.StatusBadRequest, "missing event ID")
 		return
 	}
 
@@ -121,7 +121,7 @@ func (d *Dashboard) handleExportEvents(w http.ResponseWriter, r *http.Request) {
 		format = "json"
 	}
 	if format != "json" && format != "csv" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid format, use 'json' or 'csv'"})
+		writeError(w, http.StatusBadRequest, "invalid format, use 'json' or 'csv'")
 		return
 	}
 

@@ -44,6 +44,11 @@ type Layer struct {
 
 const maxBuckets = 500000 // Hard cap to prevent memory exhaustion
 
+// blockedBucket is returned when maxBuckets is reached to ensure rate limit
+// checks always proceed (never nil), causing all requests to be evaluated by
+// the bucket's Allow() which always returns false when tokens and maxTokens are 0.
+var blockedBucket = &TokenBucket{tokens: 0, maxTokens: 0, refillRate: 0}
+
 // NewLayer creates a new rate limiter layer.
 func NewLayer(cfg *Config) *Layer {
 	return &Layer{
@@ -146,22 +151,6 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 
 		key := l.bucketKey(rule, tenantID, ip, reqPath)
 		bucket := l.getOrCreateBucket(key, rule)
-	if bucket == nil {
-		// Bucket limit (500K) reached — system overload. Block all to prevent bypass.
-		finding := engine.Finding{
-			DetectorName: "ratelimit",
-			Category:    "ratelimit",
-			Score:       85,
-			Severity:    engine.SeverityHigh,
-			Description: "Rate limit system overloaded — bucket limit reached: " + rule.ID,
-			MatchedValue: key,
-			Location:    "ip",
-		}
-		findings = append(findings, finding)
-		totalScore += finding.Score
-		blocked = true
-		continue
-	}
 
 		if !bucket.Allow() {
 			finding := engine.Finding{
@@ -222,6 +211,8 @@ func (l *Layer) bucketKey(rule *Rule, tenantID, ip, reqPath string) string {
 }
 
 // getOrCreateBucket retrieves or creates a token bucket for the given key.
+// Returns blockedBucket (which always returns false from Allow()) when the
+// maxBuckets limit is reached, ensuring callers never receive nil.
 func (l *Layer) getOrCreateBucket(key string, rule *Rule) *TokenBucket {
 	if val, ok := l.buckets.Load(key); ok {
 		return val.(*TokenBucket)
@@ -229,7 +220,7 @@ func (l *Layer) getOrCreateBucket(key string, rule *Rule) *TokenBucket {
 
 	// Hard cap: reject new bucket creation when limit reached
 	if l.bucketCount.Load() >= maxBuckets {
-		return nil
+		return blockedBucket
 	}
 
 	maxTokens := float64(rule.Limit)

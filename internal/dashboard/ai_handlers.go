@@ -88,7 +88,7 @@ func (d *Dashboard) handleAIGetConfig(w http.ResponseWriter, r *http.Request) {
 // handleAISetConfig updates the AI provider configuration.
 func (d *Dashboard) handleAISetConfig(w http.ResponseWriter, r *http.Request) {
 	if d.aiAnalyzer == nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "AI analysis not enabled"})
+		writeError(w, http.StatusBadRequest, "AI analysis not enabled")
 		return
 	}
 
@@ -105,13 +105,13 @@ func (d *Dashboard) handleAISetConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if body.APIKey == "" || body.BaseURL == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "api_key and base_url are required"})
+		writeError(w, http.StatusBadRequest, "api_key and base_url are required")
 		return
 	}
 
 	// Validate BaseURL to prevent SSRF — reject private/loopback/reserved IPs
 	if err := validateAIEndpointURL(body.BaseURL); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusBadRequest, sanitizeErr(err))
 		return
 	}
 
@@ -185,7 +185,7 @@ func (d *Dashboard) handleAIStats(w http.ResponseWriter, r *http.Request) {
 // handleAIAnalyze triggers a manual AI analysis of recent suspicious events.
 func (d *Dashboard) handleAIAnalyze(w http.ResponseWriter, r *http.Request) {
 	if d.aiAnalyzer == nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "AI analysis not enabled"})
+		writeError(w, http.StatusBadRequest, "AI analysis not enabled")
 		return
 	}
 
@@ -225,7 +225,7 @@ func (d *Dashboard) handleAIAnalyze(w http.ResponseWriter, r *http.Request) {
 // handleAITest tests the AI provider connection.
 func (d *Dashboard) handleAITest(w http.ResponseWriter, r *http.Request) {
 	if d.aiAnalyzer == nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "AI analysis not enabled"})
+		writeError(w, http.StatusBadRequest, "AI analysis not enabled")
 		return
 	}
 

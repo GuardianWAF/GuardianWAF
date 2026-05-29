@@ -32,7 +32,7 @@ func (d *Dashboard) handleCWVReport(w http.ResponseWriter, r *http.Request) {
 		Delta  float64 `json:"delta"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&report); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 	cwvMetrics.Store(report.Name, report)
@@ -74,7 +74,7 @@ func (d *Dashboard) handleComplianceReport(w http.ResponseWriter, r *http.Reques
 	}
 	framework := r.PathValue("framework")
 	if framework == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "framework is required"})
+		writeError(w, http.StatusBadRequest, "framework is required")
 		return
 	}
 
@@ -179,4 +179,3 @@ func (d *Dashboard) handleDistAssets(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	_, _ = w.Write(data) // nolint:errcheck // download write; error ignored
 }
-

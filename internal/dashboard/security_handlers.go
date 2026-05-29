@@ -44,7 +44,7 @@ func (d *Dashboard) handleGetIPACL(w http.ResponseWriter, r *http.Request) {
 func (d *Dashboard) handleAddIPACL(w http.ResponseWriter, r *http.Request) {
 	acl, ok := d.getIPACLLayer()
 	if !ok {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "IP ACL layer not active"})
+		writeError(w, http.StatusBadRequest, "IP ACL layer not active")
 		return
 	}
 
@@ -56,7 +56,7 @@ func (d *Dashboard) handleAddIPACL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.IP == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "ip is required"})
+		writeError(w, http.StatusBadRequest, "ip is required")
 		return
 	}
 
@@ -67,11 +67,11 @@ func (d *Dashboard) handleAddIPACL(w http.ResponseWriter, r *http.Request) {
 	case "blacklist":
 		err = acl.AddBlacklist(body.IP)
 	default:
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "list must be 'whitelist' or 'blacklist'"})
+		writeError(w, http.StatusBadRequest, "list must be 'whitelist' or 'blacklist'")
 		return
 	}
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusBadRequest, sanitizeErr(err))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "ip": body.IP, "list": body.List})
@@ -80,7 +80,7 @@ func (d *Dashboard) handleAddIPACL(w http.ResponseWriter, r *http.Request) {
 func (d *Dashboard) handleRemoveIPACL(w http.ResponseWriter, r *http.Request) {
 	acl, ok := d.getIPACLLayer()
 	if !ok {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "IP ACL layer not active"})
+		writeError(w, http.StatusBadRequest, "IP ACL layer not active")
 		return
 	}
 
@@ -92,7 +92,7 @@ func (d *Dashboard) handleRemoveIPACL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.IP == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "ip is required"})
+		writeError(w, http.StatusBadRequest, "ip is required")
 		return
 	}
 
@@ -103,11 +103,11 @@ func (d *Dashboard) handleRemoveIPACL(w http.ResponseWriter, r *http.Request) {
 	case "blacklist":
 		err = acl.RemoveBlacklist(body.IP)
 	default:
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "list must be 'whitelist' or 'blacklist'"})
+		writeError(w, http.StatusBadRequest, "list must be 'whitelist' or 'blacklist'")
 		return
 	}
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusBadRequest, sanitizeErr(err))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "ip": body.IP, "list": body.List})
@@ -138,7 +138,7 @@ func (d *Dashboard) handleGetBans(w http.ResponseWriter, r *http.Request) {
 func (d *Dashboard) handleAddBan(w http.ResponseWriter, r *http.Request) {
 	bl := d.getBanLayer()
 	if bl == nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "IP ACL layer not active"})
+		writeError(w, http.StatusBadRequest, "IP ACL layer not active")
 		return
 	}
 	var body struct {
@@ -150,7 +150,7 @@ func (d *Dashboard) handleAddBan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.IP == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "ip is required"})
+		writeError(w, http.StatusBadRequest, "ip is required")
 		return
 	}
 	ttl, err := time.ParseDuration(body.Duration)
@@ -167,14 +167,14 @@ func (d *Dashboard) handleAddBan(w http.ResponseWriter, r *http.Request) {
 func (d *Dashboard) handleRemoveBan(w http.ResponseWriter, r *http.Request) {
 	bl := d.getBanLayer()
 	if bl == nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "IP ACL layer not active"})
+		writeError(w, http.StatusBadRequest, "IP ACL layer not active")
 		return
 	}
 	var body struct {
 		IP string `json:"ip"`
 	}
 	if !limitedDecodeJSON(w, r, &body) || body.IP == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "ip is required"})
+		writeError(w, http.StatusBadRequest, "ip is required")
 		return
 	}
 	bl.RemoveAutoBan(body.IP)

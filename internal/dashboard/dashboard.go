@@ -82,6 +82,7 @@ type Dashboard struct {
 	mux           *http.ServeMux
 	apiKey        string
 	adminKey      string            // Separate key for system admin operations (tenant management, billing, stats)
+	pprofKey      string            // Separate key for pprof debug endpoints (more restrictive than apiKey)
 	tenantAPIKeys map[string]string // map[tenantID] -> SHA256 hash of per-tenant API key
 	// Dependency interfaces (injected to avoid circular imports)
 	routingCtrl    RoutingController      // rebuild + save routing config
@@ -122,6 +123,25 @@ const (
 // If not set, admin endpoints are inaccessible.
 func (d *Dashboard) SetAdminKey(key string) {
 	d.adminKey = key
+}
+
+// SetPprofKey sets the pprof debug key. When set, pprof endpoints require this
+// key in addition to the localhost check. This provides defense-in-depth for
+// sensitive profiling endpoints that can expose memory contents and goroutine stacks.
+func (d *Dashboard) SetPprofKey(key string) {
+	d.pprofKey = key
+}
+
+// checkPprofKey validates the pprof key from the Authorization Bearer header.
+func (d *Dashboard) checkPprofKey(r *http.Request) (string, bool) {
+	auth := r.Header.Get("Authorization")
+	if strings.HasPrefix(auth, "Bearer ") {
+		key := auth[len("Bearer "):]
+		if subtle.ConstantTimeCompare([]byte(key), []byte(d.pprofKey)) == 1 {
+			return key, true
+		}
+	}
+	return "", false
 }
 
 // SetTenantAPIKey registers a per-tenant API key hash for tenant-scoped authentication.
@@ -274,12 +294,11 @@ func (d *Dashboard) authWrap(handler http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// pprofWrap restricts pprof endpoints to localhost connections only.
-// These endpoints expose sensitive runtime data (goroutine stacks, memory profiles).
+// pprofWrap restricts pprof endpoints to localhost connections and requires
+// pprofKey (or adminKey when pprofKey is not set) for authentication.
 func (d *Dashboard) pprofWrap(handler http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Use RemoteAddr directly - never trust X-Forwarded-For for pprof access.
-		// If behind a reverse proxy, ensure pprof is not exposed externally.
 		host, _, err := net.SplitHostPort(r.RemoteAddr)
 		if err != nil {
 			http.Error(w, "connection error", http.StatusBadRequest)
@@ -289,6 +308,20 @@ func (d *Dashboard) pprofWrap(handler http.HandlerFunc) http.HandlerFunc {
 		if ip == nil || !ip.IsLoopback() {
 			http.Error(w, "pprof endpoints are localhost-only", http.StatusForbidden)
 			return
+		}
+		// Require pprofKey when set; when adminKey is set and pprofKey is not,
+		// accept adminKey as a fallback (admin has debug access).
+		if d.pprofKey != "" {
+			_, authorized := d.checkPprofKey(r)
+			if !authorized {
+				http.Error(w, "pprof access denied", http.StatusForbidden)
+				return
+			}
+		} else if d.adminKey != "" {
+			if key := r.Header.Get("X-API-Key"); key == "" || subtle.ConstantTimeCompare([]byte(key), []byte(d.adminKey)) != 1 {
+				http.Error(w, "pprof access denied", http.StatusForbidden)
+				return
+			}
 		}
 		handler.ServeHTTP(w, r)
 	}

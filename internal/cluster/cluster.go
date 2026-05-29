@@ -496,6 +496,10 @@ func (c *Cluster) sendMessage(ctx context.Context, node *Node, msg *Message) err
 	if c.config.TLSCertFile != "" && c.config.TLSKeyFile != "" {
 		scheme = "https"
 	}
+	// If AuthSecret is set, always use https to protect the secret in transit.
+	if c.config.AuthSecret != "" {
+		scheme = "https"
+	}
 	url := fmt.Sprintf("%s://%s:%d/cluster/message", scheme, node.Address, node.Port)
 
 	data, err := json.Marshal(msg)
