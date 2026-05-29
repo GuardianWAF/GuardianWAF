@@ -123,9 +123,10 @@ Applied & verified (build + vet + full test suite green; touched pkgs `-race`):
 - **Fix:** extracted 10 domain-based `register*(mux)` functions. New files: stats_handlers.go, config_handlers.go, acl_handlers.go, rules_handlers.go, misc_handlers.go. routing_handlers.go extended.
 - **Status:** ✅ Resolved — dashboard.go: 1642→1582 lines (-60), route block replaced with `d.registerStats(d.mux)` etc.
 
-### 4.3 🔴 HIGH — 15 injected function pointers instead of interfaces
+### 4.3 🔴 HIGH — 15 injected function pointers instead of interfaces — RESOLVED
 - **Where:** `dashboard.go:73-95` (`upstreamsFn`, `rebuildFn`, `saveFn`, `rulesFn`, `geoLookupFn`, `aiAnalyzer`, `tenantManager`, `complianceEngine`, …).
-- **Recommendation:** group into small interfaces (`RuleStore`, `RoutingController`, `GeoLookup`, …) for testability and a clear dependency surface.
+- **Fix:** the struct now uses interfaces throughout — `RoutingController`, `UpstreamStatusProvider`, `CertificateProvider`, `RuleStore`, `GeoLookup`, `AlertingStatsProvider`, `aiAnalyzerInterface`, `dockerWatcherInterface`, `tenantManagerInterface`. The `routingControllerAdapter` bridges func pointers for existing callers.
+- **Status:** ✅ Resolved — all Dashboard dependencies are interface-typed.
 
 ### 4.4 🟠 MEDIUM — `writeError` envelope not yet adopted at all call-sites
 - **Where:** `writeError` helper now exists, but ~239 `writeJSON` call-sites still hand-roll error bodies in inconsistent shapes (`{"error":…}` vs `{"status":"ok"}` vs `map[string]string`).
