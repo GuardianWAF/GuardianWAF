@@ -49,9 +49,8 @@ Applied & verified (build + vet + full test suite green; touched pkgs `-race`):
 - **Fixed:** Extracted `event_types.go` (EventStorer, EventPublisher, Stats, PipelineLayerInfo, ChallengeChecker, AccessLogFunc, AccessLogEntry) and `hooks.go` (applyResponseHook, applyCORSHook). engine.go: 624 → 514 lines (-17.6%).
 - **Remaining:** Pipeline struct (~150 lines hot-path), Middleware (148 lines), Check (18 lines), NewEngine (43 lines) are all cohesive and tightly coupled — further extraction possible but lower ROI.
 
-### 1.4 🟠 MEDIUM — `Order()` is not part of the `Layer` interface
-- **Where:** interface at `internal/engine/layer.go:64-68`; ~9 layers implement `Order()`, ~16 rely on external `OrderedLayer{Layer, Order}` wrapping.
-- **Recommendation:** pick one mechanism. Preferably make `Order() int` part of `Layer` and delete `OrderedLayer`.
+### 1.4 ✅ RESOLVED — `Order() int` added to `Layer` interface
+- **Fixed:** `Order() int` added to `engine.Layer` interface (layer.go:67). All ~25 layer implementations updated with explicit `Order()` methods. `OrderedLayer` still exists for backward compatibility but is now redundant.
 
 ### 1.5 🟡 LOW — Stringly-typed response hooks
 - **Where:** `internal/engine/engine.go` reads metadata keys `"response_hook"` / `"response_mask_fn"` (and clientside hooks). Works, but no compile-time safety.
@@ -65,10 +64,9 @@ Applied & verified (build + vet + full test suite green; touched pkgs `-race`):
 
 ## 2. Layer Subsystem
 
-### 2.1 🟠 MEDIUM — `apisecurity/jwt.go` is 1,195 lines
-- **Crypto is sound** (rejects `alg:none`, blocks HMAC/asymmetric confusion, JWKS DNS-rebinding re-validation, constant-time HMAC).
-- **Smell:** `verifyHMACSignature` takes `crypto.PublicKey` and type-asserts to `[]byte` (`:431-433`).
-- **Recommendation:** split into `jwt_parse.go` / `jwt_verify.go` / `jwt_claims.go`; introduce a `VerificationKey` type so symmetric keys aren't passed as `crypto.PublicKey`.
+### 2.1 ✅ PARTIALLY RESOLVED — `jwt.go` split into parse + verify
+- **Fixed:** jwt.go (1,195 lines) → jwt.go (450 lines) + jwt_parse.go (493 lines) + jwt_verify.go (255 lines). HTTP client/JWKS logic in jwt_verify.go, parsing in jwt_parse.go, main file has NewJWTValidator + validateSigningMethod + helpers.
+- **Remaining smell:** `verifyHMACSignature` takes `crypto.PublicKey` and type-asserts to `[]byte` (jwt_verify.go:253 stub kept for test compatibility).
 
 ### 2.2 🟠 MEDIUM — Zero Trust layer is partially wired
 - **Where:** `internal/layers/zerotrust/layer.go:66-82` — `RequireMTLS` is checked without inspecting `ctx.Request.TLS` client certs; device attestation configured but not enforced. (Also note: zerotrust isn't in the serve binary — see 1.1.)
@@ -143,9 +141,8 @@ Applied & verified (build + vet + full test suite green; touched pkgs `-race`):
 
 ## 5. MCP Server
 
-### 5.1 🟠 MEDIUM — 44 handlers repeat parameter-unmarshal boilerplate
-- **Where:** `internal/mcp/handlers.go`, `handlers_new_features.go` (567 lines): `getEngine()` → nil-check → `json.Unmarshal` → error-wrap → validate → call → `map[string]any{}`.
-- **Recommendation:** a generic `register[T any](s, name, func(*Engine, T) (any, error))` that handles engine lookup, typed unmarshalling, and error envelope once. *(Drift between schema/handler names is already guarded by `ValidateTools()` — done.)*
+### 5.1 ✅ RESOLVED — `handleWithParams[T]` generic helper eliminates boilerplate
+- **Fixed:** `handleWithParams[T any, R any]` generic adapter (handlers.go:54-80) handles getEngine → json.Unmarshal → required-field validation → call in one reusable function. All 44 MCP handlers use it. Drift between schema/handler names is guarded by `ValidateTools()`.
 
 ### 5.2 🟡 LOW — No InputSchema validation before unmarshal
 - **Recommendation:** optionally validate required fields against the declared `InputSchema` inside the generic helper from 5.1.
