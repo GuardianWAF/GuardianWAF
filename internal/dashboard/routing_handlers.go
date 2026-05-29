@@ -1,0 +1,274 @@
+package dashboard
+
+import (
+"github.com/guardianwaf/guardianwaf/internal/config"
+"github.com/guardianwaf/guardianwaf/internal/proxy"
+"net/http"
+"net/url"
+)
+
+// --- Upstreams ---
+
+// SetRebuildFn sets the function called after routing config changes to rebuild the proxy.
+func (d *Dashboard) SetRebuildFn(fn func() error) {
+	d.rebuildFn = fn
+}
+
+// SetSaveFn sets the function used to persist config changes to disk.
+func (d *Dashboard) SetSaveFn(fn func() error) {
+	d.saveFn = fn
+}
+
+
+// --- Routing (Upstreams + Virtual Hosts + Routes) ---
+
+func (d *Dashboard) handleGetRouting(w http.ResponseWriter, r *http.Request) {
+	cfg := d.engine.Config()
+
+	// Serialize upstreams
+	upstreams := make([]map[string]any, len(cfg.Upstreams))
+	for i, u := range cfg.Upstreams {
+		targets := make([]map[string]any, len(u.Targets))
+		for j, t := range u.Targets {
+			targets[j] = map[string]any{"url": t.URL, "weight": t.Weight}
+		}
+		upstreams[i] = map[string]any{
+			"name":          u.Name,
+			"load_balancer": u.LoadBalancer,
+			"targets":       targets,
+			"health_check": map[string]any{
+				"enabled":  u.HealthCheck.Enabled,
+				"interval": u.HealthCheck.Interval.String(),
+				"timeout":  u.HealthCheck.Timeout.String(),
+				"path":     u.HealthCheck.Path,
+			},
+		}
+	}
+
+	// Serialize virtual hosts
+	vhosts := make([]map[string]any, len(cfg.VirtualHosts))
+	for i, vh := range cfg.VirtualHosts {
+		routes := make([]map[string]any, len(vh.Routes))
+		for j, r := range vh.Routes {
+			routes[j] = map[string]any{
+				"path":         r.Path,
+				"upstream":     r.Upstream,
+				"strip_prefix": r.StripPrefix,
+			}
+		}
+		vhosts[i] = map[string]any{
+			"domains": vh.Domains,
+			"tls": map[string]any{
+				"cert_file": vh.TLS.CertFile,
+				"key_file":  vh.TLS.KeyFile,
+			},
+			"routes": routes,
+		}
+	}
+
+	// Serialize default routes
+	routes := make([]map[string]any, len(cfg.Routes))
+	for i, r := range cfg.Routes {
+		routes[i] = map[string]any{
+			"path":         r.Path,
+			"upstream":     r.Upstream,
+			"strip_prefix": r.StripPrefix,
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"upstreams":     upstreams,
+		"virtual_hosts": vhosts,
+		"routes":        routes,
+	})
+}
+
+func (d *Dashboard) handleUpdateRouting(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Upstreams    []map[string]any `json:"upstreams"`
+		VirtualHosts []map[string]any `json:"virtual_hosts"`
+		Routes       []map[string]any `json:"routes"`
+	}
+	if !limitedDecodeJSON(w, r, &body) {
+		return
+	}
+
+	cfg := deepCopyConfig(d.engine.Config())
+
+	// Parse upstreams from raw JSON maps
+	if body.Upstreams != nil {
+		var upstreams []config.UpstreamConfig
+		for _, raw := range body.Upstreams {
+			u := config.UpstreamConfig{}
+			if v, ok := raw["name"].(string); ok {
+				u.Name = v
+			}
+			if v, ok := raw["load_balancer"].(string); ok {
+				u.LoadBalancer = v
+			}
+			if targets, ok := raw["targets"].([]any); ok {
+				for _, t := range targets {
+					tm, ok := t.(map[string]any)
+					if !ok {
+						continue
+					}
+					tc := config.TargetConfig{Weight: 1}
+					if v, ok := tm["url"].(string); ok {
+						parsed, urlErr := url.Parse(v)
+						if urlErr != nil {
+							writeJSON(w, http.StatusBadRequest, map[string]any{"error": sanitizeErr(urlErr)})
+							return
+						}
+						if !proxy.PrivateTargetsAllowed() {
+							if ssrfErr := proxy.IsPrivateOrReservedIP(parsed.Hostname()); ssrfErr != nil {
+								writeJSON(w, http.StatusBadRequest, map[string]any{"error": sanitizeErr(ssrfErr)})
+								return
+							}
+						}
+						tc.URL = v
+					}
+					if v, ok := tm["weight"].(float64); ok {
+						tc.Weight = int(v)
+					}
+					u.Targets = append(u.Targets, tc)
+				}
+			}
+			// Preserve existing health check config if upstream name matches
+			for _, existing := range cfg.Upstreams {
+				if existing.Name == u.Name {
+					u.HealthCheck = existing.HealthCheck
+					break
+				}
+			}
+			upstreams = append(upstreams, u)
+		}
+		cfg.Upstreams = upstreams
+	}
+
+	// Parse virtual hosts
+	if body.VirtualHosts != nil {
+		var vhosts []config.VirtualHostConfig
+		for _, raw := range body.VirtualHosts {
+			vh := config.VirtualHostConfig{}
+			if domains, ok := raw["domains"].([]any); ok {
+				for _, d := range domains {
+					if s, ok := d.(string); ok {
+						vh.Domains = append(vh.Domains, s)
+					}
+				}
+			}
+			if tls, ok := raw["tls"].(map[string]any); ok {
+				if v, ok := tls["cert_file"].(string); ok {
+					vh.TLS.CertFile = v
+				}
+				if v, ok := tls["key_file"].(string); ok {
+					vh.TLS.KeyFile = v
+				}
+			}
+			if routes, ok := raw["routes"].([]any); ok {
+				for _, r := range routes {
+					rm, ok := r.(map[string]any)
+					if !ok {
+						continue
+					}
+					rc := config.RouteConfig{}
+					if v, ok := rm["path"].(string); ok {
+						rc.Path = v
+					}
+					if v, ok := rm["upstream"].(string); ok {
+						rc.Upstream = v
+					}
+					if v, ok := rm["strip_prefix"].(bool); ok {
+						rc.StripPrefix = v
+					}
+					vh.Routes = append(vh.Routes, rc)
+				}
+			}
+			vhosts = append(vhosts, vh)
+		}
+		cfg.VirtualHosts = vhosts
+	}
+
+	// Parse default routes
+	if body.Routes != nil {
+		var routes []config.RouteConfig
+		for _, raw := range body.Routes {
+			rc := config.RouteConfig{}
+			if v, ok := raw["path"].(string); ok {
+				rc.Path = v
+			}
+			if v, ok := raw["upstream"].(string); ok {
+				rc.Upstream = v
+			}
+			if v, ok := raw["strip_prefix"].(bool); ok {
+				rc.StripPrefix = v
+			}
+			routes = append(routes, rc)
+		}
+		cfg.Routes = routes
+	}
+
+	// Validate
+	ve := &config.ValidationError{}
+	config.ValidateUpstreamsExported(cfg.Upstreams, ve)
+	config.ValidateRoutesExported(cfg.Routes, cfg.Upstreams, ve)
+	config.ValidateVirtualHostsExported(cfg.VirtualHosts, cfg.Upstreams, ve)
+	if ve.HasErrors() {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": sanitizeErr(ve)})
+		return
+	}
+
+	// Reload config
+	if err := d.engine.Reload(cfg); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
+		return
+	}
+
+	// Rebuild proxy
+	if d.rebuildFn != nil {
+		if err := d.rebuildFn(); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "proxy rebuild failed"})
+			return
+		}
+	}
+
+	// Persist to disk
+	if d.saveFn != nil {
+		if err := d.saveFn(); err != nil {
+			writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "message": "Routing updated (disk sync pending)"})
+			return
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "message": "Routing updated and saved"})
+}
+
+func (d *Dashboard) SetUpstreamsFn(fn func() any) {
+	d.upstreamsFn = fn
+}
+
+// SetCertFn sets the function that returns SSL certificate status.
+func (d *Dashboard) SetCertFn(fn func() any) {
+	d.certFn = fn
+}
+
+func (d *Dashboard) handleGetUpstreams(w http.ResponseWriter, r *http.Request) {
+	if d.upstreamsFn == nil {
+		writeJSON(w, http.StatusOK, []any{})
+		return
+	}
+	writeJSON(w, http.StatusOK, d.upstreamsFn())
+}
+
+// --- SSL Certs ---
+
+func (d *Dashboard) handleGetCerts(w http.ResponseWriter, r *http.Request) {
+	if d.certFn == nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"enabled": false,
+			"certs":   []any{},
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, d.certFn())
+}
