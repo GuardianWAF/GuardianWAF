@@ -45,9 +45,9 @@ Applied & verified (build + vet + full test suite green; touched pkgs `-race`):
 - **Where:** library mode `guardianwaf.go:454-580` (`addDefaultLayers`, 6 layers) vs serve mode `cmd/guardianwaf/layers.go` + `layerregistry` (16). No declarative single source for "which layers exist, in what order."
 - **Recommendation:** make `layerregistry` authoritative; library mode selects a named subset ("core") instead of hand-rolling `AddLayer` calls. Resolves the 6-vs-16 drift and prevents recurrence of 1.1.
 
-### 1.3 🟠 MEDIUM — `engine.go` carries ~10 responsibilities (618 lines)
-- **Where:** `internal/engine/engine.go` — pipeline mgmt, request processing, config reload, stats, tenant context, tracing, challenge integration, access logging, client-IP extraction, trusted-proxy parsing.
-- **Recommendation:** peel cohesive units into their own files within the package (`stats.go`, `tenantcontext.go`, access-logging plumbing). Target <400 lines, no public-API change.
+### 1.3 ✅ PARTIALLY RESOLVED — `engine.go` split into 3 files
+- **Fixed:** Extracted `event_types.go` (EventStorer, EventPublisher, Stats, PipelineLayerInfo, ChallengeChecker, AccessLogFunc, AccessLogEntry) and `hooks.go` (applyResponseHook, applyCORSHook). engine.go: 624 → 514 lines (-17.6%).
+- **Remaining:** Pipeline struct (~150 lines hot-path), Middleware (148 lines), Check (18 lines), NewEngine (43 lines) are all cohesive and tightly coupled — further extraction possible but lower ROI.
 
 ### 1.4 🟠 MEDIUM — `Order()` is not part of the `Layer` interface
 - **Where:** interface at `internal/engine/layer.go:64-68`; ~9 layers implement `Order()`, ~16 rely on external `OrderedLayer{Layer, Order}` wrapping.
