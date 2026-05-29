@@ -1,11 +1,12 @@
 package dashboard
 
 import (
-"crypto/subtle"
-"net"
-"net/http"
-"sync"
-"time"
+	"crypto/subtle"
+	"math"
+	"net"
+	"net/http"
+	"sync"
+	"time"
 )
 
 type loginBucket struct {
@@ -14,6 +15,66 @@ type loginBucket struct {
 	lastFail  time.Time
 	locked    bool
 	lockUntil time.Time
+}
+
+// apiBucket is a per-IP token bucket for API rate limiting.
+type apiBucket struct {
+	mu         sync.Mutex
+	tokens     float64
+	maxTokens  float64
+	refillRate float64  // tokens per second
+	lastRefill time.Time
+}
+
+// apiRateLimitingMiddleware wraps authenticated handlers to enforce per-IP rate limits.
+func (d *Dashboard) apiRateLimitWrap(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		clientIP := ""
+		if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+			clientIP = host
+		}
+		if clientIP == "" {
+			clientIP = r.RemoteAddr
+		}
+		if !d.apiBucketAllow(clientIP) {
+			writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
+			return
+		}
+		next(w, r)
+	}
+}
+
+// apiBucketAllow returns true if the IP is allowed, false if rate limited.
+// Each IP gets a token bucket of apiRateLimit tokens per apiRateWindow.
+// Burst tokens (apiRateBurst) are available immediately, refill continuously.
+func (d *Dashboard) apiBucketAllow(clientIP string) bool {
+	val, _ := d.apiBuckets.LoadOrStore(clientIP, newAPIBucket())
+	b := val.(*apiBucket)
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	now := time.Now()
+	elapsed := now.Sub(b.lastRefill).Seconds()
+	b.tokens = math.Min(b.maxTokens, b.tokens+elapsed*b.refillRate)
+	b.lastRefill = now
+
+	if b.tokens >= 1 {
+		b.tokens--
+		return true
+	}
+	return false
+}
+
+// newAPIBucket creates a fresh token bucket for an IP.
+func newAPIBucket() *apiBucket {
+	refillRate := float64(apiRateLimit) / apiRateWindow.Seconds()
+	return &apiBucket{
+		tokens:     float64(apiRateBurst),
+		maxTokens:  float64(apiRateBurst),
+		refillRate: refillRate,
+		lastRefill: time.Now(),
+	}
 }
 
 func (d *Dashboard) handleLoginPage(w http.ResponseWriter, r *http.Request) {
@@ -148,13 +209,43 @@ func (d *Dashboard) cleanupLoginBuckets() {
 	}
 }
 
-// Close stops background goroutines (login bucket cleanup).
+// cleanupAPIBuckets removes stale API rate limit entries.
+func (d *Dashboard) cleanupAPIBuckets() {
+	defer recover()
+	ticker := time.NewTicker(apiRateCleanupTick)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			now := time.Now()
+			d.apiBuckets.Range(func(key, value any) bool {
+				b := value.(*apiBucket)
+				b.mu.Lock()
+				// Bucket is stale if no tokens have been refilled for 2x the window
+				stale := now.Sub(b.lastRefill) > apiRateWindow*2
+				b.mu.Unlock()
+				if stale {
+					d.apiBuckets.Delete(key)
+				}
+				return true
+			})
+		case <-d.apiStopCh:
+			return
+		}
+	}
+}
+
+// Close stops background goroutines (login bucket cleanup and API rate limit cleanup).
 func (d *Dashboard) Close() {
 	select {
 	case <-d.loginStopCh:
-		return
 	default:
 		close(d.loginStopCh)
+	}
+	select {
+	case <-d.apiStopCh:
+	default:
+		close(d.apiStopCh)
 	}
 }
 

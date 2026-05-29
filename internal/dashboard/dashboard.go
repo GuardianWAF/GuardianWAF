@@ -102,6 +102,10 @@ type Dashboard struct {
 	loginBuckets sync.Map // map[string]*loginBucket
 	loginStopCh  chan struct{}
 
+	// API rate limiting: per-IP token buckets for authenticated endpoints
+	apiBuckets sync.Map // map[string]*apiBucket
+	apiStopCh   chan struct{}
+
 	// Layer references for dashboard handlers
 	crsLayer           *crs.Layer
 	virtualPatchLayer  *virtualpatch.Layer
@@ -114,6 +118,12 @@ const (
 	loginMaxAttempts = 5                // max failed login attempts before lockout
 	loginWindow      = 5 * time.Minute  // window for counting attempts
 	loginLockout     = 15 * time.Minute // lockout duration after max attempts
+
+	// API rate limit constants — per-IP token bucket for authenticated endpoints.
+	apiRateLimit       = 120            // max requests per window
+	apiRateWindow      = time.Minute    // sliding window
+	apiRateBurst       = 20             // max burst
+	apiRateCleanupTick = 5 * time.Minute // cleanup interval for stale buckets
 )
 
 // SetAdminKey sets the system administrator API key.
@@ -201,9 +211,11 @@ func New(eng *engine.Engine, store events.EventStore, apiKey string) *Dashboard 
 		mux:         http.NewServeMux(),
 		apiKey:      apiKey,
 		loginStopCh: make(chan struct{}),
+		apiStopCh:   make(chan struct{}),
 	}
 
 	go d.cleanupLoginBuckets()
+	go d.cleanupAPIBuckets()
 	go cleanupRevokedSessionsLoop(d.loginStopCh)
 
 	// Login/logout (always accessible)
@@ -253,6 +265,14 @@ func (d *Dashboard) SSE() *SSEBroadcaster {
 
 // --- Auth ---
 
+// getClientIP extracts the client IP from the request, never using X-Forwarded-For.
+func (d *Dashboard) getClientIP(r *http.Request) string {
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
+	}
+	return r.RemoteAddr
+}
+
 func (d *Dashboard) authWrap(handler http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		r, ok := d.isAuthenticated(r)
@@ -264,6 +284,14 @@ func (d *Dashboard) authWrap(handler http.HandlerFunc) http.HandlerFunc {
 				http.Redirect(w, r, "/login", http.StatusFound)
 			}
 			return
+		}
+
+		// Check API rate limit for /api/v1/* endpoints (authenticated only)
+		if strings.HasPrefix(r.URL.Path, "/api/v1/") {
+			if !d.apiBucketAllow(d.getClientIP(r)) {
+				writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
+				return
+			}
 		}
 
 		// Enforce tenant API key scoping: tenant keys cannot access admin-only endpoints
