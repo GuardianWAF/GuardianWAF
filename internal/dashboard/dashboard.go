@@ -23,6 +23,11 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/events"
+	"github.com/guardianwaf/guardianwaf/internal/layers/apivalidation"
+	"github.com/guardianwaf/guardianwaf/internal/layers/clientside"
+	"github.com/guardianwaf/guardianwaf/internal/layers/crs"
+	"github.com/guardianwaf/guardianwaf/internal/layers/dlp"
+	"github.com/guardianwaf/guardianwaf/internal/layers/virtualpatch"
 )
 
 var dashboardLog = slog.Default().With(slog.String("component", "dashboard"))
@@ -95,6 +100,13 @@ type Dashboard struct {
 	// Login rate limiting: per-IP token buckets
 	loginBuckets sync.Map // map[string]*loginBucket
 	loginStopCh  chan struct{}
+
+	// Layer references for dashboard handlers
+	crsLayer           *crs.Layer
+	virtualPatchLayer  *virtualpatch.Layer
+	clientSideLayer    *clientside.Layer
+	apiValidationLayer *apivalidation.Layer
+	dlpLayer           *dlp.Layer
 }
 
 const (
@@ -120,6 +132,31 @@ func (d *Dashboard) SetTenantAPIKey(tenantID, apiKeyHash string) {
 		d.tenantAPIKeys = make(map[string]string)
 	}
 	d.tenantAPIKeys[tenantID] = apiKeyHash
+}
+
+// SetCRSLayer sets the CRS layer for dashboard handlers.
+func (d *Dashboard) SetCRSLayer(layer *crs.Layer) {
+	d.crsLayer = layer
+}
+
+// SetVirtualPatchLayer sets the virtual patch layer for dashboard handlers.
+func (d *Dashboard) SetVirtualPatchLayer(layer *virtualpatch.Layer) {
+	d.virtualPatchLayer = layer
+}
+
+// SetClientSideLayer sets the client-side protection layer for dashboard handlers.
+func (d *Dashboard) SetClientSideLayer(layer *clientside.Layer) {
+	d.clientSideLayer = layer
+}
+
+// SetAPIValidationLayer sets the API validation layer for dashboard handlers.
+func (d *Dashboard) SetAPIValidationLayer(layer *apivalidation.Layer) {
+	d.apiValidationLayer = layer
+}
+
+// SetDLPLayer sets the DLP layer for dashboard handlers.
+func (d *Dashboard) SetDLPLayer(layer *dlp.Layer) {
+	d.dlpLayer = layer
 }
 
 // isAdminAuthenticated checks if the request has the system admin API key.

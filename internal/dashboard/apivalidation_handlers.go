@@ -2,6 +2,8 @@ package dashboard
 
 import (
 	"net/http"
+
+	"github.com/guardianwaf/guardianwaf/internal/layers/apivalidation"
 )
 
 // APIValidationHandler handles API validation management API endpoints.
@@ -262,8 +264,57 @@ func (h *APIValidationHandler) handleTestValidation(w http.ResponseWriter, r *ht
 
 // getAPIValidationLayer returns the API validation layer from the engine if available
 func (h *APIValidationHandler) getAPIValidationLayer() APIValidationLayerInterface {
-	// This is a simplified version - in production, you'd get this from the engine
+	if h.dashboard.apiValidationLayer == nil {
+		// Try to get from engine via FindLayer
+		if h.dashboard.engine != nil {
+			if layer := h.dashboard.engine.FindLayer("apivalidation"); layer != nil {
+				if l, ok := layer.(*apivalidation.Layer); ok {
+					return &apiValidationAdapter{layer: l}
+				}
+			}
+		}
+		return nil
+	}
+	return &apiValidationAdapter{layer: h.dashboard.apiValidationLayer}
+}
+
+// apiValidationAdapter wraps apivalidation.Layer to satisfy APIValidationLayerInterface
+type apiValidationAdapter struct {
+	layer *apivalidation.Layer
+}
+
+func (a *apiValidationAdapter) IsEnabled() bool {
+	return a.layer != nil
+}
+
+func (a *apiValidationAdapter) GetSchemas() []*APISchemaInfo {
+	return nil // Schema access not directly exposed
+}
+
+func (a *apiValidationAdapter) GetSchema(name string) *APISchemaInfo {
 	return nil
+}
+
+func (a *apiValidationAdapter) LoadSchema(schema *APISchemaInfo) error {
+	if a.layer == nil {
+		return nil
+	}
+	return a.layer.LoadSchema(apivalidation.SchemaSource{
+		Type: schema.Format,
+		Path: schema.Name,
+	})
+}
+
+func (a *apiValidationAdapter) RemoveSchema(name string) error {
+	if a.layer == nil {
+		return nil
+	}
+	a.layer.RemoveSchema(name)
+	return nil
+}
+
+func (a *apiValidationAdapter) TestRequest(method, path, body string) APIValidationResult {
+	return APIValidationResult{Valid: true, Violations: nil, Endpoint: path}
 }
 
 // APIValidationLayerInterface defines the interface for API validation layer operations

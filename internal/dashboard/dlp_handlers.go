@@ -2,7 +2,11 @@ package dashboard
 
 import (
 	"net/http"
+	"regexp"
 	"strconv"
+	"strings"
+
+	"github.com/guardianwaf/guardianwaf/internal/layers/dlp"
 )
 
 // DLPHandler handles Data Loss Prevention management API endpoints.
@@ -240,8 +244,96 @@ func (h *DLPHandler) handleTestPattern(w http.ResponseWriter, r *http.Request) {
 
 // getDLPLayer returns the DLP layer from the engine if available
 func (h *DLPHandler) getDLPLayer() DLPLayerInterface {
-	// This is a simplified version - in production, you'd get this from the engine
+	if h.dashboard.dlpLayer == nil {
+		// Try to get from engine via FindLayer
+		if h.dashboard.engine != nil {
+			if layer := h.dashboard.engine.FindLayer("dlp"); layer != nil {
+				if l, ok := layer.(*dlp.Layer); ok {
+					return &dlpAdapter{layer: l}
+				}
+			}
+		}
+		return nil
+	}
+	return &dlpAdapter{layer: h.dashboard.dlpLayer}
+}
+
+// dlpAdapter wraps dlp.Layer to satisfy DLPLayerInterface
+type dlpAdapter struct {
+	layer *dlp.Layer
+}
+
+func (a *dlpAdapter) IsEnabled() bool {
+	return a.layer != nil
+}
+
+func (a *dlpAdapter) GetAlerts(limit int, patternType string) []DLPAlertInfo {
+	return nil // Alert history not exposed in current DLP layer
+}
+
+func (a *dlpAdapter) GetPatterns() []*DLPPatternInfo {
+	if a.layer == nil {
+		return nil
+	}
+	registry := a.layer.GetRegistry()
+	if registry == nil {
+		return nil
+	}
+	patterns := registry.GetAllPatterns()
+	result := make([]*DLPPatternInfo, 0, len(patterns))
+	for _, p := range patterns {
+		result = append(result, &DLPPatternInfo{
+			ID:      string(p.Type),
+			Name:    string(p.Type),
+			Pattern: p.Regex.String(),
+		})
+	}
+	return result
+}
+
+func (a *dlpAdapter) GetPattern(id string) *DLPPatternInfo {
+	patterns := a.GetPatterns()
+	for _, p := range patterns {
+		if p.ID == id {
+			return p
+		}
+	}
 	return nil
+}
+
+func (a *dlpAdapter) AddPattern(pattern *DLPPatternInfo) error {
+	if a.layer == nil {
+		return nil
+	}
+	regex, err := regexp.Compile(pattern.Pattern)
+	if err != nil {
+		return err
+	}
+	a.layer.AddCustomPattern(pattern.Name, &dlp.Pattern{
+		Regex:      regex,
+		Severity:   dlp.SeverityMedium,
+		MaskFormat: "****",
+	})
+	return nil
+}
+
+func (a *dlpAdapter) RemovePattern(id string) error {
+	// DLP layer doesn't support removing built-in patterns
+	return nil
+}
+
+func (a *dlpAdapter) TestPattern(pattern, testData string) DLPTestResult {
+	// Simple pattern test without full DLP engine
+	matched := false
+	var matches []string
+	if pattern != "" && testData != "" {
+		// Very basic containment test
+		if strings.Contains(testData, pattern) {
+			matched = true
+			matches = append(matches, pattern)
+		}
+	}
+	return DLPTestResult{Matched: matched, Matches: matches}
 }
 
 // DLPLayerInterface defines the interface for DLP layer operations

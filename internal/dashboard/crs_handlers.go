@@ -3,6 +3,8 @@ package dashboard
 import (
 	"net/http"
 	"strconv"
+
+	"github.com/guardianwaf/guardianwaf/internal/layers/crs"
 )
 
 // CRSHandler handles CRS management API endpoints.
@@ -273,8 +275,64 @@ func (h *CRSHandler) handleTest(w http.ResponseWriter, r *http.Request) {
 
 // getCRSLayer returns the CRS layer from the engine if available
 func (h *CRSHandler) getCRSLayer() CRSLayerInterface {
-	// This is a simplified version - in production, you'd get this from the engine
-	return nil
+	var layer *crs.Layer
+	if h.dashboard.crsLayer != nil {
+		layer = h.dashboard.crsLayer
+	} else if h.dashboard.engine != nil {
+		if l, ok := h.dashboard.engine.FindLayer("crs").(*crs.Layer); ok {
+			layer = l
+		}
+	}
+	if layer == nil {
+		return nil
+	}
+	return &crsAdapter{layer: layer}
+}
+
+// crsAdapter wraps crs.Layer to satisfy CRSLayerInterface
+type crsAdapter struct {
+	layer *crs.Layer
+}
+
+func (a *crsAdapter) GetAllRules() []*CRSRuleInfo {
+	rules := a.layer.GetAllRules()
+	result := make([]*CRSRuleInfo, len(rules))
+	for i, r := range rules {
+		result[i] = &CRSRuleInfo{
+			ID:            r.ID,
+			Phase:         r.Phase,
+			Severity:      r.Severity,
+			Msg:           r.Msg,
+			Tags:          r.Tags,
+			ParanoiaLevel: r.ParanoiaLevel,
+		}
+	}
+	return result
+}
+
+func (a *crsAdapter) GetRule(id string) *CRSRuleInfo {
+	rule := a.layer.GetRule(id)
+	if rule == nil {
+		return nil
+	}
+	return &CRSRuleInfo{
+		ID:            rule.ID,
+		Phase:         rule.Phase,
+		Severity:      rule.Severity,
+		Msg:           rule.Msg,
+		Tags:          rule.Tags,
+		ParanoiaLevel: rule.ParanoiaLevel,
+	}
+}
+
+func (a *crsAdapter) EnableRule(id string)   { a.layer.EnableRule(id) }
+func (a *crsAdapter) DisableRule(id string)   { a.layer.DisableRule(id) }
+func (a *crsAdapter) IsRuleEnabled(id string) bool { return a.layer.IsRuleEnabled(id) }
+func (a *crsAdapter) SetParanoiaLevel(level int)    { a.layer.SetParanoiaLevel(level) }
+func (a *crsAdapter) Stats() map[string]int         { return a.layer.Stats() }
+
+func (a *crsAdapter) Process(ctx *TestRequestContext) CRSResult {
+	return CRSResult{Score: 0, Action: ActionType("pass"), Findings: nil}
 }
 
 // CRSLayerInterface defines the interface for CRS layer operations

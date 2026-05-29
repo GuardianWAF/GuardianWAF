@@ -3,6 +3,8 @@ package dashboard
 import (
 	"net/http"
 	"strconv"
+
+	"github.com/guardianwaf/guardianwaf/internal/layers/clientside"
 )
 
 // ClientSideHandler handles client-side protection management API endpoints.
@@ -184,7 +186,48 @@ func (h *ClientSideHandler) handleCSPReports(w http.ResponseWriter, r *http.Requ
 
 // getClientSideLayer returns the client-side protection layer from the engine if available
 func (h *ClientSideHandler) getClientSideLayer() ClientSideLayerInterface {
-	// This is a simplified version - in production, you'd get this from the engine
+	if h.dashboard.clientSideLayer == nil {
+		// Try to get from engine via FindLayer
+		if h.dashboard.engine != nil {
+			if layer := h.dashboard.engine.FindLayer("clientside"); layer != nil {
+				if l, ok := layer.(*clientside.Layer); ok {
+					return &clientSideAdapter{layer: l}
+				}
+			}
+		}
+		return nil
+	}
+	return &clientSideAdapter{layer: h.dashboard.clientSideLayer}
+}
+
+// clientSideAdapter wraps clientside.Layer to satisfy ClientSideLayerInterface
+type clientSideAdapter struct {
+	layer *clientside.Layer
+}
+
+func (a *clientSideAdapter) GetStats() ClientSideStats {
+	stats := a.layer.GetStats()
+	return ClientSideStats{
+		Mode:               "monitor",
+		MagecartDetections: int64(stats.ThreatsDetected),
+		ScriptInjections:   int64(stats.ScriptsInjected),
+		CSPViolations:      int64(stats.CSPEnforced),
+		BlockedSkimmers:    0,
+		InjectedSessions:   0,
+	}
+}
+
+func (a *clientSideAdapter) GetBlockedDomains() []string {
+	return nil
+}
+
+func (a *clientSideAdapter) AddBlockedDomain(domain string) {
+	if a.layer != nil {
+		a.layer.AddSkimmingDomain(domain)
+	}
+}
+
+func (a *clientSideAdapter) GetCSPReports(limit int) []CSPReportInfo {
 	return nil
 }
 
