@@ -308,6 +308,25 @@ func (d *Dashboard) handleUpdateRouting(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "message": "Routing updated and saved"})
 }
 
+// registerRouting registers routing and SPA routes.
+func (d *Dashboard) registerRouting(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/v1/routing", d.authWrap(d.handleGetRouting))
+	mux.HandleFunc("PUT /api/v1/routing", d.authWrap(d.handleUpdateRouting))
+	mux.HandleFunc("OPTIONS /api/v1/routing", handleCORS)
+
+	// SPA serving — React build output from dist/ with fallback to legacy static/
+	mux.HandleFunc("GET /assets/", d.handleDistAssets) // Vite hashed assets — public (content-hashed, no secrets)
+
+	mux.HandleFunc("GET /ssl", d.authWrap(d.handleSPA))      // SPA routes
+	mux.HandleFunc("GET /config", d.authWrap(d.handleSPA))   // SPA routes
+	mux.HandleFunc("GET /routing", d.authWrap(d.handleSPA))  // SPA routes
+	mux.HandleFunc("GET /alerting", d.authWrap(d.handleSPA)) // SPA routes
+	mux.HandleFunc("GET /logs", d.authWrap(d.handleSPA))     // SPA routes
+	mux.HandleFunc("GET /rules", d.authWrap(d.handleSPA))    // SPA routes
+	mux.HandleFunc("GET /ai", d.authWrap(d.handleSPA))       // SPA routes
+	mux.HandleFunc("/", d.authWrap(d.handleSPA))             // SPA catch-all
+}
+
 func (d *Dashboard) handleGetUpstreams(w http.ResponseWriter, r *http.Request) {
 	if d.upstreamStatus == nil {
 		writeJSON(w, http.StatusOK, []any{})

@@ -194,57 +194,17 @@ func New(eng *engine.Engine, store events.EventStore, apiKey string) *Dashboard 
 	// Health check (always accessible, no sensitive data)
 	d.mux.HandleFunc("GET /api/v1/health", d.handleHealth)
 
-	// Protected API routes
-	d.mux.HandleFunc("GET /api/v1/stats", d.authWrap(d.handleGetStats))
-	d.mux.HandleFunc("GET /api/v1/events", d.authWrap(d.handleGetEvents))
-	d.mux.HandleFunc("GET /api/v1/events/export", d.authWrap(d.handleExportEvents))
-	d.mux.HandleFunc("GET /api/v1/events/{id}", d.authWrap(d.handleGetEvent))
-	d.mux.HandleFunc("GET /api/v1/ssl", d.authWrap(d.handleGetCerts))
-	d.mux.HandleFunc("GET /api/v1/upstreams", d.authWrap(d.handleGetUpstreams))
-	d.mux.HandleFunc("GET /api/v1/config", d.authWrap(d.handleGetConfig))
-	d.mux.HandleFunc("PUT /api/v1/config", d.authWrap(d.handleUpdateConfig))
-	d.mux.HandleFunc("OPTIONS /api/v1/config", handleCORS)
-	d.mux.HandleFunc("GET /api/v1/routing", d.authWrap(d.handleGetRouting))
-	d.mux.HandleFunc("PUT /api/v1/routing", d.authWrap(d.handleUpdateRouting))
-	d.mux.HandleFunc("OPTIONS /api/v1/routing", handleCORS)
-	d.mux.HandleFunc("GET /api/v1/ipacl", d.authWrap(d.handleGetIPACL))
-	d.mux.HandleFunc("POST /api/v1/ipacl", d.authWrap(d.handleAddIPACL))
-	d.mux.HandleFunc("DELETE /api/v1/ipacl", d.authWrap(d.handleRemoveIPACL))
-	d.mux.HandleFunc("GET /api/v1/bans", d.authWrap(d.handleGetBans))
-	d.mux.HandleFunc("POST /api/v1/bans", d.authWrap(d.handleAddBan))
-	d.mux.HandleFunc("DELETE /api/v1/bans", d.authWrap(d.handleRemoveBan))
-	d.mux.HandleFunc("OPTIONS /api/v1/ipacl", handleCORS)
-	d.mux.HandleFunc("GET /api/v1/rules", d.authWrap(d.handleGetRules))
-	d.mux.HandleFunc("POST /api/v1/rules", d.authWrap(d.handleAddRule))
-	d.mux.HandleFunc("PUT /api/v1/rules/{id}", d.authWrap(d.handleUpdateRule))
-	d.mux.HandleFunc("DELETE /api/v1/rules/{id}", d.authWrap(d.handleDeleteRule))
-	d.mux.HandleFunc("GET /api/v1/geoip/lookup", d.authWrap(d.handleGeoIPLookup))
-	// POST for privacy — IP in request body keeps it out of access logs
-	d.mux.HandleFunc("POST /api/v1/geoip/lookup", d.authWrap(d.handleGeoIPLookupPost))
-	d.mux.HandleFunc("GET /api/v1/logs", d.authWrap(d.handleGetLogs))
-	d.mux.HandleFunc("GET /api/v1/sse", d.authWrap(d.handleSSE))
-
-	// AI Analysis endpoints
-	d.mux.HandleFunc("GET /api/v1/ai/providers", d.authWrap(d.handleAIProviders))
-	d.mux.HandleFunc("GET /api/v1/ai/config", d.authWrap(d.handleAIGetConfig))
-	d.mux.HandleFunc("PUT /api/v1/ai/config", d.authWrap(d.handleAISetConfig))
-	d.mux.HandleFunc("GET /api/v1/ai/history", d.authWrap(d.handleAIHistory))
-	d.mux.HandleFunc("GET /api/v1/ai/stats", d.authWrap(d.handleAIStats))
-	d.mux.HandleFunc("POST /api/v1/ai/analyze", d.authWrap(d.handleAIAnalyze))
-	d.mux.HandleFunc("POST /api/v1/ai/test", d.authWrap(d.handleAITest))
-
-	// Alerting endpoints
-	d.mux.HandleFunc("GET /api/v1/alerting/status", d.authWrap(d.handleAlertingStatus))
-	d.mux.HandleFunc("GET /api/v1/alerting/webhooks", d.authWrap(d.handleGetWebhooks))
-	d.mux.HandleFunc("POST /api/v1/alerting/webhooks", d.authWrap(d.handleAddWebhook))
-	d.mux.HandleFunc("DELETE /api/v1/alerting/webhooks/{name}", d.authWrap(d.handleDeleteWebhook))
-	d.mux.HandleFunc("GET /api/v1/alerting/emails", d.authWrap(d.handleGetEmails))
-	d.mux.HandleFunc("POST /api/v1/alerting/emails", d.authWrap(d.handleAddEmail))
-	d.mux.HandleFunc("DELETE /api/v1/alerting/emails/{name}", d.authWrap(d.handleDeleteEmail))
-	d.mux.HandleFunc("POST /api/v1/alerting/test", d.authWrap(d.handleTestAlert))
-
-	// Docker auto-discovery endpoints
-	d.mux.HandleFunc("GET /api/v1/docker/services", d.authWrap(d.handleDockerServices))
+	// Domain-based route registration
+	d.registerStats(d.mux)
+	d.registerConfig(d.mux)
+	d.registerRouting(d.mux)
+	d.registerACL(d.mux)
+	d.registerRules(d.mux)
+	d.registerAI(d.mux)
+	d.registerAlerting(d.mux)
+	d.registerDocker(d.mux)
+	d.registerCompliance(d.mux)
+	d.registerSPA(d.mux)
 
 	// Debug pprof endpoints — localhost-only, sensitive runtime data
 	d.mux.HandleFunc("GET /debug/pprof/", d.pprofWrap(pprof.Index))
@@ -252,26 +212,6 @@ func New(eng *engine.Engine, store events.EventStore, apiKey string) *Dashboard 
 	d.mux.HandleFunc("GET /debug/pprof/profile", d.pprofWrap(pprof.Profile))
 	d.mux.HandleFunc("GET /debug/pprof/symbol", d.pprofWrap(pprof.Symbol))
 	d.mux.HandleFunc("GET /debug/pprof/trace", d.pprofWrap(pprof.Trace))
-
-	// SPA serving — React build output from dist/ with fallback to legacy static/
-	d.mux.HandleFunc("GET /assets/", d.handleDistAssets) // Vite hashed assets — public (content-hashed, no secrets)
-	// Core Web Vitals reporting endpoint (no auth - uses beacon API)
-	d.mux.HandleFunc("POST /api/v1/cwv", d.handleCWVReport)
-	d.mux.HandleFunc("GET /api/v1/cwv", d.authWrap(d.handleGetCWV))
-
-	// Compliance reporting endpoints
-	d.mux.HandleFunc("GET /api/v1/compliance/controls", d.authWrap(d.handleComplianceControls))
-	d.mux.HandleFunc("GET /api/v1/compliance/report/{framework}", d.authWrap(d.handleComplianceReport))
-	d.mux.HandleFunc("GET /api/v1/compliance/audit-chain", d.authWrap(d.handleAuditChain))
-
-	d.mux.HandleFunc("GET /ssl", d.authWrap(d.handleSPA))      // SPA routes
-	d.mux.HandleFunc("GET /config", d.authWrap(d.handleSPA))   // SPA routes
-	d.mux.HandleFunc("GET /routing", d.authWrap(d.handleSPA))  // SPA routes
-	d.mux.HandleFunc("GET /alerting", d.authWrap(d.handleSPA)) // SPA routes
-	d.mux.HandleFunc("GET /logs", d.authWrap(d.handleSPA))     // SPA routes
-	d.mux.HandleFunc("GET /rules", d.authWrap(d.handleSPA))    // SPA routes
-	d.mux.HandleFunc("GET /ai", d.authWrap(d.handleSPA))       // SPA routes
-	d.mux.HandleFunc("/", d.authWrap(d.handleSPA))             // SPA catch-all
 
 	return d
 }
