@@ -24,6 +24,8 @@ func NewDetector(enabled bool, multiplier float64) *Detector {
 // Name returns the layer name.
 func (d *Detector) Name() string { return "xxe-detector" }
 
+func (d *Detector) Order() int { return 0 }
+
 // DetectorName returns the detector identifier.
 func (d *Detector) DetectorName() string { return "xxe" }
 
@@ -76,9 +78,7 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 	}
 
 	// Apply multiplier
-	for i := range allFindings {
-		allFindings[i].Score = int(float64(allFindings[i].Score) * d.multiplier)
-	}
+	engine.ApplyMultiplier(allFindings, d.multiplier)
 
 	action := engine.ActionPass
 	totalScore := 0

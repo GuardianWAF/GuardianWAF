@@ -80,41 +80,47 @@ All WAF processing flows through a **layer pipeline** (`internal/engine/pipeline
 
 ### Layer Order Constants
 
-Defined in `internal/engine/layer.go`. **29 layers** are registered in the main pipeline (serve mode). Library mode (`guardianwaf.go`) wires only 6 core layers: IP ACL, Rate Limit, Sanitizer, Detection, Bot Detection, Response.
+Defined in `internal/engine/layer.go`.
 
-**Registered (in pipeline):**
+> **⚠️ Accuracy note (verified 2026-05-29):** The serve binary (`cmd/guardianwaf`) currently wires **16** layers via `layerregistry` — the ones marked ✅ below. The remaining layers in this table are **implemented and unit-tested but NOT compiled into the serve binary** (the `internal/integrations/v040` Integrator that would wire most of them has zero non-test callers). The original "29 registered" figure was aspirational/incorrect. See `refactor.md` §3.7 for the import-level proof and remediation options. Library mode (`guardianwaf.go`) wires only 6 core layers: IP ACL, Rate Limit, Sanitizer, Detection, Bot Detection, Response.
 
-| Order | Layer | Description |
-|-------|-------|-------------|
-| 1 | SIEM | Passive event forwarding to SIEM systems (Splunk, ELK, ArcSight) |
-| 75 | Cluster | HTTP gossip + leader election; distributes IP bans across nodes |
-| 76 | WebSocket | WebSocket handshake validation, connection limits |
-| 78 | gRPC | gRPC request validation, method allowlists, protobuf wire format + schema validation |
-| 85 | Zero Trust | mTLS client verification, device attestation, session trust levels |
-| 95 | Canary | Canary release routing (% traffic to canary upstream) |
-| 100 | IP ACL | Radix tree CIDR matching, runtime add/remove, auto-ban |
-| 125 | Threat Intel | IP/domain reputation feeds with LRU cache |
-| 140 | Cache | Response caching (memory/Redis backend) |
-| 145 | Replay | Request/response recording for testing |
-| 150 | CORS | Origin validation, preflight caching |
-| 150 | Custom Rules | Geo-aware rule engine with dashboard CRUD |
-| 200 | Rate Limit | Token bucket per IP/path, auto-ban |
-| 250 | ATO Protection | Brute force, credential stuffing, password spray, impossible travel |
-| 275 | API Security | JWT validation (RS256/ES256/HS256), API key auth |
-| 280 | API Validation | Request/response schema validation (YAML-defined schemas) |
-| 285 | GraphQL | Query depth/complexity/introspection limits |
-| 300 | Sanitizer | Normalize + validate requests |
-| 310 | API Discovery | Passive API endpoint discovery, OpenAPI generation |
-| 350 | CRS | OWASP ModSecurity Core Rule Set parser and executor |
-| 400 | Detection | 6 detectors: sqli, xss, lfi, cmdi, xxe, ssrf (each in own subdirectory) |
-| 430 | JS Challenge | Bot proof-of-work challenge (SHA-256 PoW) |
-| 450 | Virtual Patch | Virtual patching layer |
-| 473 | ML Anomaly | ONNX-based Isolation Forest anomaly detection |
-| 475 | DLP | Data Loss Prevention (credit cards, SSNs, API keys, PII) |
-| 480 | AI Remediation | Generated rules from AI threat analysis verdicts |
-| 500 | Bot Detection | JA3/JA4 TLS fingerprinting, UA, behavioral analysis |
-| 590 | Client-Side | Client-side protection injection |
-| 600 | Response | Security headers, data masking, branded block pages |
+The 16 layers actually wired in serve mode: IP ACL, Threat Intel, CORS, Custom Rules, Rate Limit, ATO Protection, API Security, API Validation, Sanitizer, CRS, Detection, Virtual Patch, DLP, Bot Detection, Client-Side, Response.
+
+**Layer catalogue** (✅ = wired in serve; ❌ = implemented but not wired — see note above):
+
+| Order | Layer | Serve? | Description |
+|-------|-------|:------:|-------------|
+| 1 | SIEM | ❌ | Passive event forwarding to SIEM systems (Splunk, ELK, ArcSight) |
+| 75 | Cluster | ❌ | HTTP gossip + leader election; distributes IP bans across nodes |
+| 76 | WebSocket | ❌ | WebSocket handshake validation, connection limits |
+| 78 | gRPC | ❌ | gRPC request validation, method allowlists, protobuf wire format + schema validation |
+| 85 | Zero Trust | ❌ | mTLS client verification, device attestation, session trust levels |
+| 95 | Canary | ❌ | Canary release routing (% traffic to canary upstream) |
+| 100 | IP ACL | ✅ | Radix tree CIDR matching, runtime add/remove, auto-ban |
+| 125 | Threat Intel | ✅ | IP/domain reputation feeds with LRU cache |
+| 140 | Cache | ❌ | Response caching (memory/Redis backend) |
+| 145 | Replay | ❌ | Request/response recording for testing |
+| 150 | CORS | ✅ | Origin validation, preflight caching |
+| 150 | Custom Rules | ✅ | Geo-aware rule engine with dashboard CRUD |
+| 200 | Rate Limit | ✅ | Token bucket per IP/path, auto-ban |
+| 250 | ATO Protection | ✅ | Brute force, credential stuffing, password spray, impossible travel |
+| 275 | API Security | ✅ | JWT validation (RS256/ES256/HS256), API key auth |
+| 280 | API Validation | ✅ | Request/response schema validation (YAML-defined schemas) |
+| 285 | GraphQL | ❌ | Query depth/complexity/introspection limits |
+| 300 | Sanitizer | ✅ | Normalize + validate requests |
+| 310 | API Discovery | ❌ | Passive API endpoint discovery, OpenAPI generation |
+| 350 | CRS | ✅ | OWASP ModSecurity Core Rule Set parser and executor |
+| 400 | Detection | ✅ | 6 detectors: sqli, xss, lfi, cmdi, xxe, ssrf (each in own subdirectory) |
+| 430 | JS Challenge | ✅ | Bot proof-of-work challenge (SHA-256 PoW) — wired via the challenge service |
+| 450 | Virtual Patch | ✅ | Virtual patching layer |
+| 473 | ML Anomaly | ❌ | ONNX-based Isolation Forest anomaly detection |
+| 475 | DLP | ✅ | Data Loss Prevention (credit cards, SSNs, API keys, PII) |
+| 480 | AI Remediation | ❌ | Generated rules from AI threat analysis verdicts |
+| 500 | Bot Detection | ✅ | JA3/JA4 TLS fingerprinting, UA, behavioral analysis |
+| 590 | Client-Side | ✅ | Client-side protection injection |
+| 600 | Response | ✅ | Security headers, data masking, branded block pages |
+
+(✅ = compiled into and wired in the `serve` binary, verified via `go list -deps ./cmd/guardianwaf`; ❌ = implemented + unit-tested but **not** in the serve binary. See `refactor.md` §3.7.)
 
 ### Scoring System
 
@@ -126,7 +132,7 @@ Defined in `internal/engine/layer.go`. **29 layers** are registered in the main 
 
 ### Layer vs Library Mode
 
-The `serve` command (`cmd/guardianwaf/main.go`) wires all 29 layers into the pipeline. The Go library API (`guardianwaf.go`) wires only 6 core layers by default. To add more layers in library mode, access the internal engine and call `AddLayer` directly.
+The `serve` command (`cmd/guardianwaf/main.go` → `cmd/guardianwaf/layers.go`) wires the **16** layers marked ✅ above (via `layerregistry`), plus the JS-challenge service. The remaining (❌) layers exist as packages but are not wired into serve — see `refactor.md` §3.7. The Go library API (`guardianwaf.go`) wires only 6 core layers by default. To add more layers in library mode, access the internal engine and call `AddLayer` directly.
 
 ### Multi-Tenancy
 

@@ -20,11 +20,11 @@ import (
 type TrustLevel int
 
 const (
-	TrustLevelNone     TrustLevel = iota // No trust
-	TrustLevelLow                        // Low trust (e.g., valid cert but unknown device)
-	TrustLevelMedium                     // Medium trust (valid cert + known device)
-	TrustLevelHigh                       // High trust (valid cert + attested device)
-	TrustLevelMaximum                    // Maximum trust (valid cert + attested + recent auth)
+	TrustLevelNone    TrustLevel = iota // No trust
+	TrustLevelLow                       // Low trust (e.g., valid cert but unknown device)
+	TrustLevelMedium                    // Medium trust (valid cert + known device)
+	TrustLevelHigh                      // High trust (valid cert + attested device)
+	TrustLevelMaximum                   // Maximum trust (valid cert + attested + recent auth)
 )
 
 // String returns the string representation of a trust level.
@@ -58,12 +58,12 @@ type DeviceInfo struct {
 
 // ClientIdentity represents an authenticated client identity.
 type ClientIdentity struct {
-	ClientID    string
-	Certificate *x509.Certificate
-	Device      *DeviceInfo
-	TrustLevel  TrustLevel
+	ClientID        string
+	Certificate     *x509.Certificate
+	Device          *DeviceInfo
+	TrustLevel      TrustLevel
 	AuthenticatedAt time.Time
-	SessionID   string
+	SessionID       string
 }
 
 // Config for Zero Trust.
@@ -93,17 +93,30 @@ func DefaultConfig() *Config {
 
 // Service provides Zero Trust functionality.
 type Service struct {
-	config      *Config
-	trustedCAs  *x509.CertPool
-	devices     map[string]*DeviceInfo // deviceID -> DeviceInfo
-	sessions    map[string]*ClientIdentity // sessionID -> ClientIdentity
-	mu          sync.RWMutex
+	config     *Config
+	trustedCAs *x509.CertPool
+	devices    map[string]*DeviceInfo     // deviceID -> DeviceInfo
+	sessions   map[string]*ClientIdentity // sessionID -> ClientIdentity
+	mu         sync.RWMutex
 }
 
 // NewService creates a new Zero Trust service.
 func NewService(cfg *Config) (*Service, error) {
 	if cfg == nil {
 		cfg = DefaultConfig()
+	} else {
+		cfgCopy := *cfg
+		defaults := DefaultConfig()
+		if cfgCopy.SessionTTL <= 0 {
+			cfgCopy.SessionTTL = defaults.SessionTTL
+		}
+		if cfgCopy.AttestationTTL <= 0 {
+			cfgCopy.AttestationTTL = defaults.AttestationTTL
+		}
+		if cfgCopy.AllowBypassPaths == nil {
+			cfgCopy.AllowBypassPaths = append([]string(nil), defaults.AllowBypassPaths...)
+		}
+		cfg = &cfgCopy
 	}
 
 	s := &Service{
@@ -144,9 +157,9 @@ func (s *Service) VerifyClientCertificate(cert *x509.Certificate) (*ClientIdenti
 	// Verify certificate against trusted CAs if configured
 	if s.trustedCAs != nil {
 		opts := x509.VerifyOptions{
-			Roots:         s.trustedCAs,
-			CurrentTime:   time.Now(),
-			KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+			Roots:       s.trustedCAs,
+			CurrentTime: time.Now(),
+			KeyUsages:   []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 		}
 		if _, err := cert.Verify(opts); err != nil {
 			return nil, fmt.Errorf("certificate verification failed: %w", err)
@@ -157,11 +170,11 @@ func (s *Service) VerifyClientCertificate(cert *x509.Certificate) (*ClientIdenti
 	clientID := extractClientID(cert)
 
 	identity := &ClientIdentity{
-		ClientID:    clientID,
-		Certificate: cert,
-		TrustLevel:  TrustLevelLow,
+		ClientID:        clientID,
+		Certificate:     cert,
+		TrustLevel:      TrustLevelLow,
 		AuthenticatedAt: time.Now(),
-		SessionID:   generateSessionID(),
+		SessionID:       generateSessionID(),
 	}
 
 	// Check if device is known/attested
@@ -186,8 +199,8 @@ func (s *Service) VerifyClientCertificate(cert *x509.Certificate) (*ClientIdenti
 		// If still at capacity after evicting expired, remove oldest entries
 		if len(s.sessions) >= 100000 {
 			type entry struct {
-				id  string
-				at  time.Time
+				id string
+				at time.Time
 			}
 			var oldest []entry
 			for id, ci := range s.sessions {
@@ -195,8 +208,12 @@ func (s *Service) VerifyClientCertificate(cert *x509.Certificate) (*ClientIdenti
 			}
 			// Sort by AuthenticatedAt ascending (O(n log n))
 			slices.SortFunc(oldest, func(a, b entry) int {
-				if a.at.Before(b.at) { return -1 }
-				if a.at.After(b.at) { return 1 }
+				if a.at.Before(b.at) {
+					return -1
+				}
+				if a.at.After(b.at) {
+					return 1
+				}
 				return 0
 			})
 			// Evict oldest 10% to make room

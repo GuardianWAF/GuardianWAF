@@ -8,8 +8,8 @@ import (
 
 // Parser parses SecRule directives from CRS rule files.
 type Parser struct {
-	rules    []*Rule
-	lineNum  int
+	rules   []*Rule
+	lineNum int
 }
 
 // NewParser creates a new SecRule parser.
@@ -99,7 +99,7 @@ func (p *Parser) parseSecRule(line string) (*Rule, error) {
 	actionsStr := parts[2]
 	// Remove surrounding quotes
 	if strings.HasPrefix(actionsStr, "\"") && strings.HasSuffix(actionsStr, "\"") {
-		actionsStr = actionsStr[1:len(actionsStr)-1]
+		actionsStr = actionsStr[1 : len(actionsStr)-1]
 	}
 	actions, err := p.parseActions(actionsStr)
 	if err != nil {
@@ -107,9 +107,9 @@ func (p *Parser) parseSecRule(line string) (*Rule, error) {
 	}
 
 	rule := &Rule{
-		Variables:  variables,
-		Operator:   operator,
-		Actions:    actions,
+		Variables:     variables,
+		Operator:      operator,
+		Actions:       actions,
 		ParanoiaLevel: 1, // Default
 	}
 
@@ -173,7 +173,7 @@ func (p *Parser) parseSecAction(line string) (*Rule, error) {
 
 	// Remove quotes
 	if strings.HasPrefix(content, "\"") && strings.HasSuffix(content, "\"") {
-		content = content[1:len(content)-1]
+		content = content[1 : len(content)-1]
 	}
 
 	actions, err := p.parseActions(content)
@@ -230,7 +230,7 @@ func (p *Parser) parseVariables(s string) ([]RuleVariable, error) {
 			// Check if key is regex (/pattern/)
 			if strings.HasPrefix(rv.Key, "/") && strings.HasSuffix(rv.Key, "/") {
 				rv.KeyRegex = true
-				rv.Key = rv.Key[1:len(rv.Key)-1]
+				rv.Key = rv.Key[1 : len(rv.Key)-1]
 			}
 		} else {
 			rv.Name = part
@@ -312,7 +312,7 @@ func (p *Parser) parseOperator(s string) (RuleOperator, error) {
 
 	// Remove quotes from argument
 	if strings.HasPrefix(s, "\"") && strings.HasSuffix(s, "\"") {
-		s = s[1:len(s)-1]
+		s = s[1 : len(s)-1]
 	}
 
 	// Unescape quotes
@@ -347,19 +347,27 @@ func (p *Parser) parseActions(s string) (RuleActions, error) {
 
 			// Remove quotes
 			if strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'") {
-				value = value[1:len(value)-1]
+				value = value[1 : len(value)-1]
 			}
 			if strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"") {
-				value = value[1:len(value)-1]
+				value = value[1 : len(value)-1]
 			}
 
 			switch key {
 			case "id":
 				actions.ID = value
 			case "phase":
-				actions.Phase, _ = strconv.Atoi(value)
+				n, err := strconv.Atoi(value)
+				if err != nil {
+					return actions, fmt.Errorf("invalid phase %q: %w", value, err)
+				}
+				actions.Phase = n
 			case "status":
-				actions.Status, _ = strconv.Atoi(value)
+				n, err := strconv.Atoi(value)
+				if err != nil {
+					return actions, fmt.Errorf("invalid status %q: %w", value, err)
+				}
+				actions.Status = n
 			case "redirect":
 				actions.Redirect = value
 			case "msg":
@@ -371,7 +379,11 @@ func (p *Parser) parseActions(s string) (RuleActions, error) {
 			case "tag":
 				actions.Tag = append(actions.Tag, value)
 			case "skip":
-				actions.Skip, _ = strconv.Atoi(value)
+				n, err := strconv.Atoi(value)
+				if err != nil {
+					return actions, fmt.Errorf("invalid skip %q: %w", value, err)
+				}
+				actions.Skip = n
 			case "skipAfter":
 				actions.SkipAfter = value
 			case "setvar":

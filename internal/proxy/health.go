@@ -17,6 +17,9 @@ type HealthChecker struct {
 	path     string
 	client   *http.Client
 	stopCh   chan struct{}
+	stopOnce sync.Once
+	mu       sync.Mutex
+	cancel   context.CancelFunc
 	wg       sync.WaitGroup
 }
 
@@ -45,9 +48,32 @@ func NewHealthChecker(b *Balancer, cfg HealthConfig) *HealthChecker {
 		interval: cfg.Interval,
 		timeout:  cfg.Timeout,
 		path:     cfg.Path,
-		client:   &http.Client{Timeout: cfg.Timeout},
+		client:   newHealthCheckHTTPClient(cfg.Timeout),
 		stopCh:   make(chan struct{}),
 	}
+}
+
+func newHealthCheckHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: timeout,
+		Transport: &http.Transport{
+			DialContext:           SSRFDialContext(),
+			TLSHandshakeTimeout:   minHealthCheckDuration(timeout, 10*time.Second),
+			ResponseHeaderTimeout: minHealthCheckDuration(timeout, 10*time.Second),
+			ExpectContinueTimeout: 1 * time.Second,
+			IdleConnTimeout:       30 * time.Second,
+		},
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+}
+
+func minHealthCheckDuration(a, b time.Duration) time.Duration {
+	if a <= 0 || a > b {
+		return b
+	}
+	return a
 }
 
 // Start begins periodic health checking in a background goroutine.
@@ -63,16 +89,30 @@ func (hc *HealthChecker) Start() {
 		}()
 
 		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		hc.mu.Lock()
+		hc.cancel = cancel
+		hc.mu.Unlock()
+		defer func() {
+			cancel()
+			hc.mu.Lock()
+			hc.cancel = nil
+			hc.mu.Unlock()
+		}()
+
+		select {
+		case <-hc.stopCh:
+			return
+		default:
+		}
 
 		// Initial check
 		hc.checkAll(ctx)
 
 		tickerInterval := hc.interval
-	if tickerInterval <= 0 {
-		tickerInterval = 30 * time.Second
-	}
-	ticker := time.NewTicker(tickerInterval)
+		if tickerInterval <= 0 {
+			tickerInterval = 30 * time.Second
+		}
+		ticker := time.NewTicker(tickerInterval)
 		defer ticker.Stop()
 
 		for {
@@ -88,12 +128,16 @@ func (hc *HealthChecker) Start() {
 
 // Stop stops the health checker and waits for it to finish.
 func (hc *HealthChecker) Stop() {
-	select {
-	case <-hc.stopCh:
-		return
-	default:
-		close(hc.stopCh)
+	hc.mu.Lock()
+	cancel := hc.cancel
+	hc.mu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
+
+	hc.stopOnce.Do(func() {
+		close(hc.stopCh)
+	})
 	hc.wg.Wait()
 }
 
@@ -132,6 +176,6 @@ func (hc *HealthChecker) check(ctx context.Context, t *Target) bool {
 	defer resp.Body.Close()
 	// Drain up to 64KB so the connection can be reused by the pool,
 	// but don't read unlimited data from a compromised backend.
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64*1024))
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64*1024)) // nolint:errcheck // response body drain; error ignored
 	return resp.StatusCode >= 200 && resp.StatusCode < 400
 }

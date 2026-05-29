@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 )
@@ -46,12 +47,36 @@ func (ve *ValidationError) addError(field, message string) {
 	ve.Errors = append(ve.Errors, FieldError{Field: field, Message: message})
 }
 
+// validatePositive checks that an integer field is > 0.
+func validatePositive(field string, value int, ve *ValidationError) {
+	if value <= 0 {
+		ve.addError(field, fmt.Sprintf("must be > 0; got %d", value))
+	}
+}
+
+// validateNonNegative checks that an integer field is >= 0.
+func validateNonNegative(field string, value int, ve *ValidationError) {
+	if value < 0 {
+		ve.addError(field, fmt.Sprintf("must be >= 0; got %d", value))
+	}
+}
+
+// validateEnum checks that a string field is one of the allowed values.
+func validateEnum(field, value string, allowed []string, ve *ValidationError) {
+	for _, ok := range allowed {
+		if value == ok {
+			return
+		}
+	}
+	ve.addError(field, fmt.Sprintf("must be one of: %s; got %q", strings.Join(allowed, ", "), value))
+}
+
 // ResolveConfigPath determines the config file path based on environment.
 // Resolution order:
-//   1. Explicit path argument (if non-empty)
-//   2. GWAF_CONFIG_PATH environment variable
-//   3. GWAF_ENV environment variable -> guardianwaf.{env}.yaml
-//   4. guardianwaf.yaml (default)
+//  1. Explicit path argument (if non-empty)
+//  2. GWAF_CONFIG_PATH environment variable
+//  3. GWAF_ENV environment variable -> guardianwaf.{env}.yaml
+//  4. guardianwaf.yaml (default)
 func ResolveConfigPath(explicit string) string {
 	if explicit != "" {
 		return explicit
@@ -80,6 +105,9 @@ func LoadFile(path string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parsing config file: %w", err)
 	}
+	if err := validateKnownConfigKeys(node); err != nil {
+		return nil, fmt.Errorf("validating config schema: %w", err)
+	}
 
 	cfg := DefaultConfig()
 	if err := PopulateFromNode(cfg, node); err != nil {
@@ -87,6 +115,132 @@ func LoadFile(path string) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func validateKnownConfigKeys(node *Node) error {
+	if node == nil {
+		return nil
+	}
+	ve := &ValidationError{}
+	validateKnownKeysForType(node, reflect.TypeOf(Config{}), "", ve)
+	if ve.HasErrors() {
+		return ve
+	}
+	return nil
+}
+
+func validateKnownTopLevelKeys(node *Node) error {
+	return validateKnownConfigKeys(node)
+}
+
+func validateKnownKeysForType(node *Node, typ reflect.Type, path string, ve *ValidationError) {
+	if node == nil || ve == nil {
+		return
+	}
+
+	typ = unwrapSchemaType(typ)
+	if !isStructuredNodeKind(node) || typ == nil {
+		return
+	}
+
+	switch typ.Kind() {
+	case reflect.Struct:
+		validateKnownStructKeys(node, typ, path, ve)
+	case reflect.Slice, reflect.Array:
+		validateKnownSequenceKeys(node, typ.Elem(), path, ve)
+	case reflect.Map:
+		validateKnownMapValueKeys(node, typ.Elem(), path, ve)
+	}
+}
+
+func validateKnownStructKeys(node *Node, typ reflect.Type, path string, ve *ValidationError) {
+	if node.Kind != MapNode {
+		return
+	}
+
+	fields := yamlSchemaFields(typ)
+	for _, key := range node.MapKeys {
+		childPath := joinSchemaPath(path, key)
+		fieldType, ok := fields[key]
+		if !ok {
+			msg := "unknown key"
+			if path == "" {
+				msg = "unknown top-level key"
+			}
+			ve.addError(childPath, msg)
+			continue
+		}
+		validateKnownKeysForType(node.Get(key), fieldType, childPath, ve)
+	}
+}
+
+func validateKnownSequenceKeys(node *Node, elemType reflect.Type, path string, ve *ValidationError) {
+	if node.Kind != SequenceNode {
+		return
+	}
+	for i, item := range node.Slice() {
+		validateKnownKeysForType(item, elemType, fmt.Sprintf("%s[%d]", path, i), ve)
+	}
+}
+
+func validateKnownMapValueKeys(node *Node, elemType reflect.Type, path string, ve *ValidationError) {
+	if node.Kind != MapNode {
+		return
+	}
+
+	elemType = unwrapSchemaType(elemType)
+	if elemType == nil || elemType.Kind() == reflect.Interface {
+		return
+	}
+	for _, key := range node.MapKeys {
+		childPath := joinSchemaPath(path, key)
+		validateKnownKeysForType(node.Get(key), elemType, childPath, ve)
+	}
+}
+
+func yamlSchemaFields(typ reflect.Type) map[string]reflect.Type {
+	fields := make(map[string]reflect.Type)
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		if field.PkgPath != "" && !field.Anonymous {
+			continue
+		}
+		name := yamlFieldName(field)
+		if name == "-" {
+			continue
+		}
+		if name == "" {
+			name = strings.ToLower(field.Name)
+		}
+		fields[name] = field.Type
+	}
+	return fields
+}
+
+func yamlFieldName(field reflect.StructField) string {
+	tag := field.Tag.Get("yaml")
+	if idx := strings.IndexByte(tag, ','); idx >= 0 {
+		tag = tag[:idx]
+	}
+	return tag
+}
+
+func unwrapSchemaType(typ reflect.Type) reflect.Type {
+	for typ != nil && typ.Kind() == reflect.Pointer {
+		typ = typ.Elem()
+	}
+	return typ
+}
+
+func joinSchemaPath(parent, key string) string {
+	if parent == "" {
+		return key
+	}
+	return parent + "." + key
+}
+
+func isStructuredNodeKind(node *Node) bool {
+	return node.Kind == MapNode || node.Kind == SequenceNode
 }
 
 // LoadDir loads configuration from a directory structure:
@@ -111,8 +265,8 @@ func LoadDir(dir string) (*Config, error) {
 	// Scan and load subdirectory configs
 	subdirs := map[string]func(path string, cfg *Config) error{
 		"rules.d":   appendRulesFromDir,
-		"domains.d":  appendDomainsFromDir,
-		"tenants.d":  appendTenantsFromDir,
+		"domains.d": appendDomainsFromDir,
+		"tenants.d": appendTenantsFromDir,
 	}
 
 	for subdir, loader := range subdirs {
@@ -567,6 +721,11 @@ func LoadEnv(cfg *Config) {
 	envMap := map[string]func(string){
 		"GWAF_MODE":   func(v string) { cfg.Mode = v },
 		"GWAF_LISTEN": func(v string) { cfg.Listen = v },
+		"GWAF_ALLOW_PRIVATE_UPSTREAMS": func(v string) {
+			if b, err := strconv.ParseBool(v); err == nil {
+				cfg.AllowPrivateUpstreams = &b
+			}
+		},
 
 		"GWAF_LOGGING_LEVEL":  func(v string) { cfg.Logging.Level = v },
 		"GWAF_LOGGING_FORMAT": func(v string) { cfg.Logging.Format = v },
@@ -585,6 +744,9 @@ func LoadEnv(cfg *Config) {
 
 		"GWAF_DASHBOARD_LISTEN":  func(v string) { cfg.Dashboard.Listen = v },
 		"GWAF_DASHBOARD_API_KEY": func(v string) { cfg.Dashboard.APIKey = v },
+		"GWAF_DASHBOARD_ADMIN_KEY": func(v string) {
+			cfg.Dashboard.AdminKey = v
+		},
 		"GWAF_DASHBOARD_ENABLED": func(v string) {
 			if b, err := strconv.ParseBool(v); err == nil {
 				cfg.Dashboard.Enabled = b
@@ -613,7 +775,7 @@ func LoadEnv(cfg *Config) {
 				cfg.Tracing.Enabled = b
 			}
 		},
-		"GWAF_TRACING_SERVICE_NAME":  func(v string) { cfg.Tracing.ServiceName = v },
+		"GWAF_TRACING_SERVICE_NAME": func(v string) { cfg.Tracing.ServiceName = v },
 		"GWAF_TRACING_SAMPLING_RATE": func(v string) {
 			if f, err := strconv.ParseFloat(v, 64); err == nil {
 				cfg.Tracing.SamplingRate = f
@@ -672,6 +834,9 @@ func Validate(cfg *Config) error {
 
 	// Listen address validation
 	validateListenAddr(cfg.Listen, "listen", ve)
+
+	// Trusted proxy validation
+	validateTrustedProxies(cfg.TrustedProxies, ve)
 
 	// TLS validation
 	validateTLS(&cfg.TLS, ve)
@@ -804,6 +969,35 @@ func validateRoutes(routes []RouteConfig, upstreams []UpstreamConfig, ve *Valida
 	}
 }
 
+func validateTrustedProxies(proxies []string, ve *ValidationError) {
+	for i, proxy := range proxies {
+		field := fmt.Sprintf("trusted_proxies[%d]", i)
+		if !isValidIPOrCIDR(proxy) {
+			ve.addError(field, fmt.Sprintf("invalid IP or CIDR: %q", proxy))
+			continue
+		}
+		if !strings.Contains(proxy, "/") {
+			continue
+		}
+		ip, cidr, err := net.ParseCIDR(proxy)
+		if err != nil {
+			continue
+		}
+		ones, bits := cidr.Mask.Size()
+		if ones == 0 {
+			ve.addError(field, fmt.Sprintf("must not trust all clients with %q", proxy))
+			continue
+		}
+		if ip.To4() != nil && bits == 32 && ones < 8 {
+			ve.addError(field, fmt.Sprintf("CIDR %q is too broad for a trusted proxy range; configure the actual proxy or load-balancer subnet", proxy))
+			continue
+		}
+		if ip.To4() == nil && bits == 128 && ones < 32 {
+			ve.addError(field, fmt.Sprintf("CIDR %q is too broad for a trusted proxy range; configure the actual proxy or load-balancer subnet", proxy))
+		}
+	}
+}
+
 func validateWAF(waf *WAFConfig, ve *ValidationError) {
 	validateDetection(&waf.Detection, ve)
 	validateRateLimit(&waf.RateLimit, ve)
@@ -908,6 +1102,26 @@ func validateDashboard(dash *DashboardConfig, ve *ValidationError) {
 	}
 	if dash.Listen != "" {
 		validateListenAddr(dash.Listen, "dashboard.listen", ve)
+	}
+	validateDashboardSecret("dashboard.api_key", dash.APIKey, ve)
+	validateDashboardSecret("dashboard.admin_key", dash.AdminKey, ve)
+}
+
+func validateDashboardSecret(field, value string, ve *ValidationError) {
+	if value == "" || strings.Contains(value, "${") {
+		return
+	}
+	if strings.TrimSpace(value) != value {
+		ve.addError(field, "must not contain leading or trailing whitespace")
+		return
+	}
+	if len(value) < 16 {
+		ve.addError(field, "must be at least 16 characters when explicitly configured; leave empty to generate a strong random secret at startup")
+		return
+	}
+	switch strings.ToLower(value) {
+	case "password", "password123", "admin", "admin123", "changeme", "secret", "secret123", "testsecret":
+		ve.addError(field, "must not use a common or default secret")
 	}
 }
 

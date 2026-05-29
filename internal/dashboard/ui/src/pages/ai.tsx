@@ -62,7 +62,7 @@ export default function AIPage() {
     api.getAIProviders().then(data => {
       setProviders(data.providers || [])
     }).catch(() => toast({ title: 'Failed to load AI providers', variant: 'warning' })).finally(() => setLoadingProviders(false))
-  }, [])
+  }, [toast])
 
   useEffect(() => { refresh(); fetchProviders() }, [refresh, fetchProviders])
 

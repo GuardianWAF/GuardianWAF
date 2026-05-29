@@ -21,8 +21,8 @@ kubectl logs -l app=guardianwaf
 - Replicas: 2 (configurable)
 - Resources: 64Mi/256Mi memory, 100m/500m CPU
 - Security context: non-root, read-only filesystem
-- Health checks: /healthz endpoint
-- Volumes: ConfigMap (config), Secret (certs), EmptyDir (cache)
+- Health checks: `/livez` for process liveness and `/readyz` for upstream readiness
+- Volumes: ConfigMap (config), Secret (certs), EmptyDir (cache), EmptyDir state/log paths for read-only-root compatibility
 
 ### configmap.yaml
 - WAF mode: enforce
@@ -44,10 +44,13 @@ kubectl logs -l app=guardianwaf
 ### Required Secrets
 
 ```bash
-# Dashboard API key
+# Dashboard API key used by GuardianWAF itself
 kubectl create secret generic guardianwaf-dashboard-auth \
-  --from-literal=username=admin \
-  --from-literal=password=$(openssl rand -base64 32)
+  --from-literal=api-key=$(openssl rand -base64 32)
+
+# Optional NGINX Ingress basic-auth guard for the dashboard ingress
+kubectl create secret generic guardianwaf-dashboard-basic-auth \
+  --from-literal=auth="$(htpasswd -nb admin "$(openssl rand -base64 24)")"
 
 # TLS certificates (optional)
 kubectl create secret tls guardianwaf-certs \
@@ -72,6 +75,26 @@ Edit `configmap.yaml` or create your own:
 kubectl create configmap guardianwaf-config \
   --from-file=guardianwaf.yaml=your-config.yaml
 ```
+
+### Persistent State
+
+The checked-in static manifests use `emptyDir` for `/var/lib/guardianwaf` and `/var/log/guardianwaf` so the pod can run with `readOnlyRootFilesystem: true`. This is suitable for examples and stateless deployments.
+
+For durable event history, ACME cache, tenant stores, replay captures, analytics, or remediation state, replace the `state` `emptyDir` with a `persistentVolumeClaim`. If `events.storage: file` is enabled, keep `events.file_path` under `/var/log/guardianwaf` and mount that path on persistent storage.
+
+For the Helm chart, enable:
+
+```yaml
+config:
+  events:
+    storage: file
+    filePath: /var/log/guardianwaf/events.jsonl
+persistence:
+  enabled: true
+  size: 10Gi
+```
+
+Use `ReadWriteMany` storage or one replica when multiple pods need the same file-backed state. With the default `ReadWriteOnce` access mode, keep `replicaCount: 1` or provide separate per-pod storage.
 
 ## Scaling
 
@@ -125,8 +148,8 @@ spec:
 
 ### Health Checks
 
-- **Liveness**: `/healthz` - Restart if failing
-- **Readiness**: `/healthz` - Remove from service if failing
+- **Liveness**: `/livez` - Restart if the process stops serving
+- **Readiness**: `/readyz` - Remove from service if configured upstreams have no healthy targets
 
 ## Production Checklist
 

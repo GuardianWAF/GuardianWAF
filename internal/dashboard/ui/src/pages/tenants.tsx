@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
@@ -16,11 +16,7 @@ export default function TenantsPage() {
   const [search, setSearch] = useState('')
   const { toast } = useToast()
 
-  useEffect(() => {
-    loadTenants()
-  }, [])
-
-  const loadTenants = async () => {
+  const loadTenants = useCallback(async () => {
     try {
       const response = await api.adminGetTenants()
       setTenants(response.tenants || [])
@@ -33,7 +29,11 @@ export default function TenantsPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [toast])
+
+  useEffect(() => {
+    loadTenants()
+  }, [loadTenants])
 
   const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this tenant?')) return

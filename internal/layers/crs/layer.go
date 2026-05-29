@@ -63,6 +63,9 @@ func (l *Layer) Name() string {
 	return "crs"
 }
 
+// Order returns the execution order.
+func (l *Layer) Order() int { return engine.OrderCRS }
+
 // LoadRules loads CRS rules from a directory.
 func (l *Layer) LoadRules(path string) error {
 	l.mu.Lock()

@@ -12,20 +12,20 @@ import (
 
 // Layer implements the engine.Layer interface for client-side protection.
 type Layer struct {
-	config    *Config
-	patterns  *CompiledPatterns
-	stats     Stats
-	mu        sync.RWMutex
-	enabled   bool
+	config   *Config
+	patterns *CompiledPatterns
+	stats    Stats
+	mu       sync.RWMutex
+	enabled  bool
 }
 
 // Stats holds client-side protection statistics.
 type Stats struct {
-	ScannedResponses  int
-	ThreatsDetected   int
-	ScriptsInjected   int
-	CSPEnforced       int
-	BlockedRequests   int
+	ScannedResponses int
+	ThreatsDetected  int
+	ScriptsInjected  int
+	CSPEnforced      int
+	BlockedRequests  int
 }
 
 // NewLayer creates a new client-side protection layer.
@@ -48,6 +48,7 @@ func NewLayer(cfg *Config) *Layer {
 
 // Name returns "clientside".
 func (l *Layer) Name() string { return "clientside" }
+func (l *Layer) Order() int { return engine.OrderClientSide }
 
 // SetEnabled enables or disables the layer.
 func (l *Layer) SetEnabled(enabled bool) {
@@ -99,10 +100,13 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		}
 	}
 
-	// Register response body processing hook if enabled
+	// Register response body processing hook if enabled. Capture the path by
+	// value: the engine invokes this hook after the request context has been
+	// released to the pool, so the closure must not reference ctx fields.
 	if l.config.MagecartDetection.Enabled || l.config.AgentInjection.Enabled {
+		path := ctx.Path
 		ctx.Metadata["clientside_response_hook"] = func(body []byte, contentType string) ([]byte, bool) {
-			return l.processResponse(body, contentType, ctx.Path)
+			return l.processResponse(body, contentType, path)
 		}
 	}
 
@@ -340,7 +344,7 @@ func (l *Layer) generateAgentScript() string {
 	}
 
 	script := `<script data-guardian="security-agent">(function(){`
-		script += `function gwafReport(type,data){try{fetch("/_guardian/report",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:type,data:data,url:location.href,ts:Date.now()})}).catch(function(){});}catch(e){}}`
+	script += `function gwafReport(type,data){try{fetch("/_guardian/report",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:type,data:data,url:location.href,ts:Date.now()})}).catch(function(){});}catch(e){}}`
 
 	// DOM monitoring
 	if l.config.AgentInjection.MonitorDOM {

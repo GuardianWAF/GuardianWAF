@@ -1070,7 +1070,7 @@ Full HTTP/1.1 and HTTP/2 reverse proxy with:
 
 ### 10.4 REST API
 
-All endpoints require authentication via `X-GuardianWAF-Key` header or `?api_key=` query parameter.
+All endpoints require authentication via the `X-API-Key` header or an authenticated dashboard session cookie. Query-string API keys are rejected in the current implementation.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|

@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
 
 # Prevent concurrent runs on same ref, cancel in-progress runs
 concurrency:
@@ -24,13 +27,12 @@ jobs:
           cache: 'npm'
           cache-dependency-path: internal/dashboard/ui/package-lock.json
 
-      - name: Install & Build
-        working-directory: internal/dashboard/ui
-        run: npm ci --no-audit --no-fund && npm run build
+      - name: Build embedded dashboard
+        run: ./scripts/build-dashboard.sh
 
       - name: Test
         working-directory: internal/dashboard/ui
-        run: npm test
+        run: npm test -- --run
 
       - name: Audit
         working-directory: internal/dashboard/ui
@@ -52,7 +54,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: ['1.25.0', '1.24']
+        go-version: ['1.26.3']
       fail-fast: false
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -72,16 +74,53 @@ jobs:
 
       - name: Test
         run: |
-          # Exclude packages without test files to avoid covdata tool issues on Go 1.24
           go test -race -count=1 -coverprofile=coverage.txt -covermode=atomic $(go list ./... | grep -v '/examples/' | grep -v '/internal/ml/onnx' | grep -v '/internal/ml/features' | grep -v '/scripts/attack-simulation')
 
+      - name: Validate bundled configs
+        run: go test -count=1 ./internal/config
+
+      - name: Smoke test binary
+        run: |
+          go build -o guardianwaf ./cmd/guardianwaf
+          ./scripts/smoke-test.sh ./guardianwaf
+
+      - name: HTTP/3 tagged build
+        run: |
+          go test -tags http3 ./cmd/guardianwaf
+          go build -tags http3 -o guardianwaf-http3 ./cmd/guardianwaf
+
       - name: Upload coverage
-        if: matrix.go-version == '1.25.0'
+        if: matrix.go-version == '1.26.3'
         uses: codecov/codecov-action@75cd11691c0faa626561e295848008c8a7dddffe # v5
         with:
           files: ./coverage.txt
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  dashboard-e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: 'go.mod'
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: internal/dashboard/ui/package-lock.json
+
+      - name: Install Playwright browser
+        working-directory: internal/dashboard/ui
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: Dashboard browser smoke
+        run: ./scripts/dashboard-e2e.sh
 
   lint:
     needs: [build-dashboard]
@@ -103,6 +142,111 @@ jobs:
         uses: golangci/golangci-lint-action@9fae48acfc02a90574d7c304a1758ef9895495fa # v7
         with:
           version: v2.2
+
+  docker-compose-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Docker Compose integration smoke
+        run: |
+          docker compose -f docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from test-runner
+
+      - name: Cleanup Docker Compose integration smoke
+        if: always()
+        run: docker compose -f docker-compose.test.yml down --remove-orphans
+
+  kubernetes-manifests:
+    needs: [build-dashboard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Download dashboard assets
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dashboard-dist
+          path: internal/dashboard/dist/
+
+      - name: Install kubeconform
+        run: go install github.com/yannh/kubeconform/cmd/kubeconform@v0.7.0
+
+      - name: Validate Kubernetes manifests
+        run: ./scripts/validate-k8s.sh
+
+      - name: Validate Helm chart
+        run: ./scripts/validate-helm.sh
+
+  kind-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Install KinD
+        run: go install sigs.k8s.io/kind@v0.31.0
+
+      - name: Install kubectl
+        run: |
+          curl -fsSLo kubectl https://dl.k8s.io/release/v1.36.1/bin/linux/amd64/kubectl
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/kubectl
+
+      - name: KinD deployment smoke
+        run: ./scripts/kind-smoke.sh
+
+  supply-chain-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Runtime image SBOM and scan
+        run: ./scripts/supply-chain-smoke.sh
+
+  fuzz-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Bounded fuzz smoke
+        run: FUZZTIME=5s ./scripts/fuzz-smoke.sh
+
+  nightly-full-race:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    needs: [build-dashboard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Download dashboard assets
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dashboard-dist
+          path: internal/dashboard/dist/
+
+      - name: Full repository race test
+        run: go test -race ./...
 
   benchmark:
     needs: [build-dashboard]
@@ -189,14 +333,14 @@ jobs:
     - name: Run Trivy vulnerability scanner on base image
       run: |
         docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-          aquasec/trivy:latest image \
+          aquasec/trivy:0.68.1 image \
           --severity HIGH,CRITICAL \
           --exit-code 1 \
           --no-progress \
-          golang:1.25-alpine
+          golang:1.26.3-alpine
     - name: Scan Dockerfile for misconfigs
       run: |
-        docker run --rm -v $(pwd):/workspace aquasec/trivy:latest config /workspace --exit-code 1
+        docker run --rm -v $(pwd):/workspace aquasec/trivy:0.68.1 config /workspace --exit-code 1
 
   lighthouse:
     needs: [build-dashboard]
@@ -208,8 +352,8 @@ jobs:
         node-version: '22'
         cache: 'npm'
         cache-dependency-path: internal/dashboard/ui/package-lock.json
-    - name: Build dashboard
-      run: cd internal/dashboard/ui && npm ci && npm run build
+    - name: Build embedded dashboard
+      run: ./scripts/build-dashboard.sh
     - name: Build Go binary
       uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
       with:

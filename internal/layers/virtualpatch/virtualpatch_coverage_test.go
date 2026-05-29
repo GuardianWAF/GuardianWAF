@@ -58,8 +58,8 @@ func TestDatabase_GetPatchesForProduct(t *testing.T) {
 
 	cpe := "cpe:2.3:a:apache:log4j:2.14.0:*:*:*:*:*:*:*"
 	db.AddCVE(&CVEEntry{
-		CVEID:           "CVE-2021-44228",
-		Severity:        "CRITICAL",
+		CVEID:            "CVE-2021-44228",
+		Severity:         "CRITICAL",
 		AffectedProducts: []Product{{CPE: cpe, Vulnerable: true}},
 		Patches: []VirtualPatch{
 			{ID: "VP-LOG4J", Enabled: true, Severity: "CRITICAL"},
@@ -93,8 +93,8 @@ func TestDatabase_GetPatchesForProduct_DisabledPatchExcluded(t *testing.T) {
 	db := NewDatabase()
 	cpe := "cpe:2.3:a:example:app:1.0:*:*:*:*:*:*:*"
 	db.AddCVE(&CVEEntry{
-		CVEID:           "CVE-2022-TEST",
-		Severity:        "HIGH",
+		CVEID:            "CVE-2022-TEST",
+		Severity:         "HIGH",
 		AffectedProducts: []Product{{CPE: cpe, Vulnerable: true}},
 		Patches: []VirtualPatch{
 			{ID: "VP-DIS", Enabled: false, Severity: "HIGH"},
@@ -137,8 +137,8 @@ func TestDatabase_Stats_MultipleSeverities(t *testing.T) {
 func TestDatabase_AddCVE_WithProductCPE(t *testing.T) {
 	db := NewDatabase()
 	entry := &CVEEntry{
-		CVEID:           "CVE-2022-PROD",
-		Severity:        "HIGH",
+		CVEID:    "CVE-2022-PROD",
+		Severity: "HIGH",
 		AffectedProducts: []Product{
 			{CPE: "cpe:2.3:a:foo:bar:1.0:*", Vulnerable: true},
 			{CPE: "", Vulnerable: true}, // empty CPE should be skipped
@@ -344,6 +344,7 @@ func TestNVDClient_Search_WithTestServer(t *testing.T) {
 	defer srv.Close()
 
 	client := NewNVDClient("test-key")
+	client.allowPrivate = true
 	client.baseURL = srv.URL // bypass private IP validation for test server
 
 	result, err := client.Search(SearchOptions{
@@ -377,6 +378,7 @@ func TestNVDClient_Search_EmptyOptions(t *testing.T) {
 	defer srv.Close()
 
 	client := NewNVDClient("")
+	client.allowPrivate = true
 	client.baseURL = srv.URL // bypass private IP validation for test server
 
 	result, err := client.Search(SearchOptions{})
@@ -395,6 +397,7 @@ func TestNVDClient_Search_NonOKStatus(t *testing.T) {
 	defer srv.Close()
 
 	client := NewNVDClient("")
+	client.allowPrivate = true
 	// Bypass private IP validation by setting baseURL directly
 	client.baseURL = srv.URL
 
@@ -415,11 +418,38 @@ func TestNVDClient_Search_InvalidJSON(t *testing.T) {
 	defer srv.Close()
 
 	client := NewNVDClient("")
+	client.allowPrivate = true
 	client.baseURL = srv.URL // bypass private IP validation for test server
 
 	_, err := client.Search(SearchOptions{Keyword: "test"})
 	if err == nil {
 		t.Error("expected error for invalid JSON")
+	}
+}
+
+func TestNVDClient_Search_DialRejectsPrivateTarget(t *testing.T) {
+	client := NewNVDClient("")
+	client.baseURL = "http://127.0.0.1:1/api"
+
+	_, err := client.Search(SearchOptions{Keyword: "test"})
+	if err == nil {
+		t.Fatal("expected SSRF dial rejection")
+	}
+	if !strings.Contains(err.Error(), "NVD SSRF") {
+		t.Fatalf("expected NVD SSRF error, got %v", err)
+	}
+}
+
+func TestNVDClient_RedirectRejectsPrivateTarget(t *testing.T) {
+	client := NewNVDClient("")
+	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1/private", nil)
+
+	err := client.httpClient.CheckRedirect(req, nil)
+	if err == nil {
+		t.Fatal("expected private redirect rejection")
+	}
+	if !strings.Contains(err.Error(), "redirect URL rejected") {
+		t.Fatalf("expected redirect rejection error, got %v", err)
 	}
 }
 
@@ -470,6 +500,7 @@ func TestNVDClient_GetCVE_WithTestServer(t *testing.T) {
 	defer srv.Close()
 
 	client := NewNVDClient("my-api-key")
+	client.allowPrivate = true
 	client.baseURL = srv.URL // bypass private IP validation for test server
 
 	entry, err := client.GetCVE("CVE-2024-1234")
@@ -504,6 +535,7 @@ func TestNVDClient_GetCVE_NotFound(t *testing.T) {
 	defer srv.Close()
 
 	client := NewNVDClient("")
+	client.allowPrivate = true
 	client.baseURL = srv.URL // bypass private IP validation for test server
 
 	_, err := client.GetCVE("CVE-NONEXISTENT")
@@ -522,6 +554,7 @@ func TestNVDClient_GetCVE_NonOKStatus(t *testing.T) {
 	defer srv.Close()
 
 	client := NewNVDClient("")
+	client.allowPrivate = true
 	client.baseURL = srv.URL // bypass private IP validation for test server
 
 	_, err := client.GetCVE("CVE-2024-0001")
@@ -571,6 +604,7 @@ func TestNVDClient_GetCVE_WithCVSSV2(t *testing.T) {
 	defer srv.Close()
 
 	client := NewNVDClient("")
+	client.allowPrivate = true
 	client.baseURL = srv.URL // bypass private IP validation for test server
 
 	entry, err := client.GetCVE("CVE-2020-OLD")
@@ -592,8 +626,8 @@ func TestNVDClient_GetCVE_WithCVSSV2(t *testing.T) {
 
 func TestConvertToCVEEntry_NoEnglishDescription(t *testing.T) {
 	nvd := NVDCVE{
-		ID:           "CVE-2024-NONEN",
-		Published:    "2024-01-01T00:00:00.000Z",
+		ID:        "CVE-2024-NONEN",
+		Published: "2024-01-01T00:00:00.000Z",
 		Descriptions: []NVDDescription{
 			{Lang: "fr", Value: "Une description en francais"},
 		},
@@ -771,6 +805,7 @@ func TestLayer_TriggerUpdate_WithServer(t *testing.T) {
 	// Directly set baseURL to bypass SSRF protection (test server uses 127.0.0.1).
 	layer.nvdClient = NewNVDClient("")
 	layer.nvdClient.mu.Lock()
+	layer.nvdClient.allowPrivate = true
 	layer.nvdClient.baseURL = srv.URL
 	layer.nvdClient.mu.Unlock()
 
@@ -792,6 +827,7 @@ func TestLayer_TriggerUpdate_ServerError(t *testing.T) {
 	})
 	layer.nvdClient = NewNVDClient("")
 	layer.nvdClient.mu.Lock()
+	layer.nvdClient.allowPrivate = true
 	layer.nvdClient.baseURL = srv.URL
 	layer.nvdClient.mu.Unlock()
 
@@ -1151,11 +1187,11 @@ func TestLayer_MatchPatch_AndLogic(t *testing.T) {
 	})
 
 	layer.AddPatch(&VirtualPatch{
-		ID:        "VP-AND",
-		Severity:  "HIGH",
-		Action:    "block",
-		Score:     40,
-		Enabled:   true,
+		ID:         "VP-AND",
+		Severity:   "HIGH",
+		Action:     "block",
+		Score:      40,
+		Enabled:    true,
 		MatchLogic: "and",
 		Patterns: []PatchPattern{
 			{Type: "path", Pattern: "/api/", MatchType: "contains"},
@@ -2014,14 +2050,14 @@ func TestNewLayer_WithCustomPatches(t *testing.T) {
 	cfg.AutoUpdate = false
 	cfg.CustomPatches = []CustomPatch{
 		{
-			ID:        "VP-CUSTOM-CFG",
-			Name:      "Config Custom Patch",
-			Severity:  "HIGH",
-			Action:    "block",
-			Score:     40,
-			Enabled:   true,
-			CVEID:     "CVE-2024-CUSTOM",
-			Patterns:  []PatchPattern{
+			ID:       "VP-CUSTOM-CFG",
+			Name:     "Config Custom Patch",
+			Severity: "HIGH",
+			Action:   "block",
+			Score:    40,
+			Enabled:  true,
+			CVEID:    "CVE-2024-CUSTOM",
+			Patterns: []PatchPattern{
 				{Type: "path", Pattern: "/custom-cfg-path", MatchType: "exact"},
 			},
 		},

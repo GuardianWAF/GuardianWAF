@@ -101,6 +101,7 @@ func NewLayer(cfg *Config) (*Layer, error) {
 
 // Name returns the layer name.
 func (l *Layer) Name() string { return "ato_protection" }
+func (l *Layer) Order() int { return engine.OrderATO }
 
 // Process checks for ATO attack patterns.
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {

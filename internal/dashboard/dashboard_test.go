@@ -234,6 +234,65 @@ func TestEventsEndpoint(t *testing.T) {
 	}
 }
 
+func TestEventsEndpoint_ReturnsRedactedEventEvidence(t *testing.T) {
+	d := newTestDashboard(t, "mykey")
+	rawReq := httptest.NewRequest("GET", "/login?api_key=query-secret", nil)
+	rawReq.Header.Set("Referer", "https://app.example/account?password=referer-secret")
+	rawReq.Header.Set("User-Agent", "guardianwaf-test")
+	ctx := engine.AcquireContext(rawReq, 2, 1024)
+	defer engine.ReleaseContext(ctx)
+	ctx.Accumulator.Add(&engine.Finding{
+		DetectorName: "secret-detector",
+		Category:     "leak-test",
+		Severity:     engine.SeverityHigh,
+		Score:        90,
+		Description:  "secret evidence redaction regression",
+		MatchedValue: "Authorization: Bearer eyJheader.eyJpayload.signature Cookie: session_id=abc123 client_secret=body-secret safe=value",
+		Location:     "header",
+		Confidence:   1,
+	})
+
+	evt := engine.NewEvent(ctx, http.StatusForbidden)
+	if err := d.eventStore.Store(evt); err != nil {
+		t.Fatalf("store event: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		path string
+	}{
+		{name: "list", path: "/api/v1/events?limit=10&offset=0"},
+		{name: "detail", path: "/api/v1/events/" + evt.ID},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			req := authenticatedRequest("GET", tc.path, "", "mykey")
+			d.Handler().ServeHTTP(w, req)
+			if w.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+			}
+			body := w.Body.String()
+			for _, secret := range []string{
+				"query-secret",
+				"referer-secret",
+				"eyJheader.eyJpayload.signature",
+				"abc123",
+				"body-secret",
+			} {
+				if strings.Contains(body, secret) {
+					t.Fatalf("response leaked secret %q: %s", secret, body)
+				}
+			}
+			if !strings.Contains(body, "[REDACTED]") {
+				t.Fatalf("expected redaction marker in response: %s", body)
+			}
+			if !strings.Contains(body, "safe=value") {
+				t.Fatalf("expected non-sensitive evidence to remain visible: %s", body)
+			}
+		})
+	}
+}
+
 func TestEventsEndpoint_WithFilters(t *testing.T) {
 	d := newTestDashboard(t, "k")
 	w := httptest.NewRecorder()
@@ -643,6 +702,51 @@ func TestLoginSubmit_Success(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected session cookie after login")
+	}
+}
+
+func TestLoginSubmit_SessionCookieSecureFlag(t *testing.T) {
+	tests := []struct {
+		name       string
+		scheme     string
+		forwarded  string
+		wantSecure bool
+	}{
+		{name: "plain http", scheme: "http", wantSecure: false},
+		{name: "direct https", scheme: "https", wantSecure: true},
+		{name: "forwarded https", scheme: "http", forwarded: "https", wantSecure: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := newTestDashboard(t, "secret")
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest("POST", tt.scheme+"://localhost:9443/login", strings.NewReader("key=secret"))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.Header.Set("Origin", tt.scheme+"://localhost:9443")
+			if tt.forwarded != "" {
+				req.Header.Set("X-Forwarded-Proto", tt.forwarded)
+			}
+
+			d.Handler().ServeHTTP(w, req)
+			if w.Code != http.StatusFound {
+				t.Fatalf("expected redirect after login, got %d", w.Code)
+			}
+
+			var sessionCookie *http.Cookie
+			for _, c := range w.Result().Cookies() {
+				if c.Name == sessionCookieName {
+					sessionCookie = c
+					break
+				}
+			}
+			if sessionCookie == nil {
+				t.Fatal("expected session cookie after login")
+			}
+			if sessionCookie.Secure != tt.wantSecure {
+				t.Fatalf("expected Secure=%v, got %v", tt.wantSecure, sessionCookie.Secure)
+			}
+		})
 	}
 }
 

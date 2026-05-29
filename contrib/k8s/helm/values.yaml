@@ -9,8 +9,10 @@ image:
 
 # WAF configuration
 config:
-  mode: enforce            # enforce, detect, disable
+  fileName: guardianwaf.yaml
+  mode: enforce            # enforce, monitor, disabled
   listen: ":8088"          # Main HTTP listener
+  allowPrivateUpstreams: true
   dashboardListen: ":9443" # Dashboard/API listener
   logLevel: info           # debug, info, warn, error
   logFormat: json          # json, text
@@ -18,19 +20,23 @@ config:
   detection:
     blockThreshold: 50
     logThreshold: 25
-    paranoiaLevel: 2       # 1-4
 
   geoip:
     enabled: false
     dbPath: ""
     autoDownload: false
 
+  events:
+    storage: memory
+    maxEvents: 100000
+    filePath: /var/log/guardianwaf/events.jsonl
+
 # Environment variables (override config values)
 env: {}
   # GWAF_MODE: enforce
   # GWAF_THRESHOLD_BLOCK: 50
 
-# Existing ConfigMap with full guardianwaf.yml (overrides config section)
+# Existing ConfigMap with a full config file named by config.fileName.
 existingConfigMap: ""
 
 # Upstream backends
@@ -44,6 +50,13 @@ upstreams: []
   #     enabled: true
   #     path: /healthz
   #     interval: 10s
+
+# Route table. At least one route is required for a useful reverse-proxy
+# deployment unless existingConfigMap supplies a complete GuardianWAF config.
+routes: []
+  # - path: /
+  #   upstream: backend1
+  #   stripPrefix: false
 
 # Dashboard service
 dashboard:
@@ -94,6 +107,13 @@ apiKey:
   existingSecret: ""
   existingSecretKey: "api-key"
 
+# Separate system admin key for tenant-admin endpoints.
+# Leave empty to disable tenant-admin endpoints. Use existingSecret in production.
+adminKey:
+  value: ""
+  existingSecret: ""
+  existingSecretKey: "admin-key"
+
 # Resources
 resources:
   requests:
@@ -138,14 +158,36 @@ affinity:
           topologyKey: kubernetes.io/hostname
 
 # Security context
+podSecurityContext:
+  fsGroup: 1000
+  fsGroupChangePolicy: OnRootMismatch
+
 securityContext:
   allowPrivilegeEscalation: false
   readOnlyRootFilesystem: true
   runAsNonRoot: true
   runAsUser: 1000
+  runAsGroup: 1000
   capabilities:
     drop:
       - ALL
+
+# Stateful runtime paths.
+# When persistence.enabled is false, an emptyDir keeps read-only-root runtime
+# paths writable but data is lost on pod replacement. Enable persistence or set
+# existingClaim for file-backed events, ACME cache, replay captures, analytics,
+# tenant stores, or other durable state.
+persistence:
+  enabled: false
+  existingClaim: ""
+  storageClass: ""
+  # ReadWriteOnce is suitable for one replica. Use ReadWriteMany or separate
+  # per-pod storage when running multiple replicas with file-backed state.
+  accessModes:
+    - ReadWriteOnce
+  size: 10Gi
+  emptyDir:
+    sizeLimit: 1Gi
 
 # Service account
 serviceAccount:

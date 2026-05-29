@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/guardianwaf/guardianwaf/internal/config"
 )
 
 // ---------------------------------------------------------------------------
@@ -99,6 +101,8 @@ func TestMiddleware_PanicRecovery(t *testing.T) {
 type panicLayer struct{ name string }
 
 func (l *panicLayer) Name() string { return l.name }
+
+func (l *panicLayer) Order() int { return 0 }
 func (l *panicLayer) Process(_ *RequestContext) LayerResult {
 	panic("deliberate test panic")
 }
@@ -205,6 +209,8 @@ func TestMiddleware_MetadataPropagation(t *testing.T) {
 type metadataLayer struct{ name string }
 
 func (l *metadataLayer) Name() string { return l.name }
+
+func (l *metadataLayer) Order() int { return 0 }
 func (l *metadataLayer) Process(ctx *RequestContext) LayerResult {
 	ctx.Metadata["test_key"] = "test_value"
 	ctx.Metadata["response_hook"] = func(w http.ResponseWriter) {
@@ -278,6 +284,163 @@ func TestMiddleware_AccessLogCallback_Block(t *testing.T) {
 	}
 	if captured.Findings != 1 {
 		t.Errorf("expected 1 finding, got %d", captured.Findings)
+	}
+}
+
+type sensitiveEvidenceLayer struct{}
+
+func (l *sensitiveEvidenceLayer) Name() string { return "sensitive-evidence" }
+
+func (l *sensitiveEvidenceLayer) Order() int { return 0 }
+
+func (l *sensitiveEvidenceLayer) Process(ctx *RequestContext) LayerResult {
+	return LayerResult{
+		Action: ActionLog,
+		Findings: []Finding{{
+			DetectorName: "sensitive-evidence",
+			Category:     "regression",
+			Severity:     SeverityHigh,
+			Score:        30,
+			Description:  "sensitive evidence redaction regression",
+			MatchedValue: "Authorization: Bearer eyJheader.eyJpayload.signature Cookie: session_id=abc123 client_secret=body-secret safe=value",
+			Location:     "header",
+			Confidence:   1,
+		}},
+		Score: 30,
+	}
+}
+
+func TestCheck_RedactsReturnedEventEvidence(t *testing.T) {
+	e, _, _ := testEngine(t)
+	defer e.Close()
+	e.AddLayer(OrderedLayer{Layer: &sensitiveEvidenceLayer{}, Order: OrderDetection})
+
+	req := testRequest("GET", "/check-redaction?api_key=query-secret")
+	req.Header.Set("User-Agent", "Bearer eyJua.eyJpayload.signature")
+	req.Header.Set("Referer", "https://example.test/login?password=referer-secret")
+
+	event := e.Check(req)
+	body := event.Query + " " + event.UserAgent + " " + event.Referer + " " + event.Findings[0].MatchedValue
+	for _, secret := range []string{
+		"query-secret",
+		"referer-secret",
+		"eyJua.eyJpayload.signature",
+		"eyJheader.eyJpayload.signature",
+		"abc123",
+		"body-secret",
+	} {
+		if strings.Contains(body, secret) {
+			t.Fatalf("event leaked secret %q: %+v", secret, event)
+		}
+	}
+	if !strings.Contains(body, "[REDACTED]") {
+		t.Fatalf("expected redaction marker in event: %+v", event)
+	}
+}
+
+func TestCheck_TrustedProxyConfigIsEngineLocal(t *testing.T) {
+	trustedCfg := config.DefaultConfig()
+	trustedCfg.TrustedProxies = []string{"127.0.0.1"}
+	trustedEngine, _, _ := testEngineWithConfig(t, trustedCfg)
+	defer trustedEngine.Close()
+
+	untrustedCfg := config.DefaultConfig()
+	untrustedCfg.TrustedProxies = nil
+	untrustedEngine, _, _ := testEngineWithConfig(t, untrustedCfg)
+	defer untrustedEngine.Close()
+
+	req := testRequest("GET", "/trusted-proxy")
+	req.RemoteAddr = "127.0.0.1:1234"
+	req.Header.Set("X-Forwarded-For", "203.0.113.99")
+	event := trustedEngine.Check(req)
+	if event.ClientIP != "203.0.113.99" {
+		t.Fatalf("trusted engine should honor XFF despite later engine creation, got %q", event.ClientIP)
+	}
+
+	req = testRequest("GET", "/untrusted-proxy")
+	req.RemoteAddr = "127.0.0.1:1234"
+	req.Header.Set("X-Forwarded-For", "203.0.113.99")
+	event = untrustedEngine.Check(req)
+	if event.ClientIP != "127.0.0.1" {
+		t.Fatalf("untrusted engine should ignore XFF, got %q", event.ClientIP)
+	}
+}
+
+func TestReload_UpdatesEngineLocalTrustedProxies(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.TrustedProxies = nil
+	e, _, _ := testEngineWithConfig(t, cfg)
+	defer e.Close()
+
+	req := testRequest("GET", "/before-reload")
+	req.RemoteAddr = "127.0.0.1:1234"
+	req.Header.Set("X-Forwarded-For", "203.0.113.99")
+	event := e.Check(req)
+	if event.ClientIP != "127.0.0.1" {
+		t.Fatalf("before reload should ignore XFF, got %q", event.ClientIP)
+	}
+
+	reloadCfg := cfg.DeepCopy()
+	reloadCfg.TrustedProxies = []string{"127.0.0.1"}
+	if err := e.Reload(reloadCfg); err != nil {
+		t.Fatalf("Reload: %v", err)
+	}
+
+	req = testRequest("GET", "/after-reload")
+	req.RemoteAddr = "127.0.0.1:1234"
+	req.Header.Set("X-Forwarded-For", "203.0.113.99")
+	event = e.Check(req)
+	if event.ClientIP != "203.0.113.99" {
+		t.Fatalf("after reload should honor XFF, got %q", event.ClientIP)
+	}
+}
+
+func TestMiddleware_StoresRedactedEventAndAccessLog(t *testing.T) {
+	e, store, _ := testEngine(t)
+	defer e.Close()
+	e.AddLayer(OrderedLayer{Layer: &sensitiveEvidenceLayer{}, Order: OrderDetection})
+
+	var captured AccessLogEntry
+	e.SetAccessLog(func(entry AccessLogEntry) {
+		captured = entry
+	})
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := e.Middleware(next)
+
+	rec := httptest.NewRecorder()
+	req := testRequest("GET", "/middleware-redaction?api_key=query-secret")
+	req.Header.Set("User-Agent", "Bearer eyJua.eyJpayload.signature")
+	req.Header.Set("Referer", "https://example.test/login?password=referer-secret")
+	handler.ServeHTTP(rec, req)
+
+	if captured.Path != "/middleware-redaction" {
+		t.Fatalf("access log path should exclude query, got %q", captured.Path)
+	}
+	if strings.Contains(captured.UserAgent, "eyJua.eyJpayload.signature") {
+		t.Fatalf("access log leaked user agent token: %+v", captured)
+	}
+	if store.len() != 1 {
+		t.Fatalf("expected 1 stored event, got %d", store.len())
+	}
+	event := store.get(0)
+	body := event.Query + " " + event.UserAgent + " " + event.Referer + " " + event.Findings[0].MatchedValue
+	for _, secret := range []string{
+		"query-secret",
+		"referer-secret",
+		"eyJua.eyJpayload.signature",
+		"eyJheader.eyJpayload.signature",
+		"abc123",
+		"body-secret",
+	} {
+		if strings.Contains(body, secret) {
+			t.Fatalf("stored event leaked secret %q: %+v", secret, event)
+		}
+	}
+	if !strings.Contains(body, "[REDACTED]") {
+		t.Fatalf("expected redaction marker in stored event: %+v", event)
 	}
 }
 
@@ -389,6 +552,8 @@ func TestMiddleware_ChallengeWithoutService(t *testing.T) {
 type challengeLayer struct{ name string }
 
 func (l *challengeLayer) Name() string { return l.name }
+
+func (l *challengeLayer) Order() int { return 0 }
 func (l *challengeLayer) Process(_ *RequestContext) LayerResult {
 	return LayerResult{Action: ActionChallenge}
 }
@@ -1212,6 +1377,38 @@ func TestNewEvent_WithFindings(t *testing.T) {
 	}
 }
 
+func TestNewEvent_RedactsSensitiveEvidenceAndReferer(t *testing.T) {
+	req := httptest.NewRequest("GET", "/test?api_key=live-key&safe=value", nil)
+	req.RemoteAddr = "1.2.3.4:1234"
+	req.Header.Set("Referer", "https://example.test/login?password=secret-password&next=/")
+
+	ctx := AcquireContext(req, 2, 1024)
+	ctx.Accumulator.Add(&Finding{
+		DetectorName: "sensitive",
+		Score:        10,
+		MatchedValue: `Authorization: Bearer eyJheader.eyJpayload.signature Cookie=session_id=abc123 x-api-key=secret-key client_secret=top-secret safe=value`,
+	})
+	defer ReleaseContext(ctx)
+
+	event := NewEvent(ctx, 403)
+
+	got := event.Findings[0].MatchedValue
+	for _, leaked := range []string{"eyJheader.eyJpayload.signature", "abc123", "secret-key", "top-secret"} {
+		if strings.Contains(got, leaked) {
+			t.Fatalf("matched value leaked %q: %s", leaked, got)
+		}
+	}
+	if !strings.Contains(got, "[REDACTED]") {
+		t.Fatalf("matched value was not redacted: %s", got)
+	}
+	if strings.Contains(event.Query, "live-key") {
+		t.Fatalf("query leaked API key: %s", event.Query)
+	}
+	if strings.Contains(event.Referer, "secret-password") {
+		t.Fatalf("referer leaked password: %s", event.Referer)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Engine: EventStore and EventBus accessors
 // ---------------------------------------------------------------------------
@@ -1289,6 +1486,8 @@ type inspectorLayer struct {
 }
 
 func (l *inspectorLayer) Name() string { return l.name }
+
+func (l *inspectorLayer) Order() int { return 0 }
 func (l *inspectorLayer) Process(ctx *RequestContext) LayerResult {
 	if l.inspect != nil {
 		l.inspect(ctx)

@@ -26,6 +26,8 @@ func NewDetector(enabled bool, multiplier float64) *Detector {
 // Name returns the layer name.
 func (d *Detector) Name() string { return "sqli-detector" }
 
+func (d *Detector) Order() int { return 0 }
+
 // DetectorName returns the detector identifier.
 func (d *Detector) DetectorName() string { return "sqli" }
 
@@ -99,9 +101,7 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 	}
 
 	// Apply multiplier to all findings
-	for i := range allFindings {
-		allFindings[i].Score = int(float64(allFindings[i].Score) * d.multiplier)
-	}
+	engine.ApplyMultiplier(allFindings, d.multiplier)
 
 	// Determine action and total score
 	action := engine.ActionPass

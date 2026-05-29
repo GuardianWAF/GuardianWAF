@@ -12,9 +12,7 @@ build: ui
 
 # Build React dashboard
 ui:
-	cd internal/dashboard/ui && npm install --no-audit --no-fund && npm run build
-	rm -rf internal/dashboard/dist
-	cp -r internal/dashboard/ui/dist internal/dashboard/dist
+	./scripts/build-dashboard.sh
 
 # Dev mode for dashboard (hot reload on :5173, proxies API to :9443)
 ui-dev:

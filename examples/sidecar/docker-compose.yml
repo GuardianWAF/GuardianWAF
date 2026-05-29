@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   # GuardianWAF sidecar proxy
   # Full-featured sidecar with WAF protection, TLS, and health checks
@@ -33,7 +31,7 @@ services:
       app:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/livez"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -53,7 +51,7 @@ services:
 
   # Your application
   app:
-    image: golang:1.25-alpine
+    image: golang:1.26.3-alpine
     container_name: backend-app
     working_dir: /app
     volumes:

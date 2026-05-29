@@ -243,6 +243,15 @@ else
     fi
 fi
 
+for PROBE in livez readyz healthz; do
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$PORT/$PROBE" 2>/dev/null) || HTTP_CODE="000"
+    if [ "$HTTP_CODE" = "200" ]; then
+        pass "serve probe /$PROBE returns 200"
+    else
+        fail "serve probe /$PROBE" "got $HTTP_CODE"
+    fi
+done
+
 # Send attack through the running server
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$PORT/search?q=%27+OR+1%3D1--" -H "User-Agent: Mozilla/5.0 Chrome/120.0" 2>/dev/null) || HTTP_CODE="000"
 if [ "$HTTP_CODE" = "403" ]; then

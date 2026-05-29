@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 
 import { useParams, useNavigate } from 'react-router'
 
@@ -140,20 +140,12 @@ export default function TenantDetailPage() {
 
 
 
-  useEffect(() => {
-
-    loadTenant()
-
-
-  }, [id])
-
-
-
-  const loadTenant = async () => {
+  const loadTenant = useCallback(async () => {
+    if (!id) return
 
     try {
 
-      const data = await api.adminGetTenant(id!)
+      const data = await api.adminGetTenant(id)
 
       setTenant(data)
 
@@ -189,7 +181,14 @@ export default function TenantDetailPage() {
 
     }
 
-  }
+  }, [id, toast])
+
+  useEffect(() => {
+
+    loadTenant()
+
+
+  }, [loadTenant])
   const handleSave = async () => {
 
     setSaving(true)
@@ -1306,4 +1305,3 @@ function RotationModalFocusTrap({ onClose, children }: { onClose: () => void; ch
   )
 
 }
-

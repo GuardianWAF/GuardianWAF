@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { api } from '@/lib/api'
 import type { LogEntry } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -25,7 +25,7 @@ export default function LogsPage() {
   const [autoRefresh, setAutoRefresh] = useState(true)
   const { toast } = useToast()
 
-  const fetchLogs = () => {
+  const fetchLogs = useCallback(() => {
     setLoading(true)
     const params: Record<string, string> = { limit: '500' }
     if (level) params.level = level
@@ -36,12 +36,12 @@ export default function LogsPage() {
       })
       .catch(() => toast({ title: 'Failed to load logs', variant: 'warning' }))
       .finally(() => setLoading(false))
-  }
+  }, [level, toast])
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchLogs()
-  }, [level])
+  }, [fetchLogs])
 
   useEffect(() => {
     if (!autoRefresh) return
@@ -52,7 +52,7 @@ export default function LogsPage() {
     function onVis() { if (!document.hidden && autoRefresh) fetchLogs() }
     document.addEventListener('visibilitychange', onVis)
     return () => { clearInterval(interval); document.removeEventListener('visibilitychange', onVis) }
-  }, [autoRefresh, level])
+  }, [autoRefresh, fetchLogs])
 
   return (
     <div className="space-y-4">

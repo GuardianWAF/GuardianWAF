@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -73,11 +73,12 @@ export default function TenantAnalyticsPage() {
   const [timeRange, setTimeRange] = useState<'24h' | '7d' | '30d'>('24h')
   const { toast } = useToast()
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
+    if (!id) return
     try {
       const [tenantData, usageData] = await Promise.all([
-        api.getTenant(id!),
-        api.getTenantUsage(id!)
+        api.getTenant(id),
+        api.getTenantUsage(id)
       ])
       setTenant(tenantData)
       setUsage(usageData)
@@ -95,7 +96,7 @@ export default function TenantAnalyticsPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [id, timeRange, toast])
 
   const refreshData = async () => {
     setRefreshing(true)
@@ -178,7 +179,7 @@ export default function TenantAnalyticsPage() {
     loadData()
     const interval = setInterval(loadData, 30000) // Refresh every 30s
     return () => clearInterval(interval)
-  }, [id, timeRange])
+  }, [loadData])
 
   if (loading) {
     return (

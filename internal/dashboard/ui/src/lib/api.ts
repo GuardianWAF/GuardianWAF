@@ -34,7 +34,7 @@ export const api = {
   getUpstreams: () => request<UpstreamStatus[]>('/api/v1/upstreams'),
 
   // SSL Certificates
-  getSSL: () => request<any>('/api/v1/ssl'),
+  getSSL: () => request<SSLStatus>('/api/v1/ssl'),
 
   // Config
   getConfig: () => request<WafConfig>('/api/v1/config'),
@@ -255,6 +255,23 @@ export interface WafConfig {
   tls: Record<string, any>
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   waf: Record<string, any>
+}
+
+export interface SSLStatus {
+  enabled: boolean
+  cache_dir?: string
+  domains?: string[][]
+  certs: SSLCertInfo[]
+}
+
+export interface SSLCertInfo {
+  domain: string
+  dns_names: string[]
+  not_after: string
+  days_left: number
+  issuer_cn: string
+  needs_renewal: boolean
+  is_wildcard: boolean
 }
 
 export interface RoutingConfig {

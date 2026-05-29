@@ -3,11 +3,12 @@ package engine
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"net"
 	"net/http"
+	"strconv"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/tracing"
@@ -41,6 +42,12 @@ type Stats struct {
 	GeoIPRanges        int64
 }
 
+// PipelineLayerInfo describes one layer in the active engine pipeline.
+type PipelineLayerInfo struct {
+	Name  string `json:"name"`
+	Order int    `json:"order"`
+}
+
 // ChallengeChecker is the interface for the JS challenge service.
 // Implemented by challenge.Service to avoid circular imports.
 type ChallengeChecker interface {
@@ -71,8 +78,8 @@ type AccessLogEntry struct {
 // This type exists to avoid importing the tenant package in engine (which would
 // create a circular dependency). The tenant middleware sets this in context.
 type TenantContext struct {
-	ID            string                  // Tenant ID
-	WAFConfig    *config.WAFConfig       // Tenant's global WAF config
+	ID           string                     // Tenant ID
+	WAFConfig    *config.WAFConfig          // Tenant's global WAF config
 	VirtualHosts []config.VirtualHostConfig // Tenant's virtual hosts (for domain override lookup)
 }
 
@@ -119,10 +126,11 @@ type Engine struct {
 	totalLatencyUs     atomic.Int64
 
 	// Configuration (atomic for lock-free reads in Middleware hot path)
-	paranoiaLevel  atomic.Int32
-	maxBodySize    atomic.Int64
-	blockThreshold atomic.Int32
-	logThreshold   atomic.Int32
+	paranoiaLevel     atomic.Int32
+	maxBodySize       atomic.Int64
+	blockThreshold    atomic.Int32
+	logThreshold      atomic.Int32
+	trustedProxyCIDRs atomic.Value // stores []*net.IPNet
 
 	// GeoIP status (set via SetGeoIPReady)
 	geoipReady atomic.Bool
@@ -144,10 +152,10 @@ func NewEngine(cfg *config.Config, eventStore EventStorer, eventBus EventPublish
 	}
 
 	e := &Engine{
-		cfg:            cfg,
-		eventStore:     eventStore,
-		eventBus:       eventBus,
-		Logs:           NewLogBuffer(2000),
+		cfg:        cfg,
+		eventStore: eventStore,
+		eventBus:   eventBus,
+		Logs:       NewLogBuffer(2000),
 	}
 	// Initialize atomic config fields
 	e.paranoiaLevel.Store(2) // default
@@ -155,7 +163,11 @@ func NewEngine(cfg *config.Config, eventStore EventStorer, eventBus EventPublish
 	e.blockThreshold.Store(int32(cfg.WAF.Detection.Threshold.Block))
 	e.logThreshold.Store(int32(cfg.WAF.Detection.Threshold.Log))
 
-	// Configure trusted proxies for X-Forwarded-For handling
+	// Configure trusted proxies for X-Forwarded-For handling. The engine keeps
+	// an instance-local copy so multiple Engine instances cannot overwrite each
+	// other's client IP trust model through package-global state.
+	proxyCIDRs := parseTrustedProxyCIDRs(cfg.TrustedProxies)
+	e.trustedProxyCIDRs.Store(proxyCIDRs)
 	SetTrustedProxies(cfg.TrustedProxies)
 
 	// Initialize empty pipeline
@@ -210,49 +222,61 @@ func (e *Engine) AddLayer(layer OrderedLayer) {
 	e.currentPipeline().AddLayer(layer)
 }
 
-// Check processes an HTTP request through the WAF pipeline.
-// Returns an Event describing the outcome.
-func (e *Engine) Check(r *http.Request) *Event {
-	// Acquire context from pool
-	ctx := AcquireContext(r, int(e.paranoiaLevel.Load()), e.maxBodySize.Load())
-	defer ReleaseContext(ctx)
-
-	// Start root trace span if tracing is enabled and sampled
-	if tracing.Enabled() && tracing.ShouldSample() {
-		span := tracing.StartSpan("waf.request", tracing.SpanKindServer)
-		span.SetAttribute(tracing.AttrHTTPMethod, r.Method)
-		span.SetAttribute(tracing.AttrHTTPURL, r.URL.String())
-		span.SetAttribute(tracing.AttrHTTPHost, r.Host)
-		if ua := r.UserAgent(); ua != "" {
-			span.SetAttribute(tracing.AttrHTTPUserAgent, ua)
+// PipelineLayers returns a read-only snapshot of active pipeline layer names and orders.
+func (e *Engine) PipelineLayers() []PipelineLayerInfo {
+	layers := e.currentPipeline().Layers()
+	out := make([]PipelineLayerInfo, 0, len(layers))
+	for _, layer := range layers {
+		if layer.Layer == nil {
+			continue
 		}
-		ctx.TraceSpan = span
-		defer span.End()
+		out = append(out, PipelineLayerInfo{Name: layer.Layer.Name(), Order: layer.Order})
 	}
+	return out
+}
 
-	// Execute pipeline
-	result := e.currentPipeline().Execute(ctx)
-
-	finalAction := determineAction(result, int(e.blockThreshold.Load()), int(e.logThreshold.Load()))
-
-	// Create event
-	statusCode := 200
-	switch finalAction {
-	case ActionBlock:
-		statusCode = 403
-	case ActionChallenge:
-		statusCode = 403
+// statusForAction maps a final WAF action to the HTTP status recorded in the event.
+func statusForAction(a Action) int {
+	switch a {
+	case ActionBlock, ActionChallenge:
+		return 403
+	default:
+		return 200
 	}
+}
 
-	event := NewEvent(ctx, statusCode)
+// startRootSpan starts the per-request root trace span when tracing is enabled
+// and the request is sampled, assigning it to ctx.TraceSpan. It returns the span
+// (or nil) so the caller controls when to End it.
+func (e *Engine) startRootSpan(ctx *RequestContext, r *http.Request) *tracing.Span {
+	if !tracing.Enabled() || !tracing.ShouldSample() {
+		return nil
+	}
+	span := tracing.StartSpan("waf.request", tracing.SpanKindServer)
+	span.SetAttribute(tracing.AttrHTTPMethod, r.Method)
+	span.SetAttribute(tracing.AttrHTTPURL, redactSensitiveURL(r.URL.String()))
+	span.SetAttribute(tracing.AttrHTTPHost, r.Host)
+	if ua := r.UserAgent(); ua != "" {
+		span.SetAttribute(tracing.AttrHTTPUserAgent, redactSensitiveEvidence(ua))
+	}
+	ctx.TraceSpan = span
+	return span
+}
+
+// buildEvent constructs the Event describing a processed request.
+func (e *Engine) buildEvent(ctx *RequestContext, result PipelineResult, finalAction Action) Event {
+	event := NewEvent(ctx, statusForAction(finalAction))
 	event.Action = finalAction
 	event.Score = result.TotalScore
-	event.Findings = result.Findings
+	event.Findings = redactFindings(result.Findings)
 	event.Duration = result.Duration
+	return event
+}
 
-	// Update stats
+// recordStats updates the atomic request counters for a final action.
+func (e *Engine) recordStats(finalAction Action, d time.Duration) {
 	e.totalRequests.Add(1)
-	e.totalLatencyUs.Add(result.Duration.Microseconds())
+	e.totalLatencyUs.Add(d.Microseconds())
 	switch finalAction {
 	case ActionBlock:
 		e.blockedRequests.Add(1)
@@ -263,12 +287,36 @@ func (e *Engine) Check(r *http.Request) *Event {
 	default:
 		e.passedRequests.Add(1)
 	}
+}
 
-	// Store and publish event
+// storeAndPublish persists and broadcasts an event, logging store failures.
+func (e *Engine) storeAndPublish(event Event) {
 	if err := e.eventStore.Store(event); err != nil {
-			e.Logs.Add("error", fmt.Sprintf("event store write failed: %v", err))
-		}
+		e.Logs.Add("error", fmt.Sprintf("event store write failed: %v", err))
+	}
 	e.eventBus.Publish(event)
+}
+
+// Check processes an HTTP request through the WAF pipeline.
+// Returns an Event describing the outcome. Check is a dry-run scorer: unlike
+// Middleware it does not apply per-tenant config overrides or write a response.
+func (e *Engine) Check(r *http.Request) *Event {
+	// Acquire context from pool
+	ctx := AcquireContext(r, int(e.paranoiaLevel.Load()), e.maxBodySize.Load())
+	ctx.ClientIP = e.extractClientIP(r)
+	defer ReleaseContext(ctx)
+
+	if span := e.startRootSpan(ctx, r); span != nil {
+		defer span.End()
+	}
+
+	// Execute pipeline
+	result := e.currentPipeline().Execute(ctx)
+	finalAction := determineAction(result, int(e.blockThreshold.Load()), int(e.logThreshold.Load()))
+
+	event := e.buildEvent(ctx, result, finalAction)
+	e.recordStats(finalAction, result.Duration)
+	e.storeAndPublish(event)
 
 	return &event
 }
@@ -297,18 +345,11 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 		// Acquire context and run pipeline (inline, not via Check,
 		// so we can access metadata before the context is released)
 		ctx := AcquireContext(r, int(e.paranoiaLevel.Load()), e.maxBodySize.Load())
+		ctx.ClientIP = e.extractClientIP(r)
 
-		// Start root trace span if tracing is enabled and sampled
-		if tracing.Enabled() && tracing.ShouldSample() {
-			span := tracing.StartSpan("waf.request", tracing.SpanKindServer)
-			span.SetAttribute(tracing.AttrHTTPMethod, r.Method)
-			span.SetAttribute(tracing.AttrHTTPURL, r.URL.String())
-			span.SetAttribute(tracing.AttrHTTPHost, r.Host)
-			if ua := r.UserAgent(); ua != "" {
-				span.SetAttribute(tracing.AttrHTTPUserAgent, ua)
-			}
-			ctx.TraceSpan = span
-		}
+		// Start root trace span if tracing is enabled and sampled. Unlike Check,
+		// Middleware ends the span manually before releasing the context.
+		e.startRootSpan(ctx, r)
 
 		// Set tenant info from context if available (set by caller via SetTenantContext)
 		// This avoids importing tenant package to break circular dependency
@@ -335,18 +376,8 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 		}
 
 		// Create event
-		statusCode := 200
-		switch finalAction {
-		case ActionBlock:
-			statusCode = 403
-		case ActionChallenge:
-			statusCode = 403
-		}
-		event := NewEvent(ctx, statusCode)
-		event.Action = finalAction
-		event.Score = result.TotalScore
-		event.Findings = result.Findings
-		event.Duration = result.Duration
+		event := e.buildEvent(ctx, result, finalAction)
+		statusCode := event.StatusCode
 
 		// Apply security headers from response layer hook
 		applyResponseHook(w, ctx.Metadata)
@@ -356,6 +387,15 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 		if fn, ok := ctx.Metadata["response_mask_fn"]; ok {
 			if f, ok := fn.(func(string) string); ok {
 				maskFn = f
+			}
+		}
+
+		// Extract client-side response body transform (Magecart/agent-injection)
+		// before releasing context. The closure captures only value copies.
+		var bodyXform func([]byte, string) ([]byte, bool)
+		if fn, ok := ctx.Metadata["clientside_response_hook"]; ok {
+			if f, ok := fn.(func([]byte, string) ([]byte, bool)); ok {
+				bodyXform = f
 			}
 		}
 
@@ -372,25 +412,8 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 		// Release context back to pool
 		ReleaseContext(ctx)
 
-		// Update stats
-		e.totalRequests.Add(1)
-		e.totalLatencyUs.Add(result.Duration.Microseconds())
-		switch finalAction {
-		case ActionBlock:
-			e.blockedRequests.Add(1)
-		case ActionChallenge:
-			e.challengedRequests.Add(1)
-		case ActionLog:
-			e.loggedRequests.Add(1)
-		default:
-			e.passedRequests.Add(1)
-		}
-
-		// Store and publish event
-		if err := e.eventStore.Store(event); err != nil {
-			e.Logs.Add("error", fmt.Sprintf("event store write failed: %v", err))
-		}
-		e.eventBus.Publish(event)
+		e.recordStats(finalAction, result.Duration)
+		e.storeAndPublish(event)
 
 		// Structured access log
 		if accessLogFn != nil {
@@ -419,7 +442,7 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.Header().Set("Cache-Control", "no-store")
 			w.WriteHeader(http.StatusForbidden)
-			_, _ = w.Write([]byte(blockPage(event.RequestID, event.Score)))
+			_, _ = w.Write([]byte(blockPage(event.RequestID, event.Score))) // nolint:errcheck // block page write; error ignored
 			return
 		case ActionChallenge:
 			if challengeSvc != nil {
@@ -430,12 +453,12 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.Header().Set("Cache-Control", "no-store")
 			w.WriteHeader(http.StatusForbidden)
-			_, _ = w.Write([]byte(blockPage(event.RequestID, event.Score)))
+			_, _ = w.Write([]byte(blockPage(event.RequestID, event.Score))) // nolint:errcheck // block page write; error ignored
 			return
 		}
 
-		if maskFn != nil {
-			mwr := newMaskingResponseWriter(w, maskFn)
+		if maskFn != nil || bodyXform != nil {
+			mwr := newMaskingResponseWriter(w, maskFn, bodyXform)
 			next.ServeHTTP(mwr, r)
 			mwr.FlushMasked()
 		} else {
@@ -454,6 +477,15 @@ func applyResponseHook(w http.ResponseWriter, metadata map[string]any) {
 	// Apply CORS headers from the CORS layer (runs before response layer).
 	// The CORS layer stores headers in cors_headers/cors_preflight_headers metadata.
 	applyCORSHook(w, metadata)
+
+	// Apply the client-side CSP hook (clientside layer, Order 590) before the
+	// response layer's hook (Order 600) so response-layer headers take final
+	// precedence, matching pipeline order.
+	if hook, ok := metadata["clientside_csp_hook"]; ok {
+		if fn, ok := hook.(func(http.ResponseWriter)); ok {
+			fn(w)
+		}
+	}
 
 	// Apply the main response hook (security headers from response layer).
 	if hook, ok := metadata["response_hook"]; ok {
@@ -502,11 +534,26 @@ func (e *Engine) Reload(cfg *config.Config) error {
 	e.blockThreshold.Store(int32(e.cfg.WAF.Detection.Threshold.Block))
 	e.logThreshold.Store(int32(e.cfg.WAF.Detection.Threshold.Log))
 	e.maxBodySize.Store(e.cfg.WAF.Sanitizer.MaxBodySize)
+	proxyCIDRs := parseTrustedProxyCIDRs(e.cfg.TrustedProxies)
+	e.trustedProxyCIDRs.Store(proxyCIDRs)
+	SetTrustedProxies(e.cfg.TrustedProxies)
 
 	// Note: layers are re-added by the caller after reload
 	// This just updates thresholds and config
 
 	return nil
+}
+
+func (e *Engine) extractClientIP(r *http.Request) net.IP {
+	cidrs, _ := e.trustedProxyCIDRs.Load().([]*net.IPNet)
+	return extractClientIPWithTrustedProxies(r, cidrs)
+}
+
+// ExtractClientIP determines the real client IP using this engine's trusted
+// proxy configuration. Prefer this method over the package-level ExtractClientIP
+// when wiring runtime services that must share the engine's trust model.
+func (e *Engine) ExtractClientIP(r *http.Request) net.IP {
+	return e.extractClientIP(r)
 }
 
 // Stats returns current runtime statistics.
@@ -544,11 +591,11 @@ func (e *Engine) EventBus() EventPublisher {
 	return e.eventBus
 }
 
-// Config returns the current configuration (read-only).
+// Config returns a defensive copy of the current configuration.
 func (e *Engine) Config() *config.Config {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	return e.cfg
+	return e.cfg.DeepCopy()
 }
 
 // Close shuts down the engine, closing the event store first (to drain pending writes),
@@ -558,6 +605,7 @@ func (e *Engine) Close() error {
 	e.eventBus.Close()
 	return err
 }
+
 // determineAction computes the final action from a pipeline result and score thresholds.
 func determineAction(result PipelineResult, blockThresh, logThresh int) Action {
 	action := ActionPass

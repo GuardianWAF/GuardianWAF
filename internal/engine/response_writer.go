@@ -13,20 +13,23 @@ const maxMaskingBufferSize = 1 << 20 // 1 MB — larger responses stream unmaske
 // the underlying writer. Non-text responses pass through with zero overhead.
 type maskingResponseWriter struct {
 	http.ResponseWriter
-	buf       bytes.Buffer
-	maskFn    func(string) string
+	buf        bytes.Buffer
+	maskFn     func(string) string
+	bodyXform  func([]byte, string) ([]byte, bool) // client-side body transform (Magecart/agent-injection)
 	statusCode int
-	capture   bool     // true once we decide to buffer
-	decided   bool     // true once capture mode is set
-	direct    bool     // true if body exceeded buffer limit — switch to passthrough
+	capture    bool // true once we decide to buffer
+	decided    bool // true once capture mode is set
+	direct     bool // true if body exceeded buffer limit — switch to passthrough
 }
 
-// newMaskingResponseWriter creates a response writer that applies maskFn to
-// text-based response bodies before writing to w.
-func newMaskingResponseWriter(w http.ResponseWriter, maskFn func(string) string) *maskingResponseWriter {
+// newMaskingResponseWriter creates a response writer that applies an optional
+// client-side body transform and/or data-masking function to text-based
+// response bodies before writing to w. Either hook may be nil.
+func newMaskingResponseWriter(w http.ResponseWriter, maskFn func(string) string, bodyXform func([]byte, string) ([]byte, bool)) *maskingResponseWriter {
 	return &maskingResponseWriter{
 		ResponseWriter: w,
 		maskFn:         maskFn,
+		bodyXform:      bodyXform,
 	}
 }
 
@@ -51,7 +54,7 @@ func (m *maskingResponseWriter) Write(p []byte) (int, error) {
 	if m.buf.Len()+len(p) > maxMaskingBufferSize {
 		// Flush buffered content unmasked, then switch to direct
 		if m.buf.Len() > 0 {
-			_, _ = m.ResponseWriter.Write(m.buf.Bytes())
+			_, _ = m.ResponseWriter.Write(m.buf.Bytes()) // nolint:errcheck // buffered write flush; error ignored
 			m.buf.Reset()
 		}
 		m.direct = true
@@ -61,7 +64,7 @@ func (m *maskingResponseWriter) Write(p []byte) (int, error) {
 	if _, err := m.buf.Write(p); err != nil {
 		// Buffer write failed (memory pressure) — flush unmasked and switch to direct
 		if m.buf.Len() > 0 {
-			_, _ = m.ResponseWriter.Write(m.buf.Bytes())
+			_, _ = m.ResponseWriter.Write(m.buf.Bytes()) // nolint:errcheck // buffered write flush; error ignored
 			m.buf.Reset()
 		}
 		m.direct = true
@@ -83,13 +86,19 @@ func (m *maskingResponseWriter) FlushMasked() {
 	data := m.buf.Bytes()
 	m.buf.Reset()
 
+	// Apply the client-side body transform first (Magecart sanitization /
+	// agent injection), then data masking on the resulting body.
+	if m.bodyXform != nil {
+		if out, changed := m.bodyXform(data, m.Header().Get("Content-Type")); changed {
+			data = out
+		}
+	}
+
 	if m.maskFn != nil {
 		// maskFn operates on string, convert once
-		masked := m.maskFn(string(data))
-		_, _ = m.ResponseWriter.Write([]byte(masked))
-	} else {
-		_, _ = m.ResponseWriter.Write(data)
+		data = []byte(m.maskFn(string(data)))
 	}
+	_, _ = m.ResponseWriter.Write(data) // nolint:errcheck // masking write; error ignored
 }
 
 // shouldCapture determines whether to buffer the response body based on
@@ -124,7 +133,7 @@ func (m *maskingResponseWriter) Unwrap() http.ResponseWriter {
 func (m *maskingResponseWriter) Flush() {
 	if m.capture && !m.direct && m.buf.Len() > 0 {
 		// Cannot mask streaming content incrementally — flush buffered as-is
-		_, _ = m.ResponseWriter.Write(m.buf.Bytes())
+		_, _ = m.ResponseWriter.Write(m.buf.Bytes()) // nolint:errcheck // buffered write flush; error ignored
 		m.buf.Reset()
 		m.direct = true // switch to passthrough for subsequent writes
 	}

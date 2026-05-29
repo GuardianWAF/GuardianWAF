@@ -64,6 +64,7 @@ type LayerResult struct {
 // Layer is the interface all WAF processing layers implement
 type Layer interface {
 	Name() string
+	Order() int
 	Process(ctx *RequestContext) LayerResult
 }
 

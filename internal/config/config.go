@@ -18,18 +18,19 @@ type Config struct {
 	Routes       []RouteConfig       `yaml:"routes"`
 	VirtualHosts []VirtualHostConfig `yaml:"virtual_hosts"`
 
-	WAF       WAFConfig       `yaml:"waf"`
-	Dashboard DashboardConfig `yaml:"dashboard"`
-	MCP       MCPConfig       `yaml:"mcp"`
-	Docker    DockerConfig    `yaml:"docker"`
-	Alerting  AlertingConfig  `yaml:"alerting"`
-	Logging        LogConfig       `yaml:"logging"`
-	Events         EventsConfig    `yaml:"events"`
-	Tenant         TenantConfig    `yaml:"tenant"`
-	TrustedProxies []string        `yaml:"trusted_proxies"` // CIDRs/IPs whose X-Forwarded-For/X-Real-IP headers are trusted
-	Tracing        TracingConfig   `yaml:"tracing"`
-	Features       map[string]bool `yaml:"features"`
-	Compliance     ComplianceConfig `yaml:"compliance"`
+	WAF                   WAFConfig        `yaml:"waf"`
+	Dashboard             DashboardConfig  `yaml:"dashboard"`
+	MCP                   MCPConfig        `yaml:"mcp"`
+	Docker                DockerConfig     `yaml:"docker"`
+	Alerting              AlertingConfig   `yaml:"alerting"`
+	Logging               LogConfig        `yaml:"logging"`
+	Events                EventsConfig     `yaml:"events"`
+	Tenant                TenantConfig     `yaml:"tenant"`
+	TrustedProxies        []string         `yaml:"trusted_proxies"`         // CIDRs/IPs whose X-Forwarded-For/X-Real-IP headers are trusted
+	AllowPrivateUpstreams *bool            `yaml:"allow_private_upstreams"` // Explicitly allow private, loopback, and link-local upstream targets
+	Tracing               TracingConfig    `yaml:"tracing"`
+	Features              map[string]bool  `yaml:"features"`
+	Compliance            ComplianceConfig `yaml:"compliance"`
 }
 
 // AlertingConfig controls webhook and email-based alert delivery.
@@ -78,12 +79,12 @@ type DockerConfig struct {
 
 // TLSConfig holds TLS/SSL settings including optional ACME auto-certificate.
 type TLSConfig struct {
-	Enabled      bool       `yaml:"enabled"`
-	Listen       string     `yaml:"listen"`
-	CertFile     string     `yaml:"cert_file"`
-	KeyFile      string     `yaml:"key_file"`
-	HTTPRedirect bool       `yaml:"http_redirect"` // redirect HTTP→HTTPS when TLS enabled
-	ACME         ACMEConfig `yaml:"acme"`
+	Enabled      bool        `yaml:"enabled"`
+	Listen       string      `yaml:"listen"`
+	CertFile     string      `yaml:"cert_file"`
+	KeyFile      string      `yaml:"key_file"`
+	HTTPRedirect bool        `yaml:"http_redirect"` // redirect HTTP→HTTPS when TLS enabled
+	ACME         ACMEConfig  `yaml:"acme"`
 	HTTP3        HTTP3Config `yaml:"http3"`
 }
 
@@ -97,16 +98,16 @@ type ACMEConfig struct {
 
 // HTTP3Config controls HTTP/3 and QUIC settings.
 type HTTP3Config struct {
-	Enabled            bool          `yaml:"enabled"`
-	Listen             string        `yaml:"listen"`              // UDP listen address (default: same as TLS)
-	MaxHeaderBytes     int           `yaml:"max_header_bytes"`    // Max header size (default: 1MB)
-	ReadTimeout        time.Duration `yaml:"read_timeout"`
-	WriteTimeout       time.Duration `yaml:"write_timeout"`
-	IdleTimeout        time.Duration `yaml:"idle_timeout"`
-	Enable0RTT         bool          `yaml:"enable_0rtt"`         // Enable 0-RTT handshake
-	EnableDatagrams    bool          `yaml:"enable_datagrams"`    // Enable HTTP/3 datagrams (WebTransport)
-	AltSvcPort         int           `yaml:"alt_svc_port"`        // Port advertised in Alt-Svc header
-	AdvertiseAltSvc    bool          `yaml:"advertise_alt_svc"`   // Advertise HTTP/3 via Alt-Svc header
+	Enabled         bool          `yaml:"enabled"`
+	Listen          string        `yaml:"listen"`           // UDP listen address (default: same as TLS)
+	MaxHeaderBytes  int           `yaml:"max_header_bytes"` // Max header size (default: 1MB)
+	ReadTimeout     time.Duration `yaml:"read_timeout"`
+	WriteTimeout    time.Duration `yaml:"write_timeout"`
+	IdleTimeout     time.Duration `yaml:"idle_timeout"`
+	Enable0RTT      bool          `yaml:"enable_0rtt"`       // Enable 0-RTT handshake
+	EnableDatagrams bool          `yaml:"enable_datagrams"`  // Enable HTTP/3 datagrams (WebTransport)
+	AltSvcPort      int           `yaml:"alt_svc_port"`      // Port advertised in Alt-Svc header
+	AdvertiseAltSvc bool          `yaml:"advertise_alt_svc"` // Advertise HTTP/3 via Alt-Svc header
 }
 
 // UpstreamConfig defines a named group of backend targets with health checking.
@@ -187,40 +188,40 @@ type GeoIPConfig struct {
 
 // WAFConfig is the top-level container for all WAF protection settings.
 type WAFConfig struct {
-	IPACL            IPACLConfig            `yaml:"ip_acl"`
-	CustomRules      CustomRulesConfig      `yaml:"custom_rules"`
-	GeoIP            GeoIPConfig            `yaml:"geoip"`
-	ThreatIntel      ThreatIntelConfig      `yaml:"threat_intel"`
-	CORS             CORSConfig             `yaml:"cors"`
-	RateLimit        RateLimitConfig        `yaml:"rate_limit"`
-	ATOProtection    ATOProtectionConfig    `yaml:"ato_protection"`
-	APISecurity      APISecurityConfig      `yaml:"api_security"`
-	APIValidation    APIValidationConfig    `yaml:"api_validation"`
-	Sanitizer        SanitizerConfig        `yaml:"sanitizer"`
-	Detection        DetectionConfig        `yaml:"detection"`
-	BotDetection     BotDetectionConfig     `yaml:"bot_detection"`
-	Challenge        ChallengeConfig        `yaml:"challenge"`
-	Response         ResponseConfig         `yaml:"response"`
-	ClientSide       ClientSideConfig       `yaml:"client_side"`
-	AIAnalysis       AIAnalysisConfig       `yaml:"ai_analysis"`
-	MLAnomaly        MLAnomalyConfig        `yaml:"ml_anomaly"`
-	APIDiscovery     APIDiscoveryConfig     `yaml:"api_discovery"`
-	GraphQL          GraphQLConfig          `yaml:"graphql"`
-	GRPC             GRPCConfig             `yaml:"grpc"`
-	Tenant           TenantConfig           `yaml:"tenant"`
-	DLP              DLPConfig              `yaml:"dlp"`
-	ZeroTrust        ZeroTrustConfig        `yaml:"zero_trust"`
-	SIEM             SIEMConfig             `yaml:"siem"`
-	Cache            CacheConfig            `yaml:"cache"`
-	Replay           ReplayConfig           `yaml:"replay"`
-	Canary           CanaryConfig           `yaml:"canary"`
-	Analytics        AnalyticsConfig        `yaml:"analytics"`
-	ClusterSync      ClusterSyncConfig      `yaml:"cluster_sync"`
-	Cluster          ClusterConfig          `yaml:"cluster"`
-	Remediation      RemediationConfig      `yaml:"remediation"`
-	WebSocket        WebSocketConfig        `yaml:"websocket"`
-	CRS              CRSConfig              `yaml:"crs"`
-	VirtualPatch     VirtualPatchConfig     `yaml:"virtual_patch"`
+	IPACL         IPACLConfig         `yaml:"ip_acl"`
+	CustomRules   CustomRulesConfig   `yaml:"custom_rules"`
+	GeoIP         GeoIPConfig         `yaml:"geoip"`
+	ThreatIntel   ThreatIntelConfig   `yaml:"threat_intel"`
+	CORS          CORSConfig          `yaml:"cors"`
+	RateLimit     RateLimitConfig     `yaml:"rate_limit"`
+	ATOProtection ATOProtectionConfig `yaml:"ato_protection"`
+	APISecurity   APISecurityConfig   `yaml:"api_security"`
+	APIValidation APIValidationConfig `yaml:"api_validation"`
+	Sanitizer     SanitizerConfig     `yaml:"sanitizer"`
+	Detection     DetectionConfig     `yaml:"detection"`
+	BotDetection  BotDetectionConfig  `yaml:"bot_detection"`
+	Challenge     ChallengeConfig     `yaml:"challenge"`
+	Response      ResponseConfig      `yaml:"response"`
+	ClientSide    ClientSideConfig    `yaml:"client_side"`
+	AIAnalysis    AIAnalysisConfig    `yaml:"ai_analysis"`
+	MLAnomaly     MLAnomalyConfig     `yaml:"ml_anomaly"`
+	APIDiscovery  APIDiscoveryConfig  `yaml:"api_discovery"`
+	GraphQL       GraphQLConfig       `yaml:"graphql"`
+	GRPC          GRPCConfig          `yaml:"grpc"`
+	Tenant        TenantConfig        `yaml:"tenant"`
+	DLP           DLPConfig           `yaml:"dlp"`
+	ZeroTrust     ZeroTrustConfig     `yaml:"zero_trust"`
+	SIEM          SIEMConfig          `yaml:"siem"`
+	Cache         CacheConfig         `yaml:"cache"`
+	Replay        ReplayConfig        `yaml:"replay"`
+	Canary        CanaryConfig        `yaml:"canary"`
+	Analytics     AnalyticsConfig     `yaml:"analytics"`
+	ClusterSync   ClusterSyncConfig   `yaml:"cluster_sync"`
+	Cluster       ClusterConfig       `yaml:"cluster"`
+	Remediation   RemediationConfig   `yaml:"remediation"`
+	WebSocket     WebSocketConfig     `yaml:"websocket"`
+	CRS           CRSConfig           `yaml:"crs"`
+	VirtualPatch  VirtualPatchConfig  `yaml:"virtual_patch"`
 }
 
 // AIAnalysisConfig controls AI-powered threat analysis.
@@ -280,18 +281,18 @@ type CacheConfig struct {
 
 // ReplayConfig controls request recording and replay settings.
 type ReplayConfig struct {
-	Enabled         bool          `yaml:"enabled"`
-	StoragePath     string        `yaml:"storage_path"`
-	Format          string        `yaml:"format"` // "json", "binary"
-	MaxFileSize     int64         `yaml:"max_file_size"` // MB
-	MaxFiles        int           `yaml:"max_files"`
-	RetentionDays   int           `yaml:"retention_days"`
-	CaptureRequest  bool          `yaml:"capture_request"`
-	CaptureResponse bool          `yaml:"capture_response"`
-	CaptureHeaders  []string      `yaml:"capture_headers"`
-	SkipPaths       []string      `yaml:"skip_paths"`
-	SkipMethods     []string      `yaml:"skip_methods"`
-	Compress        bool          `yaml:"compress"`
+	Enabled         bool               `yaml:"enabled"`
+	StoragePath     string             `yaml:"storage_path"`
+	Format          string             `yaml:"format"`        // "json", "binary"
+	MaxFileSize     int64              `yaml:"max_file_size"` // MB
+	MaxFiles        int                `yaml:"max_files"`
+	RetentionDays   int                `yaml:"retention_days"`
+	CaptureRequest  bool               `yaml:"capture_request"`
+	CaptureResponse bool               `yaml:"capture_response"`
+	CaptureHeaders  []string           `yaml:"capture_headers"`
+	SkipPaths       []string           `yaml:"skip_paths"`
+	SkipMethods     []string           `yaml:"skip_methods"`
+	Compress        bool               `yaml:"compress"`
 	Replay          ReplayEngineConfig `yaml:"replay"`
 }
 
@@ -351,8 +352,8 @@ type ClusterSyncConfig struct {
 	Enabled            bool                `yaml:"enabled"`
 	NodeID             string              `yaml:"node_id"`
 	NodeName           string              `yaml:"node_name"`
-	Listen             string              `yaml:"listen"`      // Bind address for sync API
-	Port               int                 `yaml:"port"`        // Default: 9444
+	Listen             string              `yaml:"listen"` // Bind address for sync API
+	Port               int                 `yaml:"port"`   // Default: 9444
 	SharedSecret       string              `yaml:"shared_secret"`
 	Clusters           []ClusterMembership `yaml:"clusters"`
 	SyncInterval       time.Duration       `yaml:"sync_interval"`
@@ -411,6 +412,10 @@ func (c *Config) DeepCopy() *Config {
 	if c.TrustedProxies != nil {
 		out.TrustedProxies = make([]string, len(c.TrustedProxies))
 		copy(out.TrustedProxies, c.TrustedProxies)
+	}
+	if c.AllowPrivateUpstreams != nil {
+		allowPrivateUpstreams := *c.AllowPrivateUpstreams
+		out.AllowPrivateUpstreams = &allowPrivateUpstreams
 	}
 
 	return &out
@@ -725,10 +730,10 @@ func (c *ATOProtectionConfig) DeepCopy() ATOProtectionConfig {
 	return out
 }
 
-func (c *BruteForceConfig) DeepCopy() BruteForceConfig { return *c }
+func (c *BruteForceConfig) DeepCopy() BruteForceConfig                 { return *c }
 func (c *CredentialStuffingConfig) DeepCopy() CredentialStuffingConfig { return *c }
-func (c *PasswordSprayConfig) DeepCopy() PasswordSprayConfig { return *c }
-func (c *ImpossibleTravelConfig) DeepCopy() ImpossibleTravelConfig { return *c }
+func (c *PasswordSprayConfig) DeepCopy() PasswordSprayConfig           { return *c }
+func (c *ImpossibleTravelConfig) DeepCopy() ImpossibleTravelConfig     { return *c }
 
 func (c *APISecurityConfig) DeepCopy() APISecurityConfig {
 	out := *c
@@ -806,8 +811,8 @@ func (c *BotDetectionConfig) DeepCopy() BotDetectionConfig {
 }
 
 func (c *TLSFingerprintConfig) DeepCopy() TLSFingerprintConfig { return *c }
-func (c *UAConfig) DeepCopy() UAConfig { return *c }
-func (c *BehaviorConfig) DeepCopy() BehaviorConfig { return *c }
+func (c *UAConfig) DeepCopy() UAConfig                         { return *c }
+func (c *BehaviorConfig) DeepCopy() BehaviorConfig             { return *c }
 
 func (c *EnhancedBotDetectionConfig) DeepCopy() EnhancedBotDetectionConfig {
 	out := *c
@@ -819,7 +824,7 @@ func (c *EnhancedBotDetectionConfig) DeepCopy() EnhancedBotDetectionConfig {
 
 func (c *BiometricDetectionConfig) DeepCopy() BiometricDetectionConfig { return *c }
 func (c *BrowserFingerprintConfig) DeepCopy() BrowserFingerprintConfig { return *c }
-func (c *CaptchaChallengeConfig) DeepCopy() CaptchaChallengeConfig { return *c }
+func (c *CaptchaChallengeConfig) DeepCopy() CaptchaChallengeConfig     { return *c }
 
 func (c *ChallengeConfig) DeepCopy() ChallengeConfig { return *c }
 
@@ -837,9 +842,9 @@ func (c *SecurityHeadersConfig) DeepCopy() SecurityHeadersConfig {
 	return out
 }
 
-func (c *HSTSConfig) DeepCopy() HSTSConfig { return *c }
+func (c *HSTSConfig) DeepCopy() HSTSConfig               { return *c }
 func (c *DataMaskingConfig) DeepCopy() DataMaskingConfig { return *c }
-func (c *ErrorPagesConfig) DeepCopy() ErrorPagesConfig { return *c }
+func (c *ErrorPagesConfig) DeepCopy() ErrorPagesConfig   { return *c }
 
 func (c *ClientSideConfig) DeepCopy() ClientSideConfig {
 	out := *c
@@ -1079,11 +1084,11 @@ func (c *WAFConfig) DeepCopy() WAFConfig {
 }
 
 type ClusterMembership struct {
-	ID            string            `yaml:"id"`
-	Name          string            `yaml:"name"`
+	ID            string              `yaml:"id"`
+	Name          string              `yaml:"name"`
 	Nodes         []ClusterNodeConfig `yaml:"nodes"`
-	SyncScope     string            `yaml:"sync_scope"`     // "tenants", "rules", "config", "all"
-	Bidirectional bool              `yaml:"bidirectional"`
+	SyncScope     string              `yaml:"sync_scope"` // "tenants", "rules", "config", "all"
+	Bidirectional bool                `yaml:"bidirectional"`
 }
 
 // RemediationConfig controls AI auto-remediation settings.
@@ -1213,21 +1218,21 @@ type ExclusionConfig struct {
 
 // BotDetectionConfig controls automated-client detection.
 type BotDetectionConfig struct {
-	Enabled        bool                      `yaml:"enabled"`
-	Mode           string                    `yaml:"mode"`
-	TLSFingerprint TLSFingerprintConfig      `yaml:"tls_fingerprint"`
-	UserAgent      UAConfig                  `yaml:"user_agent"`
-	Behavior       BehaviorConfig            `yaml:"behavior"`
+	Enabled        bool                       `yaml:"enabled"`
+	Mode           string                     `yaml:"mode"`
+	TLSFingerprint TLSFingerprintConfig       `yaml:"tls_fingerprint"`
+	UserAgent      UAConfig                   `yaml:"user_agent"`
+	Behavior       BehaviorConfig             `yaml:"behavior"`
 	Enhanced       EnhancedBotDetectionConfig `yaml:"enhanced"`
 }
 
 // EnhancedBotDetectionConfig controls advanced bot detection with ML-based behavioral analysis.
 type EnhancedBotDetectionConfig struct {
-	Enabled            bool                         `yaml:"enabled"`
-	Mode               string                       `yaml:"mode"` // "monitor" or "enforce"
-	Biometric          BiometricDetectionConfig     `yaml:"biometric"`
-	BrowserFingerprint BrowserFingerprintConfig     `yaml:"browser_fingerprint"`
-	Captcha            CaptchaChallengeConfig       `yaml:"captcha"`
+	Enabled            bool                     `yaml:"enabled"`
+	Mode               string                   `yaml:"mode"` // "monitor" or "enforce"
+	Biometric          BiometricDetectionConfig `yaml:"biometric"`
+	BrowserFingerprint BrowserFingerprintConfig `yaml:"browser_fingerprint"`
+	Captcha            CaptchaChallengeConfig   `yaml:"captcha"`
 }
 
 // BiometricDetectionConfig controls mouse/keyboard behavioral biometrics.
@@ -1297,12 +1302,12 @@ type ResponseConfig struct {
 
 // ClientSideConfig controls client-side protection settings.
 type ClientSideConfig struct {
-	Enabled           bool                     `yaml:"enabled"`
-	Mode              string                   `yaml:"mode"` // "monitor", "block", "inject"
-	MagecartDetection MagecartDetectionConfig  `yaml:"magecart_detection"`
-	AgentInjection    AgentInjectionConfig     `yaml:"agent_injection"`
-	CSP               CSPHeaderConfig          `yaml:"csp"`
-	Exclusions        []string                 `yaml:"exclusions"`
+	Enabled           bool                    `yaml:"enabled"`
+	Mode              string                  `yaml:"mode"` // "monitor", "block", "inject"
+	MagecartDetection MagecartDetectionConfig `yaml:"magecart_detection"`
+	AgentInjection    AgentInjectionConfig    `yaml:"agent_injection"`
+	CSP               CSPHeaderConfig         `yaml:"csp"`
+	Exclusions        []string                `yaml:"exclusions"`
 }
 
 // MagecartDetectionConfig controls Magecart/skimming detection.
@@ -1319,14 +1324,14 @@ type MagecartDetectionConfig struct {
 
 // AgentInjectionConfig controls security agent injection.
 type AgentInjectionConfig struct {
-	Enabled         bool     `yaml:"enabled"`
-	ScriptURL       string   `yaml:"script_url"`
-	InjectInHTML    bool     `yaml:"inject_in_html"`
-	InjectPosition  string   `yaml:"inject_position"` // "head", "body-start", "body-end"
-	MonitorDOM      bool     `yaml:"monitor_dom"`
-	MonitorNetwork  bool     `yaml:"monitor_network"`
-	MonitorForms    bool     `yaml:"monitor_forms"`
-	ProtectedPaths  []string `yaml:"protected_paths"`
+	Enabled        bool     `yaml:"enabled"`
+	ScriptURL      string   `yaml:"script_url"`
+	InjectInHTML   bool     `yaml:"inject_in_html"`
+	InjectPosition string   `yaml:"inject_position"` // "head", "body-start", "body-end"
+	MonitorDOM     bool     `yaml:"monitor_dom"`
+	MonitorNetwork bool     `yaml:"monitor_network"`
+	MonitorForms   bool     `yaml:"monitor_forms"`
+	ProtectedPaths []string `yaml:"protected_paths"`
 }
 
 // CSPHeaderConfig controls Content Security Policy headers.
@@ -1383,14 +1388,14 @@ type ErrorPagesConfig struct {
 
 // MLAnomalyConfig controls ML-based real-time anomaly detection.
 type MLAnomalyConfig struct {
-	Enabled         bool          `yaml:"enabled"`
-	Mode            string        `yaml:"mode"` // "monitor" or "enforce"
-	Threshold       float64       `yaml:"threshold"`
-	WindowSize      int           `yaml:"window_size"`
-	MinSamples      int           `yaml:"min_samples"`
-	FeatureBuckets  int           `yaml:"feature_buckets"`
-	AutoBlock       bool          `yaml:"auto_block"`
-	BlockThreshold  float64       `yaml:"block_threshold"`
+	Enabled        bool    `yaml:"enabled"`
+	Mode           string  `yaml:"mode"` // "monitor" or "enforce"
+	Threshold      float64 `yaml:"threshold"`
+	WindowSize     int     `yaml:"window_size"`
+	MinSamples     int     `yaml:"min_samples"`
+	FeatureBuckets int     `yaml:"feature_buckets"`
+	AutoBlock      bool    `yaml:"auto_block"`
+	BlockThreshold float64 `yaml:"block_threshold"`
 }
 
 // APIDiscoveryConfig controls automatic API endpoint discovery and OpenAPI generation.
@@ -1442,12 +1447,12 @@ type GRPCRateLimit struct {
 
 // TenantConfig controls multi-tenancy settings.
 type TenantConfig struct {
-	Enabled      bool              `yaml:"enabled"`
-	MaxTenants   int               `yaml:"max_tenants"`
-	HeaderName   string            `yaml:"header_name"`
+	Enabled      bool                `yaml:"enabled"`
+	MaxTenants   int                 `yaml:"max_tenants"`
+	HeaderName   string              `yaml:"header_name"`
 	DefaultQuota ResourceQuotaConfig `yaml:"default_quota"`
-        StorePath    string              `yaml:"store_path"`
-	Tenants      []TenantDefinition `yaml:"tenants"`
+	StorePath    string              `yaml:"store_path"`
+	Tenants      []TenantDefinition  `yaml:"tenants"`
 }
 
 // ResourceQuotaConfig defines resource limits for tenants.
@@ -1665,11 +1670,11 @@ type TracingConfig struct {
 
 // ComplianceConfig controls compliance reporting (PCI DSS, GDPR, SOC 2, ISO 27001).
 type ComplianceConfig struct {
-	Enabled         bool                   `yaml:"enabled"`
-	Frameworks      []string               `yaml:"frameworks"`       // Active frameworks: "pci_dss", "gdpr", "soc2", "iso27001"
-	ReportDir       string                 `yaml:"report_dir"`       // Output directory for generated reports
-	AuditTrail      AuditTrailConfig       `yaml:"audit_trail"`
-	Retention       RetentionConfig        `yaml:"retention"`
+	Enabled          bool                    `yaml:"enabled"`
+	Frameworks       []string                `yaml:"frameworks"` // Active frameworks: "pci_dss", "gdpr", "soc2", "iso27001"
+	ReportDir        string                  `yaml:"report_dir"` // Output directory for generated reports
+	AuditTrail       AuditTrailConfig        `yaml:"audit_trail"`
+	Retention        RetentionConfig         `yaml:"retention"`
 	ScheduledReports []ScheduledReportConfig `yaml:"scheduled_reports"`
 }
 
@@ -1682,22 +1687,21 @@ type AuditTrailConfig struct {
 
 // RetentionConfig controls data retention per compliance framework.
 type RetentionConfig struct {
-	DefaultDays int               `yaml:"default_days"`
-	PerFramework map[string]int   `yaml:"per_framework"`
-	AutoDelete   bool             `yaml:"auto_delete"`
-	ArchivePath  string           `yaml:"archive_path"`
+	DefaultDays  int            `yaml:"default_days"`
+	PerFramework map[string]int `yaml:"per_framework"`
+	AutoDelete   bool           `yaml:"auto_delete"`
+	ArchivePath  string         `yaml:"archive_path"`
 }
 
 // ScheduledReportConfig defines a scheduled compliance report.
 type ScheduledReportConfig struct {
-	ID         string   `yaml:"id"`
-	Framework  string   `yaml:"framework"`
-	Schedule   string   `yaml:"schedule"`   // Cron expression
-	Format     []string `yaml:"format"`     // "json", "csv"
-	TenantID   string   `yaml:"tenant_id"`  // Empty = all tenants
-	OutputDir  string   `yaml:"output_dir"`
+	ID        string   `yaml:"id"`
+	Framework string   `yaml:"framework"`
+	Schedule  string   `yaml:"schedule"`  // Cron expression
+	Format    []string `yaml:"format"`    // "json", "csv"
+	TenantID  string   `yaml:"tenant_id"` // Empty = all tenants
+	OutputDir string   `yaml:"output_dir"`
 }
-
 
 // FindVirtualHost finds a virtual host configuration by domain.
 // It checks exact match first, then wildcard patterns (e.g., *.example.com).

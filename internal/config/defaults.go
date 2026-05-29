@@ -187,7 +187,7 @@ func DefaultConfig() *Config {
 				Enabled:              true,
 				GRPCWebEnabled:       true,
 				ReflectionEnabled:    false,
-				ValidateProto:        false, // Enable for strict validation
+				ValidateProto:        false,           // Enable for strict validation
 				MaxMessageSize:       4 * 1024 * 1024, // 4MB
 				MaxStreamDuration:    30 * time.Minute,
 				MaxConcurrentStreams: 100,
@@ -400,6 +400,13 @@ func PopulateFromNode(cfg *Config, node *Node) error {
 	if v := node.Get("listen"); v != nil && !v.IsNull {
 		cfg.Listen = v.String()
 	}
+	if v := node.Get("allow_private_upstreams"); v != nil {
+		b, err := nodeBool(v)
+		if err != nil {
+			return fmt.Errorf("allow_private_upstreams: %w", err)
+		}
+		cfg.AllowPrivateUpstreams = &b
+	}
 
 	// TLS
 	if n := node.Get("tls"); n != nil {
@@ -487,22 +494,57 @@ func PopulateFromNode(cfg *Config, node *Node) error {
 	return nil
 }
 
+// nodeBoolField populates a bool field from a config node, returning any parse error.
+// parentKey is prepended to the field name in error messages for nested fields.
+func nodeBoolField(n *Node, key, parentKey string, field *bool) error {
+	if v := n.Get(key); v != nil {
+		b, err := nodeBool(v)
+		if err != nil {
+			prefix := key
+			if parentKey != "" {
+				prefix = parentKey + "." + key
+			}
+			return fmt.Errorf("%s: %w", prefix, err)
+		}
+		*field = b
+	}
+	return nil
+}
+
+// nodeStringField populates a string field from a config node.
+func nodeStringField(n *Node, key string, field *string) {
+	if v := n.Get(key); v != nil && !v.IsNull {
+		*field = v.String()
+	}
+}
+
+// nodeIntField populates an int field from a config node, returning any parse error.
+// parentKey is prepended to the field name in error messages for nested fields.
+func nodeIntField(n *Node, key, parentKey string, field *int, minVal int) error {
+	if v := n.Get(key); v != nil {
+		i, err := nodeInt(v)
+		if err != nil {
+			prefix := key
+			if parentKey != "" {
+				prefix = parentKey + "." + key
+			}
+			return fmt.Errorf("%s: %w", prefix, err)
+		}
+		*field = i
+	}
+	return nil
+}
+
 // --- TLS ---
 
 func populateTLS(tls *TLSConfig, n *Node) error {
 	if n.Kind != MapNode {
 		return nil
 	}
-	if v := n.Get("enabled"); v != nil {
-		b, err := nodeBool(v)
-		if err != nil {
-			return fmt.Errorf("enabled: %w", err)
-		}
-		tls.Enabled = b
+	if err := nodeBoolField(n, "enabled", "", &tls.Enabled); err != nil {
+		return err
 	}
-	if v := n.Get("listen"); v != nil && !v.IsNull {
-		tls.Listen = v.String()
-	}
+	nodeStringField(n, "listen", &tls.Listen)
 	if v := n.Get("cert_file"); v != nil && !v.IsNull {
 		tls.CertFile = v.String()
 	}
@@ -745,7 +787,344 @@ func populateWAF(waf *WAFConfig, n *Node) error {
 			return fmt.Errorf("graphql: %w", err)
 		}
 	}
+	if sub := n.Get("geoip"); sub != nil {
+		populateGeoIP(&waf.GeoIP, sub)
+	}
+	if sub := n.Get("threat_intel"); sub != nil {
+		if err := populateThreatIntel(&waf.ThreatIntel, sub); err != nil {
+			return fmt.Errorf("threat_intel: %w", err)
+		}
+	}
+	if sub := n.Get("cors"); sub != nil {
+		populateCORS(&waf.CORS, sub)
+	}
+	if sub := n.Get("ato_protection"); sub != nil {
+		if err := populateATOProtection(&waf.ATOProtection, sub); err != nil {
+			return fmt.Errorf("ato_protection: %w", err)
+		}
+	}
+	if sub := n.Get("api_security"); sub != nil {
+		if err := populateAPISecurity(&waf.APISecurity, sub); err != nil {
+			return fmt.Errorf("api_security: %w", err)
+		}
+	}
+	if sub := n.Get("api_validation"); sub != nil {
+		populateAPIValidation(&waf.APIValidation, sub)
+	}
+	if sub := n.Get("client_side"); sub != nil {
+		if err := populateClientSide(&waf.ClientSide, sub); err != nil {
+			return fmt.Errorf("client_side: %w", err)
+		}
+	}
+	if sub := n.Get("crs"); sub != nil {
+		populateCRS(&waf.CRS, sub)
+	}
 	return nil
+}
+
+func populateGeoIP(geo *GeoIPConfig, n *Node) {
+	if n.Kind != MapNode {
+		return
+	}
+	if err := nodeBoolField(n, "enabled", "", &geo.Enabled); err != nil {
+		return
+	}
+	nodeStringField(n, "db_path", &geo.DBPath)
+	nodeBoolField(n, "auto_download", "", &geo.AutoDownload)
+	nodeStringField(n, "download_url", &geo.DownloadURL)
+}
+
+func populateThreatIntel(ti *ThreatIntelConfig, n *Node) error {
+	if n.Kind != MapNode {
+		return nil
+	}
+	if err := nodeBoolField(n, "enabled", "", &ti.Enabled); err != nil {
+		return err
+	}
+	nodeIntField(n, "cache_size", "", &ti.CacheSize, 0)
+	if v := n.Get("cache_ttl"); v != nil && !v.IsNull {
+		if d, err := parseDuration(v.String()); err == nil {
+			ti.CacheTTL = d
+		}
+	}
+	if sub := n.Get("ip_reputation"); sub != nil && sub.Kind == MapNode {
+		nodeBoolField(sub, "enabled", "ip_reputation", &ti.IPReputation.Enabled)
+		nodeBoolField(sub, "block_malicious", "ip_reputation", &ti.IPReputation.BlockMalicious)
+		nodeIntField(sub, "score_threshold", "ip_reputation", &ti.IPReputation.ScoreThreshold, 0)
+	}
+	if sub := n.Get("domain_reputation"); sub != nil && sub.Kind == MapNode {
+		nodeBoolField(sub, "enabled", "domain_reputation", &ti.DomainRep.Enabled)
+		nodeBoolField(sub, "block_malicious", "domain_reputation", &ti.DomainRep.BlockMalicious)
+		nodeBoolField(sub, "check_redirects", "domain_reputation", &ti.DomainRep.CheckRedirects)
+	}
+	if sub := n.Get("feeds"); sub != nil && sub.Kind == SequenceNode {
+		feedSlice := sub.Slice()
+		ti.Feeds = make([]ThreatFeedConfig, 0, len(feedSlice))
+		for i, child := range feedSlice {
+			if child.Kind != MapNode {
+				continue
+			}
+			var f ThreatFeedConfig
+			nodeStringField(child, "type", &f.Type)
+			nodeStringField(child, "path", &f.Path)
+			nodeStringField(child, "url", &f.URL)
+			nodeStringField(child, "format", &f.Format)
+			if v := child.Get("refresh"); v != nil && !v.IsNull {
+				if d, err := parseDuration(v.String()); err == nil {
+					f.Refresh = d
+				} else {
+					return fmt.Errorf("feeds[%d].refresh: %w", i, err)
+				}
+			}
+			ti.Feeds = append(ti.Feeds, f)
+		}
+	}
+	return nil
+}
+
+func populateCORS(cors *CORSConfig, n *Node) {
+	if n.Kind != MapNode {
+		return
+	}
+	nodeBoolField(n, "enabled", "", &cors.Enabled)
+	nodeBoolField(n, "allow_credentials", "", &cors.AllowCredentials)
+	nodeBoolField(n, "strict_mode", "", &cors.StrictMode)
+	nodeIntField(n, "max_age_seconds", "", &cors.MaxAgeSeconds, 0)
+	nodeIntField(n, "preflight_cache_seconds", "", &cors.PreflightCacheSeconds, 0)
+	if v := n.Get("allow_origins"); v != nil && v.Kind == SequenceNode {
+		cors.AllowOrigins = nodeStringSlice(v)
+	}
+	if v := n.Get("allow_methods"); v != nil && v.Kind == SequenceNode {
+		cors.AllowMethods = nodeStringSlice(v)
+	}
+	if v := n.Get("allow_headers"); v != nil && v.Kind == SequenceNode {
+		cors.AllowHeaders = nodeStringSlice(v)
+	}
+	if v := n.Get("expose_headers"); v != nil && v.Kind == SequenceNode {
+		cors.ExposeHeaders = nodeStringSlice(v)
+	}
+}
+
+func populateATOProtection(ato *ATOProtectionConfig, n *Node) error {
+	if n.Kind != MapNode {
+		return nil
+	}
+	if err := nodeBoolField(n, "enabled", "", &ato.Enabled); err != nil {
+		return err
+	}
+	nodeStringField(n, "geodb_path", &ato.GeoDBPath)
+	if v := n.Get("login_paths"); v != nil && v.Kind == SequenceNode {
+		ato.LoginPaths = nodeStringSlice(v)
+	}
+	if sub := n.Get("brute_force"); sub != nil && sub.Kind == MapNode {
+		nodeBoolField(sub, "enabled", "brute_force", &ato.BruteForce.Enabled)
+		if v := sub.Get("window"); v != nil && !v.IsNull {
+			if d, err := parseDuration(v.String()); err == nil {
+				ato.BruteForce.Window = d
+			}
+		}
+		nodeIntField(sub, "max_attempts_per_ip", "brute_force", &ato.BruteForce.MaxAttemptsPerIP, 0)
+		nodeIntField(sub, "max_attempts_per_email", "brute_force", &ato.BruteForce.MaxAttemptsPerEmail, 0)
+		if v := sub.Get("block_duration"); v != nil && !v.IsNull {
+			if d, err := parseDuration(v.String()); err == nil {
+				ato.BruteForce.BlockDuration = d
+			}
+		}
+	}
+	if sub := n.Get("credential_stuffing"); sub != nil && sub.Kind == MapNode {
+		nodeBoolField(sub, "enabled", "credential_stuffing", &ato.CredStuffing.Enabled)
+		nodeIntField(sub, "distributed_threshold", "credential_stuffing", &ato.CredStuffing.DistributedThreshold, 0)
+		if v := sub.Get("window"); v != nil && !v.IsNull {
+			if d, err := parseDuration(v.String()); err == nil {
+				ato.CredStuffing.Window = d
+			}
+		}
+		if v := sub.Get("block_duration"); v != nil && !v.IsNull {
+			if d, err := parseDuration(v.String()); err == nil {
+				ato.CredStuffing.BlockDuration = d
+			}
+		}
+	}
+	if sub := n.Get("password_spray"); sub != nil && sub.Kind == MapNode {
+		nodeBoolField(sub, "enabled", "password_spray", &ato.PasswordSpray.Enabled)
+		nodeIntField(sub, "threshold", "password_spray", &ato.PasswordSpray.Threshold, 0)
+		if v := sub.Get("window"); v != nil && !v.IsNull {
+			if d, err := parseDuration(v.String()); err == nil {
+				ato.PasswordSpray.Window = d
+			}
+		}
+		if v := sub.Get("block_duration"); v != nil && !v.IsNull {
+			if d, err := parseDuration(v.String()); err == nil {
+				ato.PasswordSpray.BlockDuration = d
+			}
+		}
+	}
+	if sub := n.Get("impossible_travel"); sub != nil && sub.Kind == MapNode {
+		nodeBoolField(sub, "enabled", "impossible_travel", &ato.Travel.Enabled)
+		if v := sub.Get("max_distance_km"); v != nil && !v.IsNull {
+			if f, err := nodeFloat64(v); err == nil && f > 0 {
+				ato.Travel.MaxDistanceKm = f
+			}
+		}
+		if v := sub.Get("max_time_hours"); v != nil && !v.IsNull {
+			if f, err := nodeFloat64(v); err == nil && f > 0 {
+				ato.Travel.MaxTimeHours = f
+			}
+		}
+		if v := sub.Get("block_duration"); v != nil && !v.IsNull {
+			if d, err := parseDuration(v.String()); err == nil {
+				ato.Travel.BlockDuration = d
+			}
+		}
+	}
+	return nil
+}
+
+func populateAPISecurity(as *APISecurityConfig, n *Node) error {
+	if n.Kind != MapNode {
+		return nil
+	}
+	if err := nodeBoolField(n, "enabled", "", &as.Enabled); err != nil {
+		return err
+	}
+	nodeStringField(n, "header_name", &as.HeaderName)
+	nodeStringField(n, "query_param", &as.QueryParam)
+	if v := n.Get("skip_paths"); v != nil && v.Kind == SequenceNode {
+		as.SkipPaths = nodeStringSlice(v)
+	}
+	if sub := n.Get("jwt"); sub != nil && sub.Kind == MapNode {
+		nodeBoolField(sub, "enabled", "jwt", &as.JWT.Enabled)
+		nodeStringField(sub, "issuer", &as.JWT.Issuer)
+		nodeStringField(sub, "audience", &as.JWT.Audience)
+		nodeStringField(sub, "public_key_file", &as.JWT.PublicKeyFile)
+		nodeStringField(sub, "jwks_url", &as.JWT.JWKSURL)
+		nodeStringField(sub, "public_key_pem", &as.JWT.PublicKeyPEM)
+		if v := sub.Get("algorithms"); v != nil && v.Kind == SequenceNode {
+			as.JWT.Algorithms = nodeStringSlice(v)
+		}
+		nodeIntField(sub, "clock_skew_seconds", "jwt", &as.JWT.ClockSkewSeconds, 0)
+	}
+	if sub := n.Get("api_keys"); sub != nil && sub.Kind == MapNode {
+		nodeBoolField(sub, "enabled", "api_keys", &as.APIKeys.Enabled)
+		nodeStringField(sub, "header_name", &as.APIKeys.HeaderName)
+		nodeStringField(sub, "query_param", &as.APIKeys.QueryParam)
+		if v := sub.Get("keys"); v != nil && v.Kind == SequenceNode {
+			keysSlice := v.Slice()
+			as.APIKeys.Keys = make([]APIKeyConfig, 0, len(keysSlice))
+			for _, child := range keysSlice {
+				if child.Kind != MapNode {
+					continue
+				}
+				var k APIKeyConfig
+				nodeStringField(child, "name", &k.Name)
+				nodeStringField(child, "key_hash", &k.KeyHash)
+				nodeStringField(child, "key_prefix", &k.KeyPrefix)
+				nodeBoolField(child, "enabled", "", &k.Enabled)
+				nodeIntField(child, "rate_limit", "key", &k.RateLimit, 0)
+				if pv := child.Get("allowed_paths"); pv != nil && pv.Kind == SequenceNode {
+					k.AllowedPaths = nodeStringSlice(pv)
+				}
+				as.APIKeys.Keys = append(as.APIKeys.Keys, k)
+			}
+		}
+	}
+	return nil
+}
+
+func populateAPIValidation(av *APIValidationConfig, n *Node) {
+	if n.Kind != MapNode {
+		return
+	}
+	nodeBoolField(n, "enabled", "", &av.Enabled)
+	nodeBoolField(n, "validate_request", "", &av.ValidateRequest)
+	nodeBoolField(n, "validate_response", "", &av.ValidateResponse)
+	nodeBoolField(n, "strict_mode", "", &av.StrictMode)
+	nodeBoolField(n, "block_on_violation", "", &av.BlockOnViolation)
+	nodeIntField(n, "violation_score", "", &av.ViolationScore, 0)
+	nodeIntField(n, "cache_size", "", &av.CacheSize, 0)
+	if v := n.Get("schemas"); v != nil && v.Kind == SequenceNode {
+		schemaSlice := v.Slice()
+		av.Schemas = make([]SchemaSourceConfig, 0, len(schemaSlice))
+		for _, child := range schemaSlice {
+			if child.Kind != MapNode {
+				continue
+			}
+			var s SchemaSourceConfig
+			nodeStringField(child, "path", &s.Path)
+			nodeStringField(child, "type", &s.Type)
+			nodeBoolField(child, "auto_learn", "", &s.AutoLearn)
+			av.Schemas = append(av.Schemas, s)
+		}
+	}
+}
+
+func populateClientSide(cs *ClientSideConfig, n *Node) error {
+	if n.Kind != MapNode {
+		return nil
+	}
+	if err := nodeBoolField(n, "enabled", "", &cs.Enabled); err != nil {
+		return err
+	}
+	nodeStringField(n, "mode", &cs.Mode)
+	if v := n.Get("exclusions"); v != nil && v.Kind == SequenceNode {
+		cs.Exclusions = nodeStringSlice(v)
+	}
+	if sub := n.Get("magecart_detection"); sub != nil && sub.Kind == MapNode {
+		nodeBoolField(sub, "enabled", "magecart_detection", &cs.MagecartDetection.Enabled)
+		nodeBoolField(sub, "detect_obfuscated_js", "magecart_detection", &cs.MagecartDetection.DetectObfuscatedJS)
+		nodeBoolField(sub, "detect_suspicious_domains", "magecart_detection", &cs.MagecartDetection.DetectSuspiciousDomains)
+		nodeBoolField(sub, "detect_form_exfiltration", "magecart_detection", &cs.MagecartDetection.DetectFormExfiltration)
+		nodeBoolField(sub, "detect_keyloggers", "magecart_detection", &cs.MagecartDetection.DetectKeyloggers)
+		nodeIntField(sub, "block_score", "magecart_detection", &cs.MagecartDetection.BlockScore, 0)
+		nodeIntField(sub, "alert_score", "magecart_detection", &cs.MagecartDetection.AlertScore, 0)
+		if v := sub.Get("known_skimming_domains"); v != nil && v.Kind == SequenceNode {
+			cs.MagecartDetection.KnownSkimmingDomains = nodeStringSlice(v)
+		}
+	}
+	if sub := n.Get("agent_injection"); sub != nil && sub.Kind == MapNode {
+		nodeBoolField(sub, "enabled", "agent_injection", &cs.AgentInjection.Enabled)
+		nodeStringField(sub, "script_url", &cs.AgentInjection.ScriptURL)
+		nodeBoolField(sub, "inject_in_html", "agent_injection", &cs.AgentInjection.InjectInHTML)
+		nodeStringField(sub, "inject_position", &cs.AgentInjection.InjectPosition)
+		nodeBoolField(sub, "monitor_dom", "agent_injection", &cs.AgentInjection.MonitorDOM)
+		nodeBoolField(sub, "monitor_network", "agent_injection", &cs.AgentInjection.MonitorNetwork)
+		nodeBoolField(sub, "monitor_forms", "agent_injection", &cs.AgentInjection.MonitorForms)
+	}
+	if sub := n.Get("csp"); sub != nil && sub.Kind == MapNode {
+		nodeBoolField(sub, "enabled", "csp", &cs.CSP.Enabled)
+		nodeBoolField(sub, "report_only", "csp", &cs.CSP.ReportOnly)
+		cs.CSP.DefaultSrc = nodeStringSlice(sub.Get("default_src"))
+		cs.CSP.ScriptSrc = nodeStringSlice(sub.Get("script_src"))
+		cs.CSP.StyleSrc = nodeStringSlice(sub.Get("style_src"))
+		cs.CSP.ImgSrc = nodeStringSlice(sub.Get("img_src"))
+		cs.CSP.ConnectSrc = nodeStringSlice(sub.Get("connect_src"))
+		cs.CSP.FontSrc = nodeStringSlice(sub.Get("font_src"))
+		cs.CSP.ObjectSrc = nodeStringSlice(sub.Get("object_src"))
+		cs.CSP.MediaSrc = nodeStringSlice(sub.Get("media_src"))
+		cs.CSP.FrameSrc = nodeStringSlice(sub.Get("frame_src"))
+		cs.CSP.FrameAncestors = nodeStringSlice(sub.Get("frame_ancestors"))
+		cs.CSP.FormAction = nodeStringSlice(sub.Get("form_action"))
+		cs.CSP.BaseURI = nodeStringSlice(sub.Get("base_uri"))
+		nodeStringField(sub, "report_uri", &cs.CSP.ReportURI)
+		nodeBoolField(sub, "upgrade_insecure_requests", "csp", &cs.CSP.UpgradeInsecure)
+	}
+	return nil
+}
+
+func populateCRS(crs *CRSConfig, n *Node) {
+	if n.Kind != MapNode {
+		return
+	}
+	nodeBoolField(n, "enabled", "", &crs.Enabled)
+	nodeStringField(n, "rule_path", &crs.RulePath)
+	nodeIntField(n, "paranoia_level", "", &crs.ParanoiaLevel, 0)
+	nodeIntField(n, "anomaly_threshold", "", &crs.AnomalyThreshold, 0)
+	if v := n.Get("exclusions"); v != nil && v.Kind == SequenceNode {
+		crs.Exclusions = nodeStringSlice(v)
+	}
+	if v := n.Get("disabled_rules"); v != nil && v.Kind == SequenceNode {
+		crs.DisabledRules = nodeStringSlice(v)
+	}
 }
 
 func populateAIAnalysis(ai *AIAnalysisConfig, n *Node) error {
@@ -945,33 +1324,17 @@ func populateGraphQL(gql *GraphQLConfig, n *Node) error {
 	if n.Kind != MapNode {
 		return nil
 	}
-	if v := n.Get("enabled"); v != nil {
-		b, err := nodeBool(v)
-		if err != nil {
-			return fmt.Errorf("enabled: %w", err)
-		}
-		gql.Enabled = b
+	if err := nodeBoolField(n, "enabled", "", &gql.Enabled); err != nil {
+		return err
 	}
-	if v := n.Get("max_depth"); v != nil {
-		i, err := nodeInt(v)
-		if err != nil {
-			return fmt.Errorf("max_depth: %w", err)
-		}
-		gql.MaxDepth = i
+	if err := nodeIntField(n, "max_depth", "", &gql.MaxDepth, 0); err != nil {
+		return err
 	}
-	if v := n.Get("max_complexity"); v != nil {
-		i, err := nodeInt(v)
-		if err != nil {
-			return fmt.Errorf("max_complexity: %w", err)
-		}
-		gql.MaxComplexity = i
+	if err := nodeIntField(n, "max_complexity", "", &gql.MaxComplexity, 0); err != nil {
+		return err
 	}
-	if v := n.Get("block_introspection"); v != nil {
-		b, err := nodeBool(v)
-		if err != nil {
-			return fmt.Errorf("block_introspection: %w", err)
-		}
-		gql.BlockIntrospection = b
+	if err := nodeBoolField(n, "block_introspection", "", &gql.BlockIntrospection); err != nil {
+		return err
 	}
 	if v := n.Get("allow_endpoints"); v != nil {
 		gql.AllowEndpoints = nodeStringSlice(v)
@@ -983,19 +1346,11 @@ func populateChallenge(ch *ChallengeConfig, n *Node) error {
 	if n.Kind != MapNode {
 		return nil
 	}
-	if v := n.Get("enabled"); v != nil {
-		b, err := nodeBool(v)
-		if err != nil {
-			return fmt.Errorf("enabled: %w", err)
-		}
-		ch.Enabled = b
+	if err := nodeBoolField(n, "enabled", "", &ch.Enabled); err != nil {
+		return err
 	}
-	if v := n.Get("difficulty"); v != nil {
-		i, err := nodeInt(v)
-		if err != nil {
-			return fmt.Errorf("difficulty: %w", err)
-		}
-		ch.Difficulty = i
+	if err := nodeIntField(n, "difficulty", "", &ch.Difficulty, 1); err != nil {
+		return err
 	}
 	if v := n.Get("cookie_ttl"); v != nil && !v.IsNull {
 		d, err := parseDuration(v.String())
@@ -1004,12 +1359,8 @@ func populateChallenge(ch *ChallengeConfig, n *Node) error {
 		}
 		ch.CookieTTL = d
 	}
-	if v := n.Get("cookie_name"); v != nil && !v.IsNull {
-		ch.CookieName = v.String()
-	}
-	if v := n.Get("secret_key"); v != nil && !v.IsNull {
-		ch.SecretKey = v.String()
-	}
+	nodeStringField(n, "cookie_name", &ch.CookieName)
+	nodeStringField(n, "secret_key", &ch.SecretKey)
 	return nil
 }
 
@@ -1017,12 +1368,8 @@ func populateIPACL(acl *IPACLConfig, n *Node) error {
 	if n.Kind != MapNode {
 		return nil
 	}
-	if v := n.Get("enabled"); v != nil {
-		b, err := nodeBool(v)
-		if err != nil {
-			return fmt.Errorf("enabled: %w", err)
-		}
-		acl.Enabled = b
+	if err := nodeBoolField(n, "enabled", "", &acl.Enabled); err != nil {
+		return err
 	}
 	if v := n.Get("whitelist"); v != nil {
 		acl.Whitelist = nodeStringSlice(v)
@@ -1031,12 +1378,8 @@ func populateIPACL(acl *IPACLConfig, n *Node) error {
 		acl.Blacklist = nodeStringSlice(v)
 	}
 	if sub := n.Get("auto_ban"); sub != nil && sub.Kind == MapNode {
-		if v := sub.Get("enabled"); v != nil {
-			b, err := nodeBool(v)
-			if err != nil {
-				return fmt.Errorf("auto_ban.enabled: %w", err)
-			}
-			acl.AutoBan.Enabled = b
+		if err := nodeBoolField(sub, "enabled", "auto_ban", &acl.AutoBan.Enabled); err != nil {
+			return err
 		}
 		if v := sub.Get("default_ttl"); v != nil && !v.IsNull {
 			d, err := parseDuration(v.String())
@@ -1125,33 +1468,17 @@ func populateSanitizer(san *SanitizerConfig, n *Node) error {
 	if n.Kind != MapNode {
 		return nil
 	}
-	if v := n.Get("enabled"); v != nil {
-		b, err := nodeBool(v)
-		if err != nil {
-			return fmt.Errorf("enabled: %w", err)
-		}
-		san.Enabled = b
+	if err := nodeBoolField(n, "enabled", "", &san.Enabled); err != nil {
+		return err
 	}
-	if v := n.Get("max_url_length"); v != nil {
-		i, err := nodeInt(v)
-		if err != nil {
-			return fmt.Errorf("max_url_length: %w", err)
-		}
-		san.MaxURLLength = i
+	if err := nodeIntField(n, "max_url_length", "", &san.MaxURLLength, 0); err != nil {
+		return err
 	}
-	if v := n.Get("max_header_size"); v != nil {
-		i, err := nodeInt(v)
-		if err != nil {
-			return fmt.Errorf("max_header_size: %w", err)
-		}
-		san.MaxHeaderSize = i
+	if err := nodeIntField(n, "max_header_size", "", &san.MaxHeaderSize, 0); err != nil {
+		return err
 	}
-	if v := n.Get("max_header_count"); v != nil {
-		i, err := nodeInt(v)
-		if err != nil {
-			return fmt.Errorf("max_header_count: %w", err)
-		}
-		san.MaxHeaderCount = i
+	if err := nodeIntField(n, "max_header_count", "", &san.MaxHeaderCount, 0); err != nil {
+		return err
 	}
 	if v := n.Get("max_body_size"); v != nil {
 		i, err := nodeInt64(v)
@@ -1160,33 +1487,17 @@ func populateSanitizer(san *SanitizerConfig, n *Node) error {
 		}
 		san.MaxBodySize = i
 	}
-	if v := n.Get("max_cookie_size"); v != nil {
-		i, err := nodeInt(v)
-		if err != nil {
-			return fmt.Errorf("max_cookie_size: %w", err)
-		}
-		san.MaxCookieSize = i
+	if err := nodeIntField(n, "max_cookie_size", "", &san.MaxCookieSize, 0); err != nil {
+		return err
 	}
-	if v := n.Get("block_null_bytes"); v != nil {
-		b, err := nodeBool(v)
-		if err != nil {
-			return fmt.Errorf("block_null_bytes: %w", err)
-		}
-		san.BlockNullBytes = b
+	if err := nodeBoolField(n, "block_null_bytes", "", &san.BlockNullBytes); err != nil {
+		return err
 	}
-	if v := n.Get("normalize_encoding"); v != nil {
-		b, err := nodeBool(v)
-		if err != nil {
-			return fmt.Errorf("normalize_encoding: %w", err)
-		}
-		san.NormalizeEncoding = b
+	if err := nodeBoolField(n, "normalize_encoding", "", &san.NormalizeEncoding); err != nil {
+		return err
 	}
-	if v := n.Get("strip_hop_by_hop"); v != nil {
-		b, err := nodeBool(v)
-		if err != nil {
-			return fmt.Errorf("strip_hop_by_hop: %w", err)
-		}
-		san.StripHopByHop = b
+	if err := nodeBoolField(n, "strip_hop_by_hop", "", &san.StripHopByHop); err != nil {
+		return err
 	}
 	if v := n.Get("allowed_methods"); v != nil {
 		san.AllowedMethods = nodeStringSlice(v)
@@ -1219,27 +1530,15 @@ func populateDetection(det *DetectionConfig, n *Node) error {
 	if n.Kind != MapNode {
 		return nil
 	}
-	if v := n.Get("enabled"); v != nil {
-		b, err := nodeBool(v)
-		if err != nil {
-			return fmt.Errorf("enabled: %w", err)
-		}
-		det.Enabled = b
+	if err := nodeBoolField(n, "enabled", "", &det.Enabled); err != nil {
+		return err
 	}
 	if th := n.Get("threshold"); th != nil && th.Kind == MapNode {
-		if v := th.Get("block"); v != nil {
-			i, err := nodeInt(v)
-			if err != nil {
-				return fmt.Errorf("threshold.block: %w", err)
-			}
-			det.Threshold.Block = i
+		if err := nodeIntField(th, "block", "threshold", &det.Threshold.Block, 0); err != nil {
+			return err
 		}
-		if v := th.Get("log"); v != nil {
-			i, err := nodeInt(v)
-			if err != nil {
-				return fmt.Errorf("threshold.log: %w", err)
-			}
-			det.Threshold.Log = i
+		if err := nodeIntField(th, "log", "threshold", &det.Threshold.Log, 0); err != nil {
+			return err
 		}
 	}
 	if detectors := n.Get("detectors"); detectors != nil && detectors.Kind == MapNode {
@@ -1252,12 +1551,8 @@ func populateDetection(det *DetectionConfig, n *Node) error {
 				continue
 			}
 			dc := DetectorConfig{Multiplier: 1.0} // default multiplier
-			if v := sub.Get("enabled"); v != nil {
-				b, err := nodeBool(v)
-				if err != nil {
-					return fmt.Errorf("detectors.%s.enabled: %w", key, err)
-				}
-				dc.Enabled = b
+			if err := nodeBoolField(sub, "enabled", "detectors."+key, &dc.Enabled); err != nil {
+				return err
 			}
 			if v := sub.Get("multiplier"); v != nil {
 				f, err := nodeFloat64(v)
@@ -1296,64 +1591,32 @@ func populateBotDetection(bd *BotDetectionConfig, n *Node) error {
 	if n.Kind != MapNode {
 		return nil
 	}
-	if v := n.Get("enabled"); v != nil {
-		b, err := nodeBool(v)
-		if err != nil {
-			return fmt.Errorf("enabled: %w", err)
-		}
-		bd.Enabled = b
+	if err := nodeBoolField(n, "enabled", "", &bd.Enabled); err != nil {
+		return err
 	}
-	if v := n.Get("mode"); v != nil && !v.IsNull {
-		bd.Mode = v.String()
-	}
+	nodeStringField(n, "mode", &bd.Mode)
 	if sub := n.Get("tls_fingerprint"); sub != nil && sub.Kind == MapNode {
-		if v := sub.Get("enabled"); v != nil {
-			b, err := nodeBool(v)
-			if err != nil {
-				return fmt.Errorf("tls_fingerprint.enabled: %w", err)
-			}
-			bd.TLSFingerprint.Enabled = b
+		if err := nodeBoolField(sub, "enabled", "tls_fingerprint", &bd.TLSFingerprint.Enabled); err != nil {
+			return err
 		}
-		if v := sub.Get("known_bots_action"); v != nil && !v.IsNull {
-			bd.TLSFingerprint.KnownBotsAction = v.String()
-		}
-		if v := sub.Get("unknown_action"); v != nil && !v.IsNull {
-			bd.TLSFingerprint.UnknownAction = v.String()
-		}
-		if v := sub.Get("mismatch_action"); v != nil && !v.IsNull {
-			bd.TLSFingerprint.MismatchAction = v.String()
-		}
+		nodeStringField(sub, "known_bots_action", &bd.TLSFingerprint.KnownBotsAction)
+		nodeStringField(sub, "unknown_action", &bd.TLSFingerprint.UnknownAction)
+		nodeStringField(sub, "mismatch_action", &bd.TLSFingerprint.MismatchAction)
 	}
 	if sub := n.Get("user_agent"); sub != nil && sub.Kind == MapNode {
-		if v := sub.Get("enabled"); v != nil {
-			b, err := nodeBool(v)
-			if err != nil {
-				return fmt.Errorf("user_agent.enabled: %w", err)
-			}
-			bd.UserAgent.Enabled = b
+		if err := nodeBoolField(sub, "enabled", "user_agent", &bd.UserAgent.Enabled); err != nil {
+			return err
 		}
-		if v := sub.Get("block_empty"); v != nil {
-			b, err := nodeBool(v)
-			if err != nil {
-				return fmt.Errorf("user_agent.block_empty: %w", err)
-			}
-			bd.UserAgent.BlockEmpty = b
+		if err := nodeBoolField(sub, "block_empty", "user_agent", &bd.UserAgent.BlockEmpty); err != nil {
+			return err
 		}
-		if v := sub.Get("block_known_scanners"); v != nil {
-			b, err := nodeBool(v)
-			if err != nil {
-				return fmt.Errorf("user_agent.block_known_scanners: %w", err)
-			}
-			bd.UserAgent.BlockKnownScanners = b
+		if err := nodeBoolField(sub, "block_known_scanners", "user_agent", &bd.UserAgent.BlockKnownScanners); err != nil {
+			return err
 		}
 	}
 	if sub := n.Get("behavior"); sub != nil && sub.Kind == MapNode {
-		if v := sub.Get("enabled"); v != nil {
-			b, err := nodeBool(v)
-			if err != nil {
-				return fmt.Errorf("behavior.enabled: %w", err)
-			}
-			bd.Behavior.Enabled = b
+		if err := nodeBoolField(sub, "enabled", "behavior", &bd.Behavior.Enabled); err != nil {
+			return err
 		}
 		if v := sub.Get("window"); v != nil && !v.IsNull {
 			d, err := parseDuration(v.String())
@@ -1362,19 +1625,11 @@ func populateBotDetection(bd *BotDetectionConfig, n *Node) error {
 			}
 			bd.Behavior.Window = d
 		}
-		if v := sub.Get("rps_threshold"); v != nil {
-			i, err := nodeInt(v)
-			if err != nil {
-				return fmt.Errorf("behavior.rps_threshold: %w", err)
-			}
-			bd.Behavior.RPSThreshold = i
+		if err := nodeIntField(sub, "rps_threshold", "behavior", &bd.Behavior.RPSThreshold, 0); err != nil {
+			return err
 		}
-		if v := sub.Get("error_rate_threshold"); v != nil {
-			i, err := nodeInt(v)
-			if err != nil {
-				return fmt.Errorf("behavior.error_rate_threshold: %w", err)
-			}
-			bd.Behavior.ErrorRateThreshold = i
+		if err := nodeIntField(sub, "error_rate_threshold", "behavior", &bd.Behavior.ErrorRateThreshold, 0); err != nil {
+			return err
 		}
 	}
 	if sub := n.Get("enhanced"); sub != nil && sub.Kind == MapNode {
@@ -1389,30 +1644,16 @@ func populateEnhancedBotDetection(ebd *EnhancedBotDetectionConfig, n *Node) erro
 	if n.Kind != MapNode {
 		return nil
 	}
-	if v := n.Get("enabled"); v != nil {
-		b, err := nodeBool(v)
-		if err != nil {
-			return fmt.Errorf("enabled: %w", err)
-		}
-		ebd.Enabled = b
+	if err := nodeBoolField(n, "enabled", "", &ebd.Enabled); err != nil {
+		return err
 	}
-	if v := n.Get("mode"); v != nil && !v.IsNull {
-		ebd.Mode = v.String()
-	}
+	nodeStringField(n, "mode", &ebd.Mode)
 	if sub := n.Get("biometric"); sub != nil && sub.Kind == MapNode {
-		if v := sub.Get("enabled"); v != nil {
-			b, err := nodeBool(v)
-			if err != nil {
-				return fmt.Errorf("biometric.enabled: %w", err)
-			}
-			ebd.Biometric.Enabled = b
+		if err := nodeBoolField(sub, "enabled", "biometric", &ebd.Biometric.Enabled); err != nil {
+			return err
 		}
-		if v := sub.Get("min_events"); v != nil {
-			i, err := nodeInt(v)
-			if err != nil {
-				return fmt.Errorf("biometric.min_events: %w", err)
-			}
-			ebd.Biometric.MinEvents = i
+		if err := nodeIntField(sub, "min_events", "biometric", &ebd.Biometric.MinEvents, 0); err != nil {
+			return err
 		}
 		if v := sub.Get("score_threshold"); v != nil {
 			f, err := nodeFloat64(v)
@@ -1430,59 +1671,29 @@ func populateEnhancedBotDetection(ebd *EnhancedBotDetectionConfig, n *Node) erro
 		}
 	}
 	if sub := n.Get("browser_fingerprint"); sub != nil && sub.Kind == MapNode {
-		if v := sub.Get("enabled"); v != nil {
-			b, err := nodeBool(v)
-			if err != nil {
-				return fmt.Errorf("browser_fingerprint.enabled: %w", err)
-			}
-			ebd.BrowserFingerprint.Enabled = b
+		if err := nodeBoolField(sub, "enabled", "browser_fingerprint", &ebd.BrowserFingerprint.Enabled); err != nil {
+			return err
 		}
-		if v := sub.Get("check_canvas"); v != nil {
-			b, err := nodeBool(v)
-			if err != nil {
-				return fmt.Errorf("browser_fingerprint.check_canvas: %w", err)
-			}
-			ebd.BrowserFingerprint.CheckCanvas = b
+		if err := nodeBoolField(sub, "check_canvas", "browser_fingerprint", &ebd.BrowserFingerprint.CheckCanvas); err != nil {
+			return err
 		}
-		if v := sub.Get("check_webgl"); v != nil {
-			b, err := nodeBool(v)
-			if err != nil {
-				return fmt.Errorf("browser_fingerprint.check_webgl: %w", err)
-			}
-			ebd.BrowserFingerprint.CheckWebGL = b
+		if err := nodeBoolField(sub, "check_webgl", "browser_fingerprint", &ebd.BrowserFingerprint.CheckWebGL); err != nil {
+			return err
 		}
-		if v := sub.Get("check_fonts"); v != nil {
-			b, err := nodeBool(v)
-			if err != nil {
-				return fmt.Errorf("browser_fingerprint.check_fonts: %w", err)
-			}
-			ebd.BrowserFingerprint.CheckFonts = b
+		if err := nodeBoolField(sub, "check_fonts", "browser_fingerprint", &ebd.BrowserFingerprint.CheckFonts); err != nil {
+			return err
 		}
-		if v := sub.Get("check_headless"); v != nil {
-			b, err := nodeBool(v)
-			if err != nil {
-				return fmt.Errorf("browser_fingerprint.check_headless: %w", err)
-			}
-			ebd.BrowserFingerprint.CheckHeadless = b
+		if err := nodeBoolField(sub, "check_headless", "browser_fingerprint", &ebd.BrowserFingerprint.CheckHeadless); err != nil {
+			return err
 		}
 	}
 	if sub := n.Get("captcha"); sub != nil && sub.Kind == MapNode {
-		if v := sub.Get("enabled"); v != nil {
-			b, err := nodeBool(v)
-			if err != nil {
-				return fmt.Errorf("captcha.enabled: %w", err)
-			}
-			ebd.Captcha.Enabled = b
+		if err := nodeBoolField(sub, "enabled", "captcha", &ebd.Captcha.Enabled); err != nil {
+			return err
 		}
-		if v := sub.Get("provider"); v != nil && !v.IsNull {
-			ebd.Captcha.Provider = v.String()
-		}
-		if v := sub.Get("site_key"); v != nil && !v.IsNull {
-			ebd.Captcha.SiteKey = v.String()
-		}
-		if v := sub.Get("secret_key"); v != nil && !v.IsNull {
-			ebd.Captcha.SecretKey = v.String()
-		}
+		nodeStringField(sub, "provider", &ebd.Captcha.Provider)
+		nodeStringField(sub, "site_key", &ebd.Captcha.SiteKey)
+		nodeStringField(sub, "secret_key", &ebd.Captcha.SecretKey)
 		if v := sub.Get("timeout"); v != nil && !v.IsNull {
 			d, err := parseDuration(v.String())
 			if err != nil {
@@ -1509,16 +1720,10 @@ func populateResponse(resp *ResponseConfig, n *Node) error {
 		}
 	}
 	if sub := n.Get("error_pages"); sub != nil && sub.Kind == MapNode {
-		if v := sub.Get("enabled"); v != nil {
-			b, err := nodeBool(v)
-			if err != nil {
-				return fmt.Errorf("error_pages.enabled: %w", err)
-			}
-			resp.ErrorPages.Enabled = b
+		if err := nodeBoolField(sub, "enabled", "error_pages", &resp.ErrorPages.Enabled); err != nil {
+			return err
 		}
-		if v := sub.Get("mode"); v != nil && !v.IsNull {
-			resp.ErrorPages.Mode = v.String()
-		}
+		nodeStringField(sub, "mode", &resp.ErrorPages.Mode)
 	}
 	return nil
 }
@@ -1527,52 +1732,26 @@ func populateSecurityHeaders(sh *SecurityHeadersConfig, n *Node) error {
 	if n.Kind != MapNode {
 		return nil
 	}
-	if v := n.Get("enabled"); v != nil {
-		b, err := nodeBool(v)
-		if err != nil {
-			return fmt.Errorf("enabled: %w", err)
-		}
-		sh.Enabled = b
+	if err := nodeBoolField(n, "enabled", "", &sh.Enabled); err != nil {
+		return err
 	}
 	if sub := n.Get("hsts"); sub != nil && sub.Kind == MapNode {
-		if v := sub.Get("enabled"); v != nil {
-			b, err := nodeBool(v)
-			if err != nil {
-				return fmt.Errorf("hsts.enabled: %w", err)
-			}
-			sh.HSTS.Enabled = b
+		if err := nodeBoolField(sub, "enabled", "hsts", &sh.HSTS.Enabled); err != nil {
+			return err
 		}
-		if v := sub.Get("max_age"); v != nil {
-			i, err := nodeInt(v)
-			if err != nil {
-				return fmt.Errorf("hsts.max_age: %w", err)
-			}
-			sh.HSTS.MaxAge = i
+		if err := nodeIntField(sub, "max_age", "hsts", &sh.HSTS.MaxAge, 0); err != nil {
+			return err
 		}
-		if v := sub.Get("include_subdomains"); v != nil {
-			b, err := nodeBool(v)
-			if err != nil {
-				return fmt.Errorf("hsts.include_subdomains: %w", err)
-			}
-			sh.HSTS.IncludeSubDomains = b
+		if err := nodeBoolField(sub, "include_subdomains", "hsts", &sh.HSTS.IncludeSubDomains); err != nil {
+			return err
 		}
 	}
-	if v := n.Get("x_content_type_options"); v != nil {
-		b, err := nodeBool(v)
-		if err != nil {
-			return fmt.Errorf("x_content_type_options: %w", err)
-		}
-		sh.XContentTypeOptions = b
+	if err := nodeBoolField(n, "x_content_type_options", "", &sh.XContentTypeOptions); err != nil {
+		return err
 	}
-	if v := n.Get("x_frame_options"); v != nil && !v.IsNull {
-		sh.XFrameOptions = v.String()
-	}
-	if v := n.Get("referrer_policy"); v != nil && !v.IsNull {
-		sh.ReferrerPolicy = v.String()
-	}
-	if v := n.Get("permissions_policy"); v != nil && !v.IsNull {
-		sh.PermissionsPolicy = v.String()
-	}
+	nodeStringField(n, "x_frame_options", &sh.XFrameOptions)
+	nodeStringField(n, "referrer_policy", &sh.ReferrerPolicy)
+	nodeStringField(n, "permissions_policy", &sh.PermissionsPolicy)
 	return nil
 }
 
@@ -1580,40 +1759,20 @@ func populateDataMasking(dm *DataMaskingConfig, n *Node) error {
 	if n.Kind != MapNode {
 		return nil
 	}
-	if v := n.Get("enabled"); v != nil {
-		b, err := nodeBool(v)
-		if err != nil {
-			return fmt.Errorf("enabled: %w", err)
-		}
-		dm.Enabled = b
+	if err := nodeBoolField(n, "enabled", "", &dm.Enabled); err != nil {
+		return err
 	}
-	if v := n.Get("mask_credit_cards"); v != nil {
-		b, err := nodeBool(v)
-		if err != nil {
-			return fmt.Errorf("mask_credit_cards: %w", err)
-		}
-		dm.MaskCreditCards = b
+	if err := nodeBoolField(n, "mask_credit_cards", "", &dm.MaskCreditCards); err != nil {
+		return err
 	}
-	if v := n.Get("mask_ssn"); v != nil {
-		b, err := nodeBool(v)
-		if err != nil {
-			return fmt.Errorf("mask_ssn: %w", err)
-		}
-		dm.MaskSSN = b
+	if err := nodeBoolField(n, "mask_ssn", "", &dm.MaskSSN); err != nil {
+		return err
 	}
-	if v := n.Get("mask_api_keys"); v != nil {
-		b, err := nodeBool(v)
-		if err != nil {
-			return fmt.Errorf("mask_api_keys: %w", err)
-		}
-		dm.MaskAPIKeys = b
+	if err := nodeBoolField(n, "mask_api_keys", "", &dm.MaskAPIKeys); err != nil {
+		return err
 	}
-	if v := n.Get("strip_stack_traces"); v != nil {
-		b, err := nodeBool(v)
-		if err != nil {
-			return fmt.Errorf("strip_stack_traces: %w", err)
-		}
-		dm.StripStackTraces = b
+	if err := nodeBoolField(n, "strip_stack_traces", "", &dm.StripStackTraces); err != nil {
+		return err
 	}
 	return nil
 }
@@ -1624,25 +1783,13 @@ func populateDashboard(dash *DashboardConfig, n *Node) error {
 	if n.Kind != MapNode {
 		return nil
 	}
-	if v := n.Get("enabled"); v != nil {
-		b, err := nodeBool(v)
-		if err != nil {
-			return fmt.Errorf("enabled: %w", err)
-		}
-		dash.Enabled = b
+	if err := nodeBoolField(n, "enabled", "", &dash.Enabled); err != nil {
+		return err
 	}
-	if v := n.Get("listen"); v != nil && !v.IsNull {
-		dash.Listen = v.String()
-	}
-	if v := n.Get("api_key"); v != nil && !v.IsNull {
-		dash.APIKey = v.String()
-	}
-	if v := n.Get("tls"); v != nil {
-		b, err := nodeBool(v)
-		if err != nil {
-			return fmt.Errorf("tls: %w", err)
-		}
-		dash.TLS = b
+	nodeStringField(n, "listen", &dash.Listen)
+	nodeStringField(n, "api_key", &dash.APIKey)
+	if err := nodeBoolField(n, "tls", "", &dash.TLS); err != nil {
+		return err
 	}
 	return nil
 }
@@ -1653,16 +1800,10 @@ func populateMCP(mcp *MCPConfig, n *Node) error {
 	if n.Kind != MapNode {
 		return nil
 	}
-	if v := n.Get("enabled"); v != nil {
-		b, err := nodeBool(v)
-		if err != nil {
-			return fmt.Errorf("enabled: %w", err)
-		}
-		mcp.Enabled = b
+	if err := nodeBoolField(n, "enabled", "", &mcp.Enabled); err != nil {
+		return err
 	}
-	if v := n.Get("transport"); v != nil && !v.IsNull {
-		mcp.Transport = v.String()
-	}
+	nodeStringField(n, "transport", &mcp.Transport)
 	return nil
 }
 
@@ -1672,19 +1813,11 @@ func populateDocker(dock *DockerConfig, n *Node) error {
 	if n.Kind != MapNode {
 		return nil
 	}
-	if v := n.Get("enabled"); v != nil {
-		b, err := nodeBool(v)
-		if err != nil {
-			return fmt.Errorf("enabled: %w", err)
-		}
-		dock.Enabled = b
+	if err := nodeBoolField(n, "enabled", "", &dock.Enabled); err != nil {
+		return err
 	}
-	if v := n.Get("socket_path"); v != nil && !v.IsNull {
-		dock.SocketPath = v.String()
-	}
-	if v := n.Get("label_prefix"); v != nil && !v.IsNull {
-		dock.LabelPrefix = v.String()
-	}
+	nodeStringField(n, "socket_path", &dock.SocketPath)
+	nodeStringField(n, "label_prefix", &dock.LabelPrefix)
 	if v := n.Get("poll_interval"); v != nil && !v.IsNull {
 		d, err := parseDuration(v.String())
 		if err != nil {
@@ -1692,9 +1825,7 @@ func populateDocker(dock *DockerConfig, n *Node) error {
 		}
 		dock.PollInterval = d
 	}
-	if v := n.Get("network"); v != nil && !v.IsNull {
-		dock.Network = v.String()
-	}
+	nodeStringField(n, "network", &dock.Network)
 	return nil
 }
 
@@ -1704,35 +1835,17 @@ func populateLogging(log *LogConfig, n *Node) error {
 	if n.Kind != MapNode {
 		return nil
 	}
-	if v := n.Get("level"); v != nil && !v.IsNull {
-		log.Level = v.String()
+	nodeStringField(n, "level", &log.Level)
+	nodeStringField(n, "format", &log.Format)
+	nodeStringField(n, "output", &log.Output)
+	if err := nodeBoolField(n, "log_allowed", "", &log.LogAllowed); err != nil {
+		return err
 	}
-	if v := n.Get("format"); v != nil && !v.IsNull {
-		log.Format = v.String()
+	if err := nodeBoolField(n, "log_blocked", "", &log.LogBlocked); err != nil {
+		return err
 	}
-	if v := n.Get("output"); v != nil && !v.IsNull {
-		log.Output = v.String()
-	}
-	if v := n.Get("log_allowed"); v != nil {
-		b, err := nodeBool(v)
-		if err != nil {
-			return fmt.Errorf("log_allowed: %w", err)
-		}
-		log.LogAllowed = b
-	}
-	if v := n.Get("log_blocked"); v != nil {
-		b, err := nodeBool(v)
-		if err != nil {
-			return fmt.Errorf("log_blocked: %w", err)
-		}
-		log.LogBlocked = b
-	}
-	if v := n.Get("log_body"); v != nil {
-		b, err := nodeBool(v)
-		if err != nil {
-			return fmt.Errorf("log_body: %w", err)
-		}
-		log.LogBody = b
+	if err := nodeBoolField(n, "log_body", "", &log.LogBody); err != nil {
+		return err
 	}
 	return nil
 }
@@ -1743,19 +1856,11 @@ func populateEvents(ev *EventsConfig, n *Node) error {
 	if n.Kind != MapNode {
 		return nil
 	}
-	if v := n.Get("storage"); v != nil && !v.IsNull {
-		ev.Storage = v.String()
+	nodeStringField(n, "storage", &ev.Storage)
+	if err := nodeIntField(n, "max_events", "", &ev.MaxEvents, 0); err != nil {
+		return err
 	}
-	if v := n.Get("max_events"); v != nil {
-		i, err := nodeInt(v)
-		if err != nil {
-			return fmt.Errorf("max_events: %w", err)
-		}
-		ev.MaxEvents = i
-	}
-	if v := n.Get("file_path"); v != nil && !v.IsNull {
-		ev.FilePath = v.String()
-	}
+	nodeStringField(n, "file_path", &ev.FilePath)
 	return nil
 }
 
@@ -1765,12 +1870,8 @@ func populateAlerting(alert *AlertingConfig, n *Node) error {
 	if n.Kind != MapNode {
 		return nil
 	}
-	if v := n.Get("enabled"); v != nil {
-		b, err := nodeBool(v)
-		if err != nil {
-			return fmt.Errorf("enabled: %w", err)
-		}
-		alert.Enabled = b
+	if err := nodeBoolField(n, "enabled", "", &alert.Enabled); err != nil {
+		return err
 	}
 	if w := n.Get("webhooks"); w != nil && w.Kind == SequenceNode {
 		items := w.Slice()

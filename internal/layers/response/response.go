@@ -48,6 +48,9 @@ func (l *Layer) Name() string {
 	return "response"
 }
 
+// Order returns the execution order.
+func (l *Layer) Order() int { return engine.OrderResponse }
+
 // Process stores the response configuration and a header-application hook
 // in context metadata. The engine's Middleware calls the hook to inject
 // security headers into every response (both blocked and passed).

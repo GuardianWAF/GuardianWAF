@@ -415,7 +415,7 @@ func writeGRPCError(w http.ResponseWriter, code int, message string) {
 	}, message)
 	w.Header().Set("grpc-message", safe)
 	w.WriteHeader(http.StatusOK) // gRPC always returns 200 OK with trailers
-	_, _ = w.Write([]byte{})    // Empty body - error ignored (client disconnect)
+	_, _ = w.Write([]byte{})    // nolint:errcheck // gRPC empty body; error means client disconnected
 }
 
 // recordError records an RPC error.

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"sort"
 	"sync"
 )
 
@@ -107,12 +108,12 @@ type EngineInterface interface {
 
 // Server is a JSON-RPC 2.0 MCP server that communicates over stdio.
 type Server struct {
-	mu           sync.Mutex
-	reader       *bufio.Reader
-	writer       io.Writer
-	tools        map[string]ToolHandler
-	engine       EngineInterface
-	apiKey       string
+	mu            sync.Mutex
+	reader        *bufio.Reader
+	writer        io.Writer
+	tools         map[string]ToolHandler
+	engine        EngineInterface
+	apiKey        string
 	authenticated bool // true once client sends valid api_key in initialize
 
 	serverName    string
@@ -189,6 +190,43 @@ func (s *Server) ToolCount() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.tools)
+}
+
+// ValidateTools verifies that the set of registered tool handlers exactly
+// matches the set of advertised tool definitions in AllTools(). Tool names are
+// declared twice — in AllTools() (the schema clients discover) and in
+// RegisterAllTools() (the handler wiring) — so a typo in either place silently
+// breaks a tool. Calling this in a test catches that drift at build time.
+func (s *Server) ValidateTools() error {
+	defined := make(map[string]bool)
+	for _, t := range AllTools() {
+		defined[t.Name] = true
+	}
+
+	s.mu.Lock()
+	registered := make(map[string]bool, len(s.tools))
+	for name := range s.tools {
+		registered[name] = true
+	}
+	s.mu.Unlock()
+
+	var missingHandler, missingDef []string
+	for name := range defined {
+		if !registered[name] {
+			missingHandler = append(missingHandler, name)
+		}
+	}
+	for name := range registered {
+		if !defined[name] {
+			missingDef = append(missingDef, name)
+		}
+	}
+	if len(missingHandler) == 0 && len(missingDef) == 0 {
+		return nil
+	}
+	sort.Strings(missingHandler)
+	sort.Strings(missingDef)
+	return fmt.Errorf("MCP tool drift: defined-but-not-registered=%v registered-but-not-defined=%v", missingHandler, missingDef)
 }
 
 // Run starts the server loop, reading JSON-RPC requests line-by-line from
@@ -417,8 +455,8 @@ func (s *Server) processRequest(req JSONRPCRequest) JSONRPCResponse {
 			ID:      req.ID,
 			Result: map[string]any{
 				"protocolVersion": "2024-11-05",
-				"capabilities":   map[string]any{"tools": map[string]any{}},
-				"serverInfo":     map[string]any{"name": name, "version": ver},
+				"capabilities":    map[string]any{"tools": map[string]any{}},
+				"serverInfo":      map[string]any{"name": name, "version": ver},
 			},
 		}
 	case "notifications/initialized":

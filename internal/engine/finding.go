@@ -60,6 +60,14 @@ func truncateEvidence(s string, maxLen int) string {
 	return s[:maxLen-3] + "..."
 }
 
+// ApplyMultiplier scales every finding's score by m in place. Detectors use it
+// to apply their per-detector sensitivity multiplier to all findings at once.
+func ApplyMultiplier(findings []Finding, m float64) {
+	for i := range findings {
+		findings[i].Score = int(float64(findings[i].Score) * m)
+	}
+}
+
 // ScoreAccumulator accumulates findings and scores from all layers
 type ScoreAccumulator struct {
 	findings   []Finding

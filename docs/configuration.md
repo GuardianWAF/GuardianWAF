@@ -30,6 +30,12 @@ mode: enforce                    # Default: enforce
 # HTTP listen address.
 listen: ":8088"                  # Default: :8088
 
+# Direct peer CIDRs/IPs whose proxy headers are trusted.
+# Leave empty when GuardianWAF is directly internet-facing. Configure only the
+# actual load balancer, ingress, or reverse proxy addresses that connect to
+# GuardianWAF; never trust broad client networks.
+trusted_proxies: []              # Example: ["10.0.0.10", "192.0.2.0/24"]
+
 # ─────────────────────────────────────────────────────────────────────────────
 # TLS
 # ─────────────────────────────────────────────────────────────────────────────
@@ -222,8 +228,9 @@ waf:
 dashboard:
   enabled: true                  # Default: true
   listen: ":9443"                # Default: :9443
-  api_key: ""                    # Set to require X-API-Key header
-  tls: true                     # Default: true
+  api_key: ""                    # Empty generates a strong random key at startup
+  admin_key: ""                  # Required for tenant-admin endpoints; empty disables them
+  tls: true                      # Default: true
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MCP Server (Model Context Protocol)
@@ -252,7 +259,9 @@ logging:
 events:
   storage: memory                # "memory" or "file"
   max_events: 100000             # Default: 100000
-  file_path: /var/log/guardianwaf/events.jsonl  # Used when storage is "file"
+  file_path: /var/log/guardianwaf/events.jsonl  # Persistent JSONL when storage is "file"
+
+`memory` keeps only an in-process ring buffer. `file` keeps the same queryable ring buffer, replays the JSONL file on startup, and appends new events to `file_path`; startup fails if the configured file cannot be opened.
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Alerting (Webhooks & Email)
@@ -327,6 +336,7 @@ All environment variables use the `GWAF_` prefix. These override values from the
 | `GWAF_DASHBOARD_ENABLED` | `dashboard.enabled` | `false` |
 | `GWAF_DASHBOARD_LISTEN` | `dashboard.listen` | `:8443` |
 | `GWAF_DASHBOARD_API_KEY` | `dashboard.api_key` | `my-secret-key` |
+| `GWAF_DASHBOARD_ADMIN_KEY` | `dashboard.admin_key` | `my-admin-secret-key` |
 | `GWAF_EVENTS_STORAGE` | `events.storage` | `file` |
 | `GWAF_EVENTS_FILE_PATH` | `events.file_path` | `/var/log/events.jsonl` |
 | `GWAF_EVENTS_MAX_EVENTS` | `events.max_events` | `50000` |

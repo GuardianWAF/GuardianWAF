@@ -109,6 +109,8 @@ website/dist/
 .claude/
 internal/dashboard/ui/node_modules/
 internal/dashboard/ui/dist/
+internal/dashboard/ui/test-results/
+internal/dashboard/ui/playwright-report/
 internal/dashboard/ui/tsconfig.tsbuildinfo
 data/
 

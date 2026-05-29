@@ -1,195 +1,178 @@
-# GuardianWAF Configuration
-# Production-ready default configuration
-version: "1.0"
+# GuardianWAF default configuration
+# This file is intentionally schema-valid and suitable as a starting point for
+# local Docker Compose or standalone reverse-proxy deployments.
 
-# Server settings
-server:
-  listen: ":8088"
-  mode: enforce              # enforce | monitor | disabled
+mode: enforce
+listen: ":8088"
+# Explicitly enabled because the default Docker/Kubernetes examples route to
+# service-network backends. Keep false for public-only upstream policies.
+allow_private_upstreams: true
 
-# TLS/SSL configuration
 tls:
   enabled: false
   listen: ":8443"
-  http_redirect: false      # Redirect HTTP to HTTPS
-  # For production, enable TLS and configure certificates:
+  http_redirect: false
+  # For production TLS, either set cert_file/key_file or enable ACME:
   # cert_file: "/etc/guardianwaf/certs/server.pem"
   # key_file: "/etc/guardianwaf/certs/server-key.pem"
   # acme:
   #   enabled: true
   #   email: "admin@example.com"
+  #   domains:
+  #     - "app.example.com"
   #   cache_dir: "/var/lib/guardianwaf/acme"
 
-# Upstream backends
 upstreams:
-  - name: default
+  - name: backend
+    load_balancer: round_robin
     targets:
-      - url: "http://localhost:3000"
+      - url: "http://backend:3000"
+        weight: 1
+    health_check:
+      enabled: true
+      interval: 10s
+      timeout: 3s
+      path: /healthz
 
-# Routing rules
 routes:
-  - host: "*"
-    upstream: default
+  - path: /
+    upstream: backend
+    strip_prefix: false
 
-# Logging configuration
-logging:
-  level: info               # debug | info | warn | error
-  format: json             # json | text
-  access_log: true
-  # file: "/var/log/guardianwaf/access.log"
-
-# WAF Detection settings
 waf:
-  detection:
+  ip_acl:
     enabled: true
-    block_threshold: 50     # Block score threshold
-    log_threshold: 25       # Log score threshold
-    detectors:
-      - sqli
-      - xss
-      - lfi
-      - cmdi
-      - xxe
-      - ssrf
-  challenge:
-    enabled: true           # JS challenge for suspicious requests
-    difficulty: 20          # Proof-of-work difficulty (1-50)
-  bot_detection:
-    enabled: true
-    mode: block            # block | challenge | log
-    ja3_enabled: true
-    ja4_enabled: true
-    ua_blocking: true
+    whitelist: []
+    blacklist: []
+    auto_ban:
+      enabled: true
+      default_ttl: 1h
+      max_ttl: 24h
+
   rate_limit:
     enabled: true
-    requests_per_minute: 100
-    burst: 20
-    auto_ban: true
-    ban_duration: 15m
+    rules:
+      - id: global
+        scope: ip
+        limit: 1000
+        window: 1m
+        burst: 50
+        action: block
 
-# IP Access Control
-ipacl:
-  enabled: true
-  # Configure via dashboard or CLI:
-  # whitelist:
-  #   - "127.0.0.1"
-  #   - "10.0.0.0/8"
-  # blacklist: []
-
-# Threat Intelligence
-threat_intel:
-  enabled: false
-  # feeds:
-  #   - url: "https://feeds.example.com/ip blacklist.json"
-  #     type: ip_blacklist
-  #     refresh: 1h
-
-# CORS settings
-cors:
-  enabled: true
-  allowed_origins:
-    # Restrict to specific origins in production. Using "*" is only suitable
-    # for local development or air-gapped deployments.
-    - "*"
-  allowed_methods:
-    - GET
-    - POST
-    - PUT
-    - DELETE
-    - OPTIONS
-  allowed_headers:
-    - "*"
-  exposed_headers:
-    - X-Request-ID
-  max_age: 86400
-  allow_credentials: false
-
-# API Security
-api_security:
-  enabled: false
-  # jwt:
-  #   enabled: true
-  #   algorithms:
-  #     - RS256
-  #   jwks_url: "https://auth.example.com/.well-known/jwks.json"
-  # api_keys:
-  #   - name: "default"
-  #     key: "your-api-key-here"
-  #     scopes:
-  #       - "read"
-  #       - "write"
-
-# Account Takeover Protection
-ato:
-  enabled: true
-  brute_force:
+  sanitizer:
     enabled: true
-    max_attempts: 5
-    window: 10m
-    ban_duration: 30m
-  credential_stuffing:
+    max_url_length: 8192
+    max_header_size: 8192
+    max_header_count: 100
+    max_body_size: 10485760
+    max_cookie_size: 4096
+    block_null_bytes: true
+    normalize_encoding: true
+    strip_hop_by_hop: true
+    allowed_methods:
+      - GET
+      - POST
+      - PUT
+      - PATCH
+      - DELETE
+      - HEAD
+      - OPTIONS
+
+  detection:
     enabled: true
-    min_score: 70
-  impossible_travel:
+    threshold:
+      block: 50
+      log: 25
+    detectors:
+      sqli:
+        enabled: true
+        multiplier: 1.0
+      xss:
+        enabled: true
+        multiplier: 1.0
+      lfi:
+        enabled: true
+        multiplier: 1.0
+      cmdi:
+        enabled: true
+        multiplier: 1.0
+      xxe:
+        enabled: true
+        multiplier: 1.0
+      ssrf:
+        enabled: true
+        multiplier: 1.0
+
+  challenge:
+    enabled: false
+    difficulty: 20
+    cookie_ttl: 1h
+    cookie_name: __gwaf_challenge
+
+  bot_detection:
     enabled: true
-    max_distance_km: 500
-    max_time_minutes: 60
+    mode: monitor
+    tls_fingerprint:
+      enabled: true
+      known_bots_action: block
+      unknown_action: log
+      mismatch_action: log
+    user_agent:
+      enabled: true
+      block_empty: true
+      block_known_scanners: true
+    behavior:
+      enabled: true
+      window: 5m
+      rps_threshold: 10
+      error_rate_threshold: 30
 
-# Alerting
-alerting:
-  enabled: false
-  # webhooks:
-  #   - name: slack
-  #     url: "https://hooks.slack.com/services/xxx"
-  #     type: slack
-  #     events:
-  #       - block
-  #     min_score: 50
-  # smtp:
-  #   enabled: false
-  #   host: "smtp.example.com"
-  #   port: 587
-  #   username: "alerts@example.com"
-  #   password: "smtp-password"
-  #   from: "guardianwaf@example.com"
-  #   to:
-  #     - "admin@example.com"
+  response:
+    security_headers:
+      enabled: true
+      hsts:
+        enabled: false
+      x_content_type_options: true
+      x_frame_options: SAMEORIGIN
+      referrer_policy: strict-origin-when-cross-origin
+      permissions_policy: "camera=(), microphone=(), geolocation=()"
+    data_masking:
+      enabled: true
+      mask_credit_cards: true
+      mask_ssn: true
+      mask_api_keys: true
+      strip_stack_traces: true
+    error_pages:
+      enabled: true
+      mode: production
 
-# Docker auto-discovery
-docker:
-  enabled: true
-  auto_discover: true
-  # socket: "/var/run/docker.sock"
-
-# Dashboard
 dashboard:
   enabled: true
   listen: ":9443"
-  # password protection (strongly recommended for production)
-  username: "admin"
-  # password: "CHANGE-THIS-IN-PRODUCTION"  # Set via GWAF_DASHBOARD_PASSWORD env or generate on first run
-  # For secure production: remove password field and use GWAF_DASHBOARD_PASSWORD env var
+  api_key: ""
+  admin_key: ""
+  tls: false
 
-# MCP Server (for AI integrations)
 mcp:
-  enabled: true
-  # transport: stdio    # stdio | sse
-
-# AI Analysis (optional)
-ai:
   enabled: false
-  # provider: "openai"
-  # api_key: "sk-..."   # Set via GWAF_AI_API_KEY env
-  # model: "gpt-4"
-  # auto_block: true
-  # min_confidence: 70
+  transport: stdio
 
-# Health check endpoint
-health:
-  enabled: true
-  path: "/healthz"
+docker:
+  enabled: false
+  socket_path: /var/run/docker.sock
+  label_prefix: gwaf
+  poll_interval: 5s
+  network: bridge
 
-# Metrics endpoint (Prometheus)
-metrics:
-  enabled: true
-  path: "/metrics"
+logging:
+  level: info
+  format: json
+  output: stdout
+  log_allowed: false
+  log_blocked: true
+  log_body: false
+
+events:
+  storage: memory
+  max_events: 100000
+  file_path: "/var/log/guardianwaf/events.jsonl"

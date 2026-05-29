@@ -41,7 +41,7 @@ func (l *Layer) Name() string {
 
 // Order returns the layer order.
 func (l *Layer) Order() int {
-	return 76
+	return engine.OrderWebSocket
 }
 
 // Process implements the layer interface.

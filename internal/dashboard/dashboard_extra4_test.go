@@ -1249,7 +1249,17 @@ func TestTenantAdminHandler_Authorized_ListTenants(t *testing.T) {
 	d.SetAdminKey("admin-key")
 	mgr := &mockTenantManager{
 		tenants: []any{
-			map[string]any{"id": "t1", "name": "Tenant 1"},
+			map[string]any{
+				"id":           "t1",
+				"name":         "Tenant 1",
+				"api_key_hash": "tenant-hash-secret",
+				"config": map[string]any{
+					"dashboard": map[string]any{
+						"api_key":   "dashboard-api-secret",
+						"admin_key": "dashboard-admin-secret",
+					},
+				},
+			},
 		},
 	}
 	d.SetTenantManager(mgr)
@@ -1262,35 +1272,92 @@ func TestTenantAdminHandler_Authorized_ListTenants(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
+	body := w.Body.String()
+	for _, secret := range []string{"tenant-hash-secret", "dashboard-api-secret", "dashboard-admin-secret"} {
+		if strings.Contains(body, secret) {
+			t.Fatalf("tenant list leaked secret %q: %s", secret, body)
+		}
+	}
+	if strings.Contains(body, "api_key_hash") {
+		t.Fatalf("tenant list leaked api_key_hash field: %s", body)
+	}
+	if !strings.Contains(body, "[REDACTED]") {
+		t.Fatalf("expected dashboard config secrets to be redacted: %s", body)
+	}
+}
+
+func TestTenantAdminHandler_CreateTenantSanitizesTenantObject(t *testing.T) {
+	d := newTestDashboard(t, "k")
+	d.SetAdminKey("admin-key")
+	mgr := &mockTenantManager{
+		createTenant: map[string]any{
+			"id":           "t1",
+			"name":         "Tenant 1",
+			"api_key_hash": "tenant-hash-secret",
+			"config": map[string]any{
+				"dashboard": map[string]any{
+					"api_key":   "dashboard-api-secret",
+					"admin_key": "dashboard-admin-secret",
+				},
+			},
+		},
+	}
+	d.SetTenantManager(mgr)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/api/admin/tenants", strings.NewReader(`{"name":"Tenant 1","domains":["t1.example.com"]}`))
+	req.Header.Set("X-API-Key", "admin-key")
+	req.Header.Set("Content-Type", "application/json")
+	d.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	for _, secret := range []string{"tenant-hash-secret", "dashboard-api-secret", "dashboard-admin-secret"} {
+		if strings.Contains(body, secret) {
+			t.Fatalf("create tenant leaked secret %q: %s", secret, body)
+		}
+	}
+	if strings.Contains(body, "api_key_hash") {
+		t.Fatalf("create tenant leaked api_key_hash field: %s", body)
+	}
+	if !strings.Contains(body, `"api_key":"new-key"`) {
+		t.Fatalf("expected one-time tenant API key to remain in create response: %s", body)
+	}
 }
 
 // mockTenantManager for tenant admin handler tests
 type mockTenantManager struct {
-	tenants []any
-	stats   any
-	billing BillingManagerInterface
-	alerts  AlertManagerInterface
-	usage   []any
+	tenants      []any
+	createTenant any
+	stats        any
+	billing      BillingManagerInterface
+	alerts       AlertManagerInterface
+	usage        []any
 }
 
-func (m *mockTenantManager) ListTenants() []any          { return m.tenants }
-func (m *mockTenantManager) GetTenant(id string) any      { return nil }
+func (m *mockTenantManager) ListTenants() []any      { return m.tenants }
+func (m *mockTenantManager) GetTenant(id string) any { return nil }
 func (m *mockTenantManager) CreateTenant(name, description string, domains []string, quota any) (any, error) {
+	if m.createTenant != nil {
+		return m.createTenant, nil
+	}
 	return nil, fmt.Errorf("not implemented")
 }
 func (m *mockTenantManager) UpdateTenant(id string, update any) error { return nil }
-func (m *mockTenantManager) DeleteTenant(id string) error              { return nil }
+func (m *mockTenantManager) DeleteTenant(id string) error             { return nil }
 func (m *mockTenantManager) RegenerateAPIKey(id string) (string, error) {
 	return "new-key", nil
 }
-func (m *mockTenantManager) Stats() any              { return m.stats }
+func (m *mockTenantManager) Stats() any                              { return m.stats }
 func (m *mockTenantManager) BillingManager() BillingManagerInterface { return m.billing }
 func (m *mockTenantManager) AlertManager() AlertManagerInterface     { return m.alerts }
-func (m *mockTenantManager) GetAllUsage() []any       { return m.usage }
+func (m *mockTenantManager) GetAllUsage() []any                      { return m.usage }
 func (m *mockTenantManager) GetTenantUsage(tenantID string) any {
 	return map[string]any{"tenant_id": tenantID}
 }
-func (m *mockTenantManager) GetTenantRules(tenantID string) []any        { return nil }
+func (m *mockTenantManager) GetTenantRules(tenantID string) []any { return nil }
 func (m *mockTenantManager) AddTenantRule(tenantID string, rule map[string]any) error {
 	return nil
 }
@@ -1386,7 +1453,7 @@ func TestExportEvents_WithCustomLimit(t *testing.T) {
 	d := newTestDashboard(t, "k")
 	for i := range 10 {
 		_ = d.eventStore.Store(engine.Event{
-			ID: fmt.Sprintf("evt-%d", i),
+			ID:     fmt.Sprintf("evt-%d", i),
 			Action: engine.ActionPass,
 		})
 	}

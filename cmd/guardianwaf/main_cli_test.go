@@ -78,7 +78,6 @@ func captureOptionalExit(t *testing.T, fn func()) (code int, called bool) {
 	return
 }
 
-
 // allocatePorts finds n free TCP ports by opening listeners and keeping them open
 // until the caller is ready. Returns a cleanup function that releases the ports.
 // This avoids the TOCTOU race of close-then-bind where another process could grab
@@ -128,7 +127,6 @@ func TestRunMain_Serve(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "gwaf.yaml")
 	os.WriteFile(cfgPath, []byte("mode: enforce\nlisten: 127.0.0.1:0\ndashboard:\n  enabled: false\nmcp:\n  enabled: false\n"), 0o644)
-
 
 	done := make(chan struct{})
 	go func() {
@@ -661,7 +659,7 @@ listen: "127.0.0.1:%d"
 dashboard:
   enabled: true
   listen: "127.0.0.1:%d"
-  api_key: testsecret
+  api_key: testsecret-1234567890
 mcp:
   enabled: true
   transport: sse
@@ -734,7 +732,6 @@ virtual_hosts:
 	// Release ports so servers can bind
 	releasePorts()
 
-
 	// Release ports so servers can bind
 	releasePorts()
 
@@ -796,7 +793,7 @@ virtual_hosts:
 
 	// Hit dashboard health
 	req, _ := http.NewRequestWithContext(context.Background(), "GET", fmt.Sprintf("http://127.0.0.1:%d/api/v1/health", dashPort), nil)
-	req.Header.Set("X-API-Key", "testsecret")
+	req.Header.Set("X-API-Key", "testsecret-1234567890")
 	resp, err = http.DefaultClient.Do(req)
 	if err == nil {
 		resp.Body.Close()
@@ -804,7 +801,7 @@ virtual_hosts:
 
 	// Hit MCP SSE endpoint (requires API key)
 	req2, _ := http.NewRequestWithContext(context.Background(), "GET", fmt.Sprintf("http://127.0.0.1:%d/mcp/sse", dashPort), nil)
-	req2.Header.Set("Authorization", "Bearer testsecret")
+	req2.Header.Set("Authorization", "Bearer testsecret-1234567890")
 	resp2, err := http.DefaultClient.Do(req2)
 	if err == nil {
 		resp2.Body.Close()
@@ -814,7 +811,7 @@ virtual_hosts:
 	// Add a rule
 	ruleBody := `{"id":"r2","name":"new","enabled":true,"priority":1,"action":"block","score":5,"conditions":[]}`
 	req3, _ := http.NewRequestWithContext(context.Background(), "POST", fmt.Sprintf("http://127.0.0.1:%d/api/v1/rules", dashPort), strings.NewReader(ruleBody))
-	req3.Header.Set("Authorization", "Bearer testsecret")
+	req3.Header.Set("Authorization", "Bearer testsecret-1234567890")
 	req3.Header.Set("Content-Type", "application/json")
 	resp3, _ := http.DefaultClient.Do(req3)
 	if resp3 != nil {
@@ -824,7 +821,7 @@ virtual_hosts:
 	// Update routing to trigger rebuild
 	routingBody := `{"upstreams":[{"name":"default","targets":[{"url":"http://127.0.0.1:9999"}]}],"routes":[{"path":"/","upstream":"default"}]}`
 	req4, _ := http.NewRequestWithContext(context.Background(), "PUT", fmt.Sprintf("http://127.0.0.1:%d/api/v1/routing", dashPort), strings.NewReader(routingBody))
-	req4.Header.Set("Authorization", "Bearer testsecret")
+	req4.Header.Set("Authorization", "Bearer testsecret-1234567890")
 	req4.Header.Set("Content-Type", "application/json")
 	resp4, _ := http.DefaultClient.Do(req4)
 	if resp4 != nil {
@@ -833,7 +830,7 @@ virtual_hosts:
 
 	// Save config
 	req5, _ := http.NewRequestWithContext(context.Background(), "PUT", fmt.Sprintf("http://127.0.0.1:%d/api/v1/config", dashPort), strings.NewReader(`{"mode":"enforce"}`))
-	req5.Header.Set("Authorization", "Bearer testsecret")
+	req5.Header.Set("Authorization", "Bearer testsecret-1234567890")
 	req5.Header.Set("Content-Type", "application/json")
 	resp5, _ := http.DefaultClient.Do(req5)
 	if resp5 != nil {
@@ -842,7 +839,7 @@ virtual_hosts:
 
 	// GeoIP lookup
 	req6, _ := http.NewRequestWithContext(context.Background(), "GET", fmt.Sprintf("http://127.0.0.1:%d/api/v1/geoip/lookup?ip=1.0.0.1", dashPort), nil)
-	req6.Header.Set("Authorization", "Bearer testsecret")
+	req6.Header.Set("Authorization", "Bearer testsecret-1234567890")
 	resp6, _ := http.DefaultClient.Do(req6)
 	if resp6 != nil {
 		resp6.Body.Close()
@@ -931,7 +928,6 @@ waf:
     enabled: false
 `, httpPort, tlsPort, certPath, keyPath)
 	_ = os.WriteFile(cfgPath, []byte(cfg), 0o644)
-
 
 	// Release ports so servers can bind
 	releasePorts()
@@ -1793,7 +1789,6 @@ waf:
 `, httpPort, tlsPort, certPath, keyPath, filepath.Join(dir, "acme_cache"))
 	_ = os.WriteFile(cfgPath, []byte(cfg), 0o644)
 
-
 	// Release ports so servers can bind
 	releasePorts()
 
@@ -1886,7 +1881,7 @@ listen: "127.0.0.1:%d"
 dashboard:
   enabled: true
   listen: "127.0.0.1:%d"
-  api_key: testsecret
+  api_key: testsecret-1234567890
 mcp:
   enabled: false
 waf:
@@ -1921,7 +1916,6 @@ routes:
 `, mainPort, dashPort)
 	_ = os.WriteFile(cfgPath, []byte(cfg), 0o644)
 
-
 	// Release ports so servers can bind
 	releasePorts()
 
@@ -1944,7 +1938,7 @@ routes:
 
 	// Missing rule id should trigger error branch
 	req1, _ := http.NewRequestWithContext(context.Background(), "POST", fmt.Sprintf("http://127.0.0.1:%d/api/v1/rules", dashPort), strings.NewReader(`{"name":"bad","enabled":true,"priority":1,"action":"block","score":5,"conditions":[]}`))
-	req1.Header.Set("X-API-Key", "testsecret")
+	req1.Header.Set("X-API-Key", "testsecret-1234567890")
 	req1.Header.Set("Content-Type", "application/json")
 	resp1, _ := client.Do(req1)
 	if resp1 != nil {
@@ -1953,7 +1947,7 @@ routes:
 
 	// Update nonexistent rule
 	req2, _ := http.NewRequestWithContext(context.Background(), "PUT", fmt.Sprintf("http://127.0.0.1:%d/api/v1/rules/nosuchrule", dashPort), strings.NewReader(`{"id":"nosuchrule","name":"bad","enabled":true,"priority":1,"action":"block","score":5,"conditions":[]}`))
-	req2.Header.Set("X-API-Key", "testsecret")
+	req2.Header.Set("X-API-Key", "testsecret-1234567890")
 	req2.Header.Set("Content-Type", "application/json")
 	resp2, _ := client.Do(req2)
 	if resp2 != nil {
@@ -1962,7 +1956,7 @@ routes:
 
 	// Delete nonexistent rule
 	req3, _ := http.NewRequestWithContext(context.Background(), "DELETE", fmt.Sprintf("http://127.0.0.1:%d/api/v1/rules/nosuchrule", dashPort), nil)
-	req3.Header.Set("X-API-Key", "testsecret")
+	req3.Header.Set("X-API-Key", "testsecret-1234567890")
 	resp3, _ := client.Do(req3)
 	if resp3 != nil {
 		resp3.Body.Close()
@@ -1970,7 +1964,7 @@ routes:
 
 	// Toggle nonexistent rule
 	req4, _ := http.NewRequestWithContext(context.Background(), "POST", fmt.Sprintf("http://127.0.0.1:%d/api/v1/rules/nosuchrule/toggle", dashPort), strings.NewReader(`{"enabled":false}`))
-	req4.Header.Set("X-API-Key", "testsecret")
+	req4.Header.Set("X-API-Key", "testsecret-1234567890")
 	req4.Header.Set("Content-Type", "application/json")
 	resp4, _ := client.Do(req4)
 	if resp4 != nil {

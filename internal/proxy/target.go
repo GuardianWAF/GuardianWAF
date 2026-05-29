@@ -15,8 +15,6 @@ import (
 	"time"
 )
 
-
-
 // proxyError wraps a ResponseWriter to detect proxy errors.
 // When ErrorHandler fires, it records the error. The router checks this to retry.
 type proxyError struct {
@@ -24,8 +22,8 @@ type proxyError struct {
 	err error
 }
 
-func (pe *proxyError) WriteHeader(code int) { pe.ResponseWriter.WriteHeader(code) }
-func (pe *proxyError) Write(p []byte) (int, error)              { return pe.ResponseWriter.Write(p) }
+func (pe *proxyError) WriteHeader(code int)        { pe.ResponseWriter.WriteHeader(code) }
+func (pe *proxyError) Write(p []byte) (int, error) { return pe.ResponseWriter.Write(p) }
 
 // Target represents a single backend server with its reverse proxy and stats.
 type Target struct {
@@ -92,12 +90,19 @@ func classifyIP(ip net.IP, host string) error {
 	}
 	return nil
 }
+
 // allowPrivateTargets is set to true in tests to allow httptest.NewServer URLs.
 var allowPrivateTargets atomic.Bool
 
 // AllowPrivateTargets enables private/reserved IP targets for testing.
 func AllowPrivateTargets() {
 	allowPrivateTargets.Store(true)
+}
+
+// SetPrivateTargetsAllowed controls whether upstream targets may resolve to
+// private, loopback, link-local, or otherwise reserved IP ranges.
+func SetPrivateTargetsAllowed(allowed bool) {
+	allowPrivateTargets.Store(allowed)
 }
 
 // SSRFDialContext returns a DialContext function that validates the resolved IP
@@ -187,21 +192,21 @@ func NewTarget(rawURL string, weight int) (*Target, error) {
 		req.Header.Del("X-Forwarded-Proto")
 		req.Header.Del("X-Real-IP")
 
-			// Propagate correlation ID across hops. If the incoming request
-			// already carries X-Correlation-ID (e.g., from another WAF node),
-			// preserve it. Otherwise use X-GuardianWAF-RequestID if present.
-			if req.Header.Get("X-Correlation-ID") == "" {
-				if rid := req.Header.Get("X-GuardianWAF-RequestID"); rid != "" {
-					req.Header.Set("X-Correlation-ID", rid)
-				}
+		// Propagate correlation ID across hops. If the incoming request
+		// already carries X-Correlation-ID (e.g., from another WAF node),
+		// preserve it. Otherwise use X-GuardianWAF-RequestID if present.
+		if req.Header.Get("X-Correlation-ID") == "" {
+			if rid := req.Header.Get("X-GuardianWAF-RequestID"); rid != "" {
+				req.Header.Set("X-Correlation-ID", rid)
 			}
+		}
 	}
 
 	transport := &http.Transport{
 		DialContext:           SSRFDialContext(),
-		MaxIdleConns:        100,
-		MaxIdleConnsPerHost: 20,
-		IdleConnTimeout:     90 * time.Second,
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   20,
+		IdleConnTimeout:       90 * time.Second,
 		ResponseHeaderTimeout: 30 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		MaxConnsPerHost:       100,
@@ -214,7 +219,7 @@ func NewTarget(rawURL string, weight int) (*Target, error) {
 	t.proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		// Drain the request body so the connection can be reused for keep-alive.
 		if r.Body != nil {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 1<<20))
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 1<<20)) // nolint:errcheck // response body drain; error ignored
 			r.Body.Close()
 		}
 		t.circuit.RecordFailure()

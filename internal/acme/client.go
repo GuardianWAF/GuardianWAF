@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -79,8 +80,26 @@ type challenge struct {
 func NewClient(directoryURL string) *Client {
 	return &Client{
 		directoryURL: directoryURL,
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+		httpClient:   newACMEHTTPClient(),
+	}
+}
+
+func newACMEHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			Proxy: http.ProxyFromEnvironment,
+			DialContext: (&net.Dialer{
+				Timeout:   10 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ResponseHeaderTimeout: 30 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+			IdleConnTimeout:       30 * time.Second,
+		},
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
 		},
 	}
 }

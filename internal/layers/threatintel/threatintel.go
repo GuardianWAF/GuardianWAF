@@ -90,6 +90,7 @@ func NewLayer(cfg *Config) (*Layer, error) {
 
 // Name returns the layer name.
 func (l *Layer) Name() string { return "threat_intel" }
+func (l *Layer) Order() int { return engine.OrderThreatIntel }
 
 // Start begins feed refresh loops.
 func (l *Layer) Start() {

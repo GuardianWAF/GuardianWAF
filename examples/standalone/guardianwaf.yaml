@@ -3,6 +3,7 @@
 
 mode: enforce
 listen: ":8088"
+allow_private_upstreams: true
 
 tls:
   enabled: false
@@ -200,6 +201,7 @@ dashboard:
   enabled: true
   listen: ":9443"
   api_key: "${GWAF_DASHBOARD_API_KEY}"  # Set via environment variable — never use default in production
+  admin_key: "${GWAF_DASHBOARD_ADMIN_KEY}"  # Required for tenant-admin endpoints
   tls: false
 
 mcp:

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/config"
 )
@@ -112,6 +113,11 @@ func testEngine(t *testing.T) (*Engine, *mockEventStore, *mockEventBus) {
 	cfg := config.DefaultConfig()
 	cfg.Events.Storage = "memory"
 	cfg.Events.MaxEvents = 1000
+	return testEngineWithConfig(t, cfg)
+}
+
+func testEngineWithConfig(t *testing.T, cfg *config.Config) (*Engine, *mockEventStore, *mockEventBus) {
+	t.Helper()
 	store := newMockEventStore()
 	bus := newMockEventBus()
 	e, err := NewEngine(cfg, store, bus)
@@ -172,6 +178,54 @@ func TestNewEngine(t *testing.T) {
 	}
 	if int(e.logThreshold.Load()) != 25 {
 		t.Errorf("expected logThreshold 25, got %d", e.logThreshold.Load())
+	}
+}
+
+func TestEngine_Config_ReturnsDefensiveCopy(t *testing.T) {
+	e, _, _ := testEngine(t)
+	defer e.Close()
+
+	cfg := e.Config()
+	cfg.Mode = "disabled"
+	cfg.WAF.Detection.Threshold.Block = 1
+	cfg.TrustedProxies = append(cfg.TrustedProxies, "127.0.0.1")
+
+	current := e.Config()
+	if current.Mode == "disabled" {
+		t.Fatal("mutating Config() result changed engine mode")
+	}
+	if current.WAF.Detection.Threshold.Block == 1 {
+		t.Fatal("mutating Config() result changed engine threshold")
+	}
+	for _, proxy := range current.TrustedProxies {
+		if proxy == "127.0.0.1" {
+			t.Fatal("mutating Config() result changed engine trusted proxies")
+		}
+	}
+}
+
+func TestEngine_PipelineLayers_ReturnsSnapshot(t *testing.T) {
+	e, _, _ := testEngine(t)
+	defer e.Close()
+
+	e.AddLayer(OrderedLayer{Layer: &scoreLayer{name: "second", score: 1}, Order: 200})
+	e.AddLayer(OrderedLayer{Layer: &scoreLayer{name: "first", score: 1}, Order: 100})
+
+	layers := e.PipelineLayers()
+	if len(layers) != 2 {
+		t.Fatalf("expected 2 pipeline layers, got %#v", layers)
+	}
+	if layers[0].Name != "first" || layers[0].Order != 100 {
+		t.Fatalf("first layer = %#v, want first/100", layers[0])
+	}
+	if layers[1].Name != "second" || layers[1].Order != 200 {
+		t.Fatalf("second layer = %#v, want second/200", layers[1])
+	}
+
+	layers[0].Name = "mutated"
+	again := e.PipelineLayers()
+	if again[0].Name != "first" {
+		t.Fatalf("mutating snapshot changed engine pipeline snapshot: %#v", again)
 	}
 }
 
@@ -640,6 +694,61 @@ func TestEngine_Reload_MaxBodySize(t *testing.T) {
 	}
 }
 
+func TestEngine_Reload_DuringConcurrentTraffic(t *testing.T) {
+	e, _, _ := testEngine(t)
+	defer e.Close()
+
+	e.AddLayer(OrderedLayer{
+		Layer: &scoreLayer{name: "detector", score: 35, category: "test"},
+		Order: OrderDetection,
+	})
+
+	const requestWorkers = 24
+	const requestsPerWorker = 50
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	errCh := make(chan error, requestWorkers)
+
+	for range requestWorkers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			for range requestsPerWorker {
+				req := testRequest("GET", "/reload-traffic")
+				event := e.Check(req)
+				if event == nil {
+					errCh <- errors.New("nil event during concurrent reload")
+					return
+				}
+			}
+		}()
+	}
+
+	close(start)
+	for i := 0; i < 40; i++ {
+		cfg := config.DefaultConfig()
+		if i%2 == 0 {
+			cfg.WAF.Detection.Threshold.Block = 30
+			cfg.WAF.Detection.Threshold.Log = 10
+		} else {
+			cfg.WAF.Detection.Threshold.Block = 60
+			cfg.WAF.Detection.Threshold.Log = 40
+		}
+		if err := e.Reload(cfg); err != nil {
+			t.Fatalf("Reload(%d): %v", i, err)
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		t.Error(err)
+	}
+}
+
 func TestEngine_Concurrent(t *testing.T) {
 	e, store, _ := testEngine(t)
 	defer e.Close()
@@ -958,6 +1067,25 @@ func TestApplyResponseHook_WithHook(t *testing.T) {
 	}
 }
 
+func TestApplyResponseHook_ClientSideCSPHook(t *testing.T) {
+	w := httptest.NewRecorder()
+	metadata := map[string]any{
+		"clientside_csp_hook": func(w http.ResponseWriter) {
+			w.Header().Set("Content-Security-Policy", "default-src 'self'")
+		},
+		"response_hook": func(w http.ResponseWriter) {
+			w.Header().Set("X-Frame-Options", "DENY")
+		},
+	}
+	applyResponseHook(w, metadata)
+	if w.Header().Get("Content-Security-Policy") != "default-src 'self'" {
+		t.Error("expected clientside CSP hook to set Content-Security-Policy")
+	}
+	if w.Header().Get("X-Frame-Options") != "DENY" {
+		t.Error("expected response hook to still run alongside CSP hook")
+	}
+}
+
 func TestApplyResponseHook_NoHook(t *testing.T) {
 	w := httptest.NewRecorder()
 	metadata := map[string]any{}
@@ -1059,6 +1187,8 @@ type mockResponseLayer struct {
 }
 
 func (l *mockResponseLayer) Name() string { return "response" }
+
+func (l *mockResponseLayer) Order() int { return 0 }
 
 func (l *mockResponseLayer) Process(ctx *RequestContext) LayerResult {
 	ctx.Metadata["response_config"] = "test"
@@ -1218,6 +1348,8 @@ type mockTenantAwareLayer struct {
 }
 
 func (l *mockTenantAwareLayer) Name() string { return l.name }
+
+func (l *mockTenantAwareLayer) Order() int { return 0 }
 
 func (l *mockTenantAwareLayer) Process(ctx *RequestContext) LayerResult {
 	l.processCallCount++

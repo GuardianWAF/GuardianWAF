@@ -9,22 +9,25 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
-	"net/url"
 	"net/http/pprof"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/alerting"
-	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/compliance"
+	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/events"
 	"github.com/guardianwaf/guardianwaf/internal/proxy"
 )
+
+var dashboardLog = slog.Default().With(slog.String("component", "dashboard"))
 
 //go:embed dist
 var distFS embed.FS
@@ -70,29 +73,29 @@ type AlertManagerInterface interface {
 
 // Dashboard is the web dashboard server.
 type Dashboard struct {
-	engine          *engine.Engine
-	eventStore      events.EventStore
-	sse             *SSEBroadcaster
-	mux             *http.ServeMux
-	apiKey          string
-	adminKey        string // Separate key for system admin operations (tenant management, billing, stats)
-	tenantAPIKeys   map[string]string // map[tenantID] -> SHA256 hash of per-tenant API key
+	engine        *engine.Engine
+	eventStore    events.EventStore
+	sse           *SSEBroadcaster
+	mux           *http.ServeMux
+	apiKey        string
+	adminKey      string            // Separate key for system admin operations (tenant management, billing, stats)
+	tenantAPIKeys map[string]string // map[tenantID] -> SHA256 hash of per-tenant API key
 	// Fields below unchanged
-	upstreamsFn     func() any   // returns upstream status (injected to avoid circular imports)
-	rebuildFn       func() error // rebuilds proxy after config change
-	saveFn          func() error // persists current config to disk
-	rulesFn         func() any   // returns rules list
-	addRuleFn       func(map[string]any) error
-	updateRuleFn    func(string, map[string]any) error
-	deleteRuleFn    func(string) bool
-	toggleRuleFn    func(string, bool) bool
-	geoLookupFn     func(string) (string, string) // ip -> (country_code, country_name)
-	alertingStatsFn func() any                    // returns alerting stats (optional)
-	aiAnalyzer      aiAnalyzerInterface           // AI threat analyzer (optional)
-	dockerWatcher   dockerWatcherInterface        // Docker auto-discovery (optional)
-	tenantManager   tenantManagerInterface        // Multi-tenant manager (optional)
-	certFn          func() any                    // returns SSL cert status (optional)
-	complianceEngine *compliance.Engine             // Compliance reporting engine (optional)
+	upstreamsFn      func() any   // returns upstream status (injected to avoid circular imports)
+	rebuildFn        func() error // rebuilds proxy after config change
+	saveFn           func() error // persists current config to disk
+	rulesFn          func() any   // returns rules list
+	addRuleFn        func(map[string]any) error
+	updateRuleFn     func(string, map[string]any) error
+	deleteRuleFn     func(string) bool
+	toggleRuleFn     func(string, bool) bool
+	geoLookupFn      func(string) (string, string) // ip -> (country_code, country_name)
+	alertingStatsFn  func() any                    // returns alerting stats (optional)
+	aiAnalyzer       aiAnalyzerInterface           // AI threat analyzer (optional)
+	dockerWatcher    dockerWatcherInterface        // Docker auto-discovery (optional)
+	tenantManager    tenantManagerInterface        // Multi-tenant manager (optional)
+	certFn           func() any                    // returns SSL cert status (optional)
+	complianceEngine *compliance.Engine            // Compliance reporting engine (optional)
 
 	// Login rate limiting: per-IP token buckets
 	loginBuckets sync.Map // map[string]*loginBucket
@@ -100,7 +103,7 @@ type Dashboard struct {
 }
 
 const (
-	loginMaxAttempts = 5               // max failed login attempts before lockout
+	loginMaxAttempts = 5                // max failed login attempts before lockout
 	loginWindow      = 5 * time.Minute  // window for counting attempts
 	loginLockout     = 15 * time.Minute // lockout duration after max attempts
 )
@@ -137,21 +140,21 @@ func (d *Dashboard) isAdminAuthenticated(r *http.Request) bool {
 }
 
 type loginBucket struct {
-	mu       sync.Mutex
-	attempts int
-	lastFail time.Time
-	locked   bool
+	mu        sync.Mutex
+	attempts  int
+	lastFail  time.Time
+	locked    bool
 	lockUntil time.Time
 }
 
 // New creates a new Dashboard wired to the given engine and event store.
 func New(eng *engine.Engine, store events.EventStore, apiKey string) *Dashboard {
 	d := &Dashboard{
-		engine:     eng,
-		eventStore: store,
-		sse:        NewSSEBroadcaster(),
-		mux:        http.NewServeMux(),
-		apiKey:     apiKey,
+		engine:      eng,
+		eventStore:  store,
+		sse:         NewSSEBroadcaster(),
+		mux:         http.NewServeMux(),
+		apiKey:      apiKey,
 		loginStopCh: make(chan struct{}),
 	}
 
@@ -226,7 +229,7 @@ func New(eng *engine.Engine, store events.EventStore, apiKey string) *Dashboard 
 	d.mux.HandleFunc("GET /debug/pprof/trace", d.pprofWrap(pprof.Trace))
 
 	// SPA serving — React build output from dist/ with fallback to legacy static/
-	d.mux.HandleFunc("GET /assets/", d.handleDistAssets)       // Vite hashed assets — public (content-hashed, no secrets)
+	d.mux.HandleFunc("GET /assets/", d.handleDistAssets) // Vite hashed assets — public (content-hashed, no secrets)
 	// Core Web Vitals reporting endpoint (no auth - uses beacon API)
 	d.mux.HandleFunc("POST /api/v1/cwv", d.handleCWVReport)
 	d.mux.HandleFunc("GET /api/v1/cwv", d.authWrap(d.handleGetCWV))
@@ -236,7 +239,7 @@ func New(eng *engine.Engine, store events.EventStore, apiKey string) *Dashboard 
 	d.mux.HandleFunc("GET /api/v1/compliance/report/{framework}", d.authWrap(d.handleComplianceReport))
 	d.mux.HandleFunc("GET /api/v1/compliance/audit-chain", d.authWrap(d.handleAuditChain))
 
-d.mux.HandleFunc("GET /ssl", d.authWrap(d.handleSPA)) // SPA routes
+	d.mux.HandleFunc("GET /ssl", d.authWrap(d.handleSPA))      // SPA routes
 	d.mux.HandleFunc("GET /config", d.authWrap(d.handleSPA))   // SPA routes
 	d.mux.HandleFunc("GET /routing", d.authWrap(d.handleSPA))  // SPA routes
 	d.mux.HandleFunc("GET /alerting", d.authWrap(d.handleSPA)) // SPA routes
@@ -336,7 +339,7 @@ func (d *Dashboard) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(loginPage("")))
+	_, _ = w.Write([]byte(loginPage(""))) // nolint:errcheck // login page write; error ignored after headers committed
 }
 
 func (d *Dashboard) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
@@ -360,6 +363,7 @@ func (d *Dashboard) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusTooManyRequests)
 		_, _ = w.Write([]byte(loginPage("Too many failed attempts. Please try again later.")))
+		// nolint:errcheck // login page write; error ignored after headers committed
 		return
 	}
 
@@ -370,6 +374,7 @@ func (d *Dashboard) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte(loginPage("Invalid API key. Please try again.")))
+		// nolint:errcheck // login page write; error ignored after headers committed
 		return
 	}
 	d.resetLoginAttempts(clientIP)
@@ -485,7 +490,7 @@ func (d *Dashboard) handleLogout(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   true, // Always require TLS for session cookies
+		Secure:   secureCookieForRequest(r),
 		SameSite: http.SameSiteStrictMode,
 	})
 	http.Redirect(w, r, "/login", http.StatusFound)
@@ -663,7 +668,7 @@ func (d *Dashboard) writeEventsCSV(w http.ResponseWriter, evts []engine.Event) {
 
 	// CSV header
 	header := "timestamp,event_id,client_ip,method,path,action,score,user_agent,findings\n"
-	_, _ = w.Write([]byte(header))
+	_, _ = w.Write([]byte(header)) // nolint:errcheck // CSV export write; error ignored
 
 	// CSV rows
 	for _, e := range evts {
@@ -683,7 +688,7 @@ func (d *Dashboard) writeEventsCSV(w http.ResponseWriter, evts []engine.Event) {
 			escapeCSV(e.UserAgent),
 			escapeCSV(findingsStr),
 		)
-		_, _ = w.Write([]byte(line))
+		_, _ = w.Write([]byte(line)) // nolint:errcheck // CSV export write; error ignored
 	}
 }
 
@@ -815,11 +820,11 @@ func (d *Dashboard) handleUpdateRouting(w http.ResponseWriter, r *http.Request) 
 							return
 						}
 						if !proxy.PrivateTargetsAllowed() {
-						if ssrfErr := proxy.IsPrivateOrReservedIP(parsed.Hostname()); ssrfErr != nil {
-							writeJSON(w, http.StatusBadRequest, map[string]any{"error": sanitizeErr(ssrfErr)})
-							return
+							if ssrfErr := proxy.IsPrivateOrReservedIP(parsed.Hostname()); ssrfErr != nil {
+								writeJSON(w, http.StatusBadRequest, map[string]any{"error": sanitizeErr(ssrfErr)})
+								return
+							}
 						}
-					}
 						tc.URL = v
 					}
 					if v, ok := tm["weight"].(float64); ok {
@@ -976,15 +981,15 @@ func (d *Dashboard) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"mode": cfg.Mode,
 		"tls": map[string]any{
-			"enabled":       cfg.TLS.Enabled,
-			"listen":        cfg.TLS.Listen,
+			"enabled":         cfg.TLS.Enabled,
+			"listen":          cfg.TLS.Listen,
 			"cert_configured": cfg.TLS.CertFile != "",
-			"key_configured": cfg.TLS.KeyFile != "",
-			"http_redirect": cfg.TLS.HTTPRedirect,
+			"key_configured":  cfg.TLS.KeyFile != "",
+			"http_redirect":   cfg.TLS.HTTPRedirect,
 			"acme": map[string]any{
-				"enabled":   cfg.TLS.ACME.Enabled,
-				"domains":   cfg.TLS.ACME.Domains,
-							},
+				"enabled": cfg.TLS.ACME.Enabled,
+				"domains": cfg.TLS.ACME.Domains,
+			},
 		},
 		"waf": map[string]any{
 			"ip_acl": map[string]any{
@@ -1997,7 +2002,7 @@ func (d *Dashboard) handleSPA(w http.ResponseWriter, r *http.Request) {
 	if idx := bytes.LastIndex(data, []byte("</body>")); idx > 0 {
 		data = append(data[:idx], append(cwv, data[idx:]...)...)
 	}
-	_, _ = w.Write(data)
+	_, _ = w.Write(data) // nolint:errcheck // download write; error ignored
 }
 
 // handleDistAssets serves Vite-built assets (JS/CSS with content hashes).
@@ -2033,15 +2038,15 @@ func (d *Dashboard) handleDistAssets(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", ct)
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-	_, _ = w.Write(data)
+	_, _ = w.Write(data) // nolint:errcheck // download write; error ignored
 }
 
 // --- SSE Broadcaster ---
 
 // SSEBroadcaster manages Server-Sent Events client connections.
 type SSEBroadcaster struct {
-	mu       sync.RWMutex
-	clients  map[chan string]struct{}
+	mu         sync.RWMutex
+	clients    map[chan string]struct{}
 	maxClients int
 }
 
@@ -2087,10 +2092,10 @@ func (b *SSEBroadcaster) HandleSSE(w http.ResponseWriter, r *http.Request) {
 		select {
 		case msg := <-ch:
 			// Split on newlines per SSE spec: each line gets its own "data:" prefix
-			for _, line := range strings.Split(msg, "\n"  ) {
+			for _, line := range strings.Split(msg, "\n") {
 				fmt.Fprintf(w, "data: %s\n", line)
 			}
-			fmt.Fprint(w, "\n" )
+			fmt.Fprint(w, "\n")
 			flusher.Flush()
 		case <-ctx.Done():
 			return
@@ -2144,10 +2149,27 @@ func handleCORS(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// writeJSON marshals v before writing the status code so that an encoding
+// failure can still produce a proper 500 instead of a 200 with a truncated,
+// invalid body. Encoding failures are logged rather than silently dropped.
 func writeJSON(w http.ResponseWriter, status int, v any) {
+	buf, err := json.Marshal(v)
+	if err != nil {
+		dashboardLog.Error("response encode failed", "err", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error":"internal encoding error"}`)) // nolint:errcheck // error response; error ignored
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	_, _ = w.Write(buf) // nolint:errcheck // download write; error ignored
+}
+
+// writeError writes a JSON error response with the standard {"error": ...}
+// envelope used across the dashboard API.
+func writeError(w http.ResponseWriter, status int, msg string) {
+	writeJSON(w, status, map[string]any{"error": msg})
 }
 
 const maxRequestBody = 1 << 20 // 1MB max request body for API endpoints
@@ -2156,7 +2178,7 @@ const maxRequestBody = 1 << 20 // 1MB max request body for API endpoints
 func limitedDecodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
 	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid JSON"})
+		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return false
 	}
 	return true
@@ -2547,7 +2569,9 @@ func (d *Dashboard) logSecurityConfigChanges(oldCfg, newCfg *config.Config, r *h
 	clientIP := clientIPFromRequest(r)
 	for _, f := range securityFields {
 		if f.old && !f.new {
-			fmt.Printf("[SECURITY-AUDIT]  Security feature %q DISABLED by %s\n", f.name, clientIP)
+			dashboardLog.Warn("security feature disabled via config API",
+				"feature", f.name,
+				"client_ip", clientIP)
 		}
 	}
 }

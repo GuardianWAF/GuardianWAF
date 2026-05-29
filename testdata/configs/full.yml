@@ -1,6 +1,7 @@
 # Full GuardianWAF configuration - every option specified
 mode: enforce
 listen: ":8088"
+allow_private_upstreams: true
 
 tls:
   enabled: true

@@ -1,5 +1,6 @@
 mode: enforce
 listen: ":8088"
+allow_private_upstreams: true
 
 upstreams:
   - name: backend

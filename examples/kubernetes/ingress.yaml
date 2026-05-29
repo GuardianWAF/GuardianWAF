@@ -25,7 +25,7 @@ spec:
               service:
                 name: guardianwaf
                 port:
-                  number: 8088
+                  number: 80
     - host: dashboard.example.com
       http:
         paths:

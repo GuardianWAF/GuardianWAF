@@ -24,6 +24,7 @@ func NewLayer(cfg *Config) *Layer {
 
 // Name returns "sanitizer".
 func (l *Layer) Name() string { return "sanitizer" }
+func (l *Layer) Order() int { return engine.OrderSanitizer }
 
 // SetEnabled enables or disables the sanitizer layer.
 func (l *Layer) SetEnabled(enabled bool) {

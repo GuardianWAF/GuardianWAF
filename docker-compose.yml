@@ -12,6 +12,7 @@ services:
     volumes:
       - ./guardianwaf.yaml:/etc/guardianwaf/guardianwaf.yaml:ro
       - guardianwaf-data:/var/lib/guardianwaf
+      - guardianwaf-logs:/var/log/guardianwaf
       # Socket mount is removed — use docker-compose.prod.yml for production
       # which uses TLS-based Docker client (NewTLSClient in docker/client.go)
     environment:
@@ -41,7 +42,7 @@ services:
 
   # Example backend services for testing
   backend:
-    image: golang:1.23-alpine
+    image: golang:1.26.3-alpine
     container_name: backend-primary
     working_dir: /app
     volumes:
@@ -67,7 +68,7 @@ services:
     restart: unless-stopped
 
   backend2:
-    image: golang:1.23-alpine
+    image: golang:1.26.3-alpine
     container_name: backend-secondary
     working_dir: /app
     volumes:
@@ -94,6 +95,8 @@ services:
 
 volumes:
   guardianwaf-data:
+    driver: local
+  guardianwaf-logs:
     driver: local
 
 networks:

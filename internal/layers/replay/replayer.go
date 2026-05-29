@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -28,16 +29,16 @@ type Replayer struct {
 
 // ReplayerConfig for replay engine.
 type ReplayerConfig struct {
-	Enabled       bool          `yaml:"enabled"`
-	TargetBaseURL string        `yaml:"target_base_url"`
-	RateLimit     int           `yaml:"rate_limit"`      // requests per second
-	Concurrency   int           `yaml:"concurrency"`     // parallel workers
-	Timeout       time.Duration `yaml:"timeout"`
-	FollowRedirects bool        `yaml:"follow_redirects"`
-	ModifyHost    bool          `yaml:"modify_host"`     // replace original host
-	PreserveIDs   bool          `yaml:"preserve_ids"`    // keep X-Request-ID
-	DryRun        bool          `yaml:"dry_run"`         // log only, don't send
-	Headers       map[string]string `yaml:"headers"`       // additional headers
+	Enabled         bool              `yaml:"enabled"`
+	TargetBaseURL   string            `yaml:"target_base_url"`
+	RateLimit       int               `yaml:"rate_limit"`  // requests per second
+	Concurrency     int               `yaml:"concurrency"` // parallel workers
+	Timeout         time.Duration     `yaml:"timeout"`
+	FollowRedirects bool              `yaml:"follow_redirects"`
+	ModifyHost      bool              `yaml:"modify_host"`  // replace original host
+	PreserveIDs     bool              `yaml:"preserve_ids"` // keep X-Request-ID
+	DryRun          bool              `yaml:"dry_run"`      // log only, don't send
+	Headers         map[string]string `yaml:"headers"`      // additional headers
 }
 
 // DefaultReplayerConfig returns default config.
@@ -57,15 +58,15 @@ func DefaultReplayerConfig() *ReplayerConfig {
 
 // ReplayStats tracks replay performance.
 type ReplayStats struct {
-	StartedAt      time.Time     `json:"started_at"`
-	CompletedAt    time.Time     `json:"completed_at,omitempty"`
-	TotalRequests  int           `json:"total_requests"`
-	SuccessCount   int           `json:"success_count"`
-	ErrorCount     int           `json:"error_count"`
-	SkippedCount   int           `json:"skipped_count"`
-	TotalDuration  time.Duration `json:"total_duration"`
-	AvgLatency     time.Duration `json:"avg_latency"`
-	Errors         []string      `json:"errors,omitempty"`
+	StartedAt     time.Time     `json:"started_at"`
+	CompletedAt   time.Time     `json:"completed_at,omitempty"`
+	TotalRequests int           `json:"total_requests"`
+	SuccessCount  int           `json:"success_count"`
+	ErrorCount    int           `json:"error_count"`
+	SkippedCount  int           `json:"skipped_count"`
+	TotalDuration time.Duration `json:"total_duration"`
+	AvgLatency    time.Duration `json:"avg_latency"`
+	Errors        []string      `json:"errors,omitempty"`
 }
 
 // ReplayJob represents a single replay task.
@@ -80,7 +81,7 @@ type ReplayJob struct {
 type ReplayFilter struct {
 	Methods    []string
 	Paths      []string
-	StatusCode int    // 0 = any
+	StatusCode int // 0 = any
 	FromTime   time.Time
 	ToTime     time.Time
 	Contains   string // body contains
@@ -88,7 +89,7 @@ type ReplayFilter struct {
 
 // ReplaySchedule for automated replay.
 type ReplaySchedule struct {
-	Enabled   bool      `yaml:"enabled"`
+	Enabled   bool          `yaml:"enabled"`
 	Interval  time.Duration `yaml:"interval"`
 	StartTime time.Time     `yaml:"start_time,omitempty"`
 	Repeat    int           `yaml:"repeat"` // 0 = infinite
@@ -102,20 +103,42 @@ func NewReplayer(cfg *ReplayerConfig) *Replayer {
 
 	return &Replayer{
 		config: cfg,
-		client: &http.Client{
-			Timeout: cfg.Timeout,
-			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				if !cfg.FollowRedirects {
-					return http.ErrUseLastResponse
-				}
-				if len(via) >= 10 {
-					return fmt.Errorf("too many redirects")
-				}
-				return nil
-			},
-		},
-		stats: ReplayStats{},
+		client: newReplayHTTPClient(cfg),
+		stats:  ReplayStats{},
 	}
+}
+
+func newReplayHTTPClient(cfg *ReplayerConfig) *http.Client {
+	return &http.Client{
+		Timeout: cfg.Timeout,
+		Transport: &http.Transport{
+			Proxy: http.ProxyFromEnvironment,
+			DialContext: (&net.Dialer{
+				Timeout:   minReplayDuration(cfg.Timeout, 10*time.Second),
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			TLSHandshakeTimeout:   minReplayDuration(cfg.Timeout, 10*time.Second),
+			ResponseHeaderTimeout: minReplayDuration(cfg.Timeout, 30*time.Second),
+			ExpectContinueTimeout: 1 * time.Second,
+			IdleConnTimeout:       30 * time.Second,
+		},
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if !cfg.FollowRedirects {
+				return http.ErrUseLastResponse
+			}
+			if len(via) >= 10 {
+				return fmt.Errorf("too many redirects")
+			}
+			return nil
+		},
+	}
+}
+
+func minReplayDuration(a, b time.Duration) time.Duration {
+	if a <= 0 || a > b {
+		return b
+	}
+	return a
 }
 
 // ReplayFile replays all requests from a recording file.
@@ -407,7 +430,7 @@ func (r *Replayer) replayRequest(ctx context.Context, rec *RecordedRequest) erro
 	defer resp.Body.Close()
 
 	// Drain body
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20)) // nolint:errcheck // response body drain; error ignored
 
 	return nil
 }

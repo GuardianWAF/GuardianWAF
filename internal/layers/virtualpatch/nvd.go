@@ -1,6 +1,7 @@
 package virtualpatch
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -19,17 +20,73 @@ type NVDClient struct {
 	baseURL    string
 	apiKey     string
 	httpClient *http.Client
+	// allowPrivate is used by tests that exercise the client with httptest
+	// loopback servers. Production code must leave this false.
+	allowPrivate bool
 }
 
 // NewNVDClient creates a new NVD API client.
 func NewNVDClient(apiKey string) *NVDClient {
-	return &NVDClient{
+	c := &NVDClient{
 		baseURL: "https://services.nvd.nist.gov/rest/json/cves/2.0",
 		apiKey:  apiKey,
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+	}
+	c.httpClient = c.newHTTPClient()
+	return c
+}
+
+func (c *NVDClient) newHTTPClient() *http.Client {
+	transport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		transport = &http.Transport{}
+	}
+	transport = transport.Clone()
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		if c.privateAllowed() {
+			return dialer.DialContext(ctx, network, addr)
+		}
+
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			host = addr
+		}
+		ips, err := net.LookupIP(host)
+		if err != nil {
+			return nil, fmt.Errorf("NVD SSRF dial: DNS lookup failed for %q: %w", host, err)
+		}
+		for _, ip := range ips {
+			if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() || ip.IsMulticast() {
+				continue
+			}
+			target := ip.String()
+			if port != "" {
+				target = net.JoinHostPort(target, port)
+			}
+			return dialer.DialContext(ctx, network, target)
+		}
+		return nil, fmt.Errorf("NVD SSRF dial: no valid public IPs for %q", host)
+	}
+
+	return &http.Client{
+		Timeout:   30 * time.Second,
+		Transport: transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if c.privateAllowed() {
+				return nil
+			}
+			if err := validateURLNotPrivate(req.URL.String()); err != nil {
+				return fmt.Errorf("redirect URL rejected: %w", err)
+			}
+			return nil
 		},
 	}
+}
+
+func (c *NVDClient) privateAllowed() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.allowPrivate
 }
 
 // SetBaseURL sets a custom base URL for the NVD API.
@@ -138,8 +195,8 @@ type NVDCVSSMetricV30 struct {
 
 // NVDCVSSMetricV2 represents CVSS v2 metrics.
 type NVDCVSSMetricV2 struct {
-	Source   string       `json:"source"`
-	Type     string       `json:"type"`
+	Source   string        `json:"source"`
+	Type     string        `json:"type"`
 	CVSSData NVDCVSSDataV2 `json:"cvssData"`
 }
 
@@ -179,8 +236,8 @@ type NVDConfig struct {
 
 // NVDNode represents a configuration node.
 type NVDNode struct {
-	Operator string   `json:"operator"`
-	Negate   bool     `json:"negate"`
+	Operator string     `json:"operator"`
+	Negate   bool       `json:"negate"`
 	CPEMatch []CPEMatch `json:"cpeMatch"`
 }
 
@@ -197,29 +254,29 @@ type CPEMatch struct {
 
 // NVDReference represents a CVE reference.
 type NVDReference struct {
-	URL  string `json:"url"`
-	Source string `json:"source"`
-	Tags []string `json:"tags,omitempty"`
+	URL    string   `json:"url"`
+	Source string   `json:"source"`
+	Tags   []string `json:"tags,omitempty"`
 }
 
 // NVDWeakness represents CWE weaknesses.
 type NVDWeakness struct {
-	Source      string   `json:"source"`
-	Type        string   `json:"type"`
+	Source      string           `json:"source"`
+	Type        string           `json:"type"`
 	Description []NVDDescription `json:"description"`
 }
 
 // SearchOptions represents search options for the NVD API.
 type SearchOptions struct {
-	Keyword         string
-	ResultsPerPage  int
-	StartIndex      int
-	PubStartDate    time.Time
-	PubEndDate      time.Time
-	ModStartDate    time.Time
-	ModEndDate      time.Time
-	Severity        string
-	CWEID           string
+	Keyword        string
+	ResultsPerPage int
+	StartIndex     int
+	PubStartDate   time.Time
+	PubEndDate     time.Time
+	ModStartDate   time.Time
+	ModEndDate     time.Time
+	Severity       string
+	CWEID          string
 }
 
 // Search searches for CVEs in the NVD.
@@ -279,7 +336,7 @@ func (c *NVDClient) Search(opts SearchOptions) (*NVDResponse, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20)) // nolint:errcheck // response body drain; error ignored
 		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
@@ -287,7 +344,7 @@ func (c *NVDClient) Search(opts SearchOptions) (*NVDResponse, error) {
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 50<<20)).Decode(&result); err != nil {
 		return nil, fmt.Errorf("decoding response: %w", err)
 	}
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20)) // nolint:errcheck // response body drain; error ignored
 
 	return &result, nil
 }
@@ -325,7 +382,7 @@ func (c *NVDClient) GetCVE(cveID string) (*CVEEntry, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20)) // nolint:errcheck // response body drain; error ignored
 		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
@@ -333,7 +390,7 @@ func (c *NVDClient) GetCVE(cveID string) (*CVEEntry, error) {
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 50<<20)).Decode(&result); err != nil {
 		return nil, fmt.Errorf("decoding response: %w", err)
 	}
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20)) // nolint:errcheck // response body drain; error ignored
 
 	if len(result.Vulnerabilities) == 0 {
 		return nil, fmt.Errorf("CVE not found: %s", cveID)

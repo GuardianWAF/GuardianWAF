@@ -76,7 +76,7 @@ export default function ConfigPage() {
 
     api.getIPACL().then(setIpacl).catch(() => toast({ title: 'Failed to load IP ACL', variant: 'warning' }))
     api.getBans().then(d => setBans(d.bans || [])).catch(() => toast({ title: 'Failed to load bans', variant: 'warning' }))
-  }, [])
+  }, [toast])
 
   useEffect(() => { fetchData() }, [fetchData])
 

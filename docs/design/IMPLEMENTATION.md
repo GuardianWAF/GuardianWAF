@@ -2122,12 +2122,9 @@ func (d *Dashboard) authMiddleware(next http.Handler) http.Handler {
             return
         }
 
-        // Check API key in header
-        key := r.Header.Get("X-GuardianWAF-Key")
-        if key == "" {
-            // Check query parameter (for SSE connections from browser)
-            key = r.URL.Query().Get("api_key")
-        }
+        // Check API key in header. Query-string API keys are rejected to keep
+        // credentials out of URLs, logs, referrers, and browser history.
+        key := r.Header.Get("X-API-Key")
 
         if !secureCompare(key, d.apiKey) {
             http.Error(w, "Unauthorized", http.StatusUnauthorized)

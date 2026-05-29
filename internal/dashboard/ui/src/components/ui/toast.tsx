@@ -171,5 +171,5 @@ function ToastItem({
 /*  Exports                                                                   */
 /* -------------------------------------------------------------------------- */
 
-export { ToastProvider, useToast, toastVariants }
+export { ToastProvider, useToast }
 export type { Toast, ToastContextValue }

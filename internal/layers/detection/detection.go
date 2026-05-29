@@ -72,6 +72,9 @@ func NewLayer(cfg *Config) *Layer {
 
 func (l *Layer) Name() string { return "detection" }
 
+// Order returns the execution order.
+func (l *Layer) Order() int { return engine.OrderDetection }
+
 // AddExclusion adds a detection exclusion dynamically at runtime.
 func (l *Layer) AddExclusion(exc Exclusion) {
 	l.mu.Lock()

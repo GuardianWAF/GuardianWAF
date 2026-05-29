@@ -235,6 +235,9 @@ func (l *Layer) Name() string {
 	return "ml-anomaly"
 }
 
+// Order returns the execution order.
+func (l *Layer) Order() int { return engine.OrderAnomaly }
+
 // Process implements the engine.Layer interface.
 // It analyzes the request for anomalies and returns a LayerResult.
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {

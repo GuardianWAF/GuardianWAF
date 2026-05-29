@@ -76,7 +76,8 @@ routes:
 dashboard:
   enabled: true
   listen: ":9443"
-  api_key: "your-secret-key"
+  api_key: "${GWAF_DASHBOARD_API_KEY}"
+  admin_key: "${GWAF_DASHBOARD_ADMIN_KEY}"
 
 logging:
   level: info

@@ -494,10 +494,8 @@ func TestCmdTestAlert_ShowTargets(t *testing.T) {
 	defer os.Remove(tmpFile.Name())
 
 	configContent := `
-version: "1.0"
-server:
-  listen: "127.0.0.1:0"
-  mode: enforce
+mode: enforce
+listen: "127.0.0.1:0"
 alerting:
   enabled: true
   webhooks:
@@ -535,10 +533,8 @@ func TestCmdTestAlert_EmailTarget(t *testing.T) {
 	defer os.Remove(tmpFile.Name())
 
 	configContent := `
-version: "1.0"
-server:
-  listen: "127.0.0.1:0"
-  mode: enforce
+mode: enforce
+listen: "127.0.0.1:0"
 alerting:
   enabled: true
   emails:
@@ -816,10 +812,8 @@ func TestLoadConfig_ComplianceConfig(t *testing.T) {
 	defer os.Remove(tmpFile.Name())
 
 	configContent := `
-version: "1.0"
-server:
-  listen: "127.0.0.1:0"
-  mode: enforce
+mode: enforce
+listen: "127.0.0.1:0"
 `
 	if _, err := tmpFile.WriteString(configContent); err != nil {
 		t.Fatal(err)

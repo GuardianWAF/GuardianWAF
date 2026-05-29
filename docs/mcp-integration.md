@@ -67,14 +67,14 @@ mcp:
 dashboard:
   enabled: true
   listen: ":9443"
-  api_key: "your-secret-key"
+  api_key: "${GWAF_DASHBOARD_API_KEY}"
 ```
 
 **Endpoints:**
 - `GET /mcp/sse` — Establishes SSE stream (server → client events)
 - `POST /mcp/message` — Receives JSON-RPC requests (client → server)
 
-**Authentication:** `X-API-Key` header or `?api_key` query parameter (same as dashboard API).
+**Authentication:** `X-API-Key` header or an authenticated dashboard session cookie. Query-string API keys are rejected to keep credentials out of URLs and logs.
 
 **Claude Desktop / VS Code config:**
 ```json

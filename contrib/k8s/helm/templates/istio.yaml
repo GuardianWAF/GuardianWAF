@@ -20,7 +20,7 @@ spec:
         - destination:
             host: {{ include "guardianwaf.fullname" . }}
             port:
-              number: {{ .Values.service.ports.http }}
+              number: {{ .Values.service.port }}
       {{- if .Values.istio.virtualService.retries }}
       retries:
         {{- toYaml .Values.istio.virtualService.retries | nindent 8 }}

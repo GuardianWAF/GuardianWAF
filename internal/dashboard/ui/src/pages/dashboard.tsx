@@ -114,12 +114,13 @@ export default function DashboardPage() {
           variant: 'destructive'
         })
       }
+    } finally {
+      setIsLoading(false)
     }
   }, [sseConnected, toast])
 
   // Polling with adaptive interval (also handles initial load)
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     checkHealth()
     const interval = setInterval(() => {
       checkHealth()
@@ -130,7 +131,6 @@ export default function DashboardPage() {
   // SSE connection is managed by the layout's useSSE hook via EventsProvider.
   // Mark connected since the layout handles reconnection.
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSseConnected(true)
   }, [])
 
@@ -139,7 +139,6 @@ export default function DashboardPage() {
     setIsLoading(true)
     await checkHealth()
     toast({ title: 'Refreshed', description: 'Dashboard data updated' })
-    setIsLoading(false)
   }
 
   // Get health color

@@ -9,7 +9,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"html"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"strconv"
@@ -20,10 +20,10 @@ import (
 )
 
 const (
-	sessionCookieName            = "gwaf_session"
-	sessionMaxAge                = 24 * time.Hour
-	sessionAbsMaxAge             = 7 * 24 * time.Hour // Absolute maximum session lifetime (7 days)
-	MaxConcurrentSessionsPerIP  = 5                  // Max simultaneous sessions per client IP; oldest evicted when exceeded
+	sessionCookieName          = "gwaf_session"
+	sessionMaxAge              = 24 * time.Hour
+	sessionAbsMaxAge           = 7 * 24 * time.Hour // Absolute maximum session lifetime (7 days)
+	MaxConcurrentSessionsPerIP = 5                  // Max simultaneous sessions per client IP; oldest evicted when exceeded
 )
 
 // secretHolder holds the HMAC signing key atomically for thread safety.
@@ -47,12 +47,14 @@ type ipSessionMap struct {
 
 var activeSessions sync.Map
 
+var authLog = slog.Default().With(slog.String("component", "dashboard/auth"))
+
 func init() {
 	secret := make([]byte, 32)
 	if _, err := rand.Read(secret); err != nil {
 		// crypto/rand failure is a critical security issue — cannot safely generate
 		// session secrets. Fail fast rather than using a predictable fallback.
-		log.Fatalf("[auth] FATAL: crypto/rand failed — cannot generate session secret: %v", err)
+		authLog.Error("FATAL: crypto/rand failed — cannot generate session secret", "err", err)
 	}
 	secretHolder.Store(secret)
 }
@@ -364,7 +366,7 @@ func getAuthType(r *http.Request) string {
 
 func (d *Dashboard) isAuthenticated(r *http.Request) (*http.Request, bool) {
 	if d.apiKey == "" {
-		log.Printf("[ERROR] Dashboard API key is not configured — refusing request. Set apiKey before starting the dashboard.")
+		authLog.Error("Dashboard API key is not configured — refusing request. Set apiKey before starting the dashboard.")
 		return r, false
 	}
 
@@ -374,7 +376,7 @@ func (d *Dashboard) isAuthenticated(r *http.Request) (*http.Request, bool) {
 	}
 	// Reject API keys in query parameters
 	if r.URL.Query().Get("api_key") != "" {
-		log.Printf("[WARN] Rejected API key from query parameter from %s — use X-API-Key header only", r.RemoteAddr)
+		authLog.Warn("rejected API key from query parameter", "addr", r.RemoteAddr)
 		return r, false
 	}
 
@@ -399,6 +401,20 @@ func (d *Dashboard) isAuthenticated(r *http.Request) (*http.Request, bool) {
 	return r, false
 }
 
+// secureCookieForRequest reports whether cookies for this request should be
+// marked Secure. Direct TLS and trusted TLS-terminating proxies are supported;
+// plain local/dev HTTP remains usable without weakening HTTPS deployments.
+func secureCookieForRequest(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	if r.TLS != nil {
+		return true
+	}
+	return strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") ||
+		strings.EqualFold(r.Header.Get("X-Forwarded-Ssl"), "on")
+}
+
 // setSessionCookie sets the session cookie on the response with proper security flags.
 func setSessionCookie(w http.ResponseWriter, r *http.Request) {
 	token := signSession(clientIPFromRequest(r))
@@ -409,7 +425,7 @@ func setSessionCookie(w http.ResponseWriter, r *http.Request) {
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   true, // Always require TLS for session cookies
+		Secure:   secureCookieForRequest(r),
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   int(sessionMaxAge.Seconds()),
 	})

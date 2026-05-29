@@ -15,10 +15,17 @@ spec:
       labels:
         app: guardianwaf
     spec:
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: guardianwaf
           image: ghcr.io/guardianwaf/guardianwaf:latest
           imagePullPolicy: IfNotPresent
+          args:
+            - serve
+            - -c
+            - /etc/guardianwaf/guardianwaf.yaml
           ports:
             - name: http
               containerPort: 8088
@@ -33,6 +40,11 @@ spec:
               value: ":8088"
             - name: GWAF_DASHBOARD_LISTEN
               value: ":9443"
+            - name: GWAF_DASHBOARD_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: guardianwaf-dashboard-auth
+                  key: api-key
           volumeMounts:
             - name: config
               mountPath: /etc/guardianwaf
@@ -42,9 +54,14 @@ spec:
               readOnly: true
             - name: cache
               mountPath: /var/cache/guardianwaf
+            - name: state
+              mountPath: /var/lib/guardianwaf
+            - name: state
+              mountPath: /var/log/guardianwaf
+              subPath: logs
           livenessProbe:
             httpGet:
-              path: /healthz
+              path: /livez
               port: 8088
             initialDelaySeconds: 10
             periodSeconds: 10
@@ -52,7 +69,7 @@ spec:
             failureThreshold: 3
           readinessProbe:
             httpGet:
-              path: /healthz
+              path: /readyz
               port: 8088
             initialDelaySeconds: 5
             periodSeconds: 5
@@ -84,6 +101,9 @@ spec:
         - name: cache
           emptyDir:
             sizeLimit: 100Mi
+        - name: state
+          emptyDir:
+            sizeLimit: 1Gi
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:

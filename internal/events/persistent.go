@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"sync"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 )
@@ -14,13 +15,16 @@ import (
 // New events are appended to the file so that a subsequent restart can replay them.
 type PersistentMemoryStore struct {
 	*MemoryStore
-	path string
-	file *os.File
+	path   string
+	file   *os.File
+	fileMu sync.Mutex
+	closed bool
 }
 
 // NewPersistentMemoryStore creates a MemoryStore preloaded from path and
 // appends new events to the same file. If path is empty, falls back to a
-// plain MemoryStore (no persistence).
+// plain MemoryStore (no persistence). If path is non-empty and cannot be
+// opened, an error is returned so configured persistence can fail fast.
 func NewPersistentMemoryStore(capacity int, path string) (*PersistentMemoryStore, error) {
 	ms := NewMemoryStore(capacity)
 
@@ -39,7 +43,7 @@ func NewPersistentMemoryStore(capacity int, path string) (*PersistentMemoryStore
 	// Open for append
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
-		return ps, nil // graceful: work without persistence
+		return nil, err
 	}
 	ps.file = f
 
@@ -52,10 +56,10 @@ func (ps *PersistentMemoryStore) Store(event engine.Event) error {
 		return err
 	}
 
-	if ps.file != nil {
-		ps.mu.Lock()
-		data, err := json.Marshal(event)
-		if err == nil {
+	data, err := json.Marshal(event)
+	if err == nil {
+		ps.fileMu.Lock()
+		if !ps.closed && ps.file != nil {
 			if _, werr := ps.file.Write(data); werr != nil {
 				log.Printf("[events] failed to write event to JSONL: %v", werr)
 			}
@@ -63,7 +67,7 @@ func (ps *PersistentMemoryStore) Store(event engine.Event) error {
 				log.Printf("[events] failed to write newline to JSONL: %v", werr)
 			}
 		}
-		ps.mu.Unlock()
+		ps.fileMu.Unlock()
 	}
 
 	return nil
@@ -71,10 +75,16 @@ func (ps *PersistentMemoryStore) Store(event engine.Event) error {
 
 // Close flushes and closes the persistence file.
 func (ps *PersistentMemoryStore) Close() error {
+	ps.fileMu.Lock()
 	if ps.file != nil {
-		ps.file.Sync()
-		ps.file.Close()
+		ps.closed = true
+		_ = ps.file.Sync() // nolint:errcheck // best-effort flush on Close; error irrelevant at shutdown
+		_ = ps.file.Close() // nolint:errcheck // best-effort close; error irrelevant at shutdown
+		ps.file = nil
+	} else {
+		ps.closed = true
 	}
+	ps.fileMu.Unlock()
 	return ps.MemoryStore.Close()
 }
 

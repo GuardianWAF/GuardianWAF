@@ -6,38 +6,74 @@ metadata:
   labels:
     {{- include "guardianwaf.labels" . | nindent 4 }}
 data:
-  guardianwaf.yml: |
-    mode: {{ .Values.config.mode }}
-    listen: {{ .Values.config.listen }}
+  {{ .Values.config.fileName | default "guardianwaf.yaml" }}: |
+    mode: {{ .Values.config.mode | quote }}
+    listen: {{ .Values.config.listen | quote }}
+    allow_private_upstreams: {{ .Values.config.allowPrivateUpstreams }}
+    tls:
+      enabled: {{ .Values.tls.enabled }}
+      {{- if .Values.tls.enabled }}
+      cert_file: "/etc/guardianwaf/certs/tls.crt"
+      key_file: "/etc/guardianwaf/certs/tls.key"
+      {{- end }}
     {{- if .Values.dashboard.enabled }}
     dashboard:
       enabled: true
-      listen: {{ .Values.config.dashboardListen }}
+      listen: {{ .Values.config.dashboardListen | quote }}
+      api_key: "${GWAF_DASHBOARD_API_KEY}"
+      admin_key: "${GWAF_DASHBOARD_ADMIN_KEY}"
     {{- end }}
-    log:
-      level: {{ .Values.config.logLevel }}
-      format: {{ .Values.config.logFormat }}
-    engine:
+    logging:
+      level: {{ .Values.config.logLevel | quote }}
+      format: {{ .Values.config.logFormat | quote }}
+      output: stdout
+      log_blocked: true
+      log_allowed: false
+    events:
+      storage: {{ .Values.config.events.storage | quote }}
+      max_events: {{ .Values.config.events.maxEvents }}
+      file_path: {{ .Values.config.events.filePath | quote }}
+    waf:
       detection:
-        block_threshold: {{ .Values.config.detection.blockThreshold }}
-        log_threshold: {{ .Values.config.detection.logThreshold }}
-        paranoia_level: {{ .Values.config.detection.paranoiaLevel }}
+        enabled: true
+        threshold:
+          block: {{ .Values.config.detection.blockThreshold }}
+          log: {{ .Values.config.detection.logThreshold }}
+        detectors:
+          sqli:
+            enabled: true
+            multiplier: 1.0
+          xss:
+            enabled: true
+            multiplier: 1.0
+          lfi:
+            enabled: true
+            multiplier: 1.0
+          cmdi:
+            enabled: true
+            multiplier: 1.0
+          xxe:
+            enabled: true
+            multiplier: 1.0
+          ssrf:
+            enabled: true
+            multiplier: 1.0
     {{- if .Values.config.geoip.enabled }}
-    geoip:
-      enabled: true
-      {{- if .Values.config.geoip.dbPath }}
-      db_path: {{ .Values.config.geoip.dbPath }}
-      {{- end }}
-      auto_download: {{ .Values.config.geoip.autoDownload }}
+      geoip:
+        enabled: true
+        {{- if .Values.config.geoip.dbPath }}
+        db_path: {{ .Values.config.geoip.dbPath | quote }}
+        {{- end }}
+        auto_download: {{ .Values.config.geoip.autoDownload }}
     {{- end }}
     {{- if .Values.upstreams }}
     upstreams:
     {{- range .Values.upstreams }}
-      - name: {{ .name }}
-        strategy: {{ .strategy | default "round_robin" }}
+      - name: {{ .name | quote }}
+        load_balancer: {{ .strategy | default "round_robin" | quote }}
         targets:
         {{- range .targets }}
-          - url: {{ .url }}
+          - url: {{ .url | quote }}
             weight: {{ .weight | default 1 }}
         {{- end }}
         {{- if .healthCheck }}
@@ -46,5 +82,13 @@ data:
           path: {{ .healthCheck.path | default "/healthz" }}
           interval: {{ .healthCheck.interval | default "10s" }}
         {{- end }}
+    {{- end }}
+    {{- end }}
+    {{- if .Values.routes }}
+    routes:
+    {{- range .Values.routes }}
+      - path: {{ .path | quote }}
+        upstream: {{ .upstream | quote }}
+        strip_prefix: {{ .stripPrefix | default false }}
     {{- end }}
     {{- end }}

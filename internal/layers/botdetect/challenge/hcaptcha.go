@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"time"
@@ -35,9 +36,7 @@ func NewHCaptcha(cfg HCaptchaConfig) *HCaptchaProvider {
 	return &HCaptchaProvider{
 		secretKey: cfg.SecretKey,
 		siteKey:   cfg.SiteKey,
-		client: &http.Client{
-			Timeout: timeout,
-		},
+		client:    newCaptchaVerificationHTTPClient(timeout),
 	}
 }
 
@@ -139,10 +138,34 @@ func NewTurnstile(cfg TurnstileConfig) *TurnstileProvider {
 	return &TurnstileProvider{
 		secretKey: cfg.SecretKey,
 		siteKey:   cfg.SiteKey,
-		client: &http.Client{
-			Timeout: timeout,
+		client:    newCaptchaVerificationHTTPClient(timeout),
+	}
+}
+
+func newCaptchaVerificationHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: timeout,
+		Transport: &http.Transport{
+			DialContext: (&net.Dialer{
+				Timeout:   minDuration(timeout, 10*time.Second),
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			IdleConnTimeout:       30 * time.Second,
+			TLSHandshakeTimeout:   minDuration(timeout, 10*time.Second),
+			ResponseHeaderTimeout: minDuration(timeout, 30*time.Second),
+			ExpectContinueTimeout: 1 * time.Second,
+		},
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
 		},
 	}
+}
+
+func minDuration(a, b time.Duration) time.Duration {
+	if a <= 0 || a > b {
+		return b
+	}
+	return a
 }
 
 // turnstileResponse from verification API.

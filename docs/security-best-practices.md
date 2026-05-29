@@ -81,7 +81,7 @@ services:
       - "443:8443"
     
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/livez || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -341,6 +341,16 @@ server {
 }
 ```
 
+GuardianWAF should trust only the direct Nginx peer addresses, not arbitrary client networks:
+
+```yaml
+trusted_proxies:
+  - 10.0.0.10        # Nginx instance or pod IP
+  - 10.0.1.0/24      # Nginx/ingress subnet, if IPs are ephemeral
+```
+
+For Kubernetes ingress controllers, use the ingress controller pod/node CIDR that directly connects to GuardianWAF. For AWS ALB, Cloudflare, or another managed edge, trust only the private hop that forwards traffic into GuardianWAF, or the documented provider CIDRs if GuardianWAF directly receives traffic from that provider. Leave `trusted_proxies` empty when GuardianWAF is directly exposed to clients.
+
 ---
 
 ## Authentication & Authorization
@@ -349,9 +359,10 @@ server {
 
 ```yaml
 # config.yaml
-server:
-  dashboard_listen: "127.0.0.1:9443"
-  dashboard_api_key: "${DASHBOARD_API_KEY}"  # From env var
+dashboard:
+  listen: "127.0.0.1:9443"
+  api_key: "${GWAF_DASHBOARD_API_KEY}"      # From env var
+  admin_key: "${GWAF_DASHBOARD_ADMIN_KEY}"  # Required only for tenant-admin endpoints
 
 # Generate strong key
 # openssl rand -base64 32
@@ -459,6 +470,7 @@ chown -R guardianwaf:guardianwaf /var/lib/guardianwaf/acme
 ```bash
 # .env file (DO NOT COMMIT!)
 DASHBOARD_API_KEY=$(openssl rand -base64 32)
+DASHBOARD_ADMIN_KEY=$(openssl rand -base64 32)
 SMTP_PASSWORD=your-smtp-password
 ACME_EMAIL=admin@example.com
 WEBHOOK_SECRET=another-secret
@@ -502,7 +514,8 @@ metadata:
   name: guardianwaf-secrets
 type: Opaque
 stringData:
-  api-key: "your-secret-key"
+  api-key: "replace-with-strong-random-dashboard-key"
+  admin-key: "replace-with-strong-random-admin-key"
   smtp-password: "your-smtp-password"
 
 ---

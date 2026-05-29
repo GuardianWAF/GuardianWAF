@@ -128,11 +128,31 @@ paths:
   /healthz:
     get:
       tags: [Health]
-      summary: Kubernetes liveness/readiness probe
+      summary: Legacy liveness-style health probe
       security: []
       responses:
         '200':
           description: JSON status summary
+
+  /livez:
+    get:
+      tags: [Health]
+      summary: Process liveness probe
+      security: []
+      responses:
+        '200':
+          description: JSON process status summary
+
+  /readyz:
+    get:
+      tags: [Health]
+      summary: Traffic readiness probe
+      security: []
+      responses:
+        '200':
+          description: Ready to receive traffic
+        '503':
+          description: One or more configured upstream groups has zero healthy targets
 
   /metrics:
     get:

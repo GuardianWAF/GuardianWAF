@@ -66,7 +66,7 @@ export default function RoutingPage() {
       setDockerEnabled(data.enabled ?? false)
       setDockerServices(data.services ?? [])
     }).catch(() => {})
-  }, [])
+  }, [toast])
 
   useEffect(() => {
     fetchData()

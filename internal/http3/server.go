@@ -154,7 +154,7 @@ func (s *Server) Stop() error {
 
 	// Close the listener first to stop accepting new connections
 	if s.listener != nil {
-		_ = s.listener.Close()
+		_ = s.listener.Close() // nolint:errcheck // listener close at shutdown; error irrelevant
 	}
 
 	// Close the HTTP/3 server

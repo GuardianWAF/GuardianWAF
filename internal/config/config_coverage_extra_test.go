@@ -175,10 +175,10 @@ func TestPopulateFromNode_WAFIPACLError(t *testing.T) {
 		yaml string
 		want string
 	}{
-		{"waf:\n  ip_acl:\n    enabled: bad", "ip_acl: enabled"},
-		{"waf:\n  ip_acl:\n    auto_ban:\n      enabled: bad", "ip_acl: auto_ban.enabled"},
-		{"waf:\n  ip_acl:\n    auto_ban:\n      default_ttl: bad", "ip_acl: auto_ban.default_ttl"},
-		{"waf:\n  ip_acl:\n    auto_ban:\n      max_ttl: bad", "ip_acl: auto_ban.max_ttl"},
+		{"waf:\n  ip_acl:\n    enabled: bad", "enabled"},
+		{"waf:\n  ip_acl:\n    auto_ban:\n      enabled: bad", "auto_ban.enabled"},
+		{"waf:\n  ip_acl:\n    auto_ban:\n      default_ttl: bad", "auto_ban.default_ttl"},
+		{"waf:\n  ip_acl:\n    auto_ban:\n      max_ttl: bad", "auto_ban.max_ttl"},
 	}
 	for _, tc := range cases {
 		node, _ := Parse([]byte(tc.yaml))
@@ -298,15 +298,15 @@ func TestPopulateFromNode_WAFBotDetectionError(t *testing.T) {
 		yaml string
 		want string
 	}{
-		{"waf:\n  bot_detection:\n    enabled: bad", "bot_detection: enabled"},
-		{"waf:\n  bot_detection:\n    tls_fingerprint:\n      enabled: bad", "bot_detection: tls_fingerprint.enabled"},
-		{"waf:\n  bot_detection:\n    user_agent:\n      enabled: bad", "bot_detection: user_agent.enabled"},
-		{"waf:\n  bot_detection:\n    user_agent:\n      block_empty: bad", "bot_detection: user_agent.block_empty"},
-		{"waf:\n  bot_detection:\n    user_agent:\n      block_known_scanners: bad", "bot_detection: user_agent.block_known_scanners"},
-		{"waf:\n  bot_detection:\n    behavior:\n      enabled: bad", "bot_detection: behavior.enabled"},
-		{"waf:\n  bot_detection:\n    behavior:\n      window: bad", "bot_detection: behavior.window"},
-		{"waf:\n  bot_detection:\n    behavior:\n      rps_threshold: bad", "bot_detection: behavior.rps_threshold"},
-		{"waf:\n  bot_detection:\n    behavior:\n      error_rate_threshold: bad", "bot_detection: behavior.error_rate_threshold"},
+		{"waf:\n  bot_detection:\n    enabled: bad", "enabled"},
+		{"waf:\n  bot_detection:\n    tls_fingerprint:\n      enabled: bad", "tls_fingerprint.enabled"},
+		{"waf:\n  bot_detection:\n    user_agent:\n      enabled: bad", "user_agent.enabled"},
+		{"waf:\n  bot_detection:\n    user_agent:\n      block_empty: bad", "user_agent.block_empty"},
+		{"waf:\n  bot_detection:\n    user_agent:\n      block_known_scanners: bad", "user_agent.block_known_scanners"},
+		{"waf:\n  bot_detection:\n    behavior:\n      enabled: bad", "behavior.enabled"},
+		{"waf:\n  bot_detection:\n    behavior:\n      window: bad", "behavior.window"},
+		{"waf:\n  bot_detection:\n    behavior:\n      rps_threshold: bad", "behavior.rps_threshold"},
+		{"waf:\n  bot_detection:\n    behavior:\n      error_rate_threshold: bad", "behavior.error_rate_threshold"},
 	}
 	for _, tc := range cases {
 		node, _ := Parse([]byte(tc.yaml))

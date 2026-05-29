@@ -29,7 +29,8 @@ Pre-release verification steps for GuardianWAF.
 - [ ] Multi-tenant isolation verified
 - [ ] SSE event streaming works in dashboard
 - [ ] API endpoints respond correctly (`/api/v1/stats`, `/api/v1/events`)
-- [ ] Health endpoint responds (`/healthz`)
+- [ ] Liveness endpoint responds (`/livez`)
+- [ ] Readiness endpoint responds (`/readyz`)
 - [ ] Metrics endpoint responds (`/metrics`)
 - [ ] Config validation works (`./guardianwaf validate -config config.yaml`)
 

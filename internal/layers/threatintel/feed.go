@@ -18,13 +18,13 @@ import (
 
 // FeedConfig configures a threat intelligence feed source.
 type FeedConfig struct {
-	Type             string        `yaml:"type"`    // "file" or "url"
-	Path             string        `yaml:"path"`    // File path for type="file"
-	URL              string        `yaml:"url"`     // URL for type="url"
-	Refresh          time.Duration `yaml:"refresh"` // Refresh interval
-	Format           string        `yaml:"format"`  // "json", "jsonl", "csv"
-	SkipSSLVerify    bool          `yaml:"skip_ssl_verify"`  // Deprecated: field is not wired to user config; TLS verification is always enforced
-	AllowPrivateURLs bool          `yaml:"-"`                // Allow private/local URLs (testing only, never from config file)
+	Type             string        `yaml:"type"`            // "file" or "url"
+	Path             string        `yaml:"path"`            // File path for type="file"
+	URL              string        `yaml:"url"`             // URL for type="url"
+	Refresh          time.Duration `yaml:"refresh"`         // Refresh interval
+	Format           string        `yaml:"format"`          // "json", "jsonl", "csv"
+	SkipSSLVerify    bool          `yaml:"skip_ssl_verify"` // Deprecated: field is not wired to user config; TLS verification is always enforced
+	AllowPrivateURLs bool          `yaml:"-"`               // Allow private/local URLs (testing only, never from config file)
 }
 
 // maxFeedEntries caps the number of entries parsed from a feed to prevent memory exhaustion.
@@ -66,32 +66,49 @@ func NewFeedManager(config *FeedConfig) *FeedManager {
 	if config.SkipSSLVerify {
 		log.Printf("[threat-intel] WARNING: SkipSSLVerify is deprecated and ignored — TLS verification is always enforced for feed URLs")
 	}
-	// Prevent SSRF: validate resolved IPs unless explicitly allowed (tests only)
-	if !config.AllowPrivateURLs {
-		dialer := &net.Dialer{Timeout: 10 * time.Second}
-		transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-			host, port, err := net.SplitHostPort(addr)
-			if err != nil {
-				host = addr
-				port = ""
-			}
-			ips, err := net.LookupIP(host)
-			if err != nil {
-				return nil, fmt.Errorf("threat-intel SSRF dial: DNS lookup failed for %q: %w", host, err)
-			}
-			for _, ip := range ips {
-				if !ip.IsLoopback() && !ip.IsPrivate() && !ip.IsLinkLocalUnicast() && !ip.IsUnspecified() {
-					return dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
-				}
-			}
-			return nil, fmt.Errorf("threat-intel SSRF dial: all IPs for %q are private/loopback", host)
-		}
+	dialer := &net.Dialer{
+		Timeout:   10 * time.Second,
+		KeepAlive: 30 * time.Second,
 	}
+	transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		if config.AllowPrivateURLs {
+			return dialer.DialContext(ctx, network, addr)
+		}
+
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			host = addr
+			port = ""
+		}
+		ips, err := net.LookupIP(host)
+		if err != nil {
+			return nil, fmt.Errorf("threat-intel SSRF dial: DNS lookup failed for %q: %w", host, err)
+		}
+		for _, ip := range ips {
+			if !ip.IsLoopback() && !ip.IsPrivate() && !ip.IsLinkLocalUnicast() && !ip.IsUnspecified() && !ip.IsMulticast() {
+				return dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+			}
+		}
+		return nil, fmt.Errorf("threat-intel SSRF dial: all IPs for %q are private/loopback", host)
+	}
+	transport.TLSHandshakeTimeout = 10 * time.Second
+	transport.ResponseHeaderTimeout = 30 * time.Second
+	transport.ExpectContinueTimeout = 1 * time.Second
+	transport.IdleConnTimeout = 30 * time.Second
 	return &FeedManager{
 		config: *config,
 		client: &http.Client{
 			Timeout:   30 * time.Second,
 			Transport: transport,
+			CheckRedirect: func(req *http.Request, _ []*http.Request) error {
+				if config.AllowPrivateURLs {
+					return nil
+				}
+				if err := validateFeedURL(req.URL.String()); err != nil {
+					return fmt.Errorf("redirect URL rejected: %w", err)
+				}
+				return nil
+			},
 		},
 		stopCh: make(chan struct{}),
 	}
@@ -214,7 +231,7 @@ func (f *FeedManager) loadURL(ctx context.Context) ([]ThreatEntry, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20)) // nolint:errcheck // response body drain; error ignored
 		return nil, fmt.Errorf("feed returned status %d", resp.StatusCode)
 	}
 

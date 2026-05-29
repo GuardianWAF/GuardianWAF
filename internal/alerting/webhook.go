@@ -55,6 +55,12 @@ type Manager struct {
 
 	// Semaphore to limit concurrent webhook/email goroutines
 	sem chan struct{}
+	wg  sync.WaitGroup
+
+	// dispatchMu serializes goroutine registration with shutdown so CloseWithContext
+	// cannot race with new WaitGroup.Add calls.
+	dispatchMu sync.Mutex
+	closing    atomic.Bool
 
 	// Stats
 	sent   atomic.Int64
@@ -84,8 +90,18 @@ func NewManager(targets []WebhookTarget) *Manager {
 			Transport: &http.Transport{
 				DialContext:           webhookSSRFDialContext(),
 				IdleConnTimeout:       90 * time.Second,
-				TLSHandshakeTimeout:  10 * time.Second,
+				TLSHandshakeTimeout:   10 * time.Second,
 				ResponseHeaderTimeout: 30 * time.Second,
+				ExpectContinueTimeout: 1 * time.Second,
+			},
+			CheckRedirect: func(req *http.Request, _ []*http.Request) error {
+				if allowWebhookPrivate.Load() {
+					return nil
+				}
+				if err := ValidateWebhookURL(req.URL.String()); err != nil {
+					return fmt.Errorf("redirect URL rejected: %w", err)
+				}
+				return nil
 			},
 		},
 		sem: make(chan struct{}, 32), // max 32 concurrent webhook/email sends
@@ -153,6 +169,10 @@ func (m *Manager) GetStats() Stats {
 
 // HandleEvent processes a WAF event and fires matching webhooks and emails.
 func (m *Manager) HandleEvent(event *engine.Event) {
+	if event == nil || m.closing.Load() {
+		return
+	}
+
 	action := event.Action.String()
 
 	findings := make([]string, 0, len(event.Findings))
@@ -205,10 +225,8 @@ func (m *Manager) HandleEvent(event *engine.Event) {
 		}
 
 		// Fire async with concurrency limit
-		select {
-		case m.sem <- struct{}{}:
-			go func(wc *WebhookTarget, a *Alert) {
-				defer func() { <-m.sem }()
+		switch m.dispatch(func() {
+			func(wc *WebhookTarget, a *Alert) {
 				defer func() {
 					if r := recover(); r != nil {
 						m.failed.Add(1)
@@ -217,7 +235,8 @@ func (m *Manager) HandleEvent(event *engine.Event) {
 				}()
 				m.send(wc, a)
 			}(&wh.config, &alert)
-		default:
+		}) {
+		case dispatchFull:
 			m.failed.Add(1)
 		}
 	}
@@ -260,10 +279,8 @@ func (m *Manager) HandleEvent(event *engine.Event) {
 		}
 
 		// Send email async (with same concurrency limit as webhooks)
-		select {
-		case m.sem <- struct{}{}:
-			go func(et *EmailTarget, ev *engine.Event) {
-				defer func() { <-m.sem }()
+		switch m.dispatch(func() {
+			func(et *EmailTarget, ev *engine.Event) {
 				defer func() {
 					if r := recover(); r != nil {
 						m.failed.Add(1)
@@ -272,10 +289,73 @@ func (m *Manager) HandleEvent(event *engine.Event) {
 				}()
 				m.SendEmail(et, ev)
 			}(et, event)
-		default:
+		}) {
+		case dispatchFull:
 			m.failed.Add(1)
 		}
 	}
+}
+
+type dispatchResult int
+
+const (
+	dispatchOK dispatchResult = iota
+	dispatchClosed
+	dispatchFull
+)
+
+func (m *Manager) dispatch(fn func()) dispatchResult {
+	m.dispatchMu.Lock()
+	defer m.dispatchMu.Unlock()
+
+	if m.closing.Load() {
+		return dispatchClosed
+	}
+
+	select {
+	case m.sem <- struct{}{}:
+		m.wg.Add(1)
+		go func() {
+			defer m.wg.Done()
+			defer func() { <-m.sem }()
+			fn()
+		}()
+		return dispatchOK
+	default:
+		return dispatchFull
+	}
+}
+
+// CloseWithContext stops accepting new alert sends and waits for in-flight
+// webhook/email deliveries to finish until ctx is canceled.
+func (m *Manager) CloseWithContext(ctx context.Context) error {
+	m.dispatchMu.Lock()
+	m.closing.Store(true)
+	m.dispatchMu.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		m.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		if m.httpClient != nil {
+			m.httpClient.CloseIdleConnections()
+		}
+		return nil
+	case <-ctx.Done():
+		if m.httpClient != nil {
+			m.httpClient.CloseIdleConnections()
+		}
+		return ctx.Err()
+	}
+}
+
+// Close waits for in-flight alert deliveries without a timeout.
+func (m *Manager) Close() error {
+	return m.CloseWithContext(context.Background())
 }
 
 // send delivers an alert to a webhook endpoint.
@@ -319,7 +399,7 @@ func (m *Manager) send(wc *WebhookTarget, alert *Alert) {
 		return
 	}
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20)) // nolint:errcheck // response body drain after webhook call; error ignored
 
 	if resp.StatusCode >= 400 {
 		m.failed.Add(1)

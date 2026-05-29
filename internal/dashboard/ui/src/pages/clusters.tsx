@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
@@ -18,13 +18,7 @@ export default function ClustersPage() {
   const [search, setSearch] = useState('')
   const { toast } = useToast()
 
-  useEffect(() => {
-    loadData()
-    const interval = setInterval(loadData, 10000) // Refresh every 10s
-    return () => clearInterval(interval)
-  }, [])
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       const [clustersData, nodesData, statsData, statusData] = await Promise.all([
         api.getClusters(),
@@ -51,7 +45,13 @@ export default function ClustersPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [toast])
+
+  useEffect(() => {
+    loadData()
+    const interval = setInterval(loadData, 10000) // Refresh every 10s
+    return () => clearInterval(interval)
+  }, [loadData])
 
   const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this cluster?')) return

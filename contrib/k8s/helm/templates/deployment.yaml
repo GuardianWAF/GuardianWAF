@@ -6,7 +6,9 @@ metadata:
   labels:
     {{- include "guardianwaf.labels" . | nindent 4 }}
 spec:
+  {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "guardianwaf.selectorLabels" . | nindent 6 }}
@@ -23,10 +25,16 @@ spec:
       {{- if .Values.serviceAccount.create }}
       serviceAccountName: {{ include "guardianwaf.serviceAccountName" . }}
       {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
         - name: guardianwaf
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - serve
+            - -c
+            - /etc/guardianwaf/{{ .Values.config.fileName | default "guardianwaf.yaml" }}
           ports:
             - name: http
               containerPort: 8088
@@ -45,19 +53,29 @@ spec:
             - name: GWAF_DASHBOARD_LISTEN
               value: {{ .Values.config.dashboardListen | quote }}
             {{- end }}
-            - name: GWAF_LOG_LEVEL
+            - name: GWAF_LOGGING_LEVEL
               value: {{ .Values.config.logLevel | quote }}
-            - name: GWAF_LOG_FORMAT
+            - name: GWAF_LOGGING_FORMAT
               value: {{ .Values.config.logFormat | quote }}
             {{- if .Values.apiKey.existingSecret }}
-            - name: GWAF_API_KEY
+            - name: GWAF_DASHBOARD_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.apiKey.existingSecret }}
                   key: {{ .Values.apiKey.existingSecretKey }}
             {{- else if .Values.apiKey.value }}
-            - name: GWAF_API_KEY
+            - name: GWAF_DASHBOARD_API_KEY
               value: {{ .Values.apiKey.value | quote }}
+            {{- end }}
+            {{- if .Values.adminKey.existingSecret }}
+            - name: GWAF_DASHBOARD_ADMIN_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.adminKey.existingSecret }}
+                  key: {{ .Values.adminKey.existingSecretKey }}
+            {{- else if .Values.adminKey.value }}
+            - name: GWAF_DASHBOARD_ADMIN_KEY
+              value: {{ .Values.adminKey.value | quote }}
             {{- end }}
             {{- range $key, $value := .Values.env }}
             - name: {{ $key }}
@@ -69,6 +87,11 @@ spec:
               readOnly: true
             - name: cache
               mountPath: /var/cache/guardianwaf
+            - name: state
+              mountPath: /var/lib/guardianwaf
+            - name: state
+              mountPath: /var/log/guardianwaf
+              subPath: logs
             {{- if .Values.tls.enabled }}
             - name: certs
               mountPath: /etc/guardianwaf/certs
@@ -84,7 +107,7 @@ spec:
             {{- end }}
           livenessProbe:
             httpGet:
-              path: /healthz
+              path: /livez
               port: http
             initialDelaySeconds: 10
             periodSeconds: 10
@@ -92,7 +115,7 @@ spec:
             failureThreshold: 3
           readinessProbe:
             httpGet:
-              path: /healthz
+              path: /readyz
               port: http
             initialDelaySeconds: 5
             periodSeconds: 5
@@ -113,6 +136,16 @@ spec:
         - name: cache
           emptyDir:
             sizeLimit: 100Mi
+        - name: state
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim | default (printf "%s-state" (include "guardianwaf.fullname" .)) }}
+          {{- else }}
+          emptyDir:
+            {{- with .Values.persistence.emptyDir.sizeLimit }}
+            sizeLimit: {{ . | quote }}
+            {{- end }}
+          {{- end }}
         {{- if .Values.tls.enabled }}
         - name: certs
           secret:

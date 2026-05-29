@@ -266,7 +266,63 @@ func LoadOrDownload(path, downloadURL string, maxAge time.Duration) (*DB, error)
 }
 
 // geoipDownloadClient is a shared HTTP client for GeoIP database downloads.
-var geoipDownloadClient = &http.Client{Timeout: 60 * time.Second}
+var geoipDownloadClient = newGeoIPDownloadHTTPClient()
+
+func newGeoIPDownloadHTTPClient() *http.Client {
+	transport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		transport = &http.Transport{}
+	}
+	transport = transport.Clone()
+	dialer := &net.Dialer{
+		Timeout:   10 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+	transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		if testAllowPrivate {
+			return dialer.DialContext(ctx, network, addr)
+		}
+
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			host = addr
+			port = ""
+		}
+		ips, err := net.LookupIP(host)
+		if err != nil {
+			return nil, fmt.Errorf("GeoIP SSRF dial: DNS lookup failed for %q: %w", host, err)
+		}
+		for _, ip := range ips {
+			if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() || ip.IsMulticast() {
+				continue
+			}
+			target := ip.String()
+			if port != "" {
+				target = net.JoinHostPort(target, port)
+			}
+			return dialer.DialContext(ctx, network, target)
+		}
+		return nil, fmt.Errorf("GeoIP SSRF dial: no valid public IPs for %q", host)
+	}
+	transport.TLSHandshakeTimeout = 10 * time.Second
+	transport.ResponseHeaderTimeout = 30 * time.Second
+	transport.ExpectContinueTimeout = 1 * time.Second
+	transport.IdleConnTimeout = 30 * time.Second
+
+	return &http.Client{
+		Timeout:   60 * time.Second,
+		Transport: transport,
+		CheckRedirect: func(req *http.Request, _ []*http.Request) error {
+			if testAllowPrivate {
+				return nil
+			}
+			if err := validateURLNotPrivate(req.URL.String()); err != nil {
+				return fmt.Errorf("redirect URL rejected: %w", err)
+			}
+			return nil
+		},
+	}
+}
 
 // downloadDB downloads a GeoIP CSV (optionally gzipped) from URL to path.
 func downloadDB(downloadURL, path string) error {
@@ -294,7 +350,7 @@ func downloadDB(downloadURL, path string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20)) // nolint:errcheck // response body drain; error ignored
 		return fmt.Errorf("HTTP %d from %s", resp.StatusCode, downloadURL)
 	}
 

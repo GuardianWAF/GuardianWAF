@@ -7,6 +7,8 @@ on:
 # Scope permissions per job, least privilege principle
 permissions:
   contents: write
+  packages: write
+  id-token: write
 
 # Prevent concurrent releases
 concurrency:
@@ -31,12 +33,8 @@ jobs:
           cache: 'npm'
           cache-dependency-path: internal/dashboard/ui/package-lock.json
 
-      - name: Build dashboard
-        working-directory: internal/dashboard/ui
-        run: npm ci --no-audit --no-fund && npm run build
-
-      - name: Copy dashboard assets
-        run: mkdir -p internal/dashboard/dist && cp -r internal/dashboard/ui/dist/* internal/dashboard/dist/
+      - name: Build embedded dashboard
+        run: ./scripts/build-dashboard.sh
 
       - name: Run tests before release
         run: go test -race -count=1 ./...
@@ -50,18 +48,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Generate SBOM
-        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
-        with:
-          image: ghcr.io/${{ github.repository }}:${{ github.ref_name }}
-          output-file: sbom.spdx.json
-          format: spdx-json
-
-      - name: Upload SBOM to release
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
-        with:
-          files: sbom.spdx.json
-
   docker:
     needs: goreleaser
     runs-on: ubuntu-latest
@@ -74,12 +60,8 @@ jobs:
           cache: 'npm'
           cache-dependency-path: internal/dashboard/ui/package-lock.json
 
-      - name: Build dashboard
-        working-directory: internal/dashboard/ui
-        run: npm ci --no-audit --no-fund && npm run build
-
-      - name: Copy dashboard assets
-        run: mkdir -p internal/dashboard/dist && cp -r internal/dashboard/ui/dist/* internal/dashboard/dist/
+      - name: Build embedded dashboard
+        run: ./scripts/build-dashboard.sh
 
       - name: Docker meta
         id: meta
@@ -116,3 +98,29 @@ jobs:
             IMAGE_VERSION=${{ github.ref_name }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+      - name: Generate image SBOM
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD:/out" \
+            anchore/syft:v1.38.0 \
+            ghcr.io/${{ github.repository }}:${{ github.ref_name }} \
+            -o spdx-json=/out/sbom.spdx.json
+
+      - name: Scan released image
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:0.68.1 image \
+            --severity HIGH,CRITICAL \
+            --exit-code 1 \
+            --no-progress \
+            ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+
+      - name: Upload SBOM to release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          files: sbom.spdx.json

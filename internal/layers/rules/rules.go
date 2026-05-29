@@ -66,6 +66,7 @@ func NewLayer(cfg *Config, geodb *geoip.DB) *Layer {
 
 // Name returns the layer name.
 func (l *Layer) Name() string { return "rules" }
+func (l *Layer) Order() int { return engine.OrderRules }
 
 // SetRules replaces all rules (thread-safe, for hot-reload).
 func (l *Layer) SetRules(rules []Rule) {

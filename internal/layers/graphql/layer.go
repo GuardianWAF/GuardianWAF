@@ -316,7 +316,7 @@ func (l *Layer) Name() string {
 
 // Order returns the layer execution order.
 func (l *Layer) Order() int {
-	return 285
+	return engine.OrderGraphQL
 }
 
 // Process implements the engine.Layer interface.

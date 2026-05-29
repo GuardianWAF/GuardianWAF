@@ -107,6 +107,117 @@ listen: [invalid`
 	}
 }
 
+func TestLoadFile_UnknownTopLevelKey(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "legacy.yaml")
+
+	legacyYAML := `server:
+  listen: ":8088"
+  mode: enforce
+upstreams:
+  - name: backend
+    targets:
+      - url: http://localhost:3000
+routes:
+  - path: /
+    upstream: backend
+`
+	if err := os.WriteFile(path, []byte(legacyYAML), 0o644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	_, err := LoadFile(path)
+	if err == nil {
+		t.Fatal("expected error for unknown top-level key")
+	}
+	if !strings.Contains(err.Error(), "server: unknown top-level key") {
+		t.Fatalf("expected unknown server key error, got: %v", err)
+	}
+}
+
+func TestLoadFile_UnknownNestedKey(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nested-unknown.yaml")
+
+	yamlContent := `mode: enforce
+waf:
+  detection:
+    enabled: true
+    threshold:
+      block: 50
+      typo: 25
+`
+	if err := os.WriteFile(path, []byte(yamlContent), 0o644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	_, err := LoadFile(path)
+	if err == nil {
+		t.Fatal("expected error for unknown nested key")
+	}
+	if !strings.Contains(err.Error(), "waf.detection.threshold.typo: unknown key") {
+		t.Fatalf("expected unknown nested key error, got: %v", err)
+	}
+}
+
+func TestLoadFile_UnknownSequenceItemKey(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sequence-unknown.yaml")
+
+	yamlContent := `mode: enforce
+upstreams:
+  - name: backend
+    targets:
+      - url: http://localhost:3000
+        weight: 1
+        typo: true
+routes:
+  - path: /
+    upstream: backend
+`
+	if err := os.WriteFile(path, []byte(yamlContent), 0o644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	_, err := LoadFile(path)
+	if err == nil {
+		t.Fatal("expected error for unknown sequence item key")
+	}
+	if !strings.Contains(err.Error(), "upstreams[0].targets[0].typo: unknown key") {
+		t.Fatalf("expected unknown sequence item key error, got: %v", err)
+	}
+}
+
+func TestLoadFile_DynamicMapKeysAllowed(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "dynamic-map.yaml")
+
+	yamlContent := `mode: enforce
+features:
+  experimental_rule_sync: true
+waf:
+  detection:
+    detectors:
+      custom_detector:
+        enabled: true
+        multiplier: 0.5
+alerting:
+  webhooks:
+    - name: ops
+      url: https://example.com/hook
+      type: generic
+      headers:
+        X-Custom-Header: value
+`
+	if err := os.WriteFile(path, []byte(yamlContent), 0o644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	if _, err := LoadFile(path); err != nil {
+		t.Fatalf("expected dynamic map keys to validate, got: %v", err)
+	}
+}
+
 func TestLoadDir(t *testing.T) {
 	// Create a directory structure with main config and subdirectory configs
 	dir := t.TempDir()
@@ -238,6 +349,7 @@ func TestLoadEnv(t *testing.T) {
 		"GWAF_WAF_DETECTION_THRESHOLD_LOG":   "30",
 		"GWAF_DASHBOARD_LISTEN":              ":8443",
 		"GWAF_DASHBOARD_API_KEY":             "secret123",
+		"GWAF_DASHBOARD_ADMIN_KEY":           "admin-secret-123456",
 		"GWAF_EVENTS_STORAGE":                "file",
 		"GWAF_EVENTS_FILE_PATH":              "/tmp/events.jsonl",
 		"GWAF_EVENTS_MAX_EVENTS":             "50000",
@@ -275,6 +387,9 @@ func TestLoadEnv(t *testing.T) {
 	}
 	if cfg.Dashboard.APIKey != "secret123" {
 		t.Fatalf("expected dashboard api_key 'secret123', got %q", cfg.Dashboard.APIKey)
+	}
+	if cfg.Dashboard.AdminKey != "admin-secret-123456" {
+		t.Fatalf("expected dashboard admin_key 'admin-secret-123456', got %q", cfg.Dashboard.AdminKey)
 	}
 	if cfg.Events.Storage != "file" {
 		t.Fatalf("expected events storage 'file', got %q", cfg.Events.Storage)
@@ -754,6 +869,91 @@ func TestValidate_DashboardInvalidListen(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected error for dashboard.listen, got: %v", ve.Errors)
+	}
+}
+
+func TestValidate_DashboardWeakAPIKey(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Dashboard.Enabled = true
+	cfg.Dashboard.Listen = ":9443"
+	cfg.Dashboard.APIKey = "secret123"
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("expected validation error for weak dashboard API key")
+	}
+	ve := err.(*ValidationError)
+
+	found := false
+	for _, fe := range ve.Errors {
+		if fe.Field == "dashboard.api_key" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected error for dashboard.api_key, got: %v", ve.Errors)
+	}
+}
+
+func TestValidate_DashboardGeneratedAPIKeyAllowed(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Dashboard.Enabled = true
+	cfg.Dashboard.Listen = ":9443"
+	cfg.Dashboard.APIKey = ""
+
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("expected empty dashboard API key to be allowed for startup generation, got: %v", err)
+	}
+}
+
+func TestValidate_TrustedProxiesRejectsInvalidAndOverbroad(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{name: "invalid", value: "not-an-ip"},
+		{name: "ipv4 all", value: "0.0.0.0/0"},
+		{name: "ipv6 all", value: "::/0"},
+		{name: "overbroad ipv4", value: "1.0.0.0/7"},
+		{name: "overbroad ipv6", value: "2000::/16"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			cfg.TrustedProxies = []string{tt.value}
+
+			err := Validate(cfg)
+			if err == nil {
+				t.Fatal("expected validation error for unsafe trusted proxy")
+			}
+			ve := err.(*ValidationError)
+
+			found := false
+			for _, fe := range ve.Errors {
+				if fe.Field == "trusted_proxies[0]" {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("expected error for trusted_proxies[0], got: %v", ve.Errors)
+			}
+		})
+	}
+}
+
+func TestValidate_TrustedProxiesAllowsSpecificProxyRanges(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.TrustedProxies = []string{
+		"10.0.0.10",
+		"10.0.1.0/24",
+		"2001:db8::/48",
+	}
+
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("expected trusted proxy ranges to validate, got: %v", err)
 	}
 }
 

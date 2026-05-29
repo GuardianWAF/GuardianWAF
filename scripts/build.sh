@@ -3,13 +3,17 @@
 # Usage: ./scripts/build.sh [version]
 set -euo pipefail
 
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION="${1:-dev}"
 COMMIT="$(git rev-parse --short HEAD 2>/dev/null || echo "none")"
 DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 LDFLAGS="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}"
-OUTDIR="dist"
+OUTDIR="${ROOT_DIR}/dist"
+
+"${ROOT_DIR}/scripts/build-dashboard.sh"
 
 mkdir -p "${OUTDIR}"
+rm -f "${OUTDIR}"/guardianwaf-* "${OUTDIR}/checksums.txt"
 
 PLATFORMS=(
     "linux/amd64"
@@ -34,14 +38,14 @@ for platform in "${PLATFORMS[@]}"; do
 
     echo "  -> ${GOOS}/${GOARCH}"
     CGO_ENABLED=0 GOOS="${GOOS}" GOARCH="${GOARCH}" \
-        go build -ldflags="${LDFLAGS}" -o "${output}" ./cmd/guardianwaf
+        go build -ldflags="${LDFLAGS}" -o "${output}" "${ROOT_DIR}/cmd/guardianwaf"
 done
 
 echo ""
 echo "Generating checksums..."
 cd "${OUTDIR}"
 sha256sum guardianwaf-* > checksums.txt 2>/dev/null || shasum -a 256 guardianwaf-* > checksums.txt
-cd ..
+cd "${ROOT_DIR}"
 
 echo ""
 echo "Build complete. Binaries in ${OUTDIR}/:"

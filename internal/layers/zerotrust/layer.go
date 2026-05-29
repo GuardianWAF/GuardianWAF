@@ -16,6 +16,7 @@ func NewLayer(service *Service) *Layer {
 
 // Name returns the layer name.
 func (l *Layer) Name() string { return "zero_trust" }
+func (l *Layer) Order() int { return engine.OrderZeroTrust }
 
 // Process validates Zero Trust identity for the request.
 // If Zero Trust is disabled, passes immediately. If the request lacks a valid

@@ -7,9 +7,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"net"
 	"net/http"
+	"os"
 	"os/exec"
 	"runtime"
 	"strconv"
@@ -22,17 +22,17 @@ import (
 // Fallback for event streaming: direct HTTP over Unix socket (Linux/macOS only).
 type Client struct {
 	socketPath string
-	hostFlag   string // --host flag for docker CLI, empty = use default context
-	tlsVerify  bool   // --tlsverify flag
-	certPath   string // --tlscertdir path for Docker TLS certs
+	hostFlag   string                                                    // --host flag for docker CLI, empty = use default context
+	tlsVerify  bool                                                      // --tlsverify flag
+	certPath   string                                                    // --tlscertdir path for Docker TLS certs
 	cmdFunc    func(ctx context.Context, args ...string) (string, error) // overrides dockerCmd if set
 }
 
 // TLSConfig holds Docker TLS connection parameters.
 type TLSConfig struct {
-	Host       string // Docker daemon host (e.g., "tcp://docker:2376")
-	CertPath   string // Path to TLS certificates (ca.pem, cert.pem, key.pem)
-	Verify     bool   // Verify server certificate
+	Host     string // Docker daemon host (e.g., "tcp://docker:2376")
+	CertPath string // Path to TLS certificates (ca.pem, cert.pem, key.pem)
+	Verify   bool   // Verify server certificate
 }
 
 // NewClient creates a Docker client using a local socket.
@@ -348,6 +348,9 @@ func NewHTTPClient(socketPath string) *http.Client {
 			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 				return net.DialTimeout("unix", socketPath, 5*time.Second)
 			},
+			ResponseHeaderTimeout: 30 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+			IdleConnTimeout:       30 * time.Second,
 		},
 		Timeout: 30 * time.Second,
 	}

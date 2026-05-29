@@ -16,8 +16,8 @@ import (
 
 // Layer implements virtual patching for known CVEs.
 type Layer struct {
-	config    *Config
-	database  *Database
+	config   *Config
+	database *Database
 
 	// Compiled patterns for performance
 	compiledPatterns map[string]*regexp.Regexp
@@ -26,9 +26,9 @@ type Layer struct {
 	lastUpdate time.Time
 
 	// Auto-update
-	nvdClient   *NVDClient
-	stopUpdate  chan struct{}
-	updateWg    sync.WaitGroup
+	nvdClient  *NVDClient
+	stopUpdate chan struct{}
+	updateWg   sync.WaitGroup
 
 	// Statistics
 	updateCount atomic.Int64
@@ -80,10 +80,10 @@ func (l *Layer) startAutoUpdate() {
 		}()
 
 		interval := l.config.UpdateInterval
-			if interval <= 0 {
-				interval = 5 * time.Minute
-			}
-			ticker := time.NewTicker(interval)
+		if interval <= 0 {
+			interval = 5 * time.Minute
+		}
+		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
 		// Run initial update
@@ -172,14 +172,14 @@ func extractPatternsFromDescription(desc string) []PatchPattern {
 
 	// Common attack patterns
 	attackPatterns := map[string][]string{
-		"sql injection":    {"sql", "injection", "sqli"},
-		"xss":              {"xss", "cross-site scripting", "cross site scripting"},
-		"rce":              {"rce", "remote code execution", "command execution"},
-		"path traversal":   {"path traversal", "directory traversal", "../"},
-		"lfi":              {"lfi", "local file inclusion", "file inclusion"},
-		"rfi":              {"rfi", "remote file inclusion"},
-		"xxe":              {"xxe", "xml external entity"},
-		"ssrf":             {"ssrf", "server-side request forgery"},
+		"sql injection":  {"sql", "injection", "sqli"},
+		"xss":            {"xss", "cross-site scripting", "cross site scripting"},
+		"rce":            {"rce", "remote code execution", "command execution"},
+		"path traversal": {"path traversal", "directory traversal", "../"},
+		"lfi":            {"lfi", "local file inclusion", "file inclusion"},
+		"rfi":            {"rfi", "remote file inclusion"},
+		"xxe":            {"xxe", "xml external entity"},
+		"ssrf":           {"ssrf", "server-side request forgery"},
 	}
 
 	for attackType, keywords := range attackPatterns {
@@ -263,6 +263,9 @@ type UpdateStats struct {
 func (l *Layer) Name() string {
 	return "virtualpatch"
 }
+
+// Order returns the execution order.
+func (l *Layer) Order() int { return engine.OrderVirtualPatch }
 
 // Process implements the engine.Layer interface.
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
@@ -535,49 +538,22 @@ func (l *Layer) shouldBlock(severity string) bool {
 
 // recordHit records a patch hit.
 func (l *Layer) recordHit(patchID string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	patch := l.database.GetPatch(patchID)
-	if patch != nil {
-		patch.Hits++
-		now := time.Now()
-		patch.LastHit = &now
-	}
+	l.database.RecordPatchHit(patchID, time.Now())
 }
 
 // AddPatch adds a custom patch.
 func (l *Layer) AddPatch(patch *VirtualPatch) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	l.database.patches[patch.ID] = patch
+	l.database.AddPatch(patch)
 }
 
 // DisablePatch disables a patch.
 func (l *Layer) DisablePatch(patchID string) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	patch := l.database.GetPatch(patchID)
-	if patch != nil {
-		patch.Enabled = false
-		return true
-	}
-	return false
+	return l.database.SetPatchEnabled(patchID, false)
 }
 
 // EnablePatch enables a patch.
 func (l *Layer) EnablePatch(patchID string) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	patch := l.database.GetPatch(patchID)
-	if patch != nil {
-		patch.Enabled = true
-		return true
-	}
-	return false
+	return l.database.SetPatchEnabled(patchID, true)
 }
 
 // GetPatch returns a patch by ID.

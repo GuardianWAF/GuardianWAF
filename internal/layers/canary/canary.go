@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
+	"net"
 	"net/http"
 	"regexp"
 	"sync"
@@ -41,22 +42,22 @@ const (
 
 // Config for canary releases.
 type Config struct {
-	Enabled        bool              `yaml:"enabled"`
-	CanaryVersion  string            `yaml:"canary_version"`  // e.g., "v2.0.0-beta"
-	StableUpstream string            `yaml:"stable_upstream"`
-	CanaryUpstream string            `yaml:"canary_upstream"`
-	Strategy       Strategy          `yaml:"strategy"`
-	Percentage     int               `yaml:"percentage"`      // 0-100
-	HeaderName     string            `yaml:"header_name"`     // for header strategy
-	HeaderValue    string            `yaml:"header_value"`    // optional match value
-	CookieName     string            `yaml:"cookie_name"`     // for cookie strategy
-	CookieValue    string            `yaml:"cookie_value"`    // optional match value
-	Regions        []string          `yaml:"regions"`         // for geographic strategy
-	HealthCheck    HealthCheckConfig `yaml:"health_check"`
-	AutoRollback   bool              `yaml:"auto_rollback"`
-	ErrorThreshold float64           `yaml:"error_threshold"` // error rate % for rollback
-	LatencyThreshold time.Duration   `yaml:"latency_threshold"`
-	Metadata       map[string]string `yaml:"metadata"`
+	Enabled          bool              `yaml:"enabled"`
+	CanaryVersion    string            `yaml:"canary_version"` // e.g., "v2.0.0-beta"
+	StableUpstream   string            `yaml:"stable_upstream"`
+	CanaryUpstream   string            `yaml:"canary_upstream"`
+	Strategy         Strategy          `yaml:"strategy"`
+	Percentage       int               `yaml:"percentage"`   // 0-100
+	HeaderName       string            `yaml:"header_name"`  // for header strategy
+	HeaderValue      string            `yaml:"header_value"` // optional match value
+	CookieName       string            `yaml:"cookie_name"`  // for cookie strategy
+	CookieValue      string            `yaml:"cookie_value"` // optional match value
+	Regions          []string          `yaml:"regions"`      // for geographic strategy
+	HealthCheck      HealthCheckConfig `yaml:"health_check"`
+	AutoRollback     bool              `yaml:"auto_rollback"`
+	ErrorThreshold   float64           `yaml:"error_threshold"` // error rate % for rollback
+	LatencyThreshold time.Duration     `yaml:"latency_threshold"`
+	Metadata         map[string]string `yaml:"metadata"`
 }
 
 // HealthCheckConfig defines health checking for canary.
@@ -70,11 +71,11 @@ type HealthCheckConfig struct {
 // DefaultConfig returns default canary config.
 func DefaultConfig() *Config {
 	return &Config{
-		Enabled:        false,
-		Strategy:       StrategyPercentage,
-		Percentage:     10,
-		HeaderName:     "X-Canary",
-		CookieName:     "canary",
+		Enabled:    false,
+		Strategy:   StrategyPercentage,
+		Percentage: 10,
+		HeaderName: "X-Canary",
+		CookieName: "canary",
 		HealthCheck: HealthCheckConfig{
 			Enabled:  true,
 			Interval: 30 * time.Second,
@@ -82,7 +83,7 @@ func DefaultConfig() *Config {
 			Path:     "/healthz",
 		},
 		AutoRollback:     true,
-		ErrorThreshold:   5.0,  // 5% error rate
+		ErrorThreshold:   5.0, // 5% error rate
 		LatencyThreshold: 500 * time.Millisecond,
 		Metadata:         make(map[string]string),
 	}
@@ -127,7 +128,7 @@ func New(cfg *Config) (*Canary, error) {
 		config:     cfg,
 		stats:      &Stats{},
 		stopCh:     make(chan struct{}),
-		httpClient: &http.Client{Timeout: cfg.HealthCheck.Timeout},
+		httpClient: newHealthCheckHTTPClient(cfg.HealthCheck.Timeout),
 	}
 
 	if cfg.HeaderValue != "" {
@@ -143,6 +144,33 @@ func New(cfg *Config) (*Canary, error) {
 	}
 
 	return c, nil
+}
+
+func newHealthCheckHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: timeout,
+		Transport: &http.Transport{
+			Proxy: http.ProxyFromEnvironment,
+			DialContext: (&net.Dialer{
+				Timeout:   minHealthCheckDuration(timeout, 5*time.Second),
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			TLSHandshakeTimeout:   minHealthCheckDuration(timeout, 5*time.Second),
+			ResponseHeaderTimeout: minHealthCheckDuration(timeout, 10*time.Second),
+			ExpectContinueTimeout: 1 * time.Second,
+			IdleConnTimeout:       30 * time.Second,
+		},
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+}
+
+func minHealthCheckDuration(a, b time.Duration) time.Duration {
+	if a <= 0 || a > b {
+		return b
+	}
+	return a
 }
 
 // Validate checks config validity.
@@ -399,7 +427,7 @@ func (c *Canary) performHealthCheck() {
 	}
 	resp.Body.Close()
 
-	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		count := c.healthCount.Add(1)
 		// Auto-unhalt after 3 consecutive successful health checks
 		if c.haltCanary.Load() && count >= 3 {
@@ -445,16 +473,16 @@ func (c *Canary) GetStats() map[string]any {
 	}
 
 	return map[string]any{
-		"enabled":          enabled,
-		"strategy":         strategy,
-		"percentage":       percentage,
-		"canary_version":   canaryVersion,
-		"total_requests":   total,
-		"canary_requests":  canary,
-		"canary_rate":      canaryRate,
-		"error_rate":       errorRate,
-		"healthy":          c.stats.Healthy.Load(),
-		"halted":           c.haltCanary.Load(),
+		"enabled":           enabled,
+		"strategy":          strategy,
+		"percentage":        percentage,
+		"canary_version":    canaryVersion,
+		"total_requests":    total,
+		"canary_requests":   canary,
+		"canary_rate":       canaryRate,
+		"error_rate":        errorRate,
+		"healthy":           c.stats.Healthy.Load(),
+		"halted":            c.haltCanary.Load(),
 		"last_health_check": c.stats.LastHealthCheck.Load(),
 	}
 }

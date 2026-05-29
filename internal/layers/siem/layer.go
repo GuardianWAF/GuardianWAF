@@ -36,7 +36,7 @@ func (l *Layer) Name() string {
 
 // Order returns the layer execution order (runs first).
 func (l *Layer) Order() int {
-	return 1
+	return engine.OrderSIEM
 }
 
 // Process is a no-op for SIEM layer.

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { api } from '@/lib/api'
 import type { CustomRule, GeoIPResult } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -127,8 +127,12 @@ export default function RulesPage() {
   const [geoResult, setGeoResult] = useState<GeoIPResult | null>(null)
   const { toast } = useToast()
 
-  const load = () => api.getRules().then(d => setRules(d.rules || [])).catch(() => toast({ title: 'Failed to load rules', variant: 'warning' }))
-  useEffect(() => { load() }, [])
+  const load = useCallback(() => {
+    api.getRules()
+      .then(d => setRules(d.rules || []))
+      .catch(() => toast({ title: 'Failed to load rules', variant: 'warning' }))
+  }, [toast])
+  useEffect(() => { load() }, [load])
 
   const flash = (msg: string, err = false) => { setLocalToast({msg, err}); setTimeout(() => setLocalToast(null), 3000) }
 

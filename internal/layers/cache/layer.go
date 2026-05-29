@@ -13,33 +13,32 @@ import (
 
 // Layer provides caching as a WAF layer.
 type Layer struct {
-	cache      *Cache
-	config     *LayerConfig
-	httpClient *http.Client
+	cache  *Cache
+	config *LayerConfig
 }
 
 // LayerConfig for cache layer.
 type LayerConfig struct {
-	Enabled       bool     `yaml:"enabled"`
-	CacheTTL      time.Duration `yaml:"cache_ttl"`
-	CacheMethods  []string `yaml:"cache_methods"`
-	CacheStatus   []int    `yaml:"cache_status"`
-	SkipPaths     []string `yaml:"skip_paths"`
-	SkipCookies   []string `yaml:"skip_cookies"`
-	MaxCacheSize  int      `yaml:"max_cache_size"` // KB
-	StaleWhileRevalidate bool `yaml:"stale_while_revalidate"`
+	Enabled              bool          `yaml:"enabled"`
+	CacheTTL             time.Duration `yaml:"cache_ttl"`
+	CacheMethods         []string      `yaml:"cache_methods"`
+	CacheStatus          []int         `yaml:"cache_status"`
+	SkipPaths            []string      `yaml:"skip_paths"`
+	SkipCookies          []string      `yaml:"skip_cookies"`
+	MaxCacheSize         int           `yaml:"max_cache_size"` // KB
+	StaleWhileRevalidate bool          `yaml:"stale_while_revalidate"`
 }
 
 // DefaultLayerConfig returns default layer config.
 func DefaultLayerConfig() *LayerConfig {
 	return &LayerConfig{
-		Enabled:       false,
-		CacheTTL:      5 * time.Minute,
-		CacheMethods:  []string{"GET", "HEAD"},
-		CacheStatus:   []int{200, 301, 302, 404},
-		SkipPaths:     []string{"/api/login", "/api/logout", "/healthz"},
-		SkipCookies:   []string{"session", "auth"},
-		MaxCacheSize:  1024, // 1MB
+		Enabled:              false,
+		CacheTTL:             5 * time.Minute,
+		CacheMethods:         []string{"GET", "HEAD"},
+		CacheStatus:          []int{200, 301, 302, 404},
+		SkipPaths:            []string{"/api/login", "/api/logout", "/healthz"},
+		SkipCookies:          []string{"session", "auth"},
+		MaxCacheSize:         1024, // 1MB
 		StaleWhileRevalidate: false,
 	}
 }
@@ -79,9 +78,6 @@ func NewLayer(cache *Cache, cfg *LayerConfig) *Layer {
 	return &Layer{
 		cache:  cache,
 		config: cfg,
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
 	}
 }
 
@@ -113,13 +109,18 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	// Generate cache key
 	key := l.generateKey(ctx)
 
+	// Derive a bounded context from the request so client cancellation and
+	// request deadlines propagate to a slow/hung cache backend.
+	opCtx, cancel := opContext(ctx)
+	defer cancel()
+
 	// Try to get from cache
-	entry, err := l.getCachedEntry(key)
+	entry, err := l.getCachedEntry(opCtx, key)
 	if err == nil && entry != nil {
 		// Check if entry is expired
 		if time.Now().After(entry.ExpiresAt) {
 			// Delete expired entry - best effort, error ignored
-			_ = l.cache.Delete(context.Background(), key)
+			_ = l.cache.Delete(opCtx, key)
 		} else {
 			// Return cached response - pass through to indicate cache hit
 			return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
@@ -181,10 +182,21 @@ func (l *Layer) generateKey(ctx *engine.RequestContext) string {
 	return key.String()
 }
 
+// opContext derives a bounded context for cache backend operations from the
+// request, so client cancellation and request deadlines reach the backend and
+// a slow/hung cache cannot stall request processing indefinitely.
+func opContext(ctx *engine.RequestContext) (context.Context, context.CancelFunc) {
+	parent := context.Background()
+	if ctx.Request != nil {
+		parent = ctx.Request.Context()
+	}
+	return context.WithTimeout(parent, 2*time.Second)
+}
+
 // getCachedEntry retrieves a cached entry.
-func (l *Layer) getCachedEntry(key string) (*CacheEntry, error) {
+func (l *Layer) getCachedEntry(opCtx context.Context, key string) (*CacheEntry, error) {
 	entry := &CacheEntry{}
-	if err := l.cache.GetJSON(context.Background(), key, entry); err != nil {
+	if err := l.cache.GetJSON(opCtx, key, entry); err != nil {
 		return nil, err
 	}
 	return entry, nil
@@ -254,10 +266,10 @@ func (l *Layer) GetStats() (map[string]any, error) {
 	}
 
 	return map[string]any{
-		"enabled":   true,
-		"backend":   l.cache.config.Backend,
-		"ttl":       l.config.CacheTTL.String(),
-		"methods":   l.config.CacheMethods,
+		"enabled": true,
+		"backend": l.cache.config.Backend,
+		"ttl":     l.config.CacheTTL.String(),
+		"methods": l.config.CacheMethods,
 	}, nil
 }
 

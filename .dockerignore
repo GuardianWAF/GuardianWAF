@@ -1,5 +1,6 @@
 .git
 .github
+.cache
 dist
 **/node_modules
 internal/dashboard/ui/dist

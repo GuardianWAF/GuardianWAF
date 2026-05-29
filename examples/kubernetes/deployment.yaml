@@ -18,11 +18,8 @@ spec:
         runAsNonRoot: true
         runAsUser: 1000
         runAsGroup: 1000
-        allowPrivilegeEscalation: false
-        readOnlyRootFilesystem: true
-        capabilities:
-          drop:
-            - ALL
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: guardianwaf
           image: ghcr.io/guardianwaf/guardianwaf:latest
@@ -30,18 +27,26 @@ spec:
           ports:
             - containerPort: 8088
               name: http
+            - containerPort: 8443
+              name: https
             - containerPort: 9443
               name: dashboard
+          env:
+            - name: GWAF_DASHBOARD_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: guardianwaf-dashboard-auth
+                  key: api-key
           livenessProbe:
             httpGet:
-              path: /healthz
-              port: 9443
+              path: /livez
+              port: 8088
             initialDelaySeconds: 5
             periodSeconds: 10
           readinessProbe:
             httpGet:
-              path: /healthz
-              port: 9443
+              path: /readyz
+              port: 8088
             initialDelaySeconds: 3
             periodSeconds: 5
           resources:
@@ -51,13 +56,25 @@ spec:
             requests:
               memory: "64Mi"
               cpu: "100m"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           volumeMounts:
             - name: config
               mountPath: /etc/guardianwaf
+              readOnly: true
             # Mount TLS certificates from cert-manager secret
             - name: tls-cert
               mountPath: /etc/tls
               readOnly: true
+            - name: state
+              mountPath: /var/lib/guardianwaf
+            - name: state
+              mountPath: /var/log/guardianwaf
+              subPath: logs
       volumes:
         - name: config
           configMap:
@@ -67,3 +84,6 @@ spec:
           secret:
             secretName: guardianwaf-tls
             optional: false
+        - name: state
+          emptyDir:
+            sizeLimit: 1Gi

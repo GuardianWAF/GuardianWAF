@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -20,18 +20,11 @@ export default function ClusterDetailPage() {
   const [newNode, setNewNode] = useState({ id: '', name: '', address: '' })
   const { toast } = useToast()
 
-  useEffect(() => {
-    if (id) {
-      loadData()
-      const interval = setInterval(loadData, 10000)
-      return () => clearInterval(interval)
-    }
-  }, [id])
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
+    if (!id) return
     try {
       const [clusterData, nodesData, allNodesData] = await Promise.all([
-        api.getCluster(id!),
+        api.getCluster(id),
         api.getNodes(),
         api.getNodes()
       ])
@@ -51,7 +44,15 @@ export default function ClusterDetailPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [id, toast])
+
+  useEffect(() => {
+    if (id) {
+      loadData()
+      const interval = setInterval(loadData, 10000)
+      return () => clearInterval(interval)
+    }
+  }, [id, loadData])
 
   const handleAddNode = async () => {
     if (!newNode.id || !newNode.name || !newNode.address) {

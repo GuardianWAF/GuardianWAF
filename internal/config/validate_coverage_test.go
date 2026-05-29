@@ -11,34 +11,35 @@ import (
 func TestLoadEnv_Coverage(t *testing.T) {
 	cfg := DefaultConfig()
 	envVars := map[string]string{
-		"GWAF_MODE":                              "monitor",
-		"GWAF_LISTEN":                            ":9090",
-		"GWAF_LOGGING_LEVEL":                     "debug",
-		"GWAF_LOGGING_FORMAT":                    "text",
-		"GWAF_LOGGING_OUTPUT":                    "stderr",
-		"GWAF_WAF_DETECTION_THRESHOLD_BLOCK":     "60",
-		"GWAF_WAF_DETECTION_THRESHOLD_LOG":       "30",
-		"GWAF_DASHBOARD_LISTEN":                  ":9999",
-		"GWAF_DASHBOARD_API_KEY":                 "test-key-123",
-		"GWAF_DASHBOARD_ENABLED":                 "true",
-		"GWAF_EVENTS_STORAGE":                    "file",
-		"GWAF_EVENTS_FILE_PATH":                  "/tmp/events.jsonl",
-		"GWAF_EVENTS_MAX_EVENTS":                 "50000",
-		"GWAF_TLS_ENABLED":                       "true",
-		"GWAF_TLS_LISTEN":                        ":9443",
-		"GWAF_TLS_CERT_FILE":                     "/cert.pem",
-		"GWAF_TLS_KEY_FILE":                      "/key.pem",
-		"GWAF_TRACING_ENABLED":                   "true",
-		"GWAF_TRACING_SERVICE_NAME":              "test-svc",
-		"GWAF_TRACING_SAMPLING_RATE":             "0.5",
-		"GWAF_TRACING_EXPORTER_TYPE":             "stdout",
-		"GWAF_LOGGING_MAX_SIZE_MB":               "200",
-		"GWAF_LOGGING_MAX_BACKUPS":               "10",
-		"GWAF_LOGGING_MAX_AGE_DAYS":              "60",
-		"GWAF_COMPLIANCE_ENABLED":                "true",
-		"GWAF_COMPLIANCE_FRAMEWORKS":             "pci_dss,gdpr",
-		"GWAF_COMPLIANCE_REPORT_DIR":             "/tmp/reports",
-		"GWAF_COMPLIANCE_AUDIT_TRAIL_ENABLED":    "true",
+		"GWAF_MODE":                           "monitor",
+		"GWAF_LISTEN":                         ":9090",
+		"GWAF_LOGGING_LEVEL":                  "debug",
+		"GWAF_LOGGING_FORMAT":                 "text",
+		"GWAF_LOGGING_OUTPUT":                 "stderr",
+		"GWAF_WAF_DETECTION_THRESHOLD_BLOCK":  "60",
+		"GWAF_WAF_DETECTION_THRESHOLD_LOG":    "30",
+		"GWAF_DASHBOARD_LISTEN":               ":9999",
+		"GWAF_DASHBOARD_API_KEY":              "test-key-123",
+		"GWAF_DASHBOARD_ADMIN_KEY":            "admin-test-key-123",
+		"GWAF_DASHBOARD_ENABLED":              "true",
+		"GWAF_EVENTS_STORAGE":                 "file",
+		"GWAF_EVENTS_FILE_PATH":               "/tmp/events.jsonl",
+		"GWAF_EVENTS_MAX_EVENTS":              "50000",
+		"GWAF_TLS_ENABLED":                    "true",
+		"GWAF_TLS_LISTEN":                     ":9443",
+		"GWAF_TLS_CERT_FILE":                  "/cert.pem",
+		"GWAF_TLS_KEY_FILE":                   "/key.pem",
+		"GWAF_TRACING_ENABLED":                "true",
+		"GWAF_TRACING_SERVICE_NAME":           "test-svc",
+		"GWAF_TRACING_SAMPLING_RATE":          "0.5",
+		"GWAF_TRACING_EXPORTER_TYPE":          "stdout",
+		"GWAF_LOGGING_MAX_SIZE_MB":            "200",
+		"GWAF_LOGGING_MAX_BACKUPS":            "10",
+		"GWAF_LOGGING_MAX_AGE_DAYS":           "60",
+		"GWAF_COMPLIANCE_ENABLED":             "true",
+		"GWAF_COMPLIANCE_FRAMEWORKS":          "pci_dss,gdpr",
+		"GWAF_COMPLIANCE_REPORT_DIR":          "/tmp/reports",
+		"GWAF_COMPLIANCE_AUDIT_TRAIL_ENABLED": "true",
 	}
 	for k, v := range envVars {
 		os.Setenv(k, v)
@@ -72,6 +73,9 @@ func TestLoadEnv_Coverage(t *testing.T) {
 	}
 	if cfg.Dashboard.APIKey != "test-key-123" {
 		t.Errorf("Dashboard.APIKey: got %q", cfg.Dashboard.APIKey)
+	}
+	if cfg.Dashboard.AdminKey != "admin-test-key-123" {
+		t.Errorf("Dashboard.AdminKey: got %q", cfg.Dashboard.AdminKey)
 	}
 	if !cfg.Dashboard.Enabled {
 		t.Error("Dashboard.Enabled: got false, want true")

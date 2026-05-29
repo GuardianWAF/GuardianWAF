@@ -34,6 +34,13 @@ var (
 // X-Forwarded-For and X-Real-IP headers honored.
 // Accepts CIDR notation ("10.0.0.0/8") or single IPs ("10.0.0.1").
 func SetTrustedProxies(cidrs []string) {
+	parsed := parseTrustedProxyCIDRs(cidrs)
+	trustedProxyMu.Lock()
+	trustedProxyCIDRs = parsed
+	trustedProxyMu.Unlock()
+}
+
+func parseTrustedProxyCIDRs(cidrs []string) []*net.IPNet {
 	var parsed []*net.IPNet
 	for _, s := range cidrs {
 		if !strings.Contains(s, "/") {
@@ -63,16 +70,21 @@ func SetTrustedProxies(cidrs []string) {
 		}
 		parsed = append(parsed, cidr)
 	}
-	trustedProxyMu.Lock()
-	trustedProxyCIDRs = parsed
-	trustedProxyMu.Unlock()
+	return parsed
 }
 
 // isTrustedProxy checks if the given IP is within a configured trusted proxy CIDR.
 func isTrustedProxy(ip net.IP) bool {
 	trustedProxyMu.RLock()
 	defer trustedProxyMu.RUnlock()
-	for _, cidr := range trustedProxyCIDRs {
+	return isTrustedProxyIn(ip, trustedProxyCIDRs)
+}
+
+func isTrustedProxyIn(ip net.IP, cidrs []*net.IPNet) bool {
+	if ip == nil {
+		return false
+	}
+	for _, cidr := range cidrs {
 		if cidr.Contains(ip) {
 			return true
 		}
@@ -131,7 +143,7 @@ type RequestContext struct {
 	JA4Ver      uint16   // Highest TLS version from supported_versions extension
 
 	// Tenant info (set by engine middleware for multi-tenant)
-	TenantID       string         // Tenant identifier (empty = global/default)
+	TenantID        string            // Tenant identifier (empty = global/default)
 	TenantWAFConfig *config.WAFConfig // Per-tenant WAF config override (nil = use global)
 
 	// Tracing (set by engine if tracing is enabled and request is sampled)
@@ -220,7 +232,7 @@ func AcquireContext(r *http.Request, paranoiaLevel int, maxBodySize int64) *Requ
 							inspectData = decompressed
 						}
 					}
-					gr.Close()
+					gr.Close() //nolint:errcheck // decompression close; error irrelevant — reader already consumed
 				}
 			case "deflate":
 				fr := flate.NewReader(bytes.NewReader(rawData))
@@ -229,7 +241,7 @@ func AcquireContext(r *http.Request, paranoiaLevel int, maxBodySize int64) *Requ
 						inspectData = decompressed
 					}
 				}
-				fr.Close()
+				fr.Close() //nolint:errcheck // decompression close; error irrelevant — reader already consumed
 			}
 
 			ctx.Body = inspectData
@@ -324,13 +336,20 @@ func ExtractClientIP(r *http.Request) net.IP {
 // which is attacker-controlled). When no trusted proxies are configured,
 // proxy headers are ignored and RemoteAddr is always used.
 func extractClientIP(r *http.Request) net.IP {
+	trustedProxyMu.RLock()
+	cidrs := append([]*net.IPNet(nil), trustedProxyCIDRs...)
+	trustedProxyMu.RUnlock()
+	return extractClientIPWithTrustedProxies(r, cidrs)
+}
+
+func extractClientIPWithTrustedProxies(r *http.Request, trustedCIDRs []*net.IPNet) net.IP {
 	remoteIP := parseRemoteAddr(r.RemoteAddr)
 	if remoteIP == nil {
 		return nil
 	}
 
 	// Only trust proxy headers if the direct peer is a trusted proxy
-	if !isTrustedProxy(remoteIP) {
+	if !isTrustedProxyIn(remoteIP, trustedCIDRs) {
 		return remoteIP
 	}
 
@@ -344,7 +363,7 @@ func extractClientIP(r *http.Request) net.IP {
 			if ip == nil {
 				continue
 			}
-			if !isTrustedProxy(ip) {
+			if !isTrustedProxyIn(ip, trustedCIDRs) {
 				return ip
 			}
 		}

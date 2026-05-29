@@ -53,6 +53,7 @@ func NewLayer(cfg *Config) *Layer {
 
 // Name returns the layer name.
 func (l *Layer) Name() string { return "ratelimit" }
+func (l *Layer) Order() int { return engine.OrderRateLimit }
 
 // AddRule adds a rate limit rule dynamically at runtime.
 func (l *Layer) AddRule(rule Rule) {

@@ -575,6 +575,63 @@ func TestFileStore_CloseDrainsEvents(t *testing.T) {
 	}
 }
 
+func TestFileStore_StoreAfterCloseReturnsError(t *testing.T) {
+	tmpFile := t.TempDir() + "/events.jsonl"
+
+	fs, err := NewFileStore(tmpFile, 0)
+	if err != nil {
+		t.Fatalf("NewFileStore failed: %v", err)
+	}
+	if err := fs.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	ev := makeEvent("after-close", engine.ActionPass, 0, "/", "10.0.0.1", time.Now())
+	if err := fs.Store(ev); err == nil {
+		t.Fatal("expected Store after Close to return an error")
+	}
+}
+
+func TestFileStore_ConcurrentStoreAndCloseDoesNotPanic(t *testing.T) {
+	tmpFile := t.TempDir() + "/events.jsonl"
+
+	fs, err := NewFileStore(tmpFile, 0)
+	if err != nil {
+		t.Fatalf("NewFileStore failed: %v", err)
+	}
+
+	start := make(chan struct{})
+	errCh := make(chan any, 32)
+	var wg sync.WaitGroup
+	for worker := range 32 {
+		wg.Add(1)
+		go func(worker int) {
+			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					errCh <- r
+				}
+			}()
+			<-start
+			for i := range 200 {
+				ev := makeEvent("concurrent-"+intToStr(worker)+"-"+intToStr(i), engine.ActionPass, 0, "/", "10.0.0.1", time.Now())
+				_ = fs.Store(ev)
+			}
+		}(worker)
+	}
+
+	close(start)
+	time.Sleep(time.Millisecond)
+	if err := fs.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+	wg.Wait()
+	close(errCh)
+	for r := range errCh {
+		t.Fatalf("Store panicked during concurrent Close: %v", r)
+	}
+}
+
 func TestFileStore_QueryNotSupported(t *testing.T) {
 	tmpFile := t.TempDir() + "/events.jsonl"
 

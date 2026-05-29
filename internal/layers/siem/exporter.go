@@ -18,27 +18,27 @@ import (
 
 // Exporter exports security events to SIEM systems.
 type Exporter struct {
-	config     *Config
-	formatter  *Formatter
-	client     *http.Client
-	eventChan  chan *Event
-	wg         sync.WaitGroup
-	stopChan   chan struct{}
-	logFn      func(level string, msg string, args ...any)
+	config    *Config
+	formatter *Formatter
+	client    *http.Client
+	eventChan chan *Event
+	wg        sync.WaitGroup
+	stopChan  chan struct{}
+	logFn     func(level string, msg string, args ...any)
 }
 
 // Config for SIEM exporter.
 type Config struct {
-	Enabled      bool          `yaml:"enabled"`
-	Endpoint     string        `yaml:"endpoint"`
-	Format       Format        `yaml:"format"`
-	APIKey       string        `yaml:"api_key"`
-	Index        string        `yaml:"index"`
-	BatchSize    int           `yaml:"batch_size"`
-	FlushInterval time.Duration `yaml:"flush_interval"`
-	Timeout      time.Duration `yaml:"timeout"`
-	SkipVerify   bool          `yaml:"skip_verify"`
-	Fields       map[string]string `yaml:"fields"`
+	Enabled       bool              `yaml:"enabled"`
+	Endpoint      string            `yaml:"endpoint"`
+	Format        Format            `yaml:"format"`
+	APIKey        string            `yaml:"api_key"`
+	Index         string            `yaml:"index"`
+	BatchSize     int               `yaml:"batch_size"`
+	FlushInterval time.Duration     `yaml:"flush_interval"`
+	Timeout       time.Duration     `yaml:"timeout"`
+	SkipVerify    bool              `yaml:"skip_verify"`
+	Fields        map[string]string `yaml:"fields"`
 }
 
 // DefaultConfig returns default SIEM configuration.
@@ -86,13 +86,14 @@ func NewExporter(cfg *Config) *Exporter {
 	}
 
 	transport := &http.Transport{
-		DialContext:           siemSSRFDialContext(),
+		DialContext: siemSSRFDialContext(),
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: false, // Always enforce TLS verification
 		},
 		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:  10 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
 		ResponseHeaderTimeout: 30 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
 	}
 
 	return &Exporter{
@@ -101,6 +102,12 @@ func NewExporter(cfg *Config) *Exporter {
 		client: &http.Client{
 			Timeout:   cfg.Timeout,
 			Transport: transport,
+			CheckRedirect: func(req *http.Request, _ []*http.Request) error {
+				if err := validateSIEMEndpoint(req.URL.String()); err != nil {
+					return fmt.Errorf("redirect URL rejected: %w", err)
+				}
+				return nil
+			},
 		},
 		eventChan: make(chan *Event, cfg.BatchSize*2),
 		stopChan:  make(chan struct{}),
@@ -267,11 +274,11 @@ func (e *Exporter) sendBatch(events []*Event) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20)) // nolint:errcheck // response body drain; error ignored
 		return fmt.Errorf("SIEM returned error: %s", resp.Status)
 	}
 
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20)) // nolint:errcheck // response body drain; error ignored
 
 	return nil
 }

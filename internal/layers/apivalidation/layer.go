@@ -107,6 +107,7 @@ func NewLayer(cfg *Config) *Layer {
 
 // Name returns "apivalidation".
 func (l *Layer) Name() string { return "apivalidation" }
+func (l *Layer) Order() int { return engine.OrderAPIValidation }
 
 // SetEnabled enables or disables the layer.
 func (l *Layer) SetEnabled(enabled bool) {

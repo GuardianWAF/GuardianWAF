@@ -694,7 +694,7 @@ func (i *Integrator) handleDiscoveryExport(w http.ResponseWriter, r *http.Reques
 
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Disposition", "attachment; filename=\""+filename+"\"")
-	_, _ = w.Write(data) // Client disconnect error ignored
+	_, _ = w.Write(data) // nolint:errcheck // download write; error means client disconnected
 }
 
 // handleDiscoverySpec handles API discovery spec viewing.
@@ -712,7 +712,7 @@ func (i *Integrator) handleDiscoverySpec(w http.ResponseWriter, r *http.Request)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write(data) // Client disconnect error ignored
+	_, _ = w.Write(data) // nolint:errcheck // download write; error means client disconnected
 }
 
 // handleDiscoveryStats handles API discovery statistics.

@@ -11,7 +11,7 @@ COPY internal/dashboard/ui/ .
 RUN npm run build
 
 # Stage 2: Build Go binary
-FROM --platform=$BUILDPLATFORM golang:1.25.0-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26.3-alpine AS builder
 
 ARG TARGETOS
 ARG TARGETARCH
@@ -38,21 +38,23 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -o guardianwaf ./cmd/guardianwaf
 
 # Stage 3: Runtime
-FROM alpine:3.21.3
+FROM alpine:3.23.4
+
+ARG IMAGE_VERSION=dev
 
 # Labels for GHCR
 LABEL org.opencontainers.image.title="GuardianWAF" \
       org.opencontainers.image.description="Zero-dependency Web Application Firewall written in Go" \
       org.opencontainers.image.source="https://github.com/guardianwaf/guardianwaf" \
       org.opencontainers.image.licenses="MIT" \
-      org.opencontainers.image vendors="GuardianWAF" \
+      org.opencontainers.image.vendor="GuardianWAF" \
       org.opencontainers.image.version="${IMAGE_VERSION}"
 
 # Install runtime dependencies
 RUN apk add --no-cache ca-certificates tzdata && \
     adduser -D -H -s /sbin/nologin guardianwaf && \
-    mkdir -p /var/lib/guardianwaf/ai /etc/guardianwaf && \
-    chown -R guardianwaf:guardianwaf /var/lib/guardianwaf
+    mkdir -p /var/lib/guardianwaf/ai /var/log/guardianwaf /etc/guardianwaf && \
+    chown -R guardianwaf:guardianwaf /var/lib/guardianwaf /var/log/guardianwaf
 
 # Copy binary from builder
 COPY --from=builder /app/guardianwaf /usr/local/bin/guardianwaf

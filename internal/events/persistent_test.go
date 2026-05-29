@@ -3,7 +3,9 @@ package events
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 )
@@ -86,5 +88,45 @@ func TestPersistentMemoryStore_NoPath(t *testing.T) {
 	recent, _ := ps.Recent(1)
 	if len(recent) != 1 || recent[0].ID != "test" {
 		t.Error("should work without file path")
+	}
+}
+
+func TestPersistentMemoryStore_ConcurrentStoreAndClose(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "events.jsonl")
+
+	ps, err := NewPersistentMemoryStore(1000, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	start := make(chan struct{})
+	errCh := make(chan any, 16)
+	var wg sync.WaitGroup
+	for worker := range 16 {
+		wg.Add(1)
+		go func(worker int) {
+			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					errCh <- r
+				}
+			}()
+			<-start
+			for i := range 100 {
+				_ = ps.Store(engine.Event{ID: string(rune('a'+worker)) + "-" + string(rune('A'+i%26))})
+			}
+		}(worker)
+	}
+
+	close(start)
+	time.Sleep(time.Millisecond)
+	if err := ps.Close(); err != nil {
+		t.Fatal(err)
+	}
+	wg.Wait()
+	close(errCh)
+	for r := range errCh {
+		t.Fatalf("Store panicked during concurrent Close: %v", r)
 	}
 }

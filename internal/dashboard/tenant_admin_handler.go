@@ -99,9 +99,13 @@ func (h *TenantAdminHandler) listTenants(w http.ResponseWriter, r *http.Request)
 	}
 
 	tenants := h.manager.ListTenants()
+	publicTenants := make([]any, len(tenants))
+	for i, tenant := range tenants {
+		publicTenants[i] = sanitizeTenantResponse(tenant)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"tenants": tenants,
-		"count":   len(tenants),
+		"tenants": publicTenants,
+		"count":   len(publicTenants),
 	})
 }
 
@@ -143,7 +147,7 @@ func (h *TenantAdminHandler) createTenant(w http.ResponseWriter, r *http.Request
 	// Extract tenant ID for API key regeneration
 	tenantMap, ok := tenant.(map[string]any)
 	if !ok {
-		writeJSON(w, http.StatusCreated, map[string]any{"tenant": tenant})
+		writeJSON(w, http.StatusCreated, map[string]any{"tenant": sanitizeTenantResponse(tenant)})
 		return
 	}
 
@@ -151,7 +155,7 @@ func (h *TenantAdminHandler) createTenant(w http.ResponseWriter, r *http.Request
 	apiKey, _ := h.manager.RegenerateAPIKey(tenantID)
 
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"tenant":  tenant,
+		"tenant":  sanitizeTenantResponse(tenant),
 		"api_key": apiKey,
 	})
 }
@@ -218,7 +222,9 @@ func (h *TenantAdminHandler) deleteTenant(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusNoContent, nil)
 }
 
-// sanitizeTenantResponse strips sensitive fields (api_key_hash) from a tenant object.
+// sanitizeTenantResponse strips sensitive fields from a tenant object before it
+// is returned from admin APIs. Tenant API keys are returned only by explicit
+// create/regenerate-key responses, never embedded in tenant objects.
 func sanitizeTenantResponse(tenant any) any {
 	data, err := json.Marshal(tenant)
 	if err != nil {
@@ -228,7 +234,35 @@ func sanitizeTenantResponse(tenant any) any {
 	if err := json.Unmarshal(data, &m); err != nil {
 		return tenant
 	}
-	delete(m, "api_key_hash")
+	return sanitizeTenantMap(m)
+}
+
+func sanitizeTenantMap(m map[string]any) map[string]any {
+	for key, value := range m {
+		normalized := strings.ToLower(strings.ReplaceAll(key, "-", "_"))
+		switch normalized {
+		case "api_key_hash", "key_hash":
+			delete(m, key)
+			continue
+		case "api_key", "admin_key", "apikey", "adminkey":
+			if s, ok := value.(string); ok && s != "" {
+				m[key] = "[REDACTED]"
+			}
+			continue
+		}
+
+		switch typed := value.(type) {
+		case map[string]any:
+			m[key] = sanitizeTenantMap(typed)
+		case []any:
+			for i, item := range typed {
+				if itemMap, ok := item.(map[string]any); ok {
+					typed[i] = sanitizeTenantMap(itemMap)
+				}
+			}
+			m[key] = typed
+		}
+	}
 	return m
 }
 

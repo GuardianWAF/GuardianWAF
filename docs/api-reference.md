@@ -14,6 +14,8 @@ curl -H "X-API-Key: your-secret-key" http://localhost:9443/api/v1/stats
 
 Requests without a valid API key receive `401 Unauthorized`.
 
+Query-string API keys are rejected; send credentials with `X-API-Key` or use an authenticated dashboard session cookie for browser-driven streams.
+
 ---
 
 ## Error Format

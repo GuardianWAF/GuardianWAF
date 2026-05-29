@@ -3,8 +3,11 @@
 ## Quick Diagnostics
 
 ```bash
-# Check health
-curl -s http://localhost:9443/healthz | jq .
+# Check process liveness
+curl -s http://localhost:9443/livez | jq .
+
+# Check traffic readiness
+curl -s http://localhost:9443/readyz | jq .
 
 # Check metrics
 curl -s http://localhost:9443/metrics | grep guardianwaf_
@@ -149,12 +152,16 @@ curl -s http://localhost:9443/api/stats | jq '.rate_limits'
 **Resolution**:
 - Increase `requests_per_second` in rate limit rules
 - Increase `auto_ban.threshold` (violations before ban)
-- Add trusted proxy CIDRs so real IPs are used:
+- Add trusted proxy CIDRs so real IPs are used. These must be the direct proxy,
+  load balancer, or ingress addresses that connect to GuardianWAF, not the
+  public client address range:
   ```yaml
   trusted_proxies:
-    - 10.0.0.0/8
-    - 172.16.0.0/12
+    - 10.0.0.10
+    - 10.0.1.0/24
   ```
+- Leave `trusted_proxies` empty for direct internet exposure so spoofed
+  `X-Forwarded-For` and `X-Real-IP` headers are ignored.
 
 ### 7. Dashboard Not Loading
 

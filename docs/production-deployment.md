@@ -44,8 +44,9 @@ Inbound:
 
 Outbound:
   53/tcp+udp    - DNS resolution
-  443/tcp       - ACME, Threat Intel feeds
+  443/tcp       - ACME, Threat Intel, GeoIP, NVD, AI providers, webhooks
   587/tcp       - SMTP for alerts (optional)
+  cluster port  - Cluster sync peers, if enabled; restrict to known peer nodes
 ```
 
 ---
@@ -181,6 +182,8 @@ spec:
           readOnly: true
         - name: data
           mountPath: /var/lib/guardianwaf
+        - name: logs
+          mountPath: /var/log/guardianwaf
         - name: certs
           mountPath: /etc/guardianwaf/certs
           readOnly: true
@@ -193,13 +196,13 @@ spec:
             cpu: "2000m"
         livenessProbe:
           httpGet:
-            path: /healthz
+            path: /livez
             port: 8080
           initialDelaySeconds: 30
           periodSeconds: 10
         readinessProbe:
           httpGet:
-            path: /healthz
+            path: /readyz
             port: 8080
           initialDelaySeconds: 5
           periodSeconds: 5
@@ -218,6 +221,9 @@ spec:
       - name: data
         persistentVolumeClaim:
           claimName: guardianwaf-data
+      - name: logs
+        persistentVolumeClaim:
+          claimName: guardianwaf-logs
       - name: certs
         secret:
           secretName: guardianwaf-certs
@@ -347,9 +353,10 @@ ufw enable
 
 ```yaml
 # Require API key for dashboard
-server:
-  dashboard_listen: "127.0.0.1:9443"
-  dashboard_api_key: "${DASHBOARD_API_KEY}"  # Strong random string
+dashboard:
+  listen: "127.0.0.1:9443"
+  api_key: "${GWAF_DASHBOARD_API_KEY}"      # Strong random string
+  admin_key: "${GWAF_DASHBOARD_ADMIN_KEY}"  # Required only for tenant-admin endpoints
 ```
 
 Access via SSH tunnel:
@@ -382,7 +389,7 @@ chmod 755 /var/log/guardianwaf
 chown guardianwaf:guardianwaf /var/log/guardianwaf
 
 # Data
-cchmod 700 /var/lib/guardianwaf
+chmod 700 /var/lib/guardianwaf
 chown guardianwaf:guardianwaf /var/lib/guardianwaf
 ```
 
@@ -405,10 +412,10 @@ scrape_configs:
 
 ```bash
 # Liveness probe
-curl -f http://localhost:8080/healthz || exit 1
+curl -f http://localhost:8080/livez || exit 1
 
 # Readiness probe
-curl -f http://localhost:8080/healthz || exit 1
+curl -f http://localhost:8080/readyz || exit 1
 ```
 
 ### Log Aggregation (Loki/ELK)
@@ -468,7 +475,8 @@ sudo chown -R guardianwaf:guardianwaf /var/lib/guardianwaf
 sudo systemctl start guardianwaf
 
 # 5. Verify
-curl http://localhost:8080/healthz
+curl http://localhost:8080/livez
+curl http://localhost:8080/readyz
 ```
 
 ---

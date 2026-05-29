@@ -3,6 +3,7 @@ package mcp
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 )
 
@@ -47,6 +48,38 @@ func (s *Server) getEngine() (EngineInterface, error) {
 	return eng, nil
 }
 
+// handleWithParams is a generic adapter that unmarshals typed params, validates
+// required fields, and calls the given engine method. It eliminates the repetitive
+// getEngine → json.Unmarshal → error-check → call pattern across all 44 handlers.
+func handleWithParams[T any, R any](
+	s *Server,
+	params json.RawMessage,
+	required []string, // field names that must be non-zero
+	call func(EngineInterface, T) (R, error),
+) (R, error) {
+	var zero R
+	eng, err := s.getEngine()
+	if err != nil {
+		return zero, err
+	}
+	var p T
+	if err := json.Unmarshal(params, &p); err != nil {
+		return zero, fmt.Errorf("invalid params: %w", err)
+	}
+	v := reflect.ValueOf(p)
+	for _, field := range required {
+		f := v.FieldByName(field)
+		if !f.IsValid() {
+			continue
+		}
+		zeroVal := reflect.Zero(f.Type())
+		if reflect.DeepEqual(f.Interface(), zeroVal.Interface()) {
+			return zero, fmt.Errorf("%s is required", field)
+		}
+	}
+	return call(eng, p)
+}
+
 func (s *Server) handleGetStats(params json.RawMessage) (any, error) {
 	eng, err := s.getEngine()
 	if err != nil {
@@ -68,75 +101,39 @@ type ipParam struct {
 }
 
 func (s *Server) handleAddWhitelist(params json.RawMessage) (any, error) {
-	eng, err := s.getEngine()
-	if err != nil {
-		return nil, err
-	}
-	var p ipParam
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, fmt.Errorf("invalid params: %w", err)
-	}
-	if p.IP == "" {
-		return nil, fmt.Errorf("ip is required")
-	}
-	if err := eng.AddWhitelist(p.IP); err != nil {
-		return nil, err
-	}
-	return map[string]any{"status": "ok", "ip": p.IP, "action": "added to whitelist"}, nil
+	return handleWithParams[ipParam](s, params, []string{"IP"}, func(eng EngineInterface, p ipParam) (any, error) {
+		if err := eng.AddWhitelist(p.IP); err != nil {
+			return nil, err
+		}
+		return map[string]any{"status": "ok", "ip": p.IP, "action": "added to whitelist"}, nil
+	})
 }
 
 func (s *Server) handleRemoveWhitelist(params json.RawMessage) (any, error) {
-	eng, err := s.getEngine()
-	if err != nil {
-		return nil, err
-	}
-	var p ipParam
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, fmt.Errorf("invalid params: %w", err)
-	}
-	if p.IP == "" {
-		return nil, fmt.Errorf("ip is required")
-	}
-	if err := eng.RemoveWhitelist(p.IP); err != nil {
-		return nil, err
-	}
-	return map[string]any{"status": "ok", "ip": p.IP, "action": "removed from whitelist"}, nil
+	return handleWithParams[ipParam](s, params, []string{"IP"}, func(eng EngineInterface, p ipParam) (any, error) {
+		if err := eng.RemoveWhitelist(p.IP); err != nil {
+			return nil, err
+		}
+		return map[string]any{"status": "ok", "ip": p.IP, "action": "removed from whitelist"}, nil
+	})
 }
 
 func (s *Server) handleAddBlacklist(params json.RawMessage) (any, error) {
-	eng, err := s.getEngine()
-	if err != nil {
-		return nil, err
-	}
-	var p ipParam
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, fmt.Errorf("invalid params: %w", err)
-	}
-	if p.IP == "" {
-		return nil, fmt.Errorf("ip is required")
-	}
-	if err := eng.AddBlacklist(p.IP); err != nil {
-		return nil, err
-	}
-	return map[string]any{"status": "ok", "ip": p.IP, "action": "added to blacklist"}, nil
+	return handleWithParams[ipParam](s, params, []string{"IP"}, func(eng EngineInterface, p ipParam) (any, error) {
+		if err := eng.AddBlacklist(p.IP); err != nil {
+			return nil, err
+		}
+		return map[string]any{"status": "ok", "ip": p.IP, "action": "added to blacklist"}, nil
+	})
 }
 
 func (s *Server) handleRemoveBlacklist(params json.RawMessage) (any, error) {
-	eng, err := s.getEngine()
-	if err != nil {
-		return nil, err
-	}
-	var p ipParam
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, fmt.Errorf("invalid params: %w", err)
-	}
-	if p.IP == "" {
-		return nil, fmt.Errorf("ip is required")
-	}
-	if err := eng.RemoveBlacklist(p.IP); err != nil {
-		return nil, err
-	}
-	return map[string]any{"status": "ok", "ip": p.IP, "action": "removed from blacklist"}, nil
+	return handleWithParams[ipParam](s, params, []string{"IP"}, func(eng EngineInterface, p ipParam) (any, error) {
+		if err := eng.RemoveBlacklist(p.IP); err != nil {
+			return nil, err
+		}
+		return map[string]any{"status": "ok", "ip": p.IP, "action": "removed from blacklist"}, nil
+	})
 }
 
 type rateLimitParam struct {
@@ -148,33 +145,24 @@ type rateLimitParam struct {
 }
 
 func (s *Server) handleAddRateLimit(params json.RawMessage) (any, error) {
-	eng, err := s.getEngine()
-	if err != nil {
-		return nil, err
-	}
-	var p rateLimitParam
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, fmt.Errorf("invalid params: %w", err)
-	}
-	if p.ID == "" {
-		return nil, fmt.Errorf("id is required")
-	}
-	if p.Limit <= 0 {
-		return nil, fmt.Errorf("limit must be > 0")
-	}
-	if p.Window == "" {
-		return nil, fmt.Errorf("window is required")
-	}
-	if p.Scope == "" {
-		p.Scope = "ip"
-	}
-	if p.Action == "" {
-		p.Action = "block"
-	}
-	if err := eng.AddRateLimit(p); err != nil {
-		return nil, err
-	}
-	return map[string]any{"status": "ok", "id": p.ID, "action": "rate limit rule added"}, nil
+	return handleWithParams[rateLimitParam](s, params, []string{"ID", "Limit", "Window"}, func(eng EngineInterface, p rateLimitParam) (any, error) {
+		if p.Limit <= 0 {
+			return nil, fmt.Errorf("limit must be > 0")
+		}
+		if p.Window == "" {
+			p.Window = "60s" // default
+		}
+		if p.Scope == "" {
+			p.Scope = "ip"
+		}
+		if p.Action == "" {
+			p.Action = "block"
+		}
+		if err := eng.AddRateLimit(p); err != nil {
+			return nil, err
+		}
+		return map[string]any{"status": "ok", "id": p.ID, "action": "rate limit rule added"}, nil
+	})
 }
 
 type removeRateLimitParam struct {
@@ -182,21 +170,12 @@ type removeRateLimitParam struct {
 }
 
 func (s *Server) handleRemoveRateLimit(params json.RawMessage) (any, error) {
-	eng, err := s.getEngine()
-	if err != nil {
-		return nil, err
-	}
-	var p removeRateLimitParam
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, fmt.Errorf("invalid params: %w", err)
-	}
-	if p.ID == "" {
-		return nil, fmt.Errorf("id is required")
-	}
-	if err := eng.RemoveRateLimit(p.ID); err != nil {
-		return nil, err
-	}
-	return map[string]any{"status": "ok", "id": p.ID, "action": "rate limit rule removed"}, nil
+	return handleWithParams[removeRateLimitParam](s, params, []string{"ID"}, func(eng EngineInterface, p removeRateLimitParam) (any, error) {
+		if err := eng.RemoveRateLimit(p.ID); err != nil {
+			return nil, err
+		}
+		return map[string]any{"status": "ok", "id": p.ID, "action": "rate limit rule removed"}, nil
+	})
 }
 
 type exclusionParam struct {
@@ -206,24 +185,15 @@ type exclusionParam struct {
 }
 
 func (s *Server) handleAddExclusion(params json.RawMessage) (any, error) {
-	eng, err := s.getEngine()
-	if err != nil {
-		return nil, err
-	}
-	var p exclusionParam
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, fmt.Errorf("invalid params: %w", err)
-	}
-	if p.Path == "" {
-		return nil, fmt.Errorf("path is required")
-	}
-	if len(p.Detectors) == 0 {
-		return nil, fmt.Errorf("detectors is required")
-	}
-	if err := eng.AddExclusion(p.Path, p.Detectors, p.Reason); err != nil {
-		return nil, err
-	}
-	return map[string]any{"status": "ok", "path": p.Path, "action": "exclusion added"}, nil
+	return handleWithParams[exclusionParam](s, params, []string{"Path"}, func(eng EngineInterface, p exclusionParam) (any, error) {
+		if len(p.Detectors) == 0 {
+			return nil, fmt.Errorf("detectors is required")
+		}
+		if err := eng.AddExclusion(p.Path, p.Detectors, p.Reason); err != nil {
+			return nil, err
+		}
+		return map[string]any{"status": "ok", "path": p.Path, "action": "exclusion added"}, nil
+	})
 }
 
 type removeExclusionParam struct {
@@ -231,21 +201,12 @@ type removeExclusionParam struct {
 }
 
 func (s *Server) handleRemoveExclusion(params json.RawMessage) (any, error) {
-	eng, err := s.getEngine()
-	if err != nil {
-		return nil, err
-	}
-	var p removeExclusionParam
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, fmt.Errorf("invalid params: %w", err)
-	}
-	if p.Path == "" {
-		return nil, fmt.Errorf("path is required")
-	}
-	if err := eng.RemoveExclusion(p.Path); err != nil {
-		return nil, err
-	}
-	return map[string]any{"status": "ok", "path": p.Path, "action": "exclusion removed"}, nil
+	return handleWithParams[removeExclusionParam](s, params, []string{"Path"}, func(eng EngineInterface, p removeExclusionParam) (any, error) {
+		if err := eng.RemoveExclusion(p.Path); err != nil {
+			return nil, err
+		}
+		return map[string]any{"status": "ok", "path": p.Path, "action": "exclusion removed"}, nil
+	})
 }
 
 type modeParam struct {
@@ -253,27 +214,18 @@ type modeParam struct {
 }
 
 func (s *Server) handleSetMode(params json.RawMessage) (any, error) {
-	eng, err := s.getEngine()
-	if err != nil {
-		return nil, err
-	}
-	var p modeParam
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, fmt.Errorf("invalid params: %w", err)
-	}
-	if p.Mode == "" {
-		return nil, fmt.Errorf("mode is required")
-	}
-	switch p.Mode {
-	case "enforce", "monitor", "disabled":
-		// valid
-	default:
-		return nil, fmt.Errorf("mode must be one of: enforce, monitor, disabled")
-	}
-	if err := eng.SetMode(p.Mode); err != nil {
-		return nil, err
-	}
-	return map[string]any{"status": "ok", "mode": p.Mode}, nil
+	return handleWithParams[modeParam](s, params, []string{"Mode"}, func(eng EngineInterface, p modeParam) (any, error) {
+		switch p.Mode {
+		case "enforce", "monitor", "disabled":
+			// valid
+		default:
+			return nil, fmt.Errorf("mode must be one of: enforce, monitor, disabled")
+		}
+		if err := eng.SetMode(p.Mode); err != nil {
+			return nil, err
+		}
+		return map[string]any{"status": "ok", "mode": p.Mode}, nil
+	})
 }
 
 func (s *Server) handleGetConfig(params json.RawMessage) (any, error) {
@@ -291,21 +243,12 @@ type testRequestParam struct {
 }
 
 func (s *Server) handleTestRequest(params json.RawMessage) (any, error) {
-	eng, err := s.getEngine()
-	if err != nil {
-		return nil, err
-	}
-	var p testRequestParam
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, fmt.Errorf("invalid params: %w", err)
-	}
-	if p.URL == "" {
-		return nil, fmt.Errorf("url is required")
-	}
-	if p.Method == "" {
-		p.Method = "GET"
-	}
-	return eng.TestRequest(p.Method, p.URL, p.Headers)
+	return handleWithParams[testRequestParam](s, params, []string{"URL"}, func(eng EngineInterface, p testRequestParam) (any, error) {
+		if p.Method == "" {
+			p.Method = "GET"
+		}
+		return eng.TestRequest(p.Method, p.URL, p.Headers)
+	})
 }
 
 type topIPsParam struct {
@@ -313,20 +256,12 @@ type topIPsParam struct {
 }
 
 func (s *Server) handleGetTopIPs(params json.RawMessage) (any, error) {
-	eng, err := s.getEngine()
-	if err != nil {
-		return nil, err
-	}
-	var p topIPsParam
-	if len(params) > 0 {
-		if err := json.Unmarshal(params, &p); err != nil {
-			return nil, fmt.Errorf("invalid params: %w", err)
+	return handleWithParams[topIPsParam](s, params, nil, func(eng EngineInterface, p topIPsParam) (any, error) {
+		if p.Count <= 0 {
+			p.Count = 10
 		}
-	}
-	if p.Count <= 0 {
-		p.Count = 10
-	}
-	return eng.GetTopIPs(p.Count), nil
+		return eng.GetTopIPs(p.Count), nil
+	})
 }
 
 func (s *Server) handleGetDetectors(params json.RawMessage) (any, error) {
@@ -355,31 +290,16 @@ type webhookParam struct {
 }
 
 func (s *Server) handleAddWebhook(params json.RawMessage) (any, error) {
-	eng, err := s.getEngine()
-	if err != nil {
-		return nil, err
-	}
-	var p webhookParam
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, fmt.Errorf("invalid params: %w", err)
-	}
-	if p.Name == "" {
-		return nil, fmt.Errorf("name is required")
-	}
-	if p.URL == "" {
-		return nil, fmt.Errorf("url is required")
-	}
-	// Validate URL scheme to prevent SSRF via gopher://, file://, etc.
-	if !strings.HasPrefix(p.URL, "https://") && !strings.HasPrefix(p.URL, "http://") {
-		return nil, fmt.Errorf("url must use http:// or https:// scheme")
-	}
-	if p.Type == "" {
-		return nil, fmt.Errorf("type is required")
-	}
-	if err := eng.AddWebhook(p.Name, p.URL, p.Type, p.Events, p.MinScore, p.Cooldown); err != nil {
-		return nil, err
-	}
-	return map[string]any{"status": "ok", "name": p.Name, "action": "webhook added"}, nil
+	return handleWithParams[webhookParam](s, params, []string{"Name", "URL", "Type"}, func(eng EngineInterface, p webhookParam) (any, error) {
+		// Validate URL scheme to prevent SSRF via gopher://, file://, etc.
+		if !strings.HasPrefix(p.URL, "https://") && !strings.HasPrefix(p.URL, "http://") {
+			return nil, fmt.Errorf("url must use http:// or https:// scheme")
+		}
+		if err := eng.AddWebhook(p.Name, p.URL, p.Type, p.Events, p.MinScore, p.Cooldown); err != nil {
+			return nil, err
+		}
+		return map[string]any{"status": "ok", "name": p.Name, "action": "webhook added"}, nil
+	})
 }
 
 type removeWebhookParam struct {
@@ -387,21 +307,12 @@ type removeWebhookParam struct {
 }
 
 func (s *Server) handleRemoveWebhook(params json.RawMessage) (any, error) {
-	eng, err := s.getEngine()
-	if err != nil {
-		return nil, err
-	}
-	var p removeWebhookParam
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, fmt.Errorf("invalid params: %w", err)
-	}
-	if p.Name == "" {
-		return nil, fmt.Errorf("name is required")
-	}
-	if err := eng.RemoveWebhook(p.Name); err != nil {
-		return nil, err
-	}
-	return map[string]any{"status": "ok", "name": p.Name, "action": "webhook removed"}, nil
+	return handleWithParams[removeWebhookParam](s, params, []string{"Name"}, func(eng EngineInterface, p removeWebhookParam) (any, error) {
+		if err := eng.RemoveWebhook(p.Name); err != nil {
+			return nil, err
+		}
+		return map[string]any{"status": "ok", "name": p.Name, "action": "webhook removed"}, nil
+	})
 }
 
 type emailTargetParam struct {
@@ -418,30 +329,15 @@ type emailTargetParam struct {
 }
 
 func (s *Server) handleAddEmailTarget(params json.RawMessage) (any, error) {
-	eng, err := s.getEngine()
-	if err != nil {
-		return nil, err
-	}
-	var p emailTargetParam
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, fmt.Errorf("invalid params: %w", err)
-	}
-	if p.Name == "" {
-		return nil, fmt.Errorf("name is required")
-	}
-	if p.SMTPHost == "" {
-		return nil, fmt.Errorf("smtp_host is required")
-	}
-	if p.From == "" {
-		return nil, fmt.Errorf("from is required")
-	}
-	if len(p.To) == 0 {
-		return nil, fmt.Errorf("to is required")
-	}
-	if err := eng.AddEmailTarget(p.Name, p.SMTPHost, p.SMTPPort, p.Username, p.Password, p.From, p.To, p.UseTLS, p.Events, p.MinScore); err != nil {
-		return nil, err
-	}
-	return map[string]any{"status": "ok", "name": p.Name, "action": "email target added"}, nil
+	return handleWithParams[emailTargetParam](s, params, []string{"Name", "SMTPHost", "From"}, func(eng EngineInterface, p emailTargetParam) (any, error) {
+		if len(p.To) == 0 {
+			return nil, fmt.Errorf("to is required")
+		}
+		if err := eng.AddEmailTarget(p.Name, p.SMTPHost, p.SMTPPort, p.Username, p.Password, p.From, p.To, p.UseTLS, p.Events, p.MinScore); err != nil {
+			return nil, err
+		}
+		return map[string]any{"status": "ok", "name": p.Name, "action": "email target added"}, nil
+	})
 }
 
 type removeEmailTargetParam struct {
@@ -449,21 +345,12 @@ type removeEmailTargetParam struct {
 }
 
 func (s *Server) handleRemoveEmailTarget(params json.RawMessage) (any, error) {
-	eng, err := s.getEngine()
-	if err != nil {
-		return nil, err
-	}
-	var p removeEmailTargetParam
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, fmt.Errorf("invalid params: %w", err)
-	}
-	if p.Name == "" {
-		return nil, fmt.Errorf("name is required")
-	}
-	if err := eng.RemoveEmailTarget(p.Name); err != nil {
-		return nil, err
-	}
-	return map[string]any{"status": "ok", "name": p.Name, "action": "email target removed"}, nil
+	return handleWithParams[removeEmailTargetParam](s, params, []string{"Name"}, func(eng EngineInterface, p removeEmailTargetParam) (any, error) {
+		if err := eng.RemoveEmailTarget(p.Name); err != nil {
+			return nil, err
+		}
+		return map[string]any{"status": "ok", "name": p.Name, "action": "email target removed"}, nil
+	})
 }
 
 type testAlertParam struct {
@@ -471,19 +358,10 @@ type testAlertParam struct {
 }
 
 func (s *Server) handleTestAlert(params json.RawMessage) (any, error) {
-	eng, err := s.getEngine()
-	if err != nil {
-		return nil, err
-	}
-	var p testAlertParam
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, fmt.Errorf("invalid params: %w", err)
-	}
-	if p.Target == "" {
-		return nil, fmt.Errorf("target is required")
-	}
-	if err := eng.TestAlert(p.Target); err != nil {
-		return nil, err
-	}
-	return map[string]any{"status": "ok", "target": p.Target, "action": "test alert sent"}, nil
+	return handleWithParams[testAlertParam](s, params, []string{"Target"}, func(eng EngineInterface, p testAlertParam) (any, error) {
+		if err := eng.TestAlert(p.Target); err != nil {
+			return nil, err
+		}
+		return map[string]any{"status": "ok", "target": p.Target, "action": "test alert sent"}, nil
+	})
 }

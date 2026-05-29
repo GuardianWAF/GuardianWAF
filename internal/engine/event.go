@@ -2,6 +2,7 @@ package engine
 
 import (
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -102,7 +103,14 @@ var sensitiveQueryParamNames = map[string]bool{
 	"credential": true, "private_key": true, "auth": true, "session_id": true,
 	"sessionid": true, "csrf_token": true, "xsrf_token": true, "jwt": true,
 	"authorization": true, "client_secret": true, "redirect_uri": true,
+	"cookie": true, "x-api-key": true, "x-csrf-token": true, "x-xsrf-token": true,
 }
+
+var (
+	sensitiveKeyValuePattern = regexp.MustCompile(`(?i)\b(authorization|cookie|x-api-key|x-csrf-token|x-xsrf-token|api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|csrf[_-]?token|xsrf[_-]?token|client[_-]?secret|session[_-]?id|sessionid|password|passwd|secret|jwt|token)\s*[:=]\s*("[^"]*"|'[^']*'|[^&\s;,]+)`)
+	bearerTokenPattern       = regexp.MustCompile(`(?i)\bBearer\s+[A-Za-z0-9._~+/\-=]+`)
+	jwtPattern               = regexp.MustCompile(`\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b`)
+)
 
 // redactSensitiveQueryParams replaces values of sensitive query parameters with "[REDACTED]".
 func redactSensitiveQueryParams(rawQuery string) string {
@@ -124,7 +132,40 @@ func redactSensitiveQueryParams(rawQuery string) string {
 		return rawQuery
 	}
 	return vals.Encode()
-}// NewEvent creates an Event from a RequestContext after pipeline processing.
+}
+
+func redactSensitiveURL(rawURL string) string {
+	if rawURL == "" {
+		return rawURL
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil || u.RawQuery == "" {
+		return redactSensitiveEvidence(rawURL)
+	}
+	u.RawQuery = redactSensitiveQueryParams(u.RawQuery)
+	return u.String()
+}
+
+func redactSensitiveEvidence(value string) string {
+	if value == "" {
+		return value
+	}
+	redacted := bearerTokenPattern.ReplaceAllString(value, "Bearer [REDACTED]")
+	redacted = jwtPattern.ReplaceAllString(redacted, "[REDACTED]")
+	redacted = sensitiveKeyValuePattern.ReplaceAllString(redacted, "$1=[REDACTED]")
+	return redacted
+}
+
+func redactFindings(findings []Finding) []Finding {
+	redacted := make([]Finding, len(findings))
+	for i, finding := range findings {
+		redacted[i] = finding
+		redacted[i].MatchedValue = redactSensitiveEvidence(finding.MatchedValue)
+	}
+	return redacted
+}
+
+// NewEvent creates an Event from a RequestContext after pipeline processing.
 // statusCode is the HTTP response status code returned to the client.
 func NewEvent(ctx *RequestContext, statusCode int) Event {
 	var clientIP string
@@ -139,14 +180,13 @@ func NewEvent(ctx *RequestContext, statusCode int) Event {
 
 	var userAgent string
 	if vals, ok := ctx.Headers["User-Agent"]; ok && len(vals) > 0 {
-		userAgent = vals[0]
+		userAgent = redactSensitiveEvidence(vals[0])
 	}
 
 	var findings []Finding
 	var score int
 	if ctx.Accumulator != nil {
-		findings = make([]Finding, len(ctx.Accumulator.Findings()))
-		copy(findings, ctx.Accumulator.Findings())
+		findings = redactFindings(ctx.Accumulator.Findings())
 		score = ctx.Accumulator.Total()
 	}
 
@@ -182,7 +222,7 @@ func NewEvent(ctx *RequestContext, statusCode int) Event {
 		ev.ContentType = vals[0]
 	}
 	if vals, ok := ctx.Headers["Referer"]; ok && len(vals) > 0 {
-		ev.Referer = vals[0]
+		ev.Referer = redactSensitiveURL(vals[0])
 	}
 	if ctx.Request != nil {
 		ev.Host = ctx.Request.Host
@@ -261,10 +301,10 @@ func computePartialJA3(version, cipher uint16) string {
 	// Full JA3 would require complete ClientHello data
 	h := uint32(version)<<16 | uint32(cipher)
 	s := strconv.FormatUint(uint64(h), 16)
-		for len(s) < 8 {
-			s = "0" + s
-		}
-		return s
+	for len(s) < 8 {
+		s = "0" + s
+	}
+	return s
 }
 
 // computeJA4FromContext computes JA4 fingerprint from RequestContext.

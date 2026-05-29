@@ -15,6 +15,7 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -30,6 +31,8 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/layers/ratelimit"
 	"github.com/guardianwaf/guardianwaf/internal/layers/threatintel"
 	"github.com/guardianwaf/guardianwaf/internal/proxy"
+	"github.com/guardianwaf/guardianwaf/internal/runtime/layerregistry"
+	"github.com/guardianwaf/guardianwaf/internal/tenant"
 )
 
 func init() {
@@ -193,6 +196,81 @@ func TestAddLayers_ResponseWithHSTS(t *testing.T) {
 	defer eng.Close()
 
 	addLayers(eng, cfg)
+}
+
+func TestAddLayers_MatchesLayerRegistryRuntimeNames(t *testing.T) {
+	cfg := config.DefaultConfig()
+	disableRegistryBackedLayers(cfg)
+
+	cfg.WAF.IPACL.Enabled = true
+	cfg.WAF.CORS.Enabled = true
+	cfg.WAF.CORS.AllowOrigins = []string{"https://example.com"}
+	cfg.WAF.CustomRules.Enabled = true
+	cfg.WAF.RateLimit.Enabled = true
+	cfg.WAF.ATOProtection.Enabled = true
+	cfg.WAF.APISecurity.Enabled = true
+	cfg.WAF.APISecurity.APIKeys.Enabled = false
+	cfg.WAF.APIValidation.Enabled = true
+	cfg.WAF.Sanitizer.Enabled = true
+	cfg.WAF.CRS.Enabled = true
+	cfg.WAF.Detection.Enabled = true
+	cfg.WAF.VirtualPatch.Enabled = true
+	cfg.WAF.VirtualPatch.AutoUpdate = false
+	cfg.WAF.DLP.Enabled = true
+	cfg.WAF.BotDetection.Enabled = true
+	cfg.WAF.ClientSide.Enabled = true
+	cfg.WAF.Response.SecurityHeaders.Enabled = true
+
+	store := events.NewMemoryStore(1000)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatalf("NewEngine error: %v", err)
+	}
+	defer eng.Close()
+
+	addLayers(eng, cfg)
+
+	for _, entry := range layerregistry.EffectivePipeline(cfg) {
+		if got := eng.FindLayer(entry.RuntimeName); got == nil {
+			t.Fatalf("registry layer %q expects runtime layer %q, but addLayers did not add it", entry.Name, entry.RuntimeName)
+		}
+	}
+
+	active := map[string]int{}
+	for _, layer := range eng.PipelineLayers() {
+		active[layer.Name] = layer.Order
+	}
+	expected := layerregistry.EffectivePipeline(cfg)
+	if len(active) != len(expected) {
+		t.Fatalf("active pipeline has %d layers, registry expects %d: active=%#v expected=%#v", len(active), len(expected), active, expected)
+	}
+	for _, entry := range expected {
+		if got := active[entry.RuntimeName]; got != entry.Order {
+			t.Fatalf("registry layer %q runtime layer %q order = %d, want %d", entry.Name, entry.RuntimeName, got, entry.Order)
+		}
+	}
+}
+
+func disableRegistryBackedLayers(cfg *config.Config) {
+	cfg.WAF.IPACL.Enabled = false
+	cfg.WAF.ThreatIntel.Enabled = false
+	cfg.WAF.CORS.Enabled = false
+	cfg.WAF.CustomRules.Enabled = false
+	cfg.WAF.RateLimit.Enabled = false
+	cfg.WAF.ATOProtection.Enabled = false
+	cfg.WAF.APISecurity.Enabled = false
+	cfg.WAF.APIValidation.Enabled = false
+	cfg.WAF.Sanitizer.Enabled = false
+	cfg.WAF.CRS.Enabled = false
+	cfg.WAF.Detection.Enabled = false
+	cfg.WAF.VirtualPatch.Enabled = false
+	cfg.WAF.DLP.Enabled = false
+	cfg.WAF.BotDetection.Enabled = false
+	cfg.WAF.ClientSide.Enabled = false
+	cfg.WAF.Response.SecurityHeaders.Enabled = false
+	cfg.WAF.Response.DataMasking.Enabled = false
+	cfg.WAF.Response.ErrorPages.Mode = ""
 }
 
 // --- buildReverseProxy ---
@@ -536,6 +614,159 @@ func TestStartDashboard(t *testing.T) {
 		t.Fatal("expected non-nil server")
 	}
 	defer srv.Close()
+}
+
+func TestStartDashboard_NoAdminKeyDisablesTenantAdminAPI(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Dashboard.Enabled = true
+	cfg.Dashboard.Listen = "127.0.0.1:0"
+	cfg.Dashboard.APIKey = "dashboard-api-key-123456"
+	cfg.Dashboard.AdminKey = ""
+
+	store := events.NewMemoryStore(1000)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatalf("NewEngine error: %v", err)
+	}
+	defer eng.Close()
+
+	srv, _, dash := startDashboard(cfg, eng)
+	defer srv.Close()
+	dash.SetTenantManager(&tenantManagerAdapter{mgr: tenant.NewManager(100)})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/tenants", nil)
+	req.Header.Set("X-API-Key", "dashboard-api-key-123456")
+	w := httptest.NewRecorder()
+	dash.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected tenant admin API to reject requests without dashboard.admin_key, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestStartDashboard_ConfiguredAdminKeyEnablesTenantAdminAPI(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Dashboard.Enabled = true
+	cfg.Dashboard.Listen = "127.0.0.1:0"
+	cfg.Dashboard.APIKey = "dashboard-api-key-123456"
+	cfg.Dashboard.AdminKey = "dashboard-admin-key-123456"
+
+	store := events.NewMemoryStore(1000)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatalf("NewEngine error: %v", err)
+	}
+	defer eng.Close()
+
+	srv, _, dash := startDashboard(cfg, eng)
+	defer srv.Close()
+	dash.SetTenantManager(&tenantManagerAdapter{mgr: tenant.NewManager(100)})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/tenants", nil)
+	req.Header.Set("X-API-Key", "dashboard-admin-key-123456")
+	w := httptest.NewRecorder()
+	dash.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected configured dashboard.admin_key to authorize tenant admin API, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestWaitForWaitGroup_ReturnsWhenDone(t *testing.T) {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	done := make(chan struct{})
+	go func() {
+		close(done)
+		wg.Done()
+	}()
+	<-done
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := waitForWaitGroup(ctx, &wg); err != nil {
+		t.Fatalf("waitForWaitGroup returned error: %v", err)
+	}
+}
+
+func TestWaitForWaitGroup_ContextTimeout(t *testing.T) {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	defer wg.Done()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	if err := waitForWaitGroup(ctx, &wg); err == nil {
+		t.Fatal("expected timeout error")
+	}
+}
+
+func TestNewEventStore_Memory(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Events.Storage = "memory"
+	cfg.Events.MaxEvents = 25
+
+	store, err := newEventStore(cfg)
+	if err != nil {
+		t.Fatalf("newEventStore returned error: %v", err)
+	}
+	defer store.Close()
+
+	if _, ok := store.(*events.MemoryStore); !ok {
+		t.Fatalf("expected *events.MemoryStore, got %T", store)
+	}
+}
+
+func TestNewEventStore_FileCreatesPersistentStore(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Events.Storage = "file"
+	cfg.Events.MaxEvents = 10
+	cfg.Events.FilePath = filepath.Join(t.TempDir(), "nested", "events.jsonl")
+
+	store, err := newEventStore(cfg)
+	if err != nil {
+		t.Fatalf("newEventStore returned error: %v", err)
+	}
+	if _, ok := store.(*events.PersistentMemoryStore); !ok {
+		t.Fatalf("expected *events.PersistentMemoryStore, got %T", store)
+	}
+	if err := store.Store(engine.Event{ID: "persisted"}); err != nil {
+		t.Fatalf("Store failed: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	reopened, err := newEventStore(cfg)
+	if err != nil {
+		t.Fatalf("reopening event store failed: %v", err)
+	}
+	defer reopened.Close()
+	recent, err := reopened.Recent(1)
+	if err != nil {
+		t.Fatalf("Recent failed: %v", err)
+	}
+	if len(recent) != 1 || recent[0].ID != "persisted" {
+		t.Fatalf("expected persisted event after reopen, got %#v", recent)
+	}
+}
+
+func TestNewEventStore_FilePathDirectoryError(t *testing.T) {
+	dir := t.TempDir()
+	notDir := filepath.Join(dir, "not-dir")
+	if err := os.WriteFile(notDir, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.DefaultConfig()
+	cfg.Events.Storage = "file"
+	cfg.Events.FilePath = filepath.Join(notDir, "events.jsonl")
+
+	if _, err := newEventStore(cfg); err == nil {
+		t.Fatal("expected error when event store directory cannot be created")
+	}
 }
 
 // --- cmdValidate path ---
@@ -2571,27 +2802,58 @@ func TestHealthzEndpoint(t *testing.T) {
 	defer eng.Close()
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		s := eng.Stats()
-		fmt.Fprintf(w, `{"status":"ok","mode":%q,"total_requests":%d,"blocked_requests":%d}`,
-			cfg.Mode, s.TotalRequests, s.BlockedRequests)
+	registerProbeHandlers(mux, cfg, eng, nil)
+
+	for _, path := range []string{"/healthz", "/livez", "/readyz"} {
+		req := httptest.NewRequest("GET", path, nil)
+		rr := httptest.NewRecorder()
+		mux.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Errorf("%s: expected 200, got %d", path, rr.Code)
+		}
+		body := rr.Body.String()
+		if !strings.Contains(body, `"mode"`) {
+			t.Errorf("%s: expected mode in body, got: %s", path, body)
+		}
+	}
+}
+
+func TestReadyzEndpoint_UnhealthyUpstream(t *testing.T) {
+	cfg := config.DefaultConfig()
+	store := events.NewMemoryStore(1000)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatalf("NewEngine error: %v", err)
+	}
+	defer eng.Close()
+
+	target, err := proxy.NewTarget("http://127.0.0.1:1", 1)
+	if err != nil {
+		t.Fatalf("NewTarget error: %v", err)
+	}
+	target.SetHealthy(false)
+	router := proxy.NewRouter([]proxy.Route{{
+		PathPrefix: "/",
+		Balancer:   proxy.NewBalancer([]*proxy.Target{target}, proxy.StrategyRoundRobin),
+	}})
+
+	mux := http.NewServeMux()
+	registerProbeHandlers(mux, cfg, eng, func() *proxy.Router {
+		return router
 	})
 
-	req := httptest.NewRequest("GET", "/healthz", nil)
+	req := httptest.NewRequest("GET", "/readyz", nil)
 	rr := httptest.NewRecorder()
 	mux.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", rr.Code)
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected 503, got %d", rr.Code)
 	}
 	body := rr.Body.String()
-	if !strings.Contains(body, `"status":"ok"`) {
-		t.Errorf("expected status ok in body, got: %s", body)
-	}
-	if !strings.Contains(body, `"mode"`) {
-		t.Errorf("expected mode in body, got: %s", body)
+	if !strings.Contains(body, `"status":"not_ready"`) {
+		t.Errorf("expected not_ready in body, got: %s", body)
 	}
 }
 

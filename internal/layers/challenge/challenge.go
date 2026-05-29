@@ -107,7 +107,7 @@ func (s *Service) ServeChallengePage(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusForbidden)
 
 	page := buildChallengePage(challenge, s.config.Difficulty, r.URL.RequestURI())
-	_, _ = w.Write([]byte(page))
+	_, _ = w.Write([]byte(page)) // nolint:errcheck // challenge page write; error means client disconnected
 }
 
 // VerifyHandler returns an http.Handler for the challenge verification endpoint.

@@ -83,6 +83,42 @@ func TestNewHealthChecker_ClientTimeout(t *testing.T) {
 	}
 }
 
+func TestHealthChecker_StopCancelsInFlightProbe(t *testing.T) {
+	started := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(started)
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	target, _ := NewTarget(server.URL, 1)
+	lb := NewBalancer([]*Target{target}, StrategyRoundRobin)
+	hc := NewHealthChecker(lb, HealthConfig{
+		Interval: time.Hour,
+		Timeout:  5 * time.Second,
+		Path:     "/healthz",
+	})
+
+	hc.Start()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("health probe did not start")
+	}
+
+	stopped := make(chan struct{})
+	go func() {
+		hc.Stop()
+		close(stopped)
+	}()
+
+	select {
+	case <-stopped:
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not cancel the in-flight health probe")
+	}
+}
+
 // --- check ---
 
 func TestCheck_HealthyUpstream(t *testing.T) {

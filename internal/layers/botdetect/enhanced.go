@@ -172,6 +172,9 @@ func (l *EnhancedLayer) Name() string {
 	return "botdetect-enhanced"
 }
 
+// Order returns the execution order of this layer in the pipeline.
+func (l *EnhancedLayer) Order() int { return engine.OrderBotDetect }
+
 // snapshotConfig returns a copy of the current config under RLock.
 func (l *EnhancedLayer) snapshotConfig() EnhancedConfig {
 	l.cfgMu.RLock()

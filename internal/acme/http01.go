@@ -82,7 +82,7 @@ func (h *HTTP01Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/octet-stream")
-	_, _ = w.Write([]byte(keyAuth))
+	_, _ = w.Write([]byte(keyAuth)) // nolint:errcheck // ACME challenge response; write error means client disconnected
 }
 
 // allow checks if a request from this IP is within the rate limit.

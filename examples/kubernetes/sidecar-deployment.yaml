@@ -13,14 +13,8 @@ spec:
         app: myapp
     spec:
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        runAsGroup: 1000
-        allowPrivilegeEscalation: false
-        readOnlyRootFilesystem: true
-        capabilities:
-          drop:
-            - ALL
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: myapp
           image: myapp:latest
@@ -33,10 +27,34 @@ spec:
             - containerPort: 8088
           livenessProbe:
             httpGet:
-              path: /healthz
+              path: /livez
+              port: 8088
+            initialDelaySeconds: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
               port: 8088
             initialDelaySeconds: 3
           resources:
             limits:
               memory: "64Mi"
               cpu: "200m"
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: guardianwaf-state
+              mountPath: /var/lib/guardianwaf
+            - name: guardianwaf-state
+              mountPath: /var/log/guardianwaf
+              subPath: logs
+      volumes:
+        - name: guardianwaf-state
+          emptyDir:
+            sizeLimit: 256Mi

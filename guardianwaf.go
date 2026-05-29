@@ -267,7 +267,7 @@ func (e *Engine) OnEvent(fn func(Event)) {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				_ = r
+				_ = r // nolint:errcheck // panic value intentionally discarded; recoverable goroutine
 			}
 		}()
 		for event := range ch {

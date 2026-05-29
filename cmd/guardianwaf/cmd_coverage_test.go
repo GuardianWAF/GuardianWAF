@@ -625,10 +625,8 @@ func TestCmdTestAlert_NoConfig(t *testing.T) {
 
 	// Write minimal config with alerting enabled but no targets
 	configContent := `
-version: "1.0"
-server:
-  listen: "127.0.0.1:0"
-  mode: enforce
+mode: enforce
+listen: "127.0.0.1:0"
 alerting:
   enabled: false
 `
@@ -657,10 +655,8 @@ func TestCmdTestAlert_NoTarget(t *testing.T) {
 	defer os.Remove(tmpFile.Name())
 
 	configContent := `
-version: "1.0"
-server:
-  listen: "127.0.0.1:0"
-  mode: enforce
+mode: enforce
+listen: "127.0.0.1:0"
 alerting:
   enabled: true
 `
@@ -812,10 +808,8 @@ func TestCmdTestAlert_WithTarget(t *testing.T) {
 	defer os.Remove(tmpFile.Name())
 
 	configContent := fmt.Sprintf(`
-version: "1.0"
-server:
-  listen: "127.0.0.1:0"
-  mode: enforce
+mode: enforce
+listen: "127.0.0.1:0"
 alerting:
   enabled: true
   webhooks:
@@ -853,10 +847,8 @@ func TestCmdTestAlert_AllTargets(t *testing.T) {
 	defer os.Remove(tmpFile.Name())
 
 	configContent := `
-version: "1.0"
-server:
-  listen: "127.0.0.1:0"
-  mode: enforce
+mode: enforce
+listen: "127.0.0.1:0"
 alerting:
   enabled: true
   webhooks:
@@ -964,7 +956,7 @@ func TestTenantManagerAdapter_CreateTenant_WithRealMgr(t *testing.T) {
 	// Create with resource quota
 	quota := &tenant.ResourceQuota{
 		MaxRequestsPerMinute: 100,
-		MaxRequestsPerHour:  1000,
+		MaxRequestsPerHour:   1000,
 	}
 	result, err := a.CreateTenant("test-tenant", "Test Tenant", []string{"example.com"}, quota)
 	if err != nil {
@@ -1347,10 +1339,8 @@ func TestLoadConfig_ExplicitExistingFile(t *testing.T) {
 	defer os.Remove(tmpFile.Name())
 
 	content := `
-version: "1.0"
-server:
-  listen: "127.0.0.1:0"
-  mode: enforce
+mode: enforce
+listen: "127.0.0.1:0"
 `
 	tmpFile.WriteString(content)
 	tmpFile.Close()
@@ -1490,7 +1480,6 @@ func TestMCPAdapter_SetParanoiaLevel_WithLayer(t *testing.T) {
 	_ = a.SetParanoiaLevel(2)
 }
 
-
 func TestAccessLog_WithCorrelationID(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Logging.Format = "json"
@@ -1612,7 +1601,7 @@ func TestLoadConfig_DirectoryPath(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	cfgContent := "version: \"1.0\"\nserver:\n  listen: \"127.0.0.1:0\"\n  mode: enforce\n"
+	cfgContent := "mode: enforce\nlisten: \"127.0.0.1:0\"\n"
 	if err := os.WriteFile(tmpDir+"/guardianwaf.yaml", []byte(cfgContent), 0644); err != nil {
 		t.Fatal(err)
 	}

@@ -25,6 +25,8 @@ func NewDetector(enabled bool, multiplier float64) *Detector {
 // Name returns the layer name.
 func (d *Detector) Name() string { return "ssrf-detector" }
 
+func (d *Detector) Order() int { return 0 }
+
 // DetectorName returns the detector identifier.
 func (d *Detector) DetectorName() string { return "ssrf" }
 
@@ -97,9 +99,7 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 	}
 
 	// Apply multiplier
-	for i := range allFindings {
-		allFindings[i].Score = int(float64(allFindings[i].Score) * d.multiplier)
-	}
+	engine.ApplyMultiplier(allFindings, d.multiplier)
 
 	action := engine.ActionPass
 	totalScore := 0
@@ -188,8 +188,8 @@ func checkLocalhostPatterns(lower, location string) []engine.Finding {
 		{"http://[::ffff:169.254.169.254]", 90, "IPv4-mapped IPv6 metadata endpoint detected"},
 		{"http://[::ffff:a9fe:a9fe]", 90, "IPv4-mapped IPv6 metadata endpoint (hex) detected"},
 		{"http://0177.0.0.1", 85, "HTTP request to octal loopback 0177.0.0.1 detected"},
-			{"http://127.1", 80, "HTTP request to abbreviated loopback 127.1 detected"},
-			{"https://127.1", 80, "HTTPS request to abbreviated loopback 127.1 detected"},
+		{"http://127.1", 80, "HTTP request to abbreviated loopback 127.1 detected"},
+		{"https://127.1", 80, "HTTPS request to abbreviated loopback 127.1 detected"},
 	}
 
 	for _, p := range patterns {

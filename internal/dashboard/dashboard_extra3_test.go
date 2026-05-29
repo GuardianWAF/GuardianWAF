@@ -36,11 +36,15 @@ func (m *errorIPACL) RemoveBlacklist(string) error {
 	return fmt.Errorf("remove blacklist error")
 }
 
+func (m *errorIPACL) Order() int { return 0 }
+
 // mockBanNoLister implements banLayer but NOT banLister
 type mockBanNoLister struct{ mockIPACL }
 
 func (m *mockBanNoLister) AddAutoBan(string, string, time.Duration) {}
 func (m *mockBanNoLister) RemoveAutoBan(string)                     {}
+
+func (m *mockBanNoLister) Order() int { return 0 }
 
 func newDashboardWithErrorIPACL(t *testing.T) *Dashboard {
 	t.Helper()

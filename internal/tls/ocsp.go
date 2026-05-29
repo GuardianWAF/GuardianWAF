@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -39,7 +40,26 @@ var oidAuthorityInfoAccess = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 1, 1}
 // OCSP responder. Returns the raw DER-encoded response suitable for TLS stapling.
 
 // ocspHTTPClient is a shared HTTP client for OCSP lookups.
-var ocspHTTPClient = &http.Client{Timeout: 10 * time.Second}
+var ocspHTTPClient = newOCSPHTTPClient()
+
+func newOCSPHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			DialContext: (&net.Dialer{
+				Timeout:   5 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			IdleConnTimeout:       30 * time.Second,
+			TLSHandshakeTimeout:   5 * time.Second,
+			ResponseHeaderTimeout: 10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		},
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+}
 
 func FetchOCSPResponse(issuer, leaf *x509.Certificate) ([]byte, error) {
 	if len(issuer.Raw) == 0 || len(leaf.Raw) == 0 {
@@ -72,7 +92,7 @@ func FetchOCSPResponse(issuer, leaf *x509.Certificate) ([]byte, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20)) // nolint:errcheck // response body drain; error ignored
 		return nil, fmt.Errorf("OCSP responder returned status %d", resp.StatusCode)
 	}
 
@@ -232,11 +252,11 @@ func buildOCSPRequest(issuer, leaf *x509.Certificate) ([]byte, error) {
 
 // certIDData holds the fields needed to build an OCSP CertID.
 type certIDData struct {
-	HashAlgorithm  asn1.ObjectIdentifier
+	HashAlgorithm           asn1.ObjectIdentifier
 	HashAlgorithmParameters asn1.RawValue `asn1:"optional"`
-	IssuerNameHash []byte
-	IssuerKeyHash  []byte
-	SerialNumber   *big.Int
+	IssuerNameHash          []byte
+	IssuerKeyHash           []byte
+	SerialNumber            *big.Int
 }
 
 func buildCertID(issuer, leaf *x509.Certificate) (*certIDData, error) {

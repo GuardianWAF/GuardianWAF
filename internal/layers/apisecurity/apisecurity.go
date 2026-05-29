@@ -1,11 +1,12 @@
 package apisecurity
 
 import (
+	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
-	"time"
 )
 
 // Config holds the configuration for the API Security layer.
@@ -56,9 +57,14 @@ func NewLayer(cfg *Config) (*Layer, error) {
 		l.jwtValidator = validator
 	}
 
-	// Initialize API key validator
+	// Initialize API key validator. Fail loud: a misconfigured validator must
+	// not silently disable API-key authentication on a security product.
 	if cfg.APIKeys.Enabled {
-		l.apiKeyValidator, _ = NewAPIKeyValidator(cfg.APIKeys.Keys)
+		validator, err := NewAPIKeyValidator(cfg.APIKeys.Keys)
+		if err != nil {
+			return nil, fmt.Errorf("api_security: api key validator: %w", err)
+		}
+		l.apiKeyValidator = validator
 	}
 
 	return l, nil
@@ -66,6 +72,7 @@ func NewLayer(cfg *Config) (*Layer, error) {
 
 // Name returns the layer name.
 func (l *Layer) Name() string { return "api_security" }
+func (l *Layer) Order() int { return engine.OrderAPISecurity }
 
 // Process validates API authentication.
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
@@ -103,7 +110,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 						Location:     "header:Authorization",
 					}},
 					Score:    60,
-		Duration: time.Since(start),
+					Duration: time.Since(start),
 				}
 			}
 
@@ -127,7 +134,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 						Location:     "header:Authorization",
 					}},
 					Score:    70,
-		Duration: time.Since(start),
+					Duration: time.Since(start),
 				}
 			}
 
@@ -152,7 +159,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 						Location:     "api_key",
 					}},
 					Score:    60,
-		Duration: time.Since(start),
+					Duration: time.Since(start),
 				}
 			}
 
@@ -181,7 +188,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 			Action:   engine.ActionBlock,
 			Findings: findings,
 			Score:    40,
-		Duration: time.Since(start),
+			Duration: time.Since(start),
 		}
 	}
 

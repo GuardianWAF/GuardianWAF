@@ -6,7 +6,7 @@
 services:
   # Simple backend that echoes requests
   backend:
-    image: golang:1.25-alpine
+    image: golang:1.26.3-alpine
     working_dir: /app
     volumes:
       - ./examples/backend:/app:ro
@@ -36,7 +36,7 @@ services:
       backend:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8088/"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8088/livez"]
       interval: 2s
       timeout: 2s
       retries: 10
@@ -44,7 +44,7 @@ services:
 
   # Test runner — sends requests to WAF and verifies responses
   test-runner:
-    image: alpine:3.20
+    image: alpine:3.23.4
     depends_on:
       guardianwaf:
         condition: service_healthy
@@ -77,6 +77,12 @@ services:
 
         BODY=$$(curl -s "$$WAF/healthz" -H "$$UA" 2>/dev/null || echo "")
         if echo "$$BODY" | grep -q "backend\|ok\|Hello"; then pass "GET /healthz returns body"; else fail "/healthz" "empty or unexpected"; fi
+
+        CODE=$$(get_code "$$WAF/livez" -H "$$UA")
+        if [ "$$CODE" = "200" ]; then pass "GET /livez -> 200"; else fail "GET /livez" "got $$CODE"; fi
+
+        CODE=$$(get_code "$$WAF/readyz" -H "$$UA")
+        if [ "$$CODE" = "200" ]; then pass "GET /readyz -> 200"; else fail "GET /readyz" "got $$CODE"; fi
 
         CODE=$$(get_code -X POST "$$WAF/api/data" -H "$$UA" -H "Content-Type: application/json" -d '{"user":"alice"}')
         if [ "$$CODE" = "200" ] || [ "$$CODE" = "502" ]; then pass "POST /api/data -> $$CODE (proxy ok)"; else fail "POST /api/data" "got $$CODE"; fi

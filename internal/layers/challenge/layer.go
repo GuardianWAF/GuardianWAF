@@ -37,7 +37,7 @@ func (l *Layer) Name() string {
 
 // Order returns the layer execution order.
 func (l *Layer) Order() int {
-	return 430
+	return engine.OrderChallenge
 }
 
 // Process checks for a valid challenge cookie.

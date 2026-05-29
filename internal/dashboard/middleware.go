@@ -2,12 +2,14 @@ package dashboard
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"runtime/debug"
 	"time"
 )
+
+var mwLog = slog.Default().With(slog.String("component", "dashboard/middleware"))
 
 // RecoveryMiddleware wraps an HTTP handler with panic recovery
 func RecoveryMiddleware(next http.Handler) http.Handler {
@@ -15,7 +17,7 @@ func RecoveryMiddleware(next http.Handler) http.Handler {
 		defer func() {
 			if rv := recover(); rv != nil {
 				// Log the panic with stack trace
-				log.Printf("[PANIC RECOVERED] %v\n%s", rv, debug.Stack())
+				mwLog.Error("panic recovered", "panic", rv, "stack", string(debug.Stack()))
 
 				// Return 500 error - safe to do for non-SSE endpoints
 				w.Header().Set("Content-Type", "application/json")
@@ -41,12 +43,12 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 		duration := time.Since(start)
 
 		// Log request details
-		log.Printf("[%s] %s %s - %d (%s)",
-			r.Method,
-			r.URL.Path,
-			r.RemoteAddr,
-			wrapper.statusCode,
-			duration,
+		mwLog.Info("request",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"addr", r.RemoteAddr,
+			"status", wrapper.statusCode,
+			"duration", duration.String(),
 		)
 	})
 }

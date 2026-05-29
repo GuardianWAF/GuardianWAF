@@ -94,6 +94,9 @@ func compileWildcard(pattern string) *regexp.Regexp {
 // Name returns the layer name.
 func (l *Layer) Name() string { return "cors" }
 
+// Order returns the execution order.
+func (l *Layer) Order() int { return engine.OrderCORS }
+
 // snapshotConfig returns a copy of the current config under RLock.
 func (l *Layer) snapshotConfig() Config {
 	l.mu.RLock()

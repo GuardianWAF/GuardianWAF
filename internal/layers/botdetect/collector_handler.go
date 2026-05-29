@@ -235,7 +235,7 @@ func (c *BiometricCollector) HandleChallengePage(w http.ResponseWriter, r *http.
 	// Generate challenge page HTML
 	w.Header().Set("Content-Type", "text/html")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(generateChallengePage(siteKey, provider))) // error ignored (client disconnect)
+	_, _ = w.Write([]byte(generateChallengePage(siteKey, provider))) // nolint:errcheck // challenge page write; error means client disconnected
 }
 
 // HandleChallengeVerify handles CAPTCHA token verification.

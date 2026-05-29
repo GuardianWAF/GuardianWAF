@@ -1,32 +1,16 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router'
 import { api } from '@/lib/api'
+import type { SSLStatus } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { Section } from '@/components/config/section'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Loader2, RefreshCw, AlertTriangle, CheckCircle2, XCircle, KeyRound, Globe, Calendar, Shield } from 'lucide-react'
 
-interface CertInfo {
-  domain: string
-  dns_names: string[]
-  not_after: string
-  days_left: number
-  issuer_cn: string
-  needs_renewal: boolean
-  is_wildcard: boolean
-}
-
-interface CertStatus {
-  enabled: boolean
-  cache_dir: string
-  domains: string[][]
-  certs: CertInfo[]
-}
-
 export default function SSLPage() {
   const navigate = useNavigate()
-  const [certStatus, setCertStatus] = useState<CertStatus | null>(null)
+  const [certStatus, setCertStatus] = useState<SSLStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)

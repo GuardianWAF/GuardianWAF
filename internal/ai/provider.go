@@ -196,7 +196,63 @@ func (cc *CatalogCache) Summaries() ([]ProviderSummary, error) {
 }
 
 // catalogHTTPClient is the shared HTTP client for catalog fetches.
-var catalogHTTPClient = &http.Client{Timeout: 30 * time.Second}
+var catalogHTTPClient = newCatalogHTTPClient()
+
+func newCatalogHTTPClient() *http.Client {
+	transport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		transport = &http.Transport{}
+	}
+	transport = transport.Clone()
+	dialer := &net.Dialer{
+		Timeout:   10 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+	transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		if testAllowPrivate {
+			return dialer.DialContext(ctx, network, addr)
+		}
+
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			host = addr
+			port = ""
+		}
+		ips, err := net.LookupIP(host)
+		if err != nil {
+			return nil, fmt.Errorf("AI catalog SSRF dial: DNS lookup failed for %q: %w", host, err)
+		}
+		for _, ip := range ips {
+			if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() || ip.IsMulticast() {
+				continue
+			}
+			target := ip.String()
+			if port != "" {
+				target = net.JoinHostPort(target, port)
+			}
+			return dialer.DialContext(ctx, network, target)
+		}
+		return nil, fmt.Errorf("AI catalog SSRF dial: no valid public IPs for %q", host)
+	}
+	transport.TLSHandshakeTimeout = 10 * time.Second
+	transport.ResponseHeaderTimeout = 30 * time.Second
+	transport.ExpectContinueTimeout = 1 * time.Second
+	transport.IdleConnTimeout = 30 * time.Second
+
+	return &http.Client{
+		Timeout:   30 * time.Second,
+		Transport: transport,
+		CheckRedirect: func(req *http.Request, _ []*http.Request) error {
+			if testAllowPrivate {
+				return nil
+			}
+			if err := validateURLNotPrivate(req.URL.String()); err != nil {
+				return fmt.Errorf("redirect URL rejected: %w", err)
+			}
+			return nil
+		},
+	}
+}
 
 // FetchCatalog fetches the models.dev catalog from the given URL.
 func FetchCatalog(catalogURL string) (*Catalog, error) {
@@ -225,7 +281,7 @@ func FetchCatalog(catalogURL string) (*Catalog, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20)) // nolint:errcheck // response body drain; error ignored after non-200 status check
 		return nil, fmt.Errorf("catalog HTTP %d", resp.StatusCode)
 	}
 

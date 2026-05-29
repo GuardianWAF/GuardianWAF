@@ -14,25 +14,25 @@ import (
 )
 
 const (
-	defaultMaxSize       = 100 * 1024 * 1024 // 100MB
-	defaultMaxRotated    = 10                // Keep last 10 rotated files
-	fileChannelBufSize   = 1024
-	flushInterval        = time.Second
-	flushEventCount      = 100
+	defaultMaxSize     = 100 * 1024 * 1024 // 100MB
+	defaultMaxRotated  = 10                // Keep last 10 rotated files
+	fileChannelBufSize = 1024
+	flushInterval      = time.Second
+	flushEventCount    = 100
 )
 
 // FileStore writes events as JSONL (one JSON object per line) to a file.
 type FileStore struct {
-	mu        sync.RWMutex
-	rotateMu  sync.Mutex // serializes rotation I/O outside the main mu
-	file      *os.File
-	writer    *bufio.Writer
-	ch        chan engine.Event // buffered channel for async writes
-	done      chan struct{}
-	filePath  string
-	maxSize   int64 // max file size before rotation
-	dropped   atomic.Int64 // count of dropped events
-	closed    bool // guard against double-close of ch
+	mu       sync.RWMutex
+	rotateMu sync.Mutex // serializes rotation I/O outside the main mu
+	file     *os.File
+	writer   *bufio.Writer
+	ch       chan engine.Event // buffered channel for async writes
+	done     chan struct{}
+	filePath string
+	maxSize  int64        // max file size before rotation
+	dropped  atomic.Int64 // count of dropped events
+	closed   bool         // guard against double-close of ch
 }
 
 // NewFileStore creates a new FileStore that writes JSONL to the specified file.
@@ -67,12 +67,12 @@ func (fs *FileStore) Store(event engine.Event) error {
 		fs.mu.RUnlock()
 		return errors.New("event dropped: file store is closed")
 	}
-	fs.mu.RUnlock()
-
 	select {
 	case fs.ch <- event:
+		fs.mu.RUnlock()
 		return nil
 	default:
+		fs.mu.RUnlock()
 		fs.dropped.Add(1)
 		return errors.New("event dropped: file store channel full")
 	}

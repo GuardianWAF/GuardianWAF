@@ -23,6 +23,7 @@ type mockIPACL struct {
 }
 
 func (m *mockIPACL) Name() string { return "ipacl" }
+func (m *mockIPACL) Order() int { return engine.OrderIPACL }
 func (m *mockIPACL) Process(_ *engine.RequestContext) engine.LayerResult {
 	return engine.LayerResult{Action: engine.ActionPass}
 }
@@ -74,6 +75,8 @@ func (m *mockBanIPACL) ActiveBansAny() any {
 	}
 	return result
 }
+
+func (m *mockBanIPACL) Order() int { return 0 }
 
 // newDashboardWithMock creates a dashboard with a mock IPACL layer.
 func newDashboardWithMock(t *testing.T) (*Dashboard, *mockBanIPACL) {

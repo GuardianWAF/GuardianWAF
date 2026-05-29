@@ -51,17 +51,9 @@ type crsRulesParam struct {
 }
 
 func (s *Server) handleGetCRSRules(params json.RawMessage) (any, error) {
-	eng, err := s.getEngine()
-	if err != nil {
-		return nil, err
-	}
-	var p crsRulesParam
-	if len(params) > 0 {
-		if err := json.Unmarshal(params, &p); err != nil {
-			return nil, fmt.Errorf("invalid params: %w", err)
-		}
-	}
-	return eng.GetCRSRules(p.Phase, p.Severity)
+	return handleWithParams[crsRulesParam](s, params, nil, func(eng EngineInterface, p crsRulesParam) (any, error) {
+		return eng.GetCRSRules(p.Phase, p.Severity)
+	})
 }
 
 type enableCRSRuleParam struct {
@@ -70,47 +62,20 @@ type enableCRSRuleParam struct {
 }
 
 func (s *Server) handleEnableCRSRule(params json.RawMessage) (any, error) {
-	eng, err := s.getEngine()
-	if err != nil {
-		return nil, err
-	}
-	var p enableCRSRuleParam
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, fmt.Errorf("invalid params: %w", err)
-	}
-	if p.RuleID == "" {
-		return nil, fmt.Errorf("rule_id is required")
-	}
-	if err := eng.EnableCRSRule(p.RuleID, p.Enabled); err != nil {
-		return nil, err
-	}
-	status := "disabled"
-	if p.Enabled {
-		status = "enabled"
-	}
-	return map[string]any{"status": "ok", "rule_id": p.RuleID, "action": status}, nil
+	return handleWithParams[enableCRSRuleParam](s, params, []string{"RuleID"}, func(eng EngineInterface, p enableCRSRuleParam) (any, error) {
+		if err := eng.EnableCRSRule(p.RuleID, p.Enabled); err != nil {
+			return nil, err
+		}
+		status := "disabled"
+		if p.Enabled {
+			status = "enabled"
+		}
+		return map[string]any{"status": "ok", "rule_id": p.RuleID, "action": status}, nil
+	})
 }
 
 type paranoiaLevelParam struct {
 	Level int `json:"level"`
-}
-
-func (s *Server) handleSetParanoiaLevel(params json.RawMessage) (any, error) {
-	eng, err := s.getEngine()
-	if err != nil {
-		return nil, err
-	}
-	var p paranoiaLevelParam
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, fmt.Errorf("invalid params: %w", err)
-	}
-	if p.Level < 1 || p.Level > 4 {
-		return nil, fmt.Errorf("level must be between 1 and 4")
-	}
-	if err := eng.SetParanoiaLevel(p.Level); err != nil {
-		return nil, err
-	}
-	return map[string]any{"status": "ok", "paranoia_level": p.Level}, nil
 }
 
 type crsExclusionParam struct {
@@ -120,22 +85,25 @@ type crsExclusionParam struct {
 	Reason    string `json:"reason"`
 }
 
+func (s *Server) handleSetParanoiaLevel(params json.RawMessage) (any, error) {
+	return handleWithParams[paranoiaLevelParam](s, params, []string{"Level"}, func(eng EngineInterface, p paranoiaLevelParam) (any, error) {
+		if p.Level < 1 || p.Level > 4 {
+			return nil, fmt.Errorf("level must be between 1 and 4")
+		}
+		if err := eng.SetParanoiaLevel(p.Level); err != nil {
+			return nil, err
+		}
+		return map[string]any{"status": "ok", "paranoia_level": p.Level}, nil
+	})
+}
+
 func (s *Server) handleAddCRSExclusion(params json.RawMessage) (any, error) {
-	eng, err := s.getEngine()
-	if err != nil {
-		return nil, err
-	}
-	var p crsExclusionParam
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, fmt.Errorf("invalid params: %w", err)
-	}
-	if p.RuleID == "" {
-		return nil, fmt.Errorf("rule_id is required")
-	}
-	if err := eng.AddCRSExclusion(p.RuleID, p.Path, p.Parameter, p.Reason); err != nil {
-		return nil, err
-	}
-	return map[string]any{"status": "ok", "rule_id": p.RuleID, "action": "exclusion added"}, nil
+	return handleWithParams[crsExclusionParam](s, params, []string{"RuleID"}, func(eng EngineInterface, p crsExclusionParam) (any, error) {
+		if err := eng.AddCRSExclusion(p.RuleID, p.Path, p.Parameter, p.Reason); err != nil {
+			return nil, err
+		}
+		return map[string]any{"status": "ok", "rule_id": p.RuleID, "action": "exclusion added"}, nil
+	})
 }
 
 // --- Virtual Patch Handlers ---
@@ -146,17 +114,9 @@ type virtualPatchesParam struct {
 }
 
 func (s *Server) handleGetVirtualPatches(params json.RawMessage) (any, error) {
-	eng, err := s.getEngine()
-	if err != nil {
-		return nil, err
-	}
-	var p virtualPatchesParam
-	if len(params) > 0 {
-		if err := json.Unmarshal(params, &p); err != nil {
-			return nil, fmt.Errorf("invalid params: %w", err)
-		}
-	}
-	return eng.GetVirtualPatches(p.Severity, p.ActiveOnly)
+	return handleWithParams[virtualPatchesParam](s, params, nil, func(eng EngineInterface, p virtualPatchesParam) (any, error) {
+		return eng.GetVirtualPatches(p.Severity, p.ActiveOnly)
+	})
 }
 
 type enableVirtualPatchParam struct {
@@ -165,25 +125,16 @@ type enableVirtualPatchParam struct {
 }
 
 func (s *Server) handleEnableVirtualPatch(params json.RawMessage) (any, error) {
-	eng, err := s.getEngine()
-	if err != nil {
-		return nil, err
-	}
-	var p enableVirtualPatchParam
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, fmt.Errorf("invalid params: %w", err)
-	}
-	if p.PatchID == "" {
-		return nil, fmt.Errorf("patch_id is required")
-	}
-	if err := eng.EnableVirtualPatch(p.PatchID, p.Enabled); err != nil {
-		return nil, err
-	}
-	status := "disabled"
-	if p.Enabled {
-		status = "enabled"
-	}
-	return map[string]any{"status": "ok", "patch_id": p.PatchID, "action": status}, nil
+	return handleWithParams[enableVirtualPatchParam](s, params, []string{"PatchID"}, func(eng EngineInterface, p enableVirtualPatchParam) (any, error) {
+		if err := eng.EnableVirtualPatch(p.PatchID, p.Enabled); err != nil {
+			return nil, err
+		}
+		status := "disabled"
+		if p.Enabled {
+			status = "enabled"
+		}
+		return map[string]any{"status": "ok", "patch_id": p.PatchID, "action": status}, nil
+	})
 }
 
 type customPatchParam struct {
@@ -200,36 +151,12 @@ type customPatchParam struct {
 }
 
 func (s *Server) handleAddCustomPatch(params json.RawMessage) (any, error) {
-	eng, err := s.getEngine()
-	if err != nil {
-		return nil, err
-	}
-	var p customPatchParam
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, fmt.Errorf("invalid params: %w", err)
-	}
-	if p.ID == "" {
-		return nil, fmt.Errorf("id is required")
-	}
-	if p.Name == "" {
-		return nil, fmt.Errorf("name is required")
-	}
-	if p.Pattern == "" {
-		return nil, fmt.Errorf("pattern is required")
-	}
-	if p.PatternType == "" {
-		return nil, fmt.Errorf("pattern_type is required")
-	}
-	if p.Target == "" {
-		return nil, fmt.Errorf("target is required")
-	}
-	if p.Action == "" {
-		return nil, fmt.Errorf("action is required")
-	}
-	if err := eng.AddCustomPatch(p.ID, p.Name, p.Description, p.CVEID, p.Pattern, p.PatternType, p.Target, p.Action, p.Severity, p.Score); err != nil {
-		return nil, err
-	}
-	return map[string]any{"status": "ok", "patch_id": p.ID, "action": "custom patch added"}, nil
+	return handleWithParams[customPatchParam](s, params, []string{"ID", "Name", "Pattern", "PatternType", "Target", "Action"}, func(eng EngineInterface, p customPatchParam) (any, error) {
+		if err := eng.AddCustomPatch(p.ID, p.Name, p.Description, p.CVEID, p.Pattern, p.PatternType, p.Target, p.Action, p.Severity, p.Score); err != nil {
+			return nil, err
+		}
+		return map[string]any{"status": "ok", "patch_id": p.ID, "action": "custom patch added"}, nil
+	})
 }
 
 func (s *Server) handleUpdateCVEDatabase(params json.RawMessage) (any, error) {
@@ -261,27 +188,15 @@ type uploadAPISchemaParam struct {
 }
 
 func (s *Server) handleUploadAPISchema(params json.RawMessage) (any, error) {
-	eng, err := s.getEngine()
-	if err != nil {
-		return nil, err
-	}
-	var p uploadAPISchemaParam
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, fmt.Errorf("invalid params: %w", err)
-	}
-	if p.Name == "" {
-		return nil, fmt.Errorf("name is required")
-	}
-	if p.Content == "" {
-		return nil, fmt.Errorf("content is required")
-	}
-	if p.Format == "" {
-		p.Format = "json"
-	}
-	if err := eng.UploadAPISchema(p.Name, p.Content, p.Format, p.StrictMode); err != nil {
-		return nil, err
-	}
-	return map[string]any{"status": "ok", "schema": p.Name, "action": "schema uploaded"}, nil
+	return handleWithParams[uploadAPISchemaParam](s, params, []string{"Name", "Content"}, func(eng EngineInterface, p uploadAPISchemaParam) (any, error) {
+		if p.Format == "" {
+			p.Format = "json"
+		}
+		if err := eng.UploadAPISchema(p.Name, p.Content, p.Format, p.StrictMode); err != nil {
+			return nil, err
+		}
+		return map[string]any{"status": "ok", "schema": p.Name, "action": "schema uploaded"}, nil
+	})
 }
 
 type removeAPISchemaParam struct {
@@ -289,21 +204,12 @@ type removeAPISchemaParam struct {
 }
 
 func (s *Server) handleRemoveAPISchema(params json.RawMessage) (any, error) {
-	eng, err := s.getEngine()
-	if err != nil {
-		return nil, err
-	}
-	var p removeAPISchemaParam
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, fmt.Errorf("invalid params: %w", err)
-	}
-	if p.Name == "" {
-		return nil, fmt.Errorf("name is required")
-	}
-	if err := eng.RemoveAPISchema(p.Name); err != nil {
-		return nil, err
-	}
-	return map[string]any{"status": "ok", "schema": p.Name, "action": "schema removed"}, nil
+	return handleWithParams[removeAPISchemaParam](s, params, []string{"Name"}, func(eng EngineInterface, p removeAPISchemaParam) (any, error) {
+		if err := eng.RemoveAPISchema(p.Name); err != nil {
+			return nil, err
+		}
+		return map[string]any{"status": "ok", "schema": p.Name, "action": "schema removed"}, nil
+	})
 }
 
 type apiValidationModeParam struct {
@@ -335,21 +241,9 @@ type testAPISchemaParam struct {
 }
 
 func (s *Server) handleTestAPISchema(params json.RawMessage) (any, error) {
-	eng, err := s.getEngine()
-	if err != nil {
-		return nil, err
-	}
-	var p testAPISchemaParam
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, fmt.Errorf("invalid params: %w", err)
-	}
-	if p.Method == "" {
-		return nil, fmt.Errorf("method is required")
-	}
-	if p.Path == "" {
-		return nil, fmt.Errorf("path is required")
-	}
-	return eng.TestAPISchema(p.Method, p.Path, p.Body)
+	return handleWithParams[testAPISchemaParam](s, params, []string{"Method", "Path"}, func(eng EngineInterface, p testAPISchemaParam) (any, error) {
+		return eng.TestAPISchema(p.Method, p.Path, p.Body)
+	})
 }
 
 // --- Client-Side Protection Handlers ---
@@ -370,21 +264,12 @@ type clientSideModeParam struct {
 }
 
 func (s *Server) handleSetClientSideMode(params json.RawMessage) (any, error) {
-	eng, err := s.getEngine()
-	if err != nil {
-		return nil, err
-	}
-	var p clientSideModeParam
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, fmt.Errorf("invalid params: %w", err)
-	}
-	if p.Mode == "" {
-		return nil, fmt.Errorf("mode is required")
-	}
-	if err := eng.SetClientSideMode(p.Mode, p.MagecartDetection, p.AgentInjection, p.CSPEnabled); err != nil {
-		return nil, err
-	}
-	return map[string]any{"status": "ok", "mode": p.Mode, "action": "client-side mode updated"}, nil
+	return handleWithParams[clientSideModeParam](s, params, []string{"Mode"}, func(eng EngineInterface, p clientSideModeParam) (any, error) {
+		if err := eng.SetClientSideMode(p.Mode, p.MagecartDetection, p.AgentInjection, p.CSPEnabled); err != nil {
+			return nil, err
+		}
+		return map[string]any{"status": "ok", "mode": p.Mode, "action": "client-side mode updated"}, nil
+	})
 }
 
 type skimmingDomainParam struct {
@@ -392,21 +277,12 @@ type skimmingDomainParam struct {
 }
 
 func (s *Server) handleAddSkimmingDomain(params json.RawMessage) (any, error) {
-	eng, err := s.getEngine()
-	if err != nil {
-		return nil, err
-	}
-	var p skimmingDomainParam
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, fmt.Errorf("invalid params: %w", err)
-	}
-	if p.Domain == "" {
-		return nil, fmt.Errorf("domain is required")
-	}
-	if err := eng.AddSkimmingDomain(p.Domain); err != nil {
-		return nil, err
-	}
-	return map[string]any{"status": "ok", "domain": p.Domain, "action": "skimming domain added"}, nil
+	return handleWithParams[skimmingDomainParam](s, params, []string{"Domain"}, func(eng EngineInterface, p skimmingDomainParam) (any, error) {
+		if err := eng.AddSkimmingDomain(p.Domain); err != nil {
+			return nil, err
+		}
+		return map[string]any{"status": "ok", "domain": p.Domain, "action": "skimming domain added"}, nil
+	})
 }
 
 type cspReportParam struct {
@@ -414,20 +290,12 @@ type cspReportParam struct {
 }
 
 func (s *Server) handleGetCSPReports(params json.RawMessage) (any, error) {
-	eng, err := s.getEngine()
-	if err != nil {
-		return nil, err
-	}
-	var p cspReportParam
-	if len(params) > 0 {
-		if err := json.Unmarshal(params, &p); err != nil {
-			return nil, fmt.Errorf("invalid params: %w", err)
+	return handleWithParams[cspReportParam](s, params, nil, func(eng EngineInterface, p cspReportParam) (any, error) {
+		if p.Limit <= 0 {
+			p.Limit = 100
 		}
-	}
-	if p.Limit <= 0 {
-		p.Limit = 100
-	}
-	return eng.GetCSPReports(p.Limit)
+		return eng.GetCSPReports(p.Limit)
+	})
 }
 
 // --- DLP Handlers ---
@@ -438,20 +306,12 @@ type dlpAlertsParam struct {
 }
 
 func (s *Server) handleGetDLPAlerts(params json.RawMessage) (any, error) {
-	eng, err := s.getEngine()
-	if err != nil {
-		return nil, err
-	}
-	var p dlpAlertsParam
-	if len(params) > 0 {
-		if err := json.Unmarshal(params, &p); err != nil {
-			return nil, fmt.Errorf("invalid params: %w", err)
+	return handleWithParams[dlpAlertsParam](s, params, nil, func(eng EngineInterface, p dlpAlertsParam) (any, error) {
+		if p.Limit <= 0 {
+			p.Limit = 50
 		}
-	}
-	if p.Limit <= 0 {
-		p.Limit = 50
-	}
-	return eng.GetDLPAlerts(p.Limit, p.PatternType)
+		return eng.GetDLPAlerts(p.Limit, p.PatternType)
+	})
 }
 
 type dlpPatternParam struct {
@@ -464,30 +324,12 @@ type dlpPatternParam struct {
 }
 
 func (s *Server) handleAddDLPPattern(params json.RawMessage) (any, error) {
-	eng, err := s.getEngine()
-	if err != nil {
-		return nil, err
-	}
-	var p dlpPatternParam
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, fmt.Errorf("invalid params: %w", err)
-	}
-	if p.ID == "" {
-		return nil, fmt.Errorf("id is required")
-	}
-	if p.Name == "" {
-		return nil, fmt.Errorf("name is required")
-	}
-	if p.Pattern == "" {
-		return nil, fmt.Errorf("pattern is required")
-	}
-	if p.Action == "" {
-		return nil, fmt.Errorf("action is required")
-	}
-	if err := eng.AddDLPPattern(p.ID, p.Name, p.Pattern, p.Description, p.Action, p.Score); err != nil {
-		return nil, err
-	}
-	return map[string]any{"status": "ok", "pattern_id": p.ID, "action": "DLP pattern added"}, nil
+	return handleWithParams[dlpPatternParam](s, params, []string{"ID", "Name", "Pattern", "Action"}, func(eng EngineInterface, p dlpPatternParam) (any, error) {
+		if err := eng.AddDLPPattern(p.ID, p.Name, p.Pattern, p.Description, p.Action, p.Score); err != nil {
+			return nil, err
+		}
+		return map[string]any{"status": "ok", "pattern_id": p.ID, "action": "DLP pattern added"}, nil
+	})
 }
 
 type removeDLPPatternParam struct {
@@ -495,21 +337,12 @@ type removeDLPPatternParam struct {
 }
 
 func (s *Server) handleRemoveDLPPattern(params json.RawMessage) (any, error) {
-	eng, err := s.getEngine()
-	if err != nil {
-		return nil, err
-	}
-	var p removeDLPPatternParam
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, fmt.Errorf("invalid params: %w", err)
-	}
-	if p.ID == "" {
-		return nil, fmt.Errorf("id is required")
-	}
-	if err := eng.RemoveDLPPattern(p.ID); err != nil {
-		return nil, err
-	}
-	return map[string]any{"status": "ok", "pattern_id": p.ID, "action": "DLP pattern removed"}, nil
+	return handleWithParams[removeDLPPatternParam](s, params, []string{"ID"}, func(eng EngineInterface, p removeDLPPatternParam) (any, error) {
+		if err := eng.RemoveDLPPattern(p.ID); err != nil {
+			return nil, err
+		}
+		return map[string]any{"status": "ok", "pattern_id": p.ID, "action": "DLP pattern removed"}, nil
+	})
 }
 
 type testDLPPatternParam struct {
@@ -518,21 +351,9 @@ type testDLPPatternParam struct {
 }
 
 func (s *Server) handleTestDLPPattern(params json.RawMessage) (any, error) {
-	eng, err := s.getEngine()
-	if err != nil {
-		return nil, err
-	}
-	var p testDLPPatternParam
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, fmt.Errorf("invalid params: %w", err)
-	}
-	if p.Pattern == "" {
-		return nil, fmt.Errorf("pattern is required")
-	}
-	if p.TestData == "" {
-		return nil, fmt.Errorf("test_data is required")
-	}
-	return eng.TestDLPPattern(p.Pattern, p.TestData)
+	return handleWithParams[testDLPPatternParam](s, params, []string{"Pattern", "TestData"}, func(eng EngineInterface, p testDLPPatternParam) (any, error) {
+		return eng.TestDLPPattern(p.Pattern, p.TestData)
+	})
 }
 
 // --- HTTP/3 Handlers ---

@@ -2,6 +2,7 @@
 # WAF runs alongside a single backend, minimal overhead
 mode: enforce
 listen: ":8088"
+allow_private_upstreams: true
 
 upstreams:
   - name: app

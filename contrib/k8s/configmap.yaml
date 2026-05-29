@@ -7,6 +7,7 @@ data:
   guardianwaf.yaml: |
     mode: enforce
     listen: ":8088"
+    allow_private_upstreams: true
 
     tls:
       enabled: false
@@ -15,6 +16,7 @@ data:
       enabled: true
       listen: ":9443"
       api_key: "${GWAF_DASHBOARD_API_KEY}"
+      admin_key: "${GWAF_DASHBOARD_ADMIN_KEY}"
 
     waf:
       detection:
@@ -83,3 +85,4 @@ data:
     events:
       storage: memory
       max_events: 100000
+      file_path: /var/log/guardianwaf/events.jsonl

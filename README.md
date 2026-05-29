@@ -94,7 +94,7 @@ GuardianWAF is a production-grade Web Application Firewall written in pure Go wi
 - Prometheus-compatible `/metrics` endpoint for Grafana/monitoring integration
 - Structured access logging (JSON or text) with configurable levels
 - Hot-reload of configuration with persistence to disk
-- `/healthz` endpoint for Kubernetes liveness/readiness probes
+- `/livez`, `/readyz`, and legacy `/healthz` endpoints for Kubernetes and load balancer probes
 - In-memory or file-based event storage (up to 100K events)
 
 **Developer Experience**
@@ -148,7 +148,8 @@ routes:
 dashboard:
   enabled: true
   listen: ":9443"
-  api_key: "change-me"
+  api_key: "${GWAF_DASHBOARD_API_KEY}"
+  admin_key: "${GWAF_DASHBOARD_ADMIN_KEY}"
 EOF
 
 # Run
@@ -300,7 +301,7 @@ kubectl logs -l app=guardianwaf
 - 2 replicas with pod anti-affinity
 - Security contexts (non-root, read-only filesystem)
 - Resource limits (64Mi-256Mi memory, 100m-500m CPU)
-- Health checks (`/healthz` endpoint)
+- Health probes (`/livez` for liveness, `/readyz` for readiness)
 - ConfigMap for WAF configuration
 - Secret support for TLS certificates
 - Horizontal Pod Autoscaler ready
@@ -532,7 +533,8 @@ waf:
 dashboard:
   enabled: true
   listen: ":9443"
-  api_key: "your-secret-key"
+  api_key: "${GWAF_DASHBOARD_API_KEY}"
+  admin_key: "${GWAF_DASHBOARD_ADMIN_KEY}"
 ```
 
 Configuration layering: `defaults` -> `YAML file` -> `environment variables (GWAF_ prefix)` -> `CLI flags`.
@@ -593,7 +595,9 @@ GuardianWAF includes a built-in web dashboard accessible on the configured liste
 | `GET /api/v1/ai/history` | AI analysis history |
 | `GET /api/v1/ai/stats` | AI usage & cost stats |
 | `GET /metrics` | Prometheus metrics |
-| `GET /healthz` | Health check (K8s probes) |
+| `GET /livez` | Liveness probe |
+| `GET /readyz` | Readiness probe |
+| `GET /healthz` | Legacy liveness-style health probe |
 | `GET /api/v1/sse` | Server-Sent Events stream |
 
 Access at `http://localhost:9443` (enabled by default in standalone mode).
@@ -737,6 +741,7 @@ Design choices for performance:
 | [Getting Started](docs/getting-started.md) | Installation and first deployment |
 | [Configuration Reference](docs/configuration.md) | Full YAML schema with every field |
 | [Production Deployment](docs/production-deployment.md) | Production hardening, security, monitoring |
+| [Health Probes](docs/health-probes.md) | Liveness, readiness, and legacy health endpoint semantics |
 | [Architecture](docs/ARCHITECTURE.md) | System diagrams and component overview |
 | [Security Best Practices](docs/security-best-practices.md) | Security hardening and hardening guide |
 | [API Examples](docs/api-examples.md) | REST API examples in Go, Python, Node.js |

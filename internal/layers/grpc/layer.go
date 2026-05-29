@@ -43,7 +43,7 @@ func (l *Layer) Name() string {
 
 // Order returns the layer order.
 func (l *Layer) Order() int {
-	return 78
+	return engine.OrderGRPC
 }
 
 // Process implements the layer interface.

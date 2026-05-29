@@ -83,8 +83,9 @@ func NewClient(cfg ClientConfig) *Client {
 			MinVersion: tls.VersionTLS12,
 		},
 		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:  10 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
 		ResponseHeaderTimeout: 30 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
 	}
 	if !cfg.AllowPrivateEndpoint && !testAllowPrivate {
 		transport.DialContext = aiSSRFDialContext()
@@ -101,6 +102,15 @@ func NewClient(cfg ClientConfig) *Client {
 		httpClient: &http.Client{
 			Timeout:   timeout,
 			Transport: transport,
+			CheckRedirect: func(req *http.Request, _ []*http.Request) error {
+				if cfg.AllowPrivateEndpoint || testAllowPrivate {
+					return nil
+				}
+				if err := validateURLNotPrivate(req.URL.String()); err != nil {
+					return fmt.Errorf("redirect URL rejected: %w", err)
+				}
+				return nil
+			},
 		},
 	}
 }

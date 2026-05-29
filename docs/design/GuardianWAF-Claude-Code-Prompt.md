@@ -549,7 +549,7 @@ GET    /api/v1/health             → Health check endpoint
 GET    /api/v1/version            → Version information
 ```
 
-API authentication: API key in `X-GuardianWAF-Key` header or `?api_key=` query parameter.
+API authentication: API key in the `X-API-Key` header. Query-string API keys are rejected in the current implementation.
 
 ### 4.5 MCP Server
 

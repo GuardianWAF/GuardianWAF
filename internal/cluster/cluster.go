@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -22,42 +23,42 @@ import (
 type NodeState string
 
 const (
-	StateJoining   NodeState = "joining"
-	StateActive    NodeState = "active"
-	StateLeaving   NodeState = "leaving"
-	StateFailed    NodeState = "failed"
-	StateLeader    NodeState = "leader"
+	StateJoining NodeState = "joining"
+	StateActive  NodeState = "active"
+	StateLeaving NodeState = "leaving"
+	StateFailed  NodeState = "failed"
+	StateLeader  NodeState = "leader"
 )
 
 // MessageType represents the type of cluster message.
 type MessageType string
 
 const (
-	MsgHeartbeat     MessageType = "heartbeat"
-	MsgStateSync     MessageType = "state_sync"
-	MsgIPBan         MessageType = "ip_ban"
-	MsgIPUnban       MessageType = "ip_unban"
-	MsgRateLimit     MessageType = "rate_limit"
-	MsgConfigUpdate  MessageType = "config_update"
+	MsgHeartbeat      MessageType = "heartbeat"
+	MsgStateSync      MessageType = "state_sync"
+	MsgIPBan          MessageType = "ip_ban"
+	MsgIPUnban        MessageType = "ip_unban"
+	MsgRateLimit      MessageType = "rate_limit"
+	MsgConfigUpdate   MessageType = "config_update"
 	MsgLeaderElection MessageType = "leader_election"
 )
 
 // Config for cluster coordination.
 type Config struct {
-	Enabled        bool          `yaml:"enabled"`
-	NodeID         string        `yaml:"node_id"`
-	BindAddr       string        `yaml:"bind_addr"`
-	BindPort       int           `yaml:"bind_port"`
-	AdvertiseAddr  string        `yaml:"advertise_addr"`
-	SeedNodes      []string      `yaml:"seed_nodes"`
-	SyncInterval   time.Duration `yaml:"sync_interval"`
-	HeartbeatInterval time.Duration `yaml:"heartbeat_interval"`
-	HeartbeatTimeout  time.Duration `yaml:"heartbeat_timeout"`
+	Enabled               bool          `yaml:"enabled"`
+	NodeID                string        `yaml:"node_id"`
+	BindAddr              string        `yaml:"bind_addr"`
+	BindPort              int           `yaml:"bind_port"`
+	AdvertiseAddr         string        `yaml:"advertise_addr"`
+	SeedNodes             []string      `yaml:"seed_nodes"`
+	SyncInterval          time.Duration `yaml:"sync_interval"`
+	HeartbeatInterval     time.Duration `yaml:"heartbeat_interval"`
+	HeartbeatTimeout      time.Duration `yaml:"heartbeat_timeout"`
 	LeaderElectionTimeout time.Duration `yaml:"leader_election_timeout"`
-	MaxNodes       int           `yaml:"max_nodes"`
-	AuthSecret     string        `yaml:"auth_secret"`   // shared secret for cluster API authentication
-	TLSCertFile    string        `yaml:"tls_cert_file"` // TLS certificate for intra-cluster communication
-	TLSKeyFile     string        `yaml:"tls_key_file"`  // TLS private key for intra-cluster communication
+	MaxNodes              int           `yaml:"max_nodes"`
+	AuthSecret            string        `yaml:"auth_secret"`   // shared secret for cluster API authentication
+	TLSCertFile           string        `yaml:"tls_cert_file"` // TLS certificate for intra-cluster communication
+	TLSKeyFile            string        `yaml:"tls_key_file"`  // TLS private key for intra-cluster communication
 }
 
 // DefaultConfig returns default cluster config.
@@ -76,14 +77,14 @@ func DefaultConfig() *Config {
 
 // Node represents a cluster member.
 type Node struct {
-	ID            string    `json:"id"`
-	Address       string    `json:"address"`
-	Port          int       `json:"port"`
-	State         NodeState `json:"state"`
-	LastHeartbeat time.Time `json:"last_heartbeat"`
+	ID            string            `json:"id"`
+	Address       string            `json:"address"`
+	Port          int               `json:"port"`
+	State         NodeState         `json:"state"`
+	LastHeartbeat time.Time         `json:"last_heartbeat"`
 	Metadata      map[string]string `json:"metadata"`
-	IsLeader      bool      `json:"is_leader"`
-	JoinedAt      time.Time `json:"joined_at"`
+	IsLeader      bool              `json:"is_leader"`
+	JoinedAt      time.Time         `json:"joined_at"`
 }
 
 // Cluster manages the distributed cluster.
@@ -96,15 +97,15 @@ type Cluster struct {
 	isLeader  atomic.Bool
 
 	// Channels
-	events    chan Event // cluster events (join/leave/failure); consume via Events()
-	stopCh    chan struct{}
-	wg        sync.WaitGroup
+	events chan Event // cluster events (join/leave/failure); consume via Events()
+	stopCh chan struct{}
+	wg     sync.WaitGroup
 
 	// State sync
 	stateSync *StateSync
 
 	// Handlers
-	handlers map[MessageType]MessageHandler
+	handlers  map[MessageType]MessageHandler
 	handlerMu sync.RWMutex
 
 	// HTTP client
@@ -125,18 +126,18 @@ type Event struct {
 type EventType string
 
 const (
-	EventNodeJoin  EventType = "node_join"
-	EventNodeLeave EventType = "node_leave"
-	EventNodeFail  EventType = "node_fail"
+	EventNodeJoin     EventType = "node_join"
+	EventNodeLeave    EventType = "node_leave"
+	EventNodeFail     EventType = "node_fail"
 	EventLeaderChange EventType = "leader_change"
 )
 
 // Message represents a cluster message.
 type Message struct {
-	Type      MessageType       `json:"type"`
-	From      string            `json:"from"`
-	Timestamp time.Time         `json:"timestamp"`
-	Payload   json.RawMessage   `json:"payload"`
+	Type      MessageType     `json:"type"`
+	From      string          `json:"from"`
+	Timestamp time.Time       `json:"timestamp"`
+	Payload   json.RawMessage `json:"payload"`
 }
 
 // MessageHandler handles cluster messages.
@@ -214,9 +215,7 @@ func New(cfg *Config) (*Cluster, error) {
 			IPBans:     make(map[string]time.Time),
 			RateLimits: make(map[string]int64),
 		},
-		httpClient: &http.Client{
-			Timeout: 5 * time.Second,
-		},
+		httpClient: newClusterCoordinationHTTPClient(),
 	}
 
 	// Register default handlers
@@ -224,6 +223,25 @@ func New(cfg *Config) (*Cluster, error) {
 
 	c.state.Store(StateJoining)
 	return c, nil
+}
+
+func newClusterCoordinationHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: &http.Transport{
+			DialContext: (&net.Dialer{
+				Timeout:   5 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			TLSHandshakeTimeout:   5 * time.Second,
+			ResponseHeaderTimeout: 5 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+			IdleConnTimeout:       30 * time.Second,
+		},
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 }
 
 // Start starts the cluster.
@@ -504,7 +522,7 @@ func (c *Cluster) sendMessage(ctx context.Context, node *Node, msg *Message) err
 		return fmt.Errorf("node returned status %d", resp.StatusCode)
 	}
 
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20)) // nolint:errcheck // response body drain; error ignored
 
 	return nil
 }
@@ -553,7 +571,7 @@ func (c *Cluster) joinViaSeed(seed string) error {
 		return fmt.Errorf("seed returned status %d", resp.StatusCode)
 	}
 
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20)) // nolint:errcheck // response body drain; error ignored
 
 	return nil
 }

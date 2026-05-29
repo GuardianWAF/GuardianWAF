@@ -13,7 +13,7 @@ func TestMaskingResponseWriter_TextJSON(t *testing.T) {
 	}
 
 	inner := httptest.NewRecorder()
-	mwr := newMaskingResponseWriter(inner, maskFn)
+	mwr := newMaskingResponseWriter(inner, maskFn, nil)
 	mwr.Header().Set("Content-Type", "application/json; charset=utf-8")
 
 	data := []byte(`{"card":"SECRET123"}`)
@@ -40,7 +40,7 @@ func TestMaskingResponseWriter_Html(t *testing.T) {
 	}
 
 	inner := httptest.NewRecorder()
-	mwr := newMaskingResponseWriter(inner, maskFn)
+	mwr := newMaskingResponseWriter(inner, maskFn, nil)
 	mwr.Header().Set("Content-Type", "text/html")
 
 	mwr.Write([]byte("<p>my secret data</p>"))
@@ -59,7 +59,7 @@ func TestMaskingResponseWriter_BinaryPassthrough(t *testing.T) {
 	}
 
 	inner := httptest.NewRecorder()
-	mwr := newMaskingResponseWriter(inner, maskFn)
+	mwr := newMaskingResponseWriter(inner, maskFn, nil)
 	mwr.Header().Set("Content-Type", "image/png")
 
 	body := []byte("binary-data-here")
@@ -78,7 +78,7 @@ func TestMaskingResponseWriter_LargeBodyPassthrough(t *testing.T) {
 	}
 
 	inner := httptest.NewRecorder()
-	mwr := newMaskingResponseWriter(inner, maskFn)
+	mwr := newMaskingResponseWriter(inner, maskFn, nil)
 	mwr.Header().Set("Content-Type", "application/json")
 
 	// Write body larger than maxMaskingBufferSize (1 MB)
@@ -99,7 +99,7 @@ func TestMaskingResponseWriter_MultipleWrites(t *testing.T) {
 	}
 
 	inner := httptest.NewRecorder()
-	mwr := newMaskingResponseWriter(inner, maskFn)
+	mwr := newMaskingResponseWriter(inner, maskFn, nil)
 	mwr.Header().Set("Content-Type", "text/plain")
 
 	mwr.Write([]byte("heX"))
@@ -116,7 +116,7 @@ func TestMaskingResponseWriter_MultipleWrites(t *testing.T) {
 
 func TestMaskingResponseWriter_NilMaskFn(t *testing.T) {
 	inner := httptest.NewRecorder()
-	mwr := newMaskingResponseWriter(inner, nil)
+	mwr := newMaskingResponseWriter(inner, nil, nil)
 	mwr.Header().Set("Content-Type", "application/json")
 
 	mwr.Write([]byte(`{"key":"value"}`))
@@ -128,9 +128,51 @@ func TestMaskingResponseWriter_NilMaskFn(t *testing.T) {
 	}
 }
 
+func TestMaskingResponseWriter_BodyTransform(t *testing.T) {
+	// bodyXform rewrites the HTML body (e.g. client-side sanitization).
+	bodyXform := func(body []byte, contentType string) ([]byte, bool) {
+		if !strings.Contains(contentType, "html") {
+			return body, false
+		}
+		return []byte(strings.ReplaceAll(string(body), "<script>evil</script>", "")), true
+	}
+
+	inner := httptest.NewRecorder()
+	mwr := newMaskingResponseWriter(inner, nil, bodyXform)
+	mwr.Header().Set("Content-Type", "text/html")
+
+	mwr.Write([]byte("<p>ok</p><script>evil</script>"))
+	mwr.FlushMasked()
+
+	if got, want := inner.Body.String(), "<p>ok</p>"; got != want {
+		t.Errorf("body transform: got %q, want %q", got, want)
+	}
+}
+
+func TestMaskingResponseWriter_BodyTransformThenMask(t *testing.T) {
+	// The body transform runs first, then masking is applied to the result.
+	bodyXform := func(body []byte, contentType string) ([]byte, bool) {
+		return append(body, []byte(" SECRET")...), true
+	}
+	maskFn := func(body string) string {
+		return strings.ReplaceAll(body, "SECRET", "******")
+	}
+
+	inner := httptest.NewRecorder()
+	mwr := newMaskingResponseWriter(inner, maskFn, bodyXform)
+	mwr.Header().Set("Content-Type", "text/plain")
+
+	mwr.Write([]byte("hello"))
+	mwr.FlushMasked()
+
+	if got, want := inner.Body.String(), "hello ******"; got != want {
+		t.Errorf("transform+mask: got %q, want %q", got, want)
+	}
+}
+
 func TestMaskingResponseWriter_StatusCodes(t *testing.T) {
 	inner := httptest.NewRecorder()
-	mwr := newMaskingResponseWriter(inner, func(s string) string { return s })
+	mwr := newMaskingResponseWriter(inner, func(s string) string { return s }, nil)
 	mwr.Header().Set("Content-Type", "application/json")
 	mwr.WriteHeader(http.StatusCreated)
 	mwr.Write([]byte(`{}`))

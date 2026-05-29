@@ -29,17 +29,17 @@ type Manager struct {
 	config *Config
 
 	mu        sync.RWMutex
-	nodes     map[string]*Node       // All known nodes
-	clusters  map[string]*Cluster    // All clusters
-	health    map[string]bool        // Node health status
+	nodes     map[string]*Node    // All known nodes
+	clusters  map[string]*Cluster // All clusters
+	health    map[string]bool     // Node health status
 	localNode *Node
 
 	// Event handling
 	eventQueue chan *SyncEvent
-	eventLog   []*SyncEvent           // Recent events for replay
+	eventLog   []*SyncEvent // Recent events for replay
 
 	// Sync tracking
-	lastSync map[string]time.Time     // nodeID -> last successful sync
+	lastSync map[string]time.Time // nodeID -> last successful sync
 
 	// Handlers for different entity types
 	handlers map[string]SyncHandler
@@ -59,7 +59,7 @@ type Manager struct {
 	vectorClock map[string]int64
 
 	// Stats
-	stats SyncStats
+	stats   SyncStats
 	statsMu sync.RWMutex
 }
 
@@ -74,18 +74,18 @@ type SyncHandler interface {
 func NewManager(config *Config) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
 	m := &Manager{
-		config:      config,
-		nodes:       make(map[string]*Node),
-		clusters:    make(map[string]*Cluster),
-		health:      make(map[string]bool),
-		eventQueue:  make(chan *SyncEvent, 1000),
-		eventLog:    make([]*SyncEvent, 0, 1000),
-		lastSync:    make(map[string]time.Time),
-		handlers:    make(map[string]SyncHandler),
-		vectorClock: make(map[string]int64),
-		ctx:         ctx,
-		cancel:      cancel,
-		httpClient:   &http.Client{Timeout: 30 * time.Second},
+		config:       config,
+		nodes:        make(map[string]*Node),
+		clusters:     make(map[string]*Cluster),
+		health:       make(map[string]bool),
+		eventQueue:   make(chan *SyncEvent, 1000),
+		eventLog:     make([]*SyncEvent, 0, 1000),
+		lastSync:     make(map[string]time.Time),
+		handlers:     make(map[string]SyncHandler),
+		vectorClock:  make(map[string]int64),
+		ctx:          ctx,
+		cancel:       cancel,
+		httpClient:   newClusterHTTPClient(),
 		replicateSem: make(chan struct{}, 16),
 	}
 
@@ -102,6 +102,25 @@ func NewManager(config *Config) *Manager {
 	m.nodes[config.NodeID] = m.localNode
 
 	return m
+}
+
+func newClusterHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			DialContext: (&net.Dialer{
+				Timeout:   10 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ResponseHeaderTimeout: 30 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		},
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 }
 
 // Start initializes the manager and starts background tasks.
@@ -197,10 +216,14 @@ func (m *Manager) BroadcastEvent(entityType, entityID, action string, data map[s
 		return fmt.Errorf("event queue full")
 	}
 
-	// Also replicate to peers immediately (bounded concurrency)
+	// Also replicate to peers immediately (bounded concurrency).
+	// The goroutine is tracked by m.wg so Close() waits for it, and uses
+	// m.ctx so a shutdown cancels in-flight replication.
 	select {
 	case m.replicateSem <- struct{}{}:
+		m.wg.Add(1)
 		go func() {
+			defer m.wg.Done()
 			defer func() { <-m.replicateSem }()
 			defer func() {
 				if r := recover(); r != nil {
@@ -522,7 +545,7 @@ func (m *Manager) pingNode(node *Node) bool {
 	}
 	defer resp.Body.Close()
 
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20)) // nolint:errcheck // response body drain; error ignored
 
 	return resp.StatusCode == http.StatusOK
 }
@@ -571,7 +594,7 @@ func (m *Manager) sendEventToNode(node *Node, event *SyncEvent) error {
 		return err
 	}
 
-	req, err := http.NewRequest("POST", node.Address+"/api/cluster/sync", bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(m.ctx, "POST", node.Address+"/api/cluster/sync", bytes.NewReader(data))
 	if err != nil {
 		return err
 	}
@@ -586,7 +609,7 @@ func (m *Manager) sendEventToNode(node *Node, event *SyncEvent) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64*1024))
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64*1024)) // nolint:errcheck // response body drain; error ignored
 		return fmt.Errorf("sync failed: %d", resp.StatusCode)
 	}
 
@@ -633,7 +656,7 @@ func (m *Manager) syncFromNode(node *Node) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64*1024))
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64*1024)) // nolint:errcheck // response body drain; error ignored
 		return
 	}
 
@@ -641,7 +664,7 @@ func (m *Manager) syncFromNode(node *Node) {
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 10<<20)).Decode(&events); err != nil {
 		return
 	}
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20)) // nolint:errcheck // response body drain; error ignored
 
 	for _, event := range events {
 		if err := m.ReceiveEvent(event); err != nil {

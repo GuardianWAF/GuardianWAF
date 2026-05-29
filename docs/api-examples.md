@@ -27,9 +27,6 @@ http://localhost:9443/api/v1
 ```bash
 # Dashboard API Key header
 curl -H "X-API-Key: your-api-key" http://localhost:9443/api/v1/stats
-
-# Or query parameter
-curl "http://localhost:9443/api/v1/stats?api_key=your-api-key"
 ```
 
 ---
@@ -727,7 +724,7 @@ Real-time event streaming via Server-Sent Events:
 
 ```javascript
 const eventSource = new EventSource(
-    'http://localhost:9443/api/v1/events/stream?api_key=secret123'
+    'http://localhost:9443/api/v1/events/stream'
 );
 
 eventSource.onmessage = (event) => {

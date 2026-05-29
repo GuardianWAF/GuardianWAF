@@ -57,7 +57,7 @@ listen: "127.0.0.1:%d"
 dashboard:
   enabled: true
   listen: "127.0.0.1:%d"
-  api_key: testsecret
+  api_key: testsecret-1234567890
 mcp:
   enabled: false
 events:
@@ -142,7 +142,7 @@ routes:
 			bodyReader = strings.NewReader(ep.body)
 		}
 		req, _ := http.NewRequestWithContext(context.Background(), ep.method, fmt.Sprintf("http://127.0.0.1:%d%s", dashPort, ep.path), bodyReader)
-		req.Header.Set("X-API-Key", "testsecret")
+		req.Header.Set("X-API-Key", "testsecret-1234567890")
 		if ep.body != "" {
 			req.Header.Set("Content-Type", "application/json")
 		}

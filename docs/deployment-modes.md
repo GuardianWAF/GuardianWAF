@@ -69,7 +69,8 @@ routes:
 dashboard:
   enabled: true
   listen: ":9443"
-  api_key: "your-secret-key"
+  api_key: "${GWAF_DASHBOARD_API_KEY}"
+  admin_key: "${GWAF_DASHBOARD_ADMIN_KEY}"
 
 mcp:
   enabled: true
@@ -287,7 +288,7 @@ spec:
             - containerPort: 8088
           livenessProbe:
             httpGet:
-              path: /healthz
+              path: /livez
               port: 8088
             initialDelaySeconds: 5
             periodSeconds: 10
@@ -302,17 +303,17 @@ spec:
 
 ### Health Check
 
-Sidecar mode exposes `/healthz` on the listen address:
+Sidecar mode exposes `/livez`, `/readyz`, and legacy `/healthz` on the listen address:
 
 ```bash
-curl http://localhost:8088/healthz
+curl http://localhost:8088/livez
 # ok
 ```
 
 ### Features
 
 - Zero-config mode (just `--upstream` flag)
-- Built-in `/healthz` for Kubernetes liveness probes
+- Built-in `/livez` for Kubernetes liveness probes and `/readyz` for readiness probes
 - No dashboard or MCP (reduced attack surface)
 - Identical detection to standalone mode
 - Environment variable configuration for 12-factor apps
