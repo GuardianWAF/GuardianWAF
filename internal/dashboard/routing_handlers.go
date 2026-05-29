@@ -7,18 +7,83 @@ import (
 "net/url"
 )
 
-// --- Upstreams ---
+// routingControllerAdapter wraps rebuild/save closures into a RoutingController.
+type routingControllerAdapter struct {
+	rebuildFn func() error
+	saveFn    func() error
+}
 
-// SetRebuildFn sets the function called after routing config changes to rebuild the proxy.
+func (r routingControllerAdapter) Rebuild() error {
+	if r.rebuildFn == nil {
+		return nil
+	}
+	return r.rebuildFn()
+}
+func (r routingControllerAdapter) Save() error {
+	if r.saveFn == nil {
+		return nil
+	}
+	return r.saveFn()
+}
+
+// SetRoutingController injects the routing controller (rebuild + save) and
+// optional upstream/certificate status providers. This is the preferred wiring
+// method; the individual setters below remain for backward compatibility.
+func (d *Dashboard) SetRoutingController(routingCtrl RoutingController) {
+	d.routingCtrl = routingCtrl
+}
+
+// SetUpstreamsFn wires the upstream health status provider (implements UpstreamStatusProvider).
+func (d *Dashboard) SetUpstreamsFn(fn func() any) {
+	if fn == nil {
+		return
+	}
+	d.upstreamStatus = &upstreamStatusAdapter{fn: fn}
+}
+
+// SetCertFn wires the SSL certificate status provider (implements CertificateProvider).
+func (d *Dashboard) SetCertFn(fn func() any) {
+	if fn == nil {
+		return
+	}
+	d.certProvider = &certProviderAdapter{fn: fn}
+}
+
+// SetRebuildFn and SetSaveFn remain for backward compatibility with existing tests
+// and cmd/guardianwaf code that uses the individual setters. Internally they
+// wrap into routingControllerAdapter to satisfy RoutingController.
 func (d *Dashboard) SetRebuildFn(fn func() error) {
-	d.rebuildFn = fn
+	if d.routingCtrl == nil {
+		d.routingCtrl = &routingControllerAdapter{}
+	}
+	if adapter, ok := d.routingCtrl.(*routingControllerAdapter); ok {
+		adapter.rebuildFn = fn
+	} else {
+		// routingCtrl was set via SetRoutingController; replace it
+		d.routingCtrl = &routingControllerAdapter{rebuildFn: fn}
+	}
 }
 
-// SetSaveFn sets the function used to persist config changes to disk.
 func (d *Dashboard) SetSaveFn(fn func() error) {
-	d.saveFn = fn
+	if d.routingCtrl == nil {
+		d.routingCtrl = &routingControllerAdapter{}
+	}
+	if adapter, ok := d.routingCtrl.(*routingControllerAdapter); ok {
+		adapter.saveFn = fn
+	} else {
+		d.routingCtrl = &routingControllerAdapter{saveFn: fn}
+	}
 }
 
+// upstreamStatusAdapter wraps a func() any as an UpstreamStatusProvider.
+type upstreamStatusAdapter struct{ fn func() any }
+
+func (a *upstreamStatusAdapter) GetUpstreamStatus() any { return a.fn() }
+
+// certProviderAdapter wraps a func() any as a CertificateProvider.
+type certProviderAdapter struct{ fn func() any }
+
+func (a *certProviderAdapter) GetCertificateStatus() any { return a.fn() }
 
 // --- Routing (Upstreams + Virtual Hosts + Routes) ---
 
@@ -225,16 +290,16 @@ func (d *Dashboard) handleUpdateRouting(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Rebuild proxy
-	if d.rebuildFn != nil {
-		if err := d.rebuildFn(); err != nil {
+	if d.routingCtrl != nil {
+		if err := d.routingCtrl.Rebuild(); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "proxy rebuild failed"})
 			return
 		}
 	}
 
 	// Persist to disk
-	if d.saveFn != nil {
-		if err := d.saveFn(); err != nil {
+	if d.routingCtrl != nil {
+		if err := d.routingCtrl.Save(); err != nil {
 			writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "message": "Routing updated (disk sync pending)"})
 			return
 		}
@@ -243,32 +308,23 @@ func (d *Dashboard) handleUpdateRouting(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "message": "Routing updated and saved"})
 }
 
-func (d *Dashboard) SetUpstreamsFn(fn func() any) {
-	d.upstreamsFn = fn
-}
-
-// SetCertFn sets the function that returns SSL certificate status.
-func (d *Dashboard) SetCertFn(fn func() any) {
-	d.certFn = fn
-}
-
 func (d *Dashboard) handleGetUpstreams(w http.ResponseWriter, r *http.Request) {
-	if d.upstreamsFn == nil {
+	if d.upstreamStatus == nil {
 		writeJSON(w, http.StatusOK, []any{})
 		return
 	}
-	writeJSON(w, http.StatusOK, d.upstreamsFn())
+	writeJSON(w, http.StatusOK, d.upstreamStatus.GetUpstreamStatus())
 }
 
 // --- SSL Certs ---
 
 func (d *Dashboard) handleGetCerts(w http.ResponseWriter, r *http.Request) {
-	if d.certFn == nil {
+	if d.certProvider == nil {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"enabled": false,
 			"certs":   []any{},
 		})
 		return
 	}
-	writeJSON(w, http.StatusOK, d.certFn())
+	writeJSON(w, http.StatusOK, d.certProvider.GetCertificateStatus())
 }

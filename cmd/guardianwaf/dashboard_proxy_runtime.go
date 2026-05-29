@@ -38,27 +38,28 @@ func wireDashboardProxyControls(
 		})
 	}
 
-	dash.SetRebuildFn(func() error {
-		newHandler, newHealthCheckers := buildReverseProxy(cfg)
-		newRouter, _ := newHandler.(*proxy.Router)
-		var oldHealthCheckers []*proxy.HealthChecker
+	dash.SetRoutingController(dashboard.RoutingControllerFuncs{
+		RebuildFn: func() error {
+			newHandler, newHealthCheckers := buildReverseProxy(cfg)
+			newRouter, _ := newHandler.(*proxy.Router)
+			var oldHealthCheckers []*proxy.HealthChecker
 
-		proxyRuntimeMu.Lock()
-		oldHealthCheckers = *proxyHealthCheckers
-		*proxyRouter = newRouter
-		*proxyHealthCheckers = newHealthCheckers
-		proxyRuntimeMu.Unlock()
+			proxyRuntimeMu.Lock()
+			oldHealthCheckers = *proxyHealthCheckers
+			*proxyRouter = newRouter
+			*proxyHealthCheckers = newHealthCheckers
+			proxyRuntimeMu.Unlock()
 
-		wireDashboardUpstreamStatus(dash, newRouter)
-		upstreamHandler.Store(eng.Middleware(newHandler))
-		stopHealthCheckers(oldHealthCheckers)
-		return nil
-	})
-
-	dash.SetSaveFn(func() error {
-		c := eng.Config()
-		syncCustomRulesToConfig(eng, c)
-		return config.SaveFile(cfgPath, c)
+			wireDashboardUpstreamStatus(dash, newRouter)
+			upstreamHandler.Store(eng.Middleware(newHandler))
+			stopHealthCheckers(oldHealthCheckers)
+			return nil
+		},
+		SaveFn: func() error {
+			c := eng.Config()
+			syncCustomRulesToConfig(eng, c)
+			return config.SaveFile(cfgPath, c)
+		},
 	})
 }
 

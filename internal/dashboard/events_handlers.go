@@ -24,8 +24,8 @@ func (d *Dashboard) handleGetStats(w http.ResponseWriter, r *http.Request) {
 		"passed_requests":     stats.PassedRequests,
 		"avg_latency_us":      stats.AvgLatencyUs,
 	}
-	if d.alertingStatsFn != nil {
-		result["alerting"] = d.alertingStatsFn()
+	if d.alertingStats != nil {
+		result["alerting"] = d.alertingStats.GetAlertingStats()
 	}
 	writeJSON(w, http.StatusOK, result)
 }

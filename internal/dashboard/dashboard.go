@@ -78,22 +78,19 @@ type Dashboard struct {
 	apiKey        string
 	adminKey      string            // Separate key for system admin operations (tenant management, billing, stats)
 	tenantAPIKeys map[string]string // map[tenantID] -> SHA256 hash of per-tenant API key
-	// Fields below unchanged
-	upstreamsFn      func() any   // returns upstream status (injected to avoid circular imports)
-	rebuildFn        func() error // rebuilds proxy after config change
-	saveFn           func() error // persists current config to disk
-	rulesFn          func() any   // returns rules list
-	addRuleFn        func(map[string]any) error
-	updateRuleFn     func(string, map[string]any) error
-	deleteRuleFn     func(string) bool
-	toggleRuleFn     func(string, bool) bool
-	geoLookupFn      func(string) (string, string) // ip -> (country_code, country_name)
-	alertingStatsFn  func() any                    // returns alerting stats (optional)
-	aiAnalyzer       aiAnalyzerInterface           // AI threat analyzer (optional)
-	dockerWatcher    dockerWatcherInterface        // Docker auto-discovery (optional)
-	tenantManager    tenantManagerInterface        // Multi-tenant manager (optional)
-	certFn           func() any                    // returns SSL cert status (optional)
-	complianceEngine *compliance.Engine            // Compliance reporting engine (optional)
+	// Dependency interfaces (injected to avoid circular imports)
+	routingCtrl    RoutingController      // rebuild + save routing config
+	upstreamStatus UpstreamStatusProvider // returns upstream health status
+	certProvider   CertificateProvider    // returns SSL cert status
+	ruleStore      RuleStore              // CRUD operations for rules
+	geoLookup      GeoLookup              // IP → (country_code, country_name)
+	alertingStats  AlertingStatsProvider  // returns alerting statistics (optional)
+
+	// Existing interfaces (kept as-is)
+	aiAnalyzer       aiAnalyzerInterface   // AI threat analyzer (optional)
+	dockerWatcher    dockerWatcherInterface // Docker auto-discovery (optional)
+	tenantManager    tenantManagerInterface // Multi-tenant manager (optional)
+	complianceEngine *compliance.Engine     // Compliance reporting engine (optional)
 
 	// Login rate limiting: per-IP token buckets
 	loginBuckets sync.Map // map[string]*loginBucket
@@ -592,8 +589,8 @@ func (d *Dashboard) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Persist to disk
-	if d.saveFn != nil {
-		if err := d.saveFn(); err != nil {
+	if d.routingCtrl != nil {
+		if err := d.routingCtrl.Save(); err != nil {
 			writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "message": "Configuration updated (disk sync pending)"})
 			return
 		}
@@ -826,6 +823,7 @@ func applyWAFPatch(cfg *config.Config, waf map[string]any) {
 // --- Rules ---
 
 // SetRulesFns injects rule management functions to avoid circular imports.
+// Internally assembles a ruleStoreAdapter to satisfy the RuleStore and GeoLookup interfaces.
 func (d *Dashboard) SetRulesFns(
 	getRules func() any,
 	addRule func(map[string]any) error,
@@ -834,18 +832,50 @@ func (d *Dashboard) SetRulesFns(
 	toggleRule func(string, bool) bool,
 	geoLookup func(string) (string, string),
 ) {
-	d.rulesFn = getRules
-	d.addRuleFn = addRule
-	d.updateRuleFn = updateRule
-	d.deleteRuleFn = deleteRule
-	d.toggleRuleFn = toggleRule
-	d.geoLookupFn = geoLookup
+	d.ruleStore = &ruleStoreAdapter{
+		getRules:    getRules,
+		addRule:     addRule,
+		updateRule:  updateRule,
+		deleteRule:  deleteRule,
+		toggleRule:  toggleRule,
+	}
+	if geoLookup != nil {
+		d.geoLookup = &geoLookupAdapter{fn: geoLookup}
+	}
 }
 
-// SetAlertingStatsFn injects alerting stats function.
-func (d *Dashboard) SetAlertingStatsFn(fn func() any) {
-	d.alertingStatsFn = fn
+// ruleStoreAdapter wraps closure-based rule accessors as a RuleStore interface.
+type ruleStoreAdapter struct {
+	getRules   func() any
+	addRule    func(map[string]any) error
+	updateRule func(string, map[string]any) error
+	deleteRule func(string) bool
+	toggleRule func(string, bool) bool
 }
+
+func (r *ruleStoreAdapter) GetRules() any   { return r.getRules() }
+func (r *ruleStoreAdapter) AddRule(raw map[string]any) error { return r.addRule(raw) }
+func (r *ruleStoreAdapter) UpdateRule(id string, raw map[string]any) error { return r.updateRule(id, raw) }
+func (r *ruleStoreAdapter) RemoveRule(id string) bool { return r.deleteRule(id) }
+func (r *ruleStoreAdapter) ToggleRule(id string, enabled bool) bool { return r.toggleRule(id, enabled) }
+
+// geoLookupAdapter wraps a func(string) (string, string) as a GeoLookup interface.
+type geoLookupAdapter struct{ fn func(string) (string, string) }
+
+func (g *geoLookupAdapter) Lookup(ip string) (string, string) { return g.fn(ip) }
+
+// SetAlertingStatsFn injects alerting stats via the AlertingStatsProvider interface.
+func (d *Dashboard) SetAlertingStatsFn(fn func() any) {
+	if fn == nil {
+		return
+	}
+	d.alertingStats = &alertingStatsAdapter{fn: fn}
+}
+
+// alertingStatsAdapter wraps a func() any as an AlertingStatsProvider.
+type alertingStatsAdapter struct{ fn func() any }
+
+func (a *alertingStatsAdapter) GetAlertingStats() any { return a.fn() }
 
 // SetTenantManager injects the multi-tenant manager.
 // Also registers all existing tenant API keys for per-tenant authentication (AUTH-003).
@@ -883,15 +913,15 @@ func (d *Dashboard) syncTenantAPIKeys(manager tenantManagerInterface) {
 }
 
 func (d *Dashboard) handleGetRules(w http.ResponseWriter, r *http.Request) {
-	if d.rulesFn == nil {
+	if d.ruleStore == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"rules": []any{}})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"rules": d.rulesFn()})
+	writeJSON(w, http.StatusOK, map[string]any{"rules": d.ruleStore.GetRules()})
 }
 
 func (d *Dashboard) handleAddRule(w http.ResponseWriter, r *http.Request) {
-	if d.addRuleFn == nil {
+	if d.ruleStore == nil {
 		writeJSON(w, http.StatusNotImplemented, map[string]any{"error": "rules not configured"})
 		return
 	}
@@ -899,7 +929,7 @@ func (d *Dashboard) handleAddRule(w http.ResponseWriter, r *http.Request) {
 	if !limitedDecodeJSON(w, r, &rule) {
 		return
 	}
-	if err := d.addRuleFn(rule); err != nil {
+	if err := d.ruleStore.AddRule(rule); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": sanitizeErr(err)})
 		return
 	}
@@ -908,7 +938,7 @@ func (d *Dashboard) handleAddRule(w http.ResponseWriter, r *http.Request) {
 
 func (d *Dashboard) handleUpdateRule(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if d.updateRuleFn == nil {
+	if d.ruleStore == nil {
 		writeJSON(w, http.StatusNotImplemented, map[string]any{"error": "rules not configured"})
 		return
 	}
@@ -916,7 +946,7 @@ func (d *Dashboard) handleUpdateRule(w http.ResponseWriter, r *http.Request) {
 	if !limitedDecodeJSON(w, r, &rule) {
 		return
 	}
-	if err := d.updateRuleFn(id, rule); err != nil {
+	if err := d.ruleStore.UpdateRule(id, rule); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": sanitizeErr(err)})
 		return
 	}
@@ -925,7 +955,7 @@ func (d *Dashboard) handleUpdateRule(w http.ResponseWriter, r *http.Request) {
 
 func (d *Dashboard) handleDeleteRule(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if d.deleteRuleFn == nil || !d.deleteRuleFn(id) {
+	if d.ruleStore == nil || !d.ruleStore.RemoveRule(id) {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "rule not found"})
 		return
 	}
@@ -943,11 +973,11 @@ func (d *Dashboard) handleGeoIPLookup(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid ip address"})
 		return
 	}
-	if d.geoLookupFn == nil {
+	if d.geoLookup == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"ip": ip, "country": "", "name": "GeoIP not configured"})
 		return
 	}
-	code, name := d.geoLookupFn(ip)
+	code, name := d.geoLookup.Lookup(ip)
 	writeJSON(w, http.StatusOK, map[string]any{"ip": ip, "country": code, "name": name})
 }
 
@@ -972,11 +1002,11 @@ func (d *Dashboard) handleGeoIPLookupPost(w http.ResponseWriter, r *http.Request
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid ip address"})
 		return
 	}
-	if d.geoLookupFn == nil {
+	if d.geoLookup == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"ip": req.IP, "country": "", "name": "GeoIP not configured"})
 		return
 	}
-	code, name := d.geoLookupFn(req.IP)
+	code, name := d.geoLookup.Lookup(req.IP)
 	writeJSON(w, http.StatusOK, map[string]any{"ip": req.IP, "country": code, "name": name})
 }
 
@@ -1290,8 +1320,8 @@ func (d *Dashboard) handleAlertingStatus(w http.ResponseWriter, r *http.Request)
 		"emails":        emails,
 	}
 
-	if d.alertingStatsFn != nil {
-		stats := d.alertingStatsFn()
+	if d.alertingStats != nil {
+		stats := d.alertingStats.GetAlertingStats()
 		if s, ok := stats.(map[string]any); ok {
 			result["sent"] = s["sent"]
 			result["failed"] = s["failed"]
@@ -1358,8 +1388,8 @@ func (d *Dashboard) handleAddWebhook(w http.ResponseWriter, r *http.Request) {
 	})
 
 	// Persist config
-	if d.saveFn != nil {
-		if err := d.saveFn(); err != nil {
+	if d.routingCtrl != nil {
+		if err := d.routingCtrl.Save(); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
 			return
 		}
@@ -1389,8 +1419,8 @@ func (d *Dashboard) handleDeleteWebhook(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if d.saveFn != nil {
-		if err := d.saveFn(); err != nil {
+	if d.routingCtrl != nil {
+		if err := d.routingCtrl.Save(); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
 			return
 		}
@@ -1464,8 +1494,8 @@ func (d *Dashboard) handleAddEmail(w http.ResponseWriter, r *http.Request) {
 		Template: body.Template,
 	})
 
-	if d.saveFn != nil {
-		if err := d.saveFn(); err != nil {
+	if d.routingCtrl != nil {
+		if err := d.routingCtrl.Save(); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
 			return
 		}
@@ -1495,8 +1525,8 @@ func (d *Dashboard) handleDeleteEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if d.saveFn != nil {
-		if err := d.saveFn(); err != nil {
+	if d.routingCtrl != nil {
+		if err := d.routingCtrl.Save(); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
 			return
 		}
