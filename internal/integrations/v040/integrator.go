@@ -650,7 +650,9 @@ func (i *Integrator) Cleanup() {
 	if i.grpcLayer != nil {
 		i.grpcLayer.Stop()
 	}
-	i.log.Info("Cleanup complete")
+	if i.log != nil {
+		i.log.Info("Cleanup complete")
+	}
 }
 
 // handleDiscoveryExport handles API discovery export requests.
