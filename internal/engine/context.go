@@ -337,7 +337,13 @@ func ExtractClientIP(r *http.Request) net.IP {
 // proxy headers are ignored and RemoteAddr is always used.
 func extractClientIP(r *http.Request) net.IP {
 	trustedProxyMu.RLock()
-	cidrs := append([]*net.IPNet(nil), trustedProxyCIDRs...)
+	n := len(trustedProxyCIDRs)
+	if n == 0 {
+		trustedProxyMu.RUnlock()
+		return extractClientIPWithTrustedProxies(r, nil)
+	}
+	cidrs := make([]*net.IPNet, n)
+	copy(cidrs, trustedProxyCIDRs)
 	trustedProxyMu.RUnlock()
 	return extractClientIPWithTrustedProxies(r, cidrs)
 }

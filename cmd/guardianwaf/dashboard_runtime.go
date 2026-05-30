@@ -28,8 +28,11 @@ func startDashboard(cfg *config.Config, eng *engine.Engine) (*http.Server, *dash
 	// Require API key for dashboard - generate random if not set.
 	if cfg.Dashboard.APIKey == "" {
 		cfg.Dashboard.APIKey = generateDashboardPassword()
-		fmt.Printf("Dashboard API key not set - generated: %s\n", cfg.Dashboard.APIKey)
-		fmt.Printf("Access dashboard at https://%s (user: admin, pass: %s)\n", cfg.Dashboard.Listen, cfg.Dashboard.APIKey)
+		fmt.Printf("[WARN] Dashboard API key not set - a new one has been generated.\n")
+		fmt.Printf("[WARN] The generated key is NOT shown here for security reasons.\n")
+		fmt.Printf("[WARN] To set a known key, set 'dashboard.api_key' in your config file.\n")
+		fmt.Printf("[WARN] Access dashboard at https://%s and use the generated API key.\n", cfg.Dashboard.Listen)
+		slog.Warn("dashboard API key was auto-generated; set dashboard.api_key in config to use a known key")
 	}
 
 	dash := dashboard.New(eng, eventStore, cfg.Dashboard.APIKey)

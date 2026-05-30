@@ -79,6 +79,7 @@ func (p *Pipeline) Execute(ctx *RequestContext) (result PipelineResult) {
 			panic(r) // re-panic after cleanup
 		}
 	}()
+	// Clear pooled map for reuse (only needed on normal path; panic path recycles without clear)
 	for k := range timing {
 		delete(timing, k)
 	}
