@@ -7,18 +7,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/guardianwaf/guardianwaf/internal/logging"
 )
 
 // Exporter exports security events to SIEM systems.
 type Exporter struct {
 	config    *Config
+	log       *slog.Logger
 	formatter *Formatter
 	client    *http.Client
 	eventChan chan *Event
@@ -69,12 +72,14 @@ func NewExporter(cfg *Config) *Exporter {
 		cfg.Timeout = 10 * time.Second
 	}
 
+	log := logging.NewLogger("siem")
+
 	formatter := NewFormatter(cfg.Format, "", "", "")
 
 	// Validate endpoint URL to prevent SSRF
 	if cfg.Endpoint != "" {
 		if err := validateSIEMEndpoint(cfg.Endpoint); err != nil {
-			log.Printf("[siem] ERROR: endpoint URL validation failed: %v", err)
+			log.Warn("endpoint URL validation failed", "err", err)
 			return nil
 		}
 	}
@@ -82,7 +87,7 @@ func NewExporter(cfg *Config) *Exporter {
 	// TLS certificate verification is always enforced for SIEM connections.
 	// The SkipVerify config field is ignored to prevent MITM attacks.
 	if cfg.SkipVerify {
-		log.Printf("[siem] WARNING: SkipVerify config option is ignored — TLS verification is always enforced")
+		log.Warn("SkipVerify config option is ignored — TLS verification is always enforced")
 	}
 
 	transport := &http.Transport{
@@ -98,6 +103,7 @@ func NewExporter(cfg *Config) *Exporter {
 
 	return &Exporter{
 		config:    cfg,
+		log:       logging.NewLogger("siem"),
 		formatter: formatter,
 		client: &http.Client{
 			Timeout:   cfg.Timeout,
@@ -174,7 +180,7 @@ func (e *Exporter) batchProcessor() {
 	defer e.wg.Done()
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[siem] goroutine panic: %v", r)
+			e.log.Error("goroutine panic", "panic", r)
 		}
 	}()
 
@@ -287,7 +293,7 @@ func (e *Exporter) sendBatch(events []*Event) error {
 func (e *Exporter) formatJSONBatch(events []*Event) []byte {
 	data, err := json.Marshal(events)
 	if err != nil {
-		log.Printf("[siem] failed to marshal JSON batch: %v", err)
+		e.log.Error("failed to marshal JSON batch", "error", err)
 		return nil
 	}
 	return data

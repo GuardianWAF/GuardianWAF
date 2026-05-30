@@ -9,7 +9,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -17,6 +17,7 @@ import (
 
 	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/layers/rules"
+	logging "github.com/guardianwaf/guardianwaf/internal/logging"
 )
 
 // Tenant represents a single tenant with isolated WAF configuration.
@@ -104,6 +105,9 @@ type Manager struct {
 	clusterSync   ClusterSync
 	clusterSyncMu sync.RWMutex
 	broadcastSem  chan struct{}
+
+	// Structured logger
+	log *slog.Logger
 }
 
 // NewManager creates a new tenant manager.
@@ -123,6 +127,7 @@ func NewManagerWithStore(maxTenants int, storePath string) *Manager {
 		alertManager:   NewAlertManager(),
 		store:          NewStore(storePath),
 		broadcastSem:   make(chan struct{}, 16),
+		log:            logging.NewLogger("tenant"),
 	}
 	return m
 }
@@ -160,7 +165,7 @@ func (m *Manager) LoadTenants() error {
 		// Set first tenant as default
 		if m.defaultTenantID == "" {
 			m.defaultTenantID = tenant.ID
-			log.Printf("[tenant] WARNING: Default tenant set to %q (%s). Unmatched requests will use this tenant's WAF config. Ensure this is intentional.", tenant.Name, tenant.ID)
+			m.log.Warn("Default tenant set for unmatched requests", "tenantName", tenant.Name, "tenantID", tenant.ID)
 		}
 	}
 
@@ -245,7 +250,7 @@ func (m *Manager) CreateTenant(name, description string, domains []string, quota
 	// Persist tenant to storage
 	if err := m.SaveTenant(tenant); err != nil {
 		// Non-fatal: log but don't fail
-		fmt.Printf("warning: failed to persist tenant: %v\n", err)
+		m.log.Warn("failed to persist tenant", "err", err)
 	}
 
 	// Broadcast to cluster
@@ -322,7 +327,7 @@ func (m *Manager) GetTenantByAPIKey(apiKey string) *Tenant {
 				tenant.mu.Lock()
 				tenant.APIKeyHash = hashAPIKey(apiKey)
 				tenant.mu.Unlock()
-				log.Printf("[tenant] upgraded legacy unsalted API key hash for tenant %s", tenant.ID)
+				m.log.Info("upgraded legacy unsalted API key hash", "tenantID", tenant.ID)
 			}
 			return tenant
 		}
@@ -416,7 +421,7 @@ func (m *Manager) UpdateTenant(id string, updates *TenantUpdate) error {
 	// Persist updated tenant
 	if err := m.SaveTenant(tenant); err != nil {
 		// Non-fatal: log but don't fail
-		fmt.Printf("warning: failed to persist tenant update: %v\n", err)
+		m.log.Warn("failed to persist tenant update", "err", err)
 	}
 
 	// Broadcast to cluster
@@ -462,7 +467,7 @@ func (m *Manager) DeleteTenant(id string) error {
 	if m.store != nil {
 		if err := m.store.DeleteTenant(id); err != nil {
 			// Non-fatal: log but don't fail
-			fmt.Printf("warning: failed to delete tenant from storage: %v\n", err)
+			m.log.Warn("failed to delete tenant from storage", "err", err)
 		}
 	}
 
@@ -494,7 +499,7 @@ func (m *Manager) RegenerateAPIKey(id string) (string, error) {
 	// Persist updated tenant
 	if err := m.SaveTenant(tenant); err != nil {
 		// Non-fatal: log but don't fail
-		fmt.Printf("warning: failed to persist API key update: %v\n", err)
+		m.log.Warn("failed to persist API key update", "err", err)
 	}
 
 	return newKey, nil
@@ -846,16 +851,16 @@ func (m *Manager) broadcast(entityType, entityID, action string, data map[string
 		go func() {
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("[tenant] warning: broadcast goroutine panic: %v", r)
+					m.log.Warn("broadcast goroutine panic", "panic", r)
 				}
 			}()
 			defer func() { <-m.broadcastSem }()
 			if err := cs.BroadcastEvent(entityType, entityID, action, data); err != nil {
-				log.Printf("[tenant] warning: failed to broadcast event: %v", err)
+				m.log.Warn("failed to broadcast event", "err", err)
 			}
 		}()
 	default:
-		log.Printf("[tenant] warning: broadcast semaphore full, dropping %s/%s event", entityType, action)
+		m.log.Warn("broadcast semaphore full, dropping event", "entityType", entityType, "action", action)
 	}
 }
 

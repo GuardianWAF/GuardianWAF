@@ -10,7 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -19,6 +19,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	logging "github.com/guardianwaf/guardianwaf/internal/logging"
 )
 
 // Manager handles cluster synchronization.
@@ -61,6 +63,9 @@ type Manager struct {
 	// Stats
 	stats   SyncStats
 	statsMu sync.RWMutex
+
+	// Structured logger
+	log *slog.Logger
 }
 
 // SyncHandler processes incoming sync events.
@@ -87,6 +92,7 @@ func NewManager(config *Config) *Manager {
 		cancel:       cancel,
 		httpClient:   newClusterHTTPClient(),
 		replicateSem: make(chan struct{}, 16),
+		log:         logging.NewLogger("clustersync"),
 	}
 
 	// Create local node
@@ -149,7 +155,7 @@ func (m *Manager) Start() error {
 			}
 			// Validate peer URL for SSRF protection
 			if err := validatePeerURL(node.Address); err != nil {
-				log.Printf("[clustersync] WARNING: peer node address rejected: %s: %v", node.Address, err)
+				m.log.Warn("peer node address rejected", "address", node.Address, "err", err)
 				continue
 			}
 			m.mu.Lock()
@@ -227,7 +233,7 @@ func (m *Manager) BroadcastEvent(entityType, entityID, action string, data map[s
 			defer func() { <-m.replicateSem }()
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("[clustersync] warning: replication goroutine panic: %v", r)
+					m.log.Warn("replication goroutine panic", "panic", r)
 				}
 			}()
 			m.replicateEvent(event)
@@ -582,7 +588,7 @@ func (m *Manager) replicateEvent(event *SyncEvent) {
 			}
 
 			if err := m.sendEventToNode(node, event); err != nil {
-				log.Printf("[clustersync] warning: failed to send event to node %s: %v", nodeID, err)
+				m.log.Warn("failed to send event to node", "nodeID", nodeID, "err", err)
 			}
 		}
 	}
@@ -793,6 +799,8 @@ var allowPlainHTTPForTests atomic.Bool
 // AllowPlainHTTP allows plain HTTP peer URLs (for tests only).
 func AllowPlainHTTP() { allowPlainHTTPForTests.Store(true) }
 
+var peerLog = logging.NewLogger("clustersync")
+
 // validatePeerURL checks that a peer node URL is valid and warns about
 // non-HTTPS endpoints. Unlike external URL validation, cluster peer URLs
 // are expected to be on private networks, so private IPs are allowed
@@ -815,11 +823,11 @@ func validatePeerURL(address string) error {
 	}
 	// Warn on localhost/loopback (likely misconfiguration for cluster peers)
 	if host == "localhost" || strings.HasSuffix(host, ".local") {
-		log.Printf("[clustersync] WARNING: peer %s targets localhost/local — may be misconfigured", address)
+		peerLog.Warn("peer targets localhost/local — may be misconfigured", "address", address)
 	}
 	if ip := net.ParseIP(host); ip != nil {
 		if ip.IsLoopback() {
-			log.Printf("[clustersync] WARNING: peer %s targets loopback address — may be misconfigured", address)
+			peerLog.Warn("peer targets loopback address — may be misconfigured", "address", address)
 		}
 		if ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
 			return fmt.Errorf("must not target link-local/unspecified addresses")
@@ -856,7 +864,7 @@ func generateRandomString(n int) string {
 		// crypto/rand failure is extremely rare. Do NOT fall back to
 		// predictable time-based values — fail explicitly rather than
 		// generate guessable identifiers.
-		log.Printf("[CRITICAL] crypto/rand failed to generate random string: %v — event IDs may be predictable", err)
+		peerLog.Error("CRITICAL: crypto/rand failed to generate random string — event IDs may be predictable", "err", err)
 		// Use whatever bytes were read (likely partial) rather than time-based fallback
 	}
 	for i := range b {

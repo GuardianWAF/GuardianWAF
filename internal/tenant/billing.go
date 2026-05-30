@@ -3,11 +3,13 @@ package tenant
 import (
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
+
+	logging "github.com/guardianwaf/guardianwaf/internal/logging"
 )
 
 // BillingPlan defines pricing for different tenant plans.
@@ -108,9 +110,10 @@ type Invoice struct {
 type BillingManager struct {
 	mu          sync.RWMutex
 	pricing     map[BillingPlan]PlanPricing
-	invoices    map[string][]Invoice // key: tenant ID
+	invoices    map[string][]Invoice       // key: tenant ID
 	currentUsage map[string]*UsageMetrics // key: tenant ID
 	storePath   string
+	log         *slog.Logger
 }
 
 // NewBillingManager creates a new billing manager.
@@ -120,6 +123,7 @@ func NewBillingManager(storePath string) *BillingManager {
 		invoices:     make(map[string][]Invoice),
 		currentUsage: make(map[string]*UsageMetrics),
 		storePath:    storePath,
+		log:          logging.NewLogger("tenant/billing"),
 	}
 
 	// Initialize default pricing
@@ -130,7 +134,7 @@ func NewBillingManager(storePath string) *BillingManager {
 
 	// Load persisted data
 	if err := bm.load(); err != nil {
-		log.Printf("[billing] warning: failed to load billing data: %v", err)
+		bm.log.Warn("failed to load billing data", "err", err)
 	}
 
 	return bm
@@ -230,7 +234,7 @@ func (bm *BillingManager) GenerateInvoice(tenantID, tenantName string, plan Bill
 
 	// Persist
 	if err := bm.save(); err != nil {
-		log.Printf("[billing] warning: failed to save billing data: %v", err)
+		bm.log.Warn("failed to save billing data", "err", err)
 	}
 
 	return invoice, nil
@@ -272,7 +276,7 @@ func (bm *BillingManager) UpdateInvoiceStatus(invoiceID, status string) bool {
 			if invoices[i].ID == invoiceID {
 				bm.invoices[tenantID][i].Status = status
 				if err := bm.save(); err != nil {
-					log.Printf("[billing] warning: failed to save billing data: %v", err)
+					bm.log.Warn("failed to save billing data", "err", err)
 				}
 				return true
 			}

@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/guardianwaf/guardianwaf/internal/logging"
 )
 
 // SSEHandler serves the MCP protocol over HTTP using Server-Sent Events.
@@ -21,6 +23,7 @@ type SSEHandler struct {
 
 	mu      sync.Mutex
 	clients map[*sseClient]bool
+	log     *slog.Logger
 }
 
 type sseClient struct {
@@ -40,6 +43,7 @@ func NewSSEHandler(srv *Server, apiKey string) *SSEHandler {
 		server:  srv,
 		apiKey:  apiKey,
 		clients: make(map[*sseClient]bool),
+		log:     logging.NewLogger("mcp-sse"),
 	}
 }
 
@@ -51,14 +55,14 @@ func (h *SSEHandler) RegisterRoutes(mux *http.ServeMux) {
 
 func (h *SSEHandler) authenticate(r *http.Request) bool {
 	if h.apiKey == "" {
-		log.Printf("[mcp/sse] SECURITY: rejecting unauthenticated request from %s — no API key configured", r.RemoteAddr)
+		h.log.Warn("SECURITY: rejecting unauthenticated request — no API key configured", "remote_addr", r.RemoteAddr)
 		return false
 	}
 	if key := r.Header.Get("X-API-Key"); key != "" {
 		return subtle.ConstantTimeCompare([]byte(key), []byte(h.apiKey)) == 1
 	}
 	if key := r.URL.Query().Get("api_key"); key != "" {
-		log.Printf("[WARN] MCP API key passed via query parameter from %s — rejected, use X-API-Key header", r.RemoteAddr)
+		h.log.Warn("MCP API key passed via query parameter — rejected, use X-API-Key header", "remote_addr", r.RemoteAddr)
 		return false // Reject query-param-based API keys to prevent credential leakage
 	}
 	return false

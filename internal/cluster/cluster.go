@@ -10,13 +10,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	logging "github.com/guardianwaf/guardianwaf/internal/logging"
 )
 
 // NodeState represents the state of a cluster node.
@@ -113,6 +115,9 @@ type Cluster struct {
 
 	// HTTP server for cluster API
 	httpServer *http.Server
+
+	// Structured logger
+	log *slog.Logger
 }
 
 // Event represents a cluster event.
@@ -216,6 +221,7 @@ func New(cfg *Config) (*Cluster, error) {
 			RateLimits: make(map[string]int64),
 		},
 		httpClient: newClusterCoordinationHTTPClient(),
+		log: logging.NewLogger("cluster"),
 	}
 
 	// Register default handlers
@@ -395,7 +401,7 @@ func (c *Cluster) BanIP(ip string, ttl time.Duration) {
 		"ttl": ttl.Seconds(),
 	})
 	if err != nil {
-		log.Printf("[cluster] failed to marshal IP ban payload: %v", err)
+		c.log.Error("failed to marshal IP ban payload", "err", err)
 		return
 	}
 
@@ -420,7 +426,7 @@ func (c *Cluster) UnbanIP(ip string) {
 	// Broadcast to other nodes
 	payload, err := json.Marshal(map[string]string{"ip": ip})
 	if err != nil {
-		log.Printf("[cluster] failed to marshal IP unban payload: %v", err)
+		c.log.Error("failed to marshal IP unban payload", "err", err)
 		return
 	}
 
@@ -478,13 +484,13 @@ func (c *Cluster) broadcast(msg *Message) {
 			defer c.wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("[cluster] warning: send goroutine panic: %v", r)
+					c.log.Warn("send goroutine panic", "panic", r)
 				}
 			}()
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			if err := c.sendMessage(ctx, n, msg); err != nil {
-				log.Printf("[cluster] warning: failed to send message to node %s: %v", n.ID, err)
+				c.log.Warn("failed to send message to node", "nodeID", n.ID, "err", err)
 			}
 		}(node)
 	}
@@ -802,7 +808,7 @@ func (c *Cluster) syncState() {
 
 	payload, err := json.Marshal(state)
 	if err != nil {
-		log.Printf("[cluster] failed to marshal state sync: %v", err)
+		c.log.Error("failed to marshal state sync", "err", err)
 		return
 	}
 
@@ -835,16 +841,17 @@ func (c *Cluster) startHTTPServer() {
 
 	// Refuse to start if AuthSecret is configured without TLS — secret would be transmitted in cleartext
 	if c.config.AuthSecret != "" && (c.config.TLSCertFile == "" || c.config.TLSKeyFile == "") {
-		log.Fatalf("[cluster] FATAL: AuthSecret is configured but TLS is not enabled -- cluster auth secret would be sent in cleartext. Configure tls_cert_file and tls_key_file to secure cluster communication.")
+		c.log.Error("FATAL: AuthSecret is configured but TLS is not enabled -- cluster auth secret would be sent in cleartext. Configure tls_cert_file and tls_key_file to secure cluster communication.")
+		return
 	}
 
 	if c.config.TLSCertFile != "" && c.config.TLSKeyFile != "" {
 		if err := c.httpServer.ListenAndServeTLS(c.config.TLSCertFile, c.config.TLSKeyFile); err != nil && err != http.ErrServerClosed {
-			log.Printf("[cluster] warning: HTTPS server failed: %v", err)
+			c.log.Warn("HTTPS server failed", "err", err)
 		}
 	} else {
 		if err := c.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Printf("[cluster] warning: HTTP server failed: %v", err)
+			c.log.Warn("HTTP server failed", "err", err)
 		}
 	}
 }
@@ -852,7 +859,7 @@ func (c *Cluster) startHTTPServer() {
 // authenticateCluster validates the X-Cluster-Auth header using constant-time comparison.
 func (c *Cluster) authenticateCluster(r *http.Request) bool {
 	if c.config.AuthSecret == "" {
-		log.Printf("[cluster] SECURITY: rejecting unauthenticated request from %s — no auth_secret configured", r.RemoteAddr)
+		c.log.Warn("SECURITY: rejecting unauthenticated request — no auth_secret configured", "remoteAddr", r.RemoteAddr)
 		return false
 	}
 	auth := r.Header.Get("X-Cluster-Auth")

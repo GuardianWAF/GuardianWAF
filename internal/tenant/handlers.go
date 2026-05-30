@@ -3,23 +3,25 @@ package tenant
 import (
 	"crypto/subtle"
 	"encoding/json"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/config"
+	logging "github.com/guardianwaf/guardianwaf/internal/logging"
 )
 
 // Handlers provides HTTP handlers for tenant management.
 type Handlers struct {
 	manager *Manager
 	apiKey  string
+	log     *slog.Logger
 }
 
 // NewHandlers creates new tenant management handlers.
 func NewHandlers(manager *Manager) *Handlers {
-	return &Handlers{manager: manager}
+	return &Handlers{manager: manager, log: logging.NewLogger("tenant/handlers")}
 }
 
 // SetAPIKey sets the API key for authenticating requests.
@@ -31,7 +33,7 @@ func (h *Handlers) SetAPIKey(key string) {
 func (h *Handlers) verifyKey(r *http.Request) bool {
 	if h.apiKey == "" {
 		// This should never happen — API key must be set before registering routes.
-		log.Printf("[ERROR] Tenant API key is not configured — refusing request. Set APIKey before starting the tenant handler.")
+		h.log.Error("Tenant API key is not configured — refusing request. Set APIKey before starting the tenant handler.")
 		return false
 	}
 	key := r.Header.Get("X-API-Key")

@@ -5,21 +5,24 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/guardianwaf/guardianwaf/internal/logging"
 )
 
 // NVDClient is a client for the National Vulnerability Database API.
 type NVDClient struct {
-	mu         sync.RWMutex
-	baseURL    string
-	apiKey     string
-	httpClient *http.Client
+	log          *slog.Logger
+	mu           sync.RWMutex
+	baseURL      string
+	apiKey       string
+	httpClient   *http.Client
 	// allowPrivate is used by tests that exercise the client with httptest
 	// loopback servers. Production code must leave this false.
 	allowPrivate bool
@@ -28,6 +31,7 @@ type NVDClient struct {
 // NewNVDClient creates a new NVD API client.
 func NewNVDClient(apiKey string) *NVDClient {
 	c := &NVDClient{
+		log:    logging.NewLogger("nvd"),
 		baseURL: "https://services.nvd.nist.gov/rest/json/cves/2.0",
 		apiKey:  apiKey,
 	}
@@ -96,7 +100,7 @@ func (c *NVDClient) SetBaseURL(baseURL string) error {
 		return fmt.Errorf("base URL rejected: %w", err)
 	}
 	if strings.HasPrefix(baseURL, "http://") {
-		log.Printf("[virtualpatch] WARNING: NVD base URL is not HTTPS: %s", baseURL)
+		c.log.Warn("NVD base URL is not HTTPS", "baseURL", baseURL)
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()

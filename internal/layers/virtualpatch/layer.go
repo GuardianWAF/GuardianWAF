@@ -3,7 +3,7 @@ package virtualpatch
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strings"
@@ -12,11 +12,13 @@ import (
 	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
+	logging "github.com/guardianwaf/guardianwaf/internal/logging"
 )
 
 // Layer implements virtual patching for known CVEs.
 type Layer struct {
 	config   *Config
+	log      *slog.Logger
 	database *Database
 
 	// Compiled patterns for performance
@@ -45,6 +47,7 @@ func NewLayer(config *Config) *Layer {
 
 	layer := &Layer{
 		config:           config,
+		log:              logging.NewLogger("virtualpatch"),
 		database:         NewDatabase(),
 		compiledPatterns: make(map[string]*regexp.Regexp),
 		lastUpdate:       time.Time{},
@@ -58,7 +61,7 @@ func NewLayer(config *Config) *Layer {
 		layer.nvdClient = NewNVDClient("")
 		if config.NVDFeedURL != "" {
 			if err := layer.nvdClient.SetBaseURL(config.NVDFeedURL); err != nil {
-				log.Printf("[virtualpatch] WARNING: NVD feed URL rejected: %v", err)
+				layer.log.Warn("NVD feed URL rejected", "error", err)
 			}
 		}
 		layer.stopUpdate = make(chan struct{})
@@ -75,7 +78,7 @@ func (l *Layer) startAutoUpdate() {
 		defer l.updateWg.Done()
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("[virtualpatch] autoUpdate goroutine panic: %v", r)
+				l.log.Error("autoUpdate goroutine panic", "panic", r)
 			}
 		}()
 
@@ -520,7 +523,7 @@ func regexMatchWithTimeout(re *regexp.Regexp, s string) bool {
 	case r := <-done:
 		return r.matched
 	case <-time.After(vpRegexTimeout):
-		log.Printf("[virtualpatch] regex match timed out after %v", vpRegexTimeout)
+		// timeout - silently return false
 		return false
 	}
 }

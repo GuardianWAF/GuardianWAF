@@ -6,12 +6,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/guardianwaf/guardianwaf/internal/logging"
 )
 
 // Config for remediation engine.
@@ -89,7 +91,8 @@ type Engine struct {
 	stats     Stats
 	statsMu   sync.RWMutex
 	stopCh    chan struct{}
-	wg       sync.WaitGroup
+	wg        sync.WaitGroup
+	log       *slog.Logger
 }
 
 // NewEngine creates a new remediation engine.
@@ -102,12 +105,13 @@ func NewEngine(cfg *Config) (*Engine, error) {
 		config: cfg,
 		rules:  make(map[string]*GeneratedRule),
 		stopCh: make(chan struct{}),
+		log:    logging.NewLogger("remediation"),
 	}
 
 	// Ensure storage directory exists
 	if cfg.StoragePath != "" {
 		if err := os.MkdirAll(cfg.StoragePath, 0700); err != nil {
-			log.Printf("[remediation] warning: failed to create storage directory %s: %v", cfg.StoragePath, err)
+			e.log.Warn("failed to create storage directory", "path", cfg.StoragePath, "error", err)
 		}
 	}
 
@@ -136,7 +140,7 @@ func (e *Engine) ProcessAnalysis(result *AnalysisResult) (*GeneratedRule, error)
 
 	// Check daily rule limit
 	if e.isDailyLimitReached() {
-		log.Printf("[remediation] Daily rule limit reached (%d rules)", e.config.MaxRulesPerDay)
+		e.log.Warn("daily rule limit reached", "max_rules", e.config.MaxRulesPerDay)
 		return nil, nil
 	}
 
@@ -161,19 +165,19 @@ func (e *Engine) ProcessAnalysis(result *AnalysisResult) (*GeneratedRule, error)
 	// Auto-apply if enabled and confidence is high enough
 	if e.config.AutoApply && result.Confidence >= 90 {
 		if err := e.ApplyRule(rule.ID); err != nil {
-			log.Printf("[remediation] Failed to auto-apply rule %s: %v", rule.ID, err)
+			e.log.Error("failed to auto-apply rule", "rule_id", rule.ID, "error", err)
 		} else {
 			rule.AutoApplied = true
 			e.statsMu.Lock()
 			e.stats.TotalAutoApplied++
 			e.statsMu.Unlock()
-			log.Printf("[remediation] Auto-applied rule %s for %s attack", rule.ID, result.AttackType)
+			e.log.Info("auto-applied rule", "rule_id", rule.ID, "attack_type", result.AttackType)
 		}
 	}
 
 	// Persist rule to disk
 	if err := e.saveRule(rule); err != nil {
-		log.Printf("[remediation] Failed to save rule: %v", err)
+		e.log.Error("failed to save rule", "error", err)
 	}
 
 	return rule, nil
@@ -304,7 +308,7 @@ func (e *Engine) ApplyRule(ruleID string) error {
 	e.stats.TotalApplied++
 	e.statsMu.Unlock()
 
-	log.Printf("[remediation] Applied rule %s: %s", ruleID, rule.Name)
+	e.log.Info("applied rule", "rule_id", ruleID, "name", rule.Name)
 	return nil
 }
 
@@ -320,7 +324,7 @@ func (e *Engine) RevokeRule(ruleID string) error {
 	rule.Applied = false
 	e.rulesMu.Unlock()
 
-	log.Printf("[remediation] Revoked rule %s", ruleID)
+	e.log.Info("revoked rule", "rule_id", ruleID)
 	return nil
 }
 
@@ -334,7 +338,7 @@ func (e *Engine) DeleteRule(ruleID string) error {
 	filename := filepath.Join(e.config.StoragePath, fmt.Sprintf("rule-%s.json", ruleID))
 	os.Remove(filename)
 
-	log.Printf("[remediation] Deleted rule %s", ruleID)
+	e.log.Info("deleted rule", "rule_id", ruleID)
 	return nil
 }
 
@@ -443,7 +447,7 @@ func (e *Engine) cleanupExpiredRules() {
 		e.statsMu.Lock()
 		e.stats.ExpiredRules += expiredCount
 		e.statsMu.Unlock()
-		log.Printf("[remediation] Cleaned up %d expired rules", expiredCount)
+		e.log.Info("cleaned up expired rules", "count", expiredCount)
 	}
 }
 

@@ -1,7 +1,7 @@
 # GuardianWAF — Refactoring & Improvement Plan (Remaining Work)
 
 > **Status:** Outstanding items only. Completed work has been removed from the body and condensed into the changelog below.
-> **Date:** 2026-05-29 (last updated)
+> **Date:** 2026-05-30 (last updated)
 > **Health:** `go build ./...` ✅ · `go vet ./...` ✅ · `go test ./...` ✅ (67 pkgs) · touched packages pass `-race`.
 
 This document now tracks **only the work that is still open**. Each finding carries a **severity**, **file:line** references, **why it matters**, and a **recommended action**.
@@ -28,6 +28,7 @@ Applied & verified (build + vet + full test suite green; touched pkgs `-race`):
 - **MCP:** added `Server.ValidateTools()` + test asserting `AllTools()` ↔ registered handlers match (catches tool-name drift in CI).
 - **Client-Side layer wired into the response path** — Magecart/agent-injection body processing + CSP headers were registered in `ctx.Metadata` but never consumed by the engine; now executed (off by default). Fixed a pooled-context closure-capture bug in the process. New tests added.
 - **Docs:** reconciled `CLAUDE.md` with reality — corrected the false "29 layers registered in serve" claim to 16 and added a per-layer ✅/❌ "Serve?" column (verified via `go list -deps`).
+- **Logging:** `internal/logging` package created (`Logger`, `NewLogger(component)`); all `log.Printf` migrated to structured `slog` in `cluster`, `clustersync`, `tenant`, `layers/*` (10 packages), `mcp`.
 
 **Resolved as non-issues (do not re-open):** apisecurity `mu` (correctly used; config immutable post-construction) · revoked-session GC (ticker already started at `dashboard.go:160`) · JWT `fetchJWKS` `context.Background()` (correct for a shared cache fetch) · `events/file.go:260` swallow (deliberate layered reopen fallback) · `ResolveEnabled` tenant-helper (rejected: net-negative — forces `config` import into ~24 layers + hot-path closure alloc).
 
@@ -156,18 +157,15 @@ Applied & verified (build + vet + full test suite green; touched pkgs `-race`):
 
 ### 6.1 🟠 MEDIUM — Finish the ignored-error triage (~149 sites)
 - **Status:** the safety-critical ones are fixed (API-key init, CRS parse). Remaining: triage the rest (`_ =` 108, `_, _ =` 41); most are benign but should be batch-annotated or handled.
-- **Note:** `events/file.go` log-rotation swallow (originally flagged) is a deliberate layered fallback — leave it, but consider a single error log if *all* fallbacks fail.
 
-### 6.2 🟠 MEDIUM — No unified logging strategy
-- **Where:** `log.Printf` (~85), `fmt.Printf` (~26, incl. `tracing/tracing.go:232,237`), `slog` (3, only `http3/`), plus the engine's `LogBuffer`.
-- **Recommendation:** standardize on `log/slog` behind a thin project logger; route `LogBuffer` through it; forbid `fmt.Printf` diagnostics via a lint rule. Migrate incrementally.
+### 6.2 🟢 DONE — No unified logging strategy
+- **Status:** Completed. All `log.Printf` migrated to structured `log/slog` via `internal/logging` package across `cluster`, `clustersync`, `tenant`, `layers/*` (10 packages), `mcp`. Remaining: fmt.Printf panic-recovery fallbacks in `acme`, `geoip`, `tls`, `proxy`, `docker`, `alerting` (low priority), plus README/docs files (excluded).
 
 ### 6.3 🟡 LOW — `%w` vs `%v` inconsistency
 - **Where:** ~398 `%w` vs ~336 `%v`. Default to `%w` for wrapping; add the `errorlint` linter.
 
-### 6.4 🟡 LOW — `ipacl` auto-ban entry fields mixed atomic/plain
-- **Where:** `internal/layers/ipacl/ipacl.go:178-202` — `ExpiresAt` is `atomic.Value`, siblings (`Count`, `Reason`) are plain under the map lock. Safe today (mutation under lock) but fragile.
-- **Recommendation:** keep all mutable entry fields under one discipline.
+### 6.4 🟢 DONE — `ipacl` auto-ban entry fields mixed atomic/plain
+- **Status:** Already fixed. `ExpiresAt` is plain `time.Time` (not `atomic.Value`), protected by `Layer.mu` lock alongside `Count` and `Reason`. Consistent discipline under lock.
 
 ---
 

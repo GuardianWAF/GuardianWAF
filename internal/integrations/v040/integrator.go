@@ -5,7 +5,7 @@ package v040
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -26,6 +26,7 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/layers/siem"
 	"github.com/guardianwaf/guardianwaf/internal/layers/websocket"
 	"github.com/guardianwaf/guardianwaf/internal/layers/zerotrust"
+	"github.com/guardianwaf/guardianwaf/internal/logging"
 	"github.com/guardianwaf/guardianwaf/internal/ml/anomaly"
 	proxygrpc "github.com/guardianwaf/guardianwaf/internal/proxy/grpc"
 )
@@ -33,6 +34,7 @@ import (
 // Integrator manages all v0.4.0 Phase 1 and Phase 2 features.
 type Integrator struct {
 	cfg *config.Config
+	log *slog.Logger
 
 	// Phase 1 Components
 	mlAnomalyLayer   *anomaly.Layer
@@ -66,7 +68,8 @@ type Integrator struct {
 // NewIntegrator creates a new v0.4.0 feature integrator.
 func NewIntegrator(cfg *config.Config) (*Integrator, error) {
 	i := &Integrator{
-		cfg: cfg,
+		cfg:  cfg,
+		log: logging.NewLogger("v040"),
 	}
 
 	// Initialize ML Anomaly Detection
@@ -199,8 +202,7 @@ func (i *Integrator) initMLAnomaly() error {
 	}
 
 	i.mlAnomalyLayer = layer
-	log.Printf("[v0.4.0] ML Anomaly Detection enabled (mode=%s, threshold=%.2f)",
-		mlCfg.Mode, mlCfg.Threshold)
+	i.log.Info("ML Anomaly Detection enabled", "mode", mlCfg.Mode, "threshold", mlCfg.Threshold)
 	return nil
 }
 
@@ -225,8 +227,7 @@ func (i *Integrator) initAPIDiscovery() error {
 	}
 
 	i.apiDiscovery = eng
-	log.Printf("[v0.4.0] API Discovery enabled (mode=%s, buffer=%d)",
-		adCfg.CaptureMode, adCfg.RingBufferSize)
+	i.log.Info("API Discovery enabled", "mode", adCfg.CaptureMode, "buffer", adCfg.RingBufferSize)
 	return nil
 }
 
@@ -247,8 +248,7 @@ func (i *Integrator) initGraphQL() error {
 	}
 
 	i.graphqlLayer = layer
-	log.Printf("[v0.4.0] GraphQL Security enabled (max_depth=%d, max_complexity=%d)",
-		gqlCfg.MaxDepth, gqlCfg.MaxComplexity)
+	i.log.Info("GraphQL Security enabled", "max_depth", gqlCfg.MaxDepth, "max_complexity", gqlCfg.MaxComplexity)
 	return nil
 }
 
@@ -312,8 +312,7 @@ func (i *Integrator) initEnhancedBotDetection() error {
 		i.challengeVerify = collector.HandleChallengeVerify
 	}
 
-	log.Printf("[v0.4.0] Enhanced Bot Detection enabled (mode=%s, biometric=%v, captcha=%v)",
-		enhancedCfg.Mode, enhancedCfg.Biometric.Enabled, enhancedCfg.Captcha.Enabled)
+	i.log.Info("Enhanced Bot Detection enabled", "mode", enhancedCfg.Mode, "biometric", enhancedCfg.Biometric.Enabled, "captcha", enhancedCfg.Captcha.Enabled)
 	return nil
 }
 
@@ -376,7 +375,7 @@ func (i *Integrator) RegisterLayers(e *engine.Engine) {
 		})
 	}
 
-	log.Println("[v0.4.0] All layers registered with engine pipeline")
+	i.log.Info("All layers registered with engine pipeline")
 }
 
 // initGRPC initializes the gRPC proxy.
@@ -399,8 +398,7 @@ func (i *Integrator) initGRPC() error {
 	}
 
 	i.grpcProxy = proxy
-	log.Printf("[v0.4.0] gRPC Support enabled (grpc_web=%v, validate=%v)",
-		grpcCfg.GRPCWebEnabled, grpcCfg.ValidateProto)
+	i.log.Info("gRPC Support enabled", "grpc_web", grpcCfg.GRPCWebEnabled, "validate", grpcCfg.ValidateProto)
 	return nil
 }
 
@@ -440,8 +438,7 @@ func (i *Integrator) initZeroTrust() error {
 	}
 
 	i.zeroTrustService = service
-	log.Printf("[v0.4.0+] Zero Trust enabled (mTLS=%v, attestation=%v)",
-		ztCfg.RequireMTLS, ztCfg.RequireAttestation)
+	i.log.Info("Zero Trust enabled", "mTLS", ztCfg.RequireMTLS, "attestation", ztCfg.RequireAttestation)
 	return nil
 }
 
@@ -466,8 +463,7 @@ func (i *Integrator) initSIEM() error {
 	exporter.Start()
 
 	i.siemExporter = exporter
-	log.Printf("[v0.4.0+] SIEM enabled (format=%s, endpoint=%s)",
-		siemCfg.Format, siemCfg.Endpoint)
+	i.log.Info("SIEM enabled", "format", siemCfg.Format, "endpoint", siemCfg.Endpoint)
 	return nil
 }
 
@@ -478,8 +474,7 @@ func (i *Integrator) initMultiTenancy() error {
 	}
 
 	i.tenantIntegrator = integrator
-	log.Printf("[v0.4.0] Multi-tenancy enabled (max_tenants=%d)",
-		i.cfg.WAF.Tenant.MaxTenants)
+	i.log.Info("Multi-tenancy enabled", "max_tenants", i.cfg.WAF.Tenant.MaxTenants)
 	return nil
 }
 
@@ -500,8 +495,7 @@ func (i *Integrator) initDLP() error {
 	layer := dlp.NewEngineLayer(cfg)
 	i.dlpLayer = layer
 
-	log.Printf("[v0.4.0] Advanced DLP enabled (patterns=%v, block=%v)",
-		dlpCfg.Patterns, dlpCfg.BlockOnMatch)
+	i.log.Info("Advanced DLP enabled", "patterns", dlpCfg.Patterns, "block", dlpCfg.BlockOnMatch)
 	return nil
 }
 
@@ -511,14 +505,14 @@ func (i *Integrator) RegisterHandlers(mux *http.ServeMux) {
 	// Biometric event collector endpoint
 	if i.biometricHandler != nil {
 		mux.HandleFunc("/gwaf/biometric/collect", i.biometricHandler)
-		log.Println("[v0.4.0] Registered handler: /gwaf/biometric/collect")
+		i.log.Info("Registered handler: /gwaf/biometric/collect")
 	}
 
 	// Challenge pages
 	if i.challengeHandler != nil {
 		mux.HandleFunc("/gwaf/challenge", i.challengeHandler)
 		mux.HandleFunc("/gwaf/challenge/verify", i.challengeVerify)
-		log.Println("[v0.4.0] Registered handlers: /gwaf/challenge, /gwaf/challenge/verify")
+		i.log.Info("Registered handlers: /gwaf/challenge, /gwaf/challenge/verify")
 	}
 
 	// API Discovery endpoints
@@ -526,13 +520,13 @@ func (i *Integrator) RegisterHandlers(mux *http.ServeMux) {
 		mux.HandleFunc("/gwaf/api/discovery/export", i.handleDiscoveryExport)
 		mux.HandleFunc("/gwaf/api/discovery/spec", i.handleDiscoverySpec)
 		mux.HandleFunc("/gwaf/api/discovery/stats", i.handleDiscoveryStats)
-		log.Println("[v0.4.0] Registered handlers: /gwaf/api/discovery/*")
+		i.log.Info("Registered handlers: /gwaf/api/discovery/*")
 	}
 
 	// Tenant management endpoints (Phase 2)
 	if i.tenantIntegrator != nil {
 		i.tenantIntegrator.RegisterHandlers(mux)
-		log.Println("[v0.4.0] Registered handlers: /api/v1/tenants/*")
+		i.log.Info("Registered handlers: /api/v1/tenants/*")
 	}
 }
 
@@ -577,8 +571,7 @@ func (i *Integrator) initCache() error {
 	layer := cache.NewLayer(c, layerCfg)
 	i.cacheLayer = layer
 
-	log.Printf("[v0.4.0+] Cache enabled (backend=%s, ttl=%v, max_size=%dMB)",
-		cacheCfg.Backend, cacheCfg.TTL, cacheCfg.MaxSize)
+	i.log.Info("Cache enabled", "backend", cacheCfg.Backend, "ttl", cacheCfg.TTL, "max_size_mb", cacheCfg.MaxSize)
 	return nil
 }
 
@@ -645,7 +638,7 @@ func (i *Integrator) Cleanup() {
 	}
 	if i.clusterLayer != nil {
 		if err := i.clusterLayer.Stop(); err != nil {
-			log.Printf("[v0.4.0] warning: clusterLayer.Stop failed: %v", err)
+			i.log.Warn("clusterLayer.Stop failed", "error", err)
 		}
 	}
 	if i.remediationLayer != nil {
@@ -657,7 +650,7 @@ func (i *Integrator) Cleanup() {
 	if i.grpcLayer != nil {
 		i.grpcLayer.Stop()
 	}
-	log.Println("[v0.4.0] Cleanup complete")
+	i.log.Info("Cleanup complete")
 }
 
 // handleDiscoveryExport handles API discovery export requests.
@@ -859,8 +852,7 @@ func (i *Integrator) initReplay() error {
 	}
 
 	i.replayManager = manager
-	log.Printf("[v0.4.0+] Request Replay enabled (recording=%v, replay=%v)",
-		replayCfg.Enabled, replayCfg.Replay.Enabled)
+	i.log.Info("Request Replay enabled", "recording", replayCfg.Enabled, "replay", replayCfg.Replay.Enabled)
 	return nil
 }
 
@@ -908,8 +900,7 @@ func (i *Integrator) initCanary() error {
 	}
 
 	i.canaryLayer = layer
-	log.Printf("[v0.4.0+] Canary Releases enabled (strategy=%s, percentage=%d%%)",
-		canaryCfg.Strategy, canaryCfg.Percentage)
+	i.log.Info("Canary Releases enabled", "strategy", canaryCfg.Strategy, "percentage", canaryCfg.Percentage)
 	return nil
 }
 
@@ -949,8 +940,7 @@ func (i *Integrator) initAnalytics() error {
 	}
 
 	i.analyticsLayer = layer
-	log.Printf("[v0.4.0+] Analytics enabled (storage=%s, retention=%d days)",
-		analyticsCfg.StoragePath, analyticsCfg.RetentionDays)
+	i.log.Info("Analytics enabled", "storage", analyticsCfg.StoragePath, "retention_days", analyticsCfg.RetentionDays)
 	return nil
 }
 
@@ -1019,8 +1009,7 @@ func (i *Integrator) initClusterSync() error {
 	}
 
 	i.clusterSyncManager = manager
-	log.Printf("[v0.4.0+] ClusterSync enabled (node=%s, port=%d, clusters=%d)",
-		cfg.NodeID, cfg.APIPort, len(cfg.Clusters))
+	i.log.Info("ClusterSync enabled", "node", cfg.NodeID, "port", cfg.APIPort, "clusters", len(cfg.Clusters))
 	return nil
 }
 
@@ -1073,8 +1062,7 @@ func (i *Integrator) initRemediation() error {
 	}
 
 	i.remediationLayer = layer
-	log.Printf("[v0.4.0+] Remediation enabled (auto_apply=%v, threshold=%d%%)",
-		remCfg.AutoApply, remCfg.ConfidenceThreshold)
+	i.log.Info("Remediation enabled", "auto_apply", remCfg.AutoApply, "threshold", remCfg.ConfidenceThreshold)
 	return nil
 }
 
@@ -1126,8 +1114,7 @@ func (i *Integrator) initWebSocket() error {
 	}
 
 	i.websocketLayer = layer
-	log.Printf("[v0.4.0+] WebSocket Security enabled (scan_payloads=%v, rate_limit=%d/s)",
-		wsCfg.ScanPayloads, wsCfg.RateLimitPerSecond)
+	i.log.Info("WebSocket Security enabled", "scan_payloads", wsCfg.ScanPayloads, "rate_limit", wsCfg.RateLimitPerSecond)
 	return nil
 }
 

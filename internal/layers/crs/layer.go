@@ -2,19 +2,21 @@ package crs
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
-	"time"
+	"github.com/guardianwaf/guardianwaf/internal/logging"
 )
 
 // Layer implements the OWASP Core Rule Set WAF layer.
 type Layer struct {
 	config       *Config
+	log          *slog.Logger
 	rules        []*Rule
 	parser       *Parser
 
@@ -25,7 +27,7 @@ type Layer struct {
 	// Disabled rules
 	disabledRules map[string]bool
 
-	mu           sync.RWMutex
+	mu sync.RWMutex
 }
 
 // NewLayer creates a new CRS layer.
@@ -36,6 +38,7 @@ func NewLayer(config *Config) *Layer {
 
 	layer := &Layer{
 		config:        config,
+		log:           logging.NewLogger("crs"),
 		rules:         []*Rule{},
 		parser:        NewParser(),
 		rulesByPhase:  make(map[int][]*Rule),
@@ -51,7 +54,7 @@ func NewLayer(config *Config) *Layer {
 	// Load rules if path specified
 	if config.RulePath != "" {
 		if err := layer.LoadRules(config.RulePath); err != nil {
-			log.Printf("[crs] warning: failed to load CRS rules from %s: %v", config.RulePath, err)
+			layer.log.Warn("failed to load CRS rules", "path", config.RulePath, "error", err)
 		}
 	}
 

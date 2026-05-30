@@ -7,12 +7,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/guardianwaf/guardianwaf/internal/logging"
 )
 
 // Client is an OpenAI-compatible chat completions HTTP client.
@@ -24,6 +26,7 @@ type Client struct {
 	model      string
 	maxTokens  int
 	httpClient *http.Client
+	log        *slog.Logger
 }
 
 // ClientConfig holds configuration for the AI client.
@@ -39,6 +42,8 @@ type ClientConfig struct {
 
 // NewClient creates a new AI API client.
 func NewClient(cfg ClientConfig) *Client {
+	log := logging.NewLogger("ai")
+
 	timeout := cfg.Timeout
 	if timeout == 0 {
 		timeout = 60 * time.Second
@@ -51,25 +56,25 @@ func NewClient(cfg ClientConfig) *Client {
 	if cfg.BaseURL != "" && !cfg.AllowPrivateEndpoint && !testAllowPrivate {
 		if u, err := url.Parse(cfg.BaseURL); err == nil {
 			if u.Scheme == "http" {
-				log.Printf("[ai] WARNING: AI endpoint uses HTTP — API key will be sent in cleartext. Use HTTPS.")
+				log.Warn("AI endpoint uses HTTP — API key will be sent in cleartext. Use HTTPS.")
 			}
 			host := u.Hostname()
 			if ip := net.ParseIP(host); ip != nil {
 				if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
-					log.Fatalf("[ai] FATAL: AI endpoint targets a private/loopback address: %s", host)
+					log.Error("AI endpoint targets a private/loopback address", "host", host)
 				}
 			} else if strings.EqualFold(host, "localhost") {
-				log.Fatalf("[ai] FATAL: AI endpoint targets localhost — SSRF risk")
+				log.Error("AI endpoint targets localhost — SSRF risk", "host", host)
 			} else {
 				// Resolve hostname and validate all resulting IPs
 				addrs, err := net.LookupHost(host)
 				if err != nil {
-					log.Fatalf("[ai] FATAL: AI endpoint hostname %q DNS lookup failed: %v", host, err)
+					log.Error("AI endpoint hostname DNS lookup failed", "host", host, "error", err)
 				}
 				for _, addr := range addrs {
 					if ip := net.ParseIP(addr); ip != nil {
 						if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
-							log.Fatalf("[ai] FATAL: AI endpoint hostname %q resolves to private/loopback address: %s", host, addr)
+							log.Error("AI endpoint hostname resolves to private/loopback address", "host", host, "addr", addr)
 						}
 					}
 				}
@@ -99,6 +104,7 @@ func NewClient(cfg ClientConfig) *Client {
 		apiKey:    cfg.APIKey,
 		model:     cfg.Model,
 		maxTokens: maxTokens,
+		log:       log,
 		httpClient: &http.Client{
 			Timeout:   timeout,
 			Transport: transport,

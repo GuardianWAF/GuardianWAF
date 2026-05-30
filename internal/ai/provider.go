@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -16,11 +16,16 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/guardianwaf/guardianwaf/internal/logging"
 )
 
 // testAllowPrivate allows tests to bypass SSRF URL validation for httptest servers.
 // Must never be set to true in production code.
 var testAllowPrivate bool
+
+// aiLogger is a package-level logger for AI provider operations.
+var aiLogger = logging.NewLogger("ai")
 
 const (
 	defaultCatalogURL = "https://models.dev/api.json"
@@ -105,6 +110,7 @@ type CatalogCache struct {
 	catalog   *Catalog
 	url       string
 	fetchedAt time.Time
+	log       *slog.Logger
 }
 
 // NewCatalogCache creates a new catalog cache.
@@ -112,7 +118,7 @@ func NewCatalogCache(url string) *CatalogCache {
 	if url == "" {
 		url = defaultCatalogURL
 	}
-	return &CatalogCache{url: url}
+	return &CatalogCache{url: url, log: logging.NewLogger("ai")}
 }
 
 // Get returns the cached catalog, fetching if expired or missing.
@@ -265,7 +271,7 @@ func FetchCatalog(catalogURL string) (*Catalog, error) {
 
 	// Warn on non-HTTPS catalog URLs
 	if strings.HasPrefix(catalogURL, "http://") {
-		log.Printf("[ai] WARNING: catalog URL is not HTTPS: %s (model catalog may be tampered with in transit)", catalogURL)
+		aiLogger.Warn("catalog URL is not HTTPS", "url", catalogURL, "message", "model catalog may be tampered with in transit")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

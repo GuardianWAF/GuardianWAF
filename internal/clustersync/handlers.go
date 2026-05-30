@@ -4,21 +4,24 @@ package clustersync
 import (
 	"crypto/subtle"
 	"encoding/json"
-	"log"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	logging "github.com/guardianwaf/guardianwaf/internal/logging"
 )
 
 // Handler provides HTTP handlers for cluster management.
 type Handler struct {
 	manager *Manager
+	log     *slog.Logger
 }
 
 // NewHandler creates a new cluster handler.
 func NewHandler(manager *Manager) *Handler {
-	return &Handler{manager: manager}
+	return &Handler{manager: manager, log: logging.NewLogger("clustersync/handlers")}
 }
 
 // RegisterRoutes registers cluster routes.
@@ -421,7 +424,7 @@ func (h *Handler) checkAuth(r *http.Request) bool {
 	// Shared secret is required for cluster sync — without it, all cluster
 	// endpoints (sync, join, config) would be unauthenticated.
 	if h.manager.config.SharedSecret == "" {
-		log.Printf("[ERROR] Cluster sync shared secret is not configured — refusing request. Set SharedSecret before enabling cluster sync.")
+		h.log.Error("Cluster sync shared secret is not configured — refusing request. Set SharedSecret before enabling cluster sync.")
 		return false
 	}
 	// Check shared secret auth using constant-time comparison

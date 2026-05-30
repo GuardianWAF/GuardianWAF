@@ -4,12 +4,14 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/guardianwaf/guardianwaf/internal/logging"
 )
 
 // CertDiskStore manages cached certificates on disk with automatic renewal.
@@ -18,6 +20,7 @@ type CertDiskStore struct {
 	client   *Client
 	handler  *HTTP01Handler
 	domains  [][]string // groups of domains to obtain certs for
+	log      *slog.Logger
 
 	mu    sync.RWMutex
 	certs map[string]*tls.Certificate // domain -> loaded cert
@@ -34,6 +37,7 @@ func NewCertDiskStore(cacheDir string, client *Client, handler *HTTP01Handler) *
 		handler:  handler,
 		certs:    make(map[string]*tls.Certificate),
 		stopCh:   make(chan struct{}),
+		log:      logging.NewLogger("acme"),
 	}
 }
 
@@ -254,7 +258,7 @@ func (s *CertDiskStore) renewIfNeeded() {
 			if time.Now().After(renewAt) {
 				// Renew
 				if _, err := s.LoadOrObtain(domains); err != nil {
-					log.Printf("[acme] ERROR: failed to renew cert for %v: %v", domains, err)
+					s.log.Error("failed to renew cert", "domains", domains, "error", err)
 				}
 			}
 		}

@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/guardianwaf/guardianwaf/internal/logging"
 )
 
 // FeedConfig configures a threat intelligence feed source.
@@ -32,12 +34,13 @@ const maxFeedEntries = 500000
 
 // FeedManager manages a single threat feed source.
 type FeedManager struct {
-	config   FeedConfig
-	client   *http.Client
-	stopCh   chan struct{}
-	mu       sync.Mutex
-	onUpdate func([]ThreatEntry)
-	wg       sync.WaitGroup
+	log       *slog.Logger
+	config    FeedConfig
+	client    *http.Client
+	stopCh    chan struct{}
+	mu        sync.Mutex
+	onUpdate  func([]ThreatEntry)
+	wg        sync.WaitGroup
 }
 
 // ThreatEntry represents a single threat intelligence entry.
@@ -58,13 +61,15 @@ type ThreatInfo struct {
 
 // NewFeedManager creates a new feed manager.
 func NewFeedManager(config *FeedConfig) *FeedManager {
+	log := logging.NewLogger("threatintel")
+
 	transport, ok := http.DefaultTransport.(*http.Transport)
 	if !ok {
 		transport = &http.Transport{}
 	}
 	transport = transport.Clone()
 	if config.SkipSSLVerify {
-		log.Printf("[threat-intel] WARNING: SkipSSLVerify is deprecated and ignored — TLS verification is always enforced for feed URLs")
+		log.Warn("SkipSSLVerify is deprecated and ignored — TLS verification is always enforced for feed URLs")
 	}
 	dialer := &net.Dialer{
 		Timeout:   10 * time.Second,
@@ -96,6 +101,7 @@ func NewFeedManager(config *FeedConfig) *FeedManager {
 	transport.ExpectContinueTimeout = 1 * time.Second
 	transport.IdleConnTimeout = 30 * time.Second
 	return &FeedManager{
+		log:    logging.NewLogger("threatintel"),
 		config: *config,
 		client: &http.Client{
 			Timeout:   30 * time.Second,
@@ -168,7 +174,7 @@ func (f *FeedManager) refreshLoop() {
 	defer f.wg.Done()
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[threatintel] goroutine panic: %v", r)
+			f.log.Error("goroutine panic", "panic", r)
 		}
 	}()
 	refresh := f.config.Refresh
@@ -216,7 +222,7 @@ func (f *FeedManager) loadURL(ctx context.Context) ([]ThreatEntry, error) {
 
 	// Warn on non-HTTPS feed URLs — threat feed data controls WAF blocking decisions
 	if strings.HasPrefix(f.config.URL, "http://") {
-		fmt.Printf("WARNING: threat intel feed URL is not HTTPS: %s (data may be tampered with in transit)\n", f.config.URL)
+		f.log.Warn("threat intel feed URL is not HTTPS - data may be tampered with in transit", "url", f.config.URL)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, f.config.URL, http.NoBody)

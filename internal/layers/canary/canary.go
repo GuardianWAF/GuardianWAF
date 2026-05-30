@@ -6,12 +6,15 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"regexp"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/guardianwaf/guardianwaf/internal/logging"
 )
 
 // countryContextKey is the context key for GeoIP-resolved country code.
@@ -92,6 +95,7 @@ func DefaultConfig() *Config {
 // Canary manages traffic splitting between versions.
 type Canary struct {
 	config        *Config
+	log           *slog.Logger
 	mu            sync.RWMutex
 	haltCanary    atomic.Bool
 	healthCount   atomic.Int32
@@ -126,6 +130,7 @@ func New(cfg *Config) (*Canary, error) {
 
 	c := &Canary{
 		config:     cfg,
+		log:        logging.NewLogger("canary"),
 		stats:      &Stats{},
 		stopCh:     make(chan struct{}),
 		httpClient: newHealthCheckHTTPClient(cfg.HealthCheck.Timeout),
@@ -379,7 +384,7 @@ func (c *Canary) healthCheckLoop() {
 	defer c.wg.Done()
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Printf("[canary] goroutine panic: %v", r)
+			c.log.Warn("goroutine panic", "panic", r)
 		}
 	}()
 	tickerInterval := c.config.HealthCheck.Interval

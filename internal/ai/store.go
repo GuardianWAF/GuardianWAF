@@ -9,12 +9,14 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/guardianwaf/guardianwaf/internal/logging"
 )
 
 const encKeyFile = "ai_enc_key" // file storing the auto-generated encryption key
@@ -83,7 +85,8 @@ type Store struct {
 	mu     sync.RWMutex
 	path   string // directory path
 	encKey []byte // AES-256 key for API key encryption (nil = plaintext)
-	data storeData
+	data   storeData
+	log    *slog.Logger
 }
 
 // NewStore creates or loads an AI store from the given directory.
@@ -101,17 +104,18 @@ func NewStore(dirPath string) *Store {
 		}
 	}
 
+	s := &Store{path: dirPath, log: logging.NewLogger("ai-store")}
+
 	// Try creating the directory; fallback to temp if permission denied
 	if err := os.MkdirAll(dirPath, 0o700); err != nil {
 		fallback := filepath.Join(os.TempDir(), "guardianwaf", "ai")
 		if fallbackErr := os.MkdirAll(fallback, 0o700); fallbackErr != nil {
-				log.Printf("[WARN] AI store: cannot create fallback dir %s: %v", fallback, fallbackErr)
-			}
-		log.Printf("[WARN] AI store: cannot create %s (%v), falling back to %s — data may have weaker permissions", dirPath, err, fallback)
+			s.log.Warn("cannot create fallback dir", "path", fallback, "error", fallbackErr)
+		}
+		s.log.Warn("cannot create dir, falling back", "path", dirPath, "error", err, "fallback", fallback)
 		dirPath = fallback
+		s.path = dirPath
 	}
-
-	s := &Store{path: dirPath}
 
 	// Auto-generate and persist encryption key for API key at-rest encryption.
 	// This ensures API keys are always encrypted even without a dashboard API key.
@@ -133,7 +137,7 @@ func NewStore(dirPath string) *Store {
 		// First run — write empty config so file always exists
 		empty, _ := json.MarshalIndent(s.data, "", "  ")
 		if writeErr := os.WriteFile(configFile, empty, 0o600); writeErr != nil {
-			log.Printf("[WARN] AI store: failed to write initial config: %v", writeErr)
+			s.log.Warn("failed to write initial config", "error", writeErr)
 		}
 	}
 	return s
@@ -395,13 +399,13 @@ func (s *Store) loadOrCreateEncKey() {
 	// Generate new random key
 	key := make([]byte, 32)
 	if _, err := rand.Read(key); err != nil {
-		log.Printf("[ai-store] WARNING: crypto/rand failed — API key encryption disabled: %v", err)
+		s.log.Warn("crypto/rand failed — API key encryption disabled", "error", err)
 		return
 	}
 
 	// Persist the key
 	if err := os.WriteFile(keyPath, key, 0o600); err != nil {
-		log.Printf("[ai-store] WARNING: failed to persist encryption key — API key may not survive restart: %v", err)
+		s.log.Warn("failed to persist encryption key — API key may not survive restart", "error", err)
 	}
 	s.encKey = key
 }

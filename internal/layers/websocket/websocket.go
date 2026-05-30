@@ -8,7 +8,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -16,6 +16,8 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	logging "github.com/guardianwaf/guardianwaf/internal/logging"
 )
 
 const (
@@ -147,7 +149,8 @@ func (rl *RateLimiter) Allow() bool {
 
 // Security provides WebSocket security functionality.
 type Security struct {
-	config      *Config
+	log        *slog.Logger
+	config     *Config
 	connections map[string]*Connection
 	connMu      sync.RWMutex
 	stopCh      chan struct{}
@@ -161,7 +164,8 @@ func NewSecurity(cfg *Config) (*Security, error) {
 	}
 
 	s := &Security{
-		config:      cfg,
+		log:        logging.NewLogger("websocket"),
+		config:     cfg,
 		connections: make(map[string]*Connection),
 		stopCh:      make(chan struct{}),
 	}
@@ -306,7 +310,7 @@ func (s *Security) RegisterConnection(id, remoteAddr, origin, path string) *Conn
 	s.connections[id] = conn
 	s.connMu.Unlock()
 
-	log.Printf("[websocket] New connection: %s from %s", id, remoteAddr)
+	s.log.Info("new connection", "id", id, "remote_addr", remoteAddr)
 	return conn
 }
 
@@ -316,7 +320,7 @@ func (s *Security) UnregisterConnection(id string) {
 	delete(s.connections, id)
 	s.connMu.Unlock()
 
-	log.Printf("[websocket] Connection closed: %s", id)
+	s.log.Info("connection closed", "id", id)
 }
 
 // ConnectionSnapshot holds a point-in-time copy of connection state.
@@ -606,7 +610,7 @@ func (s *Security) CleanupStaleConnections() {
 
 		if now.Sub(lastSeen) > s.config.IdleTimeout {
 			delete(s.connections, id)
-			log.Printf("[websocket] Cleaned up idle connection: %s", id)
+			s.log.Info("cleaned up idle connection", "id", id)
 		}
 	}
 }

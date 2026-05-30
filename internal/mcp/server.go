@@ -8,9 +8,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"sort"
 	"sync"
+
+	"github.com/guardianwaf/guardianwaf/internal/logging"
 )
 
 // JSONRPCRequest represents a JSON-RPC 2.0 request.
@@ -118,6 +120,7 @@ type Server struct {
 
 	serverName    string
 	serverVersion string
+	log           *slog.Logger
 }
 
 // SetAPIKey sets the API key required for MCP server authentication.
@@ -156,6 +159,7 @@ func NewServer(reader io.Reader, writer io.Writer) *Server {
 		tools:         make(map[string]ToolHandler),
 		serverName:    "guardianwaf",
 		serverVersion: "1.0.0",
+		log:           logging.NewLogger("mcp"),
 	}
 	if reader != nil {
 		s.reader = bufio.NewReader(reader)
@@ -416,7 +420,7 @@ func (s *Server) writeResponse(resp JSONRPCResponse) {
 	}
 	data = append(data, '\n')
 	if _, err := s.writer.Write(data); err != nil {
-		log.Printf("[mcp] warning: failed to write response: %v", err)
+		s.log.Warn("failed to write response", "error", err)
 	}
 }
 

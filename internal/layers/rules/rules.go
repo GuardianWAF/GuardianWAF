@@ -6,7 +6,7 @@ package rules
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"regexp"
 	"sort"
@@ -19,6 +19,7 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/geoip"
+	"github.com/guardianwaf/guardianwaf/internal/logging"
 )
 
 // Rule defines a custom WAF rule with conditions and an action.
@@ -47,16 +48,17 @@ type Config struct {
 
 // Layer implements engine.Layer for custom rule evaluation.
 type Layer struct {
-	mu    sync.RWMutex
-	rules []Rule
-	geodb *geoip.DB
-	// compiled regex cache
+	log        *slog.Logger
+	mu         sync.RWMutex
+	rules      []Rule
+	geodb      *geoip.DB
 	regexCache map[string]*regexp.Regexp
 }
 
 // NewLayer creates a new custom rules layer.
 func NewLayer(cfg *Config, geodb *geoip.DB) *Layer {
 	l := &Layer{
+		log:        logging.NewLogger("rules"),
 		geodb:      geodb,
 		regexCache: make(map[string]*regexp.Regexp),
 	}
@@ -362,7 +364,7 @@ func (l *Layer) regexMatch(pattern, value string) bool {
 
 	if !ok {
 		if err := isRegexSafe(pattern); err != nil {
-			log.Printf("[rules] rejecting unsafe regex: %v", err)
+			l.log.Warn("rejecting unsafe regex", "error", err)
 			return false
 		}
 		var err error
@@ -391,7 +393,7 @@ func regexMatchWithTimeout(re *regexp.Regexp, s string) bool {
 	// Limit concurrent regex goroutines to prevent resource exhaustion
 	if cur := atomic.AddInt64(&activeRegexCount, 1); cur > maxConcurrentRegex {
 		atomic.AddInt64(&activeRegexCount, -1)
-		log.Printf("[rules] regex concurrency limit reached (%d), skipping match", maxConcurrentRegex)
+		// concurrency limit reached - silently skip
 		return false
 	}
 	defer atomic.AddInt64(&activeRegexCount, -1)

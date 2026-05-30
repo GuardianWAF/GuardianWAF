@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -15,11 +16,14 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/guardianwaf/guardianwaf/internal/logging"
 )
 
 // Replayer handles request replay.
 type Replayer struct {
 	config     *ReplayerConfig
+	log        *slog.Logger
 	client     *http.Client
 	mu         sync.RWMutex
 	running    bool
@@ -103,6 +107,7 @@ func NewReplayer(cfg *ReplayerConfig) *Replayer {
 
 	return &Replayer{
 		config: cfg,
+		log:    logging.NewLogger("replay"),
 		client: newReplayHTTPClient(cfg),
 		stats:  ReplayStats{},
 	}
@@ -328,7 +333,7 @@ func (r *Replayer) replayBatch(ctx context.Context, records []*RecordedRequest) 
 
 			// Dry run mode
 			if r.config.DryRun {
-				fmt.Printf("[DRY-RUN] #%d %s %s\n", idx, record.Method, record.URL)
+				r.log.Info("dry run request", "index", idx, "method", record.Method, "url", record.URL)
 				mu.Lock()
 				stats.TotalRequests++
 				mu.Unlock()

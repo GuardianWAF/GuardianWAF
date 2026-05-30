@@ -3,11 +3,12 @@ package events
 import (
 	"bufio"
 	"encoding/json"
-	"log"
+	"log/slog"
 	"os"
 	"sync"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
+	"github.com/guardianwaf/guardianwaf/internal/logging"
 )
 
 // PersistentMemoryStore wraps a MemoryStore and replays events from a JSONL
@@ -19,6 +20,7 @@ type PersistentMemoryStore struct {
 	file   *os.File
 	fileMu sync.Mutex
 	closed bool
+	log    *slog.Logger
 }
 
 // NewPersistentMemoryStore creates a MemoryStore preloaded from path and
@@ -35,6 +37,7 @@ func NewPersistentMemoryStore(capacity int, path string) (*PersistentMemoryStore
 	ps := &PersistentMemoryStore{
 		MemoryStore: ms,
 		path:        path,
+		log:         logging.NewLogger("events"),
 	}
 
 	// Replay existing events from file
@@ -61,10 +64,10 @@ func (ps *PersistentMemoryStore) Store(event engine.Event) error {
 		ps.fileMu.Lock()
 		if !ps.closed && ps.file != nil {
 			if _, werr := ps.file.Write(data); werr != nil {
-				log.Printf("[events] failed to write event to JSONL: %v", werr)
+				ps.log.Warn("failed to write event to JSONL", "error", werr)
 			}
 			if _, werr := ps.file.Write([]byte("\n")); werr != nil {
-				log.Printf("[events] failed to write newline to JSONL: %v", werr)
+				ps.log.Warn("failed to write newline to JSONL", "error", werr)
 			}
 		}
 		ps.fileMu.Unlock()

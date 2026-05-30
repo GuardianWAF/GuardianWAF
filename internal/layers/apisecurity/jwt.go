@@ -11,12 +11,12 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/sha512"
+	"hash"
 	"encoding/base64"
 	"encoding/json"
-	"hash"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"math/big"
 	"net"
 	"net/http"
@@ -24,15 +24,18 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/guardianwaf/guardianwaf/internal/logging"
 )
 
 // NewJWTValidator creates a new JWT validator.
 func NewJWTValidator(cfg JWTConfig) (*JWTValidator, error) {
 	v := &JWTValidator{
-		config:          cfg,
-		jwksCache: &sync.Map{},
-		hmacKeys:  &sync.Map{},
-		stopCh:          make(chan struct{}),
+		config:     cfg,
+		log:        logging.NewLogger("jwt"),
+		jwksCache:  &sync.Map{},
+		hmacKeys:   &sync.Map{},
+		stopCh:     make(chan struct{}),
 	}
 	v.client = v.newJWKSHTTPClient()
 
@@ -42,7 +45,7 @@ func NewJWTValidator(cfg JWTConfig) (*JWTValidator, error) {
 		v.config.ClockSkewSeconds = 0
 	}
 	if v.config.ClockSkewSeconds > 3600 {
-		log.Printf("[jwt] WARNING: clock_skew_seconds %d exceeds 3600; clamping to 3600", v.config.ClockSkewSeconds)
+		v.log.Warn("clock_skew_seconds exceeds 3600; clamping to 3600", "clock_skew_seconds", v.config.ClockSkewSeconds)
 		v.config.ClockSkewSeconds = 3600
 	}
 
@@ -80,7 +83,7 @@ func NewJWTValidator(cfg JWTConfig) (*JWTValidator, error) {
 	// Warn if using default algorithm whitelist — production deployments should
 	// explicitly set the `algorithms` field to restrict allowed algorithms.
 	if len(cfg.Algorithms) == 0 {
-		log.Println("[jwt] WARNING: JWT validation using default algorithm whitelist (RS256, ES256). Set `algorithms` in config to allow other algorithms.")
+		v.log.Warn("JWT validation using default algorithm whitelist (RS256, ES256). Set `algorithms` in config to allow other algorithms.")
 	}
 
 	return v, nil
@@ -246,9 +249,16 @@ func (v *JWTValidator) verifyHMACKey(kid, signingInput string, signature []byte,
 
 // fetchJWKS fetches the JSON Web Key Set from the configured JWKS URL.
 func (v *JWTValidator) fetchJWKS() {
+	// Defensive: guard against nil receiver (can happen if caller
+	// ignores the error from NewJWTValidator and calls fetchJWKS directly).
+	if v == nil {
+		return
+	}
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[jwt] fetchJWKS panic: %v", r)
+			// Use a no-op logger fallback only in this recovery path —
+			// all normal calls have v.log set by NewJWTValidator.
+			slog.Default().Error("fetchJWKS panic", "panic", r)
 		}
 	}()
 	if v.config.JWKSURL == "" {
@@ -258,7 +268,7 @@ func (v *JWTValidator) fetchJWKS() {
 	// Re-validate JWKS URL on each fetch to prevent DNS rebinding attacks.
 	if !v.ssrfChecked {
 		if err := validateJWKSURL(v.config.JWKSURL); err != nil {
-			log.Printf("[jwt] fetchJWKS: JWKS URL validation failed: %v", err)
+			v.log.Warn("JWKS URL validation failed", "url", v.config.JWKSURL, "error", err)
 			return
 		}
 		v.ssrfChecked = true
@@ -345,9 +355,12 @@ func (v *JWTValidator) fetchJWKS() {
 }
 
 func (v *JWTValidator) refreshJWKSPeriodically(interval time.Duration) {
+	if v == nil {
+		return
+	}
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[jwt] refreshJWKSPeriodically panic: %v", r)
+			slog.Default().Error("refreshJWKSPeriodically panic", "panic", r)
 		}
 	}()
 	ticker := time.NewTicker(interval)

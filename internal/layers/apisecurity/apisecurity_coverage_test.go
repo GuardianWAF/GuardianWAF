@@ -16,6 +16,7 @@ import (
 
 	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
+	logging "github.com/guardianwaf/guardianwaf/internal/logging"
 )
 
 // Suppress unused import warnings
@@ -1088,6 +1089,7 @@ func TestCoverage_FetchJWKS_SSRFRevalidation(t *testing.T) {
 	// ssrfChecked=false should trigger re-validation, which rejects localhost
 	v := &JWTValidator{
 		config:     JWTConfig{JWKSURL: server.URL},
+		log:        logging.NewLogger("jwt"),
 		jwksCache:  &sync.Map{},
 		client:     server.Client(),
 		ssrfChecked: false,
