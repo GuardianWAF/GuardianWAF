@@ -115,32 +115,31 @@ func (l *Layer) Cleanup(maxAge time.Duration) {
 
 // Process checks the request against all rate limit rules.
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
-	// Check if rate limiting is enabled (tenant config takes precedence)
-	l.mu.RLock()
-	enabled := l.config.Enabled
-	l.mu.RUnlock()
-	if ctx.TenantWAFConfig != nil && !ctx.TenantWAFConfig.RateLimit.Enabled {
-		enabled = false
-	}
-	if !enabled {
-		return engine.LayerResult{Action: engine.ActionPass}
-	}
-
 	ip := ""
 	if ctx.ClientIP != nil {
 		ip = ctx.ClientIP.String()
 	}
 	reqPath := ctx.Path
 
-	var findings []engine.Finding
-	totalScore := 0
-	blocked := false
-
+	// Single lock acquisition: read config.Enabled, tenantID, and rules together.
+	// This reduces lock contention from 2 RLock calls to 1 per request.
 	l.mu.RLock()
+	enabled := l.config.Enabled
+	if ctx.TenantWAFConfig != nil && !ctx.TenantWAFConfig.RateLimit.Enabled {
+		enabled = false
+	}
+	if !enabled {
+		l.mu.RUnlock()
+		return engine.LayerResult{Action: engine.ActionPass}
+	}
 	tenantID := ctx.TenantID
 	rules := make([]Rule, len(l.config.Rules))
 	copy(rules, l.config.Rules)
 	l.mu.RUnlock()
+
+	var findings []engine.Finding
+	totalScore := 0
+	blocked := false
 
 	for i := range rules {
 		rule := &rules[i]

@@ -150,11 +150,23 @@ func (v *JWTValidator) Validate(tokenString string) (*JWTClaims, error) {
 		}
 	}
 
-	// HMAC tokens without a JWKS kid may have the secret set directly on publicKey.
-	// The HS* case delegates back to verifySignature which handles it when publicKey
-	// is []byte; we store inline to mirror expected path for verifyHMACKey.
+	// Reject symmetric algorithms (HS*) when an asymmetric key is configured.
+	// This prevents algorithm confusion attacks where an attacker could forge
+	// tokens using the public key as an HMAC secret. Additionally, accepting
+	// HS* with asymmetric keys creates a timing oracle (RSA verification is
+	// significantly slower than HMAC).
 	switch jwtHeader.Alg {
 	case "HS256", "HS384", "HS512":
+		// Reject if asymmetric key is configured (RSA, ECDSA)
+		if v.publicKey != nil {
+			switch v.publicKey.(type) {
+			case *rsa.PublicKey, *rsa.PrivateKey,
+				*ecdsa.PublicKey, *ecdsa.PrivateKey:
+				return nil, fmt.Errorf("HMAC algorithm %s not allowed with asymmetric key", jwtHeader.Alg)
+			}
+		}
+		// HMAC tokens without a JWKS kid may have the secret set directly on publicKey.
+		// Store in hmacKeys to mirror expected path for verifyHMACKey.
 		if sp, ok := v.publicKey.([]byte); ok && len(sp) > 0 {
 			kid := jwtHeader.Kid
 			if kid == "" {
