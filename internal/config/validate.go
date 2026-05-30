@@ -314,7 +314,10 @@ func appendRulesFromDir(path string, cfg *Config) error {
 			if item.Kind != MapNode {
 				continue
 			}
-			rule := parseRateLimitRule(item)
+			rule, err := parseRateLimitRule(item)
+			if err != nil {
+				return fmt.Errorf("parsing rate limit rule in %s: %w", path, err)
+			}
 			cfg.WAF.RateLimit.Rules = append(cfg.WAF.RateLimit.Rules, rule)
 		}
 	}
@@ -476,7 +479,10 @@ func loadVirtualHostWAF(n *Node) (*WAFConfig, error) {
 				if item.Kind != MapNode {
 					continue
 				}
-				rule := parseRateLimitRule(item)
+				rule, err := parseRateLimitRule(item)
+				if err != nil {
+					return nil, fmt.Errorf("parsing rate limit rule in virtual host waf config: %w", err)
+				}
 				waf.RateLimit.Rules = append(waf.RateLimit.Rules, rule)
 			}
 		}
@@ -646,10 +652,14 @@ func parseCustomRule(n *Node) CustomRule {
 }
 
 // parseRateLimitRule parses a single rate limit rule from a YAML node.
-func parseRateLimitRule(n *Node) RateLimitRule {
+// Returns an error if required fields are missing or malformed.
+func parseRateLimitRule(n *Node) (RateLimitRule, error) {
 	r := RateLimitRule{Action: "block"}
 	if id := n.Get("id"); id != nil {
 		r.ID = id.String()
+	}
+	if r.ID == "" {
+		return r, fmt.Errorf("rate limit rule missing required field: id")
 	}
 	if scope := n.Get("scope"); scope != nil {
 		r.Scope = scope.String()
@@ -658,9 +668,16 @@ func parseRateLimitRule(n *Node) RateLimitRule {
 		r.Paths = nodeStringSlice(paths)
 	}
 	if limit := n.Get("limit"); limit != nil {
-		if i, _ := limit.Int(); i > 0 {
-			r.Limit = i
+		i, err := limit.Int()
+		if err != nil {
+			return r, fmt.Errorf("rate limit rule %q: limit must be an integer, got %q", r.ID, limit.Value)
 		}
+		if i <= 0 {
+			return r, fmt.Errorf("rate limit rule %q: limit must be > 0, got %d", r.ID, i)
+		}
+		r.Limit = i
+	} else {
+		return r, fmt.Errorf("rate limit rule %q: missing required field: limit", r.ID)
 	}
 	if window := n.Get("window"); window != nil {
 		if d, err := parseDuration(window.String()); err == nil {
@@ -668,19 +685,29 @@ func parseRateLimitRule(n *Node) RateLimitRule {
 		}
 	}
 	if burst := n.Get("burst"); burst != nil {
-		if i, _ := burst.Int(); i >= 0 {
-			r.Burst = i
+		i, err := burst.Int()
+		if err != nil {
+			return r, fmt.Errorf("rate limit rule %q: burst must be an integer, got %q", r.ID, burst.Value)
 		}
+		if i < 0 {
+			return r, fmt.Errorf("rate limit rule %q: burst must be >= 0, got %d", r.ID, i)
+		}
+		r.Burst = i
 	}
 	if act := n.Get("action"); act != nil {
 		r.Action = act.String()
 	}
 	if ab := n.Get("auto_ban_after"); ab != nil {
-		if i, _ := ab.Int(); i >= 0 {
-			r.AutoBanAfter = i
+		i, err := ab.Int()
+		if err != nil {
+			return r, fmt.Errorf("rate limit rule %q: auto_ban_after must be an integer, got %q", r.ID, ab.Value)
 		}
+		if i < 0 {
+			return r, fmt.Errorf("rate limit rule %q: auto_ban_after must be >= 0, got %d", r.ID, i)
+		}
+		r.AutoBanAfter = i
 	}
-	return r
+	return r, nil
 }
 
 // parseNodeValue extracts a value from a YAML node (string, int, bool, or slice).

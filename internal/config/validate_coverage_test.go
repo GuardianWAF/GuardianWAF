@@ -477,31 +477,70 @@ func TestParseCustomRule_Coverage(t *testing.T) {
 
 // TestParseRateLimitRule_Coverage tests parseRateLimitRule edge cases.
 func TestParseRateLimitRule_Coverage(t *testing.T) {
-	t.Run("limit zero", func(t *testing.T) {
+	t.Run("missing id returns error", func(t *testing.T) {
 		n := &Node{Kind: MapNode, MapItems: map[string]*Node{
-			"limit": {Kind: ScalarNode, Value: "0"},
+			"limit": {Kind: ScalarNode, Value: "100"},
 		}, MapKeys: []string{"limit"}}
-		r := parseRateLimitRule(n)
-		if r.Limit != 0 {
-			t.Errorf("expected limit 0, got %d", r.Limit)
+		_, err := parseRateLimitRule(n)
+		if err == nil {
+			t.Errorf("expected error for missing id, got nil")
 		}
 	})
-	t.Run("burst negative", func(t *testing.T) {
+	t.Run("missing limit returns error", func(t *testing.T) {
 		n := &Node{Kind: MapNode, MapItems: map[string]*Node{
+			"id": {Kind: ScalarNode, Value: "test-rule"},
+		}, MapKeys: []string{"id"}}
+		_, err := parseRateLimitRule(n)
+		if err == nil {
+			t.Errorf("expected error for missing limit, got nil")
+		}
+	})
+	t.Run("limit not integer returns error", func(t *testing.T) {
+		n := &Node{Kind: MapNode, MapItems: map[string]*Node{
+			"id":    {Kind: ScalarNode, Value: "test-rule"},
+			"limit": {Kind: ScalarNode, Value: "abc"},
+		}, MapKeys: []string{"id", "limit"}}
+		_, err := parseRateLimitRule(n)
+		if err == nil {
+			t.Errorf("expected error for non-integer limit, got nil")
+		}
+	})
+	t.Run("limit zero returns error", func(t *testing.T) {
+		n := &Node{Kind: MapNode, MapItems: map[string]*Node{
+			"id":    {Kind: ScalarNode, Value: "test-rule"},
+			"limit": {Kind: ScalarNode, Value: "0"},
+		}, MapKeys: []string{"id", "limit"}}
+		_, err := parseRateLimitRule(n)
+		if err == nil {
+			t.Errorf("expected error for limit 0, got nil")
+		}
+	})
+	t.Run("burst negative returns error", func(t *testing.T) {
+		n := &Node{Kind: MapNode, MapItems: map[string]*Node{
+			"id":    {Kind: ScalarNode, Value: "test-rule"},
+			"limit": {Kind: ScalarNode, Value: "100"},
 			"burst": {Kind: ScalarNode, Value: "-1"},
-		}, MapKeys: []string{"burst"}}
-		r := parseRateLimitRule(n)
-		if r.Burst != 0 {
-			t.Errorf("expected burst 0, got %d", r.Burst)
+		}, MapKeys: []string{"id", "limit", "burst"}}
+		_, err := parseRateLimitRule(n)
+		if err == nil {
+			t.Errorf("expected error for negative burst, got nil")
 		}
 	})
-	t.Run("window invalid", func(t *testing.T) {
+	t.Run("valid rule returns no error", func(t *testing.T) {
 		n := &Node{Kind: MapNode, MapItems: map[string]*Node{
-			"window": {Kind: ScalarNode, Value: "notaduration"},
-		}, MapKeys: []string{"window"}}
-		r := parseRateLimitRule(n)
-		if r.Window != 0 {
-			t.Errorf("expected zero Window for invalid, got %v", r.Window)
+			"id":    {Kind: ScalarNode, Value: "test-rule"},
+			"limit": {Kind: ScalarNode, Value: "100"},
+			"burst": {Kind: ScalarNode, Value: "50"},
+		}, MapKeys: []string{"id", "limit", "burst"}}
+		r, err := parseRateLimitRule(n)
+		if err != nil {
+			t.Errorf("expected no error, got %v", err)
+		}
+		if r.Limit != 100 {
+			t.Errorf("expected limit 100, got %d", r.Limit)
+		}
+		if r.Burst != 50 {
+			t.Errorf("expected burst 50, got %d", r.Burst)
 		}
 	})
 }
