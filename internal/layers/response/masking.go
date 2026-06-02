@@ -84,11 +84,13 @@ func MaskSSN(s string) string {
 			result[i+6] == '-' &&
 			isDigit(result[i+7]) && isDigit(result[i+8]) && isDigit(result[i+9]) && isDigit(result[i+10]) {
 
-			// Validate it is not all zeros in any group
-			g1 := string(result[i : i+3])
-			g2 := string(result[i+4 : i+6])
-			g3 := string(result[i+7 : i+11])
-			if g1 != "000" && g2 != "00" && g3 != "0000" && g1 != "666" && result[i] != '9' {
+			// Validate: not all zeros in any group, not 666 prefix, not 9 prefix
+			// Compare bytes directly to avoid string allocation
+			if !(result[i] == '0' && result[i+1] == '0' && result[i+2] == '0') &&
+				!(result[i+4] == '0' && result[i+5] == '0') &&
+				!(result[i+7] == '0' && result[i+8] == '0' && result[i+9] == '0' && result[i+10] == '0') &&
+				!(result[i] == '6' && result[i+1] == '6' && result[i+2] == '6') &&
+				result[i] != '9' {
 				// Mask: ***-**-XXXX (preserve last 4)
 				result[i] = '*'
 				result[i+1] = '*'
@@ -104,15 +106,19 @@ func MaskSSN(s string) string {
 	return string(result)
 }
 
+// apiKeyKeywords are lowercase keywords searched in MaskAPIKeys.
+var apiKeyKeywords = []string{
+	"key", "token", "secret", "apikey", "api_key", "api-key",
+	"access_token", "auth_token", "password",
+}
+
 // MaskAPIKeys masks common API key patterns in text.
 // Looks for key/token/secret keywords followed by long hex/alphanumeric strings.
 func MaskAPIKeys(s string) string {
 	lower := strings.ToLower(s)
 	result := []byte(s)
 
-	keywords := []string{"key", "token", "secret", "apikey", "api_key", "api-key", "access_token", "auth_token", "password"}
-
-	for _, kw := range keywords {
+	for _, kw := range apiKeyKeywords {
 		searchFrom := 0
 		for {
 			idx := strings.Index(lower[searchFrom:], kw)
