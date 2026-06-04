@@ -13,6 +13,7 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/events"
+	"github.com/guardianwaf/guardianwaf/internal/proxy"
 )
 
 // --- Mock IPACL layer for testing ---
@@ -23,7 +24,7 @@ type mockIPACL struct {
 }
 
 func (m *mockIPACL) Name() string { return "ipacl" }
-func (m *mockIPACL) Order() int { return engine.OrderIPACL }
+func (m *mockIPACL) Order() int   { return engine.OrderIPACL }
 func (m *mockIPACL) Process(_ *engine.RequestContext) engine.LayerResult {
 	return engine.LayerResult{Action: engine.ActionPass}
 }
@@ -476,6 +477,29 @@ func TestUpdateRouting_InvalidUpstream(t *testing.T) {
 	d.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400 for invalid upstream ref, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUpdateRouting_PrivateTargetUsesConfigNotGlobalState(t *testing.T) {
+	proxy.AllowPrivateTargets()
+	cfg := config.DefaultConfig()
+	store := events.NewMemoryStore(100)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := New(eng, store, "k")
+	body := `{
+		"upstreams": [{"name": "backend", "targets": [{"url": "http://127.0.0.1:8088", "weight": 1}]}],
+		"routes": [{"path": "/", "upstream": "backend"}]
+	}`
+
+	w := httptest.NewRecorder()
+	req := authenticatedRequest("PUT", "/api/v1/routing", body, "k")
+	d.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for private target without config opt-in, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

@@ -254,13 +254,16 @@ func BenchmarkEngine_Parallel(b *testing.B) {
 	eng, _ := setupIntegrationEngine(b)
 	defer eng.Close()
 
-	req := httptest.NewRequest("GET", "/hello?name=world", nil)
-	req.RemoteAddr = "1.2.3.4:12345"
-	req.Header.Set("User-Agent", "Mozilla/5.0")
-
+	// Clone request inside the parallel loop to avoid body-sharing race.
+	// AcquireContext reads r.Body and replaces it with a replayReadCloser,
+	// so sharing a single *httptest.Request across goroutines causes
+	// MultiReader to panic on the already-consumed second read.
 	b.ReportAllocs()
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
+		req := httptest.NewRequest("GET", "/hello?name=world", nil)
+		req.RemoteAddr = "1.2.3.4:12345"
+		req.Header.Set("User-Agent", "Mozilla/5.0")
 		for pb.Next() {
 			eng.Check(req)
 		}

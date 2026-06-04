@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -25,10 +26,33 @@ func setupAccessLogging(eng *engine.Engine, cfg *config.Config) {
 			return
 		}
 		if cfg.Logging.Format == "json" {
-			fmt.Fprintf(os.Stdout, `{"ts":%q,"ip":%q,"method":%q,"path":%q,"status":%d,"action":%q,"score":%d,"dur_us":%s,"ua":%q,"findings":%d,"request_id":%q}`+"\n",
-				entry.Timestamp, entry.ClientIP, entry.Method, entry.Path,
-				entry.StatusCode, entry.Action, entry.Score, entry.Duration,
-				entry.UserAgent, entry.Findings, entry.RequestID)
+			_ = json.NewEncoder(os.Stdout).Encode(struct {
+				Timestamp  string `json:"ts"`
+				ClientIP   string `json:"ip"`
+				Method     string `json:"method"`
+				Path       string `json:"path"`
+				StatusCode int    `json:"status"`
+				Action     string `json:"action"`
+				Score      int    `json:"score"`
+				Duration   string `json:"dur_us"`
+				UserAgent  string `json:"ua"`
+				Findings   int    `json:"findings"`
+				RequestID  string `json:"request_id"`
+				TenantID   string `json:"tenant_id,omitempty"`
+			}{
+				Timestamp:  entry.Timestamp,
+				ClientIP:   entry.ClientIP,
+				Method:     entry.Method,
+				Path:       entry.Path,
+				StatusCode: entry.StatusCode,
+				Action:     entry.Action,
+				Score:      entry.Score,
+				Duration:   entry.Duration,
+				UserAgent:  entry.UserAgent,
+				Findings:   entry.Findings,
+				RequestID:  entry.RequestID,
+				TenantID:   entry.TenantID,
+			})
 		} else {
 			fmt.Fprintf(os.Stdout, "%s %s %s %s %d %s score=%d dur=%sus findings=%d\n",
 				entry.Timestamp, sanitizeLogField(entry.ClientIP), entry.Method, sanitizeLogField(entry.Path),

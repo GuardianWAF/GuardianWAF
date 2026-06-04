@@ -325,11 +325,11 @@ func (a *crsAdapter) GetRule(id string) *CRSRuleInfo {
 	}
 }
 
-func (a *crsAdapter) EnableRule(id string)   { a.layer.EnableRule(id) }
-func (a *crsAdapter) DisableRule(id string)   { a.layer.DisableRule(id) }
+func (a *crsAdapter) EnableRule(id string)         { a.layer.EnableRule(id) }
+func (a *crsAdapter) DisableRule(id string)        { a.layer.DisableRule(id) }
 func (a *crsAdapter) IsRuleEnabled(id string) bool { return a.layer.IsRuleEnabled(id) }
-func (a *crsAdapter) SetParanoiaLevel(level int)    { a.layer.SetParanoiaLevel(level) }
-func (a *crsAdapter) Stats() map[string]int         { return a.layer.Stats() }
+func (a *crsAdapter) SetParanoiaLevel(level int)   { a.layer.SetParanoiaLevel(level) }
+func (a *crsAdapter) Stats() map[string]int        { return a.layer.Stats() }
 
 func (a *crsAdapter) Process(ctx *TestRequestContext) CRSResult {
 	return CRSResult{Score: 0, Action: ActionType("pass"), Findings: nil}
@@ -349,12 +349,12 @@ type CRSLayerInterface interface {
 
 // CRSRuleInfo represents CRS rule information
 type CRSRuleInfo struct {
-	ID             string
-	Phase          int
-	Severity       string
-	Msg            string
-	Tags           []string
-	ParanoiaLevel  int
+	ID            string
+	Phase         int
+	Severity      string
+	Msg           string
+	Tags          []string
+	ParanoiaLevel int
 }
 
 // TestRequestContext is a simplified request context for testing

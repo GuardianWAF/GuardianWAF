@@ -27,8 +27,8 @@ func (errorEventStore) Query(events.EventFilter) ([]engine.Event, int, error) {
 
 type errorIPACL struct{ mockIPACL }
 
-func (m *errorIPACL) AddWhitelist(string) error  { return fmt.Errorf("add whitelist error") }
-func (m *errorIPACL) AddBlacklist(string) error  { return fmt.Errorf("add blacklist error") }
+func (m *errorIPACL) AddWhitelist(string) error { return fmt.Errorf("add whitelist error") }
+func (m *errorIPACL) AddBlacklist(string) error { return fmt.Errorf("add blacklist error") }
 func (m *errorIPACL) RemoveWhitelist(string) error {
 	return fmt.Errorf("remove whitelist error")
 }
@@ -129,8 +129,8 @@ func TestUpdateRouting_TargetTypeMiss(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := authenticatedRequest("PUT", "/api/v1/routing", body, "k")
 	d.Handler().ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

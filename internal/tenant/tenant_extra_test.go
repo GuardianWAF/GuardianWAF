@@ -596,8 +596,10 @@ func TestHandlers_GetTenantUsage_NotFound(t *testing.T) {
 func TestHandlers_GetTenantUsage_WrongMethod(t *testing.T) {
 	m := NewManager(10)
 	h := NewHandlers(m)
+	h.SetAPIKey("test-key")
 
 	req := httptest.NewRequest("POST", "/api/v1/tenants/abc", nil)
+	req.Header.Set("X-API-Key", "test-key")
 	rr := httptest.NewRecorder()
 	h.GetTenantUsage(rr, req, "abc")
 	if rr.Code != http.StatusMethodNotAllowed {
@@ -644,8 +646,10 @@ func TestHandlers_GetAllUsage(t *testing.T) {
 func TestHandlers_GetAllUsage_WrongMethod(t *testing.T) {
 	m := NewManager(10)
 	h := NewHandlers(m)
+	h.SetAPIKey("test-key")
 
 	req := httptest.NewRequest("POST", "/api/v1/tenants", nil)
+	req.Header.Set("X-API-Key", "test-key")
 	rr := httptest.NewRecorder()
 	h.GetAllUsage(rr, req)
 	if rr.Code != http.StatusMethodNotAllowed {
@@ -656,12 +660,40 @@ func TestHandlers_GetAllUsage_WrongMethod(t *testing.T) {
 func TestHandlers_StatsHandler_WrongMethod(t *testing.T) {
 	m := NewManager(10)
 	h := NewHandlers(m)
+	h.SetAPIKey("test-key")
 
 	req := httptest.NewRequest("POST", "/api/v1/tenants/stats", nil)
+	req.Header.Set("X-API-Key", "test-key")
 	rr := httptest.NewRecorder()
 	h.StatsHandler(rr, req)
 	if rr.Code != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405, got %d", rr.Code)
+	}
+}
+
+func TestHandlers_UsageStats_Unauthorized(t *testing.T) {
+	m := NewManager(10)
+	h := NewHandlers(m)
+	h.SetAPIKey("test-key")
+
+	req := httptest.NewRequest("GET", "/api/v1/tenants/usage", nil)
+
+	rr := httptest.NewRecorder()
+	h.GetAllUsage(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for all usage, got %d", rr.Code)
+	}
+
+	rr = httptest.NewRecorder()
+	h.GetTenantUsage(rr, req, "tenant-1")
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for tenant usage, got %d", rr.Code)
+	}
+
+	rr = httptest.NewRecorder()
+	h.StatsHandler(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for stats, got %d", rr.Code)
 	}
 }
 

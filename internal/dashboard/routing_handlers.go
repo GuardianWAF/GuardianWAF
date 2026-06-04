@@ -1,10 +1,10 @@
 package dashboard
 
 import (
-"github.com/guardianwaf/guardianwaf/internal/config"
-"github.com/guardianwaf/guardianwaf/internal/proxy"
-"net/http"
-"net/url"
+	"github.com/guardianwaf/guardianwaf/internal/config"
+	"github.com/guardianwaf/guardianwaf/internal/proxy"
+	"net/http"
+	"net/url"
 )
 
 // routingControllerAdapter wraps rebuild/save closures into a RoutingController.
@@ -184,7 +184,7 @@ func (d *Dashboard) handleUpdateRouting(w http.ResponseWriter, r *http.Request) 
 							writeError(w, http.StatusBadRequest, sanitizeErr(urlErr))
 							return
 						}
-						if !proxy.PrivateTargetsAllowed() {
+						if cfg.AllowPrivateUpstreams == nil || !*cfg.AllowPrivateUpstreams {
 							if ssrfErr := proxy.IsPrivateOrReservedIP(parsed.Hostname()); ssrfErr != nil {
 								writeError(w, http.StatusBadRequest, sanitizeErr(ssrfErr))
 								return

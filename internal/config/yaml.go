@@ -178,6 +178,10 @@ func Parse(data []byte) (*Node, error) {
 	text := string(normalized)
 	lines := strings.Split(text, "\n")
 
+	if err := checkDocumentMarkers(lines); err != nil {
+		return nil, err
+	}
+
 	p := &parser{
 		lines:   lines,
 		pos:     0,
@@ -265,6 +269,9 @@ func (p *parser) parseMapping(indent, depth int) (*Node, error) {
 			if !isKV {
 				break
 			}
+			if key == "<<" {
+				return nil, &ParseError{Line: p.lineNum(), Message: "YAML merge keys ('<<') are not supported; copy the fields explicitly"}
+			}
 
 			lineNum := p.lineNum()
 			p.pos++
@@ -322,6 +329,9 @@ func (p *parser) resolveValue(val string, parentIndent, lineNum, depth int) (*No
 
 	// Non-empty scalar value on the same line
 	if val != "" {
+		if err := checkUnsupportedIndicator(val, lineNum); err != nil {
+			return nil, err
+		}
 		return makeScalar(val, lineNum), nil
 	}
 
@@ -1116,9 +1126,10 @@ func (p *parser) lineNum() int {
 // instead of being stored as plaintext in YAML config files.
 //
 // Patterns:
-//   ${VAR}         — replaced with the value of VAR; empty string if unset
-//   ${VAR:-default} — replaced with the value of VAR; "default" if unset
-//   $$             — literal $ (escape)
+//
+//	${VAR}         — replaced with the value of VAR; empty string if unset
+//	${VAR:-default} — replaced with the value of VAR; "default" if unset
+//	$$             — literal $ (escape)
 func expandEnvVars(s string) string {
 	var buf strings.Builder
 	buf.Grow(len(s))
@@ -1166,4 +1177,56 @@ func expandEnvVars(s string) string {
 		i++
 	}
 	return buf.String()
+}
+
+// checkDocumentMarkers rejects YAML multi-document / directive markers, which
+// this single-document parser does not support. Previously a leading "---"
+// caused parseMapping to immediately bail and the whole config to load as an
+// empty map with no error — a silent fail-open (the WAF booted on pure
+// defaults). Markers are only meaningful at column 0, so indented block-scalar
+// content (always indented past its key) is never misclassified here.
+func checkDocumentMarkers(lines []string) error {
+	for i, line := range lines {
+		if line == "" || line[0] == ' ' || line[0] == '\t' {
+			continue // blank or indented — cannot be a column-0 document marker
+		}
+		t := strings.TrimRight(line, " \t")
+		if t == "---" || t == "..." || strings.HasPrefix(t, "--- ") || strings.HasPrefix(t, "... ") {
+			return &ParseError{Line: i + 1, Message: "YAML document markers ('---'/'...') and multi-document streams are not supported; use a single document with no leading marker"}
+		}
+	}
+	return nil
+}
+
+// checkUnsupportedIndicator rejects unquoted scalar values that begin with a
+// YAML node-property indicator this parser cannot honor: anchors (&name),
+// alias references (*name), and explicit type tags (!!type). A real YAML parser
+// treats these specially; this parser would otherwise store them as literal
+// strings, silently corrupting the value. Quoted values are exempt (literals),
+// and a bare "*" or wildcard like "*.example.com" is allowed — only "*name"
+// alias references are flagged.
+func checkUnsupportedIndicator(val string, lineNum int) error {
+	if val == "" {
+		return nil
+	}
+	switch val[0] {
+	case '"', '\'':
+		return nil // quoted literal — not an indicator
+	case '&':
+		return &ParseError{Line: lineNum, Message: "YAML anchors ('&name') are not supported; inline the value, or quote it if the literal must start with '&'"}
+	case '*':
+		if len(val) > 1 && isAliasNameChar(val[1]) {
+			return &ParseError{Line: lineNum, Message: "YAML aliases ('*name') are not supported; inline the value, or quote it if the literal must start with '*'"}
+		}
+	case '!':
+		if strings.HasPrefix(val, "!!") {
+			return &ParseError{Line: lineNum, Message: "YAML type tags ('!!type') are not supported; provide the value directly, or quote it"}
+		}
+	}
+	return nil
+}
+
+func isAliasNameChar(b byte) bool {
+	return b == '_' || b == '-' ||
+		(b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
 }

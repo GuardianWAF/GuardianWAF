@@ -624,6 +624,7 @@ func TestValidate_InvalidUpstream(t *testing.T) {
 
 	expectedFields := map[string]bool{
 		"upstreams[0].name":              false,
+		"upstreams[0].targets":           false,
 		"upstreams[1].targets[0].url":    false,
 		"upstreams[1].targets[0].weight": false,
 		"upstreams[1].targets[1].weight": false,

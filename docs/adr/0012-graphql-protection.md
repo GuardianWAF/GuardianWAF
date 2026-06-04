@@ -1,7 +1,7 @@
 # ADR 0012: Enhanced GraphQL Protection
 
 **Date:** 2026-04-15
-**Status:** Implemented
+**Status:** Implemented (package only — **not wired into the serve binary**; see CLAUDE.md layer table and AUDIT.md §2, verified 2026-06-04)
 **Deciders:** GuardianWAF Team
 
 ---

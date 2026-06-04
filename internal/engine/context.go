@@ -29,6 +29,11 @@ var (
 	trustedProxyMu    sync.RWMutex
 )
 
+type replayReadCloser struct {
+	io.Reader
+	io.Closer
+}
+
 // SetTrustedProxies configures the list of trusted proxy CIDRs.
 // Only connections originating from these CIDRs will have their
 // X-Forwarded-For and X-Real-IP headers honored.
@@ -212,14 +217,24 @@ func AcquireContext(r *http.Request, paranoiaLevel int, maxBodySize int64) *Requ
 	// Client IP
 	ctx.ClientIP = extractClientIP(r)
 
-	// Body reading — read for inspection, then restore for downstream proxying.
-	// Decompresses gzip/deflate bodies so detectors can inspect actual content.
+	// Body reading — read enough for inspection, then restore the full stream
+	// for downstream proxying. Reading maxBodySize+1 makes oversize bodies
+	// visible to sanitizer checks without truncating what the upstream sees.
 	if r.Body != nil && !ctx.bodyRead {
-		limited := io.LimitReader(r.Body, maxBodySize)
+		inspectLimit := maxBodySize
+		if inspectLimit <= 0 {
+			inspectLimit = 1
+		}
+		limited := io.LimitReader(r.Body, inspectLimit+1)
 		rawData, err := io.ReadAll(limited)
 		if err == nil {
-			// Restore original body for proxying (always raw/compressed)
-			r.Body = io.NopCloser(bytes.NewReader(rawData))
+			// Restore original body for proxying (always raw/compressed).
+			// If the read stopped at the inspection limit, append the
+			// unread portion of the original body instead of dropping it.
+			r.Body = &replayReadCloser{
+				Reader: io.MultiReader(bytes.NewReader(rawData), r.Body),
+				Closer: r.Body,
+			}
 
 			// Decompress for WAF inspection based on Content-Encoding.
 			// Rejects decompression bombs (ratio > 100:1).
@@ -227,8 +242,8 @@ func AcquireContext(r *http.Request, paranoiaLevel int, maxBodySize int64) *Requ
 			switch strings.ToLower(r.Header.Get("Content-Encoding")) {
 			case "gzip":
 				if gr, err := gzip.NewReader(bytes.NewReader(rawData)); err == nil {
-					if decompressed, err := io.ReadAll(io.LimitReader(gr, maxBodySize)); err == nil {
-						if len(rawData) > 0 && len(decompressed)/len(rawData) <= 100 {
+					if decompressed, err := io.ReadAll(io.LimitReader(gr, inspectLimit+1)); err == nil {
+						if len(rawData) > 0 && len(decompressed) <= len(rawData)*100 {
 							inspectData = decompressed
 						}
 					}
@@ -236,8 +251,8 @@ func AcquireContext(r *http.Request, paranoiaLevel int, maxBodySize int64) *Requ
 				}
 			case "deflate":
 				fr := flate.NewReader(bytes.NewReader(rawData))
-				if decompressed, err := io.ReadAll(io.LimitReader(fr, maxBodySize)); err == nil {
-					if len(rawData) > 0 && len(decompressed)/len(rawData) <= 100 {
+				if decompressed, err := io.ReadAll(io.LimitReader(fr, inspectLimit+1)); err == nil {
+					if len(rawData) > 0 && len(decompressed) <= len(rawData)*100 {
 						inspectData = decompressed
 					}
 				}

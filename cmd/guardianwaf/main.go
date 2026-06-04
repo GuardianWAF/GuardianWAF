@@ -124,7 +124,7 @@ func cmdSetup(args []string) {
 	configPath := fs.String("config", DefaultConfigPath(), "Path to config file")
 	fs.StringVar(configPath, "c", DefaultConfigPath(), "Path to config file (short)")
 	force := fs.Bool("force", false, "Overwrite existing config")
-_ = fs.Parse(args) // nolint:errcheck // flag.Parse after Validate* call; never fails in practice
+	_ = fs.Parse(args) // nolint:errcheck // flag.Parse after Validate* call; never fails in practice
 
 	// Check if config already exists
 	if _, err := os.Stat(*configPath); err == nil && !*force {
@@ -691,7 +691,7 @@ func cmdServe(args []string) {
 	fs.StringVar(mode, "m", "", "Override WAF mode (short)")
 	dashboardAddr := fs.String("dashboard", "", "Override dashboard listen address")
 	logLevel := fs.String("log-level", "", "Override log level")
-_ = fs.Parse(args) // nolint:errcheck // flag.Parse after Validate* call; never fails in practice
+	_ = fs.Parse(args) // nolint:errcheck // flag.Parse after Validate* call; never fails in practice
 
 	// 1. Load config
 	explicitPath := *configPath != ""
@@ -866,7 +866,7 @@ func cmdSidecar(args []string) {
 	mode := fs.String("mode", "", "Override WAF mode")
 	fs.StringVar(mode, "m", "", "Override WAF mode (short)")
 	logLevel := fs.String("log-level", "", "Override log level")
-_ = fs.Parse(args) // nolint:errcheck // flag.Parse after Validate* call; never fails in practice
+	_ = fs.Parse(args) // nolint:errcheck // flag.Parse after Validate* call; never fails in practice
 
 	// Load config or build from flags
 	var cfg *config.Config
@@ -963,7 +963,7 @@ _ = fs.Parse(args) // nolint:errcheck // flag.Parse after Validate* call; never 
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-_ = srv.Shutdown(ctx) // nolint:errcheck // graceful shutdown; error logged upstream if it matters
+	_ = srv.Shutdown(ctx) // nolint:errcheck // graceful shutdown; error logged upstream if it matters
 	stopHealthCheckers(sidecarHealthCheckers)
 	eng.Close()
 	fmt.Println("GuardianWAF sidecar stopped.")
@@ -1022,7 +1022,9 @@ func runCheck(opts *CheckOptions) (*CheckResult, error) {
 	defer eng.Close()
 
 	// Wire layers
-	addLayers(eng, cfg)
+	if err := addLayers(eng, cfg); err != nil {
+		return nil, fmt.Errorf("failed to wire WAF layers: %w", err)
+	}
 
 	// Build HTTP request
 	fullURL := opts.URL
@@ -1075,7 +1077,7 @@ func cmdCheck(args []string) {
 	var headers headerSlice
 	fs.Var(&headers, "H", "HTTP header in 'Name: Value' format (repeatable)")
 	body := fs.String("body", "", "Request body content")
-_ = fs.Parse(args) // nolint:errcheck // flag.Parse after Validate* call; never fails in practice
+	_ = fs.Parse(args) // nolint:errcheck // flag.Parse after Validate* call; never fails in practice
 
 	result, err := runCheck(&CheckOptions{
 		ConfigPath: *configPath,
@@ -1152,7 +1154,7 @@ func cmdValidate(args []string) {
 	fs := flag.NewFlagSet("validate", flag.ExitOnError)
 	configPath := fs.String("config", "", "Path to config file (default: platform-specific)")
 	fs.StringVar(configPath, "c", "", "Path to config file (short)")
-_ = fs.Parse(args) // nolint:errcheck // flag.Parse after Validate* call; never fails in practice
+	_ = fs.Parse(args) // nolint:errcheck // flag.Parse after Validate* call; never fails in practice
 
 	result, err := runValidate(*configPath)
 	if err != nil {
@@ -1182,7 +1184,7 @@ func cmdTestAlert(args []string) {
 	configPath := fs.String("config", DefaultConfigPath(), "Path to config file")
 	target := fs.String("target", "", "Target name (webhook or email)")
 	all := fs.Bool("all", false, "Test all configured targets")
-_ = fs.Parse(args) // nolint:errcheck // flag.Parse after Validate* call; never fails in practice
+	_ = fs.Parse(args) // nolint:errcheck // flag.Parse after Validate* call; never fails in practice
 
 	cfg, err := config.LoadFile(*configPath)
 	if err != nil {

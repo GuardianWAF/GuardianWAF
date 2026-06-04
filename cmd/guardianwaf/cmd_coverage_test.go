@@ -1502,6 +1502,7 @@ func TestAccessLog_WithCorrelationID(t *testing.T) {
 	cfg.Routes = []config.RouteConfig{
 		{Path: "/", Upstream: "default"},
 	}
+	allowPrivateUpstreamsForTest(cfg)
 
 	handler, _ := buildReverseProxy(cfg)
 
@@ -1534,8 +1535,11 @@ func TestMCPAdapter_AddWebhook_WithAlertMgr(t *testing.T) {
 	a := newCovAdapter(t)
 	a.alertMgr = alerting.NewManager(nil)
 	err := a.AddWebhook("test-wh", "http://127.0.0.1:1/webhook", "slack", []string{"block"}, 50, "5m")
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
+	if err == nil {
+		t.Fatal("expected invalid webhook URL error")
+	}
+	if stats := a.alertMgr.GetStats(); stats.WebhookCount != 0 {
+		t.Fatalf("expected invalid webhook not to be added, got %d", stats.WebhookCount)
 	}
 }
 

@@ -4,14 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-GuardianWAF is a zero-dependency Web Application Firewall written in Go (1.25+).
+GuardianWAF is a zero-dependency Web Application Firewall written in Go (1.26+; `go.mod` pins 1.26.3).
 Module: `github.com/guardianwaf/guardianwaf`
 
-The only Go dependency is `quic-go` (for optional HTTP/3 support, build with `-tags http3`).
+The codebase targets the Go standard library only. (`go.mod` still lists `quic-go`, but it is now **vestigial**: the `internal/http3` package that used it was removed on 2026-06-04 as dead/unwired code — run `go mod tidy` to drop it.)
 
 ## Key Constraints
 
-- **ZERO external Go dependencies** — only Go stdlib (plus quic-go for HTTP/3). No exceptions.
+- **ZERO external Go dependencies** — only Go stdlib. No exceptions. (`quic-go` remains in `go.mod` but is unused after the HTTP/3 package removal; pending `go mod tidy`.)
 - Frontend (React dashboard) uses npm packages — that's OK, they embed into the Go binary.
 - Use `any` instead of `interface{}`
 - Use built-in `min`/`max` functions (Go 1.21+)
@@ -82,7 +82,7 @@ All WAF processing flows through a **layer pipeline** (`internal/engine/pipeline
 
 Defined in `internal/engine/layer.go`.
 
-> **⚠️ Accuracy note (verified 2026-05-29):** The serve binary (`cmd/guardianwaf`) currently wires **16** layers via `layerregistry` — the ones marked ✅ below. The remaining layers in this table are **implemented and unit-tested but NOT compiled into the serve binary** (the `internal/integrations/v040` Integrator that would wire most of them has zero non-test callers). The original "29 registered" figure was aspirational/incorrect. See `refactor.md` §3.7 for the import-level proof and remediation options. Library mode (`guardianwaf.go`) wires only 6 core layers: IP ACL, Rate Limit, Sanitizer, Detection, Bot Detection, Response.
+> **⚠️ Accuracy note (verified 2026-06-04):** The serve binary (`cmd/guardianwaf`) wires **16** layers via `layerregistry` — the ones marked ✅ below. The remaining layers in this table are **implemented and unit-tested but NOT compiled into the serve binary**. The `internal/integrations/v040` Integrator that would have wired most of them had zero callers and was **deleted on 2026-06-04** (along with `internal/feature`, `internal/http3`, `internal/analytics` — all dead; see `AUDIT.md` §2). Those ❌ layer packages now have no wiring path at all and are candidates for removal too. The original "29 registered" figure was aspirational/incorrect. Library mode (`guardianwaf.go`) wires only 6 core layers: IP ACL, Rate Limit, Sanitizer, Detection, Bot Detection, Response.
 
 The 16 layers actually wired in serve mode: IP ACL, Threat Intel, CORS, Custom Rules, Rate Limit, ATO Protection, API Security, API Validation, Sanitizer, CRS, Detection, Virtual Patch, DLP, Bot Detection, Client-Side, Response.
 
@@ -161,13 +161,6 @@ Key config files:
 - Enabled via `tracing.enabled: true` in config or `GWAF_TRACING_ENABLED=true`
 - `ctx.TraceSpan` on `RequestContext` carries the span through the pipeline
 
-### Feature Flags
-
-`internal/feature/` — Lightweight config-driven feature flags:
-- Global flags via YAML `features:` map or `GWAF_FEATURE_<NAME>=true` env vars
-- Per-tenant overrides via `feature.SetTenant(tenantID, name, enabled)`
-- Thread-safe registry with `feature.IsEnabled(name)` / `feature.IsEnabledFor(tenantID, name)`
-
 ### Observability
 
 - Prometheus `/metrics` endpoint (requests, blocks, latency, GeoIP status)
@@ -204,7 +197,6 @@ Key config files:
 - `internal/layers/` — All WAF layers (see Layer Order table above)
 - `internal/proxy/` — Reverse proxy, load balancer (RR/weighted/least-conn/ip-hash), health check, circuit breaker, host-based router, WebSocket support
 - `internal/tls/` — TLS cert store, SNI-based cert selection, hot-reload, HTTP/2 support
-- `internal/http3/` — HTTP/3/QUIC support (build with `-tags http3`, stub otherwise)
 - `internal/dashboard/` — Web UI (React+Vite+TailwindCSS), REST API, SSE, config editor, AI page, routing topology graph (React Flow)
 - `internal/mcp/` — MCP JSON-RPC server (44 tools: get_stats, get_events, add_blacklist, etc.)
 - `internal/events/` — Event storage (memory ring buffer, JSONL file, event bus)
@@ -213,16 +205,13 @@ Key config files:
 - `internal/geoip/` — GeoIP database with auto-refresh
 - `internal/acme/` — ACME/Let's Encrypt auto-certificate (HTTP-01)
 - `internal/tenant/` — Multi-tenant management (isolation, billing, rate limits, per-tenant rules)
-- `internal/analytics/` — Analytics engine and API handlers
 - `internal/alerting/` — Webhook and email alerting (Slack, Discord, PagerDuty, SMTP)
 - `internal/cluster/` — Cluster mode (HTTP gossip + leader election; NOT Raft — see ADR 0023)
 - `internal/clustersync/` — Cross-node state synchronization (gRPC-lite over TCP)
 - `internal/compliance/` — Compliance reporting (PCI DSS, GDPR, SOC 2, ISO 27001 control registry, evaluator, reports, audit chain)
 - `internal/discovery/` — Passive API discovery and path clustering
-- `internal/integrations/` — Third-party integrations (v040)
 - `internal/ml/` — ML anomaly detection (ONNX model, Isolation Forest — separate from AI batch analysis)
 - `internal/tracing/` — Zero-dependency distributed tracing (OpenTelemetry-compatible API, sampling, exporters)
-- `internal/feature/` — Config-driven feature flags (YAML, env vars, per-tenant overrides)
 - `internal/layers/zerotrust/` — Zero Trust middleware/service (in-development, not yet wired)
 - `tests/reliability/` — Flaky test detection (JSONL-based pass/fail tracking across CI runs)
 - `guardianwaf.go` + `options.go` — Public library API

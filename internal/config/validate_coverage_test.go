@@ -448,7 +448,7 @@ func TestParseCustomRule_Coverage(t *testing.T) {
 		n := &Node{Kind: MapNode, MapItems: map[string]*Node{
 			"priority": {Kind: ScalarNode, Value: "-1"},
 		}, MapKeys: []string{"priority"}}
-		r := parseCustomRule(n)
+		r, _ := parseCustomRule(n)
 		if r.Priority != 0 {
 			t.Errorf("expected priority 0 for negative, got %d", r.Priority)
 		}
@@ -457,7 +457,7 @@ func TestParseCustomRule_Coverage(t *testing.T) {
 		n := &Node{Kind: MapNode, MapItems: map[string]*Node{
 			"score": {Kind: ScalarNode, Value: "-5"},
 		}, MapKeys: []string{"score"}}
-		r := parseCustomRule(n)
+		r, _ := parseCustomRule(n)
 		if r.Score != 0 {
 			t.Errorf("expected score 0 for negative, got %d", r.Score)
 		}
@@ -468,7 +468,7 @@ func TestParseCustomRule_Coverage(t *testing.T) {
 				{Kind: ScalarNode, Value: "notamap"},
 			}},
 		}, MapKeys: []string{"conditions"}}
-		r := parseCustomRule(n)
+		r, _ := parseCustomRule(n)
 		if len(r.Conditions) != 0 {
 			t.Errorf("expected 0 conditions for non-map item, got %d", len(r.Conditions))
 		}

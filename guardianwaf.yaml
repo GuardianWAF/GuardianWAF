@@ -148,6 +148,8 @@ waf:
 
 dashboard:
   enabled: true
+  # The built-in dashboard server is plain HTTP; expose it only on a trusted
+  # interface or behind a TLS-terminating reverse proxy.
   listen: ":9443"
   api_key: ""
   admin_key: ""

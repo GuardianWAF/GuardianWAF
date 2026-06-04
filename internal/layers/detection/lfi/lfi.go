@@ -49,19 +49,33 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 
 	var allFindings []engine.Finding
 
-	// 1. URL path
-	allFindings = append(allFindings, Detect(ctx.NormalizedPath, "path")...)
+	// 1. URL path. Fall back to the raw path when the Sanitizer layer is
+	// disabled (it populates the Normalized* fields); otherwise this detector
+	// would scan nothing and silently fail open. Mirrors xss/xxe.
+	path := ctx.NormalizedPath
+	if path == "" {
+		path = ctx.Path
+	}
+	allFindings = append(allFindings, Detect(path, "path")...)
 
 	// 2. Query parameters
-	for _, values := range ctx.NormalizedQuery {
+	qp := ctx.NormalizedQuery
+	if qp == nil {
+		qp = ctx.QueryParams
+	}
+	for _, values := range qp {
 		for _, v := range values {
 			allFindings = append(allFindings, Detect(v, "query")...)
 		}
 	}
 
 	// 3. Body
-	if ctx.NormalizedBody != "" {
-		allFindings = append(allFindings, Detect(ctx.NormalizedBody, "body")...)
+	body := ctx.NormalizedBody
+	if body == "" {
+		body = ctx.BodyString
+	}
+	if body != "" {
+		allFindings = append(allFindings, Detect(body, "body")...)
 	}
 
 	// 4. Cookie values
@@ -211,70 +225,10 @@ func checkEncodedTraversal(lower, location string) []engine.Finding {
 }
 
 // checkSensitivePaths detects access to sensitive system files.
+// Uses a pre-built trie for O(k) lookup instead of O(n*m) linear scan.
+// Each input character causes exactly one array lookup (O(1)) per trie level.
 func checkSensitivePaths(lower, location string) []engine.Finding {
-	var findings []engine.Finding
-
-	// Linux sensitive paths (high priority)
-	criticalPaths := []struct {
-		path  string
-		score int
-		desc  string
-	}{
-		{"/etc/passwd", 90, "Access to /etc/passwd detected"},
-		{"/etc/shadow", 95, "Access to /etc/shadow detected"},
-		{"/etc/master.passwd", 95, "Access to /etc/master.passwd detected"},
-	}
-	for _, cp := range criticalPaths {
-		if strings.Contains(lower, cp.path) {
-			findings = append(findings, makeFinding(cp.score, engine.SeverityCritical,
-				cp.desc, extractContext(lower, cp.path), location, 0.95))
-		}
-	}
-
-	// /proc/self/ paths
-	if strings.Contains(lower, "/proc/self/") {
-		findings = append(findings, makeFinding(85, engine.SeverityCritical,
-			"Access to /proc/self/ detected",
-			extractContext(lower, "/proc/self/"), location, 0.90))
-	}
-
-	// /var/log/ paths
-	if strings.Contains(lower, "/var/log/") {
-		findings = append(findings, makeFinding(60, engine.SeverityHigh,
-			"Access to /var/log/ detected",
-			extractContext(lower, "/var/log/"), location, 0.75))
-	}
-
-	// Check all sensitive paths from the embedded list
-	for _, sp := range linuxSensitivePaths {
-		spLower := strings.ToLower(sp)
-		// Skip the ones already handled above to avoid double-counting
-		if spLower == "/etc/passwd" || spLower == "/etc/shadow" || spLower == "/etc/master.passwd" {
-			continue
-		}
-		if strings.HasPrefix(spLower, "/proc/self/") {
-			continue
-		}
-		if strings.HasPrefix(spLower, "/var/log/") {
-			continue
-		}
-		if strings.Contains(lower, spLower) {
-			findings = append(findings, makeFinding(55, engine.SeverityHigh,
-				"Access to sensitive Linux path: "+sp,
-				extractContext(lower, spLower), location, 0.75))
-		}
-	}
-
-	for _, sp := range macosSensitivePaths {
-		spLower := strings.ToLower(sp)
-		if strings.Contains(lower, spLower) {
-			findings = append(findings, makeFinding(55, engine.SeverityHigh,
-				"Access to sensitive macOS path: "+sp,
-				extractContext(lower, spLower), location, 0.70))
-		}
-	}
-
-	return findings
+	return sensitiveTrie.checkWithTrie(lower, location)
 }
 
 // checkWindowsPaths detects Windows path traversal and sensitive file access.
@@ -319,16 +273,8 @@ func checkWindowsPaths(lower, location string) []engine.Finding {
 		}
 	}
 
-	// Check Windows sensitive paths
-	for _, sp := range windowsSensitivePaths {
-		spLower := strings.ToLower(sp)
-		if strings.Contains(lower, spLower) {
-			findings = append(findings, makeFinding(65, engine.SeverityHigh,
-				"Access to sensitive Windows path: "+sp,
-				extractContext(lower, spLower), location, 0.80))
-			break // Only report the first match to avoid noise
-		}
-	}
+	// Windows sensitive paths are now handled by checkSensitivePaths via trie.
+	// Removing the duplicate linear scan here eliminates O(n) overhead per call.
 
 	return findings
 }

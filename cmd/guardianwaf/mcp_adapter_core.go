@@ -203,7 +203,7 @@ func (a *mcpEngineAdapter) GetEvents(params json.RawMessage) (any, error) {
 		Path     string `json:"path"`
 	}
 	if len(params) > 0 {
-	_ = json.Unmarshal(params, &p) // nolint:errcheck // already validated len(params)>0; empty is valid
+		_ = json.Unmarshal(params, &p) // nolint:errcheck // already validated len(params)>0; empty is valid
 	}
 	if p.Limit <= 0 {
 		p.Limit = 50
@@ -340,6 +340,9 @@ func (a *mcpEngineAdapter) GetAlertingStatus() any {
 func (a *mcpEngineAdapter) AddWebhook(name, url, webhookType string, events []string, minScore int, cooldown string) error {
 	if a.alertMgr == nil {
 		return fmt.Errorf("alerting manager not available")
+	}
+	if err := alerting.ValidateWebhookURL(url); err != nil {
+		return fmt.Errorf("invalid webhook URL: %w", err)
 	}
 	d, err := time.ParseDuration(cooldown)
 	if err != nil && cooldown != "" {

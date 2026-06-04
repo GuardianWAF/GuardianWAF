@@ -974,7 +974,7 @@ type nonFlusherRecorder struct {
 
 func (n *nonFlusherRecorder) Header() http.Header         { return n.headers }
 func (n *nonFlusherRecorder) Write(b []byte) (int, error) { return n.body.Write(b) }
-func (n *nonFlusherRecorder) WriteHeader(code int)         { n.code = code }
+func (n *nonFlusherRecorder) WriteHeader(code int)        { n.code = code }
 
 func TestHandleSSE_NotSupported(t *testing.T) {
 	b := NewSSEBroadcaster()

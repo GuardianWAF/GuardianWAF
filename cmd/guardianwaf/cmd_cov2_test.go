@@ -790,6 +790,7 @@ func TestAccessLog_TextFormatCoverage(t *testing.T) {
 	cfg.Routes = []config.RouteConfig{
 		{Path: "/", Upstream: "default"},
 	}
+	allowPrivateUpstreamsForTest(cfg)
 
 	handler, _ := buildReverseProxy(cfg)
 

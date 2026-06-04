@@ -712,10 +712,12 @@ func TestCoverage_Handlers_WAFConfig(t *testing.T) {
 func TestCoverage_Handlers_EdgeCases(t *testing.T) {
 	mgr := NewManager(10)
 	h := NewHandlers(mgr)
+	h.SetAPIKey("key")
 	created, _ := mgr.CreateTenant("T", "D", []string{"t.com"}, nil)
 
 	// RegenerateAPIKey wrong method
 	req := httptest.NewRequest("GET", "/api/v1/tenants/"+created.ID+"/regenerate-key", nil)
+	req.Header.Set("X-API-Key", "key")
 	w := httptest.NewRecorder()
 	h.RegenerateAPIKeyHandler(w, req)
 	if w.Code != http.StatusMethodNotAllowed {
@@ -723,6 +725,7 @@ func TestCoverage_Handlers_EdgeCases(t *testing.T) {
 	}
 	// RegenerateAPIKey invalid path
 	req = httptest.NewRequest("POST", "/api/v1/tenants/invalid", nil)
+	req.Header.Set("X-API-Key", "key")
 	w = httptest.NewRecorder()
 	h.RegenerateAPIKeyHandler(w, req)
 	if w.Code != http.StatusBadRequest {
@@ -730,6 +733,7 @@ func TestCoverage_Handlers_EdgeCases(t *testing.T) {
 	}
 	// StatsHandler wrong method
 	req = httptest.NewRequest("POST", "/api/v1/stats", nil)
+	req.Header.Set("X-API-Key", "key")
 	w = httptest.NewRecorder()
 	h.StatsHandler(w, req)
 	if w.Code != http.StatusMethodNotAllowed {
@@ -737,6 +741,7 @@ func TestCoverage_Handlers_EdgeCases(t *testing.T) {
 	}
 	// GetTenantUsage wrong method
 	req = httptest.NewRequest("POST", "/usage", nil)
+	req.Header.Set("X-API-Key", "key")
 	w = httptest.NewRecorder()
 	h.GetTenantUsage(w, req, created.ID)
 	if w.Code != http.StatusMethodNotAllowed {
@@ -744,6 +749,7 @@ func TestCoverage_Handlers_EdgeCases(t *testing.T) {
 	}
 	// GetTenantUsage GET
 	req = httptest.NewRequest("GET", "/usage", nil)
+	req.Header.Set("X-API-Key", "key")
 	w = httptest.NewRecorder()
 	h.GetTenantUsage(w, req, created.ID)
 	if w.Code != http.StatusOK {
@@ -751,6 +757,7 @@ func TestCoverage_Handlers_EdgeCases(t *testing.T) {
 	}
 	// GetTenantUsage non-existent
 	req = httptest.NewRequest("GET", "/usage", nil)
+	req.Header.Set("X-API-Key", "key")
 	w = httptest.NewRecorder()
 	h.GetTenantUsage(w, req, "nonexistent")
 	if w.Code != http.StatusNotFound {
@@ -758,6 +765,7 @@ func TestCoverage_Handlers_EdgeCases(t *testing.T) {
 	}
 	// GetAllUsage wrong method
 	req = httptest.NewRequest("POST", "/usage", nil)
+	req.Header.Set("X-API-Key", "key")
 	w = httptest.NewRecorder()
 	h.GetAllUsage(w, req)
 	if w.Code != http.StatusMethodNotAllowed {
@@ -765,6 +773,7 @@ func TestCoverage_Handlers_EdgeCases(t *testing.T) {
 	}
 	// GetAllUsage GET
 	req = httptest.NewRequest("GET", "/usage", nil)
+	req.Header.Set("X-API-Key", "key")
 	w = httptest.NewRecorder()
 	h.GetAllUsage(w, req)
 	if w.Code != http.StatusOK {
@@ -772,6 +781,7 @@ func TestCoverage_Handlers_EdgeCases(t *testing.T) {
 	}
 	// RegenerateAPIKey non-existent
 	req = httptest.NewRequest("POST", "/api/v1/tenants/nonexistent/regenerate-key", nil)
+	req.Header.Set("X-API-Key", "key")
 	w = httptest.NewRecorder()
 	h.RegenerateAPIKeyHandler(w, req)
 	if w.Code != http.StatusNotFound {

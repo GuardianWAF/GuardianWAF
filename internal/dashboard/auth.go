@@ -332,21 +332,43 @@ const (
 	authSession   = "session"
 )
 
-// adminOnlyPrefixes lists API path prefixes that require global key or session auth.
-// Tenant-scoped API keys are restricted to read-only data endpoints.
-var adminOnlyPrefixes = []string{
-	"/api/v1/config",
-	"/api/v1/routing",
-	"/api/v1/ipacl",
-	"/api/v1/bans",
-	"/api/v1/ai/config",
-	"/api/v1/ai/analyze",
-	"/api/v1/ai/test",
-	"/api/v1/alerting/webhooks",
-	"/api/v1/alerting/emails",
-	"/api/v1/alerting/test",
-	"/api/v1/rules",
-	"/api/v1/compliance",
+// tenantReadablePrefixes is the fail-closed allow-list of API path prefixes a
+// tenant-scoped API key may access (read-only data endpoints). Everything else
+// under /api/ is admin-only and DENIED BY DEFAULT — so a newly added endpoint is
+// never silently reachable by tenant keys unless explicitly listed here. This
+// replaced an earlier deny-list, which failed open: any admin endpoint not added
+// to the deny-list was reachable by every tenant key.
+//
+// Keep this list in sync with route registration; TestTenantKeyScoping_FailClosed
+// asserts the admin/mutating endpoints stay denied and a hypothetical new
+// endpoint is denied by default.
+var tenantReadablePrefixes = []string{
+	"/api/v1/stats",
+	"/api/v1/events",
+	"/api/v1/sse",
+	"/api/v1/logs",
+	"/api/v1/ssl",
+	"/api/v1/upstreams",
+	"/api/v1/docker/services",
+	"/api/v1/geoip/lookup",
+	"/api/v1/cwv",
+	"/api/v1/alerting/status",
+	"/api/v1/ai/history",
+	"/api/v1/ai/providers",
+	"/api/v1/ai/stats",
+}
+
+// tenantKeyAllows reports whether a tenant-scoped API key may access the given
+// request path. It matches an exact prefix or a sub-path (prefix + "/...") so
+// "/api/v1/stats" allows "/api/v1/stats" and "/api/v1/stats/x" but not
+// "/api/v1/statsified".
+func tenantKeyAllows(path string) bool {
+	for _, p := range tenantReadablePrefixes {
+		if path == p || strings.HasPrefix(path, p+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func setAuthInfo(r *http.Request, authType, tenantID string) *http.Request {

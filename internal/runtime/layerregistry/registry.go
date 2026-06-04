@@ -410,14 +410,20 @@ func buildAPIValidation(cfg *config.Config) (engine.Layer, error) {
 }
 
 func buildCRS(cfg *config.Config) (engine.Layer, error) {
-	return crs.NewLayer(&crs.Config{
+	layer := crs.NewLayer(&crs.Config{
 		Enabled:          cfg.WAF.CRS.Enabled,
 		RulePath:         cfg.WAF.CRS.RulePath,
 		ParanoiaLevel:    cfg.WAF.CRS.ParanoiaLevel,
 		AnomalyThreshold: cfg.WAF.CRS.AnomalyThreshold,
 		Exclusions:       cfg.WAF.CRS.Exclusions,
 		DisabledRules:    cfg.WAF.CRS.DisabledRules,
-	}), nil
+	})
+	// Fail closed: an enabled CRS layer that could not load its ruleset would
+	// run as a silent no-op, so surface the load error to the caller.
+	if err := layer.LoadError(); err != nil {
+		return nil, fmt.Errorf("loading CRS rules from %q: %w", cfg.WAF.CRS.RulePath, err)
+	}
+	return layer, nil
 }
 
 func buildDetection(cfg *config.Config) (engine.Layer, error) {

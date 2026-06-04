@@ -35,7 +35,7 @@ func setupTenantRuntime(
 	}
 
 	for _, t := range cfg.Tenant.Tenants {
-_, _ = tenantManager.CreateTenant(t.Name, t.Description, t.Domains, tenantResourceQuota(t.Quota)) // nolint:errcheck // error already logged by tenant manager
+		_, _ = tenantManager.CreateTenant(t.Name, t.Description, t.Domains, tenantResourceQuota(t.Quota)) // nolint:errcheck // error already logged by tenant manager
 	}
 
 	if dash != nil {

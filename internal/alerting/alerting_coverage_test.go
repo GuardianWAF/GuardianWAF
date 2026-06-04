@@ -189,6 +189,9 @@ func TestSetLogger_Coverage(t *testing.T) {
 	if !logged {
 		t.Error("expected log to be called for invalid webhook URL")
 	}
+	if stats := m.GetStats(); stats.WebhookCount != 0 {
+		t.Fatalf("expected invalid webhook not to be added, got %d", stats.WebhookCount)
+	}
 }
 
 // TestManager_LogNoPanic tests the internal log method with default no-op logger.

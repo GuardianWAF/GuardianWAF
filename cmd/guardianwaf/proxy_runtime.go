@@ -15,9 +15,7 @@ import (
 // based on the configured routes. It uses the proxy package for load balancing
 // and health checking across multiple targets per upstream.
 func buildReverseProxy(cfg *config.Config) (http.Handler, []*proxy.HealthChecker) {
-	if cfg.AllowPrivateUpstreams != nil {
-		proxy.SetPrivateTargetsAllowed(*cfg.AllowPrivateUpstreams)
-	}
+	proxy.SetPrivateTargetsAllowed(cfg.AllowPrivateUpstreams != nil && *cfg.AllowPrivateUpstreams)
 
 	// Build balancers: name -> *Balancer
 	balancerMap := make(map[string]*proxy.Balancer)

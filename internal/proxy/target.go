@@ -65,6 +65,22 @@ func IsPrivateOrReservedIP(host string) error {
 	return nil
 }
 
+func validateTargetURL(rawURL string) (*url.URL, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return nil, err
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https":
+	default:
+		return nil, fmt.Errorf("target URL scheme must be http or https; got %q", u.Scheme)
+	}
+	if u.Host == "" || u.Hostname() == "" {
+		return nil, fmt.Errorf("target URL host must not be empty")
+	}
+	return u, nil
+}
+
 func classifyIP(ip net.IP, host string) error {
 	// Unspecified (0.0.0.0, ::) — would bind to all interfaces
 	if ip.IsUnspecified() {
@@ -151,7 +167,7 @@ func PrivateTargetsAllowed() bool {
 }
 
 func NewTarget(rawURL string, weight int) (*Target, error) {
-	u, err := url.Parse(rawURL)
+	u, err := validateTargetURL(rawURL)
 	if err != nil {
 		return nil, err
 	}

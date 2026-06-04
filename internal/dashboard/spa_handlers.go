@@ -1,16 +1,14 @@
 package dashboard
 
 import (
-
-"bytes"
-"encoding/json"
-"github.com/guardianwaf/guardianwaf/internal/compliance"
-"net/http"
-"sync"
-"time"
+	"bytes"
+	"net/http"
 	"strings"
-)
+	"sync"
+	"time"
 
+	"github.com/guardianwaf/guardianwaf/internal/compliance"
+)
 
 // --- SPA Serving (React dashboard) ---
 
@@ -31,8 +29,7 @@ func (d *Dashboard) handleCWVReport(w http.ResponseWriter, r *http.Request) {
 		Rating string  `json:"rating"`
 		Delta  float64 `json:"delta"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&report); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON")
+	if !limitedDecodeJSON(w, r, &report) {
 		return
 	}
 	cwvMetrics.Store(report.Name, report)

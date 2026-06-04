@@ -85,6 +85,7 @@ func TestUpstreamSummary_Empty(t *testing.T) {
 
 func TestUpstreamSummary_MultipleTargets(t *testing.T) {
 	cfg := config.DefaultConfig()
+	allowPrivateUpstreamsForTest(cfg)
 	cfg.Upstreams = []config.UpstreamConfig{
 		{
 			Name: "backend",
@@ -277,6 +278,7 @@ func disableRegistryBackedLayers(cfg *config.Config) {
 
 func TestBuildReverseProxy(t *testing.T) {
 	cfg := config.DefaultConfig()
+	allowPrivateUpstreamsForTest(cfg)
 	cfg.Upstreams = []config.UpstreamConfig{
 		{
 			Name: "backend",
@@ -297,6 +299,7 @@ func TestBuildReverseProxy(t *testing.T) {
 
 func TestBuildReverseProxy_InvalidUpstream(t *testing.T) {
 	cfg := config.DefaultConfig()
+	allowPrivateUpstreamsForTest(cfg)
 	cfg.Upstreams = []config.UpstreamConfig{
 		{
 			Name:    "bad",
@@ -314,6 +317,7 @@ func TestBuildReverseProxy_InvalidUpstream(t *testing.T) {
 
 func TestBuildReverseProxy_MissingUpstream(t *testing.T) {
 	cfg := config.DefaultConfig()
+	allowPrivateUpstreamsForTest(cfg)
 	cfg.Upstreams = []config.UpstreamConfig{
 		{
 			Name:    "backend",
@@ -363,6 +367,7 @@ func TestHeaderSlice_StringAndSet(t *testing.T) {
 func newTestAdapter(t *testing.T) *mcpEngineAdapter {
 	t.Helper()
 	cfg := config.DefaultConfig()
+	allowPrivateUpstreamsForTest(cfg)
 	cfg.WAF.Detection.Enabled = true
 	cfg.WAF.Detection.Detectors = map[string]config.DetectorConfig{
 		"sqli": {Enabled: true, Multiplier: 1.0},
@@ -804,6 +809,7 @@ func TestBuildReverseProxy_StripPrefix(t *testing.T) {
 	backendURL, _ := url.Parse(backend.URL)
 
 	cfg := config.DefaultConfig()
+	allowPrivateUpstreamsForTest(cfg)
 	cfg.Upstreams = []config.UpstreamConfig{
 		{
 			Name:    "backend",
@@ -1676,6 +1682,7 @@ func TestUpstreamSummary_SingleTarget(t *testing.T) {
 
 func TestBuildReverseProxy_VirtualHosts(t *testing.T) {
 	cfg := config.DefaultConfig()
+	allowPrivateUpstreamsForTest(cfg)
 	cfg.Upstreams = []config.UpstreamConfig{
 		{
 			Name:    "api",
@@ -1712,6 +1719,7 @@ func TestBuildReverseProxy_VirtualHosts(t *testing.T) {
 
 func TestBuildReverseProxy_HealthChecks(t *testing.T) {
 	cfg := config.DefaultConfig()
+	allowPrivateUpstreamsForTest(cfg)
 	cfg.Upstreams = []config.UpstreamConfig{
 		{
 			Name:    "backend",
@@ -1741,6 +1749,7 @@ func TestBuildReverseProxy_HealthChecks(t *testing.T) {
 
 func TestBuildReverseProxy_EmptyTargets(t *testing.T) {
 	cfg := config.DefaultConfig()
+	allowPrivateUpstreamsForTest(cfg)
 	cfg.Upstreams = []config.UpstreamConfig{
 		{
 			Name:    "empty",
@@ -1781,6 +1790,7 @@ func TestBuildReverseProxy_AllInvalidTargets(t *testing.T) {
 
 func TestBuildReverseProxy_LoadBalancerStrategies(t *testing.T) {
 	cfg := config.DefaultConfig()
+	allowPrivateUpstreamsForTest(cfg)
 	cfg.Upstreams = []config.UpstreamConfig{
 		{
 			Name:         "weighted",
@@ -1819,6 +1829,7 @@ func TestBuildReverseProxy_LoadBalancerStrategies(t *testing.T) {
 
 func TestBuildReverseProxy_VirtualHostMissingUpstream(t *testing.T) {
 	cfg := config.DefaultConfig()
+	allowPrivateUpstreamsForTest(cfg)
 	cfg.Upstreams = []config.UpstreamConfig{
 		{
 			Name:    "backend",
@@ -1850,6 +1861,7 @@ func TestAddLayers_CustomRulesWithGeoIP(t *testing.T) {
 	os.WriteFile(csvPath, []byte(csvContent), 0o644)
 
 	cfg := config.DefaultConfig()
+	allowPrivateUpstreamsForTest(cfg)
 	cfg.WAF.CustomRules.Enabled = true
 	cfg.WAF.CustomRules.Rules = []config.CustomRule{
 		{
@@ -2821,6 +2833,8 @@ func TestHealthzEndpoint(t *testing.T) {
 
 func TestReadyzEndpoint_UnhealthyUpstream(t *testing.T) {
 	cfg := config.DefaultConfig()
+	proxy.SetPrivateTargetsAllowed(true)
+	defer proxy.SetPrivateTargetsAllowed(false)
 	store := events.NewMemoryStore(1000)
 	bus := events.NewEventBus()
 	eng, err := engine.NewEngine(cfg, store, bus)
@@ -3321,6 +3335,59 @@ func TestAccessLog_JSON(t *testing.T) {
 		if !strings.Contains(expected, `"ts":`) {
 			t.Error("expected ts field in JSON output")
 		}
+	}
+}
+
+func TestAccessLog_JSONIncludesTenantID(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Logging.Format = "json"
+	cfg.Logging.LogAllowed = true
+
+	store := events.NewMemoryStore(10)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatal(err)
+	}
+	setupAccessLogging(eng, cfg)
+
+	origStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	defer func() {
+		os.Stdout = origStdout
+	}()
+
+	req := httptest.NewRequest(http.MethodGet, "/tenant-path", nil)
+	req.RemoteAddr = "192.0.2.10:12345"
+	req = req.WithContext(engine.WithTenantContext(req.Context(), &engine.TenantContext{ID: "tenant-audit"}))
+	rr := httptest.NewRecorder()
+	eng.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})).ServeHTTP(rr, req)
+
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = origStdout
+
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	var logEntry map[string]any
+	if err := json.Unmarshal(out, &logEntry); err != nil {
+		t.Fatalf("access log is not valid JSON: %v; output=%q", err, string(out))
+	}
+	if logEntry["tenant_id"] != "tenant-audit" {
+		t.Fatalf("tenant_id = %v, want tenant-audit; output=%s", logEntry["tenant_id"], string(out))
 	}
 }
 
@@ -4060,6 +4127,7 @@ func TestServeHandler_WithProxy(t *testing.T) {
 	backendURL, _ := url.Parse(backend.URL)
 
 	cfg := config.DefaultConfig()
+	allowPrivateUpstreamsForTest(cfg)
 	cfg.Upstreams = []config.UpstreamConfig{
 		{
 			Name:    "backend",
@@ -4094,6 +4162,7 @@ func TestServeHandler_WithProxy(t *testing.T) {
 
 func TestBuildReverseProxy_DefaultStrategy(t *testing.T) {
 	cfg := config.DefaultConfig()
+	allowPrivateUpstreamsForTest(cfg)
 	cfg.Upstreams = []config.UpstreamConfig{
 		{
 			Name:         "", // Empty name uses default strategy

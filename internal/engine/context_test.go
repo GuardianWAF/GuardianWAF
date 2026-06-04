@@ -3,6 +3,7 @@ package engine
 import (
 	"bytes"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -229,11 +230,18 @@ func TestBodySizeLimit(t *testing.T) {
 	ctx := AcquireContext(r, 1, maxSize)
 	defer ReleaseContext(ctx)
 
-	if int64(len(ctx.Body)) != maxSize {
-		t.Errorf("expected body length %d, got %d", maxSize, len(ctx.Body))
+	if int64(len(ctx.Body)) != maxSize+1 {
+		t.Errorf("expected body length %d, got %d", maxSize+1, len(ctx.Body))
 	}
-	if int64(len(ctx.BodyString)) != maxSize {
-		t.Errorf("expected BodyString length %d, got %d", maxSize, len(ctx.BodyString))
+	if int64(len(ctx.BodyString)) != maxSize+1 {
+		t.Errorf("expected BodyString length %d, got %d", maxSize+1, len(ctx.BodyString))
+	}
+	restored, err := io.ReadAll(r.Body)
+	if err != nil {
+		t.Fatalf("reading restored body: %v", err)
+	}
+	if string(restored) != bigBody {
+		t.Fatalf("restored body was truncated: got %d bytes, want %d", len(restored), len(bigBody))
 	}
 }
 

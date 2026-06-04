@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -303,7 +304,10 @@ func appendRulesFromDir(path string, cfg *Config) error {
 			if item.Kind != MapNode {
 				continue
 			}
-			rule := parseCustomRule(item)
+			rule, err := parseCustomRule(item)
+			if err != nil {
+				return err
+			}
 			cfg.WAF.CustomRules.Rules = append(cfg.WAF.CustomRules.Rules, rule)
 		}
 	}
@@ -404,8 +408,12 @@ func appendDomainsFromDir(path string, cfg *Config) error {
 					if url := ti.Get("url"); url != nil {
 						tc.URL = url.String()
 					}
-					if w := ti.Get("weight"); w != nil {
-						if i, _ := w.Int(); i > 0 {
+					if w := ti.Get("weight"); w != nil && !w.IsNull {
+						i, err := w.Int()
+						if err != nil {
+							return fmt.Errorf("upstream %q target weight: %w", u.Name, err)
+						}
+						if i > 0 {
 							tc.Weight = i
 						}
 					}
@@ -454,13 +462,21 @@ func loadVirtualHostWAF(n *Node) (*WAFConfig, error) {
 			}
 		}
 		if th := det.Get("threshold"); th != nil && th.Kind == MapNode {
-			if block := th.Get("block"); block != nil {
-				if i, _ := block.Int(); i > 0 {
+			if block := th.Get("block"); block != nil && !block.IsNull {
+				i, err := block.Int()
+				if err != nil {
+					return nil, fmt.Errorf("detection threshold block: %w", err)
+				}
+				if i > 0 {
 					waf.Detection.Threshold.Block = i
 				}
 			}
-			if log := th.Get("log"); log != nil {
-				if i, _ := log.Int(); i > 0 {
+			if log := th.Get("log"); log != nil && !log.IsNull {
+				i, err := log.Int()
+				if err != nil {
+					return nil, fmt.Errorf("detection threshold log: %w", err)
+				}
+				if i > 0 {
 					waf.Detection.Threshold.Log = i
 				}
 			}
@@ -507,7 +523,10 @@ func loadVirtualHostWAF(n *Node) (*WAFConfig, error) {
 				if item.Kind != MapNode {
 					continue
 				}
-				rule := parseCustomRule(item)
+				rule, err := parseCustomRule(item)
+				if err != nil {
+					return nil, fmt.Errorf("parsing custom rule in virtual host waf config: %w", err)
+				}
 				waf.CustomRules.Rules = append(waf.CustomRules.Rules, rule)
 			}
 		}
@@ -565,7 +584,10 @@ func appendTenantsFromDir(dir string, cfg *Config) error {
 			return fmt.Errorf("parse tenant file %s: %w", name, err)
 		}
 
-		td := parseTenantDefinition(node)
+		td, err := parseTenantDefinition(node)
+		if err != nil {
+			return fmt.Errorf("parse tenant file %s: %w", name, err)
+		}
 		if td.ID != "" {
 			cfg.Tenant.Tenants = append(cfg.Tenant.Tenants, td)
 		}
@@ -574,8 +596,9 @@ func appendTenantsFromDir(dir string, cfg *Config) error {
 	return nil
 }
 
-// parseTenantDefinition parses a TenantDefinition from a YAML node.
-func parseTenantDefinition(n *Node) TenantDefinition {
+// parseTenantDefinition parses a TenantDefinition from a YAML node. A malformed
+// "active" value is an error (rather than silently deactivating the tenant).
+func parseTenantDefinition(n *Node) (TenantDefinition, error) {
 	td := TenantDefinition{Active: true}
 	if id := n.Get("id"); id != nil {
 		td.ID = id.String()
@@ -589,21 +612,24 @@ func parseTenantDefinition(n *Node) TenantDefinition {
 	if apiKey := n.Get("api_key"); apiKey != nil {
 		td.APIKey = apiKey.String()
 	}
-	if active := n.Get("active"); active != nil {
-		if b, _ := active.Bool(); !b {
-			td.Active = false
+	if active := n.Get("active"); active != nil && !active.IsNull {
+		b, err := active.Bool()
+		if err != nil {
+			return td, fmt.Errorf("tenant %q: active: %w", td.ID, err)
 		}
+		td.Active = b
 	}
 	if domains := n.Get("domains"); domains != nil {
 		for _, d := range domains.Items {
 			td.Domains = append(td.Domains, d.String())
 		}
 	}
-	return td
+	return td, nil
 }
 
-// parseCustomRule parses a single custom rule from a YAML node.
-func parseCustomRule(n *Node) CustomRule {
+// parseCustomRule parses a single custom rule from a YAML node. A malformed
+// "enabled" value is an error (rather than silently disabling the rule).
+func parseCustomRule(n *Node) (CustomRule, error) {
 	r := CustomRule{Enabled: true}
 	if id := n.Get("id"); id != nil {
 		r.ID = id.String()
@@ -611,21 +637,31 @@ func parseCustomRule(n *Node) CustomRule {
 	if name := n.Get("name"); name != nil {
 		r.Name = name.String()
 	}
-	if en := n.Get("enabled"); en != nil {
-		if b, _ := en.Bool(); !b {
-			r.Enabled = false
+	if en := n.Get("enabled"); en != nil && !en.IsNull {
+		b, err := en.Bool()
+		if err != nil {
+			return r, fmt.Errorf("custom rule %q: enabled: %w", r.ID, err)
 		}
+		r.Enabled = b
 	}
-	if pri := n.Get("priority"); pri != nil {
-		if i, _ := pri.Int(); i >= 0 {
+	if pri := n.Get("priority"); pri != nil && !pri.IsNull {
+		i, err := pri.Int()
+		if err != nil {
+			return r, fmt.Errorf("custom rule %q: priority: %w", r.ID, err)
+		}
+		if i >= 0 {
 			r.Priority = i
 		}
 	}
 	if act := n.Get("action"); act != nil {
 		r.Action = act.String()
 	}
-	if score := n.Get("score"); score != nil {
-		if i, _ := score.Int(); i >= 0 {
+	if score := n.Get("score"); score != nil && !score.IsNull {
+		i, err := score.Int()
+		if err != nil {
+			return r, fmt.Errorf("custom rule %q: score: %w", r.ID, err)
+		}
+		if i >= 0 {
 			r.Score = i
 		}
 	}
@@ -648,7 +684,7 @@ func parseCustomRule(n *Node) CustomRule {
 			r.Conditions = append(r.Conditions, rc)
 		}
 	}
-	return r
+	return r, nil
 }
 
 // parseRateLimitRule parses a single rate limit rule from a YAML node.
@@ -679,10 +715,12 @@ func parseRateLimitRule(n *Node) (RateLimitRule, error) {
 	} else {
 		return r, fmt.Errorf("rate limit rule %q: missing required field: limit", r.ID)
 	}
-	if window := n.Get("window"); window != nil {
-		if d, err := parseDuration(window.String()); err == nil {
-			r.Window = d
+	if window := n.Get("window"); window != nil && !window.IsNull {
+		d, err := parseDuration(window.String())
+		if err != nil {
+			return r, fmt.Errorf("rate limit rule %q: window: %w", r.ID, err)
 		}
+		r.Window = d
 	}
 	if burst := n.Get("burst"); burst != nil {
 		i, err := burst.Int()
@@ -964,16 +1002,37 @@ func validateUpstreams(upstreams []UpstreamConfig, ve *ValidationError) {
 		if u.Name == "" {
 			ve.addError(prefix+".name", "must not be empty")
 		}
+		if len(u.Targets) == 0 {
+			ve.addError(prefix+".targets", "must have at least one target")
+		}
 		for j, t := range u.Targets {
 			tPrefix := fmt.Sprintf("%s.targets[%d]", prefix, j)
 			if t.URL == "" {
 				ve.addError(tPrefix+".url", "must not be empty")
+			} else if err := validateUpstreamTargetURL(t.URL); err != nil {
+				ve.addError(tPrefix+".url", err.Error())
 			}
 			if t.Weight <= 0 {
 				ve.addError(tPrefix+".weight", fmt.Sprintf("must be > 0; got %d", t.Weight))
 			}
 		}
 	}
+}
+
+func validateUpstreamTargetURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https":
+	default:
+		return fmt.Errorf("scheme must be http or https; got %q", u.Scheme)
+	}
+	if u.Host == "" || u.Hostname() == "" {
+		return fmt.Errorf("host must not be empty")
+	}
+	return nil
 }
 
 func validateRoutes(routes []RouteConfig, upstreams []UpstreamConfig, ve *ValidationError) {

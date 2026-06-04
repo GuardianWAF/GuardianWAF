@@ -40,7 +40,10 @@ func (in *Config) DeepCopy() *Config {
     out.TrustedProxies = make([]string, len(in.TrustedProxies))
     copy(out.TrustedProxies, in.TrustedProxies)
   }
-  out.AllowPrivateUpstreams = in.AllowPrivateUpstreams
+  if in.AllowPrivateUpstreams != nil {
+    v := *in.AllowPrivateUpstreams
+    out.AllowPrivateUpstreams = &v
+  }
   out.Tracing = *in.Tracing.DeepCopy()
   if in.Features != nil {
     out.Features = make(map[string]bool, len(in.Features))
@@ -66,7 +69,9 @@ func (in *AlertingConfig) DeepCopy() *AlertingConfig {
   }
   if in.Emails != nil {
     out.Emails = make([]EmailConfig, len(in.Emails))
-    copy(out.Emails, in.Emails)
+    for i := range out.Emails {
+      out.Emails[i] = *in.Emails[i].DeepCopy()
+    }
   }
   return &out
 }
@@ -1610,7 +1615,9 @@ func (in *ComplianceConfig) DeepCopy() *ComplianceConfig {
   out.Retention = *in.Retention.DeepCopy()
   if in.ScheduledReports != nil {
     out.ScheduledReports = make([]ScheduledReportConfig, len(in.ScheduledReports))
-    copy(out.ScheduledReports, in.ScheduledReports)
+    for i := range out.ScheduledReports {
+      out.ScheduledReports[i] = *in.ScheduledReports[i].DeepCopy()
+    }
   }
   return &out
 }

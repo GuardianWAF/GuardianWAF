@@ -218,6 +218,7 @@ func TestHandlers_DeleteTenant(t *testing.T) {
 func TestHandlers_StatsHandler(t *testing.T) {
 	manager := NewManager(10)
 	handlers := NewHandlers(manager)
+	handlers.SetAPIKey("test-key")
 
 	// Create test tenants
 	for i := 0; i < 2; i++ {
@@ -225,6 +226,7 @@ func TestHandlers_StatsHandler(t *testing.T) {
 	}
 
 	req := httptest.NewRequest("GET", "/api/v1/tenants/stats", nil)
+	req.Header.Set("X-API-Key", "test-key")
 	rr := httptest.NewRecorder()
 
 	handlers.StatsHandler(rr, req)
@@ -246,10 +248,12 @@ func TestHandlers_StatsHandler(t *testing.T) {
 func TestHandlers_RegenerateAPIKeyHandler(t *testing.T) {
 	manager := NewManager(10)
 	handlers := NewHandlers(manager)
+	handlers.SetAPIKey("test-key")
 
 	created, _ := manager.CreateTenant("Test", "Desc", []string{"test.com"}, nil)
 
 	req := httptest.NewRequest("POST", "/api/v1/tenants/"+created.ID+"/regenerate-key", nil)
+	req.Header.Set("X-API-Key", "test-key")
 	rr := httptest.NewRecorder()
 
 	handlers.RegenerateAPIKeyHandler(rr, req)
@@ -265,5 +269,21 @@ func TestHandlers_RegenerateAPIKeyHandler(t *testing.T) {
 
 	if resp["api_key"] == "" {
 		t.Error("expected API key in response")
+	}
+}
+
+func TestHandlers_RegenerateAPIKeyHandler_Unauthorized(t *testing.T) {
+	manager := NewManager(10)
+	handlers := NewHandlers(manager)
+	handlers.SetAPIKey("test-key")
+	created, _ := manager.CreateTenant("Test", "Desc", []string{"test.com"}, nil)
+
+	req := httptest.NewRequest("POST", "/api/v1/tenants/"+created.ID+"/regenerate-key", nil)
+	rr := httptest.NewRecorder()
+
+	handlers.RegenerateAPIKeyHandler(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", rr.Code, http.StatusUnauthorized)
 	}
 }

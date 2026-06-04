@@ -20,7 +20,9 @@ func setupRuntimeEngine(cfg *config.Config) (events.EventStore, *events.EventBus
 		return nil, nil, nil, fmt.Errorf("create engine: %w", err)
 	}
 
-	addLayers(eng, cfg)
+	if err := addLayers(eng, cfg); err != nil {
+		return nil, nil, nil, fmt.Errorf("wire WAF layers: %w", err)
+	}
 	if cfg.Logging.Level != "" {
 		eng.Logs.SetLevel(cfg.Logging.Level)
 	}

@@ -1190,16 +1190,33 @@ func TestLimitedDecodeJSON_MalformedJSON(t *testing.T) {
 
 func TestPprofWrap_LocalhostIP6(t *testing.T) {
 	d := newTestDashboard(t, "test-key")
+	d.SetPprofKey("debug-key")
 	handler := d.pprofWrap(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 
 	req := httptest.NewRequest("GET", "/debug/pprof/", nil)
 	req.RemoteAddr = "[::1]:12345"
+	req.Header.Set("Authorization", "Bearer debug-key")
 	rr := httptest.NewRecorder()
 	handler(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Errorf("expected 200 for localhost IPv6, got %d", rr.Code)
+	}
+}
+
+func TestPprofWrap_NoDebugKeyConfigured(t *testing.T) {
+	d := newTestDashboard(t, "test-key")
+	handler := d.pprofWrap(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	req := httptest.NewRequest("GET", "/debug/pprof/", nil)
+	req.RemoteAddr = "127.0.0.1:12345"
+	rr := httptest.NewRecorder()
+	handler(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("expected 403 when pprof/admin key is unset, got %d", rr.Code)
 	}
 }
 

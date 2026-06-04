@@ -1125,6 +1125,25 @@ func TestLayer_LoadSchema_PathOutsideCWD(t *testing.T) {
 	}
 }
 
+func TestLayer_LoadSchema_SymlinkOutsideCWD(t *testing.T) {
+	outsideDir := t.TempDir()
+	outsidePath := filepath.Join(outsideDir, "outside.json")
+	if err := os.WriteFile(outsidePath, []byte(`{"openapi":"3.0.0","info":{"title":"outside","version":"1"},"paths":{}}`), 0644); err != nil {
+		t.Fatalf("failed to write outside schema: %v", err)
+	}
+
+	linkPath := filepath.Join(testDir(t), "outside-link.json")
+	if err := os.Symlink(outsidePath, linkPath); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	layer := NewLayer(DefaultConfig())
+	err := layer.LoadSchema(SchemaSource{Path: linkPath, Type: "openapi"})
+	if err == nil {
+		t.Fatal("expected error for symlink escaping working directory")
+	}
+}
+
 func TestLayer_LoadSchema_InvalidJSONSchema(t *testing.T) {
 	specPath := writeTestFile(t, "bad-schema.json", []byte("not valid json {{{"))
 

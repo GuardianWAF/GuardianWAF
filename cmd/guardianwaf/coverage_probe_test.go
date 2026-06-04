@@ -58,6 +58,7 @@ dashboard:
   enabled: true
   listen: "127.0.0.1:%d"
   api_key: testsecret-1234567890
+allow_private_upstreams: true
 mcp:
   enabled: false
 events:

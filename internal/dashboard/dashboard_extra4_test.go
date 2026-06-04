@@ -357,8 +357,8 @@ func TestAuthWrap_TenantKeyBlockedFromAdmin(t *testing.T) {
 	// Create a v1-format hash that verifyTenantAPIKey can match
 	// The tenant key in header won't match the stored hash format,
 	// so we test by using the global API key path + checking the scoping logic
-	// This test validates the admin prefix check logic exists
-	for _, prefix := range adminOnlyPrefixes {
+	// This test validates the tenant scoping check logic exists
+	for _, prefix := range tenantReadablePrefixes {
 		req := httptest.NewRequest("GET", prefix, nil)
 		req.Header.Set("X-API-Key", "k")
 		// Global key should work

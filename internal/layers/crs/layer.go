@@ -15,10 +15,10 @@ import (
 
 // Layer implements the OWASP Core Rule Set WAF layer.
 type Layer struct {
-	config       *Config
-	log          *slog.Logger
-	rules        []*Rule
-	parser       *Parser
+	config *Config
+	log    *slog.Logger
+	rules  []*Rule
+	parser *Parser
 
 	// Rule lookup maps
 	rulesByPhase map[int][]*Rule
@@ -26,6 +26,12 @@ type Layer struct {
 
 	// Disabled rules
 	disabledRules map[string]bool
+
+	// loadErr records a non-nil error if rule loading failed during
+	// construction. The serve binary checks LoadError() and refuses to start a
+	// CRS layer that could not load its ruleset (fail-closed), rather than
+	// running an empty, silently-ineffective ruleset.
+	loadErr error
 
 	mu sync.RWMutex
 }
@@ -55,11 +61,18 @@ func NewLayer(config *Config) *Layer {
 	if config.RulePath != "" {
 		if err := layer.LoadRules(config.RulePath); err != nil {
 			layer.log.Warn("failed to load CRS rules", "path", config.RulePath, "error", err)
+			layer.loadErr = err
 		}
 	}
 
 	return layer
 }
+
+// LoadError returns any error encountered while loading rules during
+// construction (nil if rules loaded cleanly or no rule path was configured).
+// Callers that wire CRS into a live pipeline should treat a non-nil result as
+// fatal, since an enabled CRS layer with no rules enforces nothing.
+func (l *Layer) LoadError() error { return l.loadErr }
 
 // Name returns the layer name.
 func (l *Layer) Name() string {
@@ -474,13 +487,13 @@ func (l *Layer) Stats() map[string]int {
 	defer l.mu.RUnlock()
 
 	stats := map[string]int{
-		"total":      len(l.rules),
-		"phase_1":    len(l.rulesByPhase[1]),
-		"phase_2":    len(l.rulesByPhase[2]),
-		"phase_3":    len(l.rulesByPhase[3]),
-		"phase_4":    len(l.rulesByPhase[4]),
-		"phase_5":    len(l.rulesByPhase[5]),
-		"disabled":   len(l.disabledRules),
+		"total":    len(l.rules),
+		"phase_1":  len(l.rulesByPhase[1]),
+		"phase_2":  len(l.rulesByPhase[2]),
+		"phase_3":  len(l.rulesByPhase[3]),
+		"phase_4":  len(l.rulesByPhase[4]),
+		"phase_5":  len(l.rulesByPhase[5]),
+		"disabled": len(l.disabledRules),
 	}
 
 	return stats

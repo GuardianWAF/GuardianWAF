@@ -20,12 +20,12 @@ var rePathParam = regexp.MustCompile(`\{[^}]+\}`)
 
 // Layer implements the engine.Layer interface for OpenAPI schema validation.
 type Layer struct {
-	config   *Config
-	specs    []*CompiledSpec
-	cache    *SchemaCache
-	router   *PathRouter
-	mu       sync.RWMutex
-	enabled  bool
+	config  *Config
+	specs   []*CompiledSpec
+	cache   *SchemaCache
+	router  *PathRouter
+	mu      sync.RWMutex
+	enabled bool
 }
 
 // CompiledSpec holds a compiled OpenAPI specification.
@@ -107,7 +107,7 @@ func NewLayer(cfg *Config) *Layer {
 
 // Name returns "apivalidation".
 func (l *Layer) Name() string { return "apivalidation" }
-func (l *Layer) Order() int { return engine.OrderAPIValidation }
+func (l *Layer) Order() int   { return engine.OrderAPIValidation }
 
 // SetEnabled enables or disables the layer.
 func (l *Layer) SetEnabled(enabled bool) {
@@ -217,19 +217,27 @@ func (l *Layer) readFile(path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	realPath, err := filepath.EvalSymlinks(absPath)
+	if err != nil {
+		return nil, err
+	}
 
 	// Get the current working directory as the base for confinement
 	cwd, err := os.Getwd()
 	if err != nil {
 		return nil, fmt.Errorf("cannot determine working directory: %w", err)
 	}
+	realCWD, err := filepath.EvalSymlinks(cwd)
+	if err != nil {
+		return nil, err
+	}
 
 	// Ensure the resolved path is within the working directory
-	if !strings.HasPrefix(absPath, cwd+string(filepath.Separator)) && absPath != cwd {
+	if !strings.HasPrefix(realPath, realCWD+string(filepath.Separator)) && realPath != realCWD {
 		return nil, fmt.Errorf("path outside allowed directory")
 	}
 
-	return os.ReadFile(absPath)
+	return os.ReadFile(realPath)
 }
 
 // compileRoutes compiles all routes from an OpenAPI spec.

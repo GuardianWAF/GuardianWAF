@@ -51,19 +51,33 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 
 	var allFindings []engine.Finding
 
-	// 1. URL path
-	allFindings = append(allFindings, Detect(ctx.NormalizedPath, "path")...)
+	// 1. URL path. Fall back to the raw path when the Sanitizer layer is
+	// disabled (it populates the Normalized* fields); otherwise this detector
+	// would scan nothing and silently fail open. Mirrors xss/xxe.
+	path := ctx.NormalizedPath
+	if path == "" {
+		path = ctx.Path
+	}
+	allFindings = append(allFindings, Detect(path, "path")...)
 
 	// 2. Query parameters
-	for _, values := range ctx.NormalizedQuery {
+	qp := ctx.NormalizedQuery
+	if qp == nil {
+		qp = ctx.QueryParams
+	}
+	for _, values := range qp {
 		for _, v := range values {
 			allFindings = append(allFindings, Detect(v, "query")...)
 		}
 	}
 
 	// 3. Body
-	if ctx.NormalizedBody != "" {
-		allFindings = append(allFindings, Detect(ctx.NormalizedBody, "body")...)
+	body := ctx.NormalizedBody
+	if body == "" {
+		body = ctx.BodyString
+	}
+	if body != "" {
+		allFindings = append(allFindings, Detect(body, "body")...)
 	}
 
 	// 4. Cookie values

@@ -42,9 +42,16 @@ func TestNewTargetDefaultWeight(t *testing.T) {
 }
 
 func TestNewTargetInvalidURL(t *testing.T) {
-	_, err := NewTarget("://invalid", 1)
-	if err == nil {
-		t.Error("expected error for invalid URL")
+	tests := []string{
+		"://invalid",
+		"/relative",
+		"http:///missing-host",
+		"ftp://example.com",
+	}
+	for _, rawURL := range tests {
+		if _, err := NewTarget(rawURL, 1); err == nil {
+			t.Errorf("expected error for invalid URL %q", rawURL)
+		}
 	}
 }
 

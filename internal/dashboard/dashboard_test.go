@@ -19,6 +19,8 @@ import (
 func newTestEngine(t *testing.T) *engine.Engine {
 	t.Helper()
 	cfg := config.DefaultConfig()
+	allowPrivate := true
+	cfg.AllowPrivateUpstreams = &allowPrivate
 	store := events.NewMemoryStore(100)
 	bus := events.NewEventBus()
 	eng, err := engine.NewEngine(cfg, store, bus)

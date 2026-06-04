@@ -378,6 +378,19 @@ func TestHandleCWVReport_WrongMethod2(t *testing.T) {
 	}
 }
 
+func TestHandleCWVReport_BodyTooLarge(t *testing.T) {
+	d := newTestDashboard(t, "test-key")
+	body := `{"name":"LCP","value":1,"rating":"` + strings.Repeat("a", maxRequestBody) + `","delta":1}`
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/cwv", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	d.handleCWVReport(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected %d, got %d", http.StatusBadRequest, w.Code)
+	}
+}
+
 // TestDeepCopyConfig_MarshalError covers deepCopyConfig with unmarshalable types.
 func TestDeepCopyConfig_NilConfig(t *testing.T) {
 	// deepCopyConfig should work with a valid config

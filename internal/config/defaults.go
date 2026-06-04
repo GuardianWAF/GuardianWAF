@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -496,8 +497,10 @@ func PopulateFromNode(cfg *Config, node *Node) error {
 
 // nodeBoolField populates a bool field from a config node, returning any parse error.
 // parentKey is prepended to the field name in error messages for nested fields.
+// A null value (e.g. `enabled:` with nothing) is treated as "not set" and keeps
+// the existing default; only a present, non-null, malformed value is an error.
 func nodeBoolField(n *Node, key, parentKey string, field *bool) error {
-	if v := n.Get(key); v != nil {
+	if v := n.Get(key); v != nil && !v.IsNull {
 		b, err := nodeBool(v)
 		if err != nil {
 			prefix := key
@@ -520,8 +523,10 @@ func nodeStringField(n *Node, key string, field *string) {
 
 // nodeIntField populates an int field from a config node, returning any parse error.
 // parentKey is prepended to the field name in error messages for nested fields.
+// A null value is treated as "not set" and keeps the existing default; only a
+// present, non-null, malformed value is an error.
 func nodeIntField(n *Node, key, parentKey string, field *int, minVal int) error {
-	if v := n.Get(key); v != nil {
+	if v := n.Get(key); v != nil && !v.IsNull {
 		i, err := nodeInt(v)
 		if err != nil {
 			prefix := key
@@ -534,6 +539,49 @@ func nodeIntField(n *Node, key, parentKey string, field *int, minVal int) error 
 	}
 	return nil
 }
+
+// fieldErrs accumulates field-level parse errors within a populate function so
+// every malformed value is reported together, and a typo (e.g. `enabled: ture`)
+// fails the config load loudly instead of silently keeping the default.
+type fieldErrs struct{ errs []error }
+
+func (fe *fieldErrs) boolField(n *Node, key, parentKey string, field *bool) {
+	if err := nodeBoolField(n, key, parentKey, field); err != nil {
+		fe.errs = append(fe.errs, err)
+	}
+}
+
+func (fe *fieldErrs) intField(n *Node, key, parentKey string, field *int, minVal int) {
+	if err := nodeIntField(n, key, parentKey, field, minVal); err != nil {
+		fe.errs = append(fe.errs, err)
+	}
+}
+
+func (fe *fieldErrs) durationField(n *Node, key string, field *time.Duration) {
+	if v := n.Get(key); v != nil && !v.IsNull {
+		d, err := parseDuration(v.String())
+		if err != nil {
+			fe.errs = append(fe.errs, fmt.Errorf("%s: %w", key, err))
+			return
+		}
+		*field = d
+	}
+}
+
+func (fe *fieldErrs) floatField(n *Node, key string, field *float64, minVal float64) {
+	if v := n.Get(key); v != nil && !v.IsNull {
+		f, err := nodeFloat64(v)
+		if err != nil {
+			fe.errs = append(fe.errs, fmt.Errorf("%s: %w", key, err))
+			return
+		}
+		if f > minVal {
+			*field = f
+		}
+	}
+}
+
+func (fe *fieldErrs) err() error { return errors.Join(fe.errs...) }
 
 // --- TLS ---
 
@@ -788,7 +836,9 @@ func populateWAF(waf *WAFConfig, n *Node) error {
 		}
 	}
 	if sub := n.Get("geoip"); sub != nil {
-		populateGeoIP(&waf.GeoIP, sub)
+		if err := populateGeoIP(&waf.GeoIP, sub); err != nil {
+			return fmt.Errorf("geoip: %w", err)
+		}
 	}
 	if sub := n.Get("threat_intel"); sub != nil {
 		if err := populateThreatIntel(&waf.ThreatIntel, sub); err != nil {
@@ -796,7 +846,9 @@ func populateWAF(waf *WAFConfig, n *Node) error {
 		}
 	}
 	if sub := n.Get("cors"); sub != nil {
-		populateCORS(&waf.CORS, sub)
+		if err := populateCORS(&waf.CORS, sub); err != nil {
+			return fmt.Errorf("cors: %w", err)
+		}
 	}
 	if sub := n.Get("ato_protection"); sub != nil {
 		if err := populateATOProtection(&waf.ATOProtection, sub); err != nil {
@@ -809,7 +861,9 @@ func populateWAF(waf *WAFConfig, n *Node) error {
 		}
 	}
 	if sub := n.Get("api_validation"); sub != nil {
-		populateAPIValidation(&waf.APIValidation, sub)
+		if err := populateAPIValidation(&waf.APIValidation, sub); err != nil {
+			return fmt.Errorf("api_validation: %w", err)
+		}
 	}
 	if sub := n.Get("client_side"); sub != nil {
 		if err := populateClientSide(&waf.ClientSide, sub); err != nil {
@@ -817,45 +871,42 @@ func populateWAF(waf *WAFConfig, n *Node) error {
 		}
 	}
 	if sub := n.Get("crs"); sub != nil {
-		populateCRS(&waf.CRS, sub)
+		if err := populateCRS(&waf.CRS, sub); err != nil {
+			return fmt.Errorf("crs: %w", err)
+		}
 	}
 	return nil
 }
 
-func populateGeoIP(geo *GeoIPConfig, n *Node) {
+func populateGeoIP(geo *GeoIPConfig, n *Node) error {
 	if n.Kind != MapNode {
-		return
+		return nil
 	}
-	if err := nodeBoolField(n, "enabled", "", &geo.Enabled); err != nil {
-		return
-	}
+	var fe fieldErrs
+	fe.boolField(n, "enabled", "", &geo.Enabled)
 	nodeStringField(n, "db_path", &geo.DBPath)
-	nodeBoolField(n, "auto_download", "", &geo.AutoDownload)
+	fe.boolField(n, "auto_download", "", &geo.AutoDownload)
 	nodeStringField(n, "download_url", &geo.DownloadURL)
+	return fe.err()
 }
 
 func populateThreatIntel(ti *ThreatIntelConfig, n *Node) error {
 	if n.Kind != MapNode {
 		return nil
 	}
-	if err := nodeBoolField(n, "enabled", "", &ti.Enabled); err != nil {
-		return err
-	}
-	nodeIntField(n, "cache_size", "", &ti.CacheSize, 0)
-	if v := n.Get("cache_ttl"); v != nil && !v.IsNull {
-		if d, err := parseDuration(v.String()); err == nil {
-			ti.CacheTTL = d
-		}
-	}
+	var fe fieldErrs
+	fe.boolField(n, "enabled", "", &ti.Enabled)
+	fe.intField(n, "cache_size", "", &ti.CacheSize, 0)
+	fe.durationField(n, "cache_ttl", &ti.CacheTTL)
 	if sub := n.Get("ip_reputation"); sub != nil && sub.Kind == MapNode {
-		nodeBoolField(sub, "enabled", "ip_reputation", &ti.IPReputation.Enabled)
-		nodeBoolField(sub, "block_malicious", "ip_reputation", &ti.IPReputation.BlockMalicious)
-		nodeIntField(sub, "score_threshold", "ip_reputation", &ti.IPReputation.ScoreThreshold, 0)
+		fe.boolField(sub, "enabled", "ip_reputation", &ti.IPReputation.Enabled)
+		fe.boolField(sub, "block_malicious", "ip_reputation", &ti.IPReputation.BlockMalicious)
+		fe.intField(sub, "score_threshold", "ip_reputation", &ti.IPReputation.ScoreThreshold, 0)
 	}
 	if sub := n.Get("domain_reputation"); sub != nil && sub.Kind == MapNode {
-		nodeBoolField(sub, "enabled", "domain_reputation", &ti.DomainRep.Enabled)
-		nodeBoolField(sub, "block_malicious", "domain_reputation", &ti.DomainRep.BlockMalicious)
-		nodeBoolField(sub, "check_redirects", "domain_reputation", &ti.DomainRep.CheckRedirects)
+		fe.boolField(sub, "enabled", "domain_reputation", &ti.DomainRep.Enabled)
+		fe.boolField(sub, "block_malicious", "domain_reputation", &ti.DomainRep.BlockMalicious)
+		fe.boolField(sub, "check_redirects", "domain_reputation", &ti.DomainRep.CheckRedirects)
 	}
 	if sub := n.Get("feeds"); sub != nil && sub.Kind == SequenceNode {
 		feedSlice := sub.Slice()
@@ -879,18 +930,19 @@ func populateThreatIntel(ti *ThreatIntelConfig, n *Node) error {
 			ti.Feeds = append(ti.Feeds, f)
 		}
 	}
-	return nil
+	return fe.err()
 }
 
-func populateCORS(cors *CORSConfig, n *Node) {
+func populateCORS(cors *CORSConfig, n *Node) error {
 	if n.Kind != MapNode {
-		return
+		return nil
 	}
-	nodeBoolField(n, "enabled", "", &cors.Enabled)
-	nodeBoolField(n, "allow_credentials", "", &cors.AllowCredentials)
-	nodeBoolField(n, "strict_mode", "", &cors.StrictMode)
-	nodeIntField(n, "max_age_seconds", "", &cors.MaxAgeSeconds, 0)
-	nodeIntField(n, "preflight_cache_seconds", "", &cors.PreflightCacheSeconds, 0)
+	var fe fieldErrs
+	fe.boolField(n, "enabled", "", &cors.Enabled)
+	fe.boolField(n, "allow_credentials", "", &cors.AllowCredentials)
+	fe.boolField(n, "strict_mode", "", &cors.StrictMode)
+	fe.intField(n, "max_age_seconds", "", &cors.MaxAgeSeconds, 0)
+	fe.intField(n, "preflight_cache_seconds", "", &cors.PreflightCacheSeconds, 0)
 	if v := n.Get("allow_origins"); v != nil && v.Kind == SequenceNode {
 		cors.AllowOrigins = nodeStringSlice(v)
 	}
@@ -903,97 +955,60 @@ func populateCORS(cors *CORSConfig, n *Node) {
 	if v := n.Get("expose_headers"); v != nil && v.Kind == SequenceNode {
 		cors.ExposeHeaders = nodeStringSlice(v)
 	}
+	return fe.err()
 }
 
 func populateATOProtection(ato *ATOProtectionConfig, n *Node) error {
 	if n.Kind != MapNode {
 		return nil
 	}
-	if err := nodeBoolField(n, "enabled", "", &ato.Enabled); err != nil {
-		return err
-	}
+	var fe fieldErrs
+	fe.boolField(n, "enabled", "", &ato.Enabled)
 	nodeStringField(n, "geodb_path", &ato.GeoDBPath)
 	if v := n.Get("login_paths"); v != nil && v.Kind == SequenceNode {
 		ato.LoginPaths = nodeStringSlice(v)
 	}
 	if sub := n.Get("brute_force"); sub != nil && sub.Kind == MapNode {
-		nodeBoolField(sub, "enabled", "brute_force", &ato.BruteForce.Enabled)
-		if v := sub.Get("window"); v != nil && !v.IsNull {
-			if d, err := parseDuration(v.String()); err == nil {
-				ato.BruteForce.Window = d
-			}
-		}
-		nodeIntField(sub, "max_attempts_per_ip", "brute_force", &ato.BruteForce.MaxAttemptsPerIP, 0)
-		nodeIntField(sub, "max_attempts_per_email", "brute_force", &ato.BruteForce.MaxAttemptsPerEmail, 0)
-		if v := sub.Get("block_duration"); v != nil && !v.IsNull {
-			if d, err := parseDuration(v.String()); err == nil {
-				ato.BruteForce.BlockDuration = d
-			}
-		}
+		fe.boolField(sub, "enabled", "brute_force", &ato.BruteForce.Enabled)
+		fe.durationField(sub, "window", &ato.BruteForce.Window)
+		fe.intField(sub, "max_attempts_per_ip", "brute_force", &ato.BruteForce.MaxAttemptsPerIP, 0)
+		fe.intField(sub, "max_attempts_per_email", "brute_force", &ato.BruteForce.MaxAttemptsPerEmail, 0)
+		fe.durationField(sub, "block_duration", &ato.BruteForce.BlockDuration)
 	}
 	if sub := n.Get("credential_stuffing"); sub != nil && sub.Kind == MapNode {
-		nodeBoolField(sub, "enabled", "credential_stuffing", &ato.CredStuffing.Enabled)
-		nodeIntField(sub, "distributed_threshold", "credential_stuffing", &ato.CredStuffing.DistributedThreshold, 0)
-		if v := sub.Get("window"); v != nil && !v.IsNull {
-			if d, err := parseDuration(v.String()); err == nil {
-				ato.CredStuffing.Window = d
-			}
-		}
-		if v := sub.Get("block_duration"); v != nil && !v.IsNull {
-			if d, err := parseDuration(v.String()); err == nil {
-				ato.CredStuffing.BlockDuration = d
-			}
-		}
+		fe.boolField(sub, "enabled", "credential_stuffing", &ato.CredStuffing.Enabled)
+		fe.intField(sub, "distributed_threshold", "credential_stuffing", &ato.CredStuffing.DistributedThreshold, 0)
+		fe.durationField(sub, "window", &ato.CredStuffing.Window)
+		fe.durationField(sub, "block_duration", &ato.CredStuffing.BlockDuration)
 	}
 	if sub := n.Get("password_spray"); sub != nil && sub.Kind == MapNode {
-		nodeBoolField(sub, "enabled", "password_spray", &ato.PasswordSpray.Enabled)
-		nodeIntField(sub, "threshold", "password_spray", &ato.PasswordSpray.Threshold, 0)
-		if v := sub.Get("window"); v != nil && !v.IsNull {
-			if d, err := parseDuration(v.String()); err == nil {
-				ato.PasswordSpray.Window = d
-			}
-		}
-		if v := sub.Get("block_duration"); v != nil && !v.IsNull {
-			if d, err := parseDuration(v.String()); err == nil {
-				ato.PasswordSpray.BlockDuration = d
-			}
-		}
+		fe.boolField(sub, "enabled", "password_spray", &ato.PasswordSpray.Enabled)
+		fe.intField(sub, "threshold", "password_spray", &ato.PasswordSpray.Threshold, 0)
+		fe.durationField(sub, "window", &ato.PasswordSpray.Window)
+		fe.durationField(sub, "block_duration", &ato.PasswordSpray.BlockDuration)
 	}
 	if sub := n.Get("impossible_travel"); sub != nil && sub.Kind == MapNode {
-		nodeBoolField(sub, "enabled", "impossible_travel", &ato.Travel.Enabled)
-		if v := sub.Get("max_distance_km"); v != nil && !v.IsNull {
-			if f, err := nodeFloat64(v); err == nil && f > 0 {
-				ato.Travel.MaxDistanceKm = f
-			}
-		}
-		if v := sub.Get("max_time_hours"); v != nil && !v.IsNull {
-			if f, err := nodeFloat64(v); err == nil && f > 0 {
-				ato.Travel.MaxTimeHours = f
-			}
-		}
-		if v := sub.Get("block_duration"); v != nil && !v.IsNull {
-			if d, err := parseDuration(v.String()); err == nil {
-				ato.Travel.BlockDuration = d
-			}
-		}
+		fe.boolField(sub, "enabled", "impossible_travel", &ato.Travel.Enabled)
+		fe.floatField(sub, "max_distance_km", &ato.Travel.MaxDistanceKm, 0)
+		fe.floatField(sub, "max_time_hours", &ato.Travel.MaxTimeHours, 0)
+		fe.durationField(sub, "block_duration", &ato.Travel.BlockDuration)
 	}
-	return nil
+	return fe.err()
 }
 
 func populateAPISecurity(as *APISecurityConfig, n *Node) error {
 	if n.Kind != MapNode {
 		return nil
 	}
-	if err := nodeBoolField(n, "enabled", "", &as.Enabled); err != nil {
-		return err
-	}
+	var fe fieldErrs
+	fe.boolField(n, "enabled", "", &as.Enabled)
 	nodeStringField(n, "header_name", &as.HeaderName)
 	nodeStringField(n, "query_param", &as.QueryParam)
 	if v := n.Get("skip_paths"); v != nil && v.Kind == SequenceNode {
 		as.SkipPaths = nodeStringSlice(v)
 	}
 	if sub := n.Get("jwt"); sub != nil && sub.Kind == MapNode {
-		nodeBoolField(sub, "enabled", "jwt", &as.JWT.Enabled)
+		fe.boolField(sub, "enabled", "jwt", &as.JWT.Enabled)
 		nodeStringField(sub, "issuer", &as.JWT.Issuer)
 		nodeStringField(sub, "audience", &as.JWT.Audience)
 		nodeStringField(sub, "public_key_file", &as.JWT.PublicKeyFile)
@@ -1002,10 +1017,10 @@ func populateAPISecurity(as *APISecurityConfig, n *Node) error {
 		if v := sub.Get("algorithms"); v != nil && v.Kind == SequenceNode {
 			as.JWT.Algorithms = nodeStringSlice(v)
 		}
-		nodeIntField(sub, "clock_skew_seconds", "jwt", &as.JWT.ClockSkewSeconds, 0)
+		fe.intField(sub, "clock_skew_seconds", "jwt", &as.JWT.ClockSkewSeconds, 0)
 	}
 	if sub := n.Get("api_keys"); sub != nil && sub.Kind == MapNode {
-		nodeBoolField(sub, "enabled", "api_keys", &as.APIKeys.Enabled)
+		fe.boolField(sub, "enabled", "api_keys", &as.APIKeys.Enabled)
 		nodeStringField(sub, "header_name", &as.APIKeys.HeaderName)
 		nodeStringField(sub, "query_param", &as.APIKeys.QueryParam)
 		if v := sub.Get("keys"); v != nil && v.Kind == SequenceNode {
@@ -1019,8 +1034,8 @@ func populateAPISecurity(as *APISecurityConfig, n *Node) error {
 				nodeStringField(child, "name", &k.Name)
 				nodeStringField(child, "key_hash", &k.KeyHash)
 				nodeStringField(child, "key_prefix", &k.KeyPrefix)
-				nodeBoolField(child, "enabled", "", &k.Enabled)
-				nodeIntField(child, "rate_limit", "key", &k.RateLimit, 0)
+				fe.boolField(child, "enabled", "", &k.Enabled)
+				fe.intField(child, "rate_limit", "key", &k.RateLimit, 0)
 				if pv := child.Get("allowed_paths"); pv != nil && pv.Kind == SequenceNode {
 					k.AllowedPaths = nodeStringSlice(pv)
 				}
@@ -1028,20 +1043,21 @@ func populateAPISecurity(as *APISecurityConfig, n *Node) error {
 			}
 		}
 	}
-	return nil
+	return fe.err()
 }
 
-func populateAPIValidation(av *APIValidationConfig, n *Node) {
+func populateAPIValidation(av *APIValidationConfig, n *Node) error {
 	if n.Kind != MapNode {
-		return
+		return nil
 	}
-	nodeBoolField(n, "enabled", "", &av.Enabled)
-	nodeBoolField(n, "validate_request", "", &av.ValidateRequest)
-	nodeBoolField(n, "validate_response", "", &av.ValidateResponse)
-	nodeBoolField(n, "strict_mode", "", &av.StrictMode)
-	nodeBoolField(n, "block_on_violation", "", &av.BlockOnViolation)
-	nodeIntField(n, "violation_score", "", &av.ViolationScore, 0)
-	nodeIntField(n, "cache_size", "", &av.CacheSize, 0)
+	var fe fieldErrs
+	fe.boolField(n, "enabled", "", &av.Enabled)
+	fe.boolField(n, "validate_request", "", &av.ValidateRequest)
+	fe.boolField(n, "validate_response", "", &av.ValidateResponse)
+	fe.boolField(n, "strict_mode", "", &av.StrictMode)
+	fe.boolField(n, "block_on_violation", "", &av.BlockOnViolation)
+	fe.intField(n, "violation_score", "", &av.ViolationScore, 0)
+	fe.intField(n, "cache_size", "", &av.CacheSize, 0)
 	if v := n.Get("schemas"); v != nil && v.Kind == SequenceNode {
 		schemaSlice := v.Slice()
 		av.Schemas = make([]SchemaSourceConfig, 0, len(schemaSlice))
@@ -1052,47 +1068,47 @@ func populateAPIValidation(av *APIValidationConfig, n *Node) {
 			var s SchemaSourceConfig
 			nodeStringField(child, "path", &s.Path)
 			nodeStringField(child, "type", &s.Type)
-			nodeBoolField(child, "auto_learn", "", &s.AutoLearn)
+			fe.boolField(child, "auto_learn", "", &s.AutoLearn)
 			av.Schemas = append(av.Schemas, s)
 		}
 	}
+	return fe.err()
 }
 
 func populateClientSide(cs *ClientSideConfig, n *Node) error {
 	if n.Kind != MapNode {
 		return nil
 	}
-	if err := nodeBoolField(n, "enabled", "", &cs.Enabled); err != nil {
-		return err
-	}
+	var fe fieldErrs
+	fe.boolField(n, "enabled", "", &cs.Enabled)
 	nodeStringField(n, "mode", &cs.Mode)
 	if v := n.Get("exclusions"); v != nil && v.Kind == SequenceNode {
 		cs.Exclusions = nodeStringSlice(v)
 	}
 	if sub := n.Get("magecart_detection"); sub != nil && sub.Kind == MapNode {
-		nodeBoolField(sub, "enabled", "magecart_detection", &cs.MagecartDetection.Enabled)
-		nodeBoolField(sub, "detect_obfuscated_js", "magecart_detection", &cs.MagecartDetection.DetectObfuscatedJS)
-		nodeBoolField(sub, "detect_suspicious_domains", "magecart_detection", &cs.MagecartDetection.DetectSuspiciousDomains)
-		nodeBoolField(sub, "detect_form_exfiltration", "magecart_detection", &cs.MagecartDetection.DetectFormExfiltration)
-		nodeBoolField(sub, "detect_keyloggers", "magecart_detection", &cs.MagecartDetection.DetectKeyloggers)
-		nodeIntField(sub, "block_score", "magecart_detection", &cs.MagecartDetection.BlockScore, 0)
-		nodeIntField(sub, "alert_score", "magecart_detection", &cs.MagecartDetection.AlertScore, 0)
+		fe.boolField(sub, "enabled", "magecart_detection", &cs.MagecartDetection.Enabled)
+		fe.boolField(sub, "detect_obfuscated_js", "magecart_detection", &cs.MagecartDetection.DetectObfuscatedJS)
+		fe.boolField(sub, "detect_suspicious_domains", "magecart_detection", &cs.MagecartDetection.DetectSuspiciousDomains)
+		fe.boolField(sub, "detect_form_exfiltration", "magecart_detection", &cs.MagecartDetection.DetectFormExfiltration)
+		fe.boolField(sub, "detect_keyloggers", "magecart_detection", &cs.MagecartDetection.DetectKeyloggers)
+		fe.intField(sub, "block_score", "magecart_detection", &cs.MagecartDetection.BlockScore, 0)
+		fe.intField(sub, "alert_score", "magecart_detection", &cs.MagecartDetection.AlertScore, 0)
 		if v := sub.Get("known_skimming_domains"); v != nil && v.Kind == SequenceNode {
 			cs.MagecartDetection.KnownSkimmingDomains = nodeStringSlice(v)
 		}
 	}
 	if sub := n.Get("agent_injection"); sub != nil && sub.Kind == MapNode {
-		nodeBoolField(sub, "enabled", "agent_injection", &cs.AgentInjection.Enabled)
+		fe.boolField(sub, "enabled", "agent_injection", &cs.AgentInjection.Enabled)
 		nodeStringField(sub, "script_url", &cs.AgentInjection.ScriptURL)
-		nodeBoolField(sub, "inject_in_html", "agent_injection", &cs.AgentInjection.InjectInHTML)
+		fe.boolField(sub, "inject_in_html", "agent_injection", &cs.AgentInjection.InjectInHTML)
 		nodeStringField(sub, "inject_position", &cs.AgentInjection.InjectPosition)
-		nodeBoolField(sub, "monitor_dom", "agent_injection", &cs.AgentInjection.MonitorDOM)
-		nodeBoolField(sub, "monitor_network", "agent_injection", &cs.AgentInjection.MonitorNetwork)
-		nodeBoolField(sub, "monitor_forms", "agent_injection", &cs.AgentInjection.MonitorForms)
+		fe.boolField(sub, "monitor_dom", "agent_injection", &cs.AgentInjection.MonitorDOM)
+		fe.boolField(sub, "monitor_network", "agent_injection", &cs.AgentInjection.MonitorNetwork)
+		fe.boolField(sub, "monitor_forms", "agent_injection", &cs.AgentInjection.MonitorForms)
 	}
 	if sub := n.Get("csp"); sub != nil && sub.Kind == MapNode {
-		nodeBoolField(sub, "enabled", "csp", &cs.CSP.Enabled)
-		nodeBoolField(sub, "report_only", "csp", &cs.CSP.ReportOnly)
+		fe.boolField(sub, "enabled", "csp", &cs.CSP.Enabled)
+		fe.boolField(sub, "report_only", "csp", &cs.CSP.ReportOnly)
 		cs.CSP.DefaultSrc = nodeStringSlice(sub.Get("default_src"))
 		cs.CSP.ScriptSrc = nodeStringSlice(sub.Get("script_src"))
 		cs.CSP.StyleSrc = nodeStringSlice(sub.Get("style_src"))
@@ -1106,25 +1122,27 @@ func populateClientSide(cs *ClientSideConfig, n *Node) error {
 		cs.CSP.FormAction = nodeStringSlice(sub.Get("form_action"))
 		cs.CSP.BaseURI = nodeStringSlice(sub.Get("base_uri"))
 		nodeStringField(sub, "report_uri", &cs.CSP.ReportURI)
-		nodeBoolField(sub, "upgrade_insecure_requests", "csp", &cs.CSP.UpgradeInsecure)
+		fe.boolField(sub, "upgrade_insecure_requests", "csp", &cs.CSP.UpgradeInsecure)
 	}
-	return nil
+	return fe.err()
 }
 
-func populateCRS(crs *CRSConfig, n *Node) {
+func populateCRS(crs *CRSConfig, n *Node) error {
 	if n.Kind != MapNode {
-		return
+		return nil
 	}
-	nodeBoolField(n, "enabled", "", &crs.Enabled)
+	var fe fieldErrs
+	fe.boolField(n, "enabled", "", &crs.Enabled)
 	nodeStringField(n, "rule_path", &crs.RulePath)
-	nodeIntField(n, "paranoia_level", "", &crs.ParanoiaLevel, 0)
-	nodeIntField(n, "anomaly_threshold", "", &crs.AnomalyThreshold, 0)
+	fe.intField(n, "paranoia_level", "", &crs.ParanoiaLevel, 0)
+	fe.intField(n, "anomaly_threshold", "", &crs.AnomalyThreshold, 0)
 	if v := n.Get("exclusions"); v != nil && v.Kind == SequenceNode {
 		crs.Exclusions = nodeStringSlice(v)
 	}
 	if v := n.Get("disabled_rules"); v != nil && v.Kind == SequenceNode {
 		crs.DisabledRules = nodeStringSlice(v)
 	}
+	return fe.err()
 }
 
 func populateAIAnalysis(ai *AIAnalysisConfig, n *Node) error {

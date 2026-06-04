@@ -43,13 +43,13 @@ func (h *ClientSideHandler) handleStats(w http.ResponseWriter, r *http.Request) 
 
 	stats := csLayer.GetStats()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"enabled":               true,
-		"mode":                  stats.Mode,
-		"magecart_detections":   stats.MagecartDetections,
-		"script_injections":     stats.ScriptInjections,
-		"csp_violations":        stats.CSPViolations,
-		"blocked_skimmers":      stats.BlockedSkimmers,
-		"injected_sessions":     stats.InjectedSessions,
+		"enabled":             true,
+		"mode":                stats.Mode,
+		"magecart_detections": stats.MagecartDetections,
+		"script_injections":   stats.ScriptInjections,
+		"csp_violations":      stats.CSPViolations,
+		"blocked_skimmers":    stats.BlockedSkimmers,
+		"injected_sessions":   stats.InjectedSessions,
 	})
 }
 
@@ -59,12 +59,12 @@ func (h *ClientSideHandler) handleConfig(w http.ResponseWriter, r *http.Request)
 	case http.MethodGet:
 		cfg := h.dashboard.engine.Config()
 		writeJSON(w, http.StatusOK, map[string]any{
-			"enabled":             cfg.WAF.ClientSide.Enabled,
-			"mode":                cfg.WAF.ClientSide.Mode,
-			"magecart_detection":  cfg.WAF.ClientSide.MagecartDetection.Enabled,
-			"agent_injection":     cfg.WAF.ClientSide.AgentInjection.Enabled,
-			"csp_enabled":         cfg.WAF.ClientSide.CSP.Enabled,
-			"csp_report_only":     cfg.WAF.ClientSide.CSP.ReportOnly,
+			"enabled":            cfg.WAF.ClientSide.Enabled,
+			"mode":               cfg.WAF.ClientSide.Mode,
+			"magecart_detection": cfg.WAF.ClientSide.MagecartDetection.Enabled,
+			"agent_injection":    cfg.WAF.ClientSide.AgentInjection.Enabled,
+			"csp_enabled":        cfg.WAF.ClientSide.CSP.Enabled,
+			"csp_report_only":    cfg.WAF.ClientSide.CSP.ReportOnly,
 		})
 
 	case http.MethodPut:

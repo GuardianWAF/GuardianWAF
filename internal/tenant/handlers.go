@@ -79,13 +79,13 @@ func (h *Handlers) handleTenantRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tenantID := strings.Split(path, "/")[0]
-		// Validate tenant ID — only allow alphanumeric, dash, underscore
-		for _, c := range tenantID {
-			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_') {
-				http.Error(w, "Invalid tenant ID", http.StatusBadRequest)
-				return
-			}
+	// Validate tenant ID — only allow alphanumeric, dash, underscore
+	for _, c := range tenantID {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_') {
+			http.Error(w, "Invalid tenant ID", http.StatusBadRequest)
+			return
 		}
+	}
 
 	// Check if this is a WAF config sub-path
 	if strings.HasSuffix(path, "/waf-config") {
@@ -118,12 +118,11 @@ func (h *Handlers) handleWAFConfigRoutes(w http.ResponseWriter, r *http.Request,
 	}
 }
 
-
 // CreateTenantRequest represents a create tenant request.
 type CreateTenantRequest struct {
-	Name        string        `json:"name"`
-	Description string        `json:"description"`
-	Domains     []string      `json:"domains"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Domains     []string       `json:"domains"`
 	Quota       *ResourceQuota `json:"quota,omitempty"`
 }
 
@@ -234,12 +233,12 @@ func (h *Handlers) getTenant(w http.ResponseWriter, r *http.Request, tenantID st
 
 // UpdateTenantRequest represents an update tenant request.
 type UpdateTenantRequest struct {
-	Name        string           `json:"name,omitempty"`
-	Description string           `json:"description,omitempty"`
-	Active      *bool            `json:"active,omitempty"`
-	Domains     []string         `json:"domains,omitempty"`
-	Quota       *ResourceQuota   `json:"quota,omitempty"`
-	Config      *config.Config   `json:"config,omitempty"` // Full tenant config (including WAF)
+	Name        string         `json:"name,omitempty"`
+	Description string         `json:"description,omitempty"`
+	Active      *bool          `json:"active,omitempty"`
+	Domains     []string       `json:"domains,omitempty"`
+	Quota       *ResourceQuota `json:"quota,omitempty"`
+	Config      *config.Config `json:"config,omitempty"` // Full tenant config (including WAF)
 }
 
 func (h *Handlers) updateTenant(w http.ResponseWriter, r *http.Request, tenantID string) {
@@ -280,7 +279,6 @@ func (h *Handlers) deleteTenant(w http.ResponseWriter, r *http.Request, tenantID
 
 	w.WriteHeader(http.StatusNoContent)
 }
-
 
 // getTenantWAFConfig returns the WAF config for a tenant.
 func (h *Handlers) getTenantWAFConfig(w http.ResponseWriter, r *http.Request, tenantID string) {
@@ -354,6 +352,10 @@ func (h *Handlers) RegenerateAPIKeyHandler(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if !h.verifyKey(r) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	// Extract tenant ID from path /api/v1/tenants/{id}/regenerate-key
 	path := strings.TrimPrefix(r.URL.Path, "/api/v1/tenants/")
@@ -365,7 +367,7 @@ func (h *Handlers) RegenerateAPIKeyHandler(w http.ResponseWriter, r *http.Reques
 
 	tenantID := parts[0]
 
-		apiKey, err := h.manager.RegenerateAPIKey(tenantID)
+	apiKey, err := h.manager.RegenerateAPIKey(tenantID)
 	if err != nil {
 		http.Error(w, sanitizeErr(err), http.StatusNotFound)
 		return
@@ -386,6 +388,10 @@ func (h *Handlers) StatsHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if !h.verifyKey(r) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	stats := h.manager.Stats()
 	w.Header().Set("Content-Type", "application/json")
@@ -397,24 +403,28 @@ func (h *Handlers) StatsHandler(w http.ResponseWriter, r *http.Request) {
 
 // UsageStats represents real-time usage statistics for a tenant.
 type UsageStats struct {
-	TenantID             string    `json:"tenant_id"`
-	Name                 string    `json:"name"`
-	Active               bool      `json:"active"`
-	RequestsPerMinute    int64     `json:"requests_per_minute"`
-	RequestsPerHour      int64     `json:"requests_per_hour"`
-	TotalRequests        int64     `json:"total_requests"`
-	BlockedRequests      int64     `json:"blocked_requests"`
-	BytesTransferred     int64     `json:"bytes_transferred"`
-	BandwidthMbps        float64   `json:"bandwidth_mbps"`
-	LastRequestAt        time.Time `json:"last_request_at"`
-	QuotaStatus          string    `json:"quota_status"`
-	QuotaPercentage      float64   `json:"quota_percentage"`
+	TenantID          string    `json:"tenant_id"`
+	Name              string    `json:"name"`
+	Active            bool      `json:"active"`
+	RequestsPerMinute int64     `json:"requests_per_minute"`
+	RequestsPerHour   int64     `json:"requests_per_hour"`
+	TotalRequests     int64     `json:"total_requests"`
+	BlockedRequests   int64     `json:"blocked_requests"`
+	BytesTransferred  int64     `json:"bytes_transferred"`
+	BandwidthMbps     float64   `json:"bandwidth_mbps"`
+	LastRequestAt     time.Time `json:"last_request_at"`
+	QuotaStatus       string    `json:"quota_status"`
+	QuotaPercentage   float64   `json:"quota_percentage"`
 }
 
 // GetTenantUsage returns real-time usage for a specific tenant.
 func (h *Handlers) GetTenantUsage(w http.ResponseWriter, r *http.Request, tenantID string) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !h.verifyKey(r) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -476,6 +486,10 @@ func (h *Handlers) GetAllUsage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if !h.verifyKey(r) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	tenants := h.manager.ListTenants()
 	usageStats := make([]UsageStats, 0, len(tenants))
@@ -524,7 +538,6 @@ func (h *Handlers) GetAllUsage(w http.ResponseWriter, r *http.Request) {
 		_ = err
 	}
 }
-
 
 // sanitizeErr strips potentially sensitive details from error messages.
 func sanitizeErr(err error) string {

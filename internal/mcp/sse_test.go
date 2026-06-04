@@ -706,6 +706,17 @@ func TestHandleMessage_BodyReadError(t *testing.T) {
 	}
 }
 
+func TestHandleMessage_BodyTooLarge(t *testing.T) {
+	handler, _ := helperSSEServer("test-api-key")
+	req := helperAuthReq(http.MethodPost, "/mcp/message", strings.NewReader(strings.Repeat("x", maxMCPMessageBody+1)))
+	w := httptest.NewRecorder()
+	handler.handleMessage(w, req)
+
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected 413 for oversized body, got %d", w.Code)
+	}
+}
+
 // --- handleMessage with SSE client connected (broadcast path) ---
 
 func TestHandleMessage_BroadcastsToSSEClient(t *testing.T) {

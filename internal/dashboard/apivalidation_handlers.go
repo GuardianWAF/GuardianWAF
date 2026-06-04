@@ -52,12 +52,12 @@ func (h *APIValidationHandler) handleListSchemas(w http.ResponseWriter, r *http.
 
 	for _, schema := range schemas {
 		result = append(result, map[string]any{
-			"name":              schema.Name,
-			"version":           schema.Version,
-			"format":            schema.Format,
-			"endpoint_count":    schema.EndpointCount,
-			"strict_mode":       schema.StrictMode,
-			"loaded_at":         schema.LoadedAt,
+			"name":           schema.Name,
+			"version":        schema.Version,
+			"format":         schema.Format,
+			"endpoint_count": schema.EndpointCount,
+			"strict_mode":    schema.StrictMode,
+			"loaded_at":      schema.LoadedAt,
 		})
 	}
 
@@ -182,10 +182,10 @@ func (h *APIValidationHandler) handleValidationConfig(w http.ResponseWriter, r *
 
 	case http.MethodPut:
 		var req struct {
-			ValidateRequest   *bool `json:"validate_request"`
-			ValidateResponse  *bool `json:"validate_response"`
-			StrictMode        *bool `json:"strict_mode"`
-			BlockOnViolation  *bool `json:"block_on_violation"`
+			ValidateRequest  *bool `json:"validate_request"`
+			ValidateResponse *bool `json:"validate_response"`
+			StrictMode       *bool `json:"strict_mode"`
+			BlockOnViolation *bool `json:"block_on_violation"`
 		}
 		if !limitedDecodeJSON(w, r, &req) {
 			return
@@ -239,9 +239,9 @@ func (h *APIValidationHandler) handleTestValidation(w http.ResponseWriter, r *ht
 	}
 
 	var req struct {
-		Method string          `json:"method"`
-		Path   string          `json:"path"`
-		Body   string          `json:"body"`
+		Method string `json:"method"`
+		Path   string `json:"path"`
+		Body   string `json:"body"`
 	}
 	if !limitedDecodeJSON(w, r, &req) {
 		return

@@ -247,7 +247,7 @@ func (m *mockVirtualPatchLayer) GetPatch(id string) *VirtualPatchInfo {
 	return nil
 }
 func (m *mockVirtualPatchLayer) AddPatch(patch *VirtualPatchInfo) {}
-func (m *mockVirtualPatchLayer) EnablePatch(id string) bool        { return true }
+func (m *mockVirtualPatchLayer) EnablePatch(id string) bool       { return true }
 func (m *mockVirtualPatchLayer) DisablePatch(id string) bool      { return true }
 func (m *mockVirtualPatchLayer) GetStats() VirtualPatchStats      { return m.stats }
 func (m *mockVirtualPatchLayer) TriggerUpdate()                   {}

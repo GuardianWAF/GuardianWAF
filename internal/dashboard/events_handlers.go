@@ -1,16 +1,14 @@
 package dashboard
 
 import (
-
-"fmt"
-"github.com/guardianwaf/guardianwaf/internal/engine"
-"github.com/guardianwaf/guardianwaf/internal/events"
-"net/http"
-"time"
+	"fmt"
+	"github.com/guardianwaf/guardianwaf/internal/engine"
+	"github.com/guardianwaf/guardianwaf/internal/events"
+	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
-
 
 // --- Stats ---
 

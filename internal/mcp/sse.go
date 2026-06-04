@@ -3,6 +3,7 @@ package mcp
 import (
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -30,12 +31,13 @@ type sseClient struct {
 	w       http.ResponseWriter
 	flusher http.Flusher
 	done    chan struct{}
-	closed  bool // guarded by mu on parent SSEHandler
+	closed  bool       // guarded by mu on parent SSEHandler
 	mu      sync.Mutex // Protects writes to w
 }
 
 // maxMCPSSEClients limits concurrent SSE connections to prevent resource exhaustion.
 const maxMCPSSEClients = 256
+const maxMCPMessageBody = 1 * 1024 * 1024
 
 // NewSSEHandler creates an HTTP handler that serves MCP over SSE.
 func NewSSEHandler(srv *Server, apiKey string) *SSEHandler {
@@ -150,8 +152,14 @@ func (h *SSEHandler) handleMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1*1024*1024))
+	r.Body = http.MaxBytesReader(w, r.Body, maxMCPMessageBody)
+	body, err := io.ReadAll(r.Body)
 	if err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "read error", http.StatusBadRequest)
 		return
 	}

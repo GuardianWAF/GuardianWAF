@@ -7,7 +7,13 @@ import (
 	"testing"
 
 	"github.com/guardianwaf/guardianwaf/internal/config"
+	"github.com/guardianwaf/guardianwaf/internal/proxy"
 )
+
+func allowPrivateUpstreamsForTest(cfg *config.Config) {
+	allowPrivate := true
+	cfg.AllowPrivateUpstreams = &allowPrivate
+}
 
 func TestBuildProxyRuntime_UsesFallbackWithoutRoutes(t *testing.T) {
 	cfg := config.DefaultConfig()
@@ -34,8 +40,7 @@ func TestBuildProxyRuntime_UsesFallbackWithoutRoutes(t *testing.T) {
 
 func TestBuildProxyRuntime_BuildsRouterWithConfiguredRoute(t *testing.T) {
 	cfg := config.DefaultConfig()
-	allowPrivate := true
-	cfg.AllowPrivateUpstreams = &allowPrivate
+	allowPrivateUpstreamsForTest(cfg)
 	cfg.Upstreams = []config.UpstreamConfig{
 		{
 			Name: "default",
@@ -58,4 +63,27 @@ func TestBuildProxyRuntime_BuildsRouterWithConfiguredRoute(t *testing.T) {
 		t.Fatalf("expected no health checkers, got %d", len(checkers))
 	}
 
+}
+
+func TestBuildReverseProxy_ResetsPrivateTargetAllowance(t *testing.T) {
+	cfg := config.DefaultConfig()
+	allowPrivateUpstreamsForTest(cfg)
+	cfg.Upstreams = []config.UpstreamConfig{{
+		Name:    "default",
+		Targets: []config.TargetConfig{{URL: "http://127.0.0.1:1", Weight: 1}},
+	}}
+	cfg.Routes = []config.RouteConfig{{Path: "/", Upstream: "default"}}
+
+	buildReverseProxy(cfg)
+	if !proxy.PrivateTargetsAllowed() {
+		t.Fatal("expected private targets to be allowed after explicit true config")
+	}
+
+	cfg.AllowPrivateUpstreams = nil
+	cfg.Upstreams = nil
+	cfg.Routes = nil
+	buildReverseProxy(cfg)
+	if proxy.PrivateTargetsAllowed() {
+		t.Fatal("expected private target allowance to reset when config is not explicit")
+	}
 }

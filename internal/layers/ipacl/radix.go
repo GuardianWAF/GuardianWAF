@@ -6,6 +6,18 @@ import (
 	"sync"
 )
 
+// bitTable maps each byte value (0-255) to its 8 bits (MSB first).
+// Pre-computed at init, eliminates bitwise branching in ipToBits.
+var bitTable [256][8]byte
+
+func init() {
+	for b := 0; b < 256; b++ {
+		for j := 7; j >= 0; j-- {
+			bitTable[b][7-j] = byte((b >> j) & 1)
+		}
+	}
+}
+
 // RadixTree stores IP addresses and CIDR ranges for fast O(k) lookup.
 type RadixTree struct {
 	mu    sync.RWMutex
@@ -15,9 +27,9 @@ type RadixTree struct {
 
 type radixNode struct {
 	children [2]*radixNode // 0 and 1 branches
-	value    any           // stored value (nil for intermediate nodes)
-	hasValue bool          // distinguishes nil value from no value
-	prefix   int           // prefix length at this node
+	value    any            // stored value (nil for intermediate nodes)
+	hasValue bool           // distinguishes nil value from no value
+	prefix   int            // prefix length at this node
 }
 
 // NewRadixTree creates a new empty radix tree.
@@ -248,6 +260,7 @@ func parseCIDROrIP(s string) (net.IP, *net.IPNet, error) {
 }
 
 // ipToBits converts a net.IP to a slice of bits (0 or 1).
+// Uses a pre-computed lookup table for fast bit expansion.
 // Always normalizes to 16-byte (128-bit) form.
 func ipToBits(ip net.IP) []byte {
 	ip = ip.To16()
@@ -256,11 +269,15 @@ func ipToBits(ip net.IP) []byte {
 	}
 	bits := make([]byte, 128)
 	for i := 0; i < 16; i++ {
-		for j := 7; j >= 0; j-- {
-			if ip[i]&(1<<uint(j)) != 0 {
-				bits[i*8+(7-j)] = 1
-			}
-		}
+		row := bitTable[ip[i]]
+		bits[i*8] = row[0]
+		bits[i*8+1] = row[1]
+		bits[i*8+2] = row[2]
+		bits[i*8+3] = row[3]
+		bits[i*8+4] = row[4]
+		bits[i*8+5] = row[5]
+		bits[i*8+6] = row[6]
+		bits[i*8+7] = row[7]
 	}
 	return bits
 }

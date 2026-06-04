@@ -93,7 +93,7 @@ type Dashboard struct {
 	alertingStats  AlertingStatsProvider  // returns alerting statistics (optional)
 
 	// Existing interfaces (kept as-is)
-	aiAnalyzer       aiAnalyzerInterface   // AI threat analyzer (optional)
+	aiAnalyzer       aiAnalyzerInterface    // AI threat analyzer (optional)
 	dockerWatcher    dockerWatcherInterface // Docker auto-discovery (optional)
 	tenantManager    tenantManagerInterface // Multi-tenant manager (optional)
 	complianceEngine *compliance.Engine     // Compliance reporting engine (optional)
@@ -104,7 +104,7 @@ type Dashboard struct {
 
 	// API rate limiting: per-IP token buckets for authenticated endpoints
 	apiBuckets sync.Map // map[string]*apiBucket
-	apiStopCh   chan struct{}
+	apiStopCh  chan struct{}
 
 	// Layer references for dashboard handlers
 	crsLayer           *crs.Layer
@@ -120,9 +120,9 @@ const (
 	loginLockout     = 15 * time.Minute // lockout duration after max attempts
 
 	// API rate limit constants — per-IP token bucket for authenticated endpoints.
-	apiRateLimit       = 120            // max requests per window
-	apiRateWindow      = time.Minute    // sliding window
-	apiRateBurst       = 20             // max burst
+	apiRateLimit       = 120             // max requests per window
+	apiRateWindow      = time.Minute     // sliding window
+	apiRateBurst       = 20              // max burst
 	apiRateCleanupTick = 5 * time.Minute // cleanup interval for stale buckets
 )
 
@@ -200,7 +200,6 @@ func (d *Dashboard) isAdminAuthenticated(r *http.Request) bool {
 	}
 	return false
 }
-
 
 // New creates a new Dashboard wired to the given engine and event store.
 func New(eng *engine.Engine, store events.EventStore, apiKey string) *Dashboard {
@@ -294,13 +293,14 @@ func (d *Dashboard) authWrap(handler http.HandlerFunc) http.HandlerFunc {
 			}
 		}
 
-		// Enforce tenant API key scoping: tenant keys cannot access admin-only endpoints
-		if getAuthType(r) == authTenant {
-			for _, prefix := range adminOnlyPrefixes {
-				if strings.HasPrefix(r.URL.Path, prefix) {
-					writeJSON(w, http.StatusForbidden, map[string]any{"error": "tenant-scoped API key cannot access this endpoint"})
-					return
-				}
+		// Enforce tenant API key scoping (fail-closed): a tenant-scoped key may
+		// only reach explicitly allow-listed read-only API endpoints. Any other
+		// /api/ path — including admin endpoints and any newly added route — is
+		// denied by default.
+		if getAuthType(r) == authTenant && strings.HasPrefix(r.URL.Path, "/api/") {
+			if !tenantKeyAllows(r.URL.Path) {
+				writeJSON(w, http.StatusForbidden, map[string]any{"error": "tenant-scoped API key cannot access this endpoint"})
+				return
 			}
 		}
 
@@ -338,7 +338,8 @@ func (d *Dashboard) pprofWrap(handler http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		// Require pprofKey when set; when adminKey is set and pprofKey is not,
-		// accept adminKey as a fallback (admin has debug access).
+		// accept adminKey as a fallback (admin has debug access). If neither
+		// key is configured, keep pprof disabled even for localhost.
 		if d.pprofKey != "" {
 			_, authorized := d.checkPprofKey(r)
 			if !authorized {
@@ -350,15 +351,13 @@ func (d *Dashboard) pprofWrap(handler http.HandlerFunc) http.HandlerFunc {
 				http.Error(w, "pprof access denied", http.StatusForbidden)
 				return
 			}
+		} else {
+			http.Error(w, "pprof access denied", http.StatusForbidden)
+			return
 		}
 		handler.ServeHTTP(w, r)
 	}
 }
-
-
-
-
-
 
 // SetUpstreamsFn sets the function that returns upstream health status.
 
@@ -637,7 +636,6 @@ func (d *Dashboard) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "message": "Configuration updated and saved"})
 }
 
-
 // applyWAFPatch applies partial config updates from a JSON patch object.
 func applyWAFPatch(cfg *config.Config, waf map[string]any) {
 	if det, ok := waf["detection"].(map[string]any); ok {
@@ -871,11 +869,11 @@ func (d *Dashboard) SetRulesFns(
 	geoLookup func(string) (string, string),
 ) {
 	d.ruleStore = &ruleStoreAdapter{
-		getRules:    getRules,
-		addRule:     addRule,
-		updateRule:  updateRule,
-		deleteRule:  deleteRule,
-		toggleRule:  toggleRule,
+		getRules:   getRules,
+		addRule:    addRule,
+		updateRule: updateRule,
+		deleteRule: deleteRule,
+		toggleRule: toggleRule,
 	}
 	if geoLookup != nil {
 		d.geoLookup = &geoLookupAdapter{fn: geoLookup}
@@ -891,10 +889,12 @@ type ruleStoreAdapter struct {
 	toggleRule func(string, bool) bool
 }
 
-func (r *ruleStoreAdapter) GetRules() any   { return r.getRules() }
+func (r *ruleStoreAdapter) GetRules() any                    { return r.getRules() }
 func (r *ruleStoreAdapter) AddRule(raw map[string]any) error { return r.addRule(raw) }
-func (r *ruleStoreAdapter) UpdateRule(id string, raw map[string]any) error { return r.updateRule(id, raw) }
-func (r *ruleStoreAdapter) RemoveRule(id string) bool { return r.deleteRule(id) }
+func (r *ruleStoreAdapter) UpdateRule(id string, raw map[string]any) error {
+	return r.updateRule(id, raw)
+}
+func (r *ruleStoreAdapter) RemoveRule(id string) bool               { return r.deleteRule(id) }
 func (r *ruleStoreAdapter) ToggleRule(id string, enabled bool) bool { return r.toggleRule(id, enabled) }
 
 // geoLookupAdapter wraps a func(string) (string, string) as a GeoLookup interface.

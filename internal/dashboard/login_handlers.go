@@ -22,7 +22,7 @@ type apiBucket struct {
 	mu         sync.Mutex
 	tokens     float64
 	maxTokens  float64
-	refillRate float64  // tokens per second
+	refillRate float64 // tokens per second
 	lastRefill time.Time
 }
 

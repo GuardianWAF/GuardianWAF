@@ -644,7 +644,7 @@ func (m *fullMockTenantManager) GetAllUsage() []any                      { retur
 func (m *fullMockTenantManager) GetTenantUsage(tenantID string) any {
 	return map[string]any{"tenant_id": tenantID, "requests": 5000}
 }
-func (m *fullMockTenantManager) GetTenantRules(tenantID string) []any        { return nil }
+func (m *fullMockTenantManager) GetTenantRules(tenantID string) []any { return nil }
 func (m *fullMockTenantManager) AddTenantRule(tenantID string, rule map[string]any) error {
 	return nil
 }
