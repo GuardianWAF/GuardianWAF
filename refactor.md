@@ -4,6 +4,15 @@
 > **Date:** 2026-05-30 (last updated)
 > **Health:** `go build ./...` ✅ · `go vet ./...` ✅ · `go test ./...` ✅ (67 pkgs) · touched packages pass `-race`.
 
+> **⚠️ Superseded in part by `AUDIT.md` (2026-06-04).** A later hardening + cleanup pass resolved or mooted several items below — read `AUDIT.md` first:
+> - **§1.1 (fate of the ~12 unwired layers) — RESOLVED by *dropping*:** `integrations/v040`, `analytics`, `feature`, `http3` and all 12 showcase layers (`siem`, `cluster`, `clustersync`, `layers/{websocket,grpc,zerotrust,graphql,canary,cache,replay}`, `proxy/grpc`, `discovery`, `ai/remediation`, `ml/*`, `botdetect/enhanced`) were **deleted** (~55k LOC). `quic-go` removed → **zero dependencies**.
+> - **§2.2 (zerotrust mTLS), §2.4 (API-Discovery status 0), §3.1-note — MOOT:** those packages no longer exist.
+> - **§3.3 (silent type-conversion) & §3.4 (parser ignores unsupported syntax) — RESOLVED:** the config *file* load path is now fail-loud; the YAML parser rejects `---`/anchors/aliases/tags/merge-keys.
+> - **§4.5 (admin authz string-prefix) — RESOLVED:** tenant API-key scoping is now a fail-closed allow-list.
+> - **§3.2 (DeepCopy) — PARTIAL:** 3 shared-reference bugs fixed + a reflection-based full-tree independence guard test added; committing a real generator is still open.
+> - **Also new:** serve fails closed when an enabled security layer can't build (`GWAF_ALLOW_DEGRADED_START` to override); CRS errors on an unloadable ruleset; sqli/lfi/cmdi/ssrf detectors fall back to raw input when the sanitizer is off.
+> - Changelog references below to `cluster`/`clustersync` work are historical — those packages are now deleted.
+
 This document now tracks **only the work that is still open**. Each finding carries a **severity**, **file:line** references, **why it matters**, and a **recommended action**.
 
 | Severity | Meaning |
