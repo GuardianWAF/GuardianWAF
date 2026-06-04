@@ -187,7 +187,19 @@ Deleted four packages with **zero importers** (verified by grep + `go list -deps
 - **Note — `quic-go` now vestigial:** it was only used by `internal/http3`. It remains in `go.mod` (build still passes); run `go mod tidy` to drop it — left untouched to avoid changing deps without sign-off.
 - **Note — 12 showcase layer packages** (siem, cluster, clustersync, websocket, grpc, zerotrust, graphql, canary, cache, replay, discovery, ai/remediation + ml/*) still exist but now have **no wiring path at all** (their only would-be wirer, v040, is gone). They're the obvious next deletion batch if you want them gone.
 
-**Truly remaining (low severity / decision-gated, documented):** `LoadEnv` `GWAF_*` parse swallows (runtime env; left deliberately); M1 cmdi `checkEncodedNewline` (detector-FP risk); the 12 orphaned showcase layers (delete or wire — your call); `go mod tidy` for quic-go; §3.2 commit a real DeepCopy generator (now guarded by the Round-6 reflection test). Everything in the config *file* load path is fail-loud.
+### Round 8 — delete the orphaned showcase layers (§2, completion)
+
+With v040 gone (Round 7), the 12 "showcase" layers had **no wiring path at all**. Verified each had zero live importers and deleted all of them plus their transitively-dead deps — 17 packages, **~47,000 LOC** (≈15k production + ≈32k of dead-code tests):
+
+`layers/{siem,websocket,grpc,zerotrust,graphql,canary,cache,replay}`, `cluster`, `clustersync`, `proxy/grpc`, `discovery`, `ai/remediation`, `ml/{anomaly,features,onnx}`, `layers/botdetect/enhanced`.
+
+`internal/ml` and `internal/proxy/grpc` dirs removed (empty); `internal/ai` and `internal/layers/botdetect` keep their live code. `go build` (default + `-tags http3`), `go vet`, and the full `go test ./...` all pass. CLAUDE.md layer catalogue rewritten (only the 16 wired layers + JS Challenge remain) and the deleted package-layout entries removed.
+
+The corresponding `WAF.GraphQL` / `WAF.MLAnomaly` / `WAF.APIDiscovery` config structs + their `populate*` funcs remain in the config package (self-contained, parsed-but-inert) — removing them is a separate config-schema refactor; left as a documented follow-up.
+
+**Combined dead-code removal (Rounds 7+8): ~55,000 LOC across 21 packages.**
+
+**Truly remaining (low severity / decision-gated):** `LoadEnv` `GWAF_*` parse swallows (runtime env; left deliberately); M1 cmdi `checkEncodedNewline` (detector-FP risk); `go mod tidy` to drop now-unused quic-go; remove the inert `WAF.GraphQL/MLAnomaly/APIDiscovery` config structs; §3.2 commit a real DeepCopy generator (now guarded by the Round-6 reflection test). Everything in the config *file* load path is fail-loud.
 
 ---
 

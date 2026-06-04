@@ -86,41 +86,33 @@ Defined in `internal/engine/layer.go`.
 
 The 16 layers actually wired in serve mode: IP ACL, Threat Intel, CORS, Custom Rules, Rate Limit, ATO Protection, API Security, API Validation, Sanitizer, CRS, Detection, Virtual Patch, DLP, Bot Detection, Client-Side, Response.
 
-**Layer catalogue** (✅ = wired in serve; ❌ = implemented but not wired — see note above):
+**Layer catalogue** — all layers below are wired in serve mode. (The previously-listed
+unwired "showcase" layers — SIEM, Cluster, WebSocket, gRPC, Zero Trust, Canary, Cache,
+Replay, GraphQL, API Discovery, ML Anomaly, AI Remediation — were **deleted on 2026-06-04**
+as dead code with no wiring path; see `AUDIT.md` §2. Their `WAF.*` config structs remain
+parsed-but-inert and are rejected as unknown top-level keys.)
 
-| Order | Layer | Serve? | Description |
-|-------|-------|:------:|-------------|
-| 1 | SIEM | ❌ | Passive event forwarding to SIEM systems (Splunk, ELK, ArcSight) |
-| 75 | Cluster | ❌ | HTTP gossip + leader election; distributes IP bans across nodes |
-| 76 | WebSocket | ❌ | WebSocket handshake validation, connection limits |
-| 78 | gRPC | ❌ | gRPC request validation, method allowlists, protobuf wire format + schema validation |
-| 85 | Zero Trust | ❌ | mTLS client verification, device attestation, session trust levels |
-| 95 | Canary | ❌ | Canary release routing (% traffic to canary upstream) |
-| 100 | IP ACL | ✅ | Radix tree CIDR matching, runtime add/remove, auto-ban |
-| 125 | Threat Intel | ✅ | IP/domain reputation feeds with LRU cache |
-| 140 | Cache | ❌ | Response caching (memory/Redis backend) |
-| 145 | Replay | ❌ | Request/response recording for testing |
-| 150 | CORS | ✅ | Origin validation, preflight caching |
-| 150 | Custom Rules | ✅ | Geo-aware rule engine with dashboard CRUD |
-| 200 | Rate Limit | ✅ | Token bucket per IP/path, auto-ban |
-| 250 | ATO Protection | ✅ | Brute force, credential stuffing, password spray, impossible travel |
-| 275 | API Security | ✅ | JWT validation (RS256/ES256/HS256), API key auth |
-| 280 | API Validation | ✅ | Request/response schema validation (YAML-defined schemas) |
-| 285 | GraphQL | ❌ | Query depth/complexity/introspection limits |
-| 300 | Sanitizer | ✅ | Normalize + validate requests |
-| 310 | API Discovery | ❌ | Passive API endpoint discovery, OpenAPI generation |
-| 350 | CRS | ✅ | OWASP ModSecurity Core Rule Set parser and executor |
-| 400 | Detection | ✅ | 6 detectors: sqli, xss, lfi, cmdi, xxe, ssrf (each in own subdirectory) |
-| 430 | JS Challenge | ✅ | Bot proof-of-work challenge (SHA-256 PoW) — wired via the challenge service |
-| 450 | Virtual Patch | ✅ | Virtual patching layer |
-| 473 | ML Anomaly | ❌ | ONNX-based Isolation Forest anomaly detection |
-| 475 | DLP | ✅ | Data Loss Prevention (credit cards, SSNs, API keys, PII) |
-| 480 | AI Remediation | ❌ | Generated rules from AI threat analysis verdicts |
-| 500 | Bot Detection | ✅ | JA3/JA4 TLS fingerprinting, UA, behavioral analysis |
-| 590 | Client-Side | ✅ | Client-side protection injection |
-| 600 | Response | ✅ | Security headers, data masking, branded block pages |
+| Order | Layer | Description |
+|-------|-------|-------------|
+| 100 | IP ACL | Radix tree CIDR matching, runtime add/remove, auto-ban |
+| 125 | Threat Intel | IP/domain reputation feeds with LRU cache |
+| 150 | CORS | Origin validation, preflight caching |
+| 150 | Custom Rules | Geo-aware rule engine with dashboard CRUD |
+| 200 | Rate Limit | Token bucket per IP/path, auto-ban |
+| 250 | ATO Protection | Brute force, credential stuffing, password spray, impossible travel |
+| 275 | API Security | JWT validation (RS256/ES256/HS256), API key auth |
+| 280 | API Validation | Request/response schema validation (YAML-defined schemas) |
+| 300 | Sanitizer | Normalize + validate requests |
+| 350 | CRS | OWASP ModSecurity Core Rule Set parser and executor |
+| 400 | Detection | 6 detectors: sqli, xss, lfi, cmdi, xxe, ssrf (each in own subdirectory) |
+| 430 | JS Challenge | Bot proof-of-work challenge (SHA-256 PoW) — wired via the challenge service |
+| 450 | Virtual Patch | Virtual patching layer |
+| 475 | DLP | Data Loss Prevention (credit cards, SSNs, API keys, PII) |
+| 500 | Bot Detection | JA3/JA4 TLS fingerprinting, UA, behavioral analysis |
+| 590 | Client-Side | Client-side protection injection |
+| 600 | Response | Security headers, data masking, branded block pages |
 
-(✅ = compiled into and wired in the `serve` binary, verified via `go list -deps ./cmd/guardianwaf`; ❌ = implemented + unit-tested but **not** in the serve binary. See `refactor.md` §3.7.)
+(Verified via `go list -deps ./cmd/guardianwaf`.)
 
 ### Scoring System
 
@@ -200,19 +192,14 @@ Key config files:
 - `internal/dashboard/` — Web UI (React+Vite+TailwindCSS), REST API, SSE, config editor, AI page, routing topology graph (React Flow)
 - `internal/mcp/` — MCP JSON-RPC server (44 tools: get_stats, get_events, add_blacklist, etc.)
 - `internal/events/` — Event storage (memory ring buffer, JSONL file, event bus)
-- `internal/ai/` — AI threat analysis (models.dev catalog, OpenAI client, batch analyzer, remediation)
+- `internal/ai/` — AI threat analysis (models.dev catalog, OpenAI client, batch analyzer)
 - `internal/docker/` — Docker auto-discovery (Unix socket/CLI, label-based routing, event watcher)
 - `internal/geoip/` — GeoIP database with auto-refresh
 - `internal/acme/` — ACME/Let's Encrypt auto-certificate (HTTP-01)
 - `internal/tenant/` — Multi-tenant management (isolation, billing, rate limits, per-tenant rules)
 - `internal/alerting/` — Webhook and email alerting (Slack, Discord, PagerDuty, SMTP)
-- `internal/cluster/` — Cluster mode (HTTP gossip + leader election; NOT Raft — see ADR 0023)
-- `internal/clustersync/` — Cross-node state synchronization (gRPC-lite over TCP)
 - `internal/compliance/` — Compliance reporting (PCI DSS, GDPR, SOC 2, ISO 27001 control registry, evaluator, reports, audit chain)
-- `internal/discovery/` — Passive API discovery and path clustering
-- `internal/ml/` — ML anomaly detection (ONNX model, Isolation Forest — separate from AI batch analysis)
 - `internal/tracing/` — Zero-dependency distributed tracing (OpenTelemetry-compatible API, sampling, exporters)
-- `internal/layers/zerotrust/` — Zero Trust middleware/service (in-development, not yet wired)
 - `tests/reliability/` — Flaky test detection (JSONL-based pass/fail tracking across CI runs)
 - `guardianwaf.go` + `options.go` — Public library API
 
