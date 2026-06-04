@@ -7,11 +7,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 GuardianWAF is a zero-dependency Web Application Firewall written in Go (1.26+; `go.mod` pins 1.26.3).
 Module: `github.com/guardianwaf/guardianwaf`
 
-The codebase targets the Go standard library only. (`go.mod` still lists `quic-go`, but it is now **vestigial**: the `internal/http3` package that used it was removed on 2026-06-04 as dead/unwired code — run `go mod tidy` to drop it.)
+The codebase uses the Go standard library **only** — `go.mod` has zero `require` entries and `go.sum` is empty (verified 2026-06-04, after the dead `internal/http3` package and its sole dependency `quic-go` were removed).
 
 ## Key Constraints
 
-- **ZERO external Go dependencies** — only Go stdlib. No exceptions. (`quic-go` remains in `go.mod` but is unused after the HTTP/3 package removal; pending `go mod tidy`.)
+- **ZERO external Go dependencies** — only Go stdlib. No exceptions. (`go.mod` has no `require` block; `go.sum` is empty. The former `quic-go`/HTTP-3 dependency was removed on 2026-06-04.)
 - Frontend (React dashboard) uses npm packages — that's OK, they embed into the Go binary.
 - Use `any` instead of `interface{}`
 - Use built-in `min`/`max` functions (Go 1.21+)

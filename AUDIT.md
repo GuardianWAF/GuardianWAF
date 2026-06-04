@@ -199,7 +199,11 @@ The corresponding `WAF.GraphQL` / `WAF.MLAnomaly` / `WAF.APIDiscovery` config st
 
 **Combined dead-code removal (Rounds 7+8): ~55,000 LOC across 21 packages.**
 
-**Truly remaining (low severity / decision-gated):** `LoadEnv` `GWAF_*` parse swallows (runtime env; left deliberately); M1 cmdi `checkEncodedNewline` (detector-FP risk); `go mod tidy` to drop now-unused quic-go; remove the inert `WAF.GraphQL/MLAnomaly/APIDiscovery` config structs; §3.2 commit a real DeepCopy generator (now guarded by the Round-6 reflection test). Everything in the config *file* load path is fail-loud.
+### Round 9 — true zero-dependency (project's #1 constraint)
+
+`internal/http3` (Round 7) was the only user of `quic-go`. Ran `go mod tidy`: `go.mod` now has **no `require` block** and `go.sum` is **empty** — GuardianWAF is genuinely Go-stdlib-only. Verified `go build ./...`, `go build -tags http3 ./...`, `go vet`, and full `go test ./...` all still pass. CLAUDE.md dependency notes updated to reflect the achieved zero-dep state.
+
+**Truly remaining (low severity / decision-gated):** `LoadEnv` `GWAF_*` parse swallows (runtime env; left deliberately); M1 cmdi `checkEncodedNewline` (detector-FP risk); remove the inert `WAF.GraphQL/MLAnomaly/APIDiscovery` config structs (config-schema refactor); §3.2 commit a real DeepCopy generator (now guarded by the Round-6 reflection test). Everything in the config *file* load path is fail-loud.
 
 ---
 
