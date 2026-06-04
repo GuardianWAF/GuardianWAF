@@ -225,6 +225,9 @@ Conclusion: the deletions and fail-closed changes are correct in the running pro
 - `FuzzSQLiDetector` (849k) + `FuzzXSSDetector` (1.7M) — the H1 raw-fallback detector paths hold.
 - `FuzzNormalizeAll` (2.1M) — the normalization path the detectors depend on holds.
 
+**Full security-surface fuzz pass:** for completeness, also fuzzed the rest of the WAF's parse/security surface — all PASS, no crashes:
+`FuzzJWTValidateInput` (auth), `FuzzRadixTreeLookup` (IP-ACL), `FuzzCanonicalizePath` + `FuzzDecodeURLRecursive` (path-traversal/evasion surface), `FuzzSQLiTokenizer`, `FuzzRateLimitRule`, `FuzzJA4Fingerprint`. The entire request-parsing and security-decision surface is fuzz-clean.
+
 ---
 
 ## Appendix — Verification Log
