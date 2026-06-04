@@ -207,6 +207,21 @@ The corresponding `WAF.GraphQL` / `WAF.MLAnomaly` / `WAF.APIDiscovery` config st
 
 ---
 
+### Round 10 — end-to-end runtime verification (real binary)
+
+After all the above (55k-LOC deletion + fail-closed/fail-loud changes), verified the actual `serve` binary behaves correctly — not just the unit tests:
+
+- **Full `go test -race ./...`**: clean (exit 0) — no data races introduced anywhere.
+- **Binary builds + runs** (`go build ./cmd/guardianwaf`, 17 MB); `validate` on the shipped `guardianwaf.yaml` passes.
+- **Detection works:** `check` on `?q=1' UNION SELECT password FROM users--` → `Action: block, Score: 190, 4 findings`.
+- **P0 verified:** a config starting with `---` → `validate` exits 1 with "YAML document markers ... are not supported".
+- **Config fail-loud verified:** `waf.cors.strict_mode: yess` → `validate` exits 1 with `cannot convert "yess" to bool`.
+- **C1+C2 verified:** with CRS enabled + a bad `rule_path`, `serve` **refuses to start** (exit 1): "refusing to start: 1 enabled security layer(s) failed to build ... set GWAF_ALLOW_DEGRADED_START=1 to override". With `GWAF_ALLOW_DEGRADED_START=1` it **starts degraded** (binds and runs) — both sides of the escape hatch confirmed.
+
+Conclusion: the deletions and fail-closed changes are correct in the running product, not just in tests.
+
+---
+
 ## Appendix — Verification Log
 
 - `go build ./...` → exit 0; `go vet ./...` → exit 0; `go test ./...` → exit 0.
