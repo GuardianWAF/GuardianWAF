@@ -220,6 +220,11 @@ After all the above (55k-LOC deletion + fail-closed/fail-loud changes), verified
 
 Conclusion: the deletions and fail-closed changes are correct in the running product, not just in tests.
 
+**Fuzz robustness (the changed code paths):** ran Go's native fuzzers against the modified parser/detector/normalizer code — **~5M total executions, zero crashes/panics**:
+- `FuzzYAMLParser` (158k execs) + `FuzzYAMLParserWithValidation` (124k) — the P0 parser changes hold.
+- `FuzzSQLiDetector` (849k) + `FuzzXSSDetector` (1.7M) — the H1 raw-fallback detector paths hold.
+- `FuzzNormalizeAll` (2.1M) — the normalization path the detectors depend on holds.
+
 ---
 
 ## Appendix — Verification Log
