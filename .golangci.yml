@@ -44,19 +44,17 @@ linters:
           - staticcheck
         path: _test\.go
       - linters:
-          - staticcheck
-        path: internal/layers/apisecurity/jwt\.go
-        text: elliptic.Unmarshal has been deprecated
-      - linters:
           - unparam
         path: internal/acme/client\.go
         text: result 1 .error. is always nil
       - linters:
           - staticcheck
         text: QF1
-      # Tracked Go 1.25/1.26 stdlib deprecations — migration (ReverseProxy.Rewrite,
-      # crypto/ecdh, PublicKey.Bytes) is planned as separate, reviewed work; the
-      # current usages are correct. Mirrors the jwt.go elliptic.Unmarshal exclusion.
+      # Tracked Go 1.25/1.26 stdlib deprecations — migration is planned as separate,
+      # reviewed work because each changes behaviour (ReverseProxy.Rewrite alters
+      # X-Forwarded handling; PublicKey.Bytes changes JWK coordinate padding). The
+      # current usages are correct. (The elliptic.Unmarshal deprecation has been
+      # fully migrated to crypto/ecdh — no exclusion needed.)
       - linters:
           - staticcheck
         text: "SA1019:.*(proxy)?\\.?Director has been deprecated"
@@ -64,10 +62,6 @@ linters:
           - staticcheck
         path: internal/acme/client\.go
         text: "SA1019: pub\\.(X|Y) has been deprecated"
-      - linters:
-          - staticcheck
-        path: internal/layers/apisecurity/jwt_parse\.go
-        text: elliptic.Unmarshal has been deprecated
     paths:
       - third_party$
       - builtin$
