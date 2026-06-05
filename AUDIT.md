@@ -254,6 +254,33 @@ Driving a *running* `serve` binary with real HTTP attacks (not just `check`/unit
 
 `go test -race ./...` clean (46 pkgs, 0 fail, 0 races) after all of the above; `go vet ./...` clean; `deadcode -test ./...` = **0**; UI `tsc`/`eslint`/`vite build`/`vitest` (96 tests) all clean. (Package count is 46, not 47, because the dead `botdetect/biometric` package was removed.)
 
+### Round 12 — concurrency robustness + performance baseline (2026-06-05)
+
+After the Round 11 fixes, exercised the running binary beyond unit tests:
+
+**Concurrency (real HTTP, single process, threaded backend):** 50 workers × 6000 mixed
+requests (attacks + clean). With the stateful per-IP layers isolated (rate-limit /
+bot-detection / auto-ban disabled), the detection pipeline classified **every** request
+correctly — 4002 attacks → 403, 1998 clean → 200, **0 mismatches, 0 errors, 0
+panics/races/fatals**, server `health=200` after. With those layers enabled, the same
+single-IP flood was correctly throttled/auto-banned (clean traffic from the abusive IP
+also blocked) — confirming auto-ban, rate-limit, and behavioral-bot all fire under load.
+This validates that the `sync.Pool` RequestContext, the new `recoverDroppedQueryParams`,
+and the raw+normalized both-scan detectors are concurrency-safe under sustained load.
+
+**Performance baseline** (`go test -bench`, 16 cores; confirms the hardening added no
+meaningful regression — both-scan only doubles work when raw≠normalized):
+- Full WAF pipeline per request: **~20 µs/op single-thread, ~3.5 µs/op parallel**
+  (`BenchmarkEngine_Parallel`), ~5.9 KB / ~72 allocs per request.
+- Hot-path primitives: IP-ACL radix lookup **244 ns** (1 alloc), token-bucket rate-limit
+  **98 ns** (0 alloc), event store **124 ns** (0 alloc), NormalizeAll 248–477 ns,
+  SQLi detect 1–3 µs.
+
+**Full request→upstream→response path** (with a real backend): reverse-proxy forwarding
+(200), DLP response masking (credit-card + SSN redacted), security headers injected,
+gzip body decompression + detection, request-ID/correlation headers, attack-blocked-
+before-proxy, `/healthz` + `/metrics` — all verified live.
+
 ---
 
 ## Appendix — Verification Log
