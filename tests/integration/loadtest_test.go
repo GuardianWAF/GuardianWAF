@@ -71,6 +71,18 @@ func TestLoadTest_BenignTraffic(t *testing.T) {
 	t.Logf("Load test: %d requests, %d workers, %d errors", len(all), workers, errors.Load())
 	t.Logf("Latency: p50=%v p90=%v p99=%v max=%v", p50, p90, p99, max)
 
+	// Correctness is always asserted: every benign request must be evaluated.
+	if n := errors.Load(); n > 0 {
+		t.Errorf("expected 0 errors, got %d", n)
+	}
+
+	// Wall-clock latency thresholds are only meaningful without the race detector.
+	// Under -race the instrumentation inflates and destabilises timings (CI saw
+	// p99 ~240ms), so the threshold flakes. Skip it there; still logged above.
+	if underRace {
+		t.Logf("skipping p99 latency assertion under -race (timing is instrumented)")
+		return
+	}
 	if p99 > p99Target {
 		t.Errorf("p99 latency %v exceeds target %v", p99, p99Target)
 	}

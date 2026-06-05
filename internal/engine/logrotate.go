@@ -168,3 +168,10 @@ type WriteCloser interface {
 type nopWriteCloser struct {
 	*os.File
 }
+
+// Close is intentionally a no-op. nopWriteCloser wraps the process-global
+// os.Stdout / os.Stderr, which must NOT be closed — closing fd 1/2 breaks all
+// subsequent writes (including the test framework's coverage report). Without
+// this override the embedded *os.File.Close would be promoted and actually close
+// the descriptor.
+func (nopWriteCloser) Close() error { return nil }
