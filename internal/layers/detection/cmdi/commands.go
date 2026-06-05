@@ -48,6 +48,17 @@ var commandDatabase = map[string]bool{
 	"df":       true,
 	"mount":    true,
 
+	// System control / destructive
+	"reboot":    true,
+	"shutdown":  true,
+	"poweroff":  true,
+	"halt":      true,
+	"init":      true,
+	"systemctl": true,
+	"service":   true,
+	"useradd":   true,
+	"passwd":    true,
+
 	// Network tools
 	"wget":     true,
 	"curl":     true,

@@ -164,31 +164,6 @@ func (d *Dashboard) SetTenantAPIKey(tenantID, apiKeyHash string) {
 	d.tenantAPIKeys[tenantID] = apiKeyHash
 }
 
-// SetCRSLayer sets the CRS layer for dashboard handlers.
-func (d *Dashboard) SetCRSLayer(layer *crs.Layer) {
-	d.crsLayer = layer
-}
-
-// SetVirtualPatchLayer sets the virtual patch layer for dashboard handlers.
-func (d *Dashboard) SetVirtualPatchLayer(layer *virtualpatch.Layer) {
-	d.virtualPatchLayer = layer
-}
-
-// SetClientSideLayer sets the client-side protection layer for dashboard handlers.
-func (d *Dashboard) SetClientSideLayer(layer *clientside.Layer) {
-	d.clientSideLayer = layer
-}
-
-// SetAPIValidationLayer sets the API validation layer for dashboard handlers.
-func (d *Dashboard) SetAPIValidationLayer(layer *apivalidation.Layer) {
-	d.apiValidationLayer = layer
-}
-
-// SetDLPLayer sets the DLP layer for dashboard handlers.
-func (d *Dashboard) SetDLPLayer(layer *dlp.Layer) {
-	d.dlpLayer = layer
-}
-
 // isAdminAuthenticated checks if the request has the system admin API key.
 func (d *Dashboard) isAdminAuthenticated(r *http.Request) bool {
 	if d.adminKey == "" {
@@ -235,6 +210,14 @@ func New(eng *engine.Engine, store events.EventStore, apiKey string) *Dashboard 
 	d.registerAlerting(d.mux)
 	d.registerDocker(d.mux)
 	d.registerCompliance(d.mux)
+
+	// Per-layer management APIs (CRS, DLP, client-side, API validation, virtual patch).
+	NewCRSHandler(d).RegisterRoutes(d.mux)
+	NewDLPHandler(d).RegisterRoutes(d.mux)
+	NewClientSideHandler(d).RegisterRoutes(d.mux)
+	NewAPIValidationHandler(d).RegisterRoutes(d.mux)
+	NewVirtualPatchHandler(d).RegisterRoutes(d.mux)
+
 	d.registerSPA(d.mux)
 
 	// Debug pprof endpoints — localhost-only, sensitive runtime data

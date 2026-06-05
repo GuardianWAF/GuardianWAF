@@ -314,12 +314,6 @@ func fullConfig() *Config {
 	cfg.WAF.BotDetection.TLSFingerprint = TLSFingerprintConfig{Enabled: true, KnownBotsAction: "block", UnknownAction: "log", MismatchAction: "log"}
 	cfg.WAF.BotDetection.UserAgent = UAConfig{Enabled: true, BlockEmpty: true, BlockKnownScanners: true}
 	cfg.WAF.BotDetection.Behavior = BehaviorConfig{Enabled: true, Window: 5 * time.Minute, RPSThreshold: 10, ErrorRateThreshold: 30}
-	cfg.WAF.BotDetection.Enhanced = EnhancedBotDetectionConfig{
-		Enabled: true, Mode: "enforce",
-		Biometric:          BiometricDetectionConfig{Enabled: true, MinEvents: 20, ScoreThreshold: 50, TimeWindow: 5 * time.Minute},
-		BrowserFingerprint: BrowserFingerprintConfig{Enabled: true, CheckCanvas: true, CheckWebGL: true, CheckFonts: true, CheckHeadless: true},
-		Captcha:            CaptchaChallengeConfig{Enabled: true, Provider: "hcaptcha", SiteKey: "test", SecretKey: "test", Timeout: 30 * time.Second},
-	}
 	cfg.WAF.Response.SecurityHeaders = SecurityHeadersConfig{
 		Enabled: true, HSTS: HSTSConfig{Enabled: true, MaxAge: 31536000, IncludeSubDomains: true},
 		XContentTypeOptions: true, XFrameOptions: "SAMEORIGIN", ReferrerPolicy: "strict-origin-when-cross-origin",

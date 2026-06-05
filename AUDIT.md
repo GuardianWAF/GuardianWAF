@@ -230,6 +230,32 @@ Conclusion: the deletions and fail-closed changes are correct in the running pro
 
 ---
 
+### Round 11 — live-traffic detection gaps fixed + dead dashboard handlers wired (2026-06-05)
+
+Driving a *running* `serve` binary with real HTTP attacks (not just `check`/unit tests) surfaced two **detection bypasses** that the unit tests missed because they fed detectors pre-normalized input:
+
+1. **Path-traversal & command-injection were defeated by the Sanitizer's own normalization.** `CanonicalizePath` (in `NormalizeAll`, used to build `ctx.NormalizedQuery/Path`) *resolves* `../` segments and path-joins query values. The LFI/CMDi detectors only scanned the normalized form, so `?file=../../../../etc/passwd` → normalized to `etc/passwd` (traversal signal gone) → **passed**; `?host=127.0.0.1;cat /etc/passwd` was likewise mangled. **Fix:** LFI and CMDi `Process` now scan **both** the raw (`QueryParams`/`Path`/`BodyString`/raw `Referer`) and the normalized form, deduping identical strings. Raw restores the `../`/metachar signal; normalized keeps the decode-evasion benefit (`%2e%2e%2f`, etc.). Regression tests: `lfi.TestDetector_TraversalSurvivesCanonicalization`, `cmdi.TestProcess_InjectionSurvivesNormalization`, plus clean-input no-false-positive guards.
+
+2. **Semicolon query-smuggling.** `net/url.Query()` (Go 1.17+) silently **drops every key/value pair** when the raw query contains a `;`, so a literal `?host=127.0.0.1;cat /etc/passwd` reached *no* detector while many backends still parse it. **Fix:** `AcquireContext` now recovers the dropped pairs from `r.URL.RawQuery` (split on `&` only, so `;` stays inside the value) and merges them into `QueryParams`, fixing the bypass for **all** detectors at once. Regression tests: `engine.TestSemicolonQueryParamsRecovered`, `engine.TestRecoverDroppedQueryParams`; legitimate `;`-separated values verified to remain non-blocking (no false positives).
+
+   Live verification (running binary, all now `403`): SQLi, XSS, `../` LFI, `;cat` CMDi, empty-UA bot; clean request with a normal UA passes (`503` upstream-down). `/metrics` reports `guardianwaf_requests_total 6` / blocked 5 / passed 1 — matching the exact test traffic.
+
+3. **Five dead dashboard handler files wired.** `NewCRSHandler`/`NewDLPHandler`/`NewClientSideHandler`/`NewAPIValidationHandler`/`NewVirtualPatchHandler` had their `RegisterRoutes` **never called** (refactor.md §4.1 had wrongly marked them "functional"). Registered all five in `dashboard.New()`; removed the five now-redundant dead `Set*Layer()` setters. Live: `GET /api/{crs,dlp,clientside,apivalidation,virtualpatch}/...` return 200 with real JSON. This dropped `deadcode ./cmd/guardianwaf` from 323 → 248.
+
+4. **Misc dead-code removal** (confirmed unreachable even with `-test ./...`): `config.validate{Positive,NonNegative,Enum,KnownTopLevelKeys}`, `engine.isTrustedProxy` (dup of the live `isTrustedProxyIn` path), `dashboard.apiRateLimitWrap` (dup of the inline `apiBucketAllow` in `authWrap`), `events.FileStore.Dropped`, `apisecurity.hmacKey.bytes`, plus dead test scaffolding (`startFakeSMTPServer`, `mockVirtualPatchLayer`, `splitDot`, `helperAuthReqKey`). After these, `deadcode -test ./...` reports **2** remaining — both *unwired features* (ship-or-drop decisions), not cruft: `docker.NewTLSClient` (Docker-over-TLS client; the only setter for the `tlsVerify`/`certPath` paths) and `botdetect.EnhancedLayer` (the ADR-0018 enhanced/biometric bot layer; present + unit-tested + config-schema'd but never wired into any binary).
+
+5. **SSRF loopback defeated by the same normalization bug.** `CanonicalizePath` collapses `//`→`/`, so `http://127.0.0.1:22/` became `http:/127.0.0.1:22` and the loopback patterns (which expect `http://…`) stopped matching — `127.0.0.1`, `localhost`, `[::1]` SSRF all **passed** (only the bare-IP metadata pattern `169.254.169.254`, matched as a substring, survived). **Fix:** SSRF `Process` now both-scans raw + normalized (same dedup pattern as LFI/CMDi). This exposed a latent **false-positive** in the loopback matcher (`strings.Contains` flagged the unrelated subdomain `localhost.example.com`); added a host-boundary check (`containsHostPattern`/`isHostBoundary`) so only a real loopback host (followed by `:`, `/`, or end) matches. Regression tests: `ssrf.TestProcess_LoopbackSurvivesNormalization`, `ssrf.TestCheckLocalhostPatterns_SubdomainBoundary`.
+
+6. **CMDi newline-injection.** Only the *URL-encoded* literal `%0a`/`%0d` was checked; a decoded actual newline (`?h=1%0Areboot` → `"1\nreboot"`) was not treated as a command separator, and the system-control commands (`reboot`, `shutdown`, `poweroff`, `halt`, `init`, `systemctl`, `service`, `useradd`, `passwd`) were missing from the command database. **Fix:** added `\n`/`\r` as shell-metacharacter separators (a known command must follow → low false-positive) and added the missing commands. Regression test: `cmdi.TestDetect_NewlineSeparator` (with a benign-multiline no-false-positive guard).
+
+   These six gaps share one lesson: unit tests fed detectors *pre-normalized* input, so the normalization-vs-detection conflict and the parser-differential bypass only showed up when driving the live binary. A 20-vector adversarial matrix (all 6 detectors + evasions + false-positive guards) now passes with **0 mismatches**.
+
+**Fuzz robustness (the changed detector + parser paths):** added and ran new fuzzers — **~7M executions, 0 crashes/panics**: `FuzzLFIDetector` (2.1M), `FuzzCMDiDetector` (1.36M), `FuzzSSRFDetector` (1.6M), `FuzzRecoverDroppedQueryParams` (2.0M, asserts pre-existing params are never corrupted).
+
+`go test -race ./...` clean (46 pkgs, 0 fail, 0 races) after all of the above; `go vet ./...` clean; `deadcode -test ./...` = **0**; UI `tsc`/`eslint`/`vite build`/`vitest` (96 tests) all clean. (Package count is 46, not 47, because the dead `botdetect/biometric` package was removed.)
+
+---
+
 ## Appendix — Verification Log
 
 - `go build ./...` → exit 0; `go vet ./...` → exit 0; `go test ./...` → exit 0.

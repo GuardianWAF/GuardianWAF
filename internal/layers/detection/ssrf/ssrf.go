@@ -51,34 +51,45 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 
 	var allFindings []engine.Finding
 
-	// 1. URL path. Fall back to the raw path when the Sanitizer layer is
-	// disabled (it populates the Normalized* fields); otherwise this detector
-	// would scan nothing and silently fail open. Mirrors xss/xxe.
-	path := ctx.NormalizedPath
-	if path == "" {
-		path = ctx.Path
+	// Scan BOTH the raw and the sanitizer-normalized form of every input.
+	// The sanitizer's CanonicalizePath collapses "//" to "/" (and resolves "../")
+	// when building the Normalized* fields, which breaks scheme-prefixed SSRF
+	// targets like "http://127.0.0.1:22/" → "http:/127.0.0.1:22" and defeats the
+	// localhost/loopback patterns. Scanning the raw input as well restores the
+	// signal; normalized keeps the decode-evasion benefit. Identical strings are
+	// scanned once (dedup). Mirrors xss/xxe fail-open guard for a disabled Sanitizer.
+	seen := make(map[string]struct{})
+	scan := func(v, location string) {
+		if v == "" {
+			return
+		}
+		key := location + "\x00" + v
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		allFindings = append(allFindings, Detect(v, location)...)
 	}
-	allFindings = append(allFindings, Detect(path, "path")...)
 
-	// 2. Query parameters (most common SSRF vector)
-	qp := ctx.NormalizedQuery
-	if qp == nil {
-		qp = ctx.QueryParams
-	}
-	for _, values := range qp {
+	// 1. URL path (raw + normalized)
+	scan(ctx.Path, "path")
+	scan(ctx.NormalizedPath, "path")
+
+	// 2. Query parameters — the most common SSRF vector (raw + normalized)
+	for _, values := range ctx.QueryParams {
 		for _, v := range values {
-			allFindings = append(allFindings, Detect(v, "query")...)
+			scan(v, "query")
+		}
+	}
+	for _, values := range ctx.NormalizedQuery {
+		for _, v := range values {
+			scan(v, "query")
 		}
 	}
 
-	// 3. Body (JSON string values, form data)
-	body := ctx.NormalizedBody
-	if body == "" {
-		body = ctx.BodyString
-	}
-	if body != "" {
-		allFindings = append(allFindings, Detect(body, "body")...)
-	}
+	// 3. Body (JSON string values, form data) (raw + normalized)
+	scan(ctx.BodyString, "body")
+	scan(ctx.NormalizedBody, "body")
 
 	// 4. Cookie values
 	for _, v := range ctx.Cookies {
@@ -207,13 +218,45 @@ func checkLocalhostPatterns(lower, location string) []engine.Finding {
 	}
 
 	for _, p := range patterns {
-		if strings.Contains(lower, p.pattern) {
+		if containsHostPattern(lower, p.pattern) {
 			findings = append(findings, makeFinding(p.score, engine.SeverityCritical,
 				p.desc, extractContext(lower, p.pattern), location, 0.90))
 		}
 	}
 
 	return findings
+}
+
+// containsHostPattern reports whether pattern (a "scheme://host" prefix) occurs
+// in s immediately followed by a host boundary — so "https://localhost" matches
+// "https://localhost:22/" and "https://localhost/x" but NOT the unrelated
+// subdomain "https://localhost.example.com". Without this, plain substring
+// matching flags any host whose name merely starts with "localhost"/"127.0.0.1".
+func containsHostPattern(s, pattern string) bool {
+	for from := 0; ; {
+		i := strings.Index(s[from:], pattern)
+		if i < 0 {
+			return false
+		}
+		if isHostBoundary(s, from+i+len(pattern)) {
+			return true
+		}
+		from += i + 1
+	}
+}
+
+// isHostBoundary reports whether the byte at index end terminates a hostname —
+// i.e. it is end-of-string or not a character that can continue a host/IP
+// (letters, digits, '.', '-').
+func isHostBoundary(s string, end int) bool {
+	if end >= len(s) {
+		return true
+	}
+	c := s[end]
+	if c >= 'a' && c <= 'z' || c >= '0' && c <= '9' {
+		return false
+	}
+	return c != '.' && c != '-'
 }
 
 // checkMetadataEndpoints detects cloud metadata endpoint access.

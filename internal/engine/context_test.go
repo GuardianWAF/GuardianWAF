@@ -12,6 +12,43 @@ import (
 	"testing"
 )
 
+// TestSemicolonQueryParamsRecovered guards against a query-parsing evasion:
+// net/url.Query() (Go 1.17+) silently drops every key/value pair when the raw
+// query contains a ';'. AcquireContext must recover those pairs so detectors
+// still see the payload. Regression for the WAF ';'-smuggling bypass.
+func TestSemicolonQueryParamsRecovered(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/ping?host=127.0.0.1;cat+/etc/passwd", nil)
+	r.RemoteAddr = "10.0.0.1:1234"
+	ctx := AcquireContext(r, 1, 1024)
+	defer ReleaseContext(ctx)
+
+	got := ctx.QueryParams["host"]
+	want := "127.0.0.1;cat /etc/passwd"
+	if len(got) == 0 {
+		t.Fatalf("semicolon-bearing param was dropped; QueryParams=%v", ctx.QueryParams)
+	}
+	if got[0] != want {
+		t.Errorf("recovered value mismatch:\n got  %q\n want %q", got[0], want)
+	}
+}
+
+// TestRecoverDroppedQueryParams unit-tests the recovery helper directly,
+// including dedup and the '&'-only split that preserves ';' inside values.
+func TestRecoverDroppedQueryParams(t *testing.T) {
+	dst := map[string][]string{"a": {"1"}} // simulate what Query() already parsed
+	recoverDroppedQueryParams(dst, "a=1&b=2;3&host=x;cat%20/etc/passwd")
+
+	if v := dst["a"]; len(v) != 1 || v[0] != "1" {
+		t.Errorf("a: expected no duplicate, got %v", v) // already present -> deduped
+	}
+	if v := dst["b"]; len(v) != 1 || v[0] != "2;3" {
+		t.Errorf("b: expected [\"2;3\"] (';' kept in value), got %v", v)
+	}
+	if v := dst["host"]; len(v) != 1 || v[0] != "x;cat /etc/passwd" {
+		t.Errorf("host: expected decoded value with ';' preserved, got %v", v)
+	}
+}
+
 func TestAcquireRelease(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "/test?a=1", nil)
 	r.RemoteAddr = "192.168.1.1:12345"

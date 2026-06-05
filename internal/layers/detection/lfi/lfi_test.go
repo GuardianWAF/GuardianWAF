@@ -165,6 +165,47 @@ func TestDetector_Integration(t *testing.T) {
 	}
 }
 
+// TestDetector_TraversalSurvivesCanonicalization is a regression guard: the
+// Sanitizer's CanonicalizePath RESOLVES "../" segments away when building
+// NormalizedQuery, which previously blinded this detector to path traversal in
+// query parameters. Process must also scan the raw QueryParams so "../" is caught.
+func TestDetector_TraversalSurvivesCanonicalization(t *testing.T) {
+	det := NewDetector(true, 1.0)
+
+	ctx := &engine.RequestContext{
+		Path:           "/download",
+		NormalizedPath: "/download",
+		// Raw still contains the traversal...
+		QueryParams: map[string][]string{"file": {"../../../../etc/passwd"}},
+		// ...but the sanitizer collapsed it (this is what CanonicalizePath does).
+		NormalizedQuery: map[string][]string{"file": {"etc/passwd"}},
+		Headers:         map[string][]string{},
+		Cookies:         map[string]string{},
+	}
+
+	result := det.Process(ctx)
+	if result.Score < 50 {
+		t.Errorf("path traversal in raw query not detected; score=%d findings=%d", result.Score, len(result.Findings))
+	}
+}
+
+// TestDetector_NoFalsePositiveOnCleanQuery guards the both-scan change against
+// flagging a perfectly legitimate file parameter.
+func TestDetector_NoFalsePositiveOnCleanQuery(t *testing.T) {
+	det := NewDetector(true, 1.0)
+	ctx := &engine.RequestContext{
+		Path:            "/download",
+		NormalizedPath:  "/download",
+		QueryParams:     map[string][]string{"file": {"report.pdf"}},
+		NormalizedQuery: map[string][]string{"file": {"report.pdf"}},
+		Headers:         map[string][]string{},
+		Cookies:         map[string]string{},
+	}
+	if result := det.Process(ctx); result.Score != 0 {
+		t.Errorf("clean file param flagged; score=%d findings=%v", result.Score, result.Findings)
+	}
+}
+
 func TestDetector_Disabled(t *testing.T) {
 	det := NewDetector(false, 1.0)
 

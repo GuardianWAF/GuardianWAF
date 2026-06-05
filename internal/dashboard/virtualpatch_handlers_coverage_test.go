@@ -225,45 +225,6 @@ func TestVirtualPatch_HandleAddPatch_InvalidJSON(t *testing.T) {
 	}
 }
 
-// --- mockVirtualPatchLayer for non-nil layer tests ---
-type mockVirtualPatchLayer struct {
-	patches    []*VirtualPatchInfo
-	getPatchFn func(string) *VirtualPatchInfo
-	stats      VirtualPatchStats
-}
-
-func (m *mockVirtualPatchLayer) GetActivePatches() []*VirtualPatchInfo {
-	return m.patches
-}
-func (m *mockVirtualPatchLayer) GetPatch(id string) *VirtualPatchInfo {
-	if m.getPatchFn != nil {
-		return m.getPatchFn(id)
-	}
-	for _, p := range m.patches {
-		if p.ID == id {
-			return p
-		}
-	}
-	return nil
-}
-func (m *mockVirtualPatchLayer) AddPatch(patch *VirtualPatchInfo) {}
-func (m *mockVirtualPatchLayer) EnablePatch(id string) bool       { return true }
-func (m *mockVirtualPatchLayer) DisablePatch(id string) bool      { return true }
-func (m *mockVirtualPatchLayer) GetStats() VirtualPatchStats      { return m.stats }
-func (m *mockVirtualPatchLayer) TriggerUpdate()                   {}
-
-// --- handleListPatches: with mock layer (but layer always returns nil) ---
-func TestVirtualPatch_HandleListPatches_WithMockLayer(t *testing.T) {
-	_ = &mockVirtualPatchLayer{
-		patches: []*VirtualPatchInfo{
-			{ID: "p1", Name: "Patch 1", Severity: "high", Enabled: true, Patterns: []PatchPatternInfo{{Type: "regex"}}},
-			{ID: "p2", Name: "Patch 2", Severity: "low", Enabled: false, Patterns: []PatchPatternInfo{}},
-		},
-	}
-	// getVirtualPatchLayer always returns nil, so nil path is always taken
-	// This test verifies the mock compiles correctly
-}
-
 // --- test query param filtering paths via handleListPatches nil path ---
 func TestVirtualPatch_HandleListPatches_SeverityFilter(t *testing.T) {
 	d := &Dashboard{}

@@ -20,8 +20,6 @@ import (
 // hmacKey is a symmetric HMAC key.
 type hmacKey []byte
 
-func (h hmacKey) bytes() []byte { return h }
-
 // --- JWTValidator HTTP client and algorithm checks ---
 
 func (v *JWTValidator) newJWKSHTTPClient() *http.Client {

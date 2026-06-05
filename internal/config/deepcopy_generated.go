@@ -859,58 +859,6 @@ func (in *BotDetectionConfig) DeepCopy() *BotDetectionConfig {
   out.TLSFingerprint = *in.TLSFingerprint.DeepCopy()
   out.UserAgent = *in.UserAgent.DeepCopy()
   out.Behavior = *in.Behavior.DeepCopy()
-  out.Enhanced = *in.Enhanced.DeepCopy()
-  return &out
-}
-
-func (in *EnhancedBotDetectionConfig) DeepCopy() *EnhancedBotDetectionConfig {
-  if in == nil {
-    return nil
-  }
-  out := *in // shallow copy of scalar fields
-  out.Enabled = in.Enabled
-  out.Mode = in.Mode
-  out.Biometric = *in.Biometric.DeepCopy()
-  out.BrowserFingerprint = *in.BrowserFingerprint.DeepCopy()
-  out.Captcha = *in.Captcha.DeepCopy()
-  return &out
-}
-
-func (in *BiometricDetectionConfig) DeepCopy() *BiometricDetectionConfig {
-  if in == nil {
-    return nil
-  }
-  out := *in // shallow copy of scalar fields
-  out.Enabled = in.Enabled
-  out.MinEvents = in.MinEvents
-  out.ScoreThreshold = in.ScoreThreshold
-  out.TimeWindow = in.TimeWindow
-  return &out
-}
-
-func (in *BrowserFingerprintConfig) DeepCopy() *BrowserFingerprintConfig {
-  if in == nil {
-    return nil
-  }
-  out := *in // shallow copy of scalar fields
-  out.Enabled = in.Enabled
-  out.CheckCanvas = in.CheckCanvas
-  out.CheckWebGL = in.CheckWebGL
-  out.CheckFonts = in.CheckFonts
-  out.CheckHeadless = in.CheckHeadless
-  return &out
-}
-
-func (in *CaptchaChallengeConfig) DeepCopy() *CaptchaChallengeConfig {
-  if in == nil {
-    return nil
-  }
-  out := *in // shallow copy of scalar fields
-  out.Enabled = in.Enabled
-  out.Provider = in.Provider
-  out.SiteKey = in.SiteKey
-  out.SecretKey = in.SecretKey
-  out.Timeout = in.Timeout
   return &out
 }
 

@@ -123,10 +123,10 @@ Applied & verified (build + vet + full test suite green; touched pkgs `-race`):
 
 ## 4. Dashboard & HTTP API (largest single area of debt)
 
-### 4.1 🔴 HIGH — Dead feature-handler files (non-functional stubs) — RESOLVED
-- **What:** `NewCRSHandler`, `NewDLPHandler`, `NewVirtualPatchHandler`, `NewClientSideHandler`, `NewAPIValidationHandler` were never called from non-test code; every `get*Layer()` returned `nil`.
-- **Fix:** wired each to real engine layer via `engine.FindLayer(name)` + adapter pattern. Added `Set*Layer()` setters on Dashboard. Fixed type mismatches (int→int64, ListPatterns→GetAllPatterns, Pattern fields→Patterns slice).
-- **Status:** ✅ Resolved — 5 handler files now functional.
+### 4.1 🔴 HIGH — Dead feature-handler files (non-functional stubs) — RESOLVED (2026-06-05)
+- **What:** `NewCRSHandler`, `NewDLPHandler`, `NewVirtualPatchHandler`, `NewClientSideHandler`, `NewAPIValidationHandler` were never called from non-test code. The handler *bodies* used `engine.FindLayer(name)` + an adapter, but **`RegisterRoutes` was never invoked from `New()`**, so the routes did not exist and the unused `Set*Layer()` setters were dead. (An earlier revision of this note claimed "5 handler files now functional" — that was inaccurate; `deadcode ./cmd/guardianwaf` confirmed all five constructors + their methods were unreachable.)
+- **Fix (2026-06-05):** registered all five in `dashboard.New()` (`NewCRSHandler(d).RegisterRoutes(d.mux)` …) so the routes are live, and removed the five dead `Set*Layer()` setters (the handlers resolve their layer lazily via `FindLayer`). Verified end-to-end: `GET /api/{crs,dlp,clientside,apivalidation,virtualpatch}/...` return 200 with real JSON on a running server.
+- **Status:** ✅ Resolved — 5 handler files genuinely wired and runtime-verified.
 
 ### 4.2 🔴 HIGH — `dashboard.go` monolith (2,553 lines) — RESOLVED
 - **Where:** 70 handler methods, all routes registered in one `New()` (`:162-246`).

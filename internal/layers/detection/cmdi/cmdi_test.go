@@ -85,6 +85,58 @@ func TestDetect_EmptyInput(t *testing.T) {
 	}
 }
 
+// TestProcess_InjectionSurvivesNormalization is a regression guard: the
+// Sanitizer's CanonicalizePath treats query values as paths and can mangle
+// shell-metacharacter sequences in NormalizedQuery. Process must also scan the
+// raw QueryParams so command injection is still detected.
+func TestProcess_InjectionSurvivesNormalization(t *testing.T) {
+	det := NewDetector(true, 1.0)
+	ctx := &engine.RequestContext{
+		Path:           "/ping",
+		NormalizedPath: "/ping",
+		// Raw preserves the injection...
+		QueryParams: map[string][]string{"host": {"127.0.0.1;cat /etc/passwd"}},
+		// ...normalized form is path-mangled.
+		NormalizedQuery: map[string][]string{"host": {"127.0.0.1/cat/etc/passwd"}},
+		Headers:         map[string][]string{},
+		Cookies:         map[string]string{},
+	}
+	if result := det.Process(ctx); result.Score < 50 {
+		t.Errorf("command injection in raw query not detected; score=%d findings=%d", result.Score, len(result.Findings))
+	}
+}
+
+// TestDetect_NewlineSeparator is a regression guard: an actual newline/CR
+// (decoded from %0A/%0D) followed by a known command must be detected as command
+// injection — newline is a shell command separator just like ';'.
+func TestDetect_NewlineSeparator(t *testing.T) {
+	for _, in := range []string{"1\nreboot", "x\rshutdown -h", "ok\nrm -rf /"} {
+		if f := Detect(in, "query"); len(f) == 0 {
+			t.Errorf("newline-separated command not detected: %q", in)
+		}
+	}
+	// A newline in benign text (no command after) must not be flagged.
+	if f := Detect("hello\nworld is fine", "query"); len(f) != 0 {
+		t.Errorf("benign multiline text flagged: %v", f)
+	}
+}
+
+// TestProcess_NoFalsePositiveOnCleanQuery guards the both-scan change.
+func TestProcess_NoFalsePositiveOnCleanQuery(t *testing.T) {
+	det := NewDetector(true, 1.0)
+	ctx := &engine.RequestContext{
+		Path:            "/ping",
+		NormalizedPath:  "/ping",
+		QueryParams:     map[string][]string{"host": {"example.com"}},
+		NormalizedQuery: map[string][]string{"host": {"example.com"}},
+		Headers:         map[string][]string{},
+		Cookies:         map[string]string{},
+	}
+	if result := det.Process(ctx); result.Score != 0 {
+		t.Errorf("clean host param flagged; score=%d findings=%v", result.Score, result.Findings)
+	}
+}
+
 func TestDetect_FindingFields(t *testing.T) {
 	findings := Detect("; whoami", "query")
 	if len(findings) == 0 {

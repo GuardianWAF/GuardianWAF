@@ -769,27 +769,6 @@ func TestIsEmailSent_PlainAuth(t *testing.T) {
 	_ = auth
 }
 
-// startFakeSMTPServer starts a basic SMTP server that handles EHLO, AUTH, MAIL, RCPT, DATA, QUIT.
-func startFakeSMTPServer(t *testing.T) (net.Listener, int) {
-	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Skipf("cannot listen: %v", err)
-	}
-	_, portStr, _ := net.SplitHostPort(ln.Addr().String())
-	port := 0
-	fmt.Sscanf(portStr, "%d", &port)
-	go func() {
-		conn, err := ln.Accept()
-		if err != nil {
-			return
-		}
-		defer conn.Close()
-		handleSMTPSession(conn)
-	}()
-	return ln, port
-}
-
 func handleSMTPSession(conn net.Conn) {
 	fmt.Fprintf(conn, "220 test ESMTP\r\n")
 	scanner := bufio.NewScanner(conn)

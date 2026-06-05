@@ -370,7 +370,6 @@ type ClusterConfig struct {
 	Config any `yaml:"cluster_config"`
 }
 
-
 type ClusterMembership struct {
 	ID            string              `yaml:"id"`
 	Name          string              `yaml:"name"`
@@ -506,47 +505,11 @@ type ExclusionConfig struct {
 
 // BotDetectionConfig controls automated-client detection.
 type BotDetectionConfig struct {
-	Enabled        bool                       `yaml:"enabled"`
-	Mode           string                     `yaml:"mode"`
-	TLSFingerprint TLSFingerprintConfig       `yaml:"tls_fingerprint"`
-	UserAgent      UAConfig                   `yaml:"user_agent"`
-	Behavior       BehaviorConfig             `yaml:"behavior"`
-	Enhanced       EnhancedBotDetectionConfig `yaml:"enhanced"`
-}
-
-// EnhancedBotDetectionConfig controls advanced bot detection with ML-based behavioral analysis.
-type EnhancedBotDetectionConfig struct {
-	Enabled            bool                     `yaml:"enabled"`
-	Mode               string                   `yaml:"mode"` // "monitor" or "enforce"
-	Biometric          BiometricDetectionConfig `yaml:"biometric"`
-	BrowserFingerprint BrowserFingerprintConfig `yaml:"browser_fingerprint"`
-	Captcha            CaptchaChallengeConfig   `yaml:"captcha"`
-}
-
-// BiometricDetectionConfig controls mouse/keyboard behavioral biometrics.
-type BiometricDetectionConfig struct {
-	Enabled        bool          `yaml:"enabled"`
-	MinEvents      int           `yaml:"min_events"`
-	ScoreThreshold float64       `yaml:"score_threshold"`
-	TimeWindow     time.Duration `yaml:"time_window"`
-}
-
-// BrowserFingerprintConfig controls browser fingerprinting for bot detection.
-type BrowserFingerprintConfig struct {
-	Enabled       bool `yaml:"enabled"`
-	CheckCanvas   bool `yaml:"check_canvas"`
-	CheckWebGL    bool `yaml:"check_webgl"`
-	CheckFonts    bool `yaml:"check_fonts"`
-	CheckHeadless bool `yaml:"check_headless"`
-}
-
-// CaptchaChallengeConfig controls CAPTCHA challenge integration.
-type CaptchaChallengeConfig struct {
-	Enabled   bool          `yaml:"enabled"`
-	Provider  string        `yaml:"provider"` // "hcaptcha" or "turnstile"
-	SiteKey   string        `yaml:"site_key"`
-	SecretKey string        `yaml:"secret_key"`
-	Timeout   time.Duration `yaml:"timeout"`
+	Enabled        bool                 `yaml:"enabled"`
+	Mode           string               `yaml:"mode"`
+	TLSFingerprint TLSFingerprintConfig `yaml:"tls_fingerprint"`
+	UserAgent      UAConfig             `yaml:"user_agent"`
+	Behavior       BehaviorConfig       `yaml:"behavior"`
 }
 
 // TLSFingerprintConfig controls JA3/JA4 TLS fingerprint analysis.

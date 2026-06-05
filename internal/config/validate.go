@@ -48,30 +48,6 @@ func (ve *ValidationError) addError(field, message string) {
 	ve.Errors = append(ve.Errors, FieldError{Field: field, Message: message})
 }
 
-// validatePositive checks that an integer field is > 0.
-func validatePositive(field string, value int, ve *ValidationError) {
-	if value <= 0 {
-		ve.addError(field, fmt.Sprintf("must be > 0; got %d", value))
-	}
-}
-
-// validateNonNegative checks that an integer field is >= 0.
-func validateNonNegative(field string, value int, ve *ValidationError) {
-	if value < 0 {
-		ve.addError(field, fmt.Sprintf("must be >= 0; got %d", value))
-	}
-}
-
-// validateEnum checks that a string field is one of the allowed values.
-func validateEnum(field, value string, allowed []string, ve *ValidationError) {
-	for _, ok := range allowed {
-		if value == ok {
-			return
-		}
-	}
-	ve.addError(field, fmt.Sprintf("must be one of: %s; got %q", strings.Join(allowed, ", "), value))
-}
-
 // ResolveConfigPath determines the config file path based on environment.
 // Resolution order:
 //  1. Explicit path argument (if non-empty)
@@ -128,10 +104,6 @@ func validateKnownConfigKeys(node *Node) error {
 		return ve
 	}
 	return nil
-}
-
-func validateKnownTopLevelKeys(node *Node) error {
-	return validateKnownConfigKeys(node)
 }
 
 func validateKnownKeysForType(node *Node, typ reflect.Type, path string, ve *ValidationError) {

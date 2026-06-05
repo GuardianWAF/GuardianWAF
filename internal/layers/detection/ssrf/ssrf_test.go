@@ -82,6 +82,39 @@ func TestDetect_EmptyInput(t *testing.T) {
 	}
 }
 
+// TestProcess_LoopbackSurvivesNormalization is a regression guard: the
+// Sanitizer's CanonicalizePath collapses "//" to "/" when building
+// NormalizedQuery, so "http://127.0.0.1:22/" became "http:/127.0.0.1:22" and the
+// loopback patterns (which expect "http://...") no longer matched. Process must
+// also scan the raw QueryParams so loopback SSRF is detected.
+func TestProcess_LoopbackSurvivesNormalization(t *testing.T) {
+	det := NewDetector(true, 1.0)
+	ctx := &engine.RequestContext{
+		Path:           "/fetch",
+		NormalizedPath: "/fetch",
+		QueryParams:    map[string][]string{"url": {"http://127.0.0.1:22/"}},
+		// CanonicalizePath collapses the "//".
+		NormalizedQuery: map[string][]string{"url": {"http:/127.0.0.1:22"}},
+		Headers:         map[string][]string{},
+		Cookies:         map[string]string{},
+	}
+	if result := det.Process(ctx); result.Score < 50 {
+		t.Errorf("loopback SSRF in raw query not detected; score=%d findings=%d", result.Score, len(result.Findings))
+	}
+}
+
+// TestCheckLocalhostPatterns_SubdomainBoundary guards the host-boundary check:
+// the unrelated subdomain "localhost.example.com" must NOT be flagged, while a
+// real loopback host with a port/path still is.
+func TestCheckLocalhostPatterns_SubdomainBoundary(t *testing.T) {
+	if f := checkLocalhostPatterns("https://localhost.example.com/x", "query"); len(f) != 0 {
+		t.Errorf("subdomain localhost.example.com should not match, got %v", f)
+	}
+	if f := checkLocalhostPatterns("http://localhost:8080/admin", "query"); len(f) == 0 {
+		t.Error("real loopback host with port should match")
+	}
+}
+
 func TestDetect_FindingFields(t *testing.T) {
 	findings := Detect("http://127.0.0.1/admin", "query")
 	if len(findings) == 0 {

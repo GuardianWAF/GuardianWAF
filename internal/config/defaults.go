@@ -90,28 +90,6 @@ func DefaultConfig() *Config {
 					RPSThreshold:       10,
 					ErrorRateThreshold: 30,
 				},
-				Enhanced: EnhancedBotDetectionConfig{
-					Enabled: false,
-					Mode:    "enforce",
-					Biometric: BiometricDetectionConfig{
-						Enabled:        false,
-						MinEvents:      20,
-						ScoreThreshold: 50,
-						TimeWindow:     5 * time.Minute,
-					},
-					BrowserFingerprint: BrowserFingerprintConfig{
-						Enabled:       true,
-						CheckCanvas:   true,
-						CheckWebGL:    true,
-						CheckFonts:    true,
-						CheckHeadless: true,
-					},
-					Captcha: CaptchaChallengeConfig{
-						Enabled:  false,
-						Provider: "hcaptcha",
-						Timeout:  30 * time.Second,
-					},
-				},
 			},
 			Challenge: ChallengeConfig{
 				Enabled:    false,
@@ -1648,76 +1626,6 @@ func populateBotDetection(bd *BotDetectionConfig, n *Node) error {
 		}
 		if err := nodeIntField(sub, "error_rate_threshold", "behavior", &bd.Behavior.ErrorRateThreshold, 0); err != nil {
 			return err
-		}
-	}
-	if sub := n.Get("enhanced"); sub != nil && sub.Kind == MapNode {
-		if err := populateEnhancedBotDetection(&bd.Enhanced, sub); err != nil {
-			return fmt.Errorf("enhanced: %w", err)
-		}
-	}
-	return nil
-}
-
-func populateEnhancedBotDetection(ebd *EnhancedBotDetectionConfig, n *Node) error {
-	if n.Kind != MapNode {
-		return nil
-	}
-	if err := nodeBoolField(n, "enabled", "", &ebd.Enabled); err != nil {
-		return err
-	}
-	nodeStringField(n, "mode", &ebd.Mode)
-	if sub := n.Get("biometric"); sub != nil && sub.Kind == MapNode {
-		if err := nodeBoolField(sub, "enabled", "biometric", &ebd.Biometric.Enabled); err != nil {
-			return err
-		}
-		if err := nodeIntField(sub, "min_events", "biometric", &ebd.Biometric.MinEvents, 0); err != nil {
-			return err
-		}
-		if v := sub.Get("score_threshold"); v != nil {
-			f, err := nodeFloat64(v)
-			if err != nil {
-				return fmt.Errorf("biometric.score_threshold: %w", err)
-			}
-			ebd.Biometric.ScoreThreshold = f
-		}
-		if v := sub.Get("time_window"); v != nil && !v.IsNull {
-			d, err := parseDuration(v.String())
-			if err != nil {
-				return fmt.Errorf("biometric.time_window: %w", err)
-			}
-			ebd.Biometric.TimeWindow = d
-		}
-	}
-	if sub := n.Get("browser_fingerprint"); sub != nil && sub.Kind == MapNode {
-		if err := nodeBoolField(sub, "enabled", "browser_fingerprint", &ebd.BrowserFingerprint.Enabled); err != nil {
-			return err
-		}
-		if err := nodeBoolField(sub, "check_canvas", "browser_fingerprint", &ebd.BrowserFingerprint.CheckCanvas); err != nil {
-			return err
-		}
-		if err := nodeBoolField(sub, "check_webgl", "browser_fingerprint", &ebd.BrowserFingerprint.CheckWebGL); err != nil {
-			return err
-		}
-		if err := nodeBoolField(sub, "check_fonts", "browser_fingerprint", &ebd.BrowserFingerprint.CheckFonts); err != nil {
-			return err
-		}
-		if err := nodeBoolField(sub, "check_headless", "browser_fingerprint", &ebd.BrowserFingerprint.CheckHeadless); err != nil {
-			return err
-		}
-	}
-	if sub := n.Get("captcha"); sub != nil && sub.Kind == MapNode {
-		if err := nodeBoolField(sub, "enabled", "captcha", &ebd.Captcha.Enabled); err != nil {
-			return err
-		}
-		nodeStringField(sub, "provider", &ebd.Captcha.Provider)
-		nodeStringField(sub, "site_key", &ebd.Captcha.SiteKey)
-		nodeStringField(sub, "secret_key", &ebd.Captcha.SecretKey)
-		if v := sub.Get("timeout"); v != nil && !v.IsNull {
-			d, err := parseDuration(v.String())
-			if err != nil {
-				return fmt.Errorf("captcha.timeout: %w", err)
-			}
-			ebd.Captcha.Timeout = d
 		}
 	}
 	return nil

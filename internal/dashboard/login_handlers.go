@@ -26,24 +26,6 @@ type apiBucket struct {
 	lastRefill time.Time
 }
 
-// apiRateLimitingMiddleware wraps authenticated handlers to enforce per-IP rate limits.
-func (d *Dashboard) apiRateLimitWrap(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		clientIP := ""
-		if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
-			clientIP = host
-		}
-		if clientIP == "" {
-			clientIP = r.RemoteAddr
-		}
-		if !d.apiBucketAllow(clientIP) {
-			writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
-			return
-		}
-		next(w, r)
-	}
-}
-
 // apiBucketAllow returns true if the IP is allowed, false if rate limited.
 // Each IP gets a token bucket of apiRateLimit tokens per apiRateWindow.
 // Burst tokens (apiRateBurst) are available immediately, refill continuously.

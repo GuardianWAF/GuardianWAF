@@ -98,11 +98,6 @@ func (fs *FileStore) Count(_ EventFilter) (int, error) {
 	return 0, errors.New("query not supported on file store")
 }
 
-// Dropped returns the number of events dropped due to a full channel.
-func (fs *FileStore) Dropped() int64 {
-	return fs.dropped.Load()
-}
-
 // Close stops the background writer, drains remaining events, flushes the buffer, and closes the file.
 func (fs *FileStore) Close() error {
 	fs.mu.Lock()

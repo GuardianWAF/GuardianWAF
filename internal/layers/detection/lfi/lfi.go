@@ -49,44 +49,60 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 
 	var allFindings []engine.Finding
 
-	// 1. URL path. Fall back to the raw path when the Sanitizer layer is
-	// disabled (it populates the Normalized* fields); otherwise this detector
-	// would scan nothing and silently fail open. Mirrors xss/xxe.
-	path := ctx.NormalizedPath
-	if path == "" {
-		path = ctx.Path
+	// Scan BOTH the raw and the sanitizer-normalized form of every input.
+	// The Normalized* fields decode evasion encodings (%2e%2e%2f, etc.), but the
+	// sanitizer's CanonicalizePath *resolves* "../" segments away — which destroys
+	// the path-traversal signal this detector relies on. Scanning the raw input as
+	// well restores "../" detection without losing the decode-evasion benefit.
+	// Identical strings are scanned once (dedup) so unchanged inputs aren't
+	// double-counted. Mirrors xss/xxe fail-open guard for a disabled Sanitizer.
+	seen := make(map[string]struct{})
+	scan := func(v, location string) {
+		if v == "" {
+			return
+		}
+		key := location + "\x00" + v
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		allFindings = append(allFindings, Detect(v, location)...)
 	}
-	allFindings = append(allFindings, Detect(path, "path")...)
 
-	// 2. Query parameters
-	qp := ctx.NormalizedQuery
-	if qp == nil {
-		qp = ctx.QueryParams
-	}
-	for _, values := range qp {
+	// 1. URL path (raw + normalized)
+	scan(ctx.Path, "path")
+	scan(ctx.NormalizedPath, "path")
+
+	// 2. Query parameters (raw + normalized)
+	for _, values := range ctx.QueryParams {
 		for _, v := range values {
-			allFindings = append(allFindings, Detect(v, "query")...)
+			scan(v, "query")
+		}
+	}
+	for _, values := range ctx.NormalizedQuery {
+		for _, v := range values {
+			scan(v, "query")
 		}
 	}
 
-	// 3. Body
-	body := ctx.NormalizedBody
-	if body == "" {
-		body = ctx.BodyString
-	}
-	if body != "" {
-		allFindings = append(allFindings, Detect(body, "body")...)
-	}
+	// 3. Body (raw + normalized)
+	scan(ctx.BodyString, "body")
+	scan(ctx.NormalizedBody, "body")
 
 	// 4. Cookie values
 	for _, v := range ctx.Cookies {
-		allFindings = append(allFindings, Detect(v, "cookie")...)
+		scan(v, "cookie")
 	}
 
-	// 5. Referer header
+	// 5. Referer header (raw + normalized)
 	if refs, ok := ctx.Headers["Referer"]; ok {
 		for _, v := range refs {
-			allFindings = append(allFindings, Detect(v, "header")...)
+			scan(v, "header")
+		}
+	}
+	if refs, ok := ctx.NormalizedHeaders["Referer"]; ok {
+		for _, v := range refs {
+			scan(v, "header")
 		}
 	}
 

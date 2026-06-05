@@ -10,6 +10,8 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -78,13 +80,6 @@ func parseTrustedProxyCIDRs(cidrs []string) []*net.IPNet {
 	return parsed
 }
 
-// isTrustedProxy checks if the given IP is within a configured trusted proxy CIDR.
-func isTrustedProxy(ip net.IP) bool {
-	trustedProxyMu.RLock()
-	defer trustedProxyMu.RUnlock()
-	return isTrustedProxyIn(ip, trustedProxyCIDRs)
-}
-
 func isTrustedProxyIn(ip net.IP, cidrs []*net.IPNet) bool {
 	if ip == nil {
 		return false
@@ -95,6 +90,34 @@ func isTrustedProxyIn(ip net.IP, cidrs []*net.IPNet) bool {
 		}
 	}
 	return false
+}
+
+// recoverDroppedQueryParams parses rawQuery splitting on '&' only (so any ';'
+// stays inside the value) and adds each key/value pair not already present in
+// dst. This recovers the params that net/url.Query() discards when the query
+// string contains a ';', ensuring detectors still see the full payload.
+func recoverDroppedQueryParams(dst map[string][]string, rawQuery string) {
+	for _, pair := range strings.Split(rawQuery, "&") {
+		if pair == "" {
+			continue
+		}
+		key, val, _ := strings.Cut(pair, "=")
+		k, err := url.QueryUnescape(key)
+		if err != nil {
+			k = key
+		}
+		v, err := url.QueryUnescape(val)
+		if err != nil {
+			v = val
+		}
+		if k == "" {
+			continue
+		}
+		if slices.Contains(dst[k], v) {
+			continue
+		}
+		dst[k] = append(dst[k], v)
+	}
 }
 
 // RequestContext carries all per-request state through the WAF pipeline.
@@ -185,12 +208,21 @@ func AcquireContext(r *http.Request, paranoiaLevel int, maxBodySize int64) *Requ
 	}
 	ctx.Path = r.URL.Path
 
-	// Query parameters
+	// Query parameters. net/url.Query() (Go 1.17+) silently DROPS every key/value
+	// pair when the raw query contains a ';' separator. Backends commonly still
+	// parse such params, so a literal ';' could otherwise smuggle an attack
+	// payload past every detector (which all scan QueryParams). Build the base map
+	// from Query(), then — when a ';' is present — recover the dropped pairs from
+	// the raw query, splitting on '&' only so any ';' stays inside the value and
+	// the full payload reaches the detectors.
 	ctx.QueryParams = make(map[string][]string, len(r.URL.Query()))
 	for k, v := range r.URL.Query() {
 		cp := make([]string, len(v))
 		copy(cp, v)
 		ctx.QueryParams[k] = cp
+	}
+	if strings.IndexByte(r.URL.RawQuery, ';') >= 0 {
+		recoverDroppedQueryParams(ctx.QueryParams, r.URL.RawQuery)
 	}
 
 	// Headers — limit to prevent memory exhaustion from excessive header injection
