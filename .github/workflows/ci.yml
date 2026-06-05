@@ -141,7 +141,9 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@9fae48acfc02a90574d7c304a1758ef9895495fa # v7
         with:
-          version: v2.2
+          # v2.12 is built with go1.26; older v2.2 (go1.24) refuses to analyze a
+          # go1.26.4 module ("build Go version lower than targeted").
+          version: v2.12
 
   deadcode:
     needs: [build-dashboard]

@@ -107,7 +107,7 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 	if uas, ok := ctx.Headers["User-Agent"]; ok {
 		for _, v := range uas {
 			for _, f := range Detect(v, "header") {
-				f.Score = f.Score / 2
+				f.Score /= 2
 				allFindings = append(allFindings, f)
 			}
 		}

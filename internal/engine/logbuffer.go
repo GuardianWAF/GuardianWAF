@@ -150,12 +150,8 @@ func (lb *LogBuffer) Errorf(format string, args ...any) {
 
 // ErrorWithStack logs an error message with a runtime stack trace.
 func (lb *LogBuffer) ErrorWithStack(msg string) {
-	const depth = 32
-	pcs := make([]uintptr, depth)
-	n := runtime.Callers(2, pcs)
-	pcs = pcs[:n]
 	buf := make([]byte, 4096)
-	n = runtime.Stack(buf, false)
+	n := runtime.Stack(buf, false)
 	lb.Add("error", msg+"\n"+string(buf[:n]))
 }
 

@@ -347,7 +347,7 @@ func (v *JWTValidator) fetchJWKS() {
 		case "oct":
 			// Symmetric octet key (HMAC)
 			k, _ := decodeBase64Raw(key.K)
-			if k != nil && len(k) > 0 && key.Kid != "" {
+			if len(k) > 0 && key.Kid != "" {
 				v.hmacKeys.Store(key.Kid, hmacKey(k))
 			}
 		}

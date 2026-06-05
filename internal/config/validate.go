@@ -381,9 +381,9 @@ func appendDomainsFromDir(path string, cfg *Config) error {
 						tc.URL = url.String()
 					}
 					if w := ti.Get("weight"); w != nil && !w.IsNull {
-						i, err := w.Int()
-						if err != nil {
-							return fmt.Errorf("upstream %q target weight: %w", u.Name, err)
+						i, werr := w.Int()
+						if werr != nil {
+							return fmt.Errorf("upstream %q target weight: %w", u.Name, werr)
 						}
 						if i > 0 {
 							tc.Weight = i

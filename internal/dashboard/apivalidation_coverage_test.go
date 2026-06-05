@@ -180,6 +180,3 @@ func TestHandleTestValidation_Post_NoBody(t *testing.T) {
 		t.Error("response code not set")
 	}
 }
-
-// --- mockEngineForAPIVAL: minimal engine for API validation handler tests ---
-type mockEngineForAPIVAL struct{}

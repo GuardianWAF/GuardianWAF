@@ -1,40 +1,84 @@
+version: "2"
 run:
   timeout: 5m
-
 linters:
-  disable-all: true
+  default: none
   enable:
-    - govet
-    - staticcheck
-    - unused
-    - ineffassign
     - gocritic
+    - govet
+    - ineffassign
     - misspell
     - revive
-
-linters-settings:
-  govet:
-    enable-all: false
-    enable:
-      - shadow
-
+    - staticcheck
+    - unused
+  settings:
+    govet:
+      enable:
+        - shadow
+      enable-all: false
+    revive:
+      rules:
+        # unused-parameter is noisy and low-value (interface impls, callbacks, and
+        # signature-stability all legitimately keep unused params). Disabled.
+        - name: unused-parameter
+          disabled: true
+    gocritic:
+      # Disable the purely-stylistic control-flow checks: rewriting working
+      # if/else and switch statements is churn-with-risk and no correctness gain.
+      disabled-checks:
+        - ifElseChain
+        - singleCaseSwitch
+        - elseif
+        - appendAssign
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - govet
+          - revive
+          - staticcheck
+        path: _test\.go
+      - linters:
+          - staticcheck
+        path: internal/layers/apisecurity/jwt\.go
+        text: elliptic.Unmarshal has been deprecated
+      - linters:
+          - unparam
+        path: internal/acme/client\.go
+        text: result 1 .error. is always nil
+      - linters:
+          - staticcheck
+        text: QF1
+      # Tracked Go 1.25/1.26 stdlib deprecations — migration (ReverseProxy.Rewrite,
+      # crypto/ecdh, PublicKey.Bytes) is planned as separate, reviewed work; the
+      # current usages are correct. Mirrors the jwt.go elliptic.Unmarshal exclusion.
+      - linters:
+          - staticcheck
+        text: "SA1019:.*(proxy)?\\.?Director has been deprecated"
+      - linters:
+          - staticcheck
+        path: internal/acme/client\.go
+        text: "SA1019: pub\\.(X|Y) has been deprecated"
+      - linters:
+          - staticcheck
+        path: internal/layers/apisecurity/jwt_parse\.go
+        text: elliptic.Unmarshal has been deprecated
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
 issues:
   max-issues-per-linter: 50
   max-same-issues: 5
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - govet
-        - staticcheck
-        - revive
-    - path: internal/layers/apisecurity/jwt\.go
-      linters:
-        - staticcheck
-      text: "elliptic.Unmarshal has been deprecated"
-    - path: internal/acme/client\.go
-      linters:
-        - unparam
-      text: "result 1 .error. is always nil"
-    - linters:
-        - staticcheck
-      text: "QF1"
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

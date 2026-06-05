@@ -96,7 +96,7 @@ func marshalField(b *strings.Builder, prefix, key string, fv reflect.Value, inde
 		fmt.Fprintf(b, "%s%s:\n", prefix, key)
 		marshalStruct(b, fv, fv.Type(), indent+1)
 
-	case reflect.Ptr:
+	case reflect.Pointer:
 		if fv.IsNil() {
 			return
 		}
@@ -235,7 +235,7 @@ func marshalInlineField(b *strings.Builder, key string, fv reflect.Value, indent
 	case reflect.Struct:
 		fmt.Fprintf(b, "%s:\n", key)
 		marshalStruct(b, fv, fv.Type(), indent+1)
-	case reflect.Ptr:
+	case reflect.Pointer:
 		// Bug 3 fix: handle pointer fields (e.g. *WAFConfig in VirtualHostConfig)
 		if !fv.IsNil() {
 			marshalInlineField(b, key, fv.Elem(), indent)
@@ -288,7 +288,7 @@ func isZeroValue(v reflect.Value) bool {
 			}
 		}
 		return true
-	case reflect.Ptr:
+	case reflect.Pointer:
 		return v.IsNil()
 	case reflect.Interface:
 		return v.IsNil()

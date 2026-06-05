@@ -1022,8 +1022,8 @@ func runCheck(opts *CheckOptions) (*CheckResult, error) {
 	defer eng.Close()
 
 	// Wire layers
-	if err := addLayers(eng, cfg); err != nil {
-		return nil, fmt.Errorf("failed to wire WAF layers: %w", err)
+	if addErr := addLayers(eng, cfg); addErr != nil {
+		return nil, fmt.Errorf("failed to wire WAF layers: %w", addErr)
 	}
 
 	// Build HTTP request
