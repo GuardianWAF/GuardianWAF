@@ -40,9 +40,14 @@ helm_cmd() {
 extract_config() {
     local rendered="$1"
     local output="$2"
+    # The config block is indented 4 spaces under "  guardianwaf.yaml: |".
+    # Stop at the first non-blank line indented fewer than 4 spaces — this covers
+    # a sibling ConfigMap key ("  other: ...") AND the "---" document separator
+    # when guardianwaf.yaml is the last key (otherwise the separator leaks into
+    # the extracted config and `guardianwaf validate` rejects the stray "---").
     awk '
         /^  guardianwaf\.ya?ml: \|$/ { in_config = 1; next }
-        in_config && /^  [^ ]/ { exit }
+        in_config && /^ {0,3}[^ ]/ { exit }
         in_config {
             sub(/^    /, "")
             print

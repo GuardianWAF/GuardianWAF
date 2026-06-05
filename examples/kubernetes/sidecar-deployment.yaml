@@ -20,6 +20,18 @@ spec:
           image: myapp:latest
           ports:
             - containerPort: 3000
+          # Harden the app container too — a WAF sidecar protects the network
+          # edge, but defense-in-depth still wants a locked-down workload.
+          # (Adjust readOnlyRootFilesystem / writable volumes to your app's needs.)
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
         - name: guardianwaf
           image: ghcr.io/guardianwaf/guardianwaf:latest
           args: ["sidecar", "--upstream", "http://localhost:3000", "--listen", ":8088"]

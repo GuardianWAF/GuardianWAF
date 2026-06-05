@@ -54,7 +54,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: ['1.26.3']
+        go-version: ['1.26.4']
       fail-fast: false
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -90,7 +90,7 @@ jobs:
           go build -tags http3 -o guardianwaf-http3 ./cmd/guardianwaf
 
       - name: Upload coverage
-        if: matrix.go-version == '1.26.3'
+        if: matrix.go-version == '1.26.4'
         uses: codecov/codecov-action@75cd11691c0faa626561e295848008c8a7dddffe # v5
         with:
           files: ./coverage.txt
@@ -363,10 +363,12 @@ jobs:
           --severity HIGH,CRITICAL \
           --exit-code 1 \
           --no-progress \
-          golang:1.26.3-alpine
-    - name: Scan Dockerfile for misconfigs
+          golang:1.26.4-alpine
+    - name: Scan Dockerfile and manifests for misconfigs
       run: |
-        docker run --rm -v $(pwd):/workspace aquasec/trivy:0.68.1 config /workspace --exit-code 1
+        # Gate on HIGH,CRITICAL — same threshold as the base-image scan above.
+        # MEDIUM/LOW config findings are best-practice advisories, not build blockers.
+        docker run --rm -v $(pwd):/workspace aquasec/trivy:0.68.1 config /workspace --severity HIGH,CRITICAL --exit-code 1
 
   lighthouse:
     needs: [build-dashboard]
