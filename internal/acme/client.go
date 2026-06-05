@@ -544,12 +544,23 @@ func (c *Client) signedPost(url string, payload any, useJWK bool) (*http.Respons
 }
 
 func (c *Client) jwk() map[string]string {
-	pub := c.accountKey.PublicKey
+	// Use crypto/ecdh's fixed-length uncompressed encoding (0x04 || X || Y) rather
+	// than the deprecated PublicKey.X/Y. big.Int.Bytes() is variable-length, but
+	// RFC 7518 requires fixed-width, zero-padded coordinates — otherwise the JWK
+	// thumbprint is wrong whenever a coordinate has a leading zero byte.
+	pub := &c.accountKey.PublicKey
+	var x, y string
+	if ep, err := pub.ECDH(); err == nil {
+		raw := ep.Bytes() // 0x04 || X || Y
+		coord := (len(raw) - 1) / 2
+		x = base64.RawURLEncoding.EncodeToString(raw[1 : 1+coord])
+		y = base64.RawURLEncoding.EncodeToString(raw[1+coord:])
+	}
 	return map[string]string{
 		"kty": "EC",
 		"crv": "P-256",
-		"x":   base64.RawURLEncoding.EncodeToString(pub.X.Bytes()),
-		"y":   base64.RawURLEncoding.EncodeToString(pub.Y.Bytes()),
+		"x":   x,
+		"y":   y,
 	}
 }
 
