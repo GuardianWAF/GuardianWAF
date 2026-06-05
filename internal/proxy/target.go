@@ -194,28 +194,40 @@ func NewTarget(rawURL string, weight int) (*Target, error) {
 	t.lastCheck.Store(time.Time{})
 
 	// Build reverse proxy with sensible timeouts
-	t.proxy = httputil.NewSingleHostReverseProxy(u)
+	// Reverse proxy via the Rewrite hook. httputil.ReverseProxy.Director is
+	// deprecated as of Go 1.26; Rewrite reproduces NewSingleHostReverseProxy plus
+	// the previous custom Director exactly (inbound Host preserved, X-Forwarded-For
+	// peer-append, client-injected forwarding headers stripped, correlation-ID
+	// propagated). Equivalence is pinned by TestTarget_ForwardedHeaderHandling.
+	t.proxy = &httputil.ReverseProxy{
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.SetURL(u)             // route to target scheme/host/base-path
+			pr.Out.Host = pr.In.Host // preserve the inbound Host header upstream
 
-	// Custom Director: set target scheme/host/path and remove incoming hop-by-hop
-	// headers that may have been injected by the client (defense-in-depth).
-	defaultDirector := t.proxy.Director
-	t.proxy.Director = func(req *http.Request) {
-		defaultDirector(req)
-		// Remove headers that should not be forwarded upstream.
-		// Go's ReverseProxy strips standard hop-by-hop headers, but clients can
-		// inject non-standard ones like X-Forwarded-Host to confuse backends.
-		req.Header.Del("X-Forwarded-Host")
-		req.Header.Del("X-Forwarded-Proto")
-		req.Header.Del("X-Real-IP")
-
-		// Propagate correlation ID across hops. If the incoming request
-		// already carries X-Correlation-ID (e.g., from another WAF node),
-		// preserve it. Otherwise use X-GuardianWAF-RequestID if present.
-		if req.Header.Get("X-Correlation-ID") == "" {
-			if rid := req.Header.Get("X-GuardianWAF-RequestID"); rid != "" {
-				req.Header.Set("X-Correlation-ID", rid)
+			// Append the immediate peer IP to X-Forwarded-For. Director mode did
+			// this automatically in ServeHTTP; Rewrite mode does not — and it also
+			// strips the inbound chain from pr.Out — so read the prior chain from
+			// pr.In and replicate the append (SetXForwarded would drop the chain).
+			if clientIP, _, err := net.SplitHostPort(pr.In.RemoteAddr); err == nil {
+				if prior := pr.In.Header.Values("X-Forwarded-For"); len(prior) > 0 {
+					clientIP = strings.Join(prior, ", ") + ", " + clientIP
+				}
+				pr.Out.Header.Set("X-Forwarded-For", clientIP)
 			}
-		}
+
+			// Strip client-injected forwarding headers (defense-in-depth): clients
+			// can set non-standard ones like X-Forwarded-Host to confuse backends.
+			pr.Out.Header.Del("X-Forwarded-Host")
+			pr.Out.Header.Del("X-Forwarded-Proto")
+			pr.Out.Header.Del("X-Real-IP")
+
+			// Propagate correlation ID across hops; preserve an existing one.
+			if pr.Out.Header.Get("X-Correlation-ID") == "" {
+				if rid := pr.Out.Header.Get("X-GuardianWAF-RequestID"); rid != "" {
+					pr.Out.Header.Set("X-Correlation-ID", rid)
+				}
+			}
+		},
 	}
 
 	transport := &http.Transport{

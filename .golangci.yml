@@ -50,14 +50,11 @@ linters:
       - linters:
           - staticcheck
         text: QF1
-      # Tracked Go 1.25/1.26 stdlib deprecations — migration is planned as separate,
-      # reviewed work because each changes behaviour (ReverseProxy.Rewrite alters
-      # X-Forwarded handling; PublicKey.Bytes changes JWK coordinate padding). The
-      # current usages are correct. (The elliptic.Unmarshal deprecation has been
-      # fully migrated to crypto/ecdh — no exclusion needed.)
-      - linters:
-          - staticcheck
-        text: "SA1019:.*(proxy)?\\.?Director has been deprecated"
+      # Tracked Go 1.25/1.26 stdlib deprecation: ACME JWK still reads PublicKey.X/Y
+      # directly. Migrating to PublicKey.Bytes changes JWK coordinate zero-padding
+      # (a behaviour change in the account thumbprint), so it is deferred to
+      # separate, ACME-server-tested work. (elliptic.Unmarshal → crypto/ecdh and
+      # ReverseProxy.Director → Rewrite have already been fully migrated.)
       - linters:
           - staticcheck
         path: internal/acme/client\.go
