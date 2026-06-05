@@ -74,7 +74,7 @@ jobs:
 
       - name: Test
         run: |
-          go test -race -count=1 -coverprofile=coverage.txt -covermode=atomic $(go list ./... | grep -v '/examples/' | grep -v '/internal/ml/onnx' | grep -v '/internal/ml/features' | grep -v '/scripts/attack-simulation')
+          go test -race -count=1 -coverprofile=coverage.txt -covermode=atomic $(go list ./... | grep -v '/examples/' | grep -v '/scripts/attack-simulation')
 
       - name: Validate bundled configs
         run: go test -count=1 ./internal/config
@@ -142,6 +142,32 @@ jobs:
         uses: golangci/golangci-lint-action@9fae48acfc02a90574d7c304a1758ef9895495fa # v7
         with:
           version: v2.2
+
+  deadcode:
+    needs: [build-dashboard]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Download dashboard assets
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dashboard-dist
+          path: internal/dashboard/dist/
+
+      - name: Dead-code gate (deadcode -test ./... must be empty)
+        run: |
+          out="$(go run golang.org/x/tools/cmd/deadcode@latest -test ./...)"
+          if [ -n "$out" ]; then
+            echo "::error::Dead code detected — reachable from no main and exercised by no test:"
+            echo "$out"
+            exit 1
+          fi
+          echo "No dead code."
 
   docker-compose-integration:
     runs-on: ubuntu-latest
