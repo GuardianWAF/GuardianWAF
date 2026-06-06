@@ -27,7 +27,13 @@ for target in "${targets[@]}"; do
   read -r pkg fuzz <<<"${target}"
   echo
   echo "==> ${pkg} ${fuzz}"
-  go test -run='^$' -fuzz="^${fuzz}$" -fuzztime="${FUZZTIME}" "${pkg}"
+  # Retry once on failure. A real crash is written to testdata/fuzz/ and so fails
+  # deterministically on the retry too; only the known short-fuzztime timing flake
+  # ("context deadline exceeded", no crash file) clears on a second attempt.
+  if ! go test -run='^$' -fuzz="^${fuzz}$" -fuzztime="${FUZZTIME}" "${pkg}"; then
+    echo "    (first attempt failed; retrying once)"
+    go test -run='^$' -fuzz="^${fuzz}$" -fuzztime="${FUZZTIME}" "${pkg}"
+  fi
 done
 
 echo

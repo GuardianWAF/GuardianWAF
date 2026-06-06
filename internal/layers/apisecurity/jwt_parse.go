@@ -441,6 +441,11 @@ func (p *asn1Parser) parseValue(out any) error {
 	if err != nil {
 		return err
 	}
+	// Guard against a declared length exceeding the available bytes — a crafted
+	// signature could otherwise slice out of range and panic (DoS).
+	if length > len(p.data) {
+		return fmt.Errorf("SEQUENCE length %d exceeds %d available bytes", length, len(p.data))
+	}
 	seq := p.data[:length]
 	p.data = p.data[length:]
 	esig := out.(*struct{ R, S *big.Int })
