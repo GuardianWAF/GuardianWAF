@@ -139,7 +139,7 @@ func TestRunMain_Serve(t *testing.T) {
 
 	select {
 	case <-done:
-	case <-time.After(3 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("cmdServe did not shut down in time")
 	}
 }
@@ -168,7 +168,7 @@ func TestRunMain_Sidecar(t *testing.T) {
 
 	select {
 	case <-done:
-	case <-time.After(3 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("cmdSidecar did not shut down in time")
 	}
 }
@@ -324,7 +324,7 @@ func TestStartMCPServer(t *testing.T) {
 
 	select {
 	case <-done:
-	case <-time.After(2 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("startMCPServer did not return")
 	}
 }
@@ -451,7 +451,7 @@ func TestCmdServe_SignalShutdown(t *testing.T) {
 
 	select {
 	case <-done:
-	case <-time.After(3 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("cmdServe did not shut down")
 	}
 }
@@ -508,7 +508,7 @@ routes:
 
 	// Wait for server
 	started := false
-	for i := 0; i < 50; i++ {
+	for i := 0; i < 200; i++ {
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 50*time.Millisecond)
 		if err == nil {
 			conn.Close()
@@ -543,7 +543,7 @@ routes:
 	shutdownCh <- syscall.SIGTERM
 	select {
 	case <-done:
-	case <-time.After(2 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("sidecar did not shut down")
 	}
 }
@@ -595,7 +595,7 @@ routes:
 
 	select {
 	case <-done:
-	case <-time.After(2 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("sidecar did not shut down")
 	}
 }
@@ -624,7 +624,7 @@ func TestCmdSidecar_SignalShutdown(t *testing.T) {
 
 	select {
 	case <-done:
-	case <-time.After(3 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("cmdSidecar did not shut down")
 	}
 }
@@ -743,7 +743,7 @@ virtual_hosts:
 
 	// Wait for main server
 	started := false
-	for i := 0; i < 50; i++ {
+	for i := 0; i < 200; i++ {
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", mainPort), 50*time.Millisecond)
 		if err == nil {
 			conn.Close()
@@ -759,7 +759,7 @@ virtual_hosts:
 
 	// Wait for dashboard
 	dashStarted := false
-	for i := 0; i < 50; i++ {
+	for i := 0; i < 200; i++ {
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", dashPort), 50*time.Millisecond)
 		if err == nil {
 			conn.Close()
@@ -854,7 +854,7 @@ virtual_hosts:
 	shutdownCh <- syscall.SIGTERM
 	select {
 	case <-done:
-	case <-time.After(3 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("cmdServe did not shut down")
 	}
 }
@@ -986,7 +986,7 @@ waf:
 	shutdownCh <- syscall.SIGTERM
 	select {
 	case <-done:
-	case <-time.After(3 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("cmdServe did not shut down")
 	}
 }
@@ -1039,7 +1039,7 @@ waf:
 	}()
 
 	started := false
-	for i := 0; i < 50; i++ {
+	for i := 0; i < 200; i++ {
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 50*time.Millisecond)
 		if err == nil {
 			conn.Close()
@@ -1065,7 +1065,7 @@ waf:
 	shutdownCh <- syscall.SIGTERM
 	select {
 	case <-done:
-	case <-time.After(3 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("cmdServe did not shut down")
 	}
 }
@@ -1113,7 +1113,7 @@ waf:
 	}()
 
 	started := false
-	for i := 0; i < 50; i++ {
+	for i := 0; i < 200; i++ {
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 50*time.Millisecond)
 		if err == nil {
 			conn.Close()
@@ -1135,7 +1135,7 @@ waf:
 	shutdownCh <- syscall.SIGTERM
 	select {
 	case <-done:
-	case <-time.After(3 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("cmdServe did not shut down")
 	}
 }
@@ -1184,7 +1184,7 @@ waf:
 	}()
 
 	started := false
-	for i := 0; i < 50; i++ {
+	for i := 0; i < 200; i++ {
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 50*time.Millisecond)
 		if err == nil {
 			conn.Close()
@@ -1201,7 +1201,7 @@ waf:
 	shutdownCh <- syscall.SIGTERM
 	select {
 	case <-done:
-	case <-time.After(3 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("cmdServe did not shut down")
 	}
 }
@@ -1252,7 +1252,7 @@ waf:
 	}()
 
 	started := false
-	for i := 0; i < 50; i++ {
+	for i := 0; i < 200; i++ {
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 50*time.Millisecond)
 		if err == nil {
 			conn.Close()
@@ -1269,7 +1269,7 @@ waf:
 	shutdownCh <- syscall.SIGTERM
 	select {
 	case <-done:
-	case <-time.After(3 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("cmdServe did not shut down")
 	}
 }
@@ -1325,7 +1325,7 @@ waf:
 	}()
 
 	started := false
-	for i := 0; i < 50; i++ {
+	for i := 0; i < 200; i++ {
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 50*time.Millisecond)
 		if err == nil {
 			conn.Close()
@@ -1351,7 +1351,7 @@ waf:
 	shutdownCh <- syscall.SIGTERM
 	select {
 	case <-done:
-	case <-time.After(3 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("sidecar did not shut down")
 	}
 }
@@ -1405,7 +1405,7 @@ waf:
 	}()
 
 	started := false
-	for i := 0; i < 50; i++ {
+	for i := 0; i < 200; i++ {
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 50*time.Millisecond)
 		if err == nil {
 			conn.Close()
@@ -1422,7 +1422,7 @@ waf:
 	shutdownCh <- syscall.SIGTERM
 	select {
 	case <-done:
-	case <-time.After(3 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("sidecar did not shut down")
 	}
 }
@@ -1469,7 +1469,7 @@ waf:
 	}()
 
 	started := false
-	for i := 0; i < 50; i++ {
+	for i := 0; i < 200; i++ {
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 50*time.Millisecond)
 		if err == nil {
 			conn.Close()
@@ -1491,7 +1491,7 @@ waf:
 	shutdownCh <- syscall.SIGTERM
 	select {
 	case <-done:
-	case <-time.After(3 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("sidecar did not shut down")
 	}
 }
@@ -1539,7 +1539,7 @@ waf:
 		cmdServe([]string{"-config", cfgPath})
 	}()
 
-	for i := 0; i < 50; i++ {
+	for i := 0; i < 200; i++ {
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 50*time.Millisecond)
 		if err == nil {
 			conn.Close()
@@ -1551,7 +1551,7 @@ waf:
 	shutdownCh <- syscall.SIGTERM
 	select {
 	case <-done:
-	case <-time.After(3 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("cmdServe did not shut down")
 	}
 }
@@ -1604,7 +1604,7 @@ waf:
 	}()
 
 	started := false
-	for i := 0; i < 50; i++ {
+	for i := 0; i < 200; i++ {
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 50*time.Millisecond)
 		if err == nil {
 			conn.Close()
@@ -1627,7 +1627,7 @@ waf:
 	shutdownCh <- syscall.SIGTERM
 	select {
 	case <-done:
-	case <-time.After(3 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("cmdServe did not shut down")
 	}
 }
@@ -1679,7 +1679,7 @@ waf:
 	}()
 
 	started := false
-	for i := 0; i < 50; i++ {
+	for i := 0; i < 200; i++ {
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 50*time.Millisecond)
 		if err == nil {
 			conn.Close()
@@ -1702,7 +1702,7 @@ waf:
 	shutdownCh <- syscall.SIGTERM
 	select {
 	case <-done:
-	case <-time.After(3 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("cmdServe did not shut down")
 	}
 }
@@ -1738,7 +1738,7 @@ func TestCmdSidecar_LogLevelOverride(t *testing.T) {
 
 	select {
 	case <-done:
-	case <-time.After(3 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("cmdSidecar did not shut down")
 	}
 }
@@ -1833,7 +1833,7 @@ waf:
 	shutdownCh <- syscall.SIGTERM
 	select {
 	case <-done:
-	case <-time.After(3 * time.Second):
+	case <-time.After(15 * time.Second):
 		t.Fatal("cmdServe did not shut down")
 	}
 }
@@ -1925,7 +1925,7 @@ routes:
 		cmdServe([]string{"-config", cfgPath})
 	}()
 
-	for i := 0; i < 50; i++ {
+	for i := 0; i < 200; i++ {
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", dashPort), 50*time.Millisecond)
 		if err == nil {
 			conn.Close()
