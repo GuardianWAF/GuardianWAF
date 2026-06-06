@@ -102,6 +102,9 @@ waf:
       ssrf:
         enabled: true
         multiplier: 1.0
+      ssti:
+        enabled: true
+        multiplier: 1.0
 
   challenge:
     enabled: false

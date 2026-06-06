@@ -12,6 +12,7 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/layers/detection/lfi"
 	"github.com/guardianwaf/guardianwaf/internal/layers/detection/sqli"
 	"github.com/guardianwaf/guardianwaf/internal/layers/detection/ssrf"
+	"github.com/guardianwaf/guardianwaf/internal/layers/detection/ssti"
 	"github.com/guardianwaf/guardianwaf/internal/layers/detection/xss"
 	"github.com/guardianwaf/guardianwaf/internal/layers/detection/xxe"
 )
@@ -65,6 +66,9 @@ func NewLayer(cfg *Config) *Layer {
 	}
 	if dc, ok := cfg.Detectors["ssrf"]; ok {
 		l.detectors = append(l.detectors, ssrf.NewDetector(dc.Enabled, dc.Multiplier))
+	}
+	if dc, ok := cfg.Detectors["ssti"]; ok {
+		l.detectors = append(l.detectors, ssti.NewDetector(dc.Enabled, dc.Multiplier))
 	}
 
 	return l

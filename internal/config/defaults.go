@@ -68,6 +68,7 @@ func DefaultConfig() *Config {
 					"cmdi": {Enabled: true, Multiplier: 1.0},
 					"xxe":  {Enabled: true, Multiplier: 1.0},
 					"ssrf": {Enabled: true, Multiplier: 1.0},
+					"ssti": {Enabled: true, Multiplier: 1.0},
 				},
 			},
 			BotDetection: BotDetectionConfig{

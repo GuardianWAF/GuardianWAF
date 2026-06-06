@@ -13,6 +13,7 @@ targets=(
   "./internal/layers/detection/lfi FuzzLFIDetector"
   "./internal/layers/detection/cmdi FuzzCMDiDetector"
   "./internal/layers/detection/ssrf FuzzSSRFDetector"
+  "./internal/layers/detection/ssti FuzzSSTIDetector"
   "./internal/engine FuzzRecoverDroppedQueryParams"
   "./internal/layers/ipacl FuzzRadixTreeLookup"
   "./internal/layers/ratelimit FuzzTokenBucket"
