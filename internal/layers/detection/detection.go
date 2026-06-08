@@ -10,6 +10,7 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/layers/detection/cmdi"
 	"github.com/guardianwaf/guardianwaf/internal/layers/detection/lfi"
+	"github.com/guardianwaf/guardianwaf/internal/layers/detection/nosqli"
 	"github.com/guardianwaf/guardianwaf/internal/layers/detection/sqli"
 	"github.com/guardianwaf/guardianwaf/internal/layers/detection/ssrf"
 	"github.com/guardianwaf/guardianwaf/internal/layers/detection/ssti"
@@ -69,6 +70,9 @@ func NewLayer(cfg *Config) *Layer {
 	}
 	if dc, ok := cfg.Detectors["ssti"]; ok {
 		l.detectors = append(l.detectors, ssti.NewDetector(dc.Enabled, dc.Multiplier))
+	}
+	if dc, ok := cfg.Detectors["nosqli"]; ok {
+		l.detectors = append(l.detectors, nosqli.NewDetector(dc.Enabled, dc.Multiplier))
 	}
 
 	return l
