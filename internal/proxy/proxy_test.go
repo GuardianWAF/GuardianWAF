@@ -335,6 +335,59 @@ func TestRouterAllUnhealthy503(t *testing.T) {
 	}
 }
 
+// TestRouterRetryOnFailure verifies that when the first target fails
+// (proxy error — upstream unreachable), the router retries with a different
+// target and succeeds.
+func TestRouterRetryOnFailure(t *testing.T) {
+	// Healthy backend that returns 200
+	goodBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "ok")
+	}))
+	defer goodBackend.Close()
+
+	goodTarget, _ := NewTarget(goodBackend.URL, 1)
+
+	// Bad target pointing to a non-listening port — will cause proxy error
+	badTarget, _ := NewTarget("http://127.0.0.1:1", 1) // port 1 should never be listening
+
+	targets := []*Target{badTarget, goodTarget}
+	router := NewRouter([]Route{
+		{PathPrefix: "/", Balancer: NewBalancer(targets, StrategyRoundRobin)},
+	})
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest("GET", "/test", nil))
+
+	// The router should have retried and succeeded via the good target
+	if w.Code != 200 {
+		t.Errorf("expected 200 after retry, got %d (body: %s)", w.Code, w.Body.String())
+	}
+	if w.Body.String() != "ok" {
+		t.Errorf("expected 'ok', got %q", w.Body.String())
+	}
+}
+
+// TestRouterRetryExhausted502 verifies that when all targets fail,
+// the router returns 502 Bad Gateway.
+func TestRouterRetryExhausted502(t *testing.T) {
+	// Two bad targets pointing to non-listening ports
+	bad1, _ := NewTarget("http://127.0.0.1:1", 1)
+	bad2, _ := NewTarget("http://127.0.0.1:2", 1)
+
+	targets := []*Target{bad1, bad2}
+	router := NewRouter([]Route{
+		{PathPrefix: "/", Balancer: NewBalancer(targets, StrategyRoundRobin)},
+	})
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest("GET", "/test", nil))
+
+	if w.Code != 502 {
+		t.Errorf("expected 502 after all retries exhausted, got %d", w.Code)
+	}
+}
+
 // --- Host-based routing ---
 
 func TestRouterVirtualHosts(t *testing.T) {
