@@ -1678,28 +1678,18 @@ func (d *Dashboard) handleAddWebhook(w http.ResponseWriter, r *http.Request) {
 		cooldown = 30 * time.Second
 	}
 
-	cfg := deepCopyConfig(d.engine.Config())
-	cfg.Alerting.Webhooks = append(cfg.Alerting.Webhooks, config.WebhookConfig{
-		Name:     body.Name,
-		URL:      body.URL,
-		Type:     body.Type,
-		Events:   body.Events,
-		MinScore: body.MinScore,
-		Cooldown: cooldown,
-		Headers:  body.Headers,
-	})
-
-	if err := d.engine.Reload(cfg); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
+	if !d.reloadAndPersist(w, func(cfg *config.Config) {
+		cfg.Alerting.Webhooks = append(cfg.Alerting.Webhooks, config.WebhookConfig{
+			Name:     body.Name,
+			URL:      body.URL,
+			Type:     body.Type,
+			Events:   body.Events,
+			MinScore: body.MinScore,
+			Cooldown: cooldown,
+			Headers:  body.Headers,
+		})
+	}) {
 		return
-	}
-
-	// Persist config
-	if d.routingCtrl != nil {
-		if err := d.routingCtrl.Save(); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
-			return
-		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "name": body.Name})
@@ -1712,30 +1702,29 @@ func (d *Dashboard) handleDeleteWebhook(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	cfg := deepCopyConfig(d.engine.Config())
-	found := false
-	for i, w := range cfg.Alerting.Webhooks {
-		if w.Name == name {
-			cfg.Alerting.Webhooks = append(cfg.Alerting.Webhooks[:i], cfg.Alerting.Webhooks[i+1:]...)
-			found = true
+	// Check existence first for proper 404
+	current := d.engine.Config()
+	exists := false
+	for _, wh := range current.Alerting.Webhooks {
+		if wh.Name == name {
+			exists = true
 			break
 		}
 	}
-	if !found {
+	if !exists {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "webhook not found"})
 		return
 	}
 
-	if err := d.engine.Reload(cfg); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
-		return
-	}
-
-	if d.routingCtrl != nil {
-		if err := d.routingCtrl.Save(); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
-			return
+	if !d.reloadAndPersist(w, func(cfg *config.Config) {
+		for i, wh := range cfg.Alerting.Webhooks {
+			if wh.Name == name {
+				cfg.Alerting.Webhooks = append(cfg.Alerting.Webhooks[:i], cfg.Alerting.Webhooks[i+1:]...)
+				return
+			}
 		}
+	}) {
+		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
@@ -1793,33 +1782,24 @@ func (d *Dashboard) handleAddEmail(w http.ResponseWriter, r *http.Request) {
 		cooldown = 5 * time.Minute
 	}
 
-	cfg := deepCopyConfig(d.engine.Config())
-	cfg.Alerting.Emails = append(cfg.Alerting.Emails, config.EmailConfig{
-		Name:     body.Name,
-		SMTPHost: body.SMTPHost,
-		SMTPPort: body.SMTPPort,
-		Username: body.Username,
-		Password: body.Password,
-		From:     body.From,
-		To:       body.To,
-		UseTLS:   body.UseTLS,
-		Events:   body.Events,
-		MinScore: body.MinScore,
-		Cooldown: cooldown,
-		Subject:  body.Subject,
-		Template: body.Template,
-	})
-
-	if err := d.engine.Reload(cfg); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
+	if !d.reloadAndPersist(w, func(cfg *config.Config) {
+		cfg.Alerting.Emails = append(cfg.Alerting.Emails, config.EmailConfig{
+			Name:     body.Name,
+			SMTPHost: body.SMTPHost,
+			SMTPPort: body.SMTPPort,
+			Username: body.Username,
+			Password: body.Password,
+			From:     body.From,
+			To:       body.To,
+			UseTLS:   body.UseTLS,
+			Events:   body.Events,
+			MinScore: body.MinScore,
+			Cooldown: cooldown,
+			Subject:  body.Subject,
+			Template: body.Template,
+		})
+	}) {
 		return
-	}
-
-	if d.routingCtrl != nil {
-		if err := d.routingCtrl.Save(); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
-			return
-		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "name": body.Name})
@@ -1832,30 +1812,29 @@ func (d *Dashboard) handleDeleteEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg := deepCopyConfig(d.engine.Config())
-	found := false
-	for i, e := range cfg.Alerting.Emails {
-		if e.Name == name {
-			cfg.Alerting.Emails = append(cfg.Alerting.Emails[:i], cfg.Alerting.Emails[i+1:]...)
-			found = true
+	// Check existence first for proper 404
+	current := d.engine.Config()
+	exists := false
+	for _, em := range current.Alerting.Emails {
+		if em.Name == name {
+			exists = true
 			break
 		}
 	}
-	if !found {
+	if !exists {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "email target not found"})
 		return
 	}
 
-	if err := d.engine.Reload(cfg); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
-		return
-	}
-
-	if d.routingCtrl != nil {
-		if err := d.routingCtrl.Save(); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
-			return
+	if !d.reloadAndPersist(w, func(cfg *config.Config) {
+		for i, em := range cfg.Alerting.Emails {
+			if em.Name == name {
+				cfg.Alerting.Emails = append(cfg.Alerting.Emails[:i], cfg.Alerting.Emails[i+1:]...)
+				return
+			}
 		}
+	}) {
+		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
@@ -1883,6 +1862,27 @@ func deepCopyConfig(cfg *config.Config) *config.Config {
 		return nil
 	}
 	return cfg.DeepCopy()
+}
+
+// reloadAndPersist applies a config mutation, reloads the engine, and persists
+// to disk. Returns true on success, false on failure (error already written to w).
+// The caller must provide a function that mutates the deep-copied config.
+func (d *Dashboard) reloadAndPersist(w http.ResponseWriter, mutate func(cfg *config.Config)) bool {
+	cfg := deepCopyConfig(d.engine.Config())
+	mutate(cfg)
+
+	if err := d.engine.Reload(cfg); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
+		return false
+	}
+
+	if d.routingCtrl != nil {
+		if err := d.routingCtrl.Save(); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
+			return false
+		}
+	}
+	return true
 }
 
 // maskURL masks sensitive parts of a URL, showing only scheme and host.
