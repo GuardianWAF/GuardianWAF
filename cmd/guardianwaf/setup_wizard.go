@@ -24,10 +24,8 @@ type setupWizard struct {
 	targets     []string
 
 	// Routing
-	routeHost  string
-	routePath  string
-	upstreams  string
-	healthChk  string
+	routeHost string
+	routePath string
 
 	// WAF
 	blockThresh string

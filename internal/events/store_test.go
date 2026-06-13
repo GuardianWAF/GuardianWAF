@@ -177,6 +177,48 @@ func TestMemoryStore_QueryByAction(t *testing.T) {
 	}
 }
 
+func TestMemoryStore_QueryByActionAlias(t *testing.T) {
+	ms := NewMemoryStore(100)
+	now := time.Now()
+
+	_ = ms.Store(makeEvent("evt-pass", engine.ActionPass, 0, "/", "10.0.0.1", now))
+	_ = ms.Store(makeEvent("evt-block", engine.ActionBlock, 50, "/", "10.0.0.1", now.Add(time.Second)))
+
+	results, total, err := ms.Query(EventFilter{Action: "block"})
+	if err != nil {
+		t.Fatalf("Query failed: %v", err)
+	}
+	if total != 1 {
+		t.Errorf("expected 1 block event, got %d", total)
+	}
+	if len(results) != 1 || results[0].ID != "evt-block" {
+		t.Fatalf("expected evt-block result, got %#v", results)
+	}
+}
+
+func TestMemoryStore_QueryByRuleID(t *testing.T) {
+	ms := NewMemoryStore(100)
+	now := time.Now()
+
+	matching := makeEvent("evt-rule", engine.ActionBlock, 90, "/", "10.0.0.1", now)
+	matching.Findings = []engine.Finding{{DetectorName: "rule:custom-rule"}}
+	other := makeEvent("evt-other", engine.ActionBlock, 90, "/", "10.0.0.1", now.Add(time.Second))
+	other.Findings = []engine.Finding{{DetectorName: "sqli"}}
+	_ = ms.Store(matching)
+	_ = ms.Store(other)
+
+	results, total, err := ms.Query(EventFilter{RuleID: "custom-rule"})
+	if err != nil {
+		t.Fatalf("Query failed: %v", err)
+	}
+	if total != 1 {
+		t.Errorf("expected 1 rule event, got %d", total)
+	}
+	if len(results) != 1 || results[0].ID != "evt-rule" {
+		t.Fatalf("expected evt-rule result, got %#v", results)
+	}
+}
+
 func TestMemoryStore_QueryByTimeRange(t *testing.T) {
 	ms := NewMemoryStore(100)
 	base := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -799,6 +841,17 @@ func TestEventBus_SlowSubscriberDoesNotBlock(t *testing.T) {
 		t.Fatal("Publish blocked due to slow subscriber")
 	}
 
+	stats := bus.Stats()
+	if stats.Subscribers != 2 {
+		t.Fatalf("subscribers = %d, want 2", stats.Subscribers)
+	}
+	if stats.PublishedEvents != 1 {
+		t.Fatalf("published events = %d, want 1", stats.PublishedEvents)
+	}
+	if stats.DroppedEvents != 1 {
+		t.Fatalf("dropped deliveries = %d, want 1", stats.DroppedEvents)
+	}
+
 	// Fast subscriber should still receive the event
 	select {
 	case received := <-fastCh:
@@ -807,6 +860,48 @@ func TestEventBus_SlowSubscriberDoesNotBlock(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("fast subscriber timed out")
+	}
+}
+
+func TestEventBus_SubscribeCapBoundsFanoutMemory(t *testing.T) {
+	bus := NewEventBusWithMaxSubscribers(2)
+	ch1 := make(chan engine.Event, 1)
+	ch2 := make(chan engine.Event, 1)
+	ch3 := make(chan engine.Event, 1)
+
+	bus.Subscribe(ch1)
+	bus.Subscribe(ch2)
+	bus.Subscribe(ch3)
+
+	stats := bus.Stats()
+	if stats.Subscribers != 2 {
+		t.Fatalf("subscribers = %d, want 2", stats.Subscribers)
+	}
+	if stats.MaxSubscribers != 2 {
+		t.Fatalf("max subscribers = %d, want 2", stats.MaxSubscribers)
+	}
+	if stats.RejectedSubscriptions != 1 {
+		t.Fatalf("rejected subscriptions = %d, want 1", stats.RejectedSubscriptions)
+	}
+
+	now := time.Now()
+	ev := makeEvent("bounded-fanout", engine.ActionPass, 0, "/", "10.0.0.1", now)
+	bus.Publish(ev)
+
+	for i, ch := range []chan engine.Event{ch1, ch2} {
+		select {
+		case received := <-ch:
+			if received.ID != "bounded-fanout" {
+				t.Fatalf("subscriber %d got event ID %s", i, received.ID)
+			}
+		default:
+			t.Fatalf("subscriber %d did not receive event", i)
+		}
+	}
+	select {
+	case <-ch3:
+		t.Fatal("rejected subscriber received event")
+	default:
 	}
 }
 
@@ -836,6 +931,9 @@ func TestEventBus_SubscribeAfterClose(t *testing.T) {
 
 	ch := make(chan engine.Event, 10)
 	bus.Subscribe(ch) // should not panic, just be a no-op
+	if got := bus.Stats().RejectedSubscriptions; got != 1 {
+		t.Fatalf("rejected subscriptions after close = %d, want 1", got)
+	}
 
 	// Channel should not be closed since it was added after Close
 	select {
@@ -872,8 +970,39 @@ func TestFileStore_ChannelFullDrop(t *testing.T) {
 	if dropped == 0 {
 		t.Error("expected some events to be dropped when channel is full")
 	}
+	if fs.DroppedEvents() == 0 {
+		t.Error("expected DroppedEvents to report channel-full drops")
+	}
 
 	fs.Close()
+}
+
+func TestPersistentMemoryStore_DroppedEventsAfterClose(t *testing.T) {
+	tmpFile := t.TempDir() + "/events.jsonl"
+	ps, err := NewPersistentMemoryStore(10, tmpFile)
+	if err != nil {
+		t.Fatalf("NewPersistentMemoryStore failed: %v", err)
+	}
+	if err := ps.Store(makeEvent("before-close", engine.ActionPass, 0, "/", "10.0.0.1", time.Now())); err != nil {
+		t.Fatalf("Store before close failed: %v", err)
+	}
+	if err := ps.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	ev := makeEvent("after-close", engine.ActionPass, 0, "/", "10.0.0.1", time.Now())
+	if err := ps.Store(ev); err == nil {
+		t.Fatal("Store after close should return an error")
+	}
+	if got := ps.DroppedEvents(); got != 1 {
+		t.Fatalf("expected 1 dropped persisted event after close, got %d", got)
+	}
+	if _, err := ps.Get("after-close"); err == nil {
+		t.Fatal("Store after close should not add event to memory")
+	}
+	if _, err := ps.Get("before-close"); err != nil {
+		t.Fatalf("existing in-memory events should remain queryable after close: %v", err)
+	}
 }
 
 func TestFileStore_FlushTimerTrigger(t *testing.T) {
@@ -1734,4 +1863,77 @@ func intToStr(n int) string {
 		n /= 10
 	}
 	return string(digits[i:])
+}
+
+// TestEventBus_PublishDoesNotBlockSubscribe verifies that Publish (which
+// snapshots the subscriber list under RLock) does not block a concurrent
+// Subscribe call. This is a regression test for the fix that moved channel
+// sends outside the RLock critical section.
+func TestEventBus_PublishDoesNotBlockSubscribe(t *testing.T) {
+	bus := NewEventBus()
+
+	// Create a subscriber with a tiny buffer that will fill up quickly
+	slowCh := make(chan engine.Event, 1)
+	bus.Subscribe(slowCh)
+
+	now := time.Now()
+
+	// Start a goroutine that continuously publishes events.
+	// With the old code (holding RLock during sends), Subscribe would block.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for range 100 {
+			bus.Publish(makeEvent("concurrent", engine.ActionPass, 0, "/", "1.2.3.4", now))
+		}
+	}()
+
+	// Try to subscribe a new channel concurrently — should not block
+	newCh := make(chan engine.Event, 100)
+	bus.Subscribe(newCh)
+
+	// Wait for publisher to finish
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("publisher goroutine timed out — Publish may be blocking")
+	}
+
+	bus.Close()
+}
+
+// TestEventBus_DropsEventsForSlowSubscribers verifies that a slow subscriber
+// (full channel) does not block other subscribers from receiving events.
+func TestEventBus_DropsEventsForSlowSubscribers(t *testing.T) {
+	bus := NewEventBus()
+
+	// Subscriber with a full buffer — events will be dropped
+	blockedCh1 := make(chan engine.Event, 1)
+	blockedCh1 <- makeEvent("prefill", engine.ActionPass, 0, "/", "1.1.1.1", time.Now())
+	bus.Subscribe(blockedCh1)
+
+	// Working subscriber
+	goodCh := make(chan engine.Event, 10)
+	bus.Subscribe(goodCh)
+
+	now := time.Now()
+	bus.Publish(makeEvent("test", engine.ActionPass, 0, "/", "2.2.2.2", now))
+
+	// goodCh should receive the event despite blockedCh1 being full
+	select {
+	case ev := <-goodCh:
+		if ev.ID != "test" {
+			t.Errorf("expected event 'test', got %q", ev.ID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("good subscriber did not receive event — slow subscriber blocked fan-out")
+	}
+
+	// Verify drop counter incremented
+	stats := bus.Stats()
+	if stats.DroppedEvents == 0 {
+		t.Error("expected at least 1 dropped event for the full subscriber")
+	}
+
+	bus.Close()
 }
