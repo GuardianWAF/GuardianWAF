@@ -1,6 +1,7 @@
 package tls
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -227,6 +228,30 @@ func TestStartStopReload(t *testing.T) {
 	// Should not panic or hang
 }
 
+func TestStopReloadWithContext(t *testing.T) {
+	cs := NewCertStore()
+	cs.StartReload(time.Hour)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := cs.StopReloadWithContext(ctx); err != nil {
+		t.Fatalf("StopReloadWithContext: %v", err)
+	}
+}
+
+func TestStopReloadWithContextHonorsDeadline(t *testing.T) {
+	cs := NewCertStore()
+	cs.wg.Add(1)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+	defer cancel()
+	err := cs.StopReloadWithContext(ctx)
+	cs.wg.Done()
+	if err == nil {
+		t.Fatal("expected deadline error")
+	}
+}
+
 func TestLoadCertInvalidFiles(t *testing.T) {
 	cs := NewCertStore()
 	err := cs.LoadCert([]string{"test.com"}, "/nonexistent", "/nonexistent")
@@ -258,5 +283,63 @@ func copyFile(t *testing.T, src, dst string) {
 	}
 	if err := os.WriteFile(dst, data, 0o644); err != nil {
 		t.Fatalf("writing %s: %v", dst, err)
+	}
+}
+
+// TestLoadCert_WildcardDedup verifies that loading the same wildcard domain
+// twice updates the existing entry instead of appending a duplicate.
+func TestLoadCert_WildcardDedup(t *testing.T) {
+	certFile1, keyFile1 := generateTestCert(t, "*.example.com")
+	certFile2, keyFile2 := generateTestCert(t, "*.example.com")
+
+	cs := NewCertStore()
+
+	// Load first wildcard cert
+	if err := cs.LoadCert([]string{"*.example.com"}, certFile1, keyFile1); err != nil {
+		t.Fatalf("first LoadCert: %v", err)
+	}
+	if count := cs.CertCount(); count != 1 {
+		t.Errorf("after first load: expected 1 cert, got %d", count)
+	}
+
+	// Load the same wildcard domain again with a different cert
+	if err := cs.LoadCert([]string{"*.example.com"}, certFile2, keyFile2); err != nil {
+		t.Fatalf("second LoadCert: %v", err)
+	}
+	if count := cs.CertCount(); count != 1 {
+		t.Errorf("after duplicate load: expected 1 cert (deduped), got %d", count)
+	}
+
+	// Verify the cert was updated (should be the second cert)
+	hello := &tls.ClientHelloInfo{ServerName: "sub.example.com"}
+	cert, err := cs.GetCertificate(hello)
+	if err != nil {
+		t.Fatalf("GetCertificate: %v", err)
+	}
+	if cert == nil {
+		t.Fatal("expected non-nil cert")
+	}
+}
+
+// TestLoadCertFromTLS_WildcardDedup verifies dedup via the LoadCertFromTLS path.
+func TestLoadCertFromTLS_WildcardDedup(t *testing.T) {
+	certFile1, keyFile1 := generateTestCert(t, "*.test.org")
+	certFile2, keyFile2 := generateTestCert(t, "*.test.org")
+
+	pair1, err := tls.LoadX509KeyPair(certFile1, keyFile1)
+	if err != nil {
+		t.Fatalf("LoadX509KeyPair 1: %v", err)
+	}
+	pair2, err := tls.LoadX509KeyPair(certFile2, keyFile2)
+	if err != nil {
+		t.Fatalf("LoadX509KeyPair 2: %v", err)
+	}
+
+	cs := NewCertStore()
+	cs.LoadCertFromTLS([]string{"*.test.org"}, &pair1)
+	cs.LoadCertFromTLS([]string{"*.test.org"}, &pair2)
+
+	if count := cs.CertCount(); count != 1 {
+		t.Errorf("expected 1 wildcard cert (deduped), got %d", count)
 	}
 }

@@ -75,6 +75,7 @@ func runMain(args []string) int {
 		cmdTestAlert(args[2:])
 	case "healthcheck":
 		cmdHealthcheck()
+		return 0
 	case "setup":
 		cmdSetup(args[2:])
 	case "version":
@@ -113,11 +114,10 @@ func cmdVersion() {
 	fmt.Printf("guardianwaf %s (commit: %s, built: %s)\n", version, commit, date)
 }
 
-// cmdHealthcheck performs a health check and exits with appropriate code.
+// cmdHealthcheck performs a health check and prints status.
 func cmdHealthcheck() {
 	// Simple health check - just verify the binary runs
 	fmt.Println("OK")
-	os.Exit(0)
 }
 
 // cmdSetup provides interactive first-time setup.
