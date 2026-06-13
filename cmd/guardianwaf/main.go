@@ -18,9 +18,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/guardianwaf/guardianwaf/internal/ai"
 	"github.com/guardianwaf/guardianwaf/internal/alerting"
 	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/dashboard"
+	dkr "github.com/guardianwaf/guardianwaf/internal/docker"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/events"
 	"github.com/guardianwaf/guardianwaf/internal/layers/botdetect"
@@ -142,517 +144,14 @@ func cmdSetup(args []string) {
 	fmt.Print(banner)
 
 	// Generate secure password
-	dashboardPassword := generateDashboardPassword()
-
-	// ============ SERVER SETTINGS ============
-	fmt.Println("\n━━━ Server Settings ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-	fmt.Print("Listen address (HTTP) [0.0.0.0:8088]: ")
-	listen := readLine(":8088")
-
-	fmt.Print("WAF mode (enforce/monitor/disabled) [enforce]: ")
-	mode := readLine("enforce")
-	if mode == "" {
-		mode = "enforce"
-	}
-
-	fmt.Print("Enable TLS/SSL? (yes/no) [no]: ")
-	tlsEnabled := readLine("no") == "yes"
-
-	var tlsConfig string
-	var tlsListen string
-	if tlsEnabled {
-		fmt.Print("TLS listen port [0.0.0.0:8443]: ")
-		tlsListen = readLine(":8443")
-		fmt.Print("TLS certificate file path: ")
-		certFile := readLine("")
-		fmt.Print("TLS private key file path: ")
-		keyFile := readLine("")
-		fmt.Print("Enable HTTP->HTTPS redirect? (yes/no) [yes]: ")
-		httpRedirect := readLine("yes") == "yes"
-		if certFile != "" && keyFile != "" {
-			tlsConfig = fmt.Sprintf(`
-tls:
-  enabled: true
-  listen: "%s"
-  http_redirect: %t
-  cert_file: "%s"
-  key_file: "%s"`, tlsListen, httpRedirect, certFile, keyFile)
-		} else {
-			tlsConfig = fmt.Sprintf(`
-tls:
-  enabled: true
-  listen: "%s"
-  http_redirect: true`, tlsListen)
-		}
-	} else {
-		tlsConfig = `
-tls:
-  enabled: false`
-	}
-
-	// ============ UPSTREAMS ============
-	fmt.Println("\n━━━ Upstream Backend(s) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-	fmt.Print("Number of backends [1]: ")
-	numBackends := readLine("1")
-	if numBackends == "" {
-		numBackends = "1"
-	}
-
-	n := 1
-	if _, err := fmt.Sscanf(numBackends, "%d", &n); err != nil {
-		n = 1 // Invalid input, use default
-	}
-	if n < 1 {
-		n = 1
-	}
-	if n > 10 {
-		n = 10
-	}
-
-	var targets []string
-	for i := 0; i < n; i++ {
-		fmt.Printf("  Backend #%d URL: ", i+1)
-		url := readLine("")
-		if url == "" {
-			url = "http://localhost:3000"
-		}
-		fmt.Printf("  Backend #%d weight (1-10) [1]: ", i+1)
-		weight := readLine("1")
-		if weight == "" {
-			weight = "1"
-		}
-		targets = append(targets, fmt.Sprintf(`      - url: "%s"
-        weight: %s`, url, weight))
-	}
-
-	// Build upstream targets string
-	upstreamsTargets := strings.Join(targets, "\n")
-
-	// Load balancing
-	fmt.Print("Load balancing strategy (round_robin/weighted/least_conn/ip_hash) [weighted]: ")
-	lb := readLine("weighted")
-
-	// Health check
-	fmt.Print("Enable health checks? (yes/no) [yes]: ")
-	hcEnabled := readLine("yes") == "yes"
-
-	var healthCheck string
-	if hcEnabled {
-		fmt.Print("  Health check path [/healthz]: ")
-		hcPath := readLine("/healthz")
-		fmt.Print("  Health check interval (e.g., 10s, 30s) [10s]: ")
-		hcInterval := readLine("10s")
-		fmt.Print("  Health check timeout (e.g., 5s) [5s]: ")
-		hcTimeout := readLine("5s")
-		healthCheck = fmt.Sprintf(`
-    health_check:
-      enabled: true
-      path: "%s"
-      interval: %s
-      timeout: %s`, hcPath, hcInterval, hcTimeout)
-	}
-
-	// ============ ROUTING ============
-	fmt.Println("\n━━━ Routing ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-	fmt.Print("Route domain/host pattern [*]: ")
-	host := readLine("*")
-
-	fmt.Print("Route path prefix [/]: ")
-	path := readLine("/")
-
-	// ============ WAF SETTINGS ============
-	fmt.Println("\n━━━ WAF Detection ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-	fmt.Print("Block threshold (1-100) [50]: ")
-	blockThresh := readLine("50")
-	fmt.Print("Log threshold (1-100) [25]: ")
-	logThresh := readLine("25")
-
-	fmt.Println("  Attack detectors to enable (all enabled by default):")
-	fmt.Print("  - SQL Injection (yes/no) [yes]: ")
-	sqli := readLine("yes") == "yes"
-	fmt.Print("  - Cross-Site Scripting (yes/no) [yes]: ")
-	xss := readLine("yes") == "yes"
-	fmt.Print("  - Local File Inclusion (yes/no) [yes]: ")
-	lfi := readLine("yes") == "yes"
-	fmt.Print("  - Command Injection (yes/no) [yes]: ")
-	cmdi := readLine("yes") == "yes"
-	fmt.Print("  - XXE (yes/no) [yes]: ")
-	xxe := readLine("yes") == "yes"
-	fmt.Print("  - SSRF (yes/no) [yes]: ")
-	ssrf := readLine("yes") == "yes"
-
-	var detectors []string
-	if sqli {
-		detectors = append(detectors, "sqli")
-	}
-	if xss {
-		detectors = append(detectors, "xss")
-	}
-	if lfi {
-		detectors = append(detectors, "lfi")
-	}
-	if cmdi {
-		detectors = append(detectors, "cmdi")
-	}
-	if xxe {
-		detectors = append(detectors, "xxe")
-	}
-	if ssrf {
-		detectors = append(detectors, "ssrf")
-	}
-
-	detectorsConfig := fmt.Sprintf(`      sqli:
-        enabled: %t
-        multiplier: 1.0
-      xss:
-        enabled: %t
-        multiplier: 1.0
-      lfi:
-        enabled: %t
-        multiplier: 1.0
-      cmdi:
-        enabled: %t
-        multiplier: 1.0
-      xxe:
-        enabled: %t
-        multiplier: 1.0
-      ssrf:
-        enabled: %t
-        multiplier: 1.0`, sqli, xss, lfi, cmdi, xxe, ssrf)
-
-	// ============ BOT DETECTION ============
-	fmt.Println("\n━━━ Bot Detection ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-	fmt.Print("Enable bot detection? (yes/no) [yes]: ")
-	botEnabled := readLine("yes") == "yes"
-
-	var botConfig string
-	if botEnabled {
-		fmt.Print("  Bot action (block/challenge/log) [block]: ")
-		botMode := readLine("block")
-		fmt.Print("  Enable JA3 fingerprinting? (yes/no) [yes]: ")
-		ja3 := readLine("yes") == "yes"
-		fmt.Print("  Enable JA4 fingerprinting? (yes/no) [yes]: ")
-		ja4 := readLine("yes") == "yes"
-		_ = ja4 // nolint:errcheck // ja4 result read into local var for future use; CLI scaffolding currently only uses fmt.Sprintf
-		botConfig = fmt.Sprintf(`
-  bot_detection:
-    enabled: true
-    mode: %s
-    tls_fingerprint:
-      enabled: %t
-      known_bots_action: block
-      unknown_action: log
-      mismatch_action: log
-    user_agent:
-      enabled: true
-      block_empty: true
-      block_known_scanners: true`, botMode, ja3)
-	} else {
-		botConfig = `
-  bot_detection:
-    enabled: false`
-	}
-
-	// ============ RATE LIMITING ============
-	fmt.Println("\n━━━ Rate Limiting ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-	fmt.Print("Enable rate limiting? (yes/no) [yes]: ")
-	rlEnabled := readLine("yes") == "yes"
-
-	var rateLimitConfig string
-	rlAutoBan := false
-	rlBanDur := "15m"
-	if rlEnabled {
-		fmt.Print("  Requests per minute [100]: ")
-		rlRpm := readLine("100")
-		fmt.Print("  Burst size [20]: ")
-		rlBurst := readLine("20")
-		fmt.Print("  Enable auto-ban? (yes/no) [yes]: ")
-		rlAutoBan = readLine("yes") == "yes"
-		fmt.Print("  Ban duration (e.g., 15m, 1h) [15m]: ")
-		rlBanDur = readLine("15m")
-		rateLimitConfig = fmt.Sprintf(`
-  rate_limit:
-    enabled: true
-    rules:
-      - id: global
-        scope: ip
-        limit: %s
-        window: 1m
-        burst: %s
-        action: block`, rlRpm, rlBurst)
-	} else {
-		rateLimitConfig = `
-  rate_limit:
-    enabled: false`
-	}
-
-	// ============ CORS ============
-	fmt.Println("\n━━━ CORS Settings ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-	fmt.Print("Enable CORS? (yes/no) [yes]: ")
-	corsEnabled := readLine("yes") == "yes"
-
-	var corsConfig string
-	if corsEnabled {
-		fmt.Print("  Allowed origins (comma-separated, * for any) [*]: ")
-		origins := readLine("*")
-		fmt.Print("  Allowed methods (comma-separated) [GET,POST,PUT,DELETE,OPTIONS]: ")
-		methods := readLine("GET,POST,PUT,DELETE,OPTIONS")
-		corsConfig = fmt.Sprintf(`
-  cors:
-  enabled: true
-  allow_origins:
-    - "%s"
-  allow_methods:
-    - %s
-  allow_headers:
-    - "*"
-  max_age_seconds: 86400`, origins, strings.ReplaceAll(methods, ",", "\n    - "))
-	} else {
-		corsConfig = `
-  cors:
-  enabled: false`
-	}
-
-	// ============ ATO PROTECTION ============
-	fmt.Println("\n━━━ Account Takeover Protection ━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-	fmt.Print("Enable ATO protection? (yes/no) [yes]: ")
-	atoEnabled := readLine("yes") == "yes"
-
-	var atoConfig string
-	if atoEnabled {
-		fmt.Print("  Max login attempts [5]: ")
-		atoMax := readLine("5")
-		fmt.Print("  Detection window (e.g., 10m) [10m]: ")
-		atoWindow := readLine("10m")
-		fmt.Print("  Ban duration (e.g., 30m) [30m]: ")
-		atoBan := readLine("30m")
-		atoConfig = fmt.Sprintf(`
-  ato_protection:
-  enabled: true
-  brute_force:
-    enabled: true
-    max_attempts_per_ip: %s
-    window: %s
-    block_duration: %s`, atoMax, atoWindow, atoBan)
-	} else {
-		atoConfig = `
-  ato_protection:
-  enabled: false`
-	}
-
-	// ============ ALERTING ============
-	fmt.Println("\n━━━ Alerting ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-	fmt.Print("Enable alerting? (yes/no) [no]: ")
-	alertEnabled := readLine("no") == "yes"
-
-	var alertConfig string
-	if alertEnabled {
-		fmt.Print("  Webhook URL for alerts: ")
-		webhookURL := readLine("")
-		fmt.Print("  Alert on events (block,challenge,log) [block,challenge]: ")
-		events := readLine("block,challenge")
-		fmt.Print("  Minimum score threshold [50]: ")
-		minScore := readLine("50")
-		if webhookURL != "" {
-			alertConfig = fmt.Sprintf(`
-alerting:
-  enabled: true
-  webhooks:
-    - name: default
-      url: "%s"
-      events:
-        - %s
-      min_score: %s`, webhookURL, strings.ReplaceAll(events, ",", "\n        - "), minScore)
-		} else {
-			alertConfig = `
-alerting:
-  enabled: false`
-		}
-	} else {
-		alertConfig = `
-alerting:
-  enabled: false`
-	}
-
-	// ============ DOCKER ============
-	fmt.Println("\n━━━ Docker Auto-Discovery ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-	fmt.Print("Enable Docker auto-discovery? (yes/no) [yes]: ")
-	dockerEnabled := readLine("yes") == "yes"
-
-	var dockerConfig string
-	if dockerEnabled {
-		fmt.Print("  Docker socket path [/var/run/docker.sock]: ")
-		dockerSocket := readLine("/var/run/docker.sock")
-		dockerConfig = fmt.Sprintf(`
-docker:
-  enabled: true
-  socket_path: "%s"
-  label_prefix: gwaf
-  poll_interval: 5s`, dockerSocket)
-	} else {
-		dockerConfig = `
-docker:
-  enabled: false`
-	}
-
-	// ============ DASHBOARD ============
-	fmt.Println("\n━━━ Dashboard ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
-	fmt.Print("Dashboard port [0.0.0.0:9443]: ")
-	dashboardListen := readLine(":9443")
-
-	// ============ SUMMARY ============
-	fmt.Println("\n━━━ Summary ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Printf("  Mode: %s\n", mode)
-	fmt.Printf("  Listen: %s\n", listen)
-	fmt.Printf("  TLS: %s\n", boolStr(tlsEnabled))
-	if tlsEnabled {
-		fmt.Printf("  TLS Listen: %s\n", tlsListen)
-	}
-	fmt.Printf("  Upstreams: %d\n", n)
-	fmt.Printf("  Load Balancer: %s\n", lb)
-	fmt.Printf("  Health Check: %s\n", boolStr(hcEnabled))
-	fmt.Printf("  Detectors: %d enabled\n", len(detectors))
-	fmt.Printf("  Bot Detection: %s\n", boolStr(botEnabled))
-	fmt.Printf("  Rate Limiting: %s\n", boolStr(rlEnabled))
-	fmt.Printf("  CORS: %s\n", boolStr(corsEnabled))
-	fmt.Printf("  ATO Protection: %s\n", boolStr(atoEnabled))
-	fmt.Printf("  Alerting: %s\n", boolStr(alertEnabled))
-	fmt.Printf("  Docker Discovery: %s\n", boolStr(dockerEnabled))
-	fmt.Printf("  Dashboard: %s\n", dashboardListen)
-
-	fmt.Print("\nGenerate config? (yes/no) [yes]: ")
-	if readLine("yes") != "yes" {
-		fmt.Println("Setup cancelled.")
+	dashboardPassword, err := generateDashboardPassword()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to generate dashboard API key: %v\n", err)
 		return
 	}
 
-	fmt.Println("\nGenerating configuration...")
-
-	// Ensure parent directory exists
-	if dirIdx := strings.LastIndex(*configPath, "/"); dirIdx > 0 {
-		if err := os.MkdirAll((*configPath)[:dirIdx], 0755); err != nil {
-			fmt.Printf("warning: failed to create directory: %v\n", err)
-		}
-	}
-
-	// Build config string piecewise
-	var buf strings.Builder
-
-	buf.WriteString("# GuardianWAF Configuration\n")
-	buf.WriteString("# Generated by guardianwaf setup on " + time.Now().Format("2006-01-02 15:04:05") + "\n")
-	buf.WriteString("# ============================================================\n")
-	buf.WriteString("# Mode: " + mode + " | Listen: " + listen + " | TLS: " + boolStr(tlsEnabled) + "\n")
-	buf.WriteString("# Dashboard: " + dashboardListen + " | Upstreams: " + fmt.Sprintf("%d", n) + "\n")
-	buf.WriteString("# ============================================================\n\n")
-
-	buf.WriteString("mode: " + mode + "\n")
-	buf.WriteString("listen: \"" + listen + "\"\n")
-	buf.WriteString("allow_private_upstreams: true\n")
-	buf.WriteString(tlsConfig + "\n")
-
-	buf.WriteString("upstreams:\n")
-	buf.WriteString("  - name: default\n")
-	buf.WriteString("    load_balancer: " + lb + "\n")
-	buf.WriteString("    targets:\n")
-	buf.WriteString(upstreamsTargets + "\n")
-	buf.WriteString(healthCheck + "\n")
-
-	buf.WriteString("routes:\n")
-	buf.WriteString("  - path: \"" + path + "\"\n")
-	buf.WriteString("    upstream: default\n\n")
-	_ = host // nolint:errcheck // host result read from readLine; unused in generated config but preserved for future CLI use
-
-	buf.WriteString("logging:\n")
-	buf.WriteString("  level: info\n")
-	buf.WriteString("  format: json\n")
-	buf.WriteString("  log_blocked: true\n")
-	buf.WriteString("  log_allowed: false\n\n")
-
-	buf.WriteString("waf:\n")
-	buf.WriteString("  ip_acl:\n")
-	buf.WriteString("    enabled: true\n")
-	buf.WriteString("    auto_ban:\n")
-	buf.WriteString("      enabled: " + fmt.Sprintf("%t", rlAutoBan) + "\n")
-	buf.WriteString("      default_ttl: " + rlBanDur + "\n")
-	buf.WriteString("      max_ttl: 24h\n")
-	buf.WriteString("  sanitizer:\n")
-	buf.WriteString("    enabled: true\n")
-	buf.WriteString("    max_url_length: 8192\n")
-	buf.WriteString("    max_header_size: 8192\n")
-	buf.WriteString("    max_header_count: 100\n")
-	buf.WriteString("    max_body_size: 10485760\n")
-	buf.WriteString("    max_cookie_size: 4096\n")
-	buf.WriteString("    block_null_bytes: true\n")
-	buf.WriteString("    normalize_encoding: true\n")
-	buf.WriteString("    strip_hop_by_hop: true\n")
-	buf.WriteString("  detection:\n")
-	buf.WriteString("    enabled: true\n")
-	buf.WriteString("    threshold:\n")
-	buf.WriteString("      block: " + blockThresh + "\n")
-	buf.WriteString("      log: " + logThresh + "\n")
-	buf.WriteString("    detectors:\n")
-	buf.WriteString(detectorsConfig + "\n")
-	buf.WriteString("  challenge:\n")
-	buf.WriteString("    enabled: true\n")
-	buf.WriteString("    difficulty: 20\n")
-	buf.WriteString(botConfig + "\n")
-	buf.WriteString(rateLimitConfig + "\n")
-	buf.WriteString(corsConfig + "\n")
-	buf.WriteString(atoConfig + "\n\n")
-
-	buf.WriteString(alertConfig + "\n\n")
-
-	buf.WriteString(dockerConfig + "\n\n")
-
-	buf.WriteString("dashboard:\n")
-	buf.WriteString("  enabled: true\n")
-	buf.WriteString("  listen: \"" + dashboardListen + "\"\n")
-	buf.WriteString("  api_key: \"" + dashboardPassword + "\"\n\n")
-
-	buf.WriteString("mcp:\n")
-	buf.WriteString("  enabled: true\n")
-	buf.WriteString("  transport: stdio\n")
-
-	configContent := buf.String()
-
-	if err := os.WriteFile(*configPath, []byte(configContent), 0600); err != nil {
-		fmt.Fprintf(os.Stderr, "Error writing config: %v\n", err)
-		os.Exit(1)
-	}
-
-	fmt.Println()
-	fmt.Println("╔═══════════════════════════════════════════════════════════╗")
-	fmt.Println("║              Setup Complete!                            ║")
-	fmt.Println("╚═══════════════════════════════════════════════════════════╝")
-	fmt.Println()
-	fmt.Printf("  Config saved to: %s\n", *configPath)
-	fmt.Println()
-	fmt.Println("  ┌─────────────────────────────────────────────────────┐")
-	fmt.Println("  │  IMPORTANT - Save these credentials:                │")
-	fmt.Println("  │                                                     │")
-	fmt.Printf("  │  Dashboard password: %s                   │\n", dashboardPassword)
-	fmt.Println("  │                                                     │")
-	fmt.Println("  └─────────────────────────────────────────────────────┘")
-	fmt.Println()
-	fmt.Println("  Next steps:")
-	fmt.Printf("    sudo systemctl enable guardianwaf\n")
-	fmt.Printf("    sudo systemctl start guardianwaf\n")
-	fmt.Printf("    sudo systemctl status guardianwaf\n")
-	fmt.Println()
-	fmt.Printf("  Or run directly:\n")
-	fmt.Printf("    guardianwaf serve -c %s\n", *configPath)
-	fmt.Println()
+	wizard := newSetupWizard(dashboardPassword)
+	wizard.run(*configPath)
 }
 
 // readLine reads a line from stdin with a default value
@@ -719,7 +218,7 @@ func cmdServe(args []string) {
 	}
 
 	// 4. Create runtime engine
-	eventStore, eventBus, eng, err := setupRuntimeEngine(cfg)
+	eventStore, eventBus, eng, layerResources, err := setupRuntimeEngine(cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to initialize runtime engine: %v\n", err)
 		osExit(1)
@@ -737,9 +236,6 @@ func cmdServe(args []string) {
 	// 8. Build handler
 	serveMux := http.NewServeMux()
 
-	// Prometheus-compatible metrics endpoint
-	registerMetricsHandler(serveMux, eng)
-
 	// Mount challenge verification endpoint
 	registerChallengeHandler(serveMux, challengeSvc)
 
@@ -747,11 +243,40 @@ func cmdServe(args []string) {
 
 	// Mount upstream proxy or default handler
 	var proxyRuntimeMu sync.RWMutex
+	var alertMgrPtr atomic.Pointer[alerting.Manager]
+	var dockerWatcherPtr atomic.Pointer[dkr.Watcher]
+	var aiAnalyzerPtr atomic.Pointer[ai.Analyzer]
 	upstream, proxyRouter, proxyHealthCheckers := buildProxyRuntime(cfg, standaloneNoUpstreamHandler())
-	registerProbeHandlers(serveMux, cfg, eng, func() *proxy.Router {
-		proxyRuntimeMu.RLock()
-		defer proxyRuntimeMu.RUnlock()
-		return proxyRouter
+	registerMetricsHandlerWithDeps(serveMux, eng, metricsDependencies{
+		Router: func() *proxy.Router {
+			proxyRuntimeMu.RLock()
+			defer proxyRuntimeMu.RUnlock()
+			return proxyRouter
+		},
+		AlertManager: func() *alerting.Manager {
+			return alertMgrPtr.Load()
+		},
+		DockerEnabled: func() bool {
+			return cfg.Docker.Enabled
+		},
+		DockerWatcher: func() *dkr.Watcher {
+			return dockerWatcherPtr.Load()
+		},
+		AIEnabled: func() bool {
+			return cfg.WAF.AIAnalysis.Enabled
+		},
+		AIAnalyzer: func() *ai.Analyzer {
+			return aiAnalyzerPtr.Load()
+		},
+	})
+	var dashboardReady atomic.Bool
+	registerProbeHandlersWithDeps(serveMux, cfg, eng, probeDependencies{
+		Router: func() *proxy.Router {
+			proxyRuntimeMu.RLock()
+			defer proxyRuntimeMu.RUnlock()
+			return proxyRouter
+		},
+		DashboardReady: dashboardReady.Load,
 	})
 	// Use atomic handler so rebuild can swap it without re-registering on mux
 	var upstreamHandler atomic.Value
@@ -768,17 +293,8 @@ func cmdServe(args []string) {
 	// If TLS is enabled with http_redirect, HTTP server redirects to HTTPS
 	srv := newRuntimeHTTPServer(cfg.Listen, buildHTTPHandler(cfg, serveMux, handler))
 
-	// 10. Start MCP server if enabled
+	// 10. Prepare MCP SSE registration after dashboard startup.
 	var mcpSSE *mcp.SSEHandler
-	if cfg.MCP.Enabled {
-		// SSE transport — served via dashboard port, auth-protected
-		mcpSrv := mcp.NewServer(nil, nil)
-		mcpSrv.SetServerInfo("guardianwaf", version)
-		mcpSrv.SetEngine(&mcpEngineAdapter{engine: eng, cfg: cfg, eventStore: eventStore, alertMgr: nil})
-		mcpSrv.RegisterAllTools()
-		mcpSSE = mcp.NewSSEHandler(mcpSrv, cfg.Dashboard.APIKey)
-		eng.Logs.Info("MCP SSE transport enabled")
-	}
 
 	// 10b. Start dashboard if enabled
 	var dashSrv *http.Server
@@ -790,26 +306,47 @@ func cmdServe(args []string) {
 			dashboard.SetSessionSecret(cfg.Dashboard.APIKey)
 		}
 		dashSrv, sseBroadcaster, dash = startDashboard(cfg, eng)
+		if dashSrv == nil || dash == nil {
+			fmt.Fprintf(os.Stderr, "Failed to start dashboard on %s\n", cfg.Dashboard.Listen)
+			osExit(1)
+			return
+		}
+		dashboardReady.Store(dashSrv != nil && dash != nil)
 		wireDashboardProxyControls(dash, cfg, eng, *configPath, &proxyRouter, &proxyHealthCheckers, &proxyRuntimeMu, &upstreamHandler, diskStore)
-		wireDashboardRules(dash, cfg, eng)
+		wireDashboardRules(dash, cfg, eng, layerResources)
 	}
 
 	// Register MCP SSE routes on dashboard mux
-	if mcpSSE != nil && dash != nil {
+	if cfg.MCP.Enabled && dash != nil {
+		// SSE transport is served via the dashboard port and protected by the
+		// final dashboard API key, including keys generated during startup.
+		mcpSSE = buildMCPSSEHandler(eng, cfg, eventStore, nil)
 		mcpSSE.RegisterRoutes(dash.Mux())
 		eng.Logs.Info("MCP SSE endpoints registered: GET /mcp/sse, POST /mcp/message")
 	}
 
 	tenantManager, tenantMiddleware := setupTenantRuntime(cfg, eng, dash, &upstreamHandler)
 	aiAnalyzer := setupAIRuntime(cfg, eng, eventBus, dash)
+	if aiAnalyzer != nil {
+		aiAnalyzerPtr.Store(aiAnalyzer)
+	}
 
 	var eventConsumerWG sync.WaitGroup
 
 	// 10c. Start alerting/webhooks if enabled
 	alertMgr := setupAlertingRuntime(cfg, eng, eventBus, eventStore, dash, &eventConsumerWG, os.Stdin, os.Stdout)
+	if alertMgr != nil {
+		alertMgrPtr.Store(alertMgr)
+	}
+	if startMCPStdioRuntime(eng, cfg, eventStore, alertMgr, os.Stdin, os.Stdout) {
+		eng.Logs.Info("MCP stdio transport enabled")
+	}
 
 	// 10d. Start Docker auto-discovery if enabled
 	dockerWatcher := setupDockerRuntime(cfg, eng, dash, &proxyRouter, &proxyHealthCheckers, &proxyRuntimeMu, &upstreamHandler, tenantMiddleware)
+	if dockerWatcher != nil {
+		dockerWatcherPtr.Store(dockerWatcher)
+	}
 
 	// 10d. Wire SSE broadcaster to event bus for real-time dashboard updates
 	if sseBroadcaster != nil {
@@ -838,8 +375,10 @@ func cmdServe(args []string) {
 		tlsServer:           tlsSrv,
 		dashboardServer:     dashSrv,
 		certStore:           certStore,
+		acmeRenewal:         diskStore,
 		engine:              eng,
 		proxyRuntimeMu:      &proxyRuntimeMu,
+		proxyRouter:         &proxyRouter,
 		proxyHealthCheckers: &proxyHealthCheckers,
 		cleanupStop:         cleanupStop,
 		cleanupWG:           cleanupWG,
@@ -847,7 +386,9 @@ func cmdServe(args []string) {
 		aiAnalyzer:          aiAnalyzer,
 		alertManager:        alertMgr,
 		dashboard:           dash,
+		tenantManager:       tenantManager,
 		eventConsumerWG:     &eventConsumerWG,
+		layerResources:      layerResources,
 	})
 }
 
@@ -919,7 +460,7 @@ func cmdSidecar(args []string) {
 		cfg.Logging.Level = *logLevel
 	}
 
-	_, _, eng, err := setupRuntimeEngine(cfg)
+	_, _, eng, layerResources, err := setupRuntimeEngine(cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to initialize runtime engine: %v\n", err)
 		osExit(1)
@@ -930,14 +471,18 @@ func cmdSidecar(args []string) {
 		fmt.Fprintf(os.Stderr, "Error creating challenge service: %v\n", err)
 		return
 	}
+	cleanupStop, cleanupWG := startPeriodicCleanup(eng, nil, periodicCleanupInterval)
 
 	// Build handler with probe and metrics endpoints
 	mux := http.NewServeMux()
-	registerMetricsHandler(mux, eng)
-
 	registerClientSideReportHandlers(mux)
 
 	proxyHandler, sidecarRouter, sidecarHealthCheckers := buildProxyRuntime(cfg, sidecarNoUpstreamHandler())
+	registerMetricsHandlerWithDeps(mux, eng, metricsDependencies{
+		Router: func() *proxy.Router {
+			return sidecarRouter
+		},
+	})
 	registerProbeHandlers(mux, cfg, eng, func() *proxy.Router {
 		return sidecarRouter
 	})
@@ -959,14 +504,18 @@ func cmdSidecar(args []string) {
 	}()
 
 	<-shutdown
-	fmt.Println("\nShutting down sidecar...")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	_ = srv.Shutdown(ctx) // nolint:errcheck // graceful shutdown; error logged upstream if it matters
-	stopHealthCheckers(sidecarHealthCheckers)
-	eng.Close()
-	fmt.Println("GuardianWAF sidecar stopped.")
+	shutdownSidecarRuntime(ctx, sidecarShutdownResources{
+		server:              srv,
+		engine:              eng,
+		proxyRouter:         &sidecarRouter,
+		proxyHealthCheckers: &sidecarHealthCheckers,
+		cleanupStop:         cleanupStop,
+		cleanupWG:           cleanupWG,
+		layerResources:      layerResources,
+	})
 }
 
 // --------------------------------------------------------------------------
@@ -1020,9 +569,13 @@ func runCheck(opts *CheckOptions) (*CheckResult, error) {
 		return nil, fmt.Errorf("failed to create engine: %w", err)
 	}
 	defer eng.Close()
+	layerResources := &layerRuntimeResources{}
+	defer func() {
+		_ = layerResources.stopGeoIPRefresh(context.Background())
+	}()
 
 	// Wire layers
-	if addErr := addLayers(eng, cfg); addErr != nil {
+	if addErr := addLayersWithRuntime(eng, cfg, layerResources); addErr != nil {
 		return nil, fmt.Errorf("failed to wire WAF layers: %w", addErr)
 	}
 

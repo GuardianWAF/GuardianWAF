@@ -2,20 +2,44 @@ package events
 
 import (
 	"sync"
+	"sync/atomic"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 )
 
+// EventBusStats contains bounded operational counters for event fan-out.
+type EventBusStats struct {
+	Subscribers           int
+	MaxSubscribers        int
+	PublishedEvents       int64
+	DroppedEvents         int64
+	RejectedSubscriptions int64
+}
+
 // EventBus provides publish/subscribe for WAF events.
 type EventBus struct {
-	mu          sync.RWMutex
-	subscribers []chan<- engine.Event
-	closed      bool
+	mu                    sync.RWMutex
+	subscribers           []chan<- engine.Event
+	maxSubscribers        int
+	closed                bool
+	publishedTotal        atomic.Int64
+	droppedTotal          atomic.Int64
+	rejectedSubscriptions atomic.Int64
 }
+
+const defaultMaxEventBusSubscribers = 1024
 
 // NewEventBus creates a new EventBus.
 func NewEventBus() *EventBus {
-	return &EventBus{}
+	return NewEventBusWithMaxSubscribers(defaultMaxEventBusSubscribers)
+}
+
+// NewEventBusWithMaxSubscribers creates an EventBus with a fixed subscriber cap.
+func NewEventBusWithMaxSubscribers(maxSubscribers int) *EventBus {
+	if maxSubscribers < 1 {
+		maxSubscribers = defaultMaxEventBusSubscribers
+	}
+	return &EventBus{maxSubscribers: maxSubscribers}
 }
 
 // Subscribe registers a channel to receive events.
@@ -24,6 +48,14 @@ func (eb *EventBus) Subscribe(ch chan<- engine.Event) {
 	defer eb.mu.Unlock()
 
 	if eb.closed {
+		eb.rejectedSubscriptions.Add(1)
+		return
+	}
+	if eb.maxSubscribers < 1 {
+		eb.maxSubscribers = defaultMaxEventBusSubscribers
+	}
+	if len(eb.subscribers) >= eb.maxSubscribers {
+		eb.rejectedSubscriptions.Add(1)
 		return
 	}
 	eb.subscribers = append(eb.subscribers, ch)
@@ -46,15 +78,43 @@ func (eb *EventBus) Unsubscribe(ch chan<- engine.Event) {
 // Publish sends an event to all subscribers. Non-blocking: if a subscriber's
 // channel is full, the event is skipped for that subscriber.
 func (eb *EventBus) Publish(event engine.Event) {
+	// Snapshot subscriber list under RLock, then iterate outside the lock
+	// to minimize the critical section and avoid blocking Subscribe/Unsubscribe.
 	eb.mu.RLock()
-	defer eb.mu.RUnlock()
+	if eb.closed {
+		eb.mu.RUnlock()
+		return
+	}
+	subs := make([]chan<- engine.Event, len(eb.subscribers))
+	copy(subs, eb.subscribers)
+	eb.mu.RUnlock()
 
-	for _, ch := range eb.subscribers {
+	eb.publishedTotal.Add(1)
+	for _, ch := range subs {
 		select {
 		case ch <- event:
 		default:
 			// Skip slow subscribers to avoid blocking
+			eb.droppedTotal.Add(1)
 		}
+	}
+}
+
+// Stats returns bounded event bus fan-out counters for metrics and dashboards.
+func (eb *EventBus) Stats() EventBusStats {
+	eb.mu.RLock()
+	subscribers := len(eb.subscribers)
+	maxSubscribers := eb.maxSubscribers
+	eb.mu.RUnlock()
+	if maxSubscribers < 1 {
+		maxSubscribers = defaultMaxEventBusSubscribers
+	}
+	return EventBusStats{
+		Subscribers:           subscribers,
+		MaxSubscribers:        maxSubscribers,
+		PublishedEvents:       eb.publishedTotal.Load(),
+		DroppedEvents:         eb.droppedTotal.Load(),
+		RejectedSubscriptions: eb.rejectedSubscriptions.Load(),
 	}
 }
 

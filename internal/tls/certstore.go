@@ -4,13 +4,17 @@
 package tls
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"sync"
 	"time"
 )
+
+var certStoreLog = slog.Default().With(slog.String("component", "tls/certstore"))
 
 // CertEntry represents a loaded certificate with its source file paths.
 type CertEntry struct {
@@ -151,7 +155,7 @@ func (cs *CertStore) StartReload(interval time.Duration) {
 		defer cs.wg.Done()
 		defer func() {
 			if r := recover(); r != nil {
-				fmt.Printf("[ERROR] TLS cert reload panic: %v\n", r)
+				certStoreLog.Error("cert reload panic recovered", "panic", r)
 			}
 		}()
 		tickerInterval := interval
@@ -174,10 +178,31 @@ func (cs *CertStore) StartReload(interval time.Duration) {
 
 // StopReload stops the background certificate reload goroutine.
 func (cs *CertStore) StopReload() {
+	_ = cs.StopReloadWithContext(context.Background())
+}
+
+// StopReloadWithContext stops the background certificate reload goroutine and
+// waits within ctx for any in-flight reload work to finish.
+func (cs *CertStore) StopReloadWithContext(ctx context.Context) error {
 	cs.stopOnce.Do(func() {
 		close(cs.stopReload)
 	})
-	cs.wg.Wait()
+	return waitForReloadLoop(ctx, &cs.wg)
+}
+
+func waitForReloadLoop(ctx context.Context, wg *sync.WaitGroup) error {
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // CertCount returns the number of loaded certificates (exact + wildcard).
@@ -216,10 +241,12 @@ func (cs *CertStore) reloadIfChanged() {
 	for i, entry := range entries {
 		certInfo, err := os.Stat(entry.CertFile)
 		if err != nil {
+			certStoreLog.Warn("cert file stat failed during reload; skipping", "cert", entry.CertFile, "err", err)
 			continue
 		}
 		keyInfo, err := os.Stat(entry.KeyFile)
 		if err != nil {
+			certStoreLog.Warn("key file stat failed during reload; skipping", "key", entry.KeyFile, "err", err)
 			continue
 		}
 
@@ -230,8 +257,11 @@ func (cs *CertStore) reloadIfChanged() {
 		// Reload
 		cert, err := tls.LoadX509KeyPair(entry.CertFile, entry.KeyFile)
 		if err != nil {
-			continue // keep old cert on error
+			certStoreLog.Error("failed to reload cert; keeping previous cert", "cert", entry.CertFile, "key", entry.KeyFile, "err", err)
+			continue
 		}
+
+		certStoreLog.Info("reloaded certificate", "cert", entry.CertFile, "domains", entry.Domains)
 
 		cs.mu.Lock()
 		cs.entries[i].certMod = certInfo.ModTime()

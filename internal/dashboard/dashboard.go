@@ -7,12 +7,15 @@ import (
 	"crypto/subtle"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/http/pprof"
 	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -76,14 +79,16 @@ type AlertManagerInterface interface {
 
 // Dashboard is the web dashboard server.
 type Dashboard struct {
-	engine        *engine.Engine
-	eventStore    events.EventStore
-	sse           *SSEBroadcaster
-	mux           *http.ServeMux
-	apiKey        string
-	adminKey      string            // Separate key for system admin operations (tenant management, billing, stats)
-	pprofKey      string            // Separate key for pprof debug endpoints (more restrictive than apiKey)
-	tenantAPIKeys map[string]string // map[tenantID] -> SHA256 hash of per-tenant API key
+	engine           *engine.Engine
+	eventStore       events.EventStore
+	sse              *SSEBroadcaster
+	mux              *http.ServeMux
+	apiKey           string
+	buildInfo        map[string]string
+	adminKey         string            // Separate key for system admin operations (tenant management, billing, stats)
+	pprofKey         string            // Separate key for pprof debug endpoints (more restrictive than apiKey)
+	tenantAPIKeys    map[string]string // map[tenantID] -> SHA256 hash of per-tenant API key
+	trustedProxyNets []*net.IPNet      // Direct proxy CIDRs trusted for forwarded TLS metadata
 	// Dependency interfaces (injected to avoid circular imports)
 	routingCtrl    RoutingController      // rebuild + save routing config
 	upstreamStatus UpstreamStatusProvider // returns upstream health status
@@ -101,6 +106,7 @@ type Dashboard struct {
 	// Login rate limiting: per-IP token buckets
 	loginBuckets sync.Map // map[string]*loginBucket
 	loginStopCh  chan struct{}
+	cleanupWG    sync.WaitGroup
 
 	// API rate limiting: per-IP token buckets for authenticated endpoints
 	apiBuckets sync.Map // map[string]*apiBucket
@@ -112,6 +118,7 @@ type Dashboard struct {
 	clientSideLayer    *clientside.Layer
 	apiValidationLayer *apivalidation.Layer
 	dlpLayer           *dlp.Layer
+	tenantAdminHandler *TenantAdminHandler
 }
 
 const (
@@ -188,17 +195,23 @@ func New(eng *engine.Engine, store events.EventStore, apiKey string) *Dashboard 
 		apiStopCh:   make(chan struct{}),
 	}
 
+	d.cleanupWG.Add(3)
 	go d.cleanupLoginBuckets()
 	go d.cleanupAPIBuckets()
-	go cleanupRevokedSessionsLoop(d.loginStopCh)
+	go cleanupRevokedSessionsLoop(d.loginStopCh, &d.cleanupWG)
 
 	// Login/logout (always accessible)
 	d.mux.HandleFunc("GET /login", d.handleLoginPage)
 	d.mux.HandleFunc("POST /login", d.handleLoginSubmit)
-	d.mux.HandleFunc("GET /logout", d.handleLogout)
+	d.mux.HandleFunc("POST /logout", d.handleLogout)
 
 	// Health check (always accessible, no sensitive data)
+	d.mux.HandleFunc("GET /health", d.handleHealth)
+	d.mux.HandleFunc("GET /healthz", d.handleHealth)
+	d.mux.HandleFunc("GET /livez", d.handleHealth)
+	d.mux.HandleFunc("GET /readyz", d.handleHealth)
 	d.mux.HandleFunc("GET /api/v1/health", d.handleHealth)
+	d.mux.HandleFunc("GET /api/v1/version", d.handleVersion)
 
 	// Domain-based route registration
 	d.registerStats(d.mux)
@@ -210,6 +223,11 @@ func New(eng *engine.Engine, store events.EventStore, apiKey string) *Dashboard 
 	d.registerAlerting(d.mux)
 	d.registerDocker(d.mux)
 	d.registerCompliance(d.mux)
+	d.registerAnalytics(d.mux)
+	d.registerCluster(d.mux)
+	d.registerTenantCompatibility(d.mux)
+	d.tenantAdminHandler = NewTenantAdminHandler(d, nil)
+	d.tenantAdminHandler.RegisterRoutes(d.mux)
 
 	// Per-layer management APIs (CRS, DLP, client-side, API validation, virtual patch).
 	NewCRSHandler(d).RegisterRoutes(d.mux)
@@ -245,6 +263,14 @@ func (d *Dashboard) SSE() *SSEBroadcaster {
 	return d.sse
 }
 
+func (d *Dashboard) SetBuildInfo(version, commit, date string) {
+	d.buildInfo = map[string]string{
+		"version": version,
+		"commit":  commit,
+		"date":    date,
+	}
+}
+
 // --- Auth ---
 
 // getClientIP extracts the client IP from the request, never using X-Forwarded-For.
@@ -260,7 +286,7 @@ func (d *Dashboard) authWrap(handler http.HandlerFunc) http.HandlerFunc {
 		r, ok := d.isAuthenticated(r)
 		if !ok {
 			// API requests get 401 JSON, browser requests get redirected to login
-			if strings.HasPrefix(r.URL.Path, "/api/") {
+			if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/mcp") {
 				writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
 			} else {
 				http.Redirect(w, r, "/login", http.StatusFound)
@@ -269,7 +295,7 @@ func (d *Dashboard) authWrap(handler http.HandlerFunc) http.HandlerFunc {
 		}
 
 		// Check API rate limit for /api/v1/* endpoints (authenticated only)
-		if strings.HasPrefix(r.URL.Path, "/api/v1/") {
+		if strings.HasPrefix(r.URL.Path, "/api/v1/") && getAuthType(r) != authSession {
 			if !d.apiBucketAllow(d.getClientIP(r)) {
 				writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
 				return
@@ -289,7 +315,7 @@ func (d *Dashboard) authWrap(handler http.HandlerFunc) http.HandlerFunc {
 
 		// Refresh session cookie on each request (sliding idle timeout)
 		if cookie, err := r.Cookie(sessionCookieName); err == nil && cookie.Value != "" {
-			setSessionCookie(w, r)
+			setSessionCookie(w, r, d.trustedProxyNets)
 		}
 
 		// CSRF protection for state-changing requests authenticated via cookie
@@ -603,6 +629,11 @@ func (d *Dashboard) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	// Audit log for security-critical config changes
 	d.logSecurityConfigChanges(d.engine.Config(), cfg, r)
 
+	if err := validateRuntimeReloadableConfig(d.engine.Config(), cfg); err != nil {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": sanitizeErr(err)})
+		return
+	}
+
 	if err := d.engine.Reload(cfg); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
 		return
@@ -617,6 +648,114 @@ func (d *Dashboard) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "message": "Configuration updated and saved"})
+}
+
+func (d *Dashboard) handleReloadConfig(w http.ResponseWriter, r *http.Request) {
+	cfg := deepCopyConfig(d.engine.Config())
+	if err := validateRuntimeReloadableConfig(d.engine.Config(), cfg); err != nil {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": sanitizeErr(err)})
+		return
+	}
+	if err := d.engine.Reload(cfg); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
+		return
+	}
+	if d.routingCtrl != nil {
+		if err := d.routingCtrl.Rebuild(); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "proxy rebuild failed"})
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "message": "Configuration reloaded"})
+}
+
+func validateRuntimeReloadableConfig(oldCfg, newCfg *config.Config) error {
+	if oldCfg == nil || newCfg == nil {
+		return nil
+	}
+
+	changed := make([]string, 0)
+	addBoolChange := func(path string, oldValue, newValue bool) {
+		if oldValue != newValue {
+			changed = append(changed, path)
+		}
+	}
+
+	addBoolChange("waf.ip_acl.enabled", oldCfg.WAF.IPACL.Enabled, newCfg.WAF.IPACL.Enabled)
+	addBoolChange("waf.threat_intel.enabled", oldCfg.WAF.ThreatIntel.Enabled, newCfg.WAF.ThreatIntel.Enabled)
+	addBoolChange("waf.cors.enabled", oldCfg.WAF.CORS.Enabled, newCfg.WAF.CORS.Enabled)
+	addBoolChange("waf.custom_rules.enabled", oldCfg.WAF.CustomRules.Enabled, newCfg.WAF.CustomRules.Enabled)
+	addBoolChange("waf.rate_limit.enabled", oldCfg.WAF.RateLimit.Enabled, newCfg.WAF.RateLimit.Enabled)
+	addBoolChange("waf.ato_protection.enabled", oldCfg.WAF.ATOProtection.Enabled, newCfg.WAF.ATOProtection.Enabled)
+	addBoolChange("waf.api_security.enabled", oldCfg.WAF.APISecurity.Enabled, newCfg.WAF.APISecurity.Enabled)
+	addBoolChange("waf.api_validation.enabled", oldCfg.WAF.APIValidation.Enabled, newCfg.WAF.APIValidation.Enabled)
+	addBoolChange("waf.sanitizer.enabled", oldCfg.WAF.Sanitizer.Enabled, newCfg.WAF.Sanitizer.Enabled)
+	addBoolChange("waf.crs.enabled", oldCfg.WAF.CRS.Enabled, newCfg.WAF.CRS.Enabled)
+	addBoolChange("waf.detection.enabled", oldCfg.WAF.Detection.Enabled, newCfg.WAF.Detection.Enabled)
+	addBoolChange("waf.virtual_patch.enabled", oldCfg.WAF.VirtualPatch.Enabled, newCfg.WAF.VirtualPatch.Enabled)
+	addBoolChange("waf.dlp.enabled", oldCfg.WAF.DLP.Enabled, newCfg.WAF.DLP.Enabled)
+	addBoolChange("waf.bot_detection.enabled", oldCfg.WAF.BotDetection.Enabled, newCfg.WAF.BotDetection.Enabled)
+	addBoolChange("waf.client_side.enabled", oldCfg.WAF.ClientSide.Enabled, newCfg.WAF.ClientSide.Enabled)
+
+	if len(changed) == 0 {
+		return validateRuntimeReloadableWAFConfig(oldCfg, newCfg)
+	}
+	return fmt.Errorf("runtime reload cannot change WAF layer topology (%s); update the config file and restart GuardianWAF", strings.Join(changed, ", "))
+}
+
+func validateRuntimeReloadableWAFConfig(oldCfg, newCfg *config.Config) error {
+	oldWAF := reloadGuardWAFShape(oldCfg)
+	newWAF := reloadGuardWAFShape(newCfg)
+
+	if reflect.DeepEqual(oldWAF, newWAF) {
+		return nil
+	}
+	return fmt.Errorf("runtime reload cannot change WAF layer configuration without rebuilding the pipeline; update the config file and restart GuardianWAF")
+}
+
+func reloadGuardWAFShape(cfg *config.Config) any {
+	waf := cfg.DeepCopy().WAF
+
+	// These fields are consumed through Engine atomics and do not require
+	// rebuilding layer instances.
+	waf.Detection.Threshold = config.ThresholdConfig{}
+	waf.Sanitizer.MaxBodySize = 0
+
+	return struct {
+		IPACL         config.IPACLConfig
+		ThreatIntel   config.ThreatIntelConfig
+		CORS          config.CORSConfig
+		CustomRules   config.CustomRulesConfig
+		RateLimit     config.RateLimitConfig
+		ATOProtection config.ATOProtectionConfig
+		APISecurity   config.APISecurityConfig
+		APIValidation config.APIValidationConfig
+		Sanitizer     config.SanitizerConfig
+		CRS           config.CRSConfig
+		Detection     config.DetectionConfig
+		VirtualPatch  config.VirtualPatchConfig
+		DLP           config.DLPConfig
+		BotDetection  config.BotDetectionConfig
+		ClientSide    config.ClientSideConfig
+		Response      config.ResponseConfig
+	}{
+		IPACL:         waf.IPACL,
+		ThreatIntel:   waf.ThreatIntel,
+		CORS:          waf.CORS,
+		CustomRules:   waf.CustomRules,
+		RateLimit:     waf.RateLimit,
+		ATOProtection: waf.ATOProtection,
+		APISecurity:   waf.APISecurity,
+		APIValidation: waf.APIValidation,
+		Sanitizer:     waf.Sanitizer,
+		CRS:           waf.CRS,
+		Detection:     waf.Detection,
+		VirtualPatch:  waf.VirtualPatch,
+		DLP:           waf.DLP,
+		BotDetection:  waf.BotDetection,
+		ClientSide:    waf.ClientSide,
+		Response:      waf.Response,
+	}
 }
 
 // applyWAFPatch applies partial config updates from a JSON patch object.
@@ -907,8 +1046,9 @@ func (d *Dashboard) SetComplianceEngine(e *compliance.Engine) {
 
 func (d *Dashboard) SetTenantManager(manager tenantManagerInterface) {
 	d.tenantManager = manager
-	adminHandler := NewTenantAdminHandler(d, manager)
-	adminHandler.RegisterRoutes(d.mux)
+	if d.tenantAdminHandler != nil {
+		d.tenantAdminHandler.manager = manager
+	}
 
 	// Sync existing tenant API keys into dashboard for per-tenant auth
 	d.syncTenantAPIKeys(manager)
@@ -938,7 +1078,96 @@ func (d *Dashboard) handleGetRules(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"rules": []any{}})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"rules": d.ruleStore.GetRules()})
+	writeJSON(w, http.StatusOK, map[string]any{"rules": filterRuleList(d.ruleStore.GetRules(), r.URL.Query())})
+}
+
+func filterRuleList(raw any, query url.Values) any {
+	action := strings.TrimSpace(query.Get("action"))
+	enabledRaw := strings.TrimSpace(query.Get("enabled"))
+	search := strings.TrimSpace(query.Get("q"))
+	if search == "" {
+		search = strings.TrimSpace(query.Get("type"))
+	}
+	if action == "" && enabledRaw == "" && search == "" {
+		return raw
+	}
+
+	rules := ruleListAsMaps(raw)
+	filtered := make([]map[string]any, 0, len(rules))
+
+	var enabledFilter *bool
+	if enabledRaw != "" {
+		if enabled, err := strconv.ParseBool(enabledRaw); err == nil {
+			enabledFilter = &enabled
+		}
+	}
+
+	for _, rule := range rules {
+		if action != "" && !strings.EqualFold(ruleStringField(rule, "action"), action) {
+			continue
+		}
+		if enabledFilter != nil && ruleBoolField(rule, "enabled") != *enabledFilter {
+			continue
+		}
+		if search != "" && !ruleMatchesSearch(rule, search) {
+			continue
+		}
+		filtered = append(filtered, rule)
+	}
+
+	return filtered
+}
+
+func ruleListAsMaps(raw any) []map[string]any {
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return []map[string]any{}
+	}
+	var rules []map[string]any
+	if err := json.Unmarshal(data, &rules); err != nil {
+		return []map[string]any{}
+	}
+	if rules == nil {
+		return []map[string]any{}
+	}
+	return rules
+}
+
+func ruleStringField(rule map[string]any, field string) string {
+	value, ok := rule[field]
+	if !ok {
+		return ""
+	}
+	switch typed := value.(type) {
+	case string:
+		return typed
+	default:
+		return fmt.Sprint(typed)
+	}
+}
+
+func ruleBoolField(rule map[string]any, field string) bool {
+	value, ok := rule[field]
+	if !ok {
+		return false
+	}
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		parsed, err := strconv.ParseBool(typed)
+		return err == nil && parsed
+	default:
+		return false
+	}
+}
+
+func ruleMatchesSearch(rule map[string]any, search string) bool {
+	data, err := json.Marshal(rule)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(string(data)), strings.ToLower(search))
 }
 
 func (d *Dashboard) handleAddRule(w http.ResponseWriter, r *http.Request) {
@@ -969,6 +1198,28 @@ func (d *Dashboard) handleUpdateRule(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := d.ruleStore.UpdateRule(id, rule); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": sanitizeErr(err)})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+}
+
+func (d *Dashboard) handlePatchRule(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if d.ruleStore == nil {
+		writeJSON(w, http.StatusNotImplemented, map[string]any{"error": "rules not configured"})
+		return
+	}
+	var patch map[string]any
+	if !limitedDecodeJSON(w, r, &patch) {
+		return
+	}
+	enabled, ok := patch["enabled"].(bool)
+	if !ok {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "enabled boolean is required"})
+		return
+	}
+	if !d.ruleStore.ToggleRule(id, enabled) {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "rule not found"})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
@@ -1082,6 +1333,18 @@ func (d *Dashboard) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"status":     status,
 		"components": components,
 	})
+}
+
+func (d *Dashboard) handleVersion(w http.ResponseWriter, r *http.Request) {
+	info := d.buildInfo
+	if info == nil {
+		info = map[string]string{
+			"version": "dev",
+			"commit":  "none",
+			"date":    "unknown",
+		}
+	}
+	writeJSON(w, http.StatusOK, info)
 }
 
 // --- SSE ---
@@ -1226,11 +1489,25 @@ const maxRequestBody = 1 << 20 // 1MB max request body for API endpoints
 // decodeJSON limits the request body size and decodes JSON.
 func limitedDecodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
-	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON")
+	dec := json.NewDecoder(r.Body)
+	if err := dec.Decode(v); err != nil {
+		writeDashboardJSONDecodeError(w, err)
+		return false
+	}
+	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		writeDashboardJSONDecodeError(w, err)
 		return false
 	}
 	return true
+}
+
+func writeDashboardJSONDecodeError(w http.ResponseWriter, err error) {
+	var maxBytesErr *http.MaxBytesError
+	if errors.As(err, &maxBytesErr) {
+		writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
+		return
+	}
+	writeError(w, http.StatusBadRequest, "invalid JSON")
 }
 
 func formatFindings(findings []engine.Finding) []map[string]any {
@@ -1392,7 +1669,11 @@ func (d *Dashboard) handleAddWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cooldown, _ := time.ParseDuration(body.Cooldown)
+	cooldown, err := time.ParseDuration(body.Cooldown)
+	if err != nil && body.Cooldown != "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": fmt.Sprintf("invalid cooldown duration: %q", body.Cooldown)})
+		return
+	}
 	if cooldown <= 0 {
 		cooldown = 30 * time.Second
 	}
@@ -1407,6 +1688,11 @@ func (d *Dashboard) handleAddWebhook(w http.ResponseWriter, r *http.Request) {
 		Cooldown: cooldown,
 		Headers:  body.Headers,
 	})
+
+	if err := d.engine.Reload(cfg); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
+		return
+	}
 
 	// Persist config
 	if d.routingCtrl != nil {
@@ -1437,6 +1723,11 @@ func (d *Dashboard) handleDeleteWebhook(w http.ResponseWriter, r *http.Request) 
 	}
 	if !found {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "webhook not found"})
+		return
+	}
+
+	if err := d.engine.Reload(cfg); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
 		return
 	}
 
@@ -1493,7 +1784,11 @@ func (d *Dashboard) handleAddEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cooldown, _ := time.ParseDuration(body.Cooldown)
+	cooldown, err := time.ParseDuration(body.Cooldown)
+	if err != nil && body.Cooldown != "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": fmt.Sprintf("invalid cooldown duration: %q", body.Cooldown)})
+		return
+	}
 	if cooldown <= 0 {
 		cooldown = 5 * time.Minute
 	}
@@ -1514,6 +1809,11 @@ func (d *Dashboard) handleAddEmail(w http.ResponseWriter, r *http.Request) {
 		Subject:  body.Subject,
 		Template: body.Template,
 	})
+
+	if err := d.engine.Reload(cfg); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
+		return
+	}
 
 	if d.routingCtrl != nil {
 		if err := d.routingCtrl.Save(); err != nil {
@@ -1546,6 +1846,11 @@ func (d *Dashboard) handleDeleteEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := d.engine.Reload(cfg); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
+		return
+	}
+
 	if d.routingCtrl != nil {
 		if err := d.routingCtrl.Save(); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
@@ -1570,19 +1875,14 @@ func (d *Dashboard) handleTestAlert(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "message": "Test alert functionality requires MCP or direct alerting manager access"})
 }
 
-// deepCopyConfig creates a deep copy of the config using JSON round-trip.
-// This prevents shared mutable state between the dashboard and engine.
+// deepCopyConfig creates a deep copy of the config using the generated
+// DeepCopy method. This prevents shared mutable state between the dashboard
+// and engine without the allocation overhead of JSON round-trip.
 func deepCopyConfig(cfg *config.Config) *config.Config {
-	data, err := json.Marshal(cfg)
-	if err != nil {
-		panic("deepCopyConfig: failed to marshal config: " + err.Error())
+	if cfg == nil {
+		return nil
 	}
-	cp := &config.Config{}
-	if err := json.Unmarshal(data, cp); err != nil {
-		cp2 := *cfg
-		return &cp2
-	}
-	return cp
+	return cfg.DeepCopy()
 }
 
 // maskURL masks sensitive parts of a URL, showing only scheme and host.

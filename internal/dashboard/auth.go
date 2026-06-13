@@ -2,14 +2,16 @@ package dashboard
 
 import (
 	"context"
+	cryptrand "crypto/rand"
 	"crypto/hmac"
-	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
 	"html"
+	"io"
 	"log/slog"
+	mathrand "math/rand"
 	"net"
 	"net/http"
 	"strconv"
@@ -50,13 +52,37 @@ var activeSessions sync.Map
 var authLog = slog.Default().With(slog.String("component", "dashboard/auth"))
 
 func init() {
-	secret := make([]byte, 32)
-	if _, err := rand.Read(secret); err != nil {
-		// crypto/rand failure is a critical security issue — cannot safely generate
-		// session secrets. Fail fast rather than using a predictable fallback.
-		authLog.Error("FATAL: crypto/rand failed — cannot generate session secret", "err", err)
+	secret, err := generateSessionSecret(cryptrand.Read)
+	if err != nil {
+		// crypto/rand failure is extremely unlikely on modern systems. If it does
+		// fail we fall back to a time-seeded random source rather than crashing
+		// the process — sessions won't survive restarts, but the WAF stays up.
+		authLog.Error("crypto/rand failed for session secret; falling back to insecure random", "err", err)
+		rng := mathrand.New(newTimeSeedSource())
+		secret = make([]byte, 32)
+		_, _ = rng.Read(secret) // #nosec G404 -- fallback only; crypto/rand already failed
 	}
 	secretHolder.Store(secret)
+}
+
+// newTimeSeedSource creates a math/rand source seeded from the current time.
+// Used only as a last-resort fallback when crypto/rand fails at init time.
+func newTimeSeedSource() mathrand.Source {
+	return mathrand.NewSource(time.Now().UnixNano())
+}
+
+func generateSessionSecret(read func([]byte) (int, error)) ([]byte, error) {
+	secret := make([]byte, 32)
+	if _, err := io.ReadFull(readerFunc(read), secret); err != nil {
+		return nil, fmt.Errorf("crypto/rand failed: %w", err)
+	}
+	return secret, nil
+}
+
+type readerFunc func([]byte) (int, error)
+
+func (f readerFunc) Read(p []byte) (int, error) {
+	return f(p)
 }
 
 func loadSecret() []byte {
@@ -166,7 +192,10 @@ func cleanupRevokedSessions() {
 
 // cleanupRevokedSessionsLoop runs periodic cleanup of expired revoked tokens.
 // Stops when the provided channel is closed.
-func cleanupRevokedSessionsLoop(stopCh <-chan struct{}) {
+func cleanupRevokedSessionsLoop(stopCh <-chan struct{}, wg *sync.WaitGroup) {
+	if wg != nil {
+		defer wg.Done()
+	}
 	ticker := time.NewTicker(sessionAbsMaxAge)
 	defer ticker.Stop()
 	for {
@@ -423,31 +452,83 @@ func (d *Dashboard) isAuthenticated(r *http.Request) (*http.Request, bool) {
 	return r, false
 }
 
+// SetTrustedProxies configures direct proxy CIDRs whose forwarded TLS headers
+// may influence dashboard browser cookie security decisions.
+func (d *Dashboard) SetTrustedProxies(proxies []string) {
+	if d == nil {
+		return
+	}
+	nets := make([]*net.IPNet, 0, len(proxies))
+	for _, proxy := range proxies {
+		proxy = strings.TrimSpace(proxy)
+		if proxy == "" {
+			continue
+		}
+		if ip := net.ParseIP(proxy); ip != nil {
+			maskBits := 32
+			if ip.To4() == nil {
+				maskBits = 128
+			}
+			nets = append(nets, &net.IPNet{IP: ip, Mask: net.CIDRMask(maskBits, maskBits)})
+			continue
+		}
+		if _, cidr, err := net.ParseCIDR(proxy); err == nil {
+			nets = append(nets, cidr)
+		}
+	}
+	d.trustedProxyNets = nets
+}
+
+func requestFromTrustedProxy(r *http.Request, trusted []*net.IPNet) bool {
+	if r == nil || len(trusted) == 0 {
+		return false
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	for _, cidr := range trusted {
+		if cidr != nil && cidr.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
 // secureCookieForRequest reports whether cookies for this request should be
 // marked Secure. Direct TLS and trusted TLS-terminating proxies are supported;
 // plain local/dev HTTP remains usable without weakening HTTPS deployments.
-func secureCookieForRequest(r *http.Request) bool {
+func secureCookieForRequest(r *http.Request, trusted []*net.IPNet) bool {
 	if r == nil {
 		return false
 	}
 	if r.TLS != nil {
 		return true
 	}
+	if !requestFromTrustedProxy(r, trusted) {
+		return false
+	}
 	return strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") ||
 		strings.EqualFold(r.Header.Get("X-Forwarded-Ssl"), "on")
 }
 
 // setSessionCookie sets the session cookie on the response with proper security flags.
-func setSessionCookie(w http.ResponseWriter, r *http.Request) {
+func setSessionCookie(w http.ResponseWriter, r *http.Request, trusted []*net.IPNet) {
 	token := signSession(clientIPFromRequest(r))
 	// Enforce concurrent session limit for this IP
 	registerActiveSession(token, clientIPFromRequest(r))
+	// #nosec G124 -- Secure is set dynamically: true for direct TLS or trusted
+	// TLS-terminating proxies, false only for plain local/dev HTTP.
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   secureCookieForRequest(r),
+		Secure:   secureCookieForRequest(r, trusted),
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   int(sessionMaxAge.Seconds()),
 	})

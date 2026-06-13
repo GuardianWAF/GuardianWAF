@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/guardianwaf/guardianwaf/internal/netutil"
 )
 
 const maxRetries = 2
@@ -227,6 +229,44 @@ func (rt *Router) AllUpstreamStatus() []UpstreamStatus {
 	return result
 }
 
+// Close releases idle connections held by every unique target reachable from
+// the router. It is intended for route reload and shutdown cleanup.
+func (rt *Router) Close() {
+	if rt == nil {
+		return
+	}
+
+	rt.mu.RLock()
+	defer rt.mu.RUnlock()
+
+	seenBalancers := make(map[*Balancer]bool)
+	seenTargets := make(map[*Target]bool)
+
+	closeRoutes := func(routes []Route) {
+		for _, route := range routes {
+			if route.Balancer == nil || seenBalancers[route.Balancer] {
+				continue
+			}
+			seenBalancers[route.Balancer] = true
+			for _, target := range route.Balancer.Targets() {
+				if target == nil || seenTargets[target] {
+					continue
+				}
+				seenTargets[target] = true
+				target.Close()
+			}
+		}
+	}
+
+	closeRoutes(rt.defaultRoutes)
+	for _, entry := range rt.exactHosts {
+		closeRoutes(entry.routes)
+	}
+	for _, wc := range rt.wildcardHosts {
+		closeRoutes(wc.routes)
+	}
+}
+
 // sortRoutes returns a copy sorted by path prefix length desc (longest first).
 func sortRoutes(routes []Route) []Route {
 	sorted := make([]Route, len(routes))
@@ -239,17 +279,5 @@ func sortRoutes(routes []Route) []Route {
 
 // stripPort removes the port suffix from a host string.
 func stripPort(host string) string {
-	idx := strings.LastIndex(host, ":")
-	if idx < 0 {
-		return host
-	}
-	// IPv6: [::1]:8088
-	if strings.Contains(host, "]") {
-		bracket := strings.LastIndex(host, "]")
-		if idx > bracket {
-			return host[:idx]
-		}
-		return host
-	}
-	return host[:idx]
+	return netutil.StripPort(host)
 }

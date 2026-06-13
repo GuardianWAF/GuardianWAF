@@ -3,6 +3,7 @@
 package tenant
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -41,11 +42,11 @@ type Tenant struct {
 	Config *config.Config `json:"config"`
 
 	// Usage tracking
-	mu          sync.RWMutex
-	RequestCount   int64
-	ByteCount      int64
-	BlockedCount   int64
-	LastRequestAt  time.Time
+	mu            sync.RWMutex
+	RequestCount  int64
+	ByteCount     int64
+	BlockedCount  int64
+	LastRequestAt time.Time
 }
 
 // ResourceQuota defines resource limits for a tenant.
@@ -102,9 +103,12 @@ type Manager struct {
 	store *Store
 
 	// Cluster sync for multi-node replication
-	clusterSync   ClusterSync
-	clusterSyncMu sync.RWMutex
-	broadcastSem  chan struct{}
+	clusterSync     ClusterSync
+	clusterSyncMu   sync.RWMutex
+	broadcastSem    chan struct{}
+	broadcastMu     sync.Mutex
+	broadcastClosed bool
+	broadcastWG     sync.WaitGroup
 
 	// Structured logger
 	log *slog.Logger
@@ -181,6 +185,31 @@ func (m *Manager) SaveTenant(tenant *Tenant) error {
 	return m.store.SaveTenant(tenant)
 }
 
+// Close stops tenant-owned background workers.
+func (m *Manager) Close() {
+	_ = m.CloseWithContext(context.Background())
+}
+
+// CloseWithContext stops tenant-owned background workers and waits within ctx.
+func (m *Manager) CloseWithContext(ctx context.Context) error {
+	if m == nil {
+		return nil
+	}
+	m.broadcastMu.Lock()
+	m.broadcastClosed = true
+	m.broadcastMu.Unlock()
+
+	var alertErr error
+	if m.alertManager != nil {
+		alertErr = m.alertManager.CloseWithContext(ctx)
+	}
+	broadcastErr := waitForTenantBroadcast(ctx, &m.broadcastWG)
+	if alertErr != nil {
+		return alertErr
+	}
+	return broadcastErr
+}
+
 // CreateTenant creates a new tenant.
 func (m *Manager) CreateTenant(name, description string, domains []string, quota *ResourceQuota) (*Tenant, error) {
 	m.mu.Lock()
@@ -214,7 +243,10 @@ func (m *Manager) CreateTenant(name, description string, domains []string, quota
 	if err != nil {
 		return nil, err
 	}
-	apiKeyHash := hashAPIKey(apiKey)
+	apiKeyHash, err := hashAPIKey(apiKey)
+	if err != nil {
+		return nil, err
+	}
 
 	// Use default quota if not provided
 	q := DefaultQuota()
@@ -324,10 +356,15 @@ func (m *Manager) GetTenantByAPIKey(apiKey string) *Tenant {
 		if matched, legacy := verifyAPIKey(tenant.APIKeyHash, apiKey); matched {
 			if legacy {
 				// Auto-upgrade unsalted hash to salted hash
-				tenant.mu.Lock()
-				tenant.APIKeyHash = hashAPIKey(apiKey)
-				tenant.mu.Unlock()
-				m.log.Info("upgraded legacy unsalted API key hash", "tenantID", tenant.ID)
+				newHash, err := hashAPIKey(apiKey)
+				if err != nil {
+					m.log.Error("failed to upgrade legacy API key hash", "tenantID", tenant.ID, "err", err)
+				} else {
+					tenant.mu.Lock()
+					tenant.APIKeyHash = newHash
+					tenant.mu.Unlock()
+					m.log.Info("upgraded legacy unsalted API key hash", "tenantID", tenant.ID)
+				}
 			}
 			return tenant
 		}
@@ -493,7 +530,11 @@ func (m *Manager) RegenerateAPIKey(id string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	tenant.APIKeyHash = hashAPIKey(newKey)
+	newHash, err := hashAPIKey(newKey)
+	if err != nil {
+		return "", err
+	}
+	tenant.APIKeyHash = newHash
 	tenant.UpdatedAt = time.Now()
 
 	// Persist updated tenant
@@ -570,6 +611,9 @@ func (m *Manager) RecordUsage(tenant *Tenant, bytes int64) {
 
 // CleanupRateLimiter cleans up old rate limiter entries.
 func (m *Manager) CleanupRateLimiter(maxAge time.Duration) {
+	if m == nil {
+		return
+	}
 	if m.rateLimiter != nil {
 		m.rateLimiter.Cleanup(maxAge)
 	}
@@ -737,13 +781,13 @@ const apiKeyHashIterations = 100000
 // hashAPIKey hashes an API key using iterated HMAC-SHA256 (PBKDF2-like) with a
 // random salt. Returns "v2$salt$hash" format. The v2 prefix distinguishes from
 // legacy single-pass SHA256 hashes for backwards compatibility.
-func hashAPIKey(apiKey string) string {
+func hashAPIKey(apiKey string) (string, error) {
 	salt := make([]byte, 16)
 	if _, err := rand.Read(salt); err != nil {
-		panic("crypto/rand failed: " + err.Error())
+		return "", fmt.Errorf("crypto/rand failed: %w", err)
 	}
 	derived := deriveKey([]byte(apiKey), salt, apiKeyHashIterations)
-	return "v2$" + hex.EncodeToString(salt) + "$" + hex.EncodeToString(derived)
+	return "v2$" + hex.EncodeToString(salt) + "$" + hex.EncodeToString(derived), nil
 }
 
 // deriveKey performs standard PBKDF2-HMAC-SHA256 key derivation.
@@ -846,21 +890,45 @@ func (m *Manager) broadcast(entityType, entityID, action string, data map[string
 	if cs == nil {
 		return
 	}
+	m.broadcastMu.Lock()
+	if m.broadcastClosed {
+		m.broadcastMu.Unlock()
+		return
+	}
 	select {
 	case m.broadcastSem <- struct{}{}:
+		m.broadcastWG.Add(1)
+		m.broadcastMu.Unlock()
 		go func() {
 			defer func() {
 				if r := recover(); r != nil {
 					m.log.Warn("broadcast goroutine panic", "panic", r)
 				}
 			}()
+			defer m.broadcastWG.Done()
 			defer func() { <-m.broadcastSem }()
 			if err := cs.BroadcastEvent(entityType, entityID, action, data); err != nil {
 				m.log.Warn("failed to broadcast event", "err", err)
 			}
 		}()
 	default:
+		m.broadcastMu.Unlock()
 		m.log.Warn("broadcast semaphore full, dropping event", "entityType", entityType, "action", action)
+	}
+}
+
+func waitForTenantBroadcast(ctx context.Context, wg *sync.WaitGroup) error {
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 

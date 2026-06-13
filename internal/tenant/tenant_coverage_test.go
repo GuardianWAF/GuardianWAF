@@ -338,7 +338,10 @@ func TestCoverage_GetAllUsage(t *testing.T) {
 func TestCoverage_verifyAPIKey_AllFormats(t *testing.T) {
 	// v2 format
 	key := "gwaf_test_v2"
-	h := hashAPIKey(key)
+	h, err := hashAPIKey(key)
+	if err != nil {
+		t.Fatalf("hashAPIKey failed: %v", err)
+	}
 	matched, legacy := verifyAPIKey(h, key)
 	if !matched || legacy {
 		t.Error("v2 should match without legacy flag")

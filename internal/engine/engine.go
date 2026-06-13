@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"sort"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -13,6 +14,31 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/tracing"
 )
+
+var requestLatencyBucketBoundsUs = [...]int64{
+	100,
+	500,
+	1_000,
+	5_000,
+	10_000,
+	50_000,
+	100_000,
+	500_000,
+	1_000_000,
+	5_000_000,
+}
+
+const maxAtomicThreshold = int(1<<31 - 1)
+
+func detectionThresholdInt32(name string, value int) (int32, error) {
+	if value < 0 {
+		return 0, fmt.Errorf("%s threshold must be non-negative, got %d", name, value)
+	}
+	if value > maxAtomicThreshold {
+		return 0, fmt.Errorf("%s threshold exceeds maximum supported value %d: %d", name, maxAtomicThreshold, value)
+	}
+	return int32(value), nil
+}
 
 // TenantContext holds tenant information for request isolation.
 // This type exists to avoid importing the tenant package in engine (which would
@@ -47,6 +73,9 @@ type Engine struct {
 	pipeline   atomic.Value // stores *Pipeline
 	eventStore EventStorer
 	eventBus   EventPublisher
+	closeOnce  sync.Once
+	closeErr   error
+	closed     atomic.Bool
 
 	// Challenge service (optional, injected via SetChallengeService)
 	challengeSvc ChallengeChecker
@@ -63,7 +92,11 @@ type Engine struct {
 	challengedRequests atomic.Int64
 	loggedRequests     atomic.Int64
 	passedRequests     atomic.Int64
+	eventStoreErrors   atomic.Int64
 	totalLatencyUs     atomic.Int64
+	latencyBuckets     [len(requestLatencyBucketBoundsUs)]atomic.Int64
+	layerTimingMu      sync.RWMutex
+	layerTiming        map[string]*layerTimingCounters
 
 	// Configuration (atomic for lock-free reads in Middleware hot path)
 	paranoiaLevel     atomic.Int32
@@ -79,6 +112,12 @@ type Engine struct {
 	mu sync.RWMutex // protects cfg
 }
 
+type layerTimingCounters struct {
+	count          atomic.Int64
+	durationSumUs  atomic.Int64
+	latencyBuckets [len(requestLatencyBucketBoundsUs)]atomic.Int64
+}
+
 // NewEngine creates a new WAF engine from the given configuration.
 // It initializes the pipeline (empty - layers are added via AddLayer).
 // eventStore and eventBus are injected to avoid circular imports between engine and events packages.
@@ -91,17 +130,27 @@ func NewEngine(cfg *config.Config, eventStore EventStorer, eventBus EventPublish
 		return nil, fmt.Errorf("eventBus must not be nil")
 	}
 
+	blockThreshold, err := detectionThresholdInt32("block", cfg.WAF.Detection.Threshold.Block)
+	if err != nil {
+		return nil, err
+	}
+	logThreshold, err := detectionThresholdInt32("log", cfg.WAF.Detection.Threshold.Log)
+	if err != nil {
+		return nil, err
+	}
+
 	e := &Engine{
-		cfg:        cfg,
-		eventStore: eventStore,
-		eventBus:   eventBus,
-		Logs:       NewLogBuffer(2000),
+		cfg:         cfg,
+		eventStore:  eventStore,
+		eventBus:    eventBus,
+		Logs:        NewLogBuffer(2000),
+		layerTiming: make(map[string]*layerTimingCounters),
 	}
 	// Initialize atomic config fields
 	e.paranoiaLevel.Store(2) // default
 	e.maxBodySize.Store(cfg.WAF.Sanitizer.MaxBodySize)
-	e.blockThreshold.Store(int32(cfg.WAF.Detection.Threshold.Block))
-	e.logThreshold.Store(int32(cfg.WAF.Detection.Threshold.Log))
+	e.blockThreshold.Store(blockThreshold)
+	e.logThreshold.Store(logThreshold)
 
 	// Configure trusted proxies for X-Forwarded-For handling. The engine keeps
 	// an instance-local copy so multiple Engine instances cannot overwrite each
@@ -143,8 +192,13 @@ func (e *Engine) SetAccessLog(fn AccessLogFunc) {
 }
 
 // currentPipeline returns the current pipeline (from atomic.Value).
+// Returns nil if the pipeline was never stored (e.g., before NewEngine completes).
 func (e *Engine) currentPipeline() *Pipeline {
-	return e.pipeline.Load().(*Pipeline)
+	v := e.pipeline.Load()
+	if v == nil {
+		return nil
+	}
+	return v.(*Pipeline)
 }
 
 // FindLayer returns the first layer with the given name, or nil.
@@ -215,8 +269,17 @@ func (e *Engine) buildEvent(ctx *RequestContext, result PipelineResult, finalAct
 
 // recordStats updates the atomic request counters for a final action.
 func (e *Engine) recordStats(finalAction Action, d time.Duration) {
+	latencyUs := d.Microseconds()
+	if latencyUs < 0 {
+		latencyUs = 0
+	}
 	e.totalRequests.Add(1)
-	e.totalLatencyUs.Add(d.Microseconds())
+	e.totalLatencyUs.Add(latencyUs)
+	for i, upperBound := range requestLatencyBucketBoundsUs {
+		if latencyUs <= upperBound {
+			e.latencyBuckets[i].Add(1)
+		}
+	}
 	switch finalAction {
 	case ActionBlock:
 		e.blockedRequests.Add(1)
@@ -229,9 +292,54 @@ func (e *Engine) recordStats(finalAction Action, d time.Duration) {
 	}
 }
 
+func (e *Engine) recordLayerTimings(timings map[string]time.Duration) {
+	if len(timings) == 0 {
+		return
+	}
+	for layer, d := range timings {
+		if layer == "" {
+			continue
+		}
+		latencyUs := d.Microseconds()
+		if latencyUs < 0 {
+			latencyUs = 0
+		}
+		counters := e.layerTimingCounters(layer)
+		counters.count.Add(1)
+		counters.durationSumUs.Add(latencyUs)
+		for i, upperBound := range requestLatencyBucketBoundsUs {
+			if latencyUs <= upperBound {
+				counters.latencyBuckets[i].Add(1)
+			}
+		}
+	}
+}
+
+func (e *Engine) layerTimingCounters(layer string) *layerTimingCounters {
+	e.layerTimingMu.RLock()
+	counters := e.layerTiming[layer]
+	e.layerTimingMu.RUnlock()
+	if counters != nil {
+		return counters
+	}
+
+	e.layerTimingMu.Lock()
+	defer e.layerTimingMu.Unlock()
+	if counters = e.layerTiming[layer]; counters != nil {
+		return counters
+	}
+	counters = &layerTimingCounters{}
+	e.layerTiming[layer] = counters
+	return counters
+}
+
 // storeAndPublish persists and broadcasts an event, logging store failures.
 func (e *Engine) storeAndPublish(event Event) {
+	if e.closed.Load() {
+		return
+	}
 	if err := e.eventStore.Store(event); err != nil {
+		e.eventStoreErrors.Add(1)
 		e.Logs.Add("error", fmt.Sprintf("event store write failed: %v", err))
 	}
 	e.eventBus.Publish(event)
@@ -256,6 +364,7 @@ func (e *Engine) Check(r *http.Request) *Event {
 
 	event := e.buildEvent(ctx, result, finalAction)
 	e.recordStats(finalAction, result.Duration)
+	e.recordLayerTimings(result.LayerTiming)
 	e.storeAndPublish(event)
 
 	return &event
@@ -353,6 +462,7 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 		ReleaseContext(ctx)
 
 		e.recordStats(finalAction, result.Duration)
+		e.recordLayerTimings(result.LayerTiming)
 		e.storeAndPublish(event)
 
 		// Structured access log
@@ -420,9 +530,18 @@ func (e *Engine) Reload(cfg *config.Config) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
+	blockThreshold, err := detectionThresholdInt32("block", cfgCopy.WAF.Detection.Threshold.Block)
+	if err != nil {
+		return err
+	}
+	logThreshold, err := detectionThresholdInt32("log", cfgCopy.WAF.Detection.Threshold.Log)
+	if err != nil {
+		return err
+	}
+
 	e.cfg = cfgCopy
-	e.blockThreshold.Store(int32(e.cfg.WAF.Detection.Threshold.Block))
-	e.logThreshold.Store(int32(e.cfg.WAF.Detection.Threshold.Log))
+	e.blockThreshold.Store(blockThreshold)
+	e.logThreshold.Store(logThreshold)
 	e.maxBodySize.Store(e.cfg.WAF.Sanitizer.MaxBodySize)
 	proxyCIDRs := parseTrustedProxyCIDRs(e.cfg.TrustedProxies)
 	e.trustedProxyCIDRs.Store(proxyCIDRs)
@@ -435,7 +554,11 @@ func (e *Engine) Reload(cfg *config.Config) error {
 }
 
 func (e *Engine) extractClientIP(r *http.Request) net.IP {
-	cidrs, _ := e.trustedProxyCIDRs.Load().([]*net.IPNet)
+	v := e.trustedProxyCIDRs.Load()
+	if v == nil {
+		return extractClientIPWithTrustedProxies(r, nil)
+	}
+	cidrs, _ := v.([]*net.IPNet)
 	return extractClientIPWithTrustedProxies(r, cidrs)
 }
 
@@ -449,20 +572,64 @@ func (e *Engine) ExtractClientIP(r *http.Request) net.IP {
 // Stats returns current runtime statistics.
 func (e *Engine) Stats() Stats {
 	total := e.totalRequests.Load()
+	latencySum := e.totalLatencyUs.Load()
 	var avgLatency int64
 	if total > 0 {
-		avgLatency = e.totalLatencyUs.Load() / total
+		avgLatency = latencySum / total
 	}
+	latencyBuckets := make([]LatencyBucket, len(requestLatencyBucketBoundsUs))
+	for i, upperBound := range requestLatencyBucketBoundsUs {
+		latencyBuckets[i] = LatencyBucket{
+			UpperBoundMicros: upperBound,
+			Count:            e.latencyBuckets[i].Load(),
+		}
+	}
+	layerTiming := e.layerTimingStats()
 	return Stats{
 		TotalRequests:      total,
 		BlockedRequests:    e.blockedRequests.Load(),
 		ChallengedRequests: e.challengedRequests.Load(),
 		LoggedRequests:     e.loggedRequests.Load(),
 		PassedRequests:     e.passedRequests.Load(),
+		EventStoreErrors:   e.eventStoreErrors.Load(),
 		AvgLatencyUs:       avgLatency,
+		LatencySumUs:       latencySum,
+		LatencyBuckets:     latencyBuckets,
+		LayerTiming:        layerTiming,
 		GeoIPReady:         e.geoipReady.Load(),
 		GeoIPRanges:        e.geoipCount.Load(),
 	}
+}
+
+func (e *Engine) layerTimingStats() []LayerTimingStats {
+	e.layerTimingMu.RLock()
+	layers := make([]string, 0, len(e.layerTiming))
+	countersByLayer := make(map[string]*layerTimingCounters, len(e.layerTiming))
+	for layer, counters := range e.layerTiming {
+		layers = append(layers, layer)
+		countersByLayer[layer] = counters
+	}
+	e.layerTimingMu.RUnlock()
+
+	sort.Strings(layers)
+	stats := make([]LayerTimingStats, 0, len(layers))
+	for _, layer := range layers {
+		counters := countersByLayer[layer]
+		buckets := make([]LatencyBucket, len(requestLatencyBucketBoundsUs))
+		for i, upperBound := range requestLatencyBucketBoundsUs {
+			buckets[i] = LatencyBucket{
+				UpperBoundMicros: upperBound,
+				Count:            counters.latencyBuckets[i].Load(),
+			}
+		}
+		stats = append(stats, LayerTimingStats{
+			Layer:          layer,
+			Count:          counters.count.Load(),
+			DurationSumUs:  counters.durationSumUs.Load(),
+			LatencyBuckets: buckets,
+		})
+	}
+	return stats
 }
 
 // SetGeoIPStatus updates the GeoIP readiness state exposed via Stats and health checks.
@@ -491,9 +658,12 @@ func (e *Engine) Config() *config.Config {
 // Close shuts down the engine, closing the event store first (to drain pending writes),
 // then the event bus.
 func (e *Engine) Close() error {
-	err := e.eventStore.Close()
-	e.eventBus.Close()
-	return err
+	e.closeOnce.Do(func() {
+		e.closed.Store(true)
+		e.closeErr = e.eventStore.Close()
+		e.eventBus.Close()
+	})
+	return e.closeErr
 }
 
 // determineAction computes the final action from a pipeline result and score thresholds.

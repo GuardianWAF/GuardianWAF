@@ -6,6 +6,8 @@ package config
 import (
 	"strings"
 	"time"
+
+	"github.com/guardianwaf/guardianwaf/internal/netutil"
 )
 
 // Config is the top-level configuration for GuardianWAF.
@@ -28,6 +30,7 @@ type Config struct {
 	Tenant                TenantConfig     `yaml:"tenant"`
 	TrustedProxies        []string         `yaml:"trusted_proxies"`         // CIDRs/IPs whose X-Forwarded-For/X-Real-IP headers are trusted
 	AllowPrivateUpstreams *bool            `yaml:"allow_private_upstreams"` // Explicitly allow private, loopback, and link-local upstream targets
+	AllowedUpstreamCIDRs  []string         `yaml:"allowed_upstream_cidrs"`  // Explicit private/reserved upstream CIDRs/IPs allowed when global private upstreams are disabled
 	Tracing               TracingConfig    `yaml:"tracing"`
 	Features              map[string]bool  `yaml:"features"`
 	Compliance            ComplianceConfig `yaml:"compliance"`
@@ -72,6 +75,10 @@ type EmailConfig struct {
 type DockerConfig struct {
 	Enabled      bool          `yaml:"enabled"`
 	SocketPath   string        `yaml:"socket_path"`   // default: /var/run/docker.sock
+	TLSVerify    bool          `yaml:"tls_verify"`    // required for tcp:// Docker endpoints
+	TLSCACert    string        `yaml:"tls_ca_cert"`   // CA certificate for remote Docker TLS
+	TLSCert      string        `yaml:"tls_cert"`      // client certificate for remote Docker TLS
+	TLSKey       string        `yaml:"tls_key"`       // client key for remote Docker TLS
 	LabelPrefix  string        `yaml:"label_prefix"`  // default: gwaf
 	PollInterval time.Duration `yaml:"poll_interval"` // default: 5s
 	Network      string        `yaml:"network"`       // default: bridge
@@ -184,6 +191,7 @@ type GeoIPConfig struct {
 	DBPath       string `yaml:"db_path"`       // path to CSV database
 	AutoDownload bool   `yaml:"auto_download"` // auto-download DB-IP Lite if missing
 	DownloadURL  string `yaml:"download_url"`  // custom download URL (default: DB-IP Lite)
+	RequireReady bool   `yaml:"require_ready"` // make /readyz fail until GeoIP data is loaded
 }
 
 // WAFConfig is the top-level container for all WAF protection settings.
@@ -985,16 +993,5 @@ func FindVirtualHost(vhosts []VirtualHostConfig, host string) *VirtualHostConfig
 
 // stripHostPort removes the port suffix from a host string, handling IPv6 brackets.
 func stripHostPort(host string) string {
-	if strings.Contains(host, "]") {
-		// IPv6: [::1]:8088
-		bracket := strings.LastIndex(host, "]")
-		if idx := strings.LastIndex(host, ":"); idx > bracket {
-			return host[:idx]
-		}
-		return host
-	}
-	if idx := strings.LastIndex(host, ":"); idx != -1 {
-		return host[:idx]
-	}
-	return host
+	return netutil.StripPort(host)
 }
