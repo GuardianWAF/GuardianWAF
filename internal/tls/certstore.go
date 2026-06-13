@@ -89,19 +89,7 @@ func (cs *CertStore) LoadCert(domains []string, certFile, keyFile string) error 
 	defer cs.mu.Unlock()
 
 	cs.entries = append(cs.entries, entry)
-
-	for _, domain := range domains {
-		lower := strings.ToLower(domain)
-		if strings.HasPrefix(lower, "*.") {
-			suffix := lower[1:] // "*.example.com" -> ".example.com"
-			cs.wildcards = append(cs.wildcards, wildcardCert{
-				suffix: suffix,
-				cert:   &cert,
-			})
-		} else {
-			cs.certs[lower] = &cert
-		}
-	}
+	cs.storeCertLocked(domains, &cert)
 
 	return nil
 }
@@ -216,15 +204,32 @@ func (cs *CertStore) CertCount() int {
 func (cs *CertStore) LoadCertFromTLS(domains []string, cert *tls.Certificate) {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
+	cs.storeCertLocked(domains, cert)
+}
 
+// storeCertLocked adds domains to the cert maps. Must be called with cs.mu held.
+// Wildcard entries are deduplicated — if a wildcard suffix already exists,
+// its cert pointer is updated instead of appending a duplicate.
+func (cs *CertStore) storeCertLocked(domains []string, cert *tls.Certificate) {
 	for _, domain := range domains {
 		lower := strings.ToLower(domain)
 		if strings.HasPrefix(lower, "*.") {
-			suffix := lower[1:]
-			cs.wildcards = append(cs.wildcards, wildcardCert{
-				suffix: suffix,
-				cert:   cert,
-			})
+			suffix := lower[1:] // "*.example.com" -> ".example.com"
+			// Check if this wildcard suffix already exists
+			found := false
+			for j := range cs.wildcards {
+				if cs.wildcards[j].suffix == suffix {
+					cs.wildcards[j].cert = cert
+					found = true
+					break
+				}
+			}
+			if !found {
+				cs.wildcards = append(cs.wildcards, wildcardCert{
+					suffix: suffix,
+					cert:   cert,
+				})
+			}
 		} else {
 			cs.certs[lower] = cert
 		}

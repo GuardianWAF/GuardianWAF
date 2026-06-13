@@ -111,16 +111,21 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Retry with different targets (skip the one that failed)
+		// Retry with different targets (skip ones already tried in this request)
+		tried := map[string]bool{target.URL.String(): true}
 		for attempt := 0; attempt < maxRetries; attempt++ {
 			next := route.Balancer.Next(r)
-			if next == nil || next == target {
+			if next == nil {
 				break
 			}
+			nextURL := next.URL.String()
+			if tried[nextURL] {
+				continue // skip already-tried target
+			}
+			tried[nextURL] = true
 			if next.ServeHTTP(w, r, stripPrefix) == nil {
 				return
 			}
-			target = next
 		}
 		// All attempts failed — send 502 to client
 		http.Error(w, "502 Bad Gateway", http.StatusBadGateway)
