@@ -4,6 +4,7 @@ package tenant
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/guardianwaf/guardianwaf/internal/config"
 )
+
+var storeLog = slog.Default().With(slog.String("component", "tenant/store"))
 
 // Store provides persistent storage for tenant data.
 type Store struct {
@@ -38,13 +41,72 @@ func safeTenantID(id string) bool {
 	return true
 }
 
-// NewStore creates a new tenant store.
-func NewStore(basePath string) *Store {
+func cleanTenantStorePath(basePath string) (string, error) {
+	if strings.ContainsRune(basePath, 0) {
+		return "", fmt.Errorf("tenant store path contains NUL byte")
+	}
 	if basePath == "" {
 		basePath = "data/tenants"
 	}
+	return filepath.Clean(basePath), nil
+}
+
+func tenantFilename(tenantID string) (string, error) {
+	if !safeTenantID(tenantID) {
+		return "", fmt.Errorf("invalid tenant ID")
+	}
+	return tenantID + ".json", nil
+}
+
+func validTenantDataFilename(name string) bool {
+	if name == "index.json" || filepath.Base(name) != name || strings.ContainsAny(name, `/\`) {
+		return false
+	}
+	if !strings.HasSuffix(name, ".json") {
+		return false
+	}
+	return safeTenantID(strings.TrimSuffix(name, ".json"))
+}
+
+func tenantFilePath(basePath, filename string) (string, error) {
+	if !validTenantDataFilename(filename) {
+		return "", fmt.Errorf("invalid tenant filename %q", filename)
+	}
+	basePath, err := cleanTenantStorePath(basePath)
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(basePath, filename)
+	if !pathWithinDir(basePath, path) {
+		return "", fmt.Errorf("tenant file %q escapes store directory", filename)
+	}
+	return path, nil
+}
+
+func pathWithinDir(dir, path string) bool {
+	dirAbs, err := filepath.Abs(dir)
+	if err != nil {
+		return false
+	}
+	pathAbs, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(dirAbs, pathAbs)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)))
+}
+
+// NewStore creates a new tenant store.
+func NewStore(basePath string) *Store {
+	cleanPath, err := cleanTenantStorePath(basePath)
+	if err != nil {
+		cleanPath = "data/tenants"
+	}
 	return &Store{
-		basePath: basePath,
+		basePath: cleanPath,
 		index:    make(map[string]string),
 	}
 }
@@ -54,6 +116,12 @@ func (s *Store) Init() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	basePath, err := cleanTenantStorePath(s.basePath)
+	if err != nil {
+		return fmt.Errorf("validating tenant directory: %w", err)
+	}
+	s.basePath = basePath
+
 	// Create directory if not exists
 	if err := os.MkdirAll(s.basePath, 0o700); err != nil {
 		return fmt.Errorf("creating tenant directory: %w", err)
@@ -61,10 +129,11 @@ func (s *Store) Init() error {
 
 	// Load index
 	indexPath := filepath.Join(s.basePath, "index.json")
+	// #nosec G304 -- index path is a fixed filename under the cleaned tenant store directory.
 	data, err := os.ReadFile(indexPath)
 	if err == nil {
 		if unmarshalErr := json.Unmarshal(data, &s.index); unmarshalErr != nil {
-			fmt.Printf("[tenant-store] warning: failed to parse %s: %v\n", indexPath, unmarshalErr)
+			storeLog.Warn("failed to parse tenant store index", "path", indexPath, "err", unmarshalErr)
 		}
 	}
 
@@ -73,6 +142,14 @@ func (s *Store) Init() error {
 
 // SaveTenant persists a tenant to disk.
 func (s *Store) SaveTenant(tenant *Tenant) error {
+	if tenant == nil {
+		return fmt.Errorf("tenant is nil")
+	}
+	filename, err := tenantFilename(tenant.ID)
+	if err != nil {
+		return err
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -97,13 +174,15 @@ func (s *Store) SaveTenant(tenant *Tenant) error {
 	}
 
 	// Write to file atomically (temp + rename)
-	filename := fmt.Sprintf("%s.json", tenant.ID)
-	filepath := filepath.Join(s.basePath, filename)
-	tmp := filepath + ".tmp"
+	path, err := tenantFilePath(s.basePath, filename)
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, jsonData, 0600); err != nil {
 		return fmt.Errorf("writing tenant file: %w", err)
 	}
-	if err := os.Rename(tmp, filepath); err != nil {
+	if err := os.Rename(tmp, path); err != nil {
 		return fmt.Errorf("renaming tenant file: %w", err)
 	}
 
@@ -114,20 +193,24 @@ func (s *Store) SaveTenant(tenant *Tenant) error {
 
 // LoadTenant loads a tenant from disk.
 func (s *Store) LoadTenant(tenantID string) (*Tenant, error) {
-	if !safeTenantID(tenantID) {
-		return nil, fmt.Errorf("invalid tenant ID")
+	filename, err := tenantFilename(tenantID)
+	if err != nil {
+		return nil, err
 	}
 
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	filename, exists := s.index[tenantID]
-	if !exists {
-		filename = fmt.Sprintf("%s.json", tenantID)
+	if indexed, exists := s.index[tenantID]; exists && indexed != filename {
+		return nil, fmt.Errorf("tenant index entry for %q points to unexpected file %q", tenantID, indexed)
 	}
 
-	filepath := filepath.Join(s.basePath, filename)
-	data, err := os.ReadFile(filepath)
+	path, err := tenantFilePath(s.basePath, filename)
+	if err != nil {
+		return nil, err
+	}
+	// #nosec G304 -- tenant filename is derived from a validated tenant ID and constrained to the store directory.
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading tenant file: %w", err)
 	}
@@ -177,9 +260,16 @@ func (s *Store) LoadAllTenants() ([]*Tenant, error) {
 		if entry.Name() == "index.json" {
 			continue
 		}
+		if !validTenantDataFilename(entry.Name()) {
+			continue
+		}
 
-		filepath := filepath.Join(s.basePath, entry.Name())
-		data, err := os.ReadFile(filepath)
+		path, err := tenantFilePath(s.basePath, entry.Name())
+		if err != nil {
+			continue
+		}
+		// #nosec G304 -- entry filename is validated as a tenant data filename and constrained to the store directory.
+		data, err := os.ReadFile(path)
 		if err != nil {
 			continue // Skip unreadable files
 		}
@@ -187,6 +277,9 @@ func (s *Store) LoadAllTenants() ([]*Tenant, error) {
 		var td tenantData
 		if err := json.Unmarshal(data, &td); err != nil {
 			continue // Skip invalid files
+		}
+		if !safeTenantID(td.ID) || entry.Name() != td.ID+".json" {
+			continue
 		}
 
 		s.index[td.ID] = entry.Name()
@@ -218,20 +311,24 @@ func (s *Store) LoadAllTenants() ([]*Tenant, error) {
 
 // DeleteTenant removes a tenant from disk.
 func (s *Store) DeleteTenant(tenantID string) error {
-	if !safeTenantID(tenantID) {
-		return fmt.Errorf("invalid tenant ID")
+	filename, err := tenantFilename(tenantID)
+	if err != nil {
+		return err
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	filename, exists := s.index[tenantID]
-	if !exists {
-		filename = fmt.Sprintf("%s.json", tenantID)
+	if indexed, exists := s.index[tenantID]; exists && indexed != filename {
+		return fmt.Errorf("tenant index entry for %q points to unexpected file %q", tenantID, indexed)
 	}
 
-	filepath := filepath.Join(s.basePath, filename)
-	if err := os.Remove(filepath); err != nil && !os.IsNotExist(err) {
+	path, err := tenantFilePath(s.basePath, filename)
+	if err != nil {
+		return err
+	}
+	// #nosec G304 -- tenant filename is derived from a validated tenant ID and constrained to the store directory.
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("removing tenant file: %w", err)
 	}
 
@@ -251,14 +348,14 @@ func (s *Store) saveIndex() error {
 
 // tenantData is the serialized representation of a tenant.
 type tenantData struct {
-	ID          string           `json:"id"`
-	Name        string           `json:"name"`
-	Description string           `json:"description"`
-	CreatedAt   time.Time        `json:"created_at"`
-	UpdatedAt   time.Time        `json:"updated_at"`
-	Active      bool             `json:"active"`
-	APIKeyHash  string           `json:"api_key_hash"`
-	Domains     []string         `json:"domains"`
-	Quota       ResourceQuota    `json:"quota"`
-	Config      *config.Config   `json:"config,omitempty"`
+	ID          string         `json:"id"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+	Active      bool           `json:"active"`
+	APIKeyHash  string         `json:"api_key_hash"`
+	Domains     []string       `json:"domains"`
+	Quota       ResourceQuota  `json:"quota"`
+	Config      *config.Config `json:"config,omitempty"`
 }

@@ -19,6 +19,8 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/logging"
 )
 
+var aiLog = slog.Default().With(slog.String("component", "ai/store"))
+
 const encKeyFile = "ai_enc_key" // file storing the auto-generated encryption key
 
 const encPrefix = "enc:" // prefix for encrypted API keys on disk
@@ -97,24 +99,24 @@ func NewStore(dirPath string) *Store {
 		dirPath = "data/ai"
 	}
 
-	// Resolve to absolute
-	if !filepath.IsAbs(dirPath) {
-		if abs, err := filepath.Abs(dirPath); err == nil {
-			dirPath = abs
-		}
+	log := logging.NewLogger("ai-store")
+	cleanDirPath, pathErr := cleanAIStoreDirPath(dirPath)
+	if pathErr != nil {
+		log.Warn("invalid AI store dir, falling back", "path", dirPath, "error", pathErr)
+		cleanDirPath = filepath.Join(os.TempDir(), "guardianwaf", "ai")
 	}
 
-	s := &Store{path: dirPath, log: logging.NewLogger("ai-store")}
+	s := &Store{path: cleanDirPath, log: log}
 
 	// Try creating the directory; fallback to temp if permission denied
-	if err := os.MkdirAll(dirPath, 0o700); err != nil {
+	if err := os.MkdirAll(cleanDirPath, 0o700); err != nil {
 		fallback := filepath.Join(os.TempDir(), "guardianwaf", "ai")
 		if fallbackErr := os.MkdirAll(fallback, 0o700); fallbackErr != nil {
 			s.log.Warn("cannot create fallback dir", "path", fallback, "error", fallbackErr)
 		}
-		s.log.Warn("cannot create dir, falling back", "path", dirPath, "error", err, "fallback", fallback)
-		dirPath = fallback
-		s.path = dirPath
+		s.log.Warn("cannot create dir, falling back", "path", cleanDirPath, "error", err, "fallback", fallback)
+		cleanDirPath = fallback
+		s.path = cleanDirPath
 	}
 
 	// Auto-generate and persist encryption key for API key at-rest encryption.
@@ -122,10 +124,10 @@ func NewStore(dirPath string) *Store {
 	s.loadOrCreateEncKey()
 
 	// Try loading existing config
-	configFile := filepath.Join(dirPath, "ai_config.json")
-	if data, err := os.ReadFile(configFile); err == nil {
+	configFile := filepath.Join(cleanDirPath, "ai_config.json")
+	if data, err := os.ReadFile(configFile); err == nil { // #nosec G304 -- configFile is inside the cleaned AI store directory.
 		if unmarshalErr := json.Unmarshal(data, &s.data); unmarshalErr != nil {
-			fmt.Printf("[ai-store] warning: failed to parse AI config: %v\n", unmarshalErr)
+			aiLog.Warn("failed to parse AI config", "err", unmarshalErr)
 		}
 		// Decrypt API key if encrypted with auto-generated key
 		if s.encKey != nil && strings.HasPrefix(s.data.Config.APIKey, encPrefix) {
@@ -215,13 +217,11 @@ func decryptValue(encoded string, key []byte) (string, error) {
 
 // save writes stored data to disk.
 func (s *Store) save() error {
-	dir := s.path
-	// Always resolve to absolute path
-	if !filepath.IsAbs(dir) {
-		if abs, err := filepath.Abs(dir); err == nil {
-			dir = abs
-		}
+	dir, err := cleanAIStoreDirPath(s.path)
+	if err != nil {
+		return err
 	}
+	s.path = dir
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("mkdir %s: %w", dir, err)
 	}
@@ -388,10 +388,16 @@ func (s *Store) WithinLimits(maxTokensHour, maxTokensDay int64, maxReqsHour int)
 // The key is stored in a separate file (ai_enc_key) with 0600 permissions.
 // This ensures API keys are always encrypted at rest, even without a dashboard API key.
 func (s *Store) loadOrCreateEncKey() {
-	keyPath := filepath.Join(s.path, encKeyFile)
+	dir, err := cleanAIStoreDirPath(s.path)
+	if err != nil {
+		s.log.Warn("invalid AI store dir — API key encryption disabled", "error", err)
+		return
+	}
+	s.path = dir
+	keyPath := filepath.Join(dir, encKeyFile)
 
 	// Try loading existing key
-	if data, err := os.ReadFile(keyPath); err == nil && len(data) == 32 {
+	if data, err := os.ReadFile(keyPath); err == nil && len(data) == 32 { // #nosec G304 -- keyPath is inside the cleaned AI store directory.
 		s.encKey = data
 		return
 	}
@@ -408,6 +414,22 @@ func (s *Store) loadOrCreateEncKey() {
 		s.log.Warn("failed to persist encryption key — API key may not survive restart", "error", err)
 	}
 	s.encKey = key
+}
+
+func cleanAIStoreDirPath(dirPath string) (string, error) {
+	if strings.ContainsRune(dirPath, 0) {
+		return "", fmt.Errorf("AI store dir contains NUL byte")
+	}
+	if dirPath == "" {
+		return "", fmt.Errorf("AI store dir must not be empty")
+	}
+	cleanPath := filepath.Clean(dirPath)
+	if !filepath.IsAbs(cleanPath) {
+		if abs, err := filepath.Abs(cleanPath); err == nil {
+			cleanPath = abs
+		}
+	}
+	return cleanPath, nil
 }
 
 // deriveStoreKey performs PBKDF2-HMAC-SHA256 key derivation for the AI store.

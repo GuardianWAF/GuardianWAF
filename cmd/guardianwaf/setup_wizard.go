@@ -34,16 +34,16 @@ type setupWizard struct {
 	detectorCfg string
 
 	// Feature sections
-	botConfig      string
-	botEnabled     bool
-	rateLimitCfg   string
-	rateLimitOn    bool
-	corsConfig     string
-	atoConfig      string
-	alertConfig    string
-	alertEnabled   bool
-	dockerConfig   string
-	dockerEnabled  bool
+	botConfig       string
+	botEnabled      bool
+	rateLimitCfg    string
+	rateLimitOn     bool
+	corsConfig      string
+	atoConfig       string
+	alertConfig     string
+	alertEnabled    bool
+	dockerConfig    string
+	dockerEnabled   bool
 	dashboardListen string
 
 	// Credentials

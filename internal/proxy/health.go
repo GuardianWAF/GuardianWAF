@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
 )
+
+var healthLog = slog.Default().With(slog.String("component", "proxy/health"))
 
 // HealthChecker periodically checks the health of all targets in a balancer.
 type HealthChecker struct {
@@ -48,16 +51,27 @@ func NewHealthChecker(b *Balancer, cfg HealthConfig) *HealthChecker {
 		interval: cfg.Interval,
 		timeout:  cfg.Timeout,
 		path:     cfg.Path,
-		client:   newHealthCheckHTTPClient(cfg.Timeout),
+		client:   newHealthCheckHTTPClient(cfg.Timeout, healthCheckPolicy(b)),
 		stopCh:   make(chan struct{}),
 	}
 }
 
-func newHealthCheckHTTPClient(timeout time.Duration) *http.Client {
+func healthCheckPolicy(b *Balancer) TargetPolicy {
+	if b == nil {
+		return TargetPolicy{}
+	}
+	targets := b.Targets()
+	if len(targets) == 0 || targets[0] == nil {
+		return TargetPolicy{}
+	}
+	return targets[0].policy
+}
+
+func newHealthCheckHTTPClient(timeout time.Duration, policy TargetPolicy) *http.Client {
 	return &http.Client{
 		Timeout: timeout,
 		Transport: &http.Transport{
-			DialContext:           SSRFDialContext(),
+			DialContext:           SSRFDialContextWithPolicy(policy),
 			TLSHandshakeTimeout:   minHealthCheckDuration(timeout, 10*time.Second),
 			ResponseHeaderTimeout: minHealthCheckDuration(timeout, 10*time.Second),
 			ExpectContinueTimeout: 1 * time.Second,
@@ -84,7 +98,7 @@ func (hc *HealthChecker) Start() {
 		defer func() {
 			if r := recover(); r != nil {
 				// Health checker panic recovery — prevent silent failure
-				fmt.Printf("[ERROR] health checker panic: %v\n", r)
+				healthLog.Error("health checker panic recovered", "panic", r)
 			}
 		}()
 
@@ -128,6 +142,12 @@ func (hc *HealthChecker) Start() {
 
 // Stop stops the health checker and waits for it to finish.
 func (hc *HealthChecker) Stop() {
+	_ = hc.StopWithContext(context.Background())
+}
+
+// StopWithContext stops the health checker and waits within ctx for in-flight
+// probes to observe cancellation and exit.
+func (hc *HealthChecker) StopWithContext(ctx context.Context) error {
 	hc.mu.Lock()
 	cancel := hc.cancel
 	hc.mu.Unlock()
@@ -138,7 +158,22 @@ func (hc *HealthChecker) Stop() {
 	hc.stopOnce.Do(func() {
 		close(hc.stopCh)
 	})
-	hc.wg.Wait()
+	return waitForHealthChecker(ctx, &hc.wg)
+}
+
+func waitForHealthChecker(ctx context.Context, wg *sync.WaitGroup) error {
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // checkAll checks all targets in the balancer.
@@ -147,8 +182,8 @@ func (hc *HealthChecker) checkAll(ctx context.Context) {
 	for _, t := range targets {
 		// SSRF TOCTOU mitigation: re-check DNS on each health check to detect
 		// DNS rebinding attacks that change a public IP to a private one.
-		if !allowPrivateTargets.Load() {
-			if err := IsPrivateOrReservedIP(t.URL.Host); err != nil {
+		if !t.policy.AllowPrivateTargets {
+			if err := IsPrivateOrReservedIPWithPolicy(t.URL.Host, t.policy); err != nil {
 				t.SetHealthy(false)
 				t.lastCheck.Store(time.Now())
 				continue

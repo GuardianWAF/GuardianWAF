@@ -17,9 +17,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	"log/slog"
+
 	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 )
+
+var webhookLog = slog.Default().With(slog.String("component", "alerting/webhook"))
 
 // WebhookTarget defines a single webhook target for the alerting manager.
 type WebhookTarget struct {
@@ -63,9 +67,12 @@ type Manager struct {
 	closing    atomic.Bool
 
 	// Stats
-	sent   atomic.Int64
-	failed atomic.Int64
+	sent    atomic.Int64
+	failed  atomic.Int64
+	dropped atomic.Int64
 }
+
+const maxAlertDispatchConcurrency = 32
 
 type webhook struct {
 	config   WebhookTarget
@@ -77,8 +84,10 @@ type webhook struct {
 type Stats struct {
 	Sent         int64      `json:"sent"`
 	Failed       int64      `json:"failed"`
+	Dropped      int64      `json:"dropped"`
 	WebhookCount int        `json:"webhook_count"`
 	EmailCount   int        `json:"email_count"`
+	MaxDispatch  int        `json:"max_dispatch"`
 	Email        EmailStats `json:"email,omitempty"`
 }
 
@@ -104,14 +113,14 @@ func NewManager(targets []WebhookTarget) *Manager {
 				return nil
 			},
 		},
-		sem: make(chan struct{}, 32), // max 32 concurrent webhook/email sends
+		sem: make(chan struct{}, maxAlertDispatchConcurrency),
 	}
 
 	for _, t := range targets {
 		// Validate webhook URL — reject non-HTTPS and private IPs (skip in test mode)
 		if !allowWebhookPrivate.Load() {
 			if err := ValidateWebhookURL(t.URL); err != nil {
-				fmt.Printf("WARNING: webhook %q rejected: %v\n", t.Name, err)
+				webhookLog.Warn("webhook rejected", "name", t.Name, "err", err)
 				continue
 			}
 		}
@@ -161,8 +170,10 @@ func (m *Manager) GetStats() Stats {
 	return Stats{
 		Sent:         m.sent.Load(),
 		Failed:       m.failed.Load(),
+		Dropped:      m.dropped.Load(),
 		WebhookCount: wc,
 		EmailCount:   ec,
+		MaxDispatch:  cap(m.sem),
 		Email:        GetEmailStats(),
 	}
 }
@@ -237,6 +248,10 @@ func (m *Manager) HandleEvent(event *engine.Event) {
 			}(&wh.config, &alert)
 		}) {
 		case dispatchFull:
+			m.dropped.Add(1)
+			m.failed.Add(1)
+		case dispatchClosed:
+			m.dropped.Add(1)
 			m.failed.Add(1)
 		}
 	}
@@ -291,6 +306,10 @@ func (m *Manager) HandleEvent(event *engine.Event) {
 			}(et, event)
 		}) {
 		case dispatchFull:
+			m.dropped.Add(1)
+			m.failed.Add(1)
+		case dispatchClosed:
+			m.dropped.Add(1)
 			m.failed.Add(1)
 		}
 	}
@@ -658,7 +677,14 @@ func ValidateWebhookURL(rawURL string) error {
 	if u.Scheme != "https" {
 		return fmt.Errorf("webhook URL must use HTTPS, got %q", u.Scheme)
 	}
-	return validateHostNotPrivate(u.Hostname())
+	if u.User != nil {
+		return fmt.Errorf("webhook URL must not include userinfo or credentials")
+	}
+	host := u.Hostname()
+	if host == "" {
+		return fmt.Errorf("webhook URL must include a host")
+	}
+	return validateHostNotPrivate(host)
 }
 
 // validateHostNotPrivate checks that a hostname does not resolve to a
@@ -670,13 +696,13 @@ func validateHostNotPrivate(host string) error {
 	}
 	// Check if host is already a raw IP
 	if ip := net.ParseIP(host); ip != nil {
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
-			return fmt.Errorf("must not target private/loopback/link-local addresses")
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() || ip.IsMulticast() {
+			return fmt.Errorf("must not target private/loopback/link-local/multicast addresses")
 		}
 		return nil
 	}
 	// Hostname — resolve DNS and check all resulting IPs (prevents DNS rebinding)
-	addrs, err := net.LookupHost(host)
+	addrs, err := net.LookupHost(host) // #nosec G704 -- preflight DNS check is paired with webhook client's SSRF-safe DialContext and redirect validation.
 	if err != nil {
 		// If DNS resolution fails, allow through — will fail at connection time
 		return nil
@@ -686,7 +712,7 @@ func validateHostNotPrivate(host string) error {
 		if ip == nil {
 			continue
 		}
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() || ip.IsMulticast() {
 			return fmt.Errorf("hostname resolves to private/loopback address %s", ip)
 		}
 	}
@@ -734,7 +760,8 @@ func webhookSSRFDialContext() func(ctx context.Context, network, addr string) (n
 // allowWebhookPrivate allows private IPs for webhook connections (testing only).
 var allowWebhookPrivate atomic.Bool
 
-// AllowWebhookPrivateTargets enables private/reserved IP targets for webhook testing.
-func AllowWebhookPrivateTargets() {
+// allowWebhookPrivateTargetsForTest enables private/reserved IP targets for
+// package-local tests that use httptest loopback servers.
+func allowWebhookPrivateTargetsForTest() {
 	allowWebhookPrivate.Store(true)
 }

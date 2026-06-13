@@ -1,6 +1,7 @@
 package acme
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
@@ -25,8 +26,9 @@ type CertDiskStore struct {
 	mu    sync.RWMutex
 	certs map[string]*tls.Certificate // domain -> loaded cert
 
-	stopCh chan struct{}
-	wg     sync.WaitGroup
+	stopCh   chan struct{}
+	stopOnce sync.Once
+	wg       sync.WaitGroup
 }
 
 // NewCertDiskStore creates a store that caches certs in the given directory.
@@ -153,13 +155,13 @@ func (s *CertDiskStore) CertStatus() map[string]any {
 		}
 
 		certs = append(certs, map[string]any{
-			"domain":       domain,
-			"dns_names":    dnsNames,
-			"not_after":    notAfter.Format(time.RFC3339),
-			"days_left":    daysLeft,
-			"issuer_cn":    issuerCN,
+			"domain":        domain,
+			"dns_names":     dnsNames,
+			"not_after":     notAfter.Format(time.RFC3339),
+			"days_left":     daysLeft,
+			"issuer_cn":     issuerCN,
 			"needs_renewal": needsRenewal,
-			"is_wildcard":  strings.HasPrefix(domain, "*."),
+			"is_wildcard":   strings.HasPrefix(domain, "*."),
 		})
 	}
 
@@ -181,14 +183,14 @@ func (s *CertDiskStore) StartRenewal(checkInterval time.Duration) {
 		defer s.wg.Done()
 		defer func() {
 			if r := recover(); r != nil {
-				fmt.Printf("[ERROR] ACME cert renewal panic: %v\n", r)
+				s.log.Error("ACME cert renewal panic recovered", "panic", r)
 			}
 		}()
 		checkInterval := checkInterval
-	if checkInterval <= 0 {
-		checkInterval = 24 * time.Hour
-	}
-	ticker := time.NewTicker(checkInterval)
+		if checkInterval <= 0 {
+			checkInterval = 24 * time.Hour
+		}
+		ticker := time.NewTicker(checkInterval)
 		defer ticker.Stop()
 
 		for {
@@ -204,13 +206,31 @@ func (s *CertDiskStore) StartRenewal(checkInterval time.Duration) {
 
 // StopRenewal stops the background renewal goroutine.
 func (s *CertDiskStore) StopRenewal() {
-	select {
-	case <-s.stopCh:
-		return
-	default:
+	_ = s.StopRenewalWithContext(context.Background())
+}
+
+// StopRenewalWithContext stops the background renewal goroutine and waits
+// within ctx for any in-flight renewal work to finish.
+func (s *CertDiskStore) StopRenewalWithContext(ctx context.Context) error {
+	s.stopOnce.Do(func() {
 		close(s.stopCh)
+	})
+	return waitForRenewalLoop(ctx, &s.wg)
+}
+
+func waitForRenewalLoop(ctx context.Context, wg *sync.WaitGroup) error {
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
-	s.wg.Wait()
 }
 
 // --- Internal ---
@@ -234,7 +254,7 @@ func (s *CertDiskStore) renewIfNeeded() {
 		if !fileExists(certFile) {
 			// No cert yet, obtain
 			if _, err := s.LoadOrObtain(domains); err != nil {
-				fmt.Printf("[acme] warning: failed to obtain cert for %s: %v\n", primary, err)
+				s.log.Warn("failed to obtain ACME cert", "domain", primary, "err", err)
 			}
 			continue
 		}

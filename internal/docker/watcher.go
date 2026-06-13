@@ -3,10 +3,14 @@ package docker
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
+
+var dockerLog = slog.Default().With(slog.String("component", "docker/watcher"))
 
 // Watcher monitors Docker for container changes and triggers proxy rebuilds.
 type Watcher struct {
@@ -23,6 +27,20 @@ type Watcher struct {
 	callbackMu sync.RWMutex
 	onChange   func()
 	logFn      func(level, msg string)
+
+	running              atomic.Bool
+	eventStreamConnected atomic.Bool
+	lastSyncOK           atomic.Bool
+	syncFailures         atomic.Int64
+}
+
+// WatcherStats contains bounded operational state for Docker auto-discovery.
+type WatcherStats struct {
+	Running              bool  `json:"running"`
+	EventStreamConnected bool  `json:"event_stream_connected"`
+	LastSyncOK           bool  `json:"last_sync_ok"`
+	SyncFailures         int64 `json:"sync_failures"`
+	ServiceCount         int   `json:"service_count"`
 }
 
 // NewWatcher creates a Docker container watcher.
@@ -64,6 +82,7 @@ func (w *Watcher) SetLogger(fn func(level, msg string)) {
 // Start begins watching Docker for container changes.
 // It does an initial sync, then tries event streaming with poll fallback.
 func (w *Watcher) Start() {
+	w.running.Store(true)
 	w.safeLog("WARN", "Docker socket is mounted — if GuardianWAF is compromised, attackers can read all container configs, env vars, and network topology. Prefer a read-only socket proxy or restrict access to the daemon.")
 
 	// Initial sync
@@ -75,13 +94,30 @@ func (w *Watcher) Start() {
 
 // Stop gracefully stops the watcher.
 func (w *Watcher) Stop() {
+	_ = w.StopWithContext(context.Background())
+}
+
+// StopWithContext gracefully stops the watcher without waiting past ctx.
+func (w *Watcher) StopWithContext(ctx context.Context) error {
 	select {
 	case <-w.stopCh:
-		return
 	default:
 		close(w.stopCh)
 	}
-	w.wg.Wait()
+	done := make(chan struct{})
+	go func() {
+		w.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		w.running.Store(false)
+		w.eventStreamConnected.Store(false)
+		return nil
+	case <-ctx.Done():
+		w.eventStreamConnected.Store(false)
+		return ctx.Err()
+	}
 }
 
 // Services returns the current discovered services.
@@ -103,12 +139,23 @@ func (w *Watcher) ServiceCount() int {
 	return len(w.services)
 }
 
+// Stats returns bounded operational state for metrics and dashboards.
+func (w *Watcher) Stats() WatcherStats {
+	return WatcherStats{
+		Running:              w.running.Load(),
+		EventStreamConnected: w.eventStreamConnected.Load(),
+		LastSyncOK:           w.lastSyncOK.Load(),
+		SyncFailures:         w.syncFailures.Load(),
+		ServiceCount:         w.ServiceCount(),
+	}
+}
+
 // loop is the main watcher loop that tries event streaming with poll fallback.
 func (w *Watcher) loop() {
 	defer w.wg.Done()
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Printf("[ERROR] Docker watcher panic: %v\n", r)
+			dockerLog.Error("docker watcher panic recovered", "panic", r)
 		}
 	}()
 
@@ -135,6 +182,8 @@ func (w *Watcher) loop() {
 func (w *Watcher) streamEvents() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	w.eventStreamConnected.Store(true)
+	defer w.eventStreamConnected.Store(false)
 
 	// Stop on shutdown
 	go func() {
@@ -219,9 +268,12 @@ func (w *Watcher) handleEvent(event Event) {
 func (w *Watcher) sync() bool {
 	containers, err := w.client.ListContainers(w.labelPrefix)
 	if err != nil {
+		w.lastSyncOK.Store(false)
+		w.syncFailures.Add(1)
 		w.safeLog("warn", "Docker: list containers failed: "+err.Error())
 		return false
 	}
+	w.lastSyncOK.Store(true)
 
 	services := DiscoverFromContainers(containers, w.labelPrefix, w.network)
 

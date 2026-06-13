@@ -6,7 +6,6 @@ import (
 	"compress/gzip"
 	"crypto/rand"
 	"encoding/hex"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -16,9 +15,13 @@ import (
 	"sync"
 	"time"
 
+	"log/slog"
+
 	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/tracing"
 )
+
+var engineContextLog = slog.Default().With(slog.String("component", "engine/context"))
 
 // randReader allows tests to inject failures for generateRequestID.
 var randReader = rand.Read
@@ -71,7 +74,7 @@ func parseTrustedProxyCIDRs(cidrs []string) []*net.IPNet {
 		if cidr.IP.IsUnspecified() {
 			ones, _ := cidr.Mask.Size()
 			if ones == 0 {
-				fmt.Printf("[engine] WARNING: rejecting overly broad trusted proxy CIDR %q — would trust all connections\n", s)
+				engineContextLog.Warn("rejecting overly broad trusted proxy CIDR — would trust all connections", "cidr", s)
 				continue
 			}
 		}

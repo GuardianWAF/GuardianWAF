@@ -10,6 +10,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -21,10 +22,41 @@ import (
 	"time"
 )
 
+var geoipLog = slog.Default().With(slog.String("component", "geoip"))
+
 // DB is a GeoIP database that maps IP addresses to country codes.
 type DB struct {
 	mu     sync.RWMutex
 	ranges []ipRange
+}
+
+// AutoRefreshHandle controls a GeoIP auto-refresh goroutine.
+type AutoRefreshHandle struct {
+	stop     chan struct{}
+	done     chan struct{}
+	stopOnce sync.Once
+}
+
+// Stop stops the auto-refresh goroutine without a deadline.
+func (h *AutoRefreshHandle) Stop() {
+	_ = h.StopWithContext(context.Background())
+}
+
+// StopWithContext stops the auto-refresh goroutine and waits until it exits or
+// ctx expires.
+func (h *AutoRefreshHandle) StopWithContext(ctx context.Context) error {
+	if h == nil {
+		return nil
+	}
+	h.stopOnce.Do(func() {
+		close(h.stop)
+	})
+	select {
+	case <-h.done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // testAllowPrivate allows tests to bypass SSRF URL validation for httptest servers.
@@ -48,7 +80,11 @@ func New() *DB {
 //   - CIDR,country_code (CIDR format)
 //   - Lines starting with # are ignored (comments)
 func LoadCSV(path string) (*DB, error) {
-	f, err := os.Open(path)
+	cleanPath, err := cleanGeoIPFilePath(path, false)
+	if err != nil {
+		return nil, err
+	}
+	f, err := os.Open(cleanPath) // #nosec G304 -- path is operator-provided GeoIP DB state, rejected on empty/NUL and cleaned before use.
 	if err != nil {
 		return nil, fmt.Errorf("opening geoip db: %w", err)
 	}
@@ -170,7 +206,11 @@ func (db *DB) Ready() bool {
 
 // Reload reloads the database from a CSV file, atomically swapping the data.
 func (db *DB) Reload(path string) error {
-	fresh, err := LoadCSV(path)
+	cleanPath, err := cleanGeoIPFilePath(path, false)
+	if err != nil {
+		return err
+	}
+	fresh, err := LoadCSV(cleanPath)
 	if err != nil {
 		return err
 	}
@@ -184,14 +224,29 @@ func (db *DB) Reload(path string) error {
 // and refreshes the GeoIP database from disk or URL.
 // Returns a stop function.
 func (db *DB) StartAutoRefresh(path, downloadURL string, interval time.Duration) func() {
+	handle := db.StartAutoRefreshWithContext(path, downloadURL, interval)
+	return handle.Stop
+}
+
+// StartAutoRefreshWithContext starts a background refresh goroutine and returns
+// a handle that can stop and wait within a caller-provided context.
+func (db *DB) StartAutoRefreshWithContext(path, downloadURL string, interval time.Duration) *AutoRefreshHandle {
+	cleanPath, pathErr := cleanGeoIPFilePath(path, false)
+	if pathErr != nil {
+		cleanPath = path
+	}
 	if interval <= 0 {
 		interval = 24 * time.Hour
 	}
-	stop := make(chan struct{})
+	handle := &AutoRefreshHandle{
+		stop: make(chan struct{}),
+		done: make(chan struct{}),
+	}
 	go func() {
+		defer close(handle.done)
 		defer func() {
 			if r := recover(); r != nil {
-				fmt.Printf("[ERROR] GeoIP auto-refresh panic: %v\n", r)
+				geoipLog.Error("GeoIP auto-refresh panic recovered", "panic", r)
 			}
 		}()
 		tickerInterval := interval
@@ -203,22 +258,26 @@ func (db *DB) StartAutoRefresh(path, downloadURL string, interval time.Duration)
 		for {
 			select {
 			case <-ticker.C:
+				if pathErr != nil {
+					geoipLog.Warn("GeoIP refresh path rejected", "err", pathErr)
+					continue
+				}
 				// Try to download fresh data
 				if downloadURL != "" {
-					if err := downloadDB(downloadURL, path); err != nil {
-						fmt.Printf("[WARN] GeoIP download failed: %v\n", err)
-					} else if err := db.Reload(path); err != nil {
-						fmt.Printf("[WARN] GeoIP reload after download failed: %v\n", err)
+					if err := downloadDB(downloadURL, cleanPath); err != nil {
+						geoipLog.Warn("GeoIP download failed", "err", err)
+					} else if err := db.Reload(cleanPath); err != nil {
+						geoipLog.Warn("GeoIP reload after download failed", "err", err)
 					}
-				} else if err := db.Reload(path); err != nil {
-					fmt.Printf("[WARN] GeoIP reload failed: %v\n", err)
+				} else if err := db.Reload(cleanPath); err != nil {
+					geoipLog.Warn("GeoIP reload failed", "err", err)
 				}
-			case <-stop:
+			case <-handle.stop:
 				return
 			}
 		}
 	}()
-	return func() { close(stop) }
+	return handle
 }
 
 // CountryName returns the full name for a country code.
@@ -241,11 +300,15 @@ func LoadOrDownload(path, downloadURL string, maxAge time.Duration) (*DB, error)
 	if path == "" {
 		path = "geoip.csv"
 	}
+	cleanPath, err := cleanGeoIPFilePath(path, false)
+	if err != nil {
+		return nil, err
+	}
 
 	// Check if file exists and is fresh enough
-	if info, err := os.Stat(path); err == nil {
+	if info, err := os.Stat(cleanPath); err == nil {
 		if maxAge <= 0 || time.Since(info.ModTime()) < maxAge {
-			return LoadCSV(path)
+			return LoadCSV(cleanPath)
 		}
 	}
 
@@ -254,19 +317,21 @@ func LoadOrDownload(path, downloadURL string, maxAge time.Duration) (*DB, error)
 		downloadURL = autoDownloadURL()
 	}
 
-	if err := downloadDB(downloadURL, path); err != nil {
+	if err := downloadDB(downloadURL, cleanPath); err != nil {
 		// If download fails but old file exists, use it
-		if _, statErr := os.Stat(path); statErr == nil {
-			return LoadCSV(path)
+		if _, statErr := os.Stat(cleanPath); statErr == nil {
+			return LoadCSV(cleanPath)
 		}
 		return nil, fmt.Errorf("downloading geoip db: %w", err)
 	}
 
-	return LoadCSV(path)
+	return LoadCSV(cleanPath)
 }
 
 // geoipDownloadClient is a shared HTTP client for GeoIP database downloads.
 var geoipDownloadClient = newGeoIPDownloadHTTPClient()
+
+const maxGeoIPDownloadSize int64 = 500 * 1024 * 1024
 
 func newGeoIPDownloadHTTPClient() *http.Client {
 	transport, ok := http.DefaultTransport.(*http.Transport)
@@ -326,6 +391,10 @@ func newGeoIPDownloadHTTPClient() *http.Client {
 
 // downloadDB downloads a GeoIP CSV (optionally gzipped) from URL to path.
 func downloadDB(downloadURL, path string) error {
+	cleanPath, err := cleanGeoIPFilePath(path, false)
+	if err != nil {
+		return err
+	}
 	// SSRF protection: reject URLs targeting private/loopback addresses
 	if !testAllowPrivate {
 		if err := validateURLNotPrivate(downloadURL); err != nil {
@@ -335,7 +404,7 @@ func downloadDB(downloadURL, path string) error {
 
 	// Warn on non-HTTPS download URLs
 	if strings.HasPrefix(downloadURL, "http://") {
-		fmt.Printf("WARNING: GeoIP download URL is not HTTPS: %s (data may be tampered with in transit)\n", downloadURL)
+		geoipLog.Warn("GeoIP download URL is not HTTPS — data may be tampered with in transit", "url", downloadURL)
 	}
 
 	ctx := context.Background()
@@ -355,20 +424,19 @@ func downloadDB(downloadURL, path string) error {
 	}
 
 	// Ensure parent directory exists
-	if dir := filepath.Dir(path); dir != "" && dir != "." {
+	if dir := filepath.Dir(cleanPath); dir != "" && dir != "." {
 		if err = os.MkdirAll(dir, 0o700); err != nil {
 			return fmt.Errorf("failed to create directory: %w", err)
 		}
 	}
 
-	f, err := os.Create(path)
+	f, err := os.Create(cleanPath) // #nosec G304 -- target is operator-provided GeoIP cache state, rejected on empty/NUL and cleaned before write.
 	if err != nil {
 		return err
 	}
 
-	// Limit download to 500MB to prevent disk exhaustion
-	const maxDownloadSize = 500 * 1024 * 1024
-	reader := io.LimitReader(resp.Body, maxDownloadSize)
+	// Limit download to prevent disk exhaustion.
+	reader := limitGeoIPDownloadReader(resp.Body, maxGeoIPDownloadSize)
 
 	// Auto-detect gzip by URL suffix or Content-Type
 	if strings.HasSuffix(downloadURL, ".gz") || strings.Contains(resp.Header.Get("Content-Type"), "gzip") {
@@ -378,7 +446,7 @@ func downloadDB(downloadURL, path string) error {
 			return fmt.Errorf("gzip decode: %w", gzErr)
 		}
 		defer gz.Close()
-		reader = io.LimitReader(gz, maxDownloadSize)
+		reader = limitGeoIPDownloadReader(gz, maxGeoIPDownloadSize)
 	}
 
 	_, copyErr := io.Copy(f, reader)
@@ -389,7 +457,47 @@ func downloadDB(downloadURL, path string) error {
 	return closeErr
 }
 
+type geoIPDownloadLimitReader struct {
+	r         io.Reader
+	maxBytes  int64
+	remaining int64
+}
+
+func limitGeoIPDownloadReader(r io.Reader, maxBytes int64) io.Reader {
+	return &geoIPDownloadLimitReader{r: r, maxBytes: maxBytes, remaining: maxBytes}
+}
+
+func (r *geoIPDownloadLimitReader) Read(p []byte) (int, error) {
+	if r.remaining <= 0 {
+		var extra [1]byte
+		n, err := r.r.Read(extra[:])
+		if n > 0 {
+			return 0, fmt.Errorf("GeoIP download exceeds %d bytes", r.maxBytes)
+		}
+		return 0, err
+	}
+	if int64(len(p)) > r.remaining {
+		p = p[:int(r.remaining)]
+	}
+	n, err := r.r.Read(p)
+	r.remaining -= int64(n)
+	return n, err
+}
+
 // --- Helpers ---
+
+func cleanGeoIPFilePath(path string, allowEmpty bool) (string, error) {
+	if strings.ContainsRune(path, 0) {
+		return "", fmt.Errorf("geoip file path contains NUL byte")
+	}
+	if path == "" {
+		if allowEmpty {
+			return "", nil
+		}
+		return "", fmt.Errorf("geoip file path must not be empty")
+	}
+	return filepath.Clean(path), nil
+}
 
 // validateURLNotPrivate checks that a URL does not resolve to a private,
 // loopback, or link-local IP address (SSRF prevention).
@@ -398,19 +506,28 @@ func validateURLNotPrivate(rawURL string) error {
 	if err != nil {
 		return fmt.Errorf("invalid URL: %w", err)
 	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("must use http or https")
+	}
+	if u.User != nil {
+		return fmt.Errorf("must not include URL userinfo or credentials")
+	}
 	host := u.Hostname()
+	if host == "" {
+		return fmt.Errorf("must include a host")
+	}
 	if host == "localhost" || strings.HasSuffix(host, ".internal") || strings.HasSuffix(host, ".local") {
 		return fmt.Errorf("must not target localhost or internal hosts")
 	}
 	ip := net.ParseIP(host)
 	if ip != nil {
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() || ip.IsMulticast() {
 			return fmt.Errorf("must not target private/loopback/link-local addresses")
 		}
 		return nil
 	}
 	// Hostname — resolve DNS and check all resulting IPs (prevents DNS rebinding)
-	addrs, err := net.LookupHost(host)
+	addrs, err := net.LookupHost(host) // #nosec G704 -- preflight DNS check is paired with GeoIP client's SSRF-safe DialContext and redirect validation.
 	if err != nil {
 		return nil
 	}
@@ -419,7 +536,7 @@ func validateURLNotPrivate(rawURL string) error {
 		if ip == nil {
 			continue
 		}
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() || ip.IsMulticast() {
 			return fmt.Errorf("hostname resolves to private/loopback address %s", ip)
 		}
 	}
@@ -445,10 +562,21 @@ func cidrToRange(cidr string) (start, end uint32, err error) {
 	if bits != 32 {
 		return 0, 0, fmt.Errorf("only IPv4 CIDR supported")
 	}
-	hostBits := uint32(32 - ones)
+	hostBits, ok := ipv4HostBits(ones)
+	if !ok {
+		return 0, 0, fmt.Errorf("invalid IPv4 CIDR mask size %d", ones)
+	}
 	end = start | ((1 << hostBits) - 1)
 
 	return start, end, nil
+}
+
+func ipv4HostBits(ones int) (uint32, bool) {
+	if ones < 0 || ones > 32 {
+		return 0, false
+	}
+	// #nosec G115 -- ones is bounded to 0..32 above before uint32 narrowing.
+	return uint32(32 - ones), true
 }
 
 // countryNames maps ISO 3166-1 alpha-2 codes to country names.
