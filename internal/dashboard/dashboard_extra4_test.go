@@ -259,6 +259,17 @@ func TestIsAdminAuthenticated_WrongKey(t *testing.T) {
 	}
 }
 
+func TestIsAdminAuthenticatedRejectsDashboardSessionCookie(t *testing.T) {
+	d := newTestDashboard(t, "dashboard-key")
+	d.SetAdminKey("admin-key")
+	req := httptest.NewRequest("GET", "/api/admin/tenants", nil)
+	req.RemoteAddr = "192.0.2.1:1234"
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: signSession("192.0.2.1")})
+	if d.isAdminAuthenticated(req) {
+		t.Fatal("dashboard session cookie must not satisfy dashboard.admin_key")
+	}
+}
+
 // =====================================================================
 // SetTenantAPIKey / verifyTenantAPIKey / extractTenantID
 // =====================================================================
@@ -608,6 +619,13 @@ func TestAuditChain_NoEngine(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("response JSON: %v", err)
+	}
+	if body["head_hash"] != "genesis" {
+		t.Fatalf("head_hash = %#v, want genesis", body["head_hash"])
 	}
 }
 
@@ -1157,8 +1175,27 @@ func TestSanitizeErr_Nil(t *testing.T) {
 
 func TestSanitizeErr_FilePath(t *testing.T) {
 	result := sanitizeErr(fmt.Errorf("error in /etc/passwd"))
-	if result != "internal error" {
-		t.Errorf("expected 'internal error' for file path, got %q", result)
+	if !strings.Contains(result, "<redacted>") {
+		t.Errorf("expected '<redacted>' for file path, got %q", result)
+	}
+	if strings.Contains(result, "/etc/passwd") {
+		t.Errorf("expected /etc/passwd to be redacted, got %q", result)
+	}
+}
+
+func TestSanitizeErr_RelativePath(t *testing.T) {
+	// Relative paths and URLs should NOT be redacted
+	result := sanitizeErr(fmt.Errorf("connection refused to http://localhost:8080"))
+	if strings.Contains(result, "<redacted>") {
+		t.Errorf("expected URL to be preserved, got %q", result)
+	}
+}
+
+func TestSanitizeErr_NetworkError(t *testing.T) {
+	// Network errors with slashes should be preserved
+	result := sanitizeErr(fmt.Errorf("dial tcp: connection refused /api/v1/test"))
+	if strings.Contains(result, "<redacted>") {
+		t.Errorf("expected network error to be preserved, got %q", result)
 	}
 }
 

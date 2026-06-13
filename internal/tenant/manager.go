@@ -759,7 +759,7 @@ type ManagerStats struct {
 // Helper functions
 
 func generateTenantID(name string) (string, error) {
-	b := make([]byte, 8)
+	b := make([]byte, 16) // 128-bit entropy for collision resistance at scale
 	if _, err := rand.Read(b); err != nil {
 		return "", fmt.Errorf("generating tenant ID: %w", err)
 	}

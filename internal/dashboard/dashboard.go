@@ -1560,25 +1560,63 @@ func clampFloat(v, lo, hi float64) float64 {
 }
 
 // sanitizeErr strips potentially sensitive details from error messages
-// before returning them to clients.
+// before returning them to clients. It targets absolute file paths and
+// stack traces while preserving useful context like network errors and
+// relative paths.
 func sanitizeErr(err error) string {
 	if err == nil {
 		return ""
 	}
 	msg := err.Error()
-	// Strip file paths
-	if strings.Contains(msg, "/") || strings.Contains(msg, "\\") {
-		return "internal error"
-	}
 	// Strip stack trace indicators
 	if strings.Contains(msg, "goroutine") || strings.Contains(msg, "runtime/") {
 		return "internal error"
 	}
+	// Redact absolute file system paths (Unix and Windows)
+	msg = redactFilePaths(msg)
 	// Truncate very long errors
 	if len(msg) > 200 {
 		msg = msg[:200]
 	}
 	return msg
+}
+
+// redactFilePaths replaces absolute filesystem paths with a placeholder.
+// Matches common Unix prefixes (/etc/, /home/, /var/, /tmp/, /usr/, /opt/)
+// and Windows drive-letter paths (C:\, D:\, etc.).
+var pathPrefixes = []string{
+	"/etc/", "/home/", "/var/", "/tmp/", "/usr/", "/opt/", "/root/",
+	"/proc/", "/sys/", "/dev/",
+}
+
+func redactFilePaths(msg string) string {
+	for _, prefix := range pathPrefixes {
+		if idx := strings.Index(msg, prefix); idx >= 0 {
+			// Find the end of the path (next space or end of string)
+			end := idx + len(prefix)
+			for end < len(msg) && msg[end] != ' ' && msg[end] != '"' && msg[end] != '\'' {
+				end++
+			}
+			msg = msg[:idx] + "<redacted>" + msg[end:]
+		}
+	}
+	// Windows paths: C:\... D:\... etc.
+	if len(msg) >= 3 && msg[1] == ':' && (msg[2] == '\\' || msg[2] == '/') {
+		for i := 0; i < len(msg)-3; i++ {
+			if i > 0 && msg[i-1] == ' ' && isASCIILetter(msg[i]) && msg[i+1] == ':' && (msg[i+2] == '\\' || msg[i+2] == '/') {
+				end := i + 3
+				for end < len(msg) && msg[end] != ' ' && msg[end] != '"' && msg[end] != '\'' {
+					end++
+				}
+				msg = msg[:i] + "<redacted>" + msg[end:]
+			}
+		}
+	}
+	return msg
+}
+
+func isASCIILetter(b byte) bool {
+	return (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z')
 }
 
 // --- Alerting Handlers ---
