@@ -2,19 +2,25 @@ package tls
 
 import (
 	"bytes"
+	"context"
 	"crypto"
+	// #nosec G505 -- OCSP CertID uses SHA-1 issuer name/key hashes for RFC
+	// interoperability; this is not used for signature verification.
 	"crypto/sha1"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/asn1"
 	"fmt"
 	"io"
+	"log/slog"
 	"math/big"
 	"net"
 	"net/http"
 	"strings"
 	"time"
 )
+
+var ocspLog = certStoreLog.With(slog.String("subsystem", "ocsp"))
 
 // OCSPStatus represents the OCSP response status.
 type OCSPStatus int
@@ -24,6 +30,8 @@ const (
 	OCSPRevoked OCSPStatus = 1
 	OCSPUnknown OCSPStatus = 2
 )
+
+const maxOCSPResponseBytes = 1 << 20
 
 // OCSPResponse holds a parsed OCSP response.
 type OCSPResponse struct {
@@ -43,21 +51,52 @@ var oidAuthorityInfoAccess = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 1, 1}
 var ocspHTTPClient = newOCSPHTTPClient()
 
 func newOCSPHTTPClient() *http.Client {
+	transport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		transport = &http.Transport{}
+	}
+	transport = transport.Clone()
+	dialer := &net.Dialer{
+		Timeout:   5 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+	transport.DialContext = ocspPublicOnlyDialContext(dialer)
+	transport.IdleConnTimeout = 30 * time.Second
+	transport.TLSHandshakeTimeout = 5 * time.Second
+	transport.ResponseHeaderTimeout = 10 * time.Second
+	transport.ExpectContinueTimeout = 1 * time.Second
+
 	return &http.Client{
-		Timeout: 10 * time.Second,
-		Transport: &http.Transport{
-			DialContext: (&net.Dialer{
-				Timeout:   5 * time.Second,
-				KeepAlive: 30 * time.Second,
-			}).DialContext,
-			IdleConnTimeout:       30 * time.Second,
-			TLSHandshakeTimeout:   5 * time.Second,
-			ResponseHeaderTimeout: 10 * time.Second,
-			ExpectContinueTimeout: 1 * time.Second,
-		},
+		Timeout:   10 * time.Second,
+		Transport: transport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
+	}
+}
+
+func ocspPublicOnlyDialContext(dialer *net.Dialer) func(ctx context.Context, network, addr string) (net.Conn, error) {
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			host = addr
+			port = ""
+		}
+		ips, err := net.LookupIP(host)
+		if err != nil {
+			return nil, fmt.Errorf("OCSP SSRF dial: DNS lookup failed for %q: %w", host, err)
+		}
+		for _, ip := range ips {
+			if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() || ip.IsMulticast() {
+				continue
+			}
+			target := ip.String()
+			if port != "" {
+				target = net.JoinHostPort(target, port)
+			}
+			return dialer.DialContext(ctx, network, target)
+		}
+		return nil, fmt.Errorf("OCSP SSRF dial: no valid public IPs for %q", host)
 	}
 }
 
@@ -96,7 +135,7 @@ func FetchOCSPResponse(issuer, leaf *x509.Certificate) ([]byte, error) {
 		return nil, fmt.Errorf("OCSP responder returned status %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
+	body, err := readOCSPResponse(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("reading OCSP response: %w", err)
 	}
@@ -106,6 +145,17 @@ func FetchOCSPResponse(issuer, leaf *x509.Certificate) ([]byte, error) {
 		return nil, fmt.Errorf("parsing OCSP response: %w", err)
 	}
 
+	return body, nil
+}
+
+func readOCSPResponse(r io.Reader) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(r, maxOCSPResponseBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > maxOCSPResponseBytes {
+		return nil, fmt.Errorf("OCSP response exceeds %d bytes", maxOCSPResponseBytes)
+	}
 	return body, nil
 }
 
@@ -261,6 +311,7 @@ type certIDData struct {
 
 func buildCertID(issuer, leaf *x509.Certificate) (*certIDData, error) {
 	// SHA-1 hash of issuer's DER-encoded Subject
+	// #nosec G401 -- OCSP CertID requires SHA-1 issuer hashes for interoperability.
 	h := sha1.New()
 	h.Write(issuer.RawSubject)
 	issuerNameHash := h.Sum(nil)
@@ -413,7 +464,7 @@ func (cs *CertStore) StartOCSPRefresh(interval time.Duration) {
 		defer cs.wg.Done()
 		defer func() {
 			if r := recover(); r != nil {
-				fmt.Printf("[ERROR] OCSP refresh panic: %v\n", r)
+				ocspLog.Error("OCSP refresh panic recovered", "panic", r)
 			}
 		}()
 		tickerInterval := interval
