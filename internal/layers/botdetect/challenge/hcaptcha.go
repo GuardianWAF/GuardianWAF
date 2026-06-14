@@ -3,6 +3,7 @@ package challenge
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +12,8 @@ import (
 	"net/url"
 	"time"
 )
+
+const captchaVerificationMaxResponseBytes = 1 << 20
 
 // HCaptchaProvider implements hCaptcha verification.
 type HCaptchaProvider struct {
@@ -76,7 +79,7 @@ func (p *HCaptchaProvider) VerifyToken(token string, remoteIP string) (*Verifica
 	defer resp.Body.Close()
 
 	// Parse response
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	body, err := readCaptchaVerificationResponse(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
@@ -146,10 +149,7 @@ func newCaptchaVerificationHTTPClient(timeout time.Duration) *http.Client {
 	return &http.Client{
 		Timeout: timeout,
 		Transport: &http.Transport{
-			DialContext: (&net.Dialer{
-				Timeout:   minDuration(timeout, 10*time.Second),
-				KeepAlive: 30 * time.Second,
-			}).DialContext,
+			DialContext:           captchaPublicOnlyDialContext(timeout),
 			IdleConnTimeout:       30 * time.Second,
 			TLSHandshakeTimeout:   minDuration(timeout, 10*time.Second),
 			ResponseHeaderTimeout: minDuration(timeout, 30*time.Second),
@@ -161,11 +161,51 @@ func newCaptchaVerificationHTTPClient(timeout time.Duration) *http.Client {
 	}
 }
 
+func captchaPublicOnlyDialContext(timeout time.Duration) func(ctx context.Context, network, addr string) (net.Conn, error) {
+	dialer := &net.Dialer{
+		Timeout:   minDuration(timeout, 10*time.Second),
+		KeepAlive: 30 * time.Second,
+	}
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			host = addr
+			port = ""
+		}
+		ips, err := net.LookupIP(host)
+		if err != nil {
+			return nil, fmt.Errorf("CAPTCHA SSRF dial: DNS lookup failed for %q: %w", host, err)
+		}
+		for _, ip := range ips {
+			if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() {
+				continue
+			}
+			target := ip.String()
+			if port != "" {
+				target = net.JoinHostPort(target, port)
+			}
+			return dialer.DialContext(ctx, network, target)
+		}
+		return nil, fmt.Errorf("CAPTCHA SSRF dial: no valid public IPs for %q", host)
+	}
+}
+
 func minDuration(a, b time.Duration) time.Duration {
 	if a <= 0 || a > b {
 		return b
 	}
 	return a
+}
+
+func readCaptchaVerificationResponse(r io.Reader) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(r, captchaVerificationMaxResponseBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > captchaVerificationMaxResponseBytes {
+		return nil, fmt.Errorf("CAPTCHA verification response exceeds %d bytes", captchaVerificationMaxResponseBytes)
+	}
+	return body, nil
 }
 
 // turnstileResponse from verification API.
@@ -204,7 +244,7 @@ func (p *TurnstileProvider) VerifyToken(token string, remoteIP string) (*Verific
 	defer resp.Body.Close()
 
 	// Parse response
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	body, err := readCaptchaVerificationResponse(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}

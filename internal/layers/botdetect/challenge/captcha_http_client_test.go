@@ -1,9 +1,12 @@
 package challenge
 
 import (
+	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -50,6 +53,16 @@ func TestCaptchaVerificationHTTPClient_DoesNotFollowRedirects(t *testing.T) {
 	}
 }
 
+func TestCaptchaVerificationResponseRejectsOversizeBody(t *testing.T) {
+	_, err := readCaptchaVerificationResponse(io.NopCloser(strings.NewReader(strings.Repeat("a", captchaVerificationMaxResponseBytes+1))))
+	if err == nil {
+		t.Fatal("expected oversize CAPTCHA response to be rejected")
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("oversize response rejected with unexpected error: %v", err)
+	}
+}
+
 func TestCaptchaVerificationHTTPClient_HasTransportTimeouts(t *testing.T) {
 	client := newCaptchaVerificationHTTPClient(7 * time.Second)
 	if client.Timeout != 7*time.Second {
@@ -67,6 +80,25 @@ func TestCaptchaVerificationHTTPClient_HasTransportTimeouts(t *testing.T) {
 	}
 	if client.CheckRedirect == nil {
 		t.Fatal("expected CheckRedirect to be configured")
+	}
+}
+
+func TestCaptchaVerificationHTTPClient_RejectsPrivateDialTargets(t *testing.T) {
+	client := newCaptchaVerificationHTTPClient(7 * time.Second)
+	transport, ok := client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("transport type = %T, want *http.Transport", client.Transport)
+	}
+	if transport.DialContext == nil {
+		t.Fatal("expected DialContext to be configured")
+	}
+
+	_, err := transport.DialContext(context.Background(), "tcp", "127.0.0.1:443")
+	if err == nil {
+		t.Fatal("expected private CAPTCHA dial target to be rejected")
+	}
+	if !strings.Contains(err.Error(), "CAPTCHA SSRF dial") {
+		t.Fatalf("private dial rejected with unexpected error: %v", err)
 	}
 }
 

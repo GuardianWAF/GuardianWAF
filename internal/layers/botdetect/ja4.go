@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -233,7 +234,7 @@ func ComputeJA4(params JA4Params) JA4Fingerprint {
 // padInt pads an integer to 2 digits.
 func padInt(n int) string {
 	if n < 10 {
-		return "0" + string(rune('0'+n))
+		return "0" + strconv.Itoa(n)
 	}
-	return string(rune('0'+n/10)) + string(rune('0'+n%10))
+	return strconv.Itoa(n)
 }

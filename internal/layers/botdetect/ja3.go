@@ -1,6 +1,8 @@
 package botdetect
 
 import (
+	// #nosec G501 -- JA3 fingerprints are defined as MD5 digests of the JA3 string;
+	// this is protocol fingerprinting, not cryptographic integrity or authentication.
 	"crypto/md5"
 	"encoding/hex"
 	"strconv"
@@ -30,6 +32,7 @@ func ComputeJA3(tlsVersion uint16, cipherSuites, extensions, curves []uint16, po
 	joinUint8(&b, points)
 
 	raw := b.String()
+	// #nosec G401 -- JA3 interoperability requires MD5 over the canonical JA3 string.
 	hash := md5.Sum([]byte(raw))
 
 	return JA3Fingerprint{
