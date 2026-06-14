@@ -437,6 +437,38 @@ jobs:
         gosec -include=G204 -severity=medium -confidence=medium ./internal/docker
         gosec -no-fail ./...
 
+  # Hosted-CI release-evidence artifact. Mirrors the release.yml
+  # pipeline at a smaller scope (no cosign/SBOM upload) so a release
+  # candidate can be triaged from a CI run before a tag is pushed.
+  # The artifact is downloaded during the goreleaser job of release.yml
+  # and merged into the final release evidence bundle.
+  release-evidence:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check build prerequisites
+        run: ./scripts/check-prereqs.sh
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Build GuardianWAF binary
+        run: go build -o guardianwaf ./cmd/guardianwaf
+
+      - name: Collect hosted-CI release evidence
+        run: RELEASE_EVIDENCE_DIR=dist/release-evidence/ci ./scripts/release-evidence.sh ci
+
+      - name: Upload release-evidence-ci artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-evidence-ci
+          path: dist/release-evidence/ci/
+          retention-days: 14
+
   trufflehog:
     runs-on: ubuntu-latest
     steps:
