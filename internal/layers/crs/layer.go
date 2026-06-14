@@ -87,20 +87,26 @@ func (l *Layer) LoadRules(path string) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
+	cleanPath, err := cleanCRSRulePath(path, false)
+	if err != nil {
+		return err
+	}
+
 	// Check if path is a file or directory
-	info, err := os.Stat(path)
+	info, err := os.Stat(cleanPath)
 	if err != nil {
 		return fmt.Errorf("accessing rule path: %w", err)
 	}
 
 	if info.IsDir() {
 		// Resolve the root path to detect symlink escapes
-		rootAbs, absErr := filepath.Abs(path)
+		rootAbs, absErr := filepath.Abs(cleanPath)
 		if absErr != nil {
 			return fmt.Errorf("resolving rule path: %w", absErr)
 		}
+		rootAbs = filepath.Clean(rootAbs)
 		// Load all .conf files from directory, skipping symlinks
-		err = filepath.WalkDir(path, func(p string, d os.DirEntry, err error) error {
+		err = filepath.WalkDir(cleanPath, func(p string, d os.DirEntry, err error) error {
 			if err != nil {
 				return err
 			}
@@ -110,7 +116,11 @@ func (l *Layer) LoadRules(path string) error {
 			}
 			// Verify path stays within root directory
 			pAbs, absErr := filepath.Abs(p)
-			if absErr != nil || !strings.HasPrefix(pAbs, rootAbs) {
+			if absErr != nil {
+				return nil
+			}
+			rel, relErr := filepath.Rel(rootAbs, filepath.Clean(pAbs))
+			if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
 				return nil
 			}
 			if !d.IsDir() && strings.HasSuffix(p, ".conf") {
@@ -123,7 +133,7 @@ func (l *Layer) LoadRules(path string) error {
 		})
 	} else {
 		// Single file
-		err = l.loadRuleFile(path)
+		err = l.loadRuleFile(cleanPath)
 	}
 
 	if err != nil {
@@ -138,7 +148,11 @@ func (l *Layer) LoadRules(path string) error {
 
 // loadRuleFile loads rules from a single file.
 func (l *Layer) loadRuleFile(path string) error {
-	content, err := os.ReadFile(path)
+	cleanPath, err := cleanCRSRulePath(path, false)
+	if err != nil {
+		return err
+	}
+	content, err := os.ReadFile(cleanPath) // #nosec G304 -- rule files are operator-selected CRS inputs, rejected on NUL and cleaned before use.
 	if err != nil {
 		return err
 	}
@@ -163,6 +177,19 @@ func (l *Layer) loadRuleFile(path string) error {
 	}
 
 	return nil
+}
+
+func cleanCRSRulePath(path string, allowEmpty bool) (string, error) {
+	if strings.ContainsRune(path, 0) {
+		return "", fmt.Errorf("CRS rule path contains NUL byte")
+	}
+	if path == "" {
+		if allowEmpty {
+			return "", nil
+		}
+		return "", fmt.Errorf("CRS rule path must not be empty")
+	}
+	return filepath.Clean(path), nil
 }
 
 // buildRuleMaps builds lookup maps for rules.

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
@@ -117,6 +118,70 @@ func TestLoadRules_PathEscape(t *testing.T) {
 
 	if layer.GetRule("800001") == nil {
 		t.Error("Expected rule 800001 from subdirectory")
+	}
+}
+
+func TestCleanCRSRulePath(t *testing.T) {
+	t.Parallel()
+
+	got, err := cleanCRSRulePath(filepath.Join("rules", "..", "crs.conf"), false)
+	if err != nil {
+		t.Fatalf("cleanCRSRulePath: %v", err)
+	}
+	if got != "crs.conf" {
+		t.Fatalf("cleanCRSRulePath() = %q, want %q", got, "crs.conf")
+	}
+	if got, err := cleanCRSRulePath("", true); err != nil || got != "" {
+		t.Fatalf("cleanCRSRulePath empty allowed = %q, %v", got, err)
+	}
+	for _, path := range []string{"", "rules\x00.conf"} {
+		if _, err := cleanCRSRulePath(path, false); err == nil {
+			t.Fatalf("expected error for %q", path)
+		}
+	}
+}
+
+func TestLoadRules_RejectsNULPath(t *testing.T) {
+	t.Parallel()
+
+	layer := NewLayer(&Config{Enabled: true})
+	if err := layer.LoadRules("rules\x00.conf"); err == nil {
+		t.Fatal("expected invalid rule path error")
+	}
+}
+
+func TestLoadRules_CleansRulePath(t *testing.T) {
+	dir := t.TempDir()
+	rulesDir := filepath.Join(dir, "rules")
+	if err := os.MkdirAll(rulesDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ruleFile := filepath.Join(rulesDir, "clean.conf")
+	if err := os.WriteFile(ruleFile, []byte(`SecRule REQUEST_METHOD "@rx ^GET$" "id:810001,phase:1,pass"`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	layer := NewLayer(&Config{Enabled: true, ParanoiaLevel: 1})
+	if err := layer.LoadRules(filepath.Join(rulesDir, "..", "rules")); err != nil {
+		t.Fatalf("LoadRules: %v", err)
+	}
+	if layer.GetRule("810001") == nil {
+		t.Fatal("expected cleaned path to load rule")
+	}
+}
+
+func TestNewLayer_InvalidRulePathRecordsLoadError(t *testing.T) {
+	t.Parallel()
+
+	layer := NewLayer(&Config{Enabled: true, RulePath: "rules\x00.conf"})
+	if layer == nil {
+		t.Fatal("expected layer")
+	}
+	if layer.LoadError() == nil {
+		t.Fatal("expected load error")
+	}
+	if !strings.Contains(layer.LoadError().Error(), "NUL") {
+		t.Fatalf("expected NUL error, got %v", layer.LoadError())
 	}
 }
 
@@ -293,8 +358,8 @@ func TestLayer_EvaluateRule_SetVarAddAnomalyScore(t *testing.T) {
 	tx.evaluator = NewOperatorEvaluator()
 
 	rule := &Rule{
-		Phase:    1,
-		Severity: "WARNING",
+		Phase:     1,
+		Severity:  "WARNING",
 		Variables: []RuleVariable{{Name: "REQUEST_URI"}},
 		Operator:  RuleOperator{Type: "@rx", Argument: ".*"},
 		Actions: RuleActions{
@@ -366,7 +431,7 @@ func TestLayer_EvaluateRule_MultipleVarsFirstExcluded(t *testing.T) {
 		Severity: "WARNING",
 		Variables: []RuleVariable{
 			{Name: "REQUEST_METHOD", Exclude: true}, // Excluded
-			{Name: "REQUEST_URI"},                    // Should match
+			{Name: "REQUEST_URI"},                   // Should match
 		},
 		Operator: RuleOperator{Type: "@rx", Argument: "match"},
 		Actions:  RuleActions{Severity: "WARNING"},
@@ -397,8 +462,8 @@ func TestLayer_EvaluateRule_ChainWithVariables(t *testing.T) {
 
 	// Chain: Method=POST AND Content-Type contains json
 	rule := &Rule{
-		Phase:    1,
-		Severity: "ERROR",
+		Phase:     1,
+		Severity:  "ERROR",
 		Variables: []RuleVariable{{Name: "REQUEST_METHOD"}},
 		Operator:  RuleOperator{Type: "@eq", Argument: "POST"},
 		Actions:   RuleActions{Severity: "ERROR"},
@@ -434,8 +499,8 @@ func TestLayer_EvaluateRule_OperatorError(t *testing.T) {
 
 	// Rule with invalid regex - should skip the value but not crash
 	rule := &Rule{
-		Phase:    1,
-		Severity: "CRITICAL",
+		Phase:     1,
+		Severity:  "CRITICAL",
 		Variables: []RuleVariable{{Name: "REQUEST_URI"}},
 		Operator:  RuleOperator{Type: "@rx", Argument: "(?P<invalid"},
 		Actions:   RuleActions{Severity: "CRITICAL"},
@@ -659,10 +724,10 @@ func TestLayer_EvaluateRule_FindingDetails(t *testing.T) {
 	tx.evaluator = NewOperatorEvaluator()
 
 	rule := &Rule{
-		ID:       "test-finding",
-		Phase:    1,
-		Msg:      "Dangerous method",
-		Severity: "CRITICAL",
+		ID:        "test-finding",
+		Phase:     1,
+		Msg:       "Dangerous method",
+		Severity:  "CRITICAL",
 		Variables: []RuleVariable{{Name: "REQUEST_METHOD"}},
 		Operator:  RuleOperator{Type: "@eq", Argument: "DELETE"},
 		Actions:   RuleActions{Severity: "CRITICAL"},
@@ -704,19 +769,19 @@ func TestLayer_Process_MultipleFindingsAccumulated(t *testing.T) {
 	})
 	layer.rules = []*Rule{
 		{
-			ID:       "phase1-rule",
-			Phase:    1,
-			Msg:      "Phase 1 hit",
-			Severity: "NOTICE",
+			ID:        "phase1-rule",
+			Phase:     1,
+			Msg:       "Phase 1 hit",
+			Severity:  "NOTICE",
 			Variables: []RuleVariable{{Name: "REQUEST_METHOD"}},
 			Operator:  RuleOperator{Type: "@eq", Argument: "POST"},
 			Actions:   RuleActions{Action: "pass", Severity: "NOTICE"},
 		},
 		{
-			ID:       "phase2-rule",
-			Phase:    2,
-			Msg:      "Phase 2 hit",
-			Severity: "WARNING",
+			ID:        "phase2-rule",
+			Phase:     2,
+			Msg:       "Phase 2 hit",
+			Severity:  "WARNING",
 			Variables: []RuleVariable{{Name: "REQUEST_BODY"}},
 			Operator:  RuleOperator{Type: "@rx", Argument: ".*"},
 			Actions:   RuleActions{Action: "pass", Severity: "WARNING"},
@@ -776,10 +841,10 @@ func TestLayer_Process_Phase1OnlyFindings(t *testing.T) {
 	})
 	layer.rules = []*Rule{
 		{
-			ID:       "p1-only",
-			Phase:    1,
-			Msg:      "Phase 1 only",
-			Severity: "NOTICE",
+			ID:        "p1-only",
+			Phase:     1,
+			Msg:       "Phase 1 only",
+			Severity:  "NOTICE",
 			Variables: []RuleVariable{{Name: "REQUEST_URI"}},
 			Operator:  RuleOperator{Type: "@rx", Argument: "/test"},
 			Actions:   RuleActions{Action: "pass", Severity: "NOTICE"},
@@ -833,9 +898,9 @@ func TestLayer_Process_WithQueryStringInURL(t *testing.T) {
 	})
 	layer.rules = []*Rule{
 		{
-			ID:       "qs-check",
-			Phase:    1,
-			Severity: "WARNING",
+			ID:        "qs-check",
+			Phase:     1,
+			Severity:  "WARNING",
 			Variables: []RuleVariable{{Name: "QUERY_STRING"}},
 			Operator:  RuleOperator{Type: "@rx", Argument: "admin"},
 			Actions:   RuleActions{Action: "pass", Severity: "WARNING"},
@@ -856,4 +921,3 @@ func TestLayer_Process_WithQueryStringInURL(t *testing.T) {
 		t.Error("Expected match on query string 'admin'")
 	}
 }
-

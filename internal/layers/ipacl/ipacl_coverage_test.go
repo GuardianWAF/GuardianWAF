@@ -1,9 +1,11 @@
 package ipacl
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -61,6 +63,94 @@ func TestSaveBans_WithActiveBans(t *testing.T) {
 	}
 }
 
+func TestSaveBans_CreatesNestedPersistDirectory(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nested", "bans.json")
+
+	cfg := Config{Enabled: true, AutoBan: AutoBanConfig{Enabled: true}}
+	layer, err := NewLayer(&cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	layer.AddAutoBan("1.2.3.4", "attack", time.Hour)
+	layer.SaveBans(path)
+
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("expected nested persist file: %v", err)
+	}
+}
+
+func TestCleanAutoBanPersistPath(t *testing.T) {
+	t.Parallel()
+
+	got, err := cleanAutoBanPersistPath(filepath.Join("state", "..", "bans.json"), false)
+	if err != nil {
+		t.Fatalf("cleanAutoBanPersistPath: %v", err)
+	}
+	if got != "bans.json" {
+		t.Fatalf("cleanAutoBanPersistPath() = %q, want %q", got, "bans.json")
+	}
+	if got, err := cleanAutoBanPersistPath("", true); err != nil || got != "" {
+		t.Fatalf("cleanAutoBanPersistPath empty allowed = %q, %v", got, err)
+	}
+	for _, path := range []string{"", "bans\x00.json"} {
+		if _, err := cleanAutoBanPersistPath(path, false); err == nil {
+			t.Fatalf("expected error for %q", path)
+		}
+	}
+}
+
+func TestNewLayerRejectsInvalidPersistPath(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		Enabled: true,
+		AutoBan: AutoBanConfig{
+			Enabled:     true,
+			PersistPath: "bans\x00.json",
+		},
+	}
+	if _, err := NewLayer(&cfg); err == nil {
+		t.Fatal("expected invalid persist path error")
+	}
+}
+
+func TestNewLayerStoresCleanPersistPath(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	cfg := Config{
+		Enabled: true,
+		AutoBan: AutoBanConfig{
+			Enabled:     true,
+			PersistPath: filepath.Join(dir, "state", "..", "bans.json"),
+		},
+	}
+	layer, err := NewLayer(&cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer layer.Stop()
+	if strings.Contains(layer.config.AutoBan.PersistPath, "..") {
+		t.Fatalf("persist path was not cleaned: %q", layer.config.AutoBan.PersistPath)
+	}
+}
+
+func TestLoadBansRejectsInvalidPath(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{Enabled: true, AutoBan: AutoBanConfig{Enabled: true}}
+	layer, err := NewLayer(&cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	layer.LoadBans("bans\x00.json")
+	if got := len(layer.ActiveBans()); got != 0 {
+		t.Fatalf("expected no bans from invalid path, got %d", got)
+	}
+}
+
 func TestLoadBans_ValidFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "bans.json")
@@ -104,7 +194,7 @@ func TestLoadBans_ExpiredBansSkipped(t *testing.T) {
 
 	// Write bans with some already expired
 	bans := []BanEntry{
-		{IP: "10.0.0.1", Reason: "old", ExpiresAt: time.Now().Add(-1 * time.Hour), Count: 1}, // expired
+		{IP: "10.0.0.1", Reason: "old", ExpiresAt: time.Now().Add(-1 * time.Hour), Count: 1},  // expired
 		{IP: "10.0.0.2", Reason: "fresh", ExpiresAt: time.Now().Add(1 * time.Hour), Count: 1}, // valid
 	}
 	data, _ := json.Marshal(bans)
@@ -202,6 +292,70 @@ func TestStop_WithPersist(t *testing.T) {
 	}
 	if len(bans) != 1 || bans[0].IP != "9.9.9.9" {
 		t.Errorf("expected 1 ban with IP 9.9.9.9, got %v", bans)
+	}
+}
+
+func TestStopWithContext_WithPersist(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bans.json")
+
+	cfg := Config{
+		Enabled: true,
+		AutoBan: AutoBanConfig{
+			Enabled:         true,
+			PersistPath:     path,
+			PersistInterval: time.Hour,
+		},
+	}
+	layer, err := NewLayer(&cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	layer.AddAutoBan("9.9.9.10", "persist test", time.Hour)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := layer.StopWithContext(ctx); err != nil {
+		t.Fatalf("StopWithContext: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("expected bans file after StopWithContext: %v", err)
+	}
+	var bans []BanEntry
+	if err := json.Unmarshal(data, &bans); err != nil {
+		t.Fatalf("failed to parse bans: %v", err)
+	}
+	if len(bans) != 1 || bans[0].IP != "9.9.9.10" {
+		t.Errorf("expected 1 ban with IP 9.9.9.10, got %v", bans)
+	}
+}
+
+func TestStopWithContext_HonorsDeadline(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bans.json")
+
+	cfg := Config{
+		Enabled: true,
+		AutoBan: AutoBanConfig{
+			Enabled:         true,
+			PersistPath:     path,
+			PersistInterval: time.Hour,
+		},
+	}
+	layer, err := NewLayer(&cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	layer.wg.Add(1)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+	defer cancel()
+	err = layer.StopWithContext(ctx)
+	layer.wg.Done()
+	if err == nil {
+		t.Fatal("expected deadline error")
 	}
 }
 

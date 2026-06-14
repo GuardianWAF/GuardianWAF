@@ -1,8 +1,12 @@
 package ipacl
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -41,26 +45,32 @@ type Layer struct {
 	autoBan   map[string]*autoBanEntry // IP string -> entry
 	mu        sync.RWMutex             // protects autoBan
 	stopCh    chan struct{}            // signals persistence goroutine to stop
+	stopOnce  sync.Once
+	wg        sync.WaitGroup
 }
 
 // NewLayer creates a new IP ACL layer from the given config.
 func NewLayer(cfg *Config) (*Layer, error) {
+	cfgCopy := *cfg
+	if cfgCopy.AutoBan.PersistPath != "" {
+		persistPath, err := cleanAutoBanPersistPath(cfgCopy.AutoBan.PersistPath, false)
+		if err != nil {
+			return nil, err
+		}
+		cfgCopy.AutoBan.PersistPath = persistPath
+	}
 	l := &Layer{
-		config:    *cfg,
+		config:    cfgCopy,
 		whitelist: NewRadixTree(),
 		blacklist: NewRadixTree(),
 		autoBan:   make(map[string]*autoBanEntry),
 		stopCh:    make(chan struct{}),
 	}
 
-	// Load persisted bans and start periodic save if configured
-	if cfg.AutoBan.PersistPath != "" {
-		l.LoadBans(cfg.AutoBan.PersistPath)
-		interval := cfg.AutoBan.PersistInterval
-		if interval == 0 {
-			interval = 30 * time.Second
-		}
-		go l.persistLoop(interval)
+	// Load persisted bans. Start periodic save after static CIDRs validate so a
+	// failed constructor cannot leave a persistence goroutine running.
+	if cfgCopy.AutoBan.PersistPath != "" {
+		l.LoadBans(cfgCopy.AutoBan.PersistPath)
 	}
 
 	for _, cidr := range cfg.Whitelist {
@@ -73,6 +83,15 @@ func NewLayer(cfg *Config) (*Layer, error) {
 		if err := l.blacklist.Insert(cidr, true); err != nil {
 			return nil, err
 		}
+	}
+
+	if cfgCopy.AutoBan.PersistPath != "" {
+		interval := cfgCopy.AutoBan.PersistInterval
+		if interval == 0 {
+			interval = 30 * time.Second
+		}
+		l.wg.Add(1)
+		go l.persistLoop(interval)
 	}
 
 	return l, nil
@@ -263,20 +282,45 @@ func (l *Layer) isAutoBanned(ip string) bool {
 	return time.Now().Before(entry.ExpiresAt)
 }
 
-
 // Stop signals the persistence goroutine to stop and flushes bans to disk.
 func (l *Layer) Stop() {
-	if l.config.AutoBan.PersistPath != "" {
-		select {
-		case l.stopCh <- struct{}{}:
-		default:
-		}
-		l.SaveBans(l.config.AutoBan.PersistPath)
+	_ = l.StopWithContext(context.Background())
+}
+
+// StopWithContext signals the persistence goroutine to stop and waits for it
+// within ctx before flushing active bans to disk.
+func (l *Layer) StopWithContext(ctx context.Context) error {
+	if l.config.AutoBan.PersistPath == "" {
+		return nil
+	}
+
+	l.stopOnce.Do(func() {
+		close(l.stopCh)
+	})
+
+	err := waitForPersistenceLoop(ctx, &l.wg)
+	l.SaveBans(l.config.AutoBan.PersistPath)
+	return err
+}
+
+func waitForPersistenceLoop(ctx context.Context, wg *sync.WaitGroup) error {
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
 // persistLoop periodically saves bans to disk.
 func (l *Layer) persistLoop(interval time.Duration) {
+	defer l.wg.Done()
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -291,22 +335,35 @@ func (l *Layer) persistLoop(interval time.Duration) {
 
 // SaveBans writes active (non-expired) bans to a JSON file.
 func (l *Layer) SaveBans(path string) {
+	cleanPath, err := cleanAutoBanPersistPath(path, false)
+	if err != nil {
+		return
+	}
 	bans := l.ActiveBans()
 	if len(bans) == 0 {
-		os.Remove(path)
+		os.Remove(cleanPath)
 		return
 	}
 	data, err := json.Marshal(bans)
 	if err != nil {
 		return
 	}
-	os.WriteFile(path, data, 0600)
+	if dir := filepath.Dir(cleanPath); dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return
+		}
+	}
+	os.WriteFile(cleanPath, data, 0600)
 }
 
 // LoadBans loads persisted bans from a JSON file.
 // Expired bans are skipped automatically.
 func (l *Layer) LoadBans(path string) {
-	data, err := os.ReadFile(path)
+	cleanPath, err := cleanAutoBanPersistPath(path, false)
+	if err != nil {
+		return
+	}
+	data, err := os.ReadFile(cleanPath) // #nosec G304 -- path is operator-configured auto-ban state, rejected on NUL and cleaned before use.
 	if err != nil {
 		return
 	}
@@ -327,4 +384,17 @@ func (l *Layer) LoadBans(path string) {
 			Count:     b.Count,
 		}
 	}
+}
+
+func cleanAutoBanPersistPath(path string, allowEmpty bool) (string, error) {
+	if strings.ContainsRune(path, 0) {
+		return "", fmt.Errorf("auto-ban persist path contains NUL byte")
+	}
+	if path == "" {
+		if allowEmpty {
+			return "", nil
+		}
+		return "", fmt.Errorf("auto-ban persist path must not be empty")
+	}
+	return filepath.Clean(path), nil
 }
