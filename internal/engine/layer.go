@@ -77,35 +77,35 @@ type Detector interface {
 
 // LayerOrder constants define execution order in the pipeline
 const (
-	OrderSIEM        = 1  // SIEM event forwarding (passive, first)
-	OrderCluster     = 75
-	OrderWebSocket   = 76
-	OrderGRPC        = 78
-	OrderZeroTrust   = 85  // Zero Trust identity verification (mTLS/device attestation)
-	OrderIPACL       = 100
-	OrderThreatIntel = 125
-	OrderCORS        = 150
-	OrderRules       = 150
-	OrderCanary      = 95
-	OrderCache       = 140 // Caching layer (memory/Redis)
-	OrderReplay      = 145
-	OrderRateLimit   = 200
-	OrderATO         = 250
-	OrderAPISecurity = 275
+	OrderSIEM          = 1 // SIEM event forwarding (passive, first)
+	OrderCluster       = 75
+	OrderWebSocket     = 76
+	OrderGRPC          = 78
+	OrderZeroTrust     = 85 // Zero Trust identity verification (mTLS/device attestation)
+	OrderIPACL         = 100
+	OrderThreatIntel   = 125
+	OrderCORS          = 150
+	OrderRules         = 150
+	OrderCanary        = 95
+	OrderCache         = 140 // Caching layer (memory/Redis)
+	OrderReplay        = 145
+	OrderRateLimit     = 200
+	OrderATO           = 250
+	OrderAPISecurity   = 275
 	OrderAPIValidation = 280
-	OrderGraphQL      = 285 // GraphQL query depth/complexity/introspection limits
-	OrderSanitizer   = 300
-	OrderDiscovery   = 310 // Passive API discovery (OpenAPI generation)
-	OrderCRS         = 350 // OWASP CRS after sanitization
-	OrderDetection   = 400
-	OrderVirtualPatch = 450 // Virtual patches after detection
-	OrderChallenge    = 430 // JS proof-of-work challenge (bot mitigation)
-	OrderAnomaly      = 473 // ML anomaly detection (ONNX) before DLP
-	OrderRemediation  = 480 // AI remediation layer (generated rules) after anomaly
-	OrderDLP          = 475 // DLP before bot detection
-	OrderBotDetect   = 500
-	OrderClientSide  = 590 // Client-side protection before response
-	OrderResponse    = 600
+	OrderGraphQL       = 285 // GraphQL query depth/complexity/introspection limits
+	OrderSanitizer     = 300
+	OrderDiscovery     = 310 // Passive API discovery (OpenAPI generation)
+	OrderCRS           = 350 // OWASP CRS after sanitization
+	OrderDetection     = 400
+	OrderVirtualPatch  = 450 // Virtual patches after detection
+	OrderChallenge     = 430 // JS proof-of-work challenge (bot mitigation)
+	OrderAnomaly       = 473 // ML anomaly detection (ONNX) before DLP
+	OrderRemediation   = 480 // AI remediation layer (generated rules) after anomaly
+	OrderDLP           = 475 // DLP before bot detection
+	OrderBotDetect     = 500
+	OrderClientSide    = 590 // Client-side protection before response
+	OrderResponse      = 600
 )
 
 // OrderedLayer wraps a Layer with its execution order

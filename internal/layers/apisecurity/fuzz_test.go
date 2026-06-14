@@ -22,7 +22,7 @@ func FuzzJWTValidatorConfig(f *testing.F) {
 			Enabled:          enabled,
 			Issuer:           issuer,
 			Audience:         audience,
-			Algorithms:      algs,
+			Algorithms:       algs,
 			ClockSkewSeconds: clockSkew,
 		}
 
@@ -69,7 +69,7 @@ func FuzzJWTValidateEmptyConfig(f *testing.F) {
 			Enabled:          enabled,
 			Issuer:           issuer,
 			Audience:         audience,
-			Algorithms:      algs,
+			Algorithms:       algs,
 			ClockSkewSeconds: clockSkew,
 		}
 

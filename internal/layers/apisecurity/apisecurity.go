@@ -72,7 +72,7 @@ func NewLayer(cfg *Config) (*Layer, error) {
 
 // Name returns the layer name.
 func (l *Layer) Name() string { return "api_security" }
-func (l *Layer) Order() int { return engine.OrderAPISecurity }
+func (l *Layer) Order() int   { return engine.OrderAPISecurity }
 
 // Process validates API authentication.
 func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {

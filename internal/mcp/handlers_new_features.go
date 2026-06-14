@@ -138,16 +138,16 @@ func (s *Server) handleEnableVirtualPatch(params json.RawMessage) (any, error) {
 }
 
 type customPatchParam struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Description  string `json:"description"`
-	CVEID        string `json:"cve_id"`
-	Pattern      string `json:"pattern"`
-	PatternType  string `json:"pattern_type"`
-	Target       string `json:"target"`
-	Action       string `json:"action"`
-	Severity     string `json:"severity"`
-	Score        int    `json:"score"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	CVEID       string `json:"cve_id"`
+	Pattern     string `json:"pattern"`
+	PatternType string `json:"pattern_type"`
+	Target      string `json:"target"`
+	Action      string `json:"action"`
+	Severity    string `json:"severity"`
+	Score       int    `json:"score"`
 }
 
 func (s *Server) handleAddCustomPatch(params json.RawMessage) (any, error) {
@@ -213,10 +213,10 @@ func (s *Server) handleRemoveAPISchema(params json.RawMessage) (any, error) {
 }
 
 type apiValidationModeParam struct {
-	ValidateRequest   *bool `json:"validate_request"`
-	ValidateResponse  *bool `json:"validate_response"`
-	StrictMode        *bool `json:"strict_mode"`
-	BlockOnViolation  *bool `json:"block_on_violation"`
+	ValidateRequest  *bool `json:"validate_request"`
+	ValidateResponse *bool `json:"validate_response"`
+	StrictMode       *bool `json:"strict_mode"`
+	BlockOnViolation *bool `json:"block_on_violation"`
 }
 
 func (s *Server) handleSetAPIValidationMode(params json.RawMessage) (any, error) {

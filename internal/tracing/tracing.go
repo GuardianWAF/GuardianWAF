@@ -203,8 +203,8 @@ type NoopExporter struct{}
 // NewNoopExporter creates an exporter that discards spans.
 func NewNoopExporter() *NoopExporter { return &NoopExporter{} }
 
-func (n *NoopExporter) Export(_ *Span)      {}
-func (n *NoopExporter) Shutdown()            {}
+func (n *NoopExporter) Export(_ *Span) {}
+func (n *NoopExporter) Shutdown()      {}
 
 // StdoutExporter prints spans as JSON lines to stdout (for debugging).
 type StdoutExporter struct {
@@ -243,10 +243,10 @@ func (s *StdoutExporter) Shutdown() {
 
 // SpanAttribute constants following OpenTelemetry semantic conventions.
 const (
-	AttrHTTPMethod   = "http.method"
-	AttrHTTPURL      = "http.url"
-	AttrHTTPHost     = "http.host"
-	AttrHTTPCode     = "http.status_code"
+	AttrHTTPMethod    = "http.method"
+	AttrHTTPURL       = "http.url"
+	AttrHTTPHost      = "http.host"
+	AttrHTTPCode      = "http.status_code"
 	AttrHTTPUserAgent = "http.user_agent"
 
 	AttrClientIP     = "client.ip"

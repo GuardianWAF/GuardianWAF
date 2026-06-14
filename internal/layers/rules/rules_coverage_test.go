@@ -123,7 +123,7 @@ func TestCoverage_IsRegexSafe(t *testing.T) {
 	}{
 		{"simple", `^/api/v[0-9]+$`, false},
 		{"deep nesting", "(((((((a)))))))", true}, // 7 levels > 6
-		{"at limit", "((((((a))))))", false},    // 6 levels (this is exactly 6)
+		{"at limit", "((((((a))))))", false},      // 6 levels (this is exactly 6)
 		{"too long", strings.Repeat("a", 2001), true},
 		{"at length limit", strings.Repeat("a", 2000), false},
 		{"balanced parens", "(a)(b)(c)", false},

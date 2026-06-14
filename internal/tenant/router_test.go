@@ -42,7 +42,7 @@ func TestPathPrefixRouter_StripPrefix(t *testing.T) {
 		{"/tenant/abc123/", "/"},
 		{"/tenant/abc123", "/"},
 		{"/api/users", "/api/users"}, // no prefix, no strip
-		{"/tenant/", "/"},           // empty tenant id
+		{"/tenant/", "/"},            // empty tenant id
 	}
 
 	for _, tt := range tests {

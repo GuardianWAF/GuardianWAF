@@ -46,9 +46,9 @@ func TestDetectBotName(t *testing.T) {
 
 func TestDetectBrowser(t *testing.T) {
 	tests := []struct {
-		ua       string
-		browser  string
-		hasVer   bool
+		ua      string
+		browser string
+		hasVer  bool
 	}{
 		{"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0", "Edge", true},
 		{"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 OPR/106.0.0.0", "Opera", true},

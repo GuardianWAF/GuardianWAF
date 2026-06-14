@@ -11,22 +11,22 @@ import (
 
 // Data represents browser fingerprint data.
 type Data struct {
-	Canvas     string `json:"canvas,omitempty"`
-	WebGL      string `json:"webgl,omitempty"`
-	Fonts      []string `json:"fonts,omitempty"`
-	Plugins    []string `json:"plugins,omitempty"`
-	Screen     ScreenInfo `json:"screen"`
-	Timezone   string `json:"timezone"`
-	Language   string `json:"language"`
-	Platform   string `json:"platform"`
-	UserAgent  string `json:"ua"`
+	Canvas    string     `json:"canvas,omitempty"`
+	WebGL     string     `json:"webgl,omitempty"`
+	Fonts     []string   `json:"fonts,omitempty"`
+	Plugins   []string   `json:"plugins,omitempty"`
+	Screen    ScreenInfo `json:"screen"`
+	Timezone  string     `json:"timezone"`
+	Language  string     `json:"language"`
+	Platform  string     `json:"platform"`
+	UserAgent string     `json:"ua"`
 }
 
 // ScreenInfo represents screen information.
 type ScreenInfo struct {
-	Width      int `json:"width"`
-	Height     int `json:"height"`
-	ColorDepth int `json:"colorDepth"`
+	Width      int     `json:"width"`
+	Height     int     `json:"height"`
+	ColorDepth int     `json:"colorDepth"`
 	PixelRatio float64 `json:"pixelRatio"`
 }
 

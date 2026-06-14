@@ -11,16 +11,16 @@ import (
 type PatternType string
 
 const (
-	PatternCreditCard   PatternType = "credit_card"
-	PatternSSN          PatternType = "ssn"
-	PatternIBAN         PatternType = "iban"
-	PatternEmail        PatternType = "email"
-	PatternPhone        PatternType = "phone"
-	PatternAPIKey       PatternType = "api_key"
-	PatternPrivateKey   PatternType = "private_key"
-	PatternPassport     PatternType = "passport"
-	PatternTaxID        PatternType = "tax_id"
-	PatternCustom       PatternType = "custom"
+	PatternCreditCard PatternType = "credit_card"
+	PatternSSN        PatternType = "ssn"
+	PatternIBAN       PatternType = "iban"
+	PatternEmail      PatternType = "email"
+	PatternPhone      PatternType = "phone"
+	PatternAPIKey     PatternType = "api_key"
+	PatternPrivateKey PatternType = "private_key"
+	PatternPassport   PatternType = "passport"
+	PatternTaxID      PatternType = "tax_id"
+	PatternCustom     PatternType = "custom"
 )
 
 // Severity defines the risk level of detected patterns.

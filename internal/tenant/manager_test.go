@@ -256,7 +256,7 @@ func TestManager_ListTenants(t *testing.T) {
 	// Create multiple tenants
 	for i := 0; i < 3; i++ {
 		_, err := m.CreateTenant(
-			"Tenant " + string(rune('A'+i)),
+			"Tenant "+string(rune('A'+i)),
 			"Description",
 			[]string{string(rune('a'+i)) + ".example.com"},
 			nil,
@@ -278,7 +278,7 @@ func TestManager_Stats(t *testing.T) {
 	// Create tenants
 	for i := 0; i < 2; i++ {
 		_, err := m.CreateTenant(
-			"Tenant " + string(rune('A'+i)),
+			"Tenant "+string(rune('A'+i)),
 			"Description",
 			[]string{string(rune('a'+i)) + ".example.com"},
 			nil,

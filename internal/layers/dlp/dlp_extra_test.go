@@ -247,12 +247,12 @@ func TestLayer_Process_ConcurrentStress(t *testing.T) {
 
 func TestEngineLayer_Process_FileUploadViaHeaders(t *testing.T) {
 	el := NewEngineLayer(&Config{
-		Enabled:          true,
-		ScanRequest:      true,
-		BlockOnMatch:     true,
-		ScanFileUploads:  true,
-		MaxFileSize:      10 << 20,
-		Patterns:         []string{"credit_card"},
+		Enabled:         true,
+		ScanRequest:     true,
+		BlockOnMatch:    true,
+		ScanFileUploads: true,
+		MaxFileSize:     10 << 20,
+		Patterns:        []string{"credit_card"},
 	})
 
 	// Build multipart with credit card in a text file
@@ -281,12 +281,12 @@ func TestEngineLayer_Process_FileUploadViaHeaders(t *testing.T) {
 
 func TestEngineLayer_Process_FileUploadSafe(t *testing.T) {
 	el := NewEngineLayer(&Config{
-		Enabled:          true,
-		ScanRequest:      true,
-		BlockOnMatch:     false,
-		ScanFileUploads:  true,
-		MaxFileSize:      10 << 20,
-		Patterns:         []string{"credit_card"},
+		Enabled:         true,
+		ScanRequest:     true,
+		BlockOnMatch:    false,
+		ScanFileUploads: true,
+		MaxFileSize:     10 << 20,
+		Patterns:        []string{"credit_card"},
 	})
 
 	// Build multipart with safe content
@@ -315,11 +315,11 @@ func TestEngineLayer_Process_FileUploadSafe(t *testing.T) {
 
 func TestEngineLayer_Process_EmptyHeaders(t *testing.T) {
 	el := NewEngineLayer(&Config{
-		Enabled:          true,
-		ScanRequest:      true,
-		BlockOnMatch:     false,
-		ScanFileUploads:  true,
-		Patterns:         []string{"credit_card"},
+		Enabled:         true,
+		ScanRequest:     true,
+		BlockOnMatch:    false,
+		ScanFileUploads: true,
+		Patterns:        []string{"credit_card"},
 	})
 
 	ctx := &engine.RequestContext{
@@ -343,9 +343,9 @@ func TestEngineLayer_Process_EmptyHeaders(t *testing.T) {
 
 func TestEngineLayer_Process_ScanRequestFalse(t *testing.T) {
 	el := NewEngineLayer(&Config{
-		Enabled:      true,
-		ScanRequest:  false,
-		Patterns:     []string{"credit_card"},
+		Enabled:     true,
+		ScanRequest: false,
+		Patterns:    []string{"credit_card"},
 	})
 
 	ctx := &engine.RequestContext{

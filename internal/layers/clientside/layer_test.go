@@ -77,8 +77,8 @@ func TestLayer_Process_CSP(t *testing.T) {
 	layer := NewLayer(cfg)
 
 	ctx := &engine.RequestContext{
-		Method: "GET",
-		Path:   "/test",
+		Method:   "GET",
+		Path:     "/test",
 		Metadata: make(map[string]any),
 	}
 
@@ -364,12 +364,12 @@ func TestShouldInject(t *testing.T) {
 
 func TestCompilePatterns(t *testing.T) {
 	cfg := MagecartConfig{
-		Enabled:                true,
-		DetectObfuscatedJS:     true,
+		Enabled:                 true,
+		DetectObfuscatedJS:      true,
 		DetectSuspiciousDomains: true,
-		DetectKeyloggers:       true,
-		DetectFormExfiltration: true,
-		KnownSkimmingDomains:   []string{"evil.com"},
+		DetectKeyloggers:        true,
+		DetectFormExfiltration:  true,
+		KnownSkimmingDomains:    []string{"evil.com"},
 	}
 
 	patterns := CompilePatterns(&cfg)

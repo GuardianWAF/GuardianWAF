@@ -14,7 +14,7 @@ import (
 
 // regexCache caches compiled regex patterns to avoid recompilation per request.
 var (
-	regexCache     sync.Map    // string → *regexp.Regexp
+	regexCache     sync.Map     // string → *regexp.Regexp
 	regexCacheSize atomic.Int64 // track cache size for cap enforcement
 )
 

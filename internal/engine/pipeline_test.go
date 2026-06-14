@@ -12,7 +12,7 @@ import (
 type passLayer struct{ name string }
 
 func (l *passLayer) Name() string { return l.name }
-func (l *passLayer) Order() int { return 0 }
+func (l *passLayer) Order() int   { return 0 }
 func (l *passLayer) Process(ctx *RequestContext) LayerResult {
 	return LayerResult{Action: ActionPass}
 }
@@ -25,7 +25,7 @@ type scoreLayer struct {
 }
 
 func (l *scoreLayer) Name() string { return l.name }
-func (l *scoreLayer) Order() int { return 0 }
+func (l *scoreLayer) Order() int   { return 0 }
 func (l *scoreLayer) Process(ctx *RequestContext) LayerResult {
 	return LayerResult{
 		Action: ActionLog,
@@ -45,7 +45,7 @@ func (l *scoreLayer) Process(ctx *RequestContext) LayerResult {
 type blockLayer struct{ name string }
 
 func (l *blockLayer) Name() string { return l.name }
-func (l *blockLayer) Order() int { return 0 }
+func (l *blockLayer) Order() int   { return 0 }
 func (l *blockLayer) Process(ctx *RequestContext) LayerResult {
 	return LayerResult{
 		Action: ActionBlock,
@@ -66,7 +66,7 @@ type mockDetector struct {
 }
 
 func (d *mockDetector) Name() string         { return d.name }
-func (d *mockDetector) Order() int             { return 0 }
+func (d *mockDetector) Order() int           { return 0 }
 func (d *mockDetector) DetectorName() string { return d.detName }
 func (d *mockDetector) Patterns() []string   { return nil }
 func (d *mockDetector) Process(ctx *RequestContext) LayerResult {
@@ -480,7 +480,7 @@ func TestPipeline_ContextActionUpdated(t *testing.T) {
 type challengeMockLayer struct{ name string }
 
 func (l *challengeMockLayer) Name() string { return l.name }
-func (l *challengeMockLayer) Order() int { return 0 }
+func (l *challengeMockLayer) Order() int   { return 0 }
 func (l *challengeMockLayer) Process(ctx *RequestContext) LayerResult {
 	return LayerResult{Action: ActionChallenge}
 }

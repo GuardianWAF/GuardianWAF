@@ -67,7 +67,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		DetectorName: "js-challenge",
 		Category:     "bot",
 		Severity:     engine.SeverityMedium,
-		Score:         40,
+		Score:        40,
 		Description:  "No valid challenge cookie — browser must solve proof-of-work",
 	})
 

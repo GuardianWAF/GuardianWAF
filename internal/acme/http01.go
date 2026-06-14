@@ -22,7 +22,7 @@ type HTTP01Handler struct {
 }
 
 const (
-	acmeRateLimit  = 10  // max requests per window per IP
+	acmeRateLimit  = 10 // max requests per window per IP
 	acmeRateWindow = 60 * time.Second
 )
 

@@ -6,11 +6,11 @@ import (
 )
 
 func FuzzTokenBucket(f *testing.F) {
-	f.Add(10.0, 1.0)                  // normal tokens, refill rate
-	f.Add(0.0, 0.0)                   // zero tokens, zero refill
-	f.Add(100.0, 0.0)                 // burst with no refill
-	f.Add(1.0, 1000.0)                // fast refill
-	f.Add(0.0, 100.0)                 // zero initial, positive refill
+	f.Add(10.0, 1.0)   // normal tokens, refill rate
+	f.Add(0.0, 0.0)    // zero tokens, zero refill
+	f.Add(100.0, 0.0)  // burst with no refill
+	f.Add(1.0, 1000.0) // fast refill
+	f.Add(0.0, 100.0)  // zero initial, positive refill
 
 	f.Fuzz(func(t *testing.T, maxTokens, refillRate float64) {
 		// Reject negative inputs which cause invalid token states

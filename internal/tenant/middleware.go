@@ -68,9 +68,9 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		}
 		tenant.mu.RUnlock()
 		tenantCtx := &engine.TenantContext{
-			ID:            tenant.ID,
-			WAFConfig:     wafCfg,
-			VirtualHosts:  virtualHosts,
+			ID:           tenant.ID,
+			WAFConfig:    wafCfg,
+			VirtualHosts: virtualHosts,
 		}
 		ctx = engine.WithTenantContext(ctx, tenantCtx)
 
@@ -90,9 +90,9 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 // tenantResponseWriter wraps http.ResponseWriter to track tenant stats.
 type tenantResponseWriter struct {
 	http.ResponseWriter
-	tenant      *Tenant
-	manager     *Manager
-	wroteHeader bool
+	tenant       *Tenant
+	manager      *Manager
+	wroteHeader  bool
 	bytesWritten int64
 }
 
@@ -258,8 +258,8 @@ func (r *TenantAwareRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) 
 
 // TenantHeaderExtractor extracts tenant from custom headers.
 type TenantHeaderExtractor struct {
-	manager     *Manager
-	headerName  string
+	manager    *Manager
+	headerName string
 }
 
 // NewTenantHeaderExtractor creates a header-based extractor.

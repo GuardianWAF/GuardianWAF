@@ -48,7 +48,7 @@ func NewLayer(cfg *Config) *Layer {
 
 // Name returns "clientside".
 func (l *Layer) Name() string { return "clientside" }
-func (l *Layer) Order() int { return engine.OrderClientSide }
+func (l *Layer) Order() int   { return engine.OrderClientSide }
 
 // SetEnabled enables or disables the layer.
 func (l *Layer) SetEnabled(enabled bool) {

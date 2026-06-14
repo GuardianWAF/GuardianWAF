@@ -126,11 +126,11 @@ func TestClient_Analyze_MockServer(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient(ClientConfig{
-		BaseURL:   srv.URL,
+		BaseURL:              srv.URL,
 		AllowPrivateEndpoint: true,
-		APIKey:    "test-key",
-		Model:     "test-model",
-		MaxTokens: 1024,
+		APIKey:               "test-key",
+		Model:                "test-model",
+		MaxTokens:            1024,
 	})
 
 	ctx := context.Background()

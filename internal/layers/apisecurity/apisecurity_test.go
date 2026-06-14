@@ -88,8 +88,8 @@ func TestProcess_APIKey_Valid(t *testing.T) {
 	layer, _ := NewLayer(&cfg)
 
 	ctx := &engine.RequestContext{
-		Path:    "/api/users",
-		Headers: map[string][]string{"X-API-Key": {"test-secret-key"}},
+		Path:     "/api/users",
+		Headers:  map[string][]string{"X-API-Key": {"test-secret-key"}},
 		Metadata: make(map[string]any),
 	}
 
@@ -193,8 +193,8 @@ func TestProcess_JWT_HS256(t *testing.T) {
 	}
 
 	ctx := &engine.RequestContext{
-		Path:    "/api/test",
-		Headers: map[string][]string{"Authorization": {"Bearer " + token}},
+		Path:     "/api/test",
+		Headers:  map[string][]string{"Authorization": {"Bearer " + token}},
 		Metadata: make(map[string]any),
 	}
 
@@ -312,8 +312,8 @@ func BenchmarkProcess_APIKey(b *testing.B) {
 	layer, _ := NewLayer(&cfg)
 
 	ctx := &engine.RequestContext{
-		Path:    "/api/test",
-		Headers: map[string][]string{"X-API-Key": {"bench-secret"}},
+		Path:     "/api/test",
+		Headers:  map[string][]string{"X-API-Key": {"bench-secret"}},
 		Metadata: make(map[string]any),
 	}
 

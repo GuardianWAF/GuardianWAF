@@ -8,13 +8,13 @@ import (
 
 // Config holds client-side protection configuration.
 type Config struct {
-	Enabled           bool               `yaml:"enabled"`
-	Mode              string             `yaml:"mode"` // "monitor", "block", "inject"
-	MagecartDetection MagecartConfig     `yaml:"magecart_detection"`
-	AgentInjection    AgentConfig        `yaml:"agent_injection"`
-	CSP               CSPConfig          `yaml:"csp"`
-	JavaScriptPolicy  JavaScriptPolicy   `yaml:"javascript_policy"`
-	Exclusions        []string           `yaml:"exclusions"` // Paths to exclude
+	Enabled           bool             `yaml:"enabled"`
+	Mode              string           `yaml:"mode"` // "monitor", "block", "inject"
+	MagecartDetection MagecartConfig   `yaml:"magecart_detection"`
+	AgentInjection    AgentConfig      `yaml:"agent_injection"`
+	CSP               CSPConfig        `yaml:"csp"`
+	JavaScriptPolicy  JavaScriptPolicy `yaml:"javascript_policy"`
+	Exclusions        []string         `yaml:"exclusions"` // Paths to exclude
 }
 
 // DefaultConfig returns default client-side protection configuration.
@@ -23,47 +23,47 @@ func DefaultConfig() *Config {
 		Enabled: true,
 		Mode:    "monitor",
 		MagecartDetection: MagecartConfig{
-			Enabled:                true,
-			DetectObfuscatedJS:     true,
+			Enabled:                 true,
+			DetectObfuscatedJS:      true,
 			DetectSuspiciousDomains: true,
-			DetectFormExfiltration: true,
-			DetectKeyloggers:       true,
-			BlockScore:             50,
-			AlertScore:             25,
+			DetectFormExfiltration:  true,
+			DetectKeyloggers:        true,
+			BlockScore:              50,
+			AlertScore:              25,
 		},
 		AgentInjection: AgentConfig{
-			Enabled:       false,
-			ScriptURL:     "/_guardian/agent.js",
-			InjectInHTML:  true,
-			InjectInJS:    false,
-			MonitorDOM:    true,
+			Enabled:        false,
+			ScriptURL:      "/_guardian/agent.js",
+			InjectInHTML:   true,
+			InjectInJS:     false,
+			MonitorDOM:     true,
 			MonitorNetwork: true,
 		},
 		CSP: CSPConfig{
-			Enabled:             false,
-			ReportOnly:          true,
-			DefaultSrc:          []string{"'self'"},
-			ScriptSrc:           []string{"'self'"},
-			StyleSrc:            []string{"'self'", "'unsafe-inline'"},
-			ImgSrc:              []string{"'self'", "data:", "https:"},
-			ConnectSrc:          []string{"'self'"},
-			FontSrc:             []string{"'self'"},
-			ObjectSrc:           []string{"'none'"},
-			MediaSrc:            []string{"'self'"},
-			FrameSrc:            []string{"'self'"},
-			FrameAncestors:      []string{"'none'"},
-			FormAction:          []string{"'self'"},
-			BaseURI:             []string{"'self'"},
-			ReportURI:           "/_guardian/csp-report",
-			UpgradeInsecure:     true,
+			Enabled:         false,
+			ReportOnly:      true,
+			DefaultSrc:      []string{"'self'"},
+			ScriptSrc:       []string{"'self'"},
+			StyleSrc:        []string{"'self'", "'unsafe-inline'"},
+			ImgSrc:          []string{"'self'", "data:", "https:"},
+			ConnectSrc:      []string{"'self'"},
+			FontSrc:         []string{"'self'"},
+			ObjectSrc:       []string{"'none'"},
+			MediaSrc:        []string{"'self'"},
+			FrameSrc:        []string{"'self'"},
+			FrameAncestors:  []string{"'none'"},
+			FormAction:      []string{"'self'"},
+			BaseURI:         []string{"'self'"},
+			ReportURI:       "/_guardian/csp-report",
+			UpgradeInsecure: true,
 		},
 		JavaScriptPolicy: JavaScriptPolicy{
-			BlockInlineScripts:  false,
-			BlockEval:           false,
-			BlockNewFunction:    false,
-			BlockSetTimeoutString: false,
+			BlockInlineScripts:     false,
+			BlockEval:              false,
+			BlockNewFunction:       false,
+			BlockSetTimeoutString:  false,
 			BlockSetIntervalString: false,
-			BlockWebAssembly:    false,
+			BlockWebAssembly:       false,
 		},
 		Exclusions: []string{"/health", "/metrics"},
 	}
@@ -84,15 +84,15 @@ type MagecartConfig struct {
 
 // AgentConfig controls security agent injection.
 type AgentConfig struct {
-	Enabled         bool     `yaml:"enabled"`
-	ScriptURL       string   `yaml:"script_url"`
-	InjectInHTML    bool     `yaml:"inject_in_html"`
-	InjectInJS      bool     `yaml:"inject_in_js"`
-	InjectPosition  string   `yaml:"inject_position"` // "head", "body-start", "body-end"
-	MonitorDOM      bool     `yaml:"monitor_dom"`
-	MonitorNetwork  bool     `yaml:"monitor_network"`
-	MonitorForms    bool     `yaml:"monitor_forms"`
-	ProtectedPaths  []string `yaml:"protected_paths"` // Empty = all paths
+	Enabled        bool     `yaml:"enabled"`
+	ScriptURL      string   `yaml:"script_url"`
+	InjectInHTML   bool     `yaml:"inject_in_html"`
+	InjectInJS     bool     `yaml:"inject_in_js"`
+	InjectPosition string   `yaml:"inject_position"` // "head", "body-start", "body-end"
+	MonitorDOM     bool     `yaml:"monitor_dom"`
+	MonitorNetwork bool     `yaml:"monitor_network"`
+	MonitorForms   bool     `yaml:"monitor_forms"`
+	ProtectedPaths []string `yaml:"protected_paths"` // Empty = all paths
 }
 
 // CSPConfig controls Content Security Policy headers.
@@ -127,11 +127,11 @@ type JavaScriptPolicy struct {
 
 // DetectionResult holds the result of a Magecart detection scan.
 type DetectionResult struct {
-	Detected    bool              `json:"detected"`
-	ThreatType  string            `json:"threat_type"`
-	Score       int               `json:"score"`
-	Matches     []PatternMatch    `json:"matches"`
-	Timestamp   time.Time         `json:"timestamp"`
+	Detected   bool           `json:"detected"`
+	ThreatType string         `json:"threat_type"`
+	Score      int            `json:"score"`
+	Matches    []PatternMatch `json:"matches"`
+	Timestamp  time.Time      `json:"timestamp"`
 }
 
 // PatternMatch holds details of a pattern match.
@@ -144,12 +144,12 @@ type PatternMatch struct {
 
 // CompiledPatterns holds compiled regex patterns for detection.
 type CompiledPatterns struct {
-	ObfuscationPatterns    []*regexp.Regexp
-	SkimmingPatterns       []*regexp.Regexp
-	KeyloggerPatterns      []*regexp.Regexp
-	FormExfilPatterns      []*regexp.Regexp
-	SuspiciousDomains      map[string]bool
-	KnownSkimmingDomains   map[string]bool
+	ObfuscationPatterns  []*regexp.Regexp
+	SkimmingPatterns     []*regexp.Regexp
+	KeyloggerPatterns    []*regexp.Regexp
+	FormExfilPatterns    []*regexp.Regexp
+	SuspiciousDomains    map[string]bool
+	KnownSkimmingDomains map[string]bool
 }
 
 // CompilePatterns compiles detection patterns.

@@ -143,8 +143,8 @@ func TestLayer_Process_ValidCookie_Cov(t *testing.T) {
 
 func TestLayer_Service_Cov(t *testing.T) {
 	cfg := &Config{
-		Enabled:    true,
-		SecretKey:  []byte("test-key-32-bytes-long-aaaaaaaaaaa!"),
+		Enabled:   true,
+		SecretKey: []byte("test-key-32-bytes-long-aaaaaaaaaaa!"),
 	}
 	l, _ := NewLayer(cfg)
 	svc := l.Service()

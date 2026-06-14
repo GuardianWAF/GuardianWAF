@@ -65,9 +65,9 @@ func (rt *RateTracker) Reset() {
 
 // TenantRateLimiter provides per-tenant rate limiting with sliding windows.
 type TenantRateLimiter struct {
-	mu        sync.RWMutex
-	trackers  map[string]*RateTracker // key: tenant ID
-	window    time.Duration
+	mu           sync.RWMutex
+	trackers     map[string]*RateTracker // key: tenant ID
+	window       time.Duration
 	defaultLimit int64
 }
 
@@ -77,8 +77,8 @@ func NewTenantRateLimiter(window time.Duration) *TenantRateLimiter {
 		window = time.Minute
 	}
 	return &TenantRateLimiter{
-		trackers: make(map[string]*RateTracker),
-		window:   window,
+		trackers:     make(map[string]*RateTracker),
+		window:       window,
 		defaultLimit: 10000,
 	}
 }

@@ -1722,7 +1722,7 @@ func TestLayer_Process_ExcludedVariable(t *testing.T) {
 	})
 	layer.rules = []*Rule{
 		{
-			ID: "999600",
+			ID:    "999600",
 			Phase: 1,
 			Variables: []RuleVariable{
 				{Name: "REQUEST_METHOD", Exclude: true},

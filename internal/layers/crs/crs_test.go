@@ -11,12 +11,12 @@ import (
 func testRules() []*Rule {
 	return []*Rule{
 		{
-			ID:       "911100",
-			Phase:    1,
-			Msg:      "Method is not allowed by policy",
-			Severity: "WARNING",
+			ID:        "911100",
+			Phase:     1,
+			Msg:       "Method is not allowed by policy",
+			Severity:  "WARNING",
 			Variables: []RuleVariable{{Name: "REQUEST_METHOD"}},
-			Operator: RuleOperator{Type: "@rx", Argument: "^(?:GET|HEAD|POST|PUT|DELETE|OPTIONS|PATCH)$"},
+			Operator:  RuleOperator{Type: "@rx", Argument: "^(?:GET|HEAD|POST|PUT|DELETE|OPTIONS|PATCH)$"},
 			Actions: RuleActions{
 				Action:   "deny",
 				Status:   405,
@@ -26,12 +26,12 @@ func testRules() []*Rule {
 			},
 		},
 		{
-			ID:       "920200",
-			Phase:    1,
-			Msg:      "Request URI too long",
-			Severity: "WARNING",
+			ID:        "920200",
+			Phase:     1,
+			Msg:       "Request URI too long",
+			Severity:  "WARNING",
 			Variables: []RuleVariable{{Name: "REQUEST_URI"}},
-			Operator: RuleOperator{Type: "@gt", Argument: "2048"},
+			Operator:  RuleOperator{Type: "@gt", Argument: "2048"},
 			Actions: RuleActions{
 				Action:   "deny",
 				Status:   414,
@@ -41,12 +41,12 @@ func testRules() []*Rule {
 			},
 		},
 		{
-			ID:       "942100",
-			Phase:    2,
-			Msg:      "SQL Injection Attack",
-			Severity: "CRITICAL",
+			ID:        "942100",
+			Phase:     2,
+			Msg:       "SQL Injection Attack",
+			Severity:  "CRITICAL",
 			Variables: []RuleVariable{{Name: "QUERY_STRING"}},
-			Operator: RuleOperator{Type: "@rx", Argument: "(?i)(union|select|insert|update|delete|drop|create|alter|exec|execute|script)"},
+			Operator:  RuleOperator{Type: "@rx", Argument: "(?i)(union|select|insert|update|delete|drop|create|alter|exec|execute|script)"},
 			Actions: RuleActions{
 				Action:   "deny",
 				Status:   403,
@@ -56,12 +56,12 @@ func testRules() []*Rule {
 			},
 		},
 		{
-			ID:       "941100",
-			Phase:    2,
-			Msg:      "XSS Attack Detected",
-			Severity: "CRITICAL",
+			ID:        "941100",
+			Phase:     2,
+			Msg:       "XSS Attack Detected",
+			Severity:  "CRITICAL",
 			Variables: []RuleVariable{{Name: "REQUEST_BODY"}},
-			Operator: RuleOperator{Type: "@rx", Argument: "(?i)(<script|javascript:|onerror=|onload=|eval\\()"},
+			Operator:  RuleOperator{Type: "@rx", Argument: "(?i)(<script|javascript:|onerror=|onload=|eval\\()"},
 			Actions: RuleActions{
 				Action:   "deny",
 				Status:   403,
@@ -71,12 +71,12 @@ func testRules() []*Rule {
 			},
 		},
 		{
-			ID:       "930100",
-			Phase:    1,
-			Msg:      "Path Traversal Attack",
-			Severity: "CRITICAL",
+			ID:        "930100",
+			Phase:     1,
+			Msg:       "Path Traversal Attack",
+			Severity:  "CRITICAL",
 			Variables: []RuleVariable{{Name: "REQUEST_URI"}},
-			Operator: RuleOperator{Type: "@rx", Argument: "(\\.\\./|\\.\\.\\\\|%2e%2e%2f|%2e%2e/)"},
+			Operator:  RuleOperator{Type: "@rx", Argument: "(\\.\\./|\\.\\.\\\\|%2e%2e%2f|%2e%2e/)"},
 			Actions: RuleActions{
 				Action:   "deny",
 				Status:   403,
@@ -86,12 +86,12 @@ func testRules() []*Rule {
 			},
 		},
 		{
-			ID:       "932100",
-			Phase:    2,
-			Msg:      "Remote Command Execution",
-			Severity: "CRITICAL",
+			ID:        "932100",
+			Phase:     2,
+			Msg:       "Remote Command Execution",
+			Severity:  "CRITICAL",
 			Variables: []RuleVariable{{Name: "REQUEST_BODY"}},
-			Operator: RuleOperator{Type: "@rx", Argument: "(;|\\||`|\\$\\(|\\$\\{|%3B|%7C|%60|%24%28|%24%7B)"},
+			Operator:  RuleOperator{Type: "@rx", Argument: "(;|\\||`|\\$\\(|\\$\\{|%3B|%7C|%60|%24%28|%24%7B)"},
 			Actions: RuleActions{
 				Action:   "deny",
 				Status:   403,
@@ -101,12 +101,12 @@ func testRules() []*Rule {
 			},
 		},
 		{
-			ID:       "921100",
-			Phase:    2,
-			Msg:      "HTTP Response Splitting",
-			Severity: "ERROR",
+			ID:        "921100",
+			Phase:     2,
+			Msg:       "HTTP Response Splitting",
+			Severity:  "ERROR",
 			Variables: []RuleVariable{{Name: "REQUEST_HEADERS"}},
-			Operator: RuleOperator{Type: "@rx", Argument: "[\\r\\n]+(?:\\s|location|refresh|url|status)[\\s]*="},
+			Operator:  RuleOperator{Type: "@rx", Argument: "[\\r\\n]+(?:\\s|location|refresh|url|status)[\\s]*="},
 			Actions: RuleActions{
 				Action:   "deny",
 				Status:   403,
@@ -397,11 +397,11 @@ func TestOperatorEvaluator(t *testing.T) {
 	evaluator := NewOperatorEvaluator()
 
 	tests := []struct {
-		name      string
-		opType    string
-		argument  string
-		value     string
-		expected  bool
+		name     string
+		opType   string
+		argument string
+		value    string
+		expected bool
 	}{
 		{"@eq match", "@eq", "test", "test", true},
 		{"@eq no match", "@eq", "test", "other", false},
@@ -465,10 +465,10 @@ func TestOperatorEvaluator_Negated(t *testing.T) {
 
 func TestTransform(t *testing.T) {
 	tests := []struct {
-		name           string
-		value          string
-		transforms     []string
-		expected       string
+		name       string
+		value      string
+		transforms []string
+		expected   string
 	}{
 		{"lowercase", "HELLO", []string{"lowercase"}, "hello"},
 		{"uppercase", "hello", []string{"uppercase"}, "HELLO"},

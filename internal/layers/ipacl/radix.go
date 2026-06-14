@@ -27,9 +27,9 @@ type RadixTree struct {
 
 type radixNode struct {
 	children [2]*radixNode // 0 and 1 branches
-	value    any            // stored value (nil for intermediate nodes)
-	hasValue bool           // distinguishes nil value from no value
-	prefix   int            // prefix length at this node
+	value    any           // stored value (nil for intermediate nodes)
+	hasValue bool          // distinguishes nil value from no value
+	prefix   int           // prefix length at this node
 }
 
 // NewRadixTree creates a new empty radix tree.

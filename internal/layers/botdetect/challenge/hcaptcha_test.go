@@ -172,8 +172,8 @@ func TestTurnstileProvider_GetScriptURL(t *testing.T) {
 
 func TestVerificationResult_IsHuman(t *testing.T) {
 	tests := []struct {
-		name    string
-		result  *VerificationResult
+		name      string
+		result    *VerificationResult
 		wantHuman bool
 	}{
 		{

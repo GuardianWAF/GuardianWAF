@@ -49,7 +49,7 @@ func TestFindVirtualHost_WildcardMatch(t *testing.T) {
 		{"api.example.com", 0},
 		{"sub.api.example.com", 0},
 		{"deep.sub.api.example.com", 0},
-		{"example.com", -1},       // exact match should not match wildcard
+		{"example.com", -1}, // exact match should not match wildcard
 		{"notexample.com", -1},
 		{"other.com", -1},
 		{"", -1},

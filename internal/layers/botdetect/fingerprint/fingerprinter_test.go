@@ -84,8 +84,8 @@ func TestFingerprinter_Generate(t *testing.T) {
 	f := New()
 
 	tests := []struct {
-		name string
-		data *Data
+		name    string
+		data    *Data
 		wantLen int
 	}{
 		{

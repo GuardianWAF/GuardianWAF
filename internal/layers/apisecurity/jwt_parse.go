@@ -33,15 +33,15 @@ type JWTConfig struct {
 
 // JWTValidator validates JWT tokens.
 type JWTValidator struct {
-	config       JWTConfig
-	log          *slog.Logger
-	publicKey    crypto.PublicKey
-	jwksCache    *sync.Map // kid -> crypto.PublicKey (JWKS compat field)
-	hmacKeys     *sync.Map // kid -> hmacKey (symmetric HMAC from JWKS)
-	client       *http.Client
-	stopCh       chan struct{}
-	wg           sync.WaitGroup
-	ssrfChecked  bool
+	config      JWTConfig
+	log         *slog.Logger
+	publicKey   crypto.PublicKey
+	jwksCache   *sync.Map // kid -> crypto.PublicKey (JWKS compat field)
+	hmacKeys    *sync.Map // kid -> hmacKey (symmetric HMAC from JWKS)
+	client      *http.Client
+	stopCh      chan struct{}
+	wg          sync.WaitGroup
+	ssrfChecked bool
 }
 
 // JWTClaims represents the standard JWT claims.

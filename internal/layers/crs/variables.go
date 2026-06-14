@@ -315,7 +315,7 @@ func matchWildcard(s, pattern string) (bool, error) {
 	// Handle simple wildcards
 	if strings.HasPrefix(pattern, "*") && strings.HasSuffix(pattern, "*") {
 		// *pattern*
-		mid := pattern[1:len(pattern)-1]
+		mid := pattern[1 : len(pattern)-1]
 		return strings.Contains(s, mid), nil
 	}
 

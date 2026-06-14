@@ -47,10 +47,10 @@ func (el *EngineLayer) Process(ctx *engine.RequestContext) engine.LayerResult {
 
 		// Scan regular content
 		body := ctx.BodyString
-			if body == "" && len(ctx.Body) > 0 {
-				body = string(ctx.Body)
-			}
-			result := el.scanContent(body)
+		if body == "" && len(ctx.Body) > 0 {
+			body = string(ctx.Body)
+		}
+		result := el.scanContent(body)
 		if !result.Safe {
 			r := el.handleScanResult(ctx, result, "body")
 			r.Duration = time.Since(start)

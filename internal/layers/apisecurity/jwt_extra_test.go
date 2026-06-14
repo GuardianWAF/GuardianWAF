@@ -11,9 +11,9 @@ import (
 	"crypto/sha512"
 	"crypto/x509"
 	"encoding/base64"
-	"hash"
 	"encoding/json"
 	"fmt"
+	"hash"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -1693,8 +1693,6 @@ func TestExtractAPIKey_QueryParam(t *testing.T) {
 		t.Errorf("expected empty key (query param disabled by default), got %q", key)
 	}
 
-
-
 }
 
 func TestExtractAPIKey_CustomQueryParam(t *testing.T) {
@@ -1806,12 +1804,12 @@ func TestLayerProcess_APIKeyViaQueryParam(t *testing.T) {
 	cfg := Config{
 		Enabled: true,
 		APIKeys: APIKeysConfig{
-				Enabled:    true,
-				QueryParam: "api_key",
-				Keys: []APIKeyConfig{
-					{Name: "query-test", KeyHash: hashStr, Enabled: true},
-				},
+			Enabled:    true,
+			QueryParam: "api_key",
+			Keys: []APIKeyConfig{
+				{Name: "query-test", KeyHash: hashStr, Enabled: true},
 			},
+		},
 	}
 	layer, _ := NewLayer(&cfg)
 
@@ -1829,9 +1827,9 @@ func TestLayerProcess_APIKeyViaQueryParam(t *testing.T) {
 
 func TestFetchJWKS_EC_P384_P521(t *testing.T) {
 	for _, tc := range []struct {
-		name   string
-		curve  elliptic.Curve
-		crvID  string
+		name  string
+		curve elliptic.Curve
+		crvID string
 	}{
 		{"P-384", elliptic.P384(), "P-384"},
 		{"P-521", elliptic.P521(), "P-521"},
@@ -1853,9 +1851,9 @@ func TestFetchJWKS_EC_P384_P521(t *testing.T) {
 			defer srv.Close()
 
 			v, _ := NewJWTValidator(JWTConfig{Enabled: true})
-				v.config.JWKSURL = srv.URL
-				v.ssrfChecked = true
-				v.fetchJWKS()
+			v.config.JWKSURL = srv.URL
+			v.ssrfChecked = true
+			v.fetchJWKS()
 
 			k, ok := v.jwksCache.Load(tc.name)
 			if !ok {

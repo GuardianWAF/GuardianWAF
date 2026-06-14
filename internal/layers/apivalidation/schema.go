@@ -16,7 +16,7 @@ import (
 
 // Pre-compiled regex patterns for format validation (avoids recompilation per request).
 var (
-	reEmail     = regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
+	reEmail    = regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
 	reUUID     = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 	reDateTime = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$`)
 	reDate     = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
@@ -24,20 +24,20 @@ var (
 	reHostname = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$`)
 
 	// userPatternCache caches user-defined regex patterns from API schemas.
-	userPatternCache     sync.Map       // string → *regexp.Regexp
-	userPatternCacheSize atomic.Int64   // track cache size for cap enforcement
+	userPatternCache     sync.Map     // string → *regexp.Regexp
+	userPatternCacheSize atomic.Int64 // track cache size for cap enforcement
 )
 
 // Config holds API validation configuration.
 type Config struct {
-	Enabled           bool           `yaml:"enabled"`
-	ValidateRequest   bool           `yaml:"validate_request"`
-	ValidateResponse  bool           `yaml:"validate_response"`
-	StrictMode        bool           `yaml:"strict_mode"`       // Reject unknown fields
-	BlockOnViolation  bool           `yaml:"block_on_violation"`
-	ViolationScore    int            `yaml:"violation_score"`
-	Schemas           []SchemaSource `yaml:"schemas"`
-	CacheSize         int            `yaml:"cache_size"`        // Compiled schema cache size
+	Enabled          bool           `yaml:"enabled"`
+	ValidateRequest  bool           `yaml:"validate_request"`
+	ValidateResponse bool           `yaml:"validate_response"`
+	StrictMode       bool           `yaml:"strict_mode"` // Reject unknown fields
+	BlockOnViolation bool           `yaml:"block_on_violation"`
+	ViolationScore   int            `yaml:"violation_score"`
+	Schemas          []SchemaSource `yaml:"schemas"`
+	CacheSize        int            `yaml:"cache_size"` // Compiled schema cache size
 }
 
 // DefaultConfig returns default API validation configuration.
@@ -62,11 +62,11 @@ type SchemaSource struct {
 
 // OpenAPISpec represents an OpenAPI 3.0 specification.
 type OpenAPISpec struct {
-	OpenAPI    string                 `json:"openapi" yaml:"openapi"`
-	Info       Info                   `json:"info" yaml:"info"`
-	Servers    []Server               `json:"servers,omitempty" yaml:"servers,omitempty"`
-	Paths      map[string]PathItem    `json:"paths" yaml:"paths"`
-	Components *Components            `json:"components,omitempty" yaml:"components,omitempty"`
+	OpenAPI    string              `json:"openapi" yaml:"openapi"`
+	Info       Info                `json:"info" yaml:"info"`
+	Servers    []Server            `json:"servers,omitempty" yaml:"servers,omitempty"`
+	Paths      map[string]PathItem `json:"paths" yaml:"paths"`
+	Components *Components         `json:"components,omitempty" yaml:"components,omitempty"`
 }
 
 // Info represents API information.
@@ -84,15 +84,15 @@ type Server struct {
 
 // PathItem represents a path item in OpenAPI.
 type PathItem struct {
-	Summary     string     `json:"summary,omitempty" yaml:"summary,omitempty"`
-	Description string     `json:"description,omitempty" yaml:"description,omitempty"`
-	Get         *Operation `json:"get,omitempty" yaml:"get,omitempty"`
-	Post        *Operation `json:"post,omitempty" yaml:"post,omitempty"`
-	Put         *Operation `json:"put,omitempty" yaml:"put,omitempty"`
-	Delete      *Operation `json:"delete,omitempty" yaml:"delete,omitempty"`
-	Patch       *Operation `json:"patch,omitempty" yaml:"patch,omitempty"`
-	Head        *Operation `json:"head,omitempty" yaml:"head,omitempty"`
-	Options     *Operation `json:"options,omitempty" yaml:"options,omitempty"`
+	Summary     string      `json:"summary,omitempty" yaml:"summary,omitempty"`
+	Description string      `json:"description,omitempty" yaml:"description,omitempty"`
+	Get         *Operation  `json:"get,omitempty" yaml:"get,omitempty"`
+	Post        *Operation  `json:"post,omitempty" yaml:"post,omitempty"`
+	Put         *Operation  `json:"put,omitempty" yaml:"put,omitempty"`
+	Delete      *Operation  `json:"delete,omitempty" yaml:"delete,omitempty"`
+	Patch       *Operation  `json:"patch,omitempty" yaml:"patch,omitempty"`
+	Head        *Operation  `json:"head,omitempty" yaml:"head,omitempty"`
+	Options     *Operation  `json:"options,omitempty" yaml:"options,omitempty"`
 	Parameters  []Parameter `json:"parameters,omitempty" yaml:"parameters,omitempty"`
 }
 
@@ -109,18 +109,18 @@ type Operation struct {
 
 // Parameter represents an operation parameter.
 type Parameter struct {
-	Name        string `json:"name" yaml:"name"`
-	In          string `json:"in" yaml:"in"` // query, header, path, cookie
-	Description string `json:"description,omitempty" yaml:"description,omitempty"`
-	Required    bool   `json:"required,omitempty" yaml:"required,omitempty"`
+	Name        string  `json:"name" yaml:"name"`
+	In          string  `json:"in" yaml:"in"` // query, header, path, cookie
+	Description string  `json:"description,omitempty" yaml:"description,omitempty"`
+	Required    bool    `json:"required,omitempty" yaml:"required,omitempty"`
 	Schema      *Schema `json:"schema,omitempty" yaml:"schema,omitempty"`
 }
 
 // RequestBody represents a request body.
 type RequestBody struct {
-	Description string                `json:"description,omitempty" yaml:"description,omitempty"`
-	Required    bool                  `json:"required,omitempty" yaml:"required,omitempty"`
-	Content     map[string]MediaType  `json:"content" yaml:"content"`
+	Description string               `json:"description,omitempty" yaml:"description,omitempty"`
+	Required    bool                 `json:"required,omitempty" yaml:"required,omitempty"`
+	Content     map[string]MediaType `json:"content" yaml:"content"`
 }
 
 // Response represents an API response.
@@ -131,8 +131,8 @@ type Response struct {
 
 // MediaType represents a media type definition.
 type MediaType struct {
-	Schema   *Schema `json:"schema,omitempty" yaml:"schema,omitempty"`
-	Example  any     `json:"example,omitempty" yaml:"example,omitempty"`
+	Schema  *Schema `json:"schema,omitempty" yaml:"schema,omitempty"`
+	Example any     `json:"example,omitempty" yaml:"example,omitempty"`
 }
 
 // Components holds reusable components.
@@ -169,18 +169,18 @@ type Schema struct {
 
 // ValidationError represents a schema validation error.
 type ValidationError struct {
-	Field       string `json:"field"`
-	Message     string `json:"message"`
-	Type        string `json:"type"`        // "type", "format", "required", "pattern", etc.
-	Expected    string `json:"expected,omitempty"`
-	Got         string `json:"got,omitempty"`
+	Field    string `json:"field"`
+	Message  string `json:"message"`
+	Type     string `json:"type"` // "type", "format", "required", "pattern", etc.
+	Expected string `json:"expected,omitempty"`
+	Got      string `json:"got,omitempty"`
 }
 
 // ValidationResult holds the result of schema validation.
 type ValidationResult struct {
-	Valid   bool              `json:"valid"`
-	Errors  []ValidationError `json:"errors"`
-	Score   int               `json:"score"`
+	Valid  bool              `json:"valid"`
+	Errors []ValidationError `json:"errors"`
+	Score  int               `json:"score"`
 }
 
 // CompiledSchema holds a compiled schema for fast validation.
@@ -203,8 +203,8 @@ type CompiledParameter struct {
 
 // CompiledBodySchema holds a compiled request body schema.
 type CompiledBodySchema struct {
-	Required            bool
-	Schema              *Schema
+	Required             bool
+	Schema               *Schema
 	AdditionalProperties bool
 }
 
@@ -793,4 +793,3 @@ func matchPatternSafe(re *regexp.Regexp, s string) bool {
 		return false
 	}
 }
-
