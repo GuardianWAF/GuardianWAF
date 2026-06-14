@@ -410,6 +410,31 @@ jobs:
     - name: Run gosec
       run: |
         go install github.com/securego/gosec/v2/cmd/gosec@v2.27.1
+        gosec -include=G124 -severity=medium -confidence=medium ./internal/dashboard
+        gosec -include=G115 -severity=medium -confidence=medium ./internal/engine ./internal/proxy
+        gosec -include=G115 -severity=medium -confidence=medium ./internal/layers/detection/ssrf
+        gosec -include=G115 -severity=medium -confidence=medium ./...
+        gosec -include=G304,G703 -severity=medium -confidence=medium ./internal/config
+        gosec -include=G114 -severity=medium -confidence=medium ./examples/backend ./examples/library
+        gosec -include=G404,G124 -severity=medium -confidence=medium ./scripts/attack-simulation
+        gosec -include=G301,G302 -severity=medium -confidence=medium ./internal/engine ./cmd/guardianwaf
+        gosec -include=G401,G501,G505 -severity=medium -confidence=medium ./internal/layers/botdetect ./internal/tls
+        gosec -include=G117 -severity=medium -confidence=medium ./internal/tenant
+        gosec -include=G304,G703 -severity=medium -confidence=medium ./internal/tenant
+        gosec -include=G304,G703 -severity=medium -confidence=medium ./internal/events
+        gosec -include=G304,G703 -severity=medium -confidence=medium ./internal/geoip
+        gosec -include=G304,G703 -severity=medium -confidence=medium ./internal/engine
+        gosec -include=G304,G703 -severity=medium -confidence=medium ./internal/ai
+        gosec -include=G304,G703 -severity=medium -confidence=medium ./internal/compliance
+        gosec -include=G304,G703 -severity=medium -confidence=medium ./cmd/guardianwaf
+        gosec -include=G304,G703 -severity=medium -confidence=medium ./internal/layers/ipacl
+        gosec -include=G304,G703 -severity=medium -confidence=medium ./internal/layers/crs
+        gosec -include=G304,G703 -severity=medium -confidence=medium ./scripts/attack-simulation ./tests/reliability
+        gosec -include=G304,G703 -severity=medium -confidence=medium ./...
+        gosec -include=G704 -severity=medium -confidence=medium ./internal/alerting ./internal/geoip ./internal/layers/apisecurity ./internal/layers/threatintel ./internal/layers/virtualpatch
+        gosec -include=G710 -severity=medium -confidence=medium ./cmd/guardianwaf ./internal/layers/challenge
+        gosec -include=G705 -severity=medium -confidence=medium ./internal/mcp ./internal/dashboard ./examples/backend
+        gosec -include=G204 -severity=medium -confidence=medium ./internal/docker
         gosec -no-fail ./...
 
   trufflehog:
