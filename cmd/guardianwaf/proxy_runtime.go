@@ -15,7 +15,15 @@ import (
 // based on the configured routes. It uses the proxy package for load balancing
 // and health checking across multiple targets per upstream.
 func buildReverseProxy(cfg *config.Config) (http.Handler, []*proxy.HealthChecker) {
-	proxy.SetPrivateTargetsAllowed(cfg.AllowPrivateUpstreams != nil && *cfg.AllowPrivateUpstreams)
+	targetPolicy := proxy.TargetPolicy{
+		AllowPrivateTargets: cfg.AllowPrivateUpstreams != nil && *cfg.AllowPrivateUpstreams,
+	}
+	allowedCIDRs, err := proxy.ParseAllowedUpstreamCIDRs(cfg.AllowedUpstreamCIDRs)
+	if err != nil {
+		slog.Warn("invalid upstream CIDR allowlist", "error", err)
+	} else {
+		targetPolicy.AllowedCIDRs = allowedCIDRs
+	}
 
 	// Build balancers: name -> *Balancer
 	balancerMap := make(map[string]*proxy.Balancer)
@@ -24,7 +32,7 @@ func buildReverseProxy(cfg *config.Config) (http.Handler, []*proxy.HealthChecker
 	for _, u := range cfg.Upstreams {
 		var targets []*proxy.Target
 		for _, t := range u.Targets {
-			target, err := proxy.NewTarget(t.URL, t.Weight)
+			target, err := proxy.NewTargetWithPolicy(t.URL, t.Weight, targetPolicy)
 			if err != nil {
 				slog.Warn("invalid upstream URL", "url", t.URL, "error", err)
 				continue
@@ -97,13 +105,28 @@ func buildReverseProxy(cfg *config.Config) (http.Handler, []*proxy.HealthChecker
 }
 
 func buildProxyRuntime(cfg *config.Config, fallback http.Handler) (http.Handler, *proxy.Router, []*proxy.HealthChecker) {
-	if len(cfg.Upstreams) == 0 || len(cfg.Routes) == 0 {
+	if !proxyRoutingConfigured(cfg) {
 		return fallback, nil, nil
 	}
 
 	handler, healthCheckers := buildReverseProxy(cfg)
 	router, _ := handler.(*proxy.Router)
 	return handler, router, healthCheckers
+}
+
+func proxyRoutingConfigured(cfg *config.Config) bool {
+	if cfg == nil || len(cfg.Upstreams) == 0 {
+		return false
+	}
+	if len(cfg.Routes) > 0 {
+		return true
+	}
+	for _, vh := range cfg.VirtualHosts {
+		if len(vh.Routes) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func standaloneNoUpstreamHandler() http.Handler {
@@ -122,10 +145,24 @@ func sidecarNoUpstreamHandler() http.Handler {
 }
 
 func stopHealthCheckers(checkers []*proxy.HealthChecker) {
+	_ = stopHealthCheckersWithContext(context.Background(), checkers)
+}
+
+func stopHealthCheckersWithContext(ctx context.Context, checkers []*proxy.HealthChecker) error {
+	var stopErr error
 	for _, hc := range checkers {
 		if hc != nil {
-			hc.Stop()
+			if err := hc.StopWithContext(ctx); err != nil && stopErr == nil {
+				stopErr = err
+			}
 		}
+	}
+	return stopErr
+}
+
+func closeProxyRouter(router *proxy.Router) {
+	if router != nil {
+		router.Close()
 	}
 }
 

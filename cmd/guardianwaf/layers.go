@@ -9,6 +9,7 @@ import (
 
 	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
+	"github.com/guardianwaf/guardianwaf/internal/geoip"
 	"github.com/guardianwaf/guardianwaf/internal/runtime/layerregistry"
 )
 
@@ -21,6 +22,10 @@ import (
 // that refuses to boot. Operators who knowingly accept a degraded pipeline can
 // set GWAF_ALLOW_DEGRADED_START=1 to downgrade the failure to a loud warning.
 func addLayers(eng *engine.Engine, cfg *config.Config) error {
+	return addLayersWithRuntime(eng, cfg, nil)
+}
+
+func addLayersWithRuntime(eng *engine.Engine, cfg *config.Config, runtimeResources *layerRuntimeResources) error {
 	eng.Logs.Add("info", fmt.Sprintf("Effective WAF pipeline: %v", layerregistry.PipelineSummary(cfg)))
 	buildCtx := &layerregistry.BuildContext{}
 	var buildErrs []error
@@ -57,7 +62,9 @@ func addLayers(eng *engine.Engine, cfg *config.Config) error {
 
 	// Custom Rules layer (Order 150) — optionally GeoIP-aware.
 	if cfg.WAF.CustomRules.Enabled && cfg.WAF.GeoIP.Enabled {
-		buildCtx.GeoIPDB, _ = loadGeoIP(cfg, eng) // nolint:errcheck // GeoIPDB non-fatal; layer logs warning and proceeds
+		var refresh *geoip.AutoRefreshHandle
+		buildCtx.GeoIPDB, refresh = loadGeoIPRuntime(cfg, eng) // GeoIPDB non-fatal; layer logs warning and proceeds
+		runtimeResources.addGeoIPRefresh(refresh)
 	}
 	add("custom_rules", true, func() { eng.Logs.Infof("Custom rules: %d rules loaded", len(cfg.WAF.CustomRules.Rules)) })
 

@@ -1,9 +1,12 @@
 package main
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/acme"
@@ -51,9 +54,13 @@ func setupACME(cfg *config.Config, serveMux *http.ServeMux, certStore *gwaftls.C
 	defer serveMux.Handle("/.well-known/acme-challenge/", acmeHandler)
 
 	acmeClient := acme.NewClient(acme.LetsEncryptProduction)
-	accountKeyPath := cfg.TLS.ACME.CacheDir + "/account.key"
+	cacheDir, accountKeyPath, err := acmeAccountKeyPath(cfg.TLS.ACME.CacheDir)
+	if err != nil {
+		slog.Warn("invalid ACME cache dir", "error", err)
+		return nil
+	}
 	var accountKeyPEM []byte
-	if data, err := os.ReadFile(accountKeyPath); err == nil {
+	if data, err := os.ReadFile(accountKeyPath); err == nil { // #nosec G304 -- accountKeyPath is inside the cleaned operator-selected ACME cache dir.
 		accountKeyPEM = data
 	}
 	if err := acmeClient.Init(accountKeyPEM); err != nil {
@@ -61,13 +68,13 @@ func setupACME(cfg *config.Config, serveMux *http.ServeMux, certStore *gwaftls.C
 		return nil
 	}
 
-	saveACMEAccountKey(cfg, accountKeyPath, acmeClient)
+	saveACMEAccountKey(cacheDir, accountKeyPath, acmeClient)
 	if err := acmeClient.Register(cfg.TLS.ACME.Email); err != nil {
 		slog.Warn("ACME registration failed", "error", err)
 		return nil
 	}
 
-	diskStore := acme.NewCertDiskStore(cfg.TLS.ACME.CacheDir, acmeClient, acmeHandler)
+	diskStore := acme.NewCertDiskStore(cacheDir, acmeClient, acmeHandler)
 	for _, domains := range collectACMEDomains(cfg) {
 		diskStore.AddDomains(domains)
 		cert, err := diskStore.LoadOrObtain(domains)
@@ -81,12 +88,23 @@ func setupACME(cfg *config.Config, serveMux *http.ServeMux, certStore *gwaftls.C
 	return diskStore
 }
 
-func saveACMEAccountKey(cfg *config.Config, accountKeyPath string, acmeClient *acme.Client) {
+func acmeAccountKeyPath(cacheDir string) (string, string, error) {
+	if strings.ContainsRune(cacheDir, 0) {
+		return "", "", fmt.Errorf("ACME cache dir contains NUL byte")
+	}
+	if cacheDir == "" {
+		return "", "", fmt.Errorf("ACME cache dir must not be empty")
+	}
+	cleanCacheDir := filepath.Clean(cacheDir)
+	return cleanCacheDir, filepath.Join(cleanCacheDir, "account.key"), nil
+}
+
+func saveACMEAccountKey(cacheDir, accountKeyPath string, acmeClient *acme.Client) {
 	keyPEM, err := acmeClient.AccountKeyPEM()
 	if err != nil {
 		return
 	}
-	if err := os.MkdirAll(cfg.TLS.ACME.CacheDir, 0o700); err != nil {
+	if err := os.MkdirAll(cacheDir, 0o700); err != nil {
 		slog.Warn("failed to create ACME cache dir", "error", err)
 		return
 	}
