@@ -36,6 +36,16 @@ jobs:
       - name: Build embedded dashboard
         run: ./scripts/build-dashboard.sh
 
+      - name: gofmt check
+        run: |
+          out="$(gofmt -s -l .)"
+          if [ -n "$out" ]; then
+            echo "::error::gofmt check failed — refusing to release unformatted code:"
+            echo "$out"
+            exit 1
+          fi
+          echo "gofmt check passed."
+
       - name: Run tests before release
         run: go test -race -count=1 ./...
 

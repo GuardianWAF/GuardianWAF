@@ -171,6 +171,29 @@ jobs:
           fi
           echo "No dead code."
 
+  gofmt:
+    needs: [build-dashboard]
+    runs-on: ubuntu-latest
+    # Catches formatting drift in Go source. The local Makefile target
+    # `make fmt-check` and the pre-commit hook run the same command; this
+    # CI job is the merge gate so drift cannot reach main.
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: 'go.mod'
+
+      - name: gofmt check (gofmt -s -l . must be empty)
+        run: |
+          out="$(gofmt -s -l .)"
+          if [ -n "$out" ]; then
+            echo "::error::gofmt check failed — the following files need reformatting (run 'make fmt'):"
+            echo "$out"
+            exit 1
+          fi
+          echo "gofmt check passed."
+
   docker-compose-integration:
     runs-on: ubuntu-latest
     timeout-minutes: 15

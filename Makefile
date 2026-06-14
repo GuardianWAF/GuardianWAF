@@ -1,4 +1,4 @@
-.PHONY: build test lint bench fuzz clean run docker-build smoke docker-test ui ui-dev dev help fmt tidy e2e e2e-headed e2e-list
+.PHONY: build test lint bench fuzz clean run docker-build smoke docker-test ui ui-dev dev help fmt fmt-check tidy e2e e2e-headed e2e-list
 
 BINARY=guardianwaf
 VERSION?=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -67,6 +67,17 @@ docker-test:
 fmt:
 	gofmt -s -w .
 
+# CI gate: verify formatting without writing. Exits non-zero if any Go file
+# would be changed by `gofmt -s`. Used by .github/workflows/ci.yml.
+fmt-check:
+	@out=$(gofmt -s -l .); \
+	if [ -n "$out" ]; then \
+		echo "::error::gofmt check failed — the following files need reformatting (run 'make fmt'):"; \
+		echo "$out"; \
+		exit 1; \
+	fi
+	@echo "gofmt check passed."
+
 tidy:
 	go mod tidy
 
@@ -112,6 +123,7 @@ help:
 	@echo "  cover        Generate coverage report (HTML)"
 	@echo "  vet          Run go vet"
 	@echo "  fmt          Format code with gofmt -s"
+	@echo "  fmt-check    Verify gofmt (no write) — used by CI"
 	@echo "  tidy         Run go mod tidy"
 	@echo "  run          Build and run (serve mode)"
 	@echo "  smoke        Build and run smoke tests"
