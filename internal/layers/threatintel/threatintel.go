@@ -90,7 +90,7 @@ func NewLayer(cfg *Config) (*Layer, error) {
 
 // Name returns the layer name.
 func (l *Layer) Name() string { return "threat_intel" }
-func (l *Layer) Order() int { return engine.OrderThreatIntel }
+func (l *Layer) Order() int   { return engine.OrderThreatIntel }
 
 // Start begins feed refresh loops.
 func (l *Layer) Start() {
@@ -109,13 +109,22 @@ func (l *Layer) Start() {
 
 // Stop stops all feed refresh loops.
 func (l *Layer) Stop() {
+	_ = l.StopWithContext(context.Background())
+}
+
+// StopWithContext stops all feed refresh loops without waiting past ctx.
+func (l *Layer) StopWithContext(ctx context.Context) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
+	var firstErr error
 	for _, fm := range l.feeds {
-		fm.Stop()
+		if err := fm.StopWithContext(ctx); err != nil && firstErr == nil {
+			firstErr = err
+		}
 	}
 	l.started = false
+	return firstErr
 }
 
 // Process checks IP and domain reputation.

@@ -263,6 +263,50 @@ func TestFeedManager_Stop(t *testing.T) {
 	fm.Stop()
 }
 
+func TestFeedManager_StopWithContextHonorsDeadline(t *testing.T) {
+	fm := NewFeedManager(&FeedConfig{Format: "jsonl", Refresh: time.Hour})
+	done := make(chan struct{})
+	fm.wg.Add(1)
+	go func() {
+		defer fm.wg.Done()
+		<-done
+	}()
+	defer close(done)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	if err := fm.StopWithContext(ctx); err == nil {
+		t.Fatal("expected StopWithContext to return context deadline error")
+	}
+
+	select {
+	case <-fm.stopCh:
+	default:
+		t.Fatal("expected StopWithContext to close stopCh")
+	}
+}
+
+func TestLayer_StopWithContextHonorsFeedDeadline(t *testing.T) {
+	fm := NewFeedManager(&FeedConfig{Format: "jsonl", Refresh: time.Hour})
+	done := make(chan struct{})
+	fm.wg.Add(1)
+	go func() {
+		defer fm.wg.Done()
+		<-done
+	}()
+	defer close(done)
+
+	layer := &Layer{feeds: []*FeedManager{fm}, started: true}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	if err := layer.StopWithContext(ctx); err == nil {
+		t.Fatal("expected layer StopWithContext to return context deadline error")
+	}
+	if layer.started {
+		t.Fatal("expected layer to be marked stopped")
+	}
+}
+
 // --- Layer updateEntries ---
 
 func TestLayer_UpdateEntries(t *testing.T) {

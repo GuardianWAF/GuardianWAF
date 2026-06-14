@@ -31,16 +31,19 @@ type FeedConfig struct {
 
 // maxFeedEntries caps the number of entries parsed from a feed to prevent memory exhaustion.
 const maxFeedEntries = 500000
+const maxFeedResponseBytes int64 = 100 * 1024 * 1024
 
 // FeedManager manages a single threat feed source.
 type FeedManager struct {
-	log       *slog.Logger
-	config    FeedConfig
-	client    *http.Client
-	stopCh    chan struct{}
-	mu        sync.Mutex
-	onUpdate  func([]ThreatEntry)
-	wg        sync.WaitGroup
+	log      *slog.Logger
+	config   FeedConfig
+	client   *http.Client
+	stopCh   chan struct{}
+	cancel   context.CancelFunc
+	ctx      context.Context
+	mu       sync.Mutex
+	onUpdate func([]ThreatEntry)
+	wg       sync.WaitGroup
 }
 
 // ThreatEntry represents a single threat intelligence entry.
@@ -62,6 +65,7 @@ type ThreatInfo struct {
 // NewFeedManager creates a new feed manager.
 func NewFeedManager(config *FeedConfig) *FeedManager {
 	log := logging.NewLogger("threatintel")
+	refreshCtx, cancel := context.WithCancel(context.Background())
 
 	transport, ok := http.DefaultTransport.(*http.Transport)
 	if !ok {
@@ -103,6 +107,8 @@ func NewFeedManager(config *FeedConfig) *FeedManager {
 	return &FeedManager{
 		log:    logging.NewLogger("threatintel"),
 		config: *config,
+		ctx:    refreshCtx,
+		cancel: cancel,
 		client: &http.Client{
 			Timeout:   30 * time.Second,
 			Transport: transport,
@@ -142,7 +148,7 @@ func (f *FeedManager) LoadOnce(ctx context.Context) ([]ThreatEntry, error) {
 // Start begins the refresh loop.
 func (f *FeedManager) Start() {
 	// Initial load
-	entries, err := f.LoadOnce(context.Background())
+	entries, err := f.LoadOnce(f.ctx)
 	if err == nil {
 		f.mu.Lock()
 		cb := f.onUpdate
@@ -161,13 +167,28 @@ func (f *FeedManager) Start() {
 
 // Stop stops the refresh loop.
 func (f *FeedManager) Stop() {
+	_ = f.StopWithContext(context.Background())
+}
+
+// StopWithContext stops the refresh loop without waiting past ctx.
+func (f *FeedManager) StopWithContext(ctx context.Context) error {
 	select {
 	case <-f.stopCh:
-		return
 	default:
+		f.cancel()
 		close(f.stopCh)
 	}
-	f.wg.Wait()
+	done := make(chan struct{})
+	go func() {
+		f.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (f *FeedManager) refreshLoop() {
@@ -189,7 +210,7 @@ func (f *FeedManager) refreshLoop() {
 		case <-f.stopCh:
 			return
 		case <-ticker.C:
-			entries, err := f.LoadOnce(context.Background())
+			entries, err := f.LoadOnce(f.ctx)
 			if err == nil {
 				f.mu.Lock()
 				cb := f.onUpdate
@@ -241,8 +262,35 @@ func (f *FeedManager) loadURL(ctx context.Context) ([]ThreatEntry, error) {
 		return nil, fmt.Errorf("feed returned status %d", resp.StatusCode)
 	}
 
-	// Cap response body to prevent memory exhaustion from malicious feeds
-	return f.parseReader(io.LimitReader(resp.Body, 100*1024*1024)) // 100MB max
+	// Cap response body to prevent memory exhaustion from malicious feeds.
+	return f.parseReader(limitFeedResponseReader(resp.Body, maxFeedResponseBytes))
+}
+
+type feedResponseLimitReader struct {
+	r         io.Reader
+	maxBytes  int64
+	remaining int64
+}
+
+func limitFeedResponseReader(r io.Reader, maxBytes int64) io.Reader {
+	return &feedResponseLimitReader{r: r, maxBytes: maxBytes, remaining: maxBytes}
+}
+
+func (r *feedResponseLimitReader) Read(p []byte) (int, error) {
+	if r.remaining <= 0 {
+		var extra [1]byte
+		n, err := r.r.Read(extra[:])
+		if n > 0 {
+			return 0, fmt.Errorf("threat-intel feed response exceeds %d bytes", r.maxBytes)
+		}
+		return 0, err
+	}
+	if int64(len(p)) > r.remaining {
+		p = p[:int(r.remaining)]
+	}
+	n, err := r.r.Read(p)
+	r.remaining -= int64(n)
+	return n, err
 }
 
 func (f *FeedManager) parseReader(r io.Reader) ([]ThreatEntry, error) {
@@ -461,19 +509,28 @@ func validateFeedURL(rawURL string) error {
 	if err != nil {
 		return fmt.Errorf("invalid URL: %w", err)
 	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("feed URL must use http or https")
+	}
+	if u.User != nil {
+		return fmt.Errorf("feed URL must not include URL userinfo or credentials")
+	}
 	host := u.Hostname()
+	if host == "" {
+		return fmt.Errorf("feed URL has no host")
+	}
 	if host == "localhost" || strings.HasSuffix(host, ".internal") || strings.HasSuffix(host, ".local") {
 		return fmt.Errorf("feed URL must not target localhost or internal hosts")
 	}
 	ip := net.ParseIP(host)
 	if ip != nil {
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() || ip.IsMulticast() {
 			return fmt.Errorf("feed URL must not target private/loopback/link-local addresses")
 		}
 		return nil
 	}
 	// Hostname — resolve DNS and check all resulting IPs (prevents DNS rebinding)
-	addrs, err := net.LookupHost(host)
+	addrs, err := net.LookupHost(host) // #nosec G704 -- preflight DNS check is paired with feed client's SSRF-safe DialContext and redirect validation.
 	if err != nil {
 		return nil
 	}
@@ -482,7 +539,7 @@ func validateFeedURL(rawURL string) error {
 		if ip == nil {
 			continue
 		}
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() || ip.IsMulticast() {
 			return fmt.Errorf("feed URL hostname resolves to private/loopback address %s", ip)
 		}
 	}

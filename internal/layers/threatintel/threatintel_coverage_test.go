@@ -65,6 +65,37 @@ func TestValidateFeedURL_UnspecifiedIP_Cov(t *testing.T) {
 	}
 }
 
+func TestValidateFeedURL_MulticastIP_Cov(t *testing.T) {
+	err := validateFeedURL("http://224.0.0.1/feed")
+	if err == nil {
+		t.Error("expected error for multicast IP")
+	}
+}
+
+func TestValidateFeedURL_Hostless_Cov(t *testing.T) {
+	err := validateFeedURL("https:///feed")
+	if err == nil {
+		t.Error("expected error for hostless URL")
+	}
+}
+
+func TestValidateFeedURL_Userinfo_Cov(t *testing.T) {
+	err := validateFeedURL("https://user:pass@feeds.example.com/feed")
+	if err == nil {
+		t.Error("expected error for credential-bearing URL")
+	}
+	if !strings.Contains(err.Error(), "userinfo") {
+		t.Fatalf("feed URL rejected for wrong reason: %v", err)
+	}
+}
+
+func TestValidateFeedURL_NonHTTP_Cov(t *testing.T) {
+	err := validateFeedURL("file:///tmp/feed.jsonl")
+	if err == nil {
+		t.Error("expected error for non-HTTP URL")
+	}
+}
+
 func TestValidateFeedURL_PublicIP_Cov(t *testing.T) {
 	err := validateFeedURL("http://8.8.8.8/feed")
 	if err != nil {
@@ -169,6 +200,20 @@ func TestFeedManager_loadURL_HTTPWarning_Cov(t *testing.T) {
 	}
 	if len(entries) != 1 {
 		t.Errorf("expected 1 entry, got %d", len(entries))
+	}
+}
+
+func TestFeedResponseLimitReaderRejectsTrailingOversize(t *testing.T) {
+	validLine := `{"ip":"1.2.3.4","score":50,"type":"test"}` + "\n"
+	input := validLine + strings.Repeat(" ", 16)
+	fm := NewFeedManager(&FeedConfig{Format: "jsonl"})
+
+	_, err := fm.parseReader(limitFeedResponseReader(strings.NewReader(input), int64(len(validLine))))
+	if err == nil {
+		t.Fatal("expected oversized threat-intel feed response to be rejected")
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("oversized feed rejected with unexpected error: %v", err)
 	}
 }
 
