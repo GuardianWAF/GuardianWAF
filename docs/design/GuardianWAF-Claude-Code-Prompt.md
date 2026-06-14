@@ -530,18 +530,16 @@ Tech stack for dashboard:
 GET    /api/v1/stats              → Dashboard statistics
 GET    /api/v1/events             → Paginated WAF events
 GET    /api/v1/events/:id         → Single event detail
-GET    /api/v1/rules/whitelist    → List whitelist rules
-POST   /api/v1/rules/whitelist    → Add whitelist entry
-DELETE /api/v1/rules/whitelist/:id→ Remove whitelist entry
-GET    /api/v1/rules/blacklist    → List blacklist rules
-POST   /api/v1/rules/blacklist    → Add blacklist entry
-DELETE /api/v1/rules/blacklist/:id→ Remove blacklist entry
-GET    /api/v1/rules/ratelimit    → List rate limit rules
-POST   /api/v1/rules/ratelimit    → Add rate limit rule
-DELETE /api/v1/rules/ratelimit/:id→ Remove rate limit rule
-GET    /api/v1/rules/exclusions   → List detection exclusions
-POST   /api/v1/rules/exclusions   → Add detection exclusion
-DELETE /api/v1/rules/exclusions/:id→ Remove exclusion
+GET    /api/v1/ipacl              → List whitelist and blacklist entries
+POST   /api/v1/ipacl              → Add whitelist or blacklist entry
+DELETE /api/v1/ipacl              → Remove whitelist or blacklist entry
+GET    /api/v1/bans               → List temporary bans
+POST   /api/v1/bans               → Add temporary ban
+DELETE /api/v1/bans               → Remove temporary ban
+GET    /api/v1/rules              → List custom rules
+POST   /api/v1/rules              → Add custom rule
+PUT    /api/v1/rules/{id}         → Update custom rule
+DELETE /api/v1/rules/{id}         → Remove custom rule
 GET    /api/v1/config             → Current configuration
 PUT    /api/v1/config             → Update configuration (hot reload)
 POST   /api/v1/config/reload      → Force configuration reload
@@ -671,6 +669,7 @@ GWAF_UPSTREAM=localhost:8088 GWAF_LISTEN=:9090 guardianwaf sidecar
 
 ### 7.1 Full Configuration Reference
 
+<!-- guardianwaf-config:validate -->
 ```yaml
 # GuardianWAF Configuration
 # All fields shown with defaults
@@ -811,7 +810,7 @@ dashboard:
   enabled: true
   listen: ":9443"
   api_key: ""                        # Generated on first run if empty
-  tls: true                         # Dashboard always served over HTTPS
+  tls: false                        # Dashboard TLS terminates at ingress/reverse proxy
 
 # MCP Server (standalone mode only)
 mcp:

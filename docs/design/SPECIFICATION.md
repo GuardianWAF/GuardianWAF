@@ -170,12 +170,11 @@ Command:  guardianwaf sidecar --upstream localhost:8088
 +---------------------------------------------------------------------+
 ```
 
-### 2.2 Core Engine — 28-Layer Pipeline
+### 2.2 Core Engine — Runtime Pipeline And Planned Orders
 
-Every HTTP request passes through a pipeline. The diagram below shows the 6 primary registered stages (simplified conceptual view — additional stages run between these steps in the full design):
+Every HTTP request passes through a pipeline. The diagram below shows the primary registered runtime stages in simplified form. The full design still reserves orders for additional planned layers, but planned/runtime-absent packages are not production pipeline evidence until their packages exist and are registered.
 
-Currently **28 layers are registered** in the engine pipeline: SIEM(1) through Response(600).
-The full pipeline order is listed below.
+Current registered runtime layers include IP ACL, Threat Intel, CORS, Custom Rules, Rate Limit, ATO Protection, API Security, API Validation, Sanitizer, CRS, Detection, Virtual Patch, DLP, Bot Detection, Client-Side, and Response. Planned layer orders include SIEM(1), Cluster(75), WebSocket frame security(76), gRPC message inspection(78), Canary(95), Cache(140), and Replay(145).
 
 ```
                             REQUEST
@@ -231,40 +230,40 @@ The full pipeline order is listed below.
                               v
                            RESPONSE
 
-Full pipeline order: SIEM(1) → Cluster(75) → WebSocket(76) → gRPC(78) → Canary(95) →
-IP ACL(100) → Threat Intel(125) → Cache(140) → Replay(145) → CORS(150) → Custom Rules(150) →
-Rate Limit(200) → ATO Protection(250) → API Security(275) → API Validation(280) → GraphQL(285) →
-Sanitizer(300) → API Discovery(310) → CRS(350) → Detection(400) → JS Challenge(430) →
-Virtual Patch(450) → ML Anomaly(473) → DLP(475) → AI Remediation(480) →
+Design order, mixing current runtime layers and planned/runtime-absent layer slots: SIEM(1 planned) → Cluster(75 planned) → WebSocket frame security(76 planned) → gRPC message inspection(78 planned) → Canary(95 planned) →
+IP ACL(100) → Threat Intel(125) → Cache(140 planned) → Replay(145 planned) → CORS(150) → Custom Rules(150) →
+Rate Limit(200) → ATO Protection(250) → API Security(275) → API Validation(280) → GraphQL(285 planned) →
+Sanitizer(300) → API Discovery(310 planned) → CRS(350) → Detection(400) → JS Challenge(430) →
+Virtual Patch(450) → ML Anomaly(473 planned) → DLP(475) → AI Remediation(480) →
 Bot Detection(500) → Client-Side(590) → Response(600)
 
-**Full Layer Table (28 layers registered in serve mode):**
+**Layer Table (Current Runtime And Planned Slots):**
 
 | Order | Layer | Description |
 |-------|-------|-------------|
-| 1 | SIEM | Passive event forwarding to SIEM systems (Splunk, ELK, ArcSight) |
-| 75 | Cluster | HTTP gossip + leader election; distributes IP bans across nodes |
-| 76 | WebSocket | WebSocket handshake validation, connection limits |
-| 78 | gRPC | gRPC request validation, method allowlists |
-| 95 | Canary | Canary release routing (% traffic to canary upstream) |
+| 1 | SIEM | Planned passive event forwarding to SIEM systems (Splunk, ELK, ArcSight); no `internal/layers/siem/` runtime package in the current tree |
+| 75 | Cluster | Planned cluster pipeline layer; current dashboard compatibility endpoints are not a registered WAF layer |
+| 76 | WebSocket | Planned frame-security layer; current proxy supports transparent HTTP upgrade forwarding |
+| 78 | gRPC | Planned message-aware inspection; current proxy can forward HTTP/2-compatible gRPC as ordinary HTTP/2 |
+| 95 | Canary | Planned canary routing; no `internal/layers/canary/` runtime package in the current tree |
 | 100 | IP ACL | Radix tree CIDR matching, runtime add/remove, auto-ban |
 | 125 | Threat Intel | IP/domain reputation feeds with LRU cache |
-| 140 | Cache | Response caching (memory/Redis backend) |
-| 145 | Replay | Request/response recording for testing |
+| 140 | Cache | Planned response caching; no `internal/layers/cache/` runtime package in the current tree |
+| 145 | Replay | Planned request/response recording and replay; no `internal/layers/replay/` runtime package in the current tree |
 | 150 | CORS | Origin validation, preflight caching |
 | 150 | Custom Rules | Geo-aware rule engine with dashboard CRUD |
 | 200 | Rate Limit | Token bucket per IP/path, auto-ban |
 | 250 | ATO Protection | Brute force, credential stuffing, password spray, impossible travel |
 | 275 | API Security | JWT validation (RS256/ES256/HS256), API key auth |
 | 280 | API Validation | Request/response schema validation (YAML-defined schemas) |
-| 285 | GraphQL | Query depth/complexity/introspection limits |
+| 285 | GraphQL | Planned query depth/complexity/introspection limits; no `internal/layers/graphql/` runtime package in the current tree |
 | 300 | Sanitizer | Normalize + validate requests |
-| 310 | API Discovery | Passive API endpoint discovery, OpenAPI generation |
+| 310 | API Discovery | Planned passive API endpoint discovery and OpenAPI generation; no `internal/discovery/` or `internal/layers/discovery/` runtime package in the current tree |
 | 350 | CRS | OWASP ModSecurity Core Rule Set parser and executor |
 | 400 | Detection | 6 detectors: sqli, xss, lfi, cmdi, xxe, ssrf (each in own subdirectory) |
 | 430 | JS Challenge | Bot proof-of-work challenge (SHA-256 PoW) |
 | 450 | Virtual Patch | Virtual patching layer |
-| 473 | ML Anomaly | ONNX-based Isolation Forest anomaly detection |
+| 473 | ML Anomaly | Planned ONNX-based Isolation Forest anomaly detection; no `internal/ml/` runtime package in the current tree |
 | 475 | DLP | Data Loss Prevention (credit cards, SSNs, API keys, PII) |
 | 480 | AI Remediation | Generated rules from AI threat analysis verdicts |
 | 500 | Bot Detection | JA3/JA4 TLS fingerprinting, UA, behavioral analysis |
@@ -1077,18 +1076,16 @@ All endpoints require authentication via the `X-API-Key` header or an authentica
 | GET | /api/v1/stats | Dashboard statistics |
 | GET | /api/v1/events | Paginated WAF events |
 | GET | /api/v1/events/:id | Single event detail |
-| GET | /api/v1/rules/whitelist | List whitelist rules |
-| POST | /api/v1/rules/whitelist | Add whitelist entry |
-| DELETE | /api/v1/rules/whitelist/:id | Remove whitelist entry |
-| GET | /api/v1/rules/blacklist | List blacklist rules |
-| POST | /api/v1/rules/blacklist | Add blacklist entry |
-| DELETE | /api/v1/rules/blacklist/:id | Remove blacklist entry |
-| GET | /api/v1/rules/ratelimit | List rate limit rules |
-| POST | /api/v1/rules/ratelimit | Add rate limit rule |
-| DELETE | /api/v1/rules/ratelimit/:id | Remove rate limit rule |
-| GET | /api/v1/rules/exclusions | List detection exclusions |
-| POST | /api/v1/rules/exclusions | Add detection exclusion |
-| DELETE | /api/v1/rules/exclusions/:id | Remove exclusion |
+| GET | /api/v1/ipacl | List whitelist and blacklist entries |
+| POST | /api/v1/ipacl | Add whitelist or blacklist entry |
+| DELETE | /api/v1/ipacl | Remove whitelist or blacklist entry |
+| GET | /api/v1/bans | List temporary bans |
+| POST | /api/v1/bans | Add temporary ban |
+| DELETE | /api/v1/bans | Remove temporary ban |
+| GET | /api/v1/rules | List custom rules |
+| POST | /api/v1/rules | Add custom rule |
+| PUT | /api/v1/rules/{id} | Update custom rule |
+| DELETE | /api/v1/rules/{id} | Remove custom rule |
 | GET | /api/v1/config | Current configuration |
 | PUT | /api/v1/config | Update configuration (hot reload) |
 | POST | /api/v1/config/reload | Force configuration reload |
@@ -1216,6 +1213,7 @@ GWAF_UPSTREAM=localhost:8088 GWAF_LISTEN=:9090 guardianwaf sidecar
 
 Full YAML configuration with every field shown with defaults:
 
+<!-- guardianwaf-config:validate -->
 ```yaml
 # GuardianWAF Configuration — Complete Reference
 
@@ -1356,7 +1354,7 @@ dashboard:
   enabled: true
   listen: ":9443"
   api_key: ""                        # Generated on first run if empty
-  tls: true
+  tls: false                         # Dashboard TLS terminates at ingress/reverse proxy
 
 # MCP Server (standalone mode only)
 mcp:
@@ -1497,19 +1495,19 @@ guardianwaf/
 │   │   └── response/ (response.go, headers.go, masking.go, errorpage.go, response_test.go)
 │   ├── proxy/ (proxy.go, loadbalancer.go, healthcheck.go, circuitbreaker.go, websocket.go, proxy_test.go)
 │   ├── tls/ (manager.go, acme.go, sni.go, tls_test.go)
-│   ├── http3/ (HTTP/3/QUIC support, build with -tags http3, stub otherwise)
+│   ├── http3/ (planned HTTP/3/QUIC runtime package; current http3 tag is CLI/config compatibility only)
 │   ├── dashboard/ (dashboard.go, api.go, sse.go, auth.go, ui/ (React app), dist/ (embedded), dashboard_test.go)
 │   ├── mcp/ (server.go, tools.go, tools_new_features.go, handlers.go, mcp_test.go)
 │   ├── config/ (config.go, yaml.go, yaml_test.go, validate.go, defaults.go)
 │   ├── events/ (store.go, memory.go, file.go, store_test.go)
 │   ├── analytics/ (analytics.go, topk.go, ringbuffer.go, analytics_test.go)
 │   ├── tenant/ (tenant management, isolation, billing, per-tenant rules)
-│   ├── siem/ (SIEM event forwarding — Splunk, ELK, ArcSight)
-│   ├── cluster/ (HTTP gossip + leader election)
-│   ├── clustersync/ (Cross-node state synchronization via gRPC-lite over TCP)
-│   ├── cache/ (Response caching — memory/Redis backend)
-│   ├── replay/ (Request/response recording for testing)
-│   ├── canary/ (Canary release routing)
+│   ├── siem/ (planned SIEM event forwarding — Splunk, ELK, ArcSight; package absent in current tree)
+│   ├── cluster/ (planned cluster runtime package; package absent in current tree)
+│   ├── clustersync/ (planned cross-node state synchronization; package absent in current tree)
+│   ├── cache/ (planned response caching — memory/Redis backend; package absent in current tree)
+│   ├── replay/ (planned request/response recording for testing; package absent in current tree)
+│   ├── canary/ (planned canary release routing; package absent in current tree)
 │   ├── cors/ (CORS origin validation, preflight caching)
 │   ├── crs/ (OWASP ModSecurity Core Rule Set parser and executor)
 │   ├── graphql/ (Query depth/complexity/introspection limits)
@@ -1529,7 +1527,7 @@ guardianwaf/
 │   ├── integrations/ (Third-party integrations)
 │   ├── acme/ (ACME/Let's Encrypt auto-certificate, HTTP-01)
 │   ├── geoip/ (GeoIP database with auto-refresh)
-│   └── layers/zerotrust/ (Zero Trust middleware — in-development, not yet wired)
+│   └── layers/zerotrust/ (planned Zero Trust middleware; package absent in current tree)
 ├── guardianwaf.go
 ├── guardianwaf_test.go
 ├── options.go
