@@ -1,0 +1,28 @@
+# Benign file path references from documentation, uploads, and UI forms
+# These may contain path separators but should not be blocked as LFI.
+
+documents/report.pdf
+images/logo.png
+uploads/avatar.jpg
+static/css/app.css
+static/js/app.js
+assets/icons/search.svg
+downloads/invoice-2026-01.pdf
+templates/email/welcome.html
+config/settings.example.json
+docs/getting-started.md
+README.md
+CHANGELOG.md
+package.json
+go.mod
+src/components/App.tsx
+public/index.html
+var/log/application.log
+home/user/documents/report.pdf
+C:\Users\john\Desktop\file.txt
+C:\Program Files\App\readme.txt
+relative/path/to/file.txt
+./config/settings.json
+../images/logo.png
+folder/../folder/image.png
+backup_2026_01_01.tar.gz

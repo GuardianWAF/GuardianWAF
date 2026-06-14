@@ -1,0 +1,28 @@
+# Benign URL references and fetch-like parameters
+# These look URL-like but should not be treated as SSRF attacks.
+
+https://www.example.com/
+https://api.example.com/v1/users
+https://cdn.example.com/assets/app.js
+https://status.example.com/health
+https://docs.example.com/guide?chapter=urls
+https://files.example.com/download/report.pdf
+https://images.example.com/avatar.png
+https://maps.example.com/search?q=Tallinn
+https://news.example.com/article?id=123
+https://support.example.com/tickets/12345
+http://example.com/public
+http://www.example.org/path/to/resource
+https://subdomain.example.net/callback
+https://webhook.site/example-docs
+https://storage.googleapis.com/example-bucket/object.txt
+https://raw.githubusercontent.com/example/project/main/README.md
+https://registry.npmjs.org/lucide-react
+https://pkg.go.dev/net/http
+https://developer.mozilla.org/en-US/docs/Web/HTTP
+https://owasp.org/www-project-top-ten/
+https://example.com/path?page=1&sort=name
+https://example.com:8443/admin
+https://example.com/%7Euser/profile
+https://user:token@example.com/private
+https://xn--exmple-cua.com/

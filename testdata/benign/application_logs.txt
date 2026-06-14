@@ -1,0 +1,33 @@
+# Realistic benign application/audit log lines. These samples intentionally
+# include SQL-like words, shell vocabulary, URLs, template delimiters, and file
+# paths that should not be blocked when they appear as operational text.
+2026-06-11T09:00:01Z level=info service=checkout msg="SELECT shipping option from carrier menu" user=alice
+2026-06-11T09:00:02Z level=info route=/search query="from Tallinn to Helsinki" status=200 duration_ms=23
+2026-06-11T09:00:03Z level=warn component=backup msg="rsync command disabled in dry-run mode"
+2026-06-11T09:00:04Z level=info component=docs msg="example shows curl -I https://example.com/health"
+2026-06-11T09:00:05Z level=info component=template msg="rendered literal {{ customer.name }} placeholder in help article"
+2026-06-11T09:00:06Z level=info component=report msg="exported file C:\\Reports\\June\\summary.csv"
+2026-06-11T09:00:07Z level=info component=router msg="public callback URL https://hooks.example.com/orders/123 queued"
+2026-06-11T09:00:08Z level=info component=auth msg="role=editor;feature=beta stored in session metadata"
+2026-06-11T09:00:09Z level=info component=inventory msg="WHERE clause builder selected color and size filters"
+2026-06-11T09:00:10Z level=info component=analytics msg="A && B cohort rule evaluated false"
+2026-06-11T09:00:11Z level=info component=analytics msg="A || B cohort rule evaluated true"
+2026-06-11T09:00:12Z level=info component=docs msg="Makefile variable syntax $(VERSION) documented"
+2026-06-11T09:00:13Z level=info component=docs msg="inline backticks `value` preserved in markdown preview"
+2026-06-11T09:00:14Z level=info component=files msg="user opened /docs/reference/../reference/index.html after path normalization"
+2026-06-11T09:00:15Z level=info component=profile msg="homepage set to https://developer.mozilla.org/en-US/docs/Web/HTTP"
+2026-06-11T09:00:16Z level=info component=webhook msg="outbound disabled for preview URL http://example.com/public"
+2026-06-11T09:00:17Z level=info component=orders msg="order by created_at desc requested through safe ORM"
+2026-06-11T09:00:18Z level=info component=jobs msg="pipeline step echo version completed"
+2026-06-11T09:00:19Z level=info component=windows msg="PowerShell setup docs mention Get-Command"
+2026-06-11T09:00:20Z level=info component=terminal msg="PATH=/usr/local/bin shown in support response"
+2026-06-11T09:00:21Z level=info component=forms msg="comment contains percent encoding text %0a but no submitted command"
+2026-06-11T09:00:22Z level=info component=api msg="JSON filter {\"status\":{\"$in\":[\"open\",\"pending\"]}} built by UI"
+2026-06-11T09:00:23Z level=info component=api msg="Mongo docs link references $where but execution is disabled"
+2026-06-11T09:00:24Z level=info component=cdn msg="asset URL https://cdn.example.com/assets/app.js?v=1.2.3 cached"
+2026-06-11T09:00:25Z level=info component=help msg="article says sudo access may be required during installation"
+2026-06-11T09:00:26Z level=info component=download msg="relative path docs/../docs/install.md normalized"
+2026-06-11T09:00:27Z level=info component=xml msg="RSS feed example contains <!CDATA[not an entity declaration]>"
+2026-06-11T09:00:28Z level=info component=search msg="user searched for union membership benefits"
+2026-06-11T09:00:29Z level=info component=search msg="user searched for drop down menu examples"
+2026-06-11T09:00:30Z level=info component=payments msg="masked card **** **** **** 4242 displayed"

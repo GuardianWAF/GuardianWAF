@@ -1,0 +1,28 @@
+# Benign MongoDB/JSON-style filters and documentation examples
+# These may contain operator-like words or braces but should not be blocked.
+
+{"status":"active","role":"editor"}
+{"category":{"name":"books"},"sort":{"created_at":-1}}
+{"filters":[{"field":"price","operator":"lt","value":50}]}
+{"query":{"text":"find products where color equals blue"}}
+{"projection":{"name":1,"email":1,"_id":0}}
+{"options":{"limit":25,"skip":0}}
+{"metadata":{"source":"admin panel","version":"1.2.3"}}
+{"tags":{"all":["security","waf","docs"]}}
+{"user":{"profile":{"timezone":"Europe/Tallinn"}}}
+{"search":{"contains":"where clause examples"}}
+{"conditions":[{"field":"age","op":">=","value":18}]}
+{"audit":{"event":"update","actor":"support"}}
+{"preferences":{"newsletter":false,"beta":true}}
+{"range":{"start":"2026-01-01","end":"2026-01-31"}}
+{"pipeline":[{"stage":"match active users"},{"stage":"sort by date"}]}
+{"lookup":{"collection":"orders","localField":"user_id"}}
+{"dashboard":{"widgets":["traffic","events","latency"]}}
+{"facet":{"summary":["count by status"]}}
+{"form":{"name":"MongoDB query builder","mode":"visual"}}
+{"notes":"Use $ symbol only in documentation examples"}
+{"cost":{"currency":"USD","amount":{"min":10,"max":100}}}
+{"inventory":{"sku":"GWAF-001","stock":42}}
+{"owner":{"email":"security@example.com"}}
+{"labels":{"environment":"production","team":"platform"}}
+{"comment":"operator equals is selected from dropdown"}

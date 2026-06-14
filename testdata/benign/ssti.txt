@@ -1,0 +1,28 @@
+# Benign template-style text, documentation, and placeholders
+# These may contain braces or variable names but should not be blocked.
+
+Hello {{ user_name }}
+Dear {{ first_name }} {{ last_name }}
+Invoice total: {{ total_amount }}
+Order {{ order_id }} was shipped
+Use {name} in the email subject
+The expression {{ count }} appears in docs
+Template variable: {{ app.version }}
+Set title to {{ page.title }}
+Markdown sample: `{{ value }}`
+Handlebars example without executable expressions
+Jinja variable docs: {{ customer.email }}
+Terraform variable syntax ${var.region}
+Shell docs mention ${HOME}
+React text contains {children}
+CSS rule body uses { color: red; }
+JSON object example {"name":"example"}
+Translation key {{ t.common.save }}
+Mustache section {{#items}} item {{/items}}
+Liquid docs show {{ product.title }}
+Email footer {{ company.address }}
+Kubernetes manifest uses ${IMAGE_TAG}
+Go template docs mention {{ .Name }}
+Helm chart value {{ .Values.replicaCount }}
+Placeholder ${API_BASE_URL}
+Brace math example: set A = {1, 2, 3}

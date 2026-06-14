@@ -1,0 +1,28 @@
+# Benign command-like text, docs, and code snippets
+# These may mention commands or shell syntax without requesting execution.
+
+Run `go test ./...` before opening a pull request
+Use `npm run build` for the website
+The docs mention curl for manual testing
+Click the ls icon in the file browser
+The word id appears in user_id fields
+whoami is used as an example command in tutorials
+cat pictures are common on the internet
+This paragraph says ping times are high
+The form value is name=alice;role=editor
+Use A && B in boolean algebra examples
+The operator A || B means logical OR
+Markdown code: `{{ value }}`
+JSON example: {"command":"list","args":["safe"]}
+Shell docs show PATH=/usr/local/bin
+Use echo in documentation examples
+The text says bash scripts are supported
+This is not a command: rm is just two letters
+The phrase sudo access is documented
+PowerShell is mentioned in Windows setup docs
+Command palette opens with Ctrl+Shift+P
+Pipe character | separates table columns
+Semicolon ; separates clauses in prose
+Backticks `inline code` are Markdown delimiters
+Use $(VARIABLE) syntax in Makefile documentation
+The string %0a appears in URL encoding docs
