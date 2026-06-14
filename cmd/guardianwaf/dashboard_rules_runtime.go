@@ -11,13 +11,13 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/layers/rules"
 )
 
-func wireDashboardRules(dash *dashboard.Dashboard, cfg *config.Config, eng *engine.Engine) {
+func wireDashboardRules(dash *dashboard.Dashboard, cfg *config.Config, eng *engine.Engine, runtimeResources *layerRuntimeResources) {
 	if dash == nil {
 		return
 	}
 
 	rLayer := dashboardRulesLayer(eng)
-	gDB := dashboardGeoIPDB(cfg, eng)
+	gDB := dashboardGeoIPDB(cfg, eng, runtimeResources)
 
 	dash.SetRulesFns(
 		func() any { return rLayer.Rules() },
@@ -56,11 +56,12 @@ func dashboardRulesLayer(eng *engine.Engine) *rules.Layer {
 	return rLayer
 }
 
-func dashboardGeoIPDB(cfg *config.Config, eng *engine.Engine) *geoip.DB {
+func dashboardGeoIPDB(cfg *config.Config, eng *engine.Engine, runtimeResources *layerRuntimeResources) *geoip.DB {
 	if !cfg.WAF.GeoIP.Enabled {
 		return nil
 	}
-	gDB, _ := loadGeoIP(cfg, eng)
+	gDB, refresh := loadGeoIPRuntime(cfg, eng)
+	runtimeResources.addGeoIPRefresh(refresh)
 	if gDB == nil {
 		return nil
 	}

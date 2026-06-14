@@ -30,6 +30,8 @@ func (a *tenantManagerAdapter) CreateTenant(name, description string, domains []
 	var tQuota *tenant.ResourceQuota
 	if q, ok := quota.(*tenant.ResourceQuota); ok {
 		tQuota = q
+	} else if q, ok := quotaFromAny(quota); ok {
+		tQuota = q
 	}
 	return a.mgr.CreateTenant(name, description, domains, tQuota)
 }
@@ -46,12 +48,86 @@ func (a *tenantManagerAdapter) UpdateTenant(id string, update any) error {
 		if v, ok := m["description"].(string); ok {
 			tu.Description = v
 		}
-		if v, ok := m["domains"].([]string); ok {
+		if v, ok := stringSlice(m["domains"]); ok {
 			tu.Domains = v
+		}
+		if v, ok := m["active"].(bool); ok {
+			tu.Active = &v
+		} else if v, ok := m["enabled"].(bool); ok {
+			tu.Active = &v
+		}
+		if q, ok := quotaFromAny(m["quota"]); ok {
+			tu.Quota = q
 		}
 		return a.mgr.UpdateTenant(id, tu)
 	}
 	return fmt.Errorf("unsupported update type")
+}
+
+func stringSlice(v any) ([]string, bool) {
+	switch typed := v.(type) {
+	case []string:
+		return typed, true
+	case []any:
+		out := make([]string, 0, len(typed))
+		for _, item := range typed {
+			s, ok := item.(string)
+			if !ok {
+				return nil, false
+			}
+			out = append(out, s)
+		}
+		return out, true
+	default:
+		return nil, false
+	}
+}
+
+func quotaFromAny(v any) (*tenant.ResourceQuota, bool) {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	q := tenant.DefaultQuota()
+	if value, ok := int64Field(m, "max_requests_per_minute"); ok {
+		q.MaxRequestsPerMinute = value
+	}
+	if value, ok := int64Field(m, "max_requests_per_hour"); ok {
+		q.MaxRequestsPerHour = value
+	}
+	if value, ok := intField(m, "max_bandwidth_mbps"); ok {
+		q.MaxBandwidthMbps = value
+	}
+	if value, ok := intField(m, "max_rules"); ok {
+		q.MaxRules = value
+	}
+	if value, ok := intField(m, "max_rate_limit_rules"); ok {
+		q.MaxRateLimitRules = value
+	}
+	if value, ok := intField(m, "max_ip_acls"); ok {
+		q.MaxIPACLs = value
+	}
+	return &q, true
+}
+
+func intField(m map[string]any, key string) (int, bool) {
+	switch v := m[key].(type) {
+	case float64:
+		return int(v), true
+	case int:
+		return v, true
+	case int64:
+		return int(v), true
+	default:
+		return 0, false
+	}
+}
+
+func int64Field(m map[string]any, key string) (int64, bool) {
+	if v, ok := intField(m, key); ok {
+		return int64(v), true
+	}
+	return 0, false
 }
 
 func (a *tenantManagerAdapter) DeleteTenant(id string) error {

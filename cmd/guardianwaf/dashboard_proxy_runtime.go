@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"reflect"
 	"sync"
 	"sync/atomic"
 
@@ -32,7 +33,7 @@ func wireDashboardProxyControls(
 	}
 
 	wireDashboardUpstreamStatus(dash, *proxyRouter)
-	if diskStore != nil {
+	if diskStore != nil && !isNilCertStatusProvider(diskStore) {
 		dash.SetCertFn(func() any {
 			return diskStore.CertStatus()
 		})
@@ -40,11 +41,14 @@ func wireDashboardProxyControls(
 
 	dash.SetRoutingController(dashboard.RoutingControllerFuncs{
 		RebuildFn: func() error {
-			newHandler, newHealthCheckers := buildReverseProxy(cfg)
+			currentCfg := eng.Config()
+			newHandler, newHealthCheckers := buildReverseProxy(currentCfg)
 			newRouter, _ := newHandler.(*proxy.Router)
+			var oldRouter *proxy.Router
 			var oldHealthCheckers []*proxy.HealthChecker
 
 			proxyRuntimeMu.Lock()
+			oldRouter = *proxyRouter
 			oldHealthCheckers = *proxyHealthCheckers
 			*proxyRouter = newRouter
 			*proxyHealthCheckers = newHealthCheckers
@@ -53,6 +57,7 @@ func wireDashboardProxyControls(
 			wireDashboardUpstreamStatus(dash, newRouter)
 			upstreamHandler.Store(eng.Middleware(newHandler))
 			stopHealthCheckers(oldHealthCheckers)
+			closeProxyRouter(oldRouter)
 			return nil
 		},
 		SaveFn: func() error {
@@ -61,6 +66,16 @@ func wireDashboardProxyControls(
 			return config.SaveFile(cfgPath, c)
 		},
 	})
+}
+
+func isNilCertStatusProvider(provider certStatusProvider) bool {
+	v := reflect.ValueOf(provider)
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return v.IsNil()
+	default:
+		return false
+	}
 }
 
 func wireDashboardUpstreamStatus(dash *dashboard.Dashboard, router *proxy.Router) {
