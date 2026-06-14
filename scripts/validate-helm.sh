@@ -124,6 +124,8 @@ autoscaling:
 podDisruptionBudget:
   enabled: true
   minAvailable: 1
+networkPolicy:
+  enabled: true
 istio:
   enabled: true
   virtualService:

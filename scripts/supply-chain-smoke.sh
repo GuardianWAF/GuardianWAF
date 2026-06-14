@@ -6,6 +6,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE_NAME="${SUPPLY_CHAIN_IMAGE:-guardianwaf:supply-chain-smoke}"
 SYFT_IMAGE="${SYFT_IMAGE:-anchore/syft:v1.38.0}"
 TRIVY_IMAGE="${TRIVY_IMAGE:-aquasec/trivy:0.68.1}"
+OUT_DIR="${SUPPLY_CHAIN_OUT_DIR:-}"
 TMPDIR="$(mktemp -d)"
 
 cleanup() {
@@ -19,6 +20,10 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 
 cd "${ROOT_DIR}"
+
+if [ -n "${OUT_DIR}" ]; then
+    mkdir -p "${OUT_DIR}"
+fi
 
 echo "Building ${IMAGE_NAME}..."
 docker build -t "${IMAGE_NAME}" .
@@ -39,6 +44,10 @@ if ! grep -q '"spdxVersion"' "${TMPDIR}/sbom.spdx.json"; then
     echo "SBOM does not look like SPDX JSON" >&2
     exit 1
 fi
+if [ -n "${OUT_DIR}" ]; then
+    cp "${TMPDIR}/sbom.spdx.json" "${OUT_DIR}/sbom.spdx.json"
+    docker image inspect "${IMAGE_NAME}" >"${OUT_DIR}/image-inspect.json"
+fi
 
 echo "Scanning image for HIGH/CRITICAL vulnerabilities..."
 docker run --rm \
@@ -47,6 +56,9 @@ docker run --rm \
     --severity HIGH,CRITICAL \
     --exit-code 1 \
     --no-progress \
-    "${IMAGE_NAME}"
+    "${IMAGE_NAME}" | tee "${TMPDIR}/trivy.txt"
+if [ -n "${OUT_DIR}" ]; then
+    cp "${TMPDIR}/trivy.txt" "${OUT_DIR}/trivy.txt"
+fi
 
 echo "Supply-chain smoke passed"

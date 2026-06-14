@@ -34,7 +34,25 @@ section() {
 # --- Setup ---
 BINARY="${1:-}"
 TMPDIR="$(mktemp -d)"
-trap 'rm -rf "$TMPDIR"' EXIT
+SERVER_PID=""
+BACKEND_PID=""
+SIDECAR_PID=""
+
+kill_process() {
+    local pid="$1"
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+        kill -TERM "$pid" 2>/dev/null || true
+        wait "$pid" 2>/dev/null || true
+    fi
+}
+
+cleanup() {
+    kill_process "$SIDECAR_PID"
+    kill_process "$BACKEND_PID"
+    kill_process "$SERVER_PID"
+    rm -rf "$TMPDIR"
+}
+trap cleanup EXIT
 
 if [ -z "$BINARY" ]; then
     section "Building binary"
@@ -102,7 +120,11 @@ waf:
     data_masking:
       enabled: true
 dashboard:
-  enabled: false
+  enabled: true
+  listen: ":19444"
+  api_key: "smoke-test-api-key-1234567890"
+  admin_key: ""
+  tls: false
 mcp:
   enabled: false
 events:
@@ -262,9 +284,143 @@ else
     fail "serve attack test" "no response"
 fi
 
+# Dashboard health/auth smoke
+DASHBOARD_URL="http://127.0.0.1:19444"
+DASH_READY=0
+for _ in 1 2 3 4 5; do
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$DASHBOARD_URL/api/v1/health" 2>/dev/null) || HTTP_CODE="000"
+    if [ "$HTTP_CODE" = "200" ]; then
+        DASH_READY=1
+        break
+    fi
+    sleep 1
+done
+if [ "$DASH_READY" = "1" ]; then
+    pass "dashboard health /api/v1/health returns 200"
+else
+    fail "dashboard health /api/v1/health" "got $HTTP_CODE"
+fi
+
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$DASHBOARD_URL/api/v1/stats" 2>/dev/null) || HTTP_CODE="000"
+if [ "$HTTP_CODE" = "401" ]; then
+    pass "dashboard stats rejects missing API key"
+else
+    fail "dashboard stats unauthenticated" "expected 401, got $HTTP_CODE"
+fi
+
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -H "X-API-Key: smoke-test-api-key-1234567890" "$DASHBOARD_URL/api/v1/stats" 2>/dev/null) || HTTP_CODE="000"
+if [ "$HTTP_CODE" = "200" ]; then
+    pass "dashboard stats accepts configured API key"
+else
+    fail "dashboard stats authenticated" "expected 200, got $HTTP_CODE"
+fi
+
 # Graceful shutdown
 kill -TERM "$SERVER_PID" 2>/dev/null && wait "$SERVER_PID" 2>/dev/null || true
+SERVER_PID=""
 pass "serve graceful shutdown"
+
+# --- 7. Sidecar startup/proxy/shutdown ---
+section "Sidecar Lifecycle"
+
+BACKEND_PORT=19081
+SIDECAR_PORT=19082
+BACKEND_SRC="$TMPDIR/backend.go"
+cat > "$BACKEND_SRC" <<'GO'
+package main
+
+import (
+	"fmt"
+	"net/http"
+	"os"
+)
+
+func main() {
+	addr := os.Args[1]
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintln(w, "ok")
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = fmt.Fprintf(w, "smoke-backend %s\n", r.URL.Path)
+	})
+	if err := http.ListenAndServe(addr, mux); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+GO
+
+go run "$BACKEND_SRC" "127.0.0.1:$BACKEND_PORT" &
+BACKEND_PID=$!
+
+BACKEND_READY=0
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$BACKEND_PORT/healthz" 2>/dev/null) || HTTP_CODE="000"
+    if [ "$HTTP_CODE" = "200" ]; then
+        BACKEND_READY=1
+        break
+    fi
+    sleep 1
+done
+if [ "$BACKEND_READY" = "1" ]; then
+    pass "sidecar smoke backend starts"
+else
+    fail "sidecar smoke backend" "got $HTTP_CODE"
+fi
+
+GWAF_ALLOW_PRIVATE_UPSTREAMS=true "$BINARY" sidecar \
+    --listen "127.0.0.1:$SIDECAR_PORT" \
+    --upstream "http://127.0.0.1:$BACKEND_PORT" &
+SIDECAR_PID=$!
+
+SIDECAR_READY=0
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$SIDECAR_PORT/healthz" 2>/dev/null) || HTTP_CODE="000"
+    if [ "$HTTP_CODE" = "200" ]; then
+        SIDECAR_READY=1
+        break
+    fi
+    sleep 1
+done
+if [ "$SIDECAR_READY" = "1" ]; then
+    pass "sidecar starts and responds"
+else
+    fail "sidecar startup" "got $HTTP_CODE"
+fi
+
+for PROBE in livez readyz healthz; do
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$SIDECAR_PORT/$PROBE" 2>/dev/null) || HTTP_CODE="000"
+    if [ "$HTTP_CODE" = "200" ]; then
+        pass "sidecar probe /$PROBE returns 200"
+    else
+        fail "sidecar probe /$PROBE" "got $HTTP_CODE"
+    fi
+done
+
+BODY=$(curl -s "http://127.0.0.1:$SIDECAR_PORT/hello" -H "User-Agent: Mozilla/5.0 Chrome/120.0" 2>/dev/null || true)
+if echo "$BODY" | grep -q "smoke-backend /hello"; then
+    pass "sidecar proxies clean request to backend"
+else
+    fail "sidecar proxy clean request" "unexpected body: $BODY"
+fi
+
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$SIDECAR_PORT/search?q=%27+OR+1%3D1--" -H "User-Agent: Mozilla/5.0 Chrome/120.0" 2>/dev/null) || HTTP_CODE="000"
+if [ "$HTTP_CODE" = "403" ]; then
+    pass "sidecar blocks SQLi attack (HTTP 403)"
+else
+    fail "sidecar SQLi block" "got $HTTP_CODE"
+fi
+
+kill -TERM "$SIDECAR_PID" 2>/dev/null && wait "$SIDECAR_PID" 2>/dev/null || true
+SIDECAR_PID=""
+pass "sidecar graceful shutdown"
+
+kill -TERM "$BACKEND_PID" 2>/dev/null && wait "$BACKEND_PID" 2>/dev/null || true
+BACKEND_PID=""
+pass "sidecar smoke backend shutdown"
 
 # --- Summary ---
 echo -e "\n${YELLOW}=== Summary ===${NC}"

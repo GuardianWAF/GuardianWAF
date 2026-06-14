@@ -20,6 +20,7 @@ BIN="${TMPDIR}/guardianwaf"
 CONFIG="${TMPDIR}/guardianwaf.yaml"
 LOG="${TMPDIR}/guardianwaf.log"
 API_KEY="${DASHBOARD_E2E_API_KEY:-dashboard-e2e-secret}"
+ADMIN_KEY="${DASHBOARD_E2E_ADMIN_KEY:-dashboard-e2e-admin-secret}"
 BASE_URL="${DASHBOARD_E2E_BASE_URL:-http://127.0.0.1:19443}"
 
 "${ROOT_DIR}/scripts/build-dashboard.sh"
@@ -32,6 +33,7 @@ dashboard:
   enabled: true
   listen: ":19443"
   api_key: "${API_KEY}"
+  admin_key: "${ADMIN_KEY}"
   tls: false
 mcp:
   enabled: false
@@ -66,5 +68,5 @@ curl -fsS "${BASE_URL}/api/v1/health" >/dev/null
       fi
     done
   fi
-  DASHBOARD_E2E_BASE_URL="${BASE_URL}" DASHBOARD_E2E_API_KEY="${API_KEY}" npm run test:e2e
+  DASHBOARD_E2E_BASE_URL="${BASE_URL}" DASHBOARD_E2E_API_KEY="${API_KEY}" DASHBOARD_E2E_ADMIN_KEY="${ADMIN_KEY}" E2E_ADMIN_KEY="${ADMIN_KEY}" npm run test:e2e
 )

@@ -5,14 +5,17 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
-	"math/rand"
+	"math/big"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -42,6 +45,25 @@ var (
 	payloads []AttackPayload
 	client   *http.Client
 )
+
+func secureIntn(n int) int {
+	if n <= 0 {
+		return 0
+	}
+	value, err := rand.Int(rand.Reader, big.NewInt(int64(n)))
+	if err != nil {
+		return int(time.Now().UnixNano() % int64(n))
+	}
+	return int(value.Int64())
+}
+
+func secureSessionID() string {
+	var buf [16]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		return fmt.Sprintf("sess_%d", time.Now().UnixNano())
+	}
+	return fmt.Sprintf("sess_%x", buf[:])
+}
 
 func main() {
 	target := flag.String("target", "http://localhost:8088", "Target WAF URL")
@@ -135,7 +157,12 @@ func main() {
 }
 
 func loadPayloads(filename string) error {
-	data, err := os.ReadFile(filename)
+	cleanPath, err := cleanAttackPayloadPath(filename)
+	if err != nil {
+		return err
+	}
+
+	data, err := os.ReadFile(cleanPath) // #nosec G304 -- payload file is an operator-selected local simulation input, rejected on NUL and cleaned before use.
 	if err != nil {
 		return err
 	}
@@ -168,6 +195,16 @@ func loadPayloads(filename string) error {
 	}
 
 	return nil
+}
+
+func cleanAttackPayloadPath(filename string) (string, error) {
+	if strings.ContainsRune(filename, 0) {
+		return "", fmt.Errorf("attack payload path contains NUL byte")
+	}
+	if filename == "" {
+		return "", fmt.Errorf("attack payload path must not be empty")
+	}
+	return filepath.Clean(filename), nil
 }
 
 func runWorker(workerID int, target string, rate int, legitRatio int, mode string, stopCh <-chan struct{}) {
@@ -217,7 +254,7 @@ func generateAttackRequest(target string) *http.Request {
 		return nil
 	}
 
-	payload := payloads[rand.Intn(len(payloads))]
+	payload := payloads[secureIntn(len(payloads))]
 	method := "GET"
 	path := "/"
 
@@ -271,15 +308,21 @@ func generateLegitimateRequest(target string) *http.Request {
 		"/static/css/style.css",
 	}
 
-	path := paths[rand.Intn(len(paths))]
+	path := paths[secureIntn(len(paths))]
 	req, _ := http.NewRequestWithContext(context.Background(), "GET", target+path, http.NoBody)
 	addBrowserHeaders(req)
 
 	// Sometimes add session cookie
-	if rand.Intn(10) > 3 {
+	if secureIntn(10) > 3 {
+		// #nosec G124 -- this is an outbound simulation cookie; Secure follows the
+		// target URL scheme so local HTTP test targets keep receiving the cookie.
 		req.AddCookie(&http.Cookie{
-			Name:  "session",
-			Value: fmt.Sprintf("sess_%d_%d", time.Now().Unix(), rand.Int63()),
+			Name:     "session",
+			Value:    secureSessionID(),
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   req.URL.Scheme == "https",
+			SameSite: http.SameSiteLaxMode,
 		})
 	}
 
@@ -305,7 +348,7 @@ func generateCredentialStuffingRequest(target string) *http.Request {
 		"admin@company.com", "test@example.org", "john.doe@email.com",
 	}
 	data := url.Values{}
-	data.Set("email", emails[rand.Intn(len(emails))])
+	data.Set("email", emails[secureIntn(len(emails))])
 	data.Set("password", "password123")
 
 	req, _ := http.NewRequestWithContext(context.Background(), "POST", target+"/login", bytes.NewBufferString(data.Encode()))
@@ -321,7 +364,7 @@ func addBrowserHeaders(req *http.Request) {
 		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
 	}
 
-	req.Header.Set("User-Agent", userAgents[rand.Intn(len(userAgents))])
+	req.Header.Set("User-Agent", userAgents[secureIntn(len(userAgents))])
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
 	req.Header.Set("Accept-Language", "en-US,en;q=0.5")
 	req.Header.Set("Accept-Encoding", "gzip, deflate")

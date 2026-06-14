@@ -10,7 +10,8 @@ DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 LDFLAGS="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}"
 OUTDIR="${ROOT_DIR}/dist"
 
-"${ROOT_DIR}/scripts/build-dashboard.sh"
+"${ROOT_DIR}/scripts/check-prereqs.sh"
+GWAF_SKIP_PREREQ_CHECK=1 "${ROOT_DIR}/scripts/build-dashboard.sh"
 
 mkdir -p "${OUTDIR}"
 rm -f "${OUTDIR}"/guardianwaf-* "${OUTDIR}/checksums.txt"
