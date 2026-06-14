@@ -4,11 +4,9 @@ on:
   push:
     tags: ['v*']
 
-# Scope permissions per job, least privilege principle
+# Default token scope is read-only; release jobs opt in to write/OIDC scopes.
 permissions:
-  contents: write
-  packages: write
-  id-token: write
+  contents: read
 
 # Prevent concurrent releases
 concurrency:
@@ -17,6 +15,8 @@ concurrency:
 
 jobs:
   goreleaser:
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -60,6 +60,10 @@ jobs:
 
   docker:
     needs: goreleaser
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4

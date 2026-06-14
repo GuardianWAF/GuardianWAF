@@ -14,6 +14,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Default token scope is read-only; jobs opt in to additional scopes as needed.
+permissions:
+  contents: read
+
 jobs:
   # All third-party actions are pinned to commit SHA to prevent supply chain attacks
   build-dashboard:
