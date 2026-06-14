@@ -42,27 +42,16 @@ tags:
     description: Webhook and email alerting
   - name: Docker
     description: Docker auto-discovery
+  - name: Compliance
+    description: Compliance controls, reports, and audit chain
   - name: Analytics
     description: Traffic analytics and reporting
+  - name: Cluster
+    description: Cluster status and synchronization metadata
   - name: Tenants
     description: Multi-tenant administration
   - name: SSL
     description: SSL certificate status
-
-components:
-  securitySchemes:
-    ApiKeyAuth:
-      type: apiKey
-      in: header
-      name: X-API-Key
-    SessionAuth:
-      type: apiKey
-      in: cookie
-      name: gwaf_session
-    AdminKeyAuth:
-      type: apiKey
-      in: header
-      name: X-Admin-Key
 
 paths:
   # ── Auth ──────────────────────────────────────────────
@@ -125,6 +114,15 @@ paths:
                   eventStore:
                     type: boolean
 
+  /health:
+    get:
+      tags: [Health]
+      summary: Public dashboard health check
+      security: []
+      responses:
+        '200':
+          description: JSON status summary
+
   /healthz:
     get:
       tags: [Health]
@@ -152,7 +150,7 @@ paths:
         '200':
           description: Ready to receive traffic
         '503':
-          description: One or more configured upstream groups has zero healthy targets
+          description: One or more required runtime dependency is not ready, such as configured upstream groups, dashboard listener startup, router construction, event storage, or mandatory GeoIP data.
 
   /metrics:
     get:
@@ -164,6 +162,26 @@ paths:
           description: Prometheus text format metrics
           content:
             text/plain: {}
+
+  /api/v1/version:
+    get:
+      tags: [Health]
+      summary: Build version information
+      security: []
+      responses:
+        '200':
+          description: Version, commit, and build date
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version:
+                    type: string
+                  commit:
+                    type: string
+                  date:
+                    type: string
 
   # ── Stats ─────────────────────────────────────────────
   /api/v1/stats:
@@ -187,6 +205,8 @@ paths:
                   logged_requests:
                     type: integer
                   passed_requests:
+                    type: integer
+                  event_store_errors:
                     type: integer
                   avg_latency_us:
                     type: integer
@@ -263,9 +283,18 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/WafEvent'
+                type: object
+                properties:
+                  events:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WafEvent'
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
 
   /api/v1/events/export:
     get:
@@ -312,6 +341,16 @@ paths:
           content:
             text/event-stream: {}
 
+  /api/v1/events/stream:
+    get:
+      tags: [Events]
+      summary: Server-Sent Events stream compatibility alias
+      responses:
+        '200':
+          description: SSE stream of real-time events
+          content:
+            text/event-stream: {}
+
   # ── Config ────────────────────────────────────────────
   /api/v1/config:
     get:
@@ -323,21 +362,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  mode:
-                    type: string
-                    enum: [enforce, monitor, disabled]
-                  tls:
-                    type: object
-                  waf:
-                    type: object
-                  docker:
-                    type: object
-                  ai_analysis:
-                    type: object
-                  alerting:
-                    type: object
+                $ref: '#/components/schemas/WafConfigResponse'
     put:
       tags: [Config]
       summary: Update WAF configuration
@@ -350,8 +375,75 @@ paths:
       responses:
         '200':
           description: Configuration updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResult'
         '400':
           description: Invalid configuration
+
+  /api/v1/config/reload:
+    post:
+      tags: [Config]
+      summary: Reload the current WAF configuration
+      responses:
+        '200':
+          description: Configuration reloaded
+        '500':
+          description: Reload failed
+
+  /api/v1/config/ratelimit:
+    get:
+      tags: [Config]
+      summary: Get rate-limit configuration
+      responses:
+        '200':
+          description: Current rate-limit configuration
+    put:
+      tags: [Config]
+      summary: Update rate-limit configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+                default_limit:
+                  type: integer
+                window:
+                  type: string
+                  example: 1m
+                burst:
+                  type: integer
+                action:
+                  type: string
+                  enum: [block, log]
+      responses:
+        '200':
+          description: Rate-limit configuration updated
+
+  /api/v1/config/bot:
+    get:
+      tags: [Config]
+      summary: Get bot detection configuration
+      responses:
+        '200':
+          description: Current bot detection configuration
+    put:
+      tags: [Config]
+      summary: Update bot detection configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Bot detection configuration updated
 
   # ── Routing ───────────────────────────────────────────
   /api/v1/routing:
@@ -364,20 +456,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  upstreams:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/UpstreamConfig'
-                  virtual_hosts:
-                    type: array
-                    items:
-                      type: object
-                  routes:
-                    type: array
-                    items:
-                      type: object
+                $ref: '#/components/schemas/RoutingConfig'
     put:
       tags: [Routing]
       summary: Update routing and rebuild proxy
@@ -390,6 +469,10 @@ paths:
       responses:
         '200':
           description: Routing updated and proxy rebuilt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResult'
 
   /api/v1/upstreams:
     get:
@@ -412,6 +495,50 @@ paths:
       responses:
         '200':
           description: SSL certificate information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SSLStatus'
+
+  /api/v1/ssl/certificates:
+    post:
+      tags: [SSL]
+      summary: Upload a certificate compatibility endpoint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, cert, key]
+              properties:
+                name:
+                  type: string
+                cert:
+                  type: string
+                  description: Base64-encoded PEM certificate
+                key:
+                  type: string
+                  description: Base64-encoded PEM private key
+      responses:
+        '400':
+          description: Invalid certificate payload
+        '501':
+          description: Certificate storage backend is not configured
+
+  /api/v1/ssl/certificates/{name}:
+    delete:
+      tags: [SSL]
+      summary: Delete a certificate compatibility endpoint
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '404':
+          description: Certificate not found
 
   # ── IP ACL ────────────────────────────────────────────
   /api/v1/ipacl:
@@ -421,6 +548,10 @@ paths:
       responses:
         '200':
           description: IP ACL entries
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IPACLResponse'
     post:
       tags: [IP ACL]
       summary: Add IP to list
@@ -440,6 +571,10 @@ paths:
       responses:
         '200':
           description: IP added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResult'
     delete:
       tags: [IP ACL]
       summary: Remove IP from list
@@ -459,6 +594,10 @@ paths:
       responses:
         '200':
           description: IP removed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResult'
 
   # ── Bans ──────────────────────────────────────────────
   /api/v1/bans:
@@ -468,6 +607,15 @@ paths:
       responses:
         '200':
           description: List of bans
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bans:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BanEntry'
     post:
       tags: [Bans]
       summary: Add temporary IP ban
@@ -489,6 +637,10 @@ paths:
       responses:
         '200':
           description: Ban added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResult'
     delete:
       tags: [Bans]
       summary: Remove temporary ban
@@ -505,6 +657,10 @@ paths:
       responses:
         '200':
           description: Ban removed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResult'
 
   # ── Rules ─────────────────────────────────────────────
   /api/v1/rules:
@@ -535,6 +691,10 @@ paths:
       responses:
         '200':
           description: Rule created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResult'
 
   /api/v1/rules/{id}:
     put:
@@ -555,6 +715,10 @@ paths:
       responses:
         '200':
           description: Rule updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResult'
     delete:
       tags: [Rules]
       summary: Delete a rule
@@ -567,6 +731,10 @@ paths:
       responses:
         '200':
           description: Rule deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResult'
 
   # ── GeoIP ─────────────────────────────────────────────
   /api/v1/geoip/lookup:
@@ -582,6 +750,30 @@ paths:
       responses:
         '200':
           description: GeoIP lookup result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeoIPResult'
+    post:
+      tags: [Health]
+      summary: Look up country for IP from a JSON body
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ip]
+              properties:
+                ip:
+                  type: string
+      responses:
+        '200':
+          description: GeoIP lookup result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeoIPResult'
 
   # ── Logs ──────────────────────────────────────────────
   /api/v1/logs:
@@ -602,6 +794,26 @@ paths:
       responses:
         '200':
           description: Log entries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  logs:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        time:
+                          type: string
+                          format: date-time
+                        level:
+                          type: string
+                          enum: [debug, info, warn, error]
+                        message:
+                          type: string
+                  total:
+                    type: integer
 
   # ── AI ────────────────────────────────────────────────
   /api/v1/ai/providers:
@@ -611,6 +823,15 @@ paths:
       responses:
         '200':
           description: Provider catalog from models.dev
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  providers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AIProviderSummary'
 
   /api/v1/ai/config:
     get:
@@ -619,6 +840,10 @@ paths:
       responses:
         '200':
           description: Current AI config (masked API key)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIConfig'
     put:
       tags: [AI]
       summary: Set AI configuration
@@ -640,6 +865,10 @@ paths:
       responses:
         '200':
           description: AI config updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResult'
 
   /api/v1/ai/history:
     get:
@@ -654,6 +883,15 @@ paths:
       responses:
         '200':
           description: Analysis results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  history:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AIAnalysisResult'
 
   /api/v1/ai/stats:
     get:
@@ -662,6 +900,10 @@ paths:
       responses:
         '200':
           description: Token usage, request counts, cost
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIStats'
 
   /api/v1/ai/analyze:
     post:
@@ -676,6 +918,10 @@ paths:
       responses:
         '200':
           description: Analysis triggered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIAnalysisResult'
 
   /api/v1/ai/test:
     post:
@@ -684,6 +930,15 @@ paths:
       responses:
         '200':
           description: Connection test result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  message:
+                    type: string
 
   # ── Alerting ──────────────────────────────────────────
   /api/v1/alerting/status:
@@ -693,6 +948,10 @@ paths:
       responses:
         '200':
           description: Alerting status with webhook/email counts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertingStatusResponse'
 
   /api/v1/alerting/webhooks:
     get:
@@ -701,6 +960,15 @@ paths:
       responses:
         '200':
           description: List of configured webhooks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  webhooks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WebhookTarget'
     post:
       tags: [Alerting]
       summary: Add a webhook
@@ -730,6 +998,10 @@ paths:
       responses:
         '200':
           description: Webhook added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResult'
 
   /api/v1/alerting/webhooks/{name}:
     delete:
@@ -744,6 +1016,10 @@ paths:
       responses:
         '200':
           description: Webhook deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResult'
 
   /api/v1/alerting/emails:
     get:
@@ -752,6 +1028,15 @@ paths:
       responses:
         '200':
           description: List of email targets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  emails:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/EmailTarget'
     post:
       tags: [Alerting]
       summary: Add email target
@@ -776,6 +1061,10 @@ paths:
       responses:
         '200':
           description: Email target added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResult'
 
   /api/v1/alerting/emails/{name}:
     delete:
@@ -790,6 +1079,10 @@ paths:
       responses:
         '200':
           description: Email target deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResult'
 
   /api/v1/alerting/test:
     post:
@@ -808,8 +1101,79 @@ paths:
       responses:
         '200':
           description: Test alert sent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResult'
+
+  /api/v1/alerts:
+    get:
+      tags: [Alerting]
+      summary: List alert rules compatibility endpoint
+      responses:
+        '200':
+          description: Alert list
+    post:
+      tags: [Alerting]
+      summary: Create alert rule compatibility endpoint
+      responses:
+        '400':
+          description: Use concrete webhook or email alerting endpoints
+
+  /api/v1/alerts/{id}:
+    put:
+      tags: [Alerting]
+      summary: Update alert rule compatibility endpoint
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '404':
+          description: Alert not found
+    delete:
+      tags: [Alerting]
+      summary: Delete alert rule compatibility endpoint
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '404':
+          description: Alert not found
+
+  /api/v1/alerts/history:
+    get:
+      tags: [Alerting]
+      summary: List recent alert history compatibility endpoint
+      responses:
+        '200':
+          description: Alert history
 
   # ── Docker ────────────────────────────────────────────
+  /api/v1/docker/containers:
+    get:
+      tags: [Docker]
+      summary: Get discovered Docker containers
+      responses:
+        '200':
+          description: Docker container list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                  containers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DockerService'
+
   /api/v1/docker/services:
     get:
       tags: [Docker]
@@ -827,7 +1191,93 @@ paths:
                   services:
                     type: array
                     items:
-                      type: object
+                      $ref: '#/components/schemas/DockerService'
+
+  /api/v1/docker/events:
+    get:
+      tags: [Docker]
+      summary: Get recent Docker discovery events
+      responses:
+        '200':
+          description: Docker event list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                  events:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DockerEvent'
+
+  # ── Compliance ────────────────────────────────────────
+  /api/v1/compliance/controls:
+    get:
+      tags: [Compliance]
+      summary: List compliance controls
+      parameters:
+        - name: framework
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Compliance controls
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  controls:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ComplianceControl'
+                  frameworks:
+                    type: array
+                    items:
+                      type: string
+
+  /api/v1/compliance/report/{framework}:
+    get:
+      tags: [Compliance]
+      summary: Generate a compliance report
+      parameters:
+        - name: framework
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Compliance report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplianceReport'
+
+  /api/v1/compliance/audit-chain:
+    get:
+      tags: [Compliance]
+      summary: Get compliance audit chain
+      responses:
+        '200':
+          description: Audit chain entries
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditChainResponse'
 
   # ── Analytics ─────────────────────────────────────────
   /api/v1/analytics/dashboard:
@@ -856,6 +1306,34 @@ paths:
       responses:
         '200':
           description: Traffic statistics
+
+  /api/v1/analytics/attacks:
+    get:
+      tags: [Analytics]
+      summary: Get attack and block statistics
+      parameters:
+        - name: period
+          in: query
+          schema:
+            type: string
+            default: 1h
+      responses:
+        '200':
+          description: Attack statistics
+
+  /api/v1/analytics/top:
+    get:
+      tags: [Analytics]
+      summary: Get top IPs, paths, and rules
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Top analytics dimensions
 
   /api/v1/analytics/trends:
     get:
@@ -963,7 +1441,442 @@ paths:
         '200':
           description: Time series data
 
+  # ── Legacy Cluster UI Compatibility ──────────────────
+  /api/clusters:
+    get:
+      tags: [Cluster]
+      summary: List legacy cluster records
+      responses:
+        '200':
+          description: Cluster list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Cluster'
+    post:
+      tags: [Cluster]
+      summary: Create or join a legacy cluster
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                id:
+                  type: string
+                name:
+                  type: string
+                description:
+                  type: string
+                sync_scope:
+                  type: string
+                  enum: [tenants, rules, config, all]
+      responses:
+        '503':
+          description: Cluster sync is not enabled
+
+  /api/clusters/{id}:
+    get:
+      tags: [Cluster]
+      summary: Get legacy cluster record
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '404':
+          description: Cluster not found
+    post:
+      tags: [Cluster]
+      summary: Join or leave a legacy cluster
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: action
+          in: query
+          schema:
+            type: string
+            enum: [join, leave]
+        - name: node_id
+          in: query
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: string
+                name:
+                  type: string
+                address:
+                  type: string
+                healthy:
+                  type: boolean
+                version:
+                  type: string
+                last_seen:
+                  type: string
+                is_local:
+                  type: boolean
+      responses:
+        '503':
+          description: Cluster sync is not enabled
+    delete:
+      tags: [Cluster]
+      summary: Delete legacy cluster record
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '503':
+          description: Cluster sync is not enabled
+
+  /api/nodes:
+    get:
+      tags: [Cluster]
+      summary: List legacy cluster nodes
+      responses:
+        '200':
+          description: Node list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ClusterNode'
+
+  /api/sync/stats:
+    get:
+      tags: [Cluster]
+      summary: Get legacy sync statistics
+      responses:
+        '200':
+          description: Sync counters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncStats'
+
+  /api/sync/status:
+    get:
+      tags: [Cluster]
+      summary: Get legacy sync status
+      responses:
+        '200':
+          description: Sync status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncStatusResponse'
+
+  # ── Cluster ───────────────────────────────────────────
+  /api/v1/cluster/status:
+    get:
+      tags: [Cluster]
+      summary: Get cluster status
+      responses:
+        '200':
+          description: Cluster status
+
+  /api/v1/cluster/nodes:
+    get:
+      tags: [Cluster]
+      summary: List cluster nodes
+      responses:
+        '200':
+          description: Cluster nodes
+
+  /api/v1/cluster/health:
+    get:
+      tags: [Cluster]
+      summary: Get cluster health
+      responses:
+        '200':
+          description: Cluster health
+
+  /api/v1/cluster/node/stats:
+    get:
+      tags: [Cluster]
+      summary: Get local cluster node stats
+      responses:
+        '200':
+          description: Local node stats
+
+  /api/v1/cluster/config:
+    get:
+      tags: [Cluster]
+      summary: Get cluster sync configuration
+      responses:
+        '200':
+          description: Cluster config
+
+  # ── Core Web Vitals ───────────────────────────────────
+  /api/v1/cwv:
+    post:
+      tags: [Health]
+      summary: Submit dashboard Core Web Vitals metric
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, value]
+              properties:
+                name:
+                  type: string
+                value:
+                  type: number
+                rating:
+                  type: string
+      responses:
+        '200':
+          description: Metric accepted
+    get:
+      tags: [Health]
+      summary: Get latest dashboard Core Web Vitals metrics
+      responses:
+        '200':
+          description: Core Web Vitals metrics
+
   # ── Multi-Tenant Admin ────────────────────────────────
+  /api/v1/tenants:
+    get:
+      tags: [Tenants]
+      summary: List tenants compatibility endpoint
+      responses:
+        '200':
+          description: Tenant list or disabled empty list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Tenant'
+    post:
+      tags: [Tenants]
+      summary: Create tenant compatibility endpoint
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, domains]
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                domains:
+                  type: array
+                  items:
+                    type: string
+                quota:
+                  type: object
+      responses:
+        '201':
+          description: Tenant created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+        '503':
+          description: Multi-tenant mode is not enabled
+
+  /api/v1/tenants/usage:
+    get:
+      tags: [Tenants]
+      summary: List all tenant usage compatibility endpoint
+      responses:
+        '200':
+          description: Tenant usage list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TenantUsage'
+
+  /api/v1/tenants/{id}:
+    get:
+      tags: [Tenants]
+      summary: Get tenant compatibility endpoint
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Tenant details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+        '404':
+          description: Tenant not found
+        '503':
+          description: Multi-tenant mode is not enabled
+    put:
+      tags: [Tenants]
+      summary: Update tenant compatibility endpoint
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                active:
+                  type: boolean
+                domains:
+                  type: array
+                  items:
+                    type: string
+                quota:
+                  type: object
+      responses:
+        '200':
+          description: Tenant updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+        '503':
+          description: Multi-tenant mode is not enabled
+    delete:
+      tags: [Tenants]
+      summary: Delete tenant compatibility endpoint
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Tenant deleted
+        '503':
+          description: Multi-tenant mode is not enabled
+
+  /api/v1/tenants/{id}/config:
+    get:
+      tags: [Tenants]
+      summary: Get tenant WAF config compatibility endpoint
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Tenant WAF config
+        '503':
+          description: Multi-tenant mode is not enabled
+    put:
+      tags: [Tenants]
+      summary: Update tenant WAF config compatibility endpoint
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Tenant WAF config updated
+        '503':
+          description: Multi-tenant mode is not enabled
+
+  /api/v1/tenants/{id}/stats:
+    get:
+      tags: [Tenants]
+      summary: Get tenant stats compatibility endpoint
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Tenant stats
+        '503':
+          description: Multi-tenant mode is not enabled
+
+  /api/v1/tenants/{id}/usage:
+    get:
+      tags: [Tenants]
+      summary: Get tenant usage compatibility endpoint
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Tenant usage
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantUsage'
+        '503':
+          description: Multi-tenant mode is not enabled
+
+  /api/v1/tenants/{id}/apikey:
+    post:
+      tags: [Tenants]
+      summary: Regenerate tenant API key compatibility endpoint
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: New API key generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api_key:
+                    type: string
+        '503':
+          description: Multi-tenant mode is not enabled
+
   /api/admin/tenants:
     get:
       tags: [Tenants]
@@ -973,6 +1886,19 @@ paths:
       responses:
         '200':
           description: Tenant list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tenants:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdminTenant'
+                  count:
+                    type: integer
+                  enabled:
+                    type: boolean
     post:
       tags: [Tenants]
       summary: Create a tenant
@@ -999,6 +1925,15 @@ paths:
       responses:
         '200':
           description: Tenant created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tenant:
+                    $ref: '#/components/schemas/AdminTenantDetail'
+                  api_key:
+                    type: string
 
   /api/admin/tenants/{id}:
     get:
@@ -1015,6 +1950,10 @@ paths:
       responses:
         '200':
           description: Tenant details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminTenantDetail'
     put:
       tags: [Tenants]
       summary: Update tenant
@@ -1035,6 +1974,10 @@ paths:
       responses:
         '200':
           description: Tenant updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminTenantDetail'
     delete:
       tags: [Tenants]
       summary: Delete tenant
@@ -1062,9 +2005,23 @@ paths:
           required: true
           schema:
             type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
       responses:
         '200':
           description: New API key generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api_key:
+                    type: string
 
   /api/admin/stats:
     get:
@@ -1135,6 +2092,12 @@ paths:
       responses:
         '200':
           description: Usage data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TenantUsage'
 
   /api/admin/usage/{tenantID}:
     get:
@@ -1151,8 +2114,26 @@ paths:
       responses:
         '200':
           description: Tenant usage data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantUsage'
 
 components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+    SessionAuth:
+      type: apiKey
+      in: cookie
+      name: gwaf_session
+    AdminKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Admin-Key
+
   schemas:
     WafEvent:
       type: object
@@ -1262,6 +2243,258 @@ components:
             path:
               type: string
 
+    RouteConfig:
+      type: object
+      properties:
+        path:
+          type: string
+        upstream:
+          type: string
+        strip_prefix:
+          type: boolean
+
+    VirtualHostConfig:
+      type: object
+      properties:
+        domains:
+          type: array
+          items:
+            type: string
+        tls:
+          type: object
+          properties:
+            cert_file:
+              type: string
+            key_file:
+              type: string
+        routes:
+          type: array
+          items:
+            $ref: '#/components/schemas/RouteConfig'
+
+    RoutingConfig:
+      type: object
+      properties:
+        upstreams:
+          type: array
+          items:
+            $ref: '#/components/schemas/UpstreamConfig'
+        virtual_hosts:
+          type: array
+          items:
+            $ref: '#/components/schemas/VirtualHostConfig'
+        routes:
+          type: array
+          items:
+            $ref: '#/components/schemas/RouteConfig'
+
+    ApiResult:
+      type: object
+      properties:
+        status:
+          type: string
+        message:
+          type: string
+        error:
+          type: string
+
+    WafConfigResponse:
+      type: object
+      properties:
+        mode:
+          type: string
+          enum: [enforce, monitor, disabled]
+        tls:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+            listen:
+              type: string
+            http_redirect:
+              type: boolean
+            acme:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+                email:
+                  type: string
+                cache_dir:
+                  type: string
+        waf:
+          type: object
+          properties:
+            rules:
+              type: object
+            rate_limit:
+              type: object
+            bot:
+              type: object
+            custom_rules:
+              type: object
+            ai:
+              type: object
+            ato:
+              type: object
+            api_security:
+              type: object
+        docker:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+            socket_path:
+              type: string
+            label_prefix:
+              type: string
+            poll_interval:
+              type: string
+            network:
+              type: string
+        ai_analysis:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+            batch_size:
+              type: integer
+            min_score:
+              type: integer
+            auto_block:
+              type: boolean
+        alerting:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+            webhook_count:
+              type: integer
+
+    SSLCertInfo:
+      type: object
+      properties:
+        domain:
+          type: string
+        dns_names:
+          type: array
+          items:
+            type: string
+        not_after:
+          type: string
+          format: date-time
+        days_left:
+          type: integer
+        issuer_cn:
+          type: string
+        needs_renewal:
+          type: boolean
+        is_wildcard:
+          type: boolean
+
+    SSLStatus:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        cache_dir:
+          type: string
+        domains:
+          type: array
+          items:
+            type: array
+            items:
+              type: string
+        certs:
+          type: array
+          items:
+            $ref: '#/components/schemas/SSLCertInfo'
+
+    Cluster:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        nodes:
+          type: array
+          items:
+            type: string
+        sync_scope:
+          type: string
+          enum: [tenants, rules, config, all]
+        created_at:
+          type: string
+          format: date-time
+
+    ClusterNode:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        address:
+          type: string
+        healthy:
+          type: boolean
+        version:
+          type: string
+        last_seen:
+          type: string
+          format: date-time
+        is_local:
+          type: boolean
+
+    SyncStats:
+      type: object
+      properties:
+        total_events_sent:
+          type: integer
+        total_events_received:
+          type: integer
+        total_conflicts:
+          type: integer
+        total_resolved:
+          type: integer
+        active_connections:
+          type: integer
+        last_conflict_at:
+          type: string
+          format: date-time
+
+    ReplicationStatus:
+      type: object
+      properties:
+        node_id:
+          type: string
+        last_replication:
+          type: string
+          format: date-time
+        pending_events:
+          type: integer
+        failed_attempts:
+          type: integer
+        lag_ms:
+          type: integer
+        sync_status:
+          type: object
+          additionalProperties:
+            type: string
+
+    SyncStatusResponse:
+      type: object
+      properties:
+        local_node:
+          type: string
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReplicationStatus'
+
     UpstreamStatus:
       type: object
       properties:
@@ -1289,6 +2522,515 @@ components:
                 type: integer
               weight:
                 type: integer
+
+    AIProviderSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        api:
+          type: string
+        doc:
+          type: string
+        model_count:
+          type: integer
+        models:
+          type: array
+          items:
+            $ref: '#/components/schemas/AIModelSummary'
+
+    AIModelSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        family:
+          type: string
+        reasoning:
+          type: boolean
+        tool_call:
+          type: boolean
+        cost_input_per_m:
+          type: number
+        cost_output_per_m:
+          type: number
+        context_window:
+          type: integer
+        max_output:
+          type: integer
+
+    AIConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        provider_id:
+          type: string
+        provider_name:
+          type: string
+        model_id:
+          type: string
+        model_name:
+          type: string
+        base_url:
+          type: string
+        api_key_set:
+          type: boolean
+        api_key_mask:
+          type: string
+
+    AIStats:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        tokens_used_hour:
+          type: integer
+        tokens_used_day:
+          type: integer
+        requests_hour:
+          type: integer
+        requests_day:
+          type: integer
+        total_tokens_used:
+          type: integer
+        total_requests:
+          type: integer
+        total_cost_usd:
+          type: number
+        blocks_triggered:
+          type: integer
+        monitors_triggered:
+          type: integer
+
+    AIVerdict:
+      type: object
+      properties:
+        ip:
+          type: string
+        action:
+          type: string
+        reason:
+          type: string
+        confidence:
+          type: number
+
+    AIAnalysisResult:
+      type: object
+      properties:
+        id:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        event_count:
+          type: integer
+        verdicts:
+          type: array
+          items:
+            $ref: '#/components/schemas/AIVerdict'
+        summary:
+          type: string
+        threats_detected:
+          type: array
+          items:
+            type: string
+        tokens_used:
+          type: integer
+        cost_usd:
+          type: number
+        duration_ms:
+          type: integer
+        model:
+          type: string
+        error:
+          type: string
+
+    DockerService:
+      type: object
+      properties:
+        name:
+          type: string
+        container_name:
+          type: string
+        image:
+          type: string
+        host:
+          type: string
+        port:
+          type: integer
+        upstream:
+          type: string
+        target:
+          type: string
+        path:
+          type: string
+        weight:
+          type: integer
+        health_path:
+          type: string
+        status:
+          type: string
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+
+    DockerEvent:
+      type: object
+      additionalProperties: true
+      properties:
+        id:
+          type: string
+        time:
+          type: string
+        timestamp:
+          type: string
+        action:
+          type: string
+        status:
+          type: string
+        container:
+          type: string
+        image:
+          type: string
+        message:
+          type: string
+
+    ComplianceControl:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        frameworks:
+          type: array
+          items:
+            type: string
+        evidence:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+              description:
+                type: string
+        passing_criteria:
+          type: array
+          items:
+            type: object
+            properties:
+              metric:
+                type: string
+              operator:
+                type: string
+              threshold:
+                type: number
+
+    ComplianceControlResult:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+          enum: [passing, failing, not_applicable, no_evidence]
+        evidence:
+          type: object
+          additionalProperties: true
+
+    ComplianceReportSummary:
+      type: object
+      properties:
+        controls_passing:
+          type: integer
+        controls_failing:
+          type: integer
+        controls_not_applicable:
+          type: integer
+        overall_status:
+          type: string
+          enum: [passing, partial, failing]
+
+    ComplianceReport:
+      type: object
+      properties:
+        report_id:
+          type: string
+        generated_at:
+          type: string
+          format: date-time
+        period:
+          type: object
+          properties:
+            from:
+              type: string
+              format: date-time
+            to:
+              type: string
+              format: date-time
+        tenant_id:
+          type: string
+        framework:
+          type: string
+        summary:
+          $ref: '#/components/schemas/ComplianceReportSummary'
+        controls:
+          type: array
+          items:
+            $ref: '#/components/schemas/ComplianceControlResult'
+        chain_hash:
+          type: string
+
+    AuditChainResponse:
+      type: object
+      properties:
+        valid:
+          type: integer
+        length:
+          type: integer
+        errors:
+          type: array
+          items:
+            type: string
+        integrity:
+          type: boolean
+        head_hash:
+          type: string
+          description: Current audit-chain head hash for external write-once anchoring.
+
+    IPACLResponse:
+      type: object
+      properties:
+        whitelist:
+          type: array
+          items:
+            type: string
+        blacklist:
+          type: array
+          items:
+            type: string
+
+    BanEntry:
+      type: object
+      properties:
+        ip:
+          type: string
+        reason:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        count:
+          type: integer
+
+    GeoIPResult:
+      type: object
+      properties:
+        ip:
+          type: string
+        country:
+          type: string
+        name:
+          type: string
+
+    WebhookTarget:
+      type: object
+      properties:
+        name:
+          type: string
+        url:
+          type: string
+          description: Masked webhook URL in dashboard responses.
+        type:
+          type: string
+          enum: [slack, discord, pagerduty, generic]
+        events:
+          type: array
+          items:
+            type: string
+        min_score:
+          type: integer
+        cooldown:
+          type: string
+
+    EmailTarget:
+      type: object
+      properties:
+        name:
+          type: string
+        smtp_host:
+          type: string
+        smtp_port:
+          type: integer
+        from:
+          type: string
+        to:
+          type: array
+          items:
+            type: string
+        use_tls:
+          type: boolean
+        events:
+          type: array
+          items:
+            type: string
+        min_score:
+          type: integer
+        cooldown:
+          type: string
+
+    AlertingStatusResponse:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        webhook_count:
+          type: integer
+        email_count:
+          type: integer
+        sent:
+          type: integer
+        failed:
+          type: integer
+        webhooks:
+          type: array
+          items:
+            $ref: '#/components/schemas/WebhookTarget'
+        emails:
+          type: array
+          items:
+            $ref: '#/components/schemas/EmailTarget'
+
+    ResourceQuota:
+      type: object
+      properties:
+        max_requests_per_minute:
+          type: integer
+        max_requests_per_hour:
+          type: integer
+        max_bandwidth_mbps:
+          type: integer
+        max_rules:
+          type: integer
+        max_rate_limit_rules:
+          type: integer
+        max_ip_acls:
+          type: integer
+        max_domains:
+          type: integer
+
+    Tenant:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        active:
+          type: boolean
+        domains:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        plan:
+          type: string
+        quota:
+          $ref: '#/components/schemas/ResourceQuota'
+
+    AdminTenant:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+        status:
+          type: string
+          enum: [active, suspended, trial, expired]
+        plan:
+          type: string
+          enum: [free, basic, pro, enterprise]
+        domains:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        usage:
+          type: object
+          properties:
+            requests_this_month:
+              type: integer
+            blocked_requests:
+              type: integer
+
+    AdminTenantDetail:
+      allOf:
+        - $ref: '#/components/schemas/AdminTenant'
+        - type: object
+          properties:
+            api_key:
+              type: string
+              description: One-time tenant API key returned only by create/get/regenerate admin endpoints when available.
+            description:
+              type: string
+            updated_at:
+              type: string
+              format: date-time
+            auto_rotation:
+              type: boolean
+            rotation_interval:
+              type: string
+            quota:
+              $ref: '#/components/schemas/ResourceQuota'
+
+    TenantUsage:
+      type: object
+      properties:
+        tenant_id:
+          type: string
+        name:
+          type: string
+        active:
+          type: boolean
+        requests_per_minute:
+          type: number
+        total_requests:
+          type: integer
+        blocked_requests:
+          type: integer
+        bytes_transferred:
+          type: integer
+        bandwidth_mbps:
+          type: number
+        quota_percentage:
+          type: number
+        quota_status:
+          type: string
+          enum: [ok, warning, exceeded, unlimited]
+        last_request_at:
+          type: string
+          format: date-time
 
     CustomRule:
       type: object
