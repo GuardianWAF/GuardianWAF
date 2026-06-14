@@ -179,7 +179,7 @@ jobs:
 
       - name: Dead-code gate (deadcode -test ./... must be empty)
         run: |
-          out="$(go run golang.org/x/tools/cmd/deadcode@latest -test ./...)"
+          out="$(go run golang.org/x/tools/cmd/deadcode@v0.45.0 -test ./...)"
           if [ -n "$out" ]; then
             echo "::error::Dead code detected — reachable from no main and exercised by no test:"
             echo "$out"
@@ -372,7 +372,7 @@ jobs:
           git checkout -
           git stash pop || true
           if [ -f benchmark-base.txt ] && [ -s benchmark-base.txt ]; then
-            go install golang.org/x/perf/cmd/benchstat@latest
+            go install golang.org/x/perf/cmd/benchstat@v0.0.0-20260610192853-712aea8b4705
             benchstat benchmark-base.txt benchmark-new.txt > benchstat-output.txt 2>&1 || true
             cat benchstat-output.txt
             # Fail if any benchmark shows >20% regression (geomean or individual)
@@ -395,7 +395,7 @@ jobs:
       with:
         go-version-file: 'go.mod'
     - name: Run govulncheck
-      run: go install golang.org/x/vuln/cmd/govulncheck@latest && govulncheck ./...
+      run: go install golang.org/x/vuln/cmd/govulncheck@v1.3.0 && govulncheck ./...
 
   gosec:
     runs-on: ubuntu-latest
@@ -409,7 +409,7 @@ jobs:
         go-version-file: 'go.mod'
     - name: Run gosec
       run: |
-        go install github.com/securego/gosec/v2/cmd/gosec@latest
+        go install github.com/securego/gosec/v2/cmd/gosec@v2.27.1
         gosec -no-fail ./...
 
   trufflehog:
@@ -422,7 +422,7 @@ jobs:
       with:
         fetch-depth: 0
     - name: Scan for secrets
-      uses: trufflesecurity/trufflehog@main
+      uses: trufflesecurity/trufflehog@d03d0879a3d03548a000f6eb2640307f0815c3b3 # main, pinned 2026-06-11
       with:
         extra_args: --only-verified
 
