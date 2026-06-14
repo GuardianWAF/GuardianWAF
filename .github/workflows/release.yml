@@ -61,6 +61,19 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Verify release binary checksum evidence
+        run: |
+          mkdir -p dist/release-evidence/release/release-artifacts
+          cp dist/checksums.txt dist/release-evidence/release/release-artifacts/checksums.txt
+          ./scripts/verify-release-evidence.sh --check-release-checksums dist/release-evidence/release
+
+      - name: Upload release binary checksum evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-binary-checksums
+          path: dist/checksums.txt
+          if-no-files-found: error
+
   docker:
     needs: goreleaser
     permissions:
