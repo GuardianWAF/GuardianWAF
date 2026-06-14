@@ -18,6 +18,12 @@
 /bin/
 /out/
 internal/dashboard/dist/
+!internal/dashboard/dist/
+internal/dashboard/dist/*
+!internal/dashboard/dist/placeholder.txt
+
+# WrongStack LSP / tooling artifacts
+/.codebase-index/
 
 # Test output
 *.test
@@ -118,3 +124,4 @@ data/
 internal/ai/remediation/data/remediation/*.json
 
 .dfmt/
+.wrongstack/

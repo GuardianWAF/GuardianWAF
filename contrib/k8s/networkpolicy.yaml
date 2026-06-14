@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: guardianwaf-ingress
+  namespace: default
+  labels:
+    app: guardianwaf
+spec:
+  podSelector:
+    matchLabels:
+      app: guardianwaf
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 8088
+        - protocol: TCP
+          port: 9443
