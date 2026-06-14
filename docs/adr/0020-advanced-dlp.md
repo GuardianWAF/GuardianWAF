@@ -1,22 +1,22 @@
 # ADR 0020: Advanced Data Loss Prevention (DLP) Pattern Engine
 
 **Date:** 2026-04-15
-**Status:** Proposed
+**Status:** Implemented baseline; advanced pattern engine planned
 **Deciders:** GuardianWAF Team
 
 ---
 
 ## Context
 
-GuardianWAF's current DLP layer (Order 475) implements basic regex matching for a fixed set of sensitive data types: credit card numbers (Luhn), US SSNs, API keys, and generic PII patterns. It operates only on response bodies and takes a binary block/pass action.
+GuardianWAF's current DLP layer is registered as Order 475 in the serve pipeline. It implements bounded request-body scanning, response-body scanning helpers, built-in sensitive-data patterns for financial, identity, contact, and credential-like data, runtime custom regex patterns, file-upload checks, finding generation, and optional block-on-match behavior. Response masking helpers exist, but the full advanced policy engine described below remains planned.
 
 This is insufficient for enterprise compliance requirements:
 
-- **No request-body inspection** — data exfiltration via POST/PUT bodies is undetected
-- **No masking** — the only action is block; legitimate responses containing partial card numbers (for display) are also blocked
-- **No custom patterns** — operators cannot add organization-specific patterns (e.g., employee IDs, proprietary data formats)
-- **No compliance mapping** — no structured way to associate detected patterns with PCI DSS, GDPR, or HIPAA obligations
-- **No Turkish/regional identifiers** — Turkish TC Kimlik No, IBAN formats are absent
+- **No external pattern-file engine** — patterns are configured directly rather than loaded from a rich policy file with metadata.
+- **Limited action model** — the runtime supports findings and optional block-on-match; per-pattern block/mask/log/alert actions are planned.
+- **Limited structured-data awareness** — generic body scanning exists, but JSON/XML field-path-aware matching is planned.
+- **No compliance mapping** — no structured way to associate detected patterns with PCI DSS, GDPR, HIPAA, or KVKK obligations.
+- **Limited regional validators** — checksum-backed regional identifiers such as Turkish TC Kimlik No and full IBAN validation are planned.
 
 Imperva and F5 offer mature DLP with masking, custom pattern libraries, and compliance reporting integration.
 
@@ -183,8 +183,7 @@ For large bodies (>1MB by default), inspection is skipped and a `Finding` of typ
 
 ## Implementation Locations
 
-**Note**: `internal/layers/dlp/` exists with `layer.go`, `engine_layer.go`, `patterns.go`. The files
-below describe the planned Advanced DLP implementation.
+**Note**: `internal/layers/dlp/` exists with `layer.go`, `engine_layer.go`, and `patterns.go`, and the layer is registered as Order 475 in the current serve pipeline. The files below describe the planned Advanced DLP implementation beyond the current baseline.
 
 | File | Purpose |
 |------|---------|

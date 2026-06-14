@@ -1,7 +1,7 @@
 # ADR 0012: Enhanced GraphQL Protection
 
 **Date:** 2026-04-15
-**Status:** Implemented (package only — **not wired into the serve binary**; see CLAUDE.md layer table and AUDIT.md §2, verified 2026-06-04)
+**Status:** Proposed
 **Deciders:** GuardianWAF Team
 
 ---
@@ -17,15 +17,15 @@ GraphQL APIs face unique attack vectors that traditional WAF rules miss:
 - **Field suggestion DoS** — Exploiting typo tolerance in fields
 - **Query depth attacks** — Intentionally deep nesting that exhausts resolvers
 
-GuardianWAF's `internal/layers/graphql/` provides foundational GraphQL protection including depth limiting, field validation, and introspection controls.
+GuardianWAF does not currently ship an `internal/layers/graphql/` runtime package. The current WAF can still inspect GraphQL-like HTTP payloads through the generic API validation, sanitizer, CRS, and detection layers, but message-aware GraphQL depth, complexity, field, and introspection controls are planned runtime work.
 
 ## Decision
 
 Enhance GraphQL protection with comprehensive security controls.
 
-### Current Implementation (`internal/layers/graphql/`)
+### Planned Implementation (`internal/layers/graphql/`)
 
-The existing layer provides:
+The planned layer will provide:
 - Query depth limiting (`QueryDepthLimit`)
 - Field validation (`FieldLimit`)
 - Basic introspection controls
@@ -117,11 +117,11 @@ graphql:
 
 | File | Purpose |
 |------|---------|
-| `internal/layers/graphql/layer.go` | GraphQL security layer |
-| `internal/layers/graphql/parser.go` | GraphQL query parser and validator |
-| `internal/layers/graphql/layer_test.go` | Layer tests |
+| `internal/layers/graphql/layer.go` | Planned GraphQL security layer |
+| `internal/layers/graphql/parser.go` | Planned GraphQL query parser and validator |
+| `internal/layers/graphql/layer_test.go` | Planned layer tests |
 
-Enhancements (complexity, batch limits, alias abuse) are planned future work — corresponding files do not yet exist.
+**Note**: `internal/layers/graphql/` is a planned runtime package and does not exist in the current tree. GraphQL-specific pipeline Order 285 is not registered in the current serve pipeline.
 
 ## References
 

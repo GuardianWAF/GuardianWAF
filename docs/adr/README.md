@@ -35,7 +35,7 @@ the decision made, and the consequences.
 | ADR | Title | Status |
 |-----|-------|--------|
 | [0009](./0009-opentelemetry-integration.md) | OpenTelemetry Integration | Proposed |
-| [0025](./0025-siem-integration.md) | SIEM Integration (CEF/LEEF/Splunk/Elastic) | Implemented |
+| [0025](./0025-siem-integration.md) | SIEM Integration (CEF/LEEF/Splunk/Elastic) | Proposed |
 
 ### Security Features & Rules
 
@@ -43,7 +43,7 @@ the decision made, and the consequences.
 |-----|-------|--------|
 | [0010](./0010-dynamic-rules-api.md) | Dynamic Rules API | Proposed |
 | [0011](./0011-ip-reputation-sharing.md) | IP Reputation Sharing | Proposed |
-| [0012](./0012-graphql-protection.md) | Enhanced GraphQL Protection | Implemented |
+| [0012](./0012-graphql-protection.md) | Enhanced GraphQL Protection | Proposed |
 | [0014](./0014-wasm-sandbox.md) | WebAssembly Sandbox for Rule Evaluation | Proposed |
 | [0027](./0027-virtual-patching-nvd.md) | Virtual Patching with NVD Integration | Implemented |
 | [0032](./0032-owasp-crs-integration.md) | OWASP CRS Integration (native Go) | Implemented |
@@ -67,28 +67,30 @@ the decision made, and the consequences.
 | [0036](./0036-canary-deployments.md) | 95 | Canary Deployment | Proposed — not registered in pipeline |
 | [0028](./0028-ip-acl-radix-tree.md) | 100 | IP ACL (Radix Tree) | Implemented |
 | [0034](./0034-threat-intelligence.md) | 125 | Threat Intelligence | Implemented |
+| [0026](./0026-response-caching-layer.md) | 140 | Response Cache | Proposed — not registered in pipeline |
 | [0037](./0037-request-replay.md) | 145 | Request Recording & Replay | Proposed — not registered in pipeline |
 | [0031](./0031-cors-layer.md) | 150 | CORS Validation | Implemented |
 | [0029](./0029-rate-limiting-token-bucket.md) | 200 | Rate Limiting (Token Bucket) | Implemented |
 | [0030](./0030-ato-protection.md) | 250 | ATO Protection | Implemented |
 | (internal/layers/apisecurity/) | 275 | API Security | Implemented |
 | (internal/layers/apivalidation/) | 280 | API Validation | Implemented |
-| [0017](./0017-api-discovery-schema-validation.md) | TBD | API Discovery & Schema Validation | Proposed |
+| [0012](./0012-graphql-protection.md) | 285 | GraphQL Protection | Proposed — not registered in pipeline |
+| [0017](./0017-api-discovery-schema-validation.md) | 310 | API Discovery & Schema Validation | API Validation implemented baseline; passive discovery planned — not registered in pipeline |
 | [0033](./0033-request-sanitizer.md) | 300 | Request Sanitizer | Implemented |
 | [0032](./0032-owasp-crs-integration.md) | 350 | OWASP CRS | Implemented |
 | [0003](./0003-tokenizer-based-detection.md) | 400 | Detection Engine | Accepted |
 | [0027](./0027-virtual-patching-nvd.md) | 450 | Virtual Patching | Implemented |
-| [0020](./0020-advanced-dlp.md) | 475 | Advanced DLP | Proposed |
-| [0016](./0016-ml-anomaly-detection.md) | 475 | ML Anomaly Detection | Proposed |
-| [0018](./0018-enhanced-bot-management.md) | 500 | Enhanced Bot Management | Proposed |
-| [0021](./0021-client-side-protection.md) | 590 | Client-Side Protection (RASP-lite) | Proposed |
+| [0020](./0020-advanced-dlp.md) | 475 | Advanced DLP | Implemented baseline — advanced pattern engine planned |
+| [0016](./0016-ml-anomaly-detection.md) | 473 | ML Anomaly Detection | Proposed — not registered in pipeline |
+| [0018](./0018-enhanced-bot-management.md) | 500 | Enhanced Bot Management | Withdrawn — runtime bot baseline lives in `internal/layers/botdetect` |
+| [0021](./0021-client-side-protection.md) | 590 | Client-Side Protection (RASP-lite) | Implemented baseline — browser agent planned |
 | [0038](./0038-response-layer.md) | 600 | Response Layer | Implemented |
 
 ### Protocol Support
 
 | ADR | Title | Status |
 |-----|-------|--------|
-| [0012](./0012-graphql-protection.md) | GraphQL Protection | Implemented |
+| [0012](./0012-graphql-protection.md) | GraphQL Protection | Proposed — not registered in pipeline |
 | [0035](./0035-websocket-proxy.md) | WebSocket Proxy | Proposed |
 | [0019](./0019-grpc-protocol-support.md) | gRPC Protocol Support | Proposed |
 
@@ -96,8 +98,8 @@ the decision made, and the consequences.
 
 | ADR | Title | Status |
 |-----|-------|--------|
-| [0020](./0020-advanced-dlp.md) | Advanced DLP Pattern Engine | Proposed |
-| [0022](./0022-compliance-reporting.md) | Compliance & Reporting Framework | Proposed |
+| [0020](./0020-advanced-dlp.md) | Advanced DLP Pattern Engine | Implemented baseline — advanced pattern engine planned |
+| [0022](./0022-compliance-reporting.md) | Compliance & Reporting Framework | Implemented baseline — scheduled reports and retention enforcement planned |
 | [0024](./0024-zero-trust-network-access.md) | Zero Trust Network Access (mTLS) | Proposed — not registered in pipeline |
 
 ### Developer Experience

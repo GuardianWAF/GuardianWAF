@@ -1,7 +1,7 @@
 # ADR 0022: Compliance & Reporting Framework
 
 **Date:** 2026-04-15
-**Status:** Implemented
+**Status:** Implemented baseline; scheduled reports and retention enforcement planned
 **Deciders:** GuardianWAF Team
 
 ---
@@ -19,13 +19,15 @@ Currently GuardianWAF produces event logs and Prometheus metrics but has no stru
 
 ## Decision
 
-Implement a compliance reporting framework that:
+Implement a compliance reporting framework. The current baseline provides built-in controls, framework evaluation, structured JSON/CSV report generation, hash-chained audit entries with optional JSONL persistence, and dashboard hooks. Scheduled report execution, PDF rendering, retention enforcement, external notarization, and the full dashboard page described below remain planned.
+
+The target framework:
 
 1. **Maps WAF events to compliance controls** — each event type tagged with relevant framework/requirement IDs
-2. **Generates scheduled reports** — PDF/JSON/CSV exports on daily/weekly/monthly schedules
+2. **Generates scheduled reports** — PDF/JSON/CSV exports on daily/weekly/monthly schedules (planned scheduler and PDF renderer)
 3. **Provides an audit trail API** — tamper-evident log export with hash chaining
-4. **Tracks data retention** — enforces configurable retention periods per compliance framework
-5. **Offers a compliance dashboard page** — real-time control status and coverage heatmap
+4. **Tracks data retention** — enforces configurable retention periods per compliance framework (planned enforcement worker)
+5. **Offers a compliance dashboard page** — real-time control status and coverage heatmap (baseline endpoints exist; full page planned)
 
 ### Control Mapping
 
@@ -202,18 +204,19 @@ compliance:
 
 ## Implementation Locations
 
-**Note**: `internal/compliance/` does not exist yet — all files below are planned.
+**Current tree note:** `internal/compliance/` exists and implements the baseline engine in `compliance.go`: built-in control mappings, report evaluation, JSON/CSV rendering, hash-chain append/verify, and optional strict JSONL audit persistence. The advanced files below are planned split-out implementation locations; their absence does not mean the baseline engine is absent.
 
 | File | Purpose |
 |------|---------|
-| `internal/compliance/registry.go` | Control definition loader (YAML) |
-| `internal/compliance/evaluator.go` | Control pass/fail evaluation against event metrics |
-| `internal/compliance/reporter.go` | Report generation (JSON + PDF shell-out) |
-| `internal/compliance/retention.go` | Data retention enforcement |
-| `internal/compliance/audit_chain.go` | Hash-chain audit trail |
-| `internal/compliance/controls.yaml` | Built-in control definitions (embedded) |
-| `internal/dashboard/compliance.go` | Dashboard REST handlers |
-| `internal/config/config.go` | `ComplianceConfig` struct |
+| `internal/compliance/compliance.go` | Current baseline engine: built-in controls, evaluation, JSON/CSV reports, hash-chain audit trail |
+| `internal/compliance/registry.go` | External control definition loader (planned YAML split-out) |
+| `internal/compliance/evaluator.go` | Control pass/fail evaluation split-out (planned) |
+| `internal/compliance/reporter.go` | PDF/report scheduler implementation (planned) |
+| `internal/compliance/retention.go` | Data retention enforcement worker (planned) |
+| `internal/compliance/audit_chain.go` | Hash-chain audit trail split-out (planned) |
+| `internal/compliance/controls.yaml` | External built-in control definitions (planned; current baseline embeds controls in Go) |
+| `internal/dashboard/compliance.go` | Dedicated dashboard page/API split-out (planned; current dashboard registers compliance endpoints) |
+| `internal/config/config.go` | Current `ComplianceConfig` struct |
 
 ## References
 

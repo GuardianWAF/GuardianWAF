@@ -1,7 +1,7 @@
 # ADR 0021: Client-Side Protection (RASP-lite)
 
 **Date:** 2026-04-15
-**Status:** Proposed
+**Status:** Implemented baseline; browser RASP-lite agent planned
 **Deciders:** GuardianWAF Team
 
 ---
@@ -15,7 +15,7 @@ GuardianWAF protects traffic at the network/HTTP layer but has no visibility int
 - **Supply chain attacks** — a compromised third-party CDN script (analytics, chat widget) can steal data from every user session
 - **Iframe clickjacking** — despite `X-Frame-Options`, dynamic iframe injection via JS bypasses static header protections
 
-Current client-side protection (Layer 590) only injects a Content-Security-Policy header and a placeholder script stub. There is no real-time monitoring or reporting from the browser.
+Current client-side protection is registered as Layer 590 in the serve pipeline. It can add Content-Security-Policy response headers, scan HTML/JavaScript responses for Magecart/skimmer patterns, optionally inject the current lightweight protection script stub, and collect bounded browser/CSP reports through the shared report handler. The full standalone browser RASP-lite agent described below remains planned runtime work.
 
 ## Decision
 
@@ -170,10 +170,13 @@ client_side:
 
 ## Implementation Locations
 
-**Note**: `internal/layers/clientside/` exists with `layer.go`, `config.go`, `report_handler.go` (implemented). Order 590 is defined in `layer.go` and registered in the main pipeline. The files below (`injector.go`, `beacon.go`, `csp_report.go`, `agent/`) are planned but do not exist yet.
+**Note**: `internal/layers/clientside/` exists with `layer.go`, `config.go`, and `report_handler.go` implemented and registered as Order 590 in the current serve pipeline. The dedicated browser agent files below (`injector.go`, `beacon.go`, `csp_report.go`, `agent/`) are planned and do not exist yet.
 
 | File | Purpose |
 |------|---------|
+| `internal/layers/clientside/layer.go` | Implemented response hook, CSP hook, response scanning, and current script injection |
+| `internal/layers/clientside/config.go` | Implemented client-side protection configuration |
+| `internal/layers/clientside/report_handler.go` | Implemented bounded browser and CSP report ingestion |
 | `internal/layers/clientside/injector.go` | HTML response rewriting (planned) |
 | `internal/layers/clientside/beacon.go` | Beacon endpoint handler (planned) |
 | `internal/layers/clientside/csp_report.go` | CSP violation report handler (planned) |

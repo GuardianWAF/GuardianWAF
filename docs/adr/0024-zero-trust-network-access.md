@@ -19,7 +19,7 @@ A Zero Trust model addresses these gaps by replacing implicit trust with explici
 
 ## Decision
 
-Implement a Zero Trust middleware (`internal/layers/zerotrust/`) that enforces:
+Implement a Zero Trust middleware (`internal/layers/zerotrust/`, planned) that enforces:
 
 1. **Mutual TLS (mTLS)** — clients present a certificate; the WAF verifies it against a configured CA
 2. **Device attestation** — an attestation token proves the device is managed and healthy
@@ -185,13 +185,13 @@ zerotrust:
 
 ## Implementation Locations
 
-**Note**: `internal/layers/zerotrust/` exists with `service.go` and `middleware.go`. However, the Zero Trust layer is not registered in the main pipeline (no `OrderZeroTrust` constant in `layer.go`, no `AddLayer` call in `main.go`). It's implemented as a standalone middleware, not as a pipeline layer.
+**Current implementation note**: the current tree has `ZeroTrustConfig` parsing/default coverage, but no `internal/layers/zerotrust/` runtime package and no registered Zero Trust pipeline layer. The middleware/service files below are planned implementation locations, not current package evidence.
 
 | File | Purpose |
 |------|---------|
-| `internal/layers/zerotrust/service.go` | Trust level computation, device registry, session management (exists — not in pipeline) |
-| `internal/layers/zerotrust/middleware.go` | HTTP middleware — applies policy, issues session tokens (exists — not in pipeline) |
-| `internal/config/config.go` | `ZeroTrustConfig` struct |
+| `internal/layers/zerotrust/service.go` | Planned trust level computation, device registry, session management |
+| `internal/layers/zerotrust/middleware.go` | Planned HTTP middleware that applies policy and issues session tokens |
+| `internal/config/config.go` | Current `ZeroTrustConfig` struct |
 
 ## References
 

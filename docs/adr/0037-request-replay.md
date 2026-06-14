@@ -123,9 +123,9 @@ replay:
 
 ## Implementation Locations
 
-**Note**: `internal/layers/replay/` package exists. The layer is not yet registered in the
-main engine pipeline (`main.go`/`guardianwaf.go`). `Order 145` is not defined in
-`internal/engine/layer.go`. Registration in the pipeline is pending.
+**Note**: `internal/layers/replay/` is a planned runtime package and does not exist in the
+current tree. The files below describe the intended implementation structure; request
+recording/replay and `Order 145` are future implementation work.
 
 | File | Purpose |
 |------|---------|

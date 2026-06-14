@@ -1,7 +1,7 @@
 # ADR 0025: SIEM Integration
 
 **Date:** 2026-04-15
-**Status:** Implemented
+**Status:** Proposed
 **Deciders:** GuardianWAF Team
 
 ---

@@ -20,10 +20,10 @@ Signal Sciences and AWS WAF both offer passive API discovery. Adding this capabi
 
 Implement a two-phase API intelligence system:
 
-1. **Passive API Discovery** — background traffic analysis to build an inventory of observed endpoints
-2. **Schema Validation** — active request/response validation against OpenAPI 3.0 schemas (imported or auto-generated from discovery)
+1. **Passive API Discovery** — planned background traffic analysis to build an inventory of observed endpoints
+2. **Schema Validation** — current baseline request/response validation against configured schemas, with OpenAPI/discovery-generated schema flows still planned
 
-### Phase 1: Passive Discovery
+### Phase 1: Passive Discovery (Planned)
 
 A background goroutine reads from a bounded channel fed by the response layer. For each completed request it records:
 
@@ -49,7 +49,7 @@ type ObservedEndpoint struct {
 
 The inventory is persisted as `api_inventory/endpoints.json` and exposed via the dashboard API.
 
-### Phase 2: Schema Validation (Layer 280 — existing `apivalidation`)
+### Phase 2: Schema Validation (Layer 280 — existing `apivalidation` baseline)
 
 Schema sources (priority order):
 
@@ -148,12 +148,14 @@ The exported spec uses `x-guardian-*` extensions to carry traffic statistics.
 
 ## Implementation Locations
 
-**Note**: API Validation layer exists at `internal/layers/apivalidation/` with `layer.go`, `schema.go`, `yaml.go`.
-Discovery is being built at `internal/discovery/` (analyzer, clustering, collector, engine, manager, schema, storage).
+**Current tree note:** API Validation exists at `internal/layers/apivalidation/` with `layer.go`, `schema.go`, and `yaml.go`. Passive API Discovery is planned: there is no `internal/discovery/` or `internal/layers/discovery/` runtime package in the current tree, and Order 310 is not registered in the current serve pipeline.
 
 | File | Purpose |
 |------|---------|
-| `internal/layers/apivalidation/validator.go` | JSON Schema validation against `RequestContext` (planned) |
+| `internal/layers/apivalidation/layer.go` | Current API validation layer baseline |
+| `internal/layers/apivalidation/schema.go` | Current schema model baseline |
+| `internal/layers/apivalidation/yaml.go` | Current YAML schema loader baseline |
+| `internal/layers/apivalidation/validator.go` | Expanded JSON Schema validation against `RequestContext` (planned) |
 | `internal/layers/apivalidation/openapi.go` | OpenAPI 3.0 parser and schema loader (planned) |
 | `internal/discovery/worker.go` | Background discovery goroutine (planned) |
 | `internal/discovery/cluster.go` | Path template clustering (planned) |

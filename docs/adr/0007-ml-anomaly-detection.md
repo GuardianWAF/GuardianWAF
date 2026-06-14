@@ -17,9 +17,9 @@ We evaluated two approaches for addressing this gap:
 
 ## Decision
 
-Implement an ML-based anomaly detection layer that runs alongside the existing rule-based detectors. The layer uses an ONNX-compatible model to score each request's deviation from learned "normal" traffic profiles.
+Implement an ML-based anomaly detection layer that runs alongside the existing rule-based detectors. The layer uses an ONNX-compatible model to score each request's deviation from learned "normal" traffic profiles. This early ADR is superseded by ADR 0016 and remains proposed; the current tree only has configuration/order compatibility surfaces and no `internal/ml/` runtime package.
 
-**Layer position**: Order 475, between API Security and Detection — after authentication/normalization but before expensive detection layers.
+**Planned layer position**: Order 473, before DLP and Bot Detection. `engine.OrderAnomaly` exists as a compatibility constant, but no ML layer is registered in the current serve pipeline.
 
 ### Feature Extraction
 
@@ -60,12 +60,11 @@ Feature extractor computes per-request feature vectors:
 
 ## Implementation Locations
 
-**Note**: `internal/ml/anomaly/layer.go` exists. `onnx.go`, `features.go`, and `internal/ml/models/`
-are planned but do not exist yet. The layer is not registered in the main engine pipeline.
+**Current tree note:** `internal/ml/` is planned and does not exist in the current tree. The layer is not registered in the main engine pipeline.
 
 | File | Purpose |
 |------|---------|
-| `internal/ml/anomaly/layer.go` | Pipeline layer (Order 475 — same slot as DLP; order subject to change) |
+| `internal/ml/anomaly/layer.go` | Planned pipeline layer (Order 473; order subject to change) |
 | `internal/ml/anomaly/onnx.go` | ONNX model loading and inference (planned) |
 | `internal/ml/anomaly/features.go` | Feature vector extraction from RequestContext (planned) |
 | `internal/ml/models/` | Trained ONNX model files (shipped separately) (planned) |

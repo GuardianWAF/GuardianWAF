@@ -16,14 +16,16 @@ Go's standard library (`net/http`, `crypto/*`, `text/scanner`, `encoding/*`, etc
 
 ## Decision
 
-GuardianWAF will use **zero external Go dependencies** in its core codebase. The only exception is `quic-go` for optional HTTP/3 support, enabled via the `-tags http3` build tag.
+GuardianWAF will use **zero external Go dependencies** in its core codebase. The only planned exception is `quic-go` for optional HTTP/3 support, enabled via the `-tags http3` build tag once a concrete HTTP/3 runtime package is added.
+
+Current implementation note: the current tree does not declare `quic-go` in `go.mod` and does not include an `internal/http3/` runtime package. The `http3` build tag currently proves CLI build compatibility only.
 
 This means reimplementing from scratch:
 
 1. **YAML configuration parser** — custom Node-tree parser with `${VAR}` substitution and hot-reload support (see ADR 0002)
 2. **JWT validation** — RS256, ES256, HS256 signature verification, claim validation (expiry, issuer, audience), key JWKS fetching
 3. **OWASP CRS SecLang parser** — native Go parser for ModSecurity's SecLang rule language (see ADR 0032)
-4. **HTTP/3 + QUIC** — via `quic-go` (the only permitted external dependency)
+4. **HTTP/3 + QUIC** — planned via `quic-go` as the only permitted external dependency when HTTP/3 runtime support is implemented
 
 No `go.mod` `replace` directives, no vendoring, no `//go:build ignore` blocks pulling in third-party code.
 
@@ -31,7 +33,7 @@ No `go.mod` `replace` directives, no vendoring, no `//go:build ignore` blocks pu
 
 ### Positive
 
-- **Near-zero supply chain attack surface** — the only code that runs in GuardianWAF is code written by the team (plus quic-go when HTTP/3 is enabled)
+- **Near-zero supply chain attack surface** — the only code that runs in GuardianWAF is code written by the team, with `quic-go` reserved as the only planned exception for future HTTP/3 runtime support
 - **Fully auditable** — any engineer can read, review, and understand every line of code; no opaque library behavior
 - **Static binary with known contents** — `go build -o guardianwaf` produces a single statically-linked binary with no `.so` files, no dynamic loader resolution, no hidden library dependencies
 - **Reproducible builds** — `go build` today produces the same binary as `go build` in two years; no accidental dependency version drift
@@ -52,7 +54,7 @@ No `go.mod` `replace` directives, no vendoring, no `//go:build ignore` blocks pu
 | YAML parsing | `gopkg.in/yaml.v3`, `go.yaml.dev` | `internal/config/yaml.go` (~800 LOC) |
 | JWT validation | `golang-jwt/jwt/v5`, `go-jose` | Built into `internal/layers/apisecurity/jwt.go` |
 | CRS SecLang | `github.com/frictionlesssecurity/ModSecurity` (C bindings) | `internal/config/config_crs.go` + `internal/layers/crs/parser.go` |
-| HTTP/3 | `quic-go/quic-go` | Stub in `internal/http3/` (optional, `-tags http3`) |
+| HTTP/3 | `quic-go/quic-go` | Planned future runtime behind `-tags http3`; no current `internal/http3/` package |
 
 ## Implementation Locations
 
@@ -62,7 +64,7 @@ No `go.mod` `replace` directives, no vendoring, no `//go:build ignore` blocks pu
 | `internal/layers/apisecurity/jwt.go` | JWT signature verification (RS256/ES256/HS256), JWKS fetching, claim validation |
 | `internal/config/config_crs.go` | CRS rule file loading, SecLang rule loading |
 | `internal/layers/crs/parser.go` | Native Go SecLang subset parser (actions, variables, operators, phases) |
-| `internal/http3/` | HTTP/3/QUIC stub; activates only with `-tags http3` |
+| `internal/http3/` | Planned HTTP/3/QUIC runtime package; not present in the current tree |
 
 ## References
 

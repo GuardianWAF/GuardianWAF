@@ -118,9 +118,9 @@ gwaf_websocket_closed_total{code}
 
 ## Implementation Locations
 
-**Note**: `internal/layers/websocket/` package exists. The layer is not yet registered in the
-main engine pipeline (`main.go`/`guardianwaf.go`). `Order 76` is not defined in
-`internal/engine/layer.go`. Registration in the pipeline is pending.
+**Note**: `internal/layers/websocket/` is a planned runtime package and does not exist in the
+current tree. The files below describe the intended implementation structure; message-aware
+WebSocket frame inspection and `Order 76` are future implementation work.
 
 | File | Purpose |
 |------|---------|

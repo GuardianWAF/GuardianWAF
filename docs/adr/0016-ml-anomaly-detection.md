@@ -20,7 +20,7 @@ Signal Sciences, open-appsec, and modern cloud WAFs all offer ML-based anomaly d
 
 ## Decision
 
-Implement a real-time ML anomaly detection layer using **ONNX Runtime** via Go bindings. The model runs as a pipeline layer (Order 475, between DLP and Bot Detection) and adds an anomaly score to the request's `ScoreAccumulator`.
+Implement a real-time ML anomaly detection layer using **ONNX Runtime** via Go bindings. This is a planned runtime layer. The current tree has configuration compatibility fields and the `engine.OrderAnomaly` constant, but it does not ship an `internal/ml/` package, ONNX session wrapper, feature extractor, or registered serve-pipeline layer. The intended model will run around Order 473, before DLP, and add an anomaly score to the request's score accumulator.
 
 ### Model Selection
 
@@ -89,7 +89,7 @@ Feature Vector (32 dimensions):
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                       Pipeline (Order 475)                        │
+│                    Planned Pipeline (Order 473)                    │
 │                                                                   │
 │  RequestContext                                                   │
 │       │                                                           │
@@ -164,17 +164,16 @@ Inference is **skipped** if the request has already been blocked by an earlier l
 
 ## Implementation Locations
 
-**Note**: `internal/ml/onnx/` exists with `model.go` (POC stub). `features.go` and
-`sliding_window.go` are planned but do not exist yet. `scripts/train_model.py` is also planned.
+**Current tree note:** `internal/ml/` is a planned runtime package and does not exist in the current tree. `engine.OrderAnomaly` and `WAF.MLAnomaly` configuration parsing are compatibility surfaces only; they are not production ML inference evidence. The files below are planned implementation locations.
 
 | File | Purpose |
 |------|---------|
-| `internal/ml/onnx/model.go` | ONNX Runtime wrapper, session management (POC stub) |
+| `internal/ml/onnx/model.go` | ONNX Runtime wrapper and session management (planned) |
 | `internal/ml/onnx/features.go` | Feature extraction from `RequestContext` (planned) |
-| `internal/ml/anomaly/layer.go` | Pipeline layer (Order 475 — same slot as DLP; order subject to change) |
+| `internal/ml/anomaly/layer.go` | Pipeline layer (planned Order 473; order subject to change) |
 | `internal/ml/anomaly/sliding_window.go` | Per-IP time-based feature computation (planned) |
 | `scripts/train_model.py` | Offline training script (scikit-learn → ONNX) (planned) |
-| `internal/config/config.go` | `MLConfig` struct addition |
+| `internal/config/config.go` | Current `MLAnomalyConfig` compatibility fields |
 
 ## References
 
