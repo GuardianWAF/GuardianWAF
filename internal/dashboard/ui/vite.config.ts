@@ -15,6 +15,13 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    // esbuild 0.28+ dropped support for transforming destructuring (and other
+    // modern syntax) down to pre-2021 browser targets. The Vite 6 default
+    // floor (chrome87/edge88/firefox78/safari14) is no longer transpilable.
+    // Bumping to es2022 keeps the dev experience modern and satisfies
+    // esbuild 0.28+'s stricter transform rules. Dependabot alert #36/#37
+    // (GHSA-gv7w-rqvm-qjhr) requires the esbuild bump.
+    target: 'es2022',
     // Split vendor chunks for better caching:
     // - react-vendor: react + react-dom (rarely change, cache forever)
     // - flow-vendor: @xyflow/react for routing topology (large, separate)

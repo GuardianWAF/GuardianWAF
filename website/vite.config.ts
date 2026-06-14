@@ -11,4 +11,11 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  build: {
+    // esbuild 0.28+ dropped support for transforming destructuring (and other
+    // modern syntax) down to pre-2021 browser targets. Bumping to es2022
+    // satisfies the stricter transform rules. Dependabot alert #36 (GHSA-gv7w-rqvm-qjhr)
+    // requires the esbuild bump.
+    target: 'es2022',
+  },
 })
