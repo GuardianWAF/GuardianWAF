@@ -24,7 +24,7 @@ import (
 )
 
 func init() {
-	proxy.AllowPrivateTargets()
+	proxy.SetPrivateTargetsAllowed(true)
 }
 
 // --- cmdHealthcheck tests ---
@@ -78,22 +78,13 @@ func TestBoolStr_False(t *testing.T) {
 	}
 }
 
-// --- envForEntropy tests ---
-
-func TestEnvForEntropy_Coverage(t *testing.T) {
-	result := envForEntropy()
-	if result == "" {
-		t.Error("expected non-empty entropy string")
-	}
-	if !strings.Contains(result, "-") {
-		t.Error("expected dashes in entropy string")
-	}
-}
-
 // --- generateDashboardPassword tests ---
 
 func TestGenerateDashboardPassword_Coverage(t *testing.T) {
-	pwd := generateDashboardPassword()
+	pwd, err := generateDashboardPassword()
+	if err != nil {
+		t.Fatalf("generateDashboardPassword: %v", err)
+	}
 	if len(pwd) != 24 {
 		t.Errorf("expected 24-char password, got %d", len(pwd))
 	}
@@ -1633,9 +1624,12 @@ func TestStartDashboard_WithTenantManager(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer eng.Close()
 
 	srv, sse, d := startDashboard(cfg, eng)
-	_ = srv
+	if srv != nil {
+		defer srv.Close()
+	}
 	_ = sse
 	_ = d
 }

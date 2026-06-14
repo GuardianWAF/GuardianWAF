@@ -118,3 +118,15 @@ func TestStartPeriodicCleanupStops(t *testing.T) {
 func TestRunPeriodicCleanupNilEngine(t *testing.T) {
 	runPeriodicCleanup(nil, &tenantCleanupRecorder{})
 }
+
+func TestRunPeriodicCleanupTypedNilTenantManager(t *testing.T) {
+	cfg := config.DefaultConfig()
+	eng, err := engine.NewEngine(cfg, events.NewMemoryStore(10), events.NewEventBus())
+	if err != nil {
+		t.Fatalf("NewEngine error: %v", err)
+	}
+	defer eng.Close()
+
+	var tenantCleaner *tenantCleanupRecorder
+	runPeriodicCleanup(eng, tenantCleaner)
+}

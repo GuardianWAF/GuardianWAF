@@ -13,9 +13,11 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -102,6 +104,20 @@ func allocatePorts(t *testing.T, n int) (ports []int, release func()) {
 			ln.Close()
 		}
 	}
+}
+
+func waitForTCP(t *testing.T, addr string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		conn, err := net.DialTimeout("tcp", addr, 50*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("%s did not accept TCP connections within %s", addr, timeout)
 }
 
 func TestRunMain_NoArgs(t *testing.T) {
@@ -456,6 +472,122 @@ func TestCmdServe_SignalShutdown(t *testing.T) {
 	}
 }
 
+func TestCmdServe_ShutdownDrainsActiveTraffic(t *testing.T) {
+	oldSignalNotify := signalNotify
+	defer func() { signalNotify = oldSignalNotify }()
+
+	shutdownCh := make(chan os.Signal, 1)
+	signalNotify = func(c chan<- os.Signal, sig ...os.Signal) {
+		go func() {
+			for s := range shutdownCh {
+				c <- s
+			}
+		}()
+	}
+
+	requestStarted := make(chan struct{}, 1)
+	releaseRequest := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() {
+		releaseOnce.Do(func() {
+			close(releaseRequest)
+		})
+	}
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case requestStarted <- struct{}{}:
+		default:
+		}
+		<-releaseRequest
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("drained"))
+	}))
+	defer backend.Close()
+	defer release()
+
+	ports, releasePorts := allocatePorts(t, 1)
+	port := ports[0]
+	releasePorts()
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "gwaf.yaml")
+	cfg := fmt.Sprintf(`mode: enforce
+listen: "127.0.0.1:%d"
+allow_private_upstreams: true
+dashboard:
+  enabled: false
+mcp:
+  enabled: false
+upstreams:
+  - name: default
+    targets:
+      - url: %q
+    health_check:
+      enabled: false
+routes:
+  - path: /
+    upstream: default
+`, port, backend.URL)
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		cmdServe([]string{"-config", cfgPath})
+	}()
+
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	waitForTCP(t, addr, 5*time.Second)
+
+	respCh := make(chan int, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s/slow", addr), nil)
+		if err != nil {
+			errCh <- err
+			return
+		}
+		req.Header.Set("User-Agent", "Mozilla/5.0 Chrome/120.0")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			errCh <- err
+			return
+		}
+		defer resp.Body.Close()
+		respCh <- resp.StatusCode
+	}()
+
+	select {
+	case <-requestStarted:
+	case <-time.After(5 * time.Second):
+		shutdownCh <- syscall.SIGTERM
+		t.Fatal("active request did not reach backend")
+	}
+
+	shutdownCh <- syscall.SIGTERM
+	time.Sleep(100 * time.Millisecond)
+	release()
+
+	select {
+	case err := <-errCh:
+		t.Fatalf("active request failed during shutdown: %v", err)
+	case status := <-respCh:
+		if status != http.StatusOK {
+			t.Fatalf("active request status = %d, want 200", status)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("active request did not complete during shutdown")
+	}
+
+	select {
+	case <-done:
+	case <-time.After(15 * time.Second):
+		t.Fatal("cmdServe did not shut down after active request drained")
+	}
+}
+
 func TestCmdSidecar_FullFeatures(t *testing.T) {
 	oldSignalNotify := signalNotify
 	defer func() { signalNotify = oldSignalNotify }()
@@ -626,6 +758,103 @@ func TestCmdSidecar_SignalShutdown(t *testing.T) {
 	case <-done:
 	case <-time.After(15 * time.Second):
 		t.Fatal("cmdSidecar did not shut down")
+	}
+}
+
+func TestCmdSidecar_ShutdownDrainsActiveTraffic(t *testing.T) {
+	oldSignalNotify := signalNotify
+	defer func() { signalNotify = oldSignalNotify }()
+	t.Setenv("GWAF_ALLOW_PRIVATE_UPSTREAMS", "true")
+
+	shutdownCh := make(chan os.Signal, 1)
+	signalNotify = func(c chan<- os.Signal, sig ...os.Signal) {
+		go func() {
+			for s := range shutdownCh {
+				c <- s
+			}
+		}()
+	}
+
+	requestStarted := make(chan struct{}, 1)
+	releaseRequest := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() {
+		releaseOnce.Do(func() {
+			close(releaseRequest)
+		})
+	}
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case requestStarted <- struct{}{}:
+		default:
+		}
+		<-releaseRequest
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("sidecar-drained"))
+	}))
+	defer backend.Close()
+	defer release()
+
+	ports, releasePorts := allocatePorts(t, 1)
+	port := ports[0]
+	releasePorts()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		cmdSidecar([]string{
+			"--listen", fmt.Sprintf("127.0.0.1:%d", port),
+			"--upstream", backend.URL,
+		})
+	}()
+
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	waitForTCP(t, addr, 5*time.Second)
+
+	respCh := make(chan int, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s/slow", addr), nil)
+		if err != nil {
+			errCh <- err
+			return
+		}
+		req.Header.Set("User-Agent", "Mozilla/5.0 Chrome/120.0")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			errCh <- err
+			return
+		}
+		defer resp.Body.Close()
+		respCh <- resp.StatusCode
+	}()
+
+	select {
+	case <-requestStarted:
+	case <-time.After(5 * time.Second):
+		shutdownCh <- syscall.SIGTERM
+		t.Fatal("active sidecar request did not reach backend")
+	}
+
+	shutdownCh <- syscall.SIGTERM
+	time.Sleep(100 * time.Millisecond)
+	release()
+
+	select {
+	case err := <-errCh:
+		t.Fatalf("active sidecar request failed during shutdown: %v", err)
+	case status := <-respCh:
+		if status != http.StatusOK {
+			t.Fatalf("active sidecar request status = %d, want 200", status)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("active sidecar request did not complete during shutdown")
+	}
+
+	select {
+	case <-done:
+	case <-time.After(15 * time.Second):
+		t.Fatal("cmdSidecar did not shut down after active request drained")
 	}
 }
 

@@ -67,18 +67,27 @@ func TestBuildHTTPHandler_ServesACMEChallengeDuringRedirect(t *testing.T) {
 }
 
 func TestBuildHTTPHandler_RejectsUnsafeHost(t *testing.T) {
-	cfg := config.DefaultConfig()
-	cfg.TLS.Enabled = true
-	cfg.TLS.HTTPRedirect = true
-	serveMux := http.NewServeMux()
+	for _, host := range []string{
+		"example.com@evil.test",
+		"example.com/evil",
+		"example.com\\evil",
+		"example.com\nLocation: https://evil.test",
+	} {
+		t.Run(host, func(t *testing.T) {
+			cfg := config.DefaultConfig()
+			cfg.TLS.Enabled = true
+			cfg.TLS.HTTPRedirect = true
+			serveMux := http.NewServeMux()
 
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "http://example.com/path", nil)
-	req.Host = "example.com@evil.test"
-	buildHTTPHandler(cfg, serveMux, http.NotFoundHandler()).ServeHTTP(rr, req)
+			rr := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "http://example.com/path", nil)
+			req.Host = host
+			buildHTTPHandler(cfg, serveMux, http.NotFoundHandler()).ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("expected bad request status %d, got %d", http.StatusBadRequest, rr.Code)
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("expected bad request status %d, got %d", http.StatusBadRequest, rr.Code)
+			}
+		})
 	}
 }
 
@@ -94,5 +103,31 @@ func TestBuildHTTPHandler_NormalizesProtocolRelativeURI(t *testing.T) {
 
 	if got, want := rr.Header().Get("Location"), "https://example.com/evil.test/path"; got != want {
 		t.Fatalf("expected Location %q, got %q", want, got)
+	}
+}
+
+func TestSanitizeHTTPRedirectHost(t *testing.T) {
+	tests := []struct {
+		name string
+		host string
+		want string
+	}{
+		{name: "hostname", host: "example.com", want: "example.com"},
+		{name: "hostname port", host: "example.com:8080", want: "example.com"},
+		{name: "ipv6 port", host: "[2001:db8::1]:8080", want: "[2001:db8::1]"},
+		{name: "empty", host: "", want: ""},
+		{name: "userinfo", host: "example.com@evil.test", want: ""},
+		{name: "slash", host: "example.com/evil", want: ""},
+		{name: "backslash", host: "example.com\\evil", want: ""},
+		{name: "space", host: "example.com evil", want: ""},
+		{name: "control", host: "example.com\nLocation: https://evil.test", want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := sanitizeHTTPRedirectHost(tt.host); got != tt.want {
+				t.Fatalf("sanitizeHTTPRedirectHost(%q) = %q, want %q", tt.host, got, tt.want)
+			}
+		})
 	}
 }

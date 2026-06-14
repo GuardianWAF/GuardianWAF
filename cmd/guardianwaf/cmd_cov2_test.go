@@ -2,11 +2,15 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -22,7 +26,7 @@ import (
 )
 
 func init() {
-	proxy.AllowPrivateTargets()
+	proxy.SetPrivateTargetsAllowed(true)
 }
 
 // --- readLine with actual input that returns non-default via subprocess ---
@@ -70,7 +74,10 @@ func TestReadLine_WhitespaceInput(t *testing.T) {
 func TestGenerateDashboardPassword_Uniqueness(t *testing.T) {
 	pwds := make(map[string]bool)
 	for range 10 {
-		pwd := generateDashboardPassword()
+		pwd, err := generateDashboardPassword()
+		if err != nil {
+			t.Fatalf("generateDashboardPassword: %v", err)
+		}
 		if len(pwd) != 24 {
 			t.Errorf("expected 24-char password, got %d", len(pwd))
 		}
@@ -78,6 +85,22 @@ func TestGenerateDashboardPassword_Uniqueness(t *testing.T) {
 			t.Error("generated duplicate password")
 		}
 		pwds[pwd] = true
+	}
+}
+
+func TestGenerateDashboardPasswordFailsClosedWhenCSPRNGFails(t *testing.T) {
+	orig := cryptoRandRead
+	t.Cleanup(func() { cryptoRandRead = orig })
+	cryptoRandRead = func([]byte) (int, error) {
+		return 0, errors.New("entropy unavailable")
+	}
+
+	pwd, err := generateDashboardPassword()
+	if err == nil {
+		t.Fatalf("expected CSPRNG failure, got password %q", pwd)
+	}
+	if !strings.Contains(err.Error(), "crypto/rand failed") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -413,13 +436,50 @@ func TestStartDashboard_ComplianceEnabled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer eng.Close()
 
 	srv, sse, d := startDashboard(cfg, eng)
 	if srv == nil {
 		t.Error("expected non-nil server")
+	} else {
+		defer srv.Close()
 	}
 	_ = sse
 	_ = d
+}
+
+func TestStartDashboard_ComplianceAuditPersistenceError(t *testing.T) {
+	parentFile := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(parentFile, []byte("x"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cfg := config.DefaultConfig()
+	cfg.Dashboard.Enabled = true
+	cfg.Dashboard.Listen = "127.0.0.1:0"
+	cfg.Dashboard.APIKey = "test-key-compliance"
+	cfg.Compliance.Enabled = true
+	cfg.Compliance.AuditTrail.Enabled = true
+	cfg.Compliance.AuditTrail.PersistPath = filepath.Join(parentFile, "audit.jsonl")
+
+	store := events.NewMemoryStore(100)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer eng.Close()
+
+	srv, sse, d := startDashboard(cfg, eng)
+	if srv != nil || sse != nil || d != nil {
+		if srv != nil {
+			_ = srv.Close()
+		}
+		if d != nil {
+			d.Close()
+		}
+		t.Fatal("expected dashboard startup to fail on invalid compliance audit persistence path")
+	}
 }
 
 // --- startDashboard without API key (triggers generateDashboardPassword) ---
@@ -436,10 +496,134 @@ func TestStartDashboard_EmptyAPIKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer eng.Close()
 
 	srv, _, _ := startDashboard(cfg, eng)
 	if srv == nil {
 		t.Error("expected non-nil server")
+	} else {
+		defer srv.Close()
+	}
+}
+
+func TestStartDashboardEmptyAPIKeyFailsClosedWhenCSPRNGFails(t *testing.T) {
+	orig := cryptoRandRead
+	t.Cleanup(func() { cryptoRandRead = orig })
+	cryptoRandRead = func([]byte) (int, error) {
+		return 0, errors.New("entropy unavailable")
+	}
+
+	cfg := config.DefaultConfig()
+	cfg.Dashboard.Enabled = true
+	cfg.Dashboard.Listen = "127.0.0.1:0"
+	cfg.Dashboard.APIKey = ""
+
+	store := events.NewMemoryStore(100)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer eng.Close()
+
+	srv, sse, dash := startDashboard(cfg, eng)
+	if srv != nil || sse != nil || dash != nil {
+		if srv != nil {
+			_ = srv.Close()
+		}
+		if dash != nil {
+			dash.Close()
+		}
+		t.Fatal("expected dashboard startup to fail closed when API key generation fails")
+	}
+}
+
+func TestStartDashboardTLSFlagFailsClosed(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Dashboard.Enabled = true
+	cfg.Dashboard.Listen = "127.0.0.1:0"
+	cfg.Dashboard.APIKey = "dashboard-api-key-123456"
+	cfg.Dashboard.TLS = true
+
+	store := events.NewMemoryStore(100)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer eng.Close()
+
+	srv, sse, dash := startDashboard(cfg, eng)
+	if srv != nil || sse != nil || dash != nil {
+		if srv != nil {
+			_ = srv.Close()
+		}
+		if dash != nil {
+			dash.Close()
+		}
+		t.Fatal("expected dashboard startup to fail closed when dashboard.tls=true")
+	}
+}
+
+func TestMCPSSEUsesGeneratedDashboardAPIKey(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Dashboard.Enabled = true
+	cfg.Dashboard.APIKey = ""
+	cfg.MCP.Enabled = true
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
+	}
+	cfg.Dashboard.Listen = ln.Addr().String()
+	_ = ln.Close()
+
+	store := events.NewMemoryStore(100)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer eng.Close()
+
+	srv, _, dash := startDashboard(cfg, eng)
+	if srv == nil || dash == nil {
+		t.Fatal("expected dashboard startup to generate API key and succeed")
+	}
+	defer srv.Close()
+	defer dash.Close()
+	if cfg.Dashboard.APIKey == "" {
+		t.Fatal("expected dashboard startup to generate API key")
+	}
+
+	mcpSSE := buildMCPSSEHandler(eng, cfg, store, nil)
+	mcpSSE.RegisterRoutes(dash.Mux())
+
+	req, err := http.NewRequest(http.MethodPost, "http://"+cfg.Dashboard.Listen+"/mcp/message", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("unauthenticated MCP request failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected unauthenticated MCP request to be rejected, got %d", resp.StatusCode)
+	}
+
+	req, err = http.NewRequest(http.MethodPost, "http://"+cfg.Dashboard.Listen+"/mcp/message", strings.NewReader(`{"jsonrpc":"2.0","id":2,"method":"initialize","params":{}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-API-Key", cfg.Dashboard.APIKey)
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("authenticated MCP request failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("expected generated dashboard key to authenticate MCP SSE request, got %d", resp.StatusCode)
 	}
 }
 
@@ -482,6 +666,50 @@ func TestStartMCPServer_WithAlertMgr(t *testing.T) {
 	alertMgr := alerting.NewManager(nil)
 	startMCPServer(eng, cfg, store, alertMgr, r, &output)
 	_ = r.Close()
+}
+
+func TestStartMCPStdioRuntimeStartsWithoutAlerting(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Alerting.Enabled = false
+	cfg.MCP.Enabled = true
+	cfg.MCP.Transport = "stdio"
+
+	store := events.NewMemoryStore(100)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer eng.Close()
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = w.Close()
+	defer r.Close()
+
+	if !startMCPStdioRuntime(eng, cfg, store, nil, r, io.Discard) {
+		t.Fatal("expected MCP stdio runtime to start independently of alerting")
+	}
+}
+
+func TestStartMCPStdioRuntimeSkipsNonStdioTransport(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.MCP.Enabled = true
+	cfg.MCP.Transport = "sse"
+
+	store := events.NewMemoryStore(100)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer eng.Close()
+
+	if startMCPStdioRuntime(eng, cfg, store, nil, strings.NewReader(""), io.Discard) {
+		t.Fatal("expected MCP stdio runtime to skip non-stdio transport")
+	}
 }
 
 // --- cmdTestAlert no target specified (shows usage) ---
@@ -706,6 +934,46 @@ func TestTenantManagerAdapter_UpdateTenant_WithDomains(t *testing.T) {
 		"domains":     []string{"new.example.com"},
 	})
 	_ = err
+}
+
+func TestTenantManagerAdapter_UpdateTenant_WithJSONMapAliases(t *testing.T) {
+	mgr := tenant.NewManager(100)
+	a := &tenantManagerAdapter{mgr: mgr}
+
+	created, err := a.CreateTenant("json tenant", "Test", []string{"old.example.com"}, map[string]any{
+		"max_requests_per_minute": float64(25),
+		"max_bandwidth_mbps":      float64(10),
+	})
+	if err != nil {
+		t.Fatalf("create tenant: %v", err)
+	}
+	tenantObj := created.(*tenant.Tenant)
+	if tenantObj.Quota.MaxRequestsPerMinute != 25 {
+		t.Fatalf("quota from JSON map was not applied: %#v", tenantObj.Quota)
+	}
+
+	err = a.UpdateTenant(tenantObj.ID, map[string]any{
+		"domains": []any{"new.example.com"},
+		"active":  false,
+		"quota": map[string]any{
+			"max_requests_per_minute": float64(50),
+			"max_ip_acls":             float64(7),
+		},
+	})
+	if err != nil {
+		t.Fatalf("update tenant: %v", err)
+	}
+
+	updated := mgr.GetTenant(tenantObj.ID)
+	if updated.Active {
+		t.Fatal("expected tenant to be inactive")
+	}
+	if len(updated.Domains) != 1 || updated.Domains[0] != "new.example.com" {
+		t.Fatalf("domains not updated from JSON array: %#v", updated.Domains)
+	}
+	if updated.Quota.MaxRequestsPerMinute != 50 || updated.Quota.MaxIPACLs != 7 {
+		t.Fatalf("quota not updated from JSON map: %#v", updated.Quota)
+	}
 }
 
 // --- billingManagerAdapter: with tenant that has invoices ---
