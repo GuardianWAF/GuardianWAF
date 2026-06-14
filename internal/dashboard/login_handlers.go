@@ -1,13 +1,24 @@
 package dashboard
 
 import (
+	"context"
 	"crypto/subtle"
+	"errors"
+	"log/slog"
 	"math"
 	"net"
 	"net/http"
+	"runtime/debug"
 	"sync"
 	"time"
 )
+
+var loginLog = slog.Default().With(slog.String("component", "dashboard/login"))
+
+// maxLoginRequestBody caps the size of the login form body (4 KiB). The
+// form only carries an API key + minimal fields; anything larger is either
+// a misuse or a probing attempt and is rejected with 413 before parsing.
+const maxLoginRequestBody = 4096
 
 type loginBucket struct {
 	mu        sync.Mutex
@@ -97,8 +108,18 @@ func (d *Dashboard) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, 4096) // API keys are short
-	key := r.FormValue("key")
+	r.Body = http.MaxBytesReader(w, r.Body, maxLoginRequestBody) // API keys are short
+	if err := r.ParseForm(); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	key := r.PostForm.Get("key")
 	if subtle.ConstantTimeCompare([]byte(key), []byte(d.apiKey)) != 1 {
 		d.recordLoginFailure(clientIP)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -108,7 +129,7 @@ func (d *Dashboard) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.resetLoginAttempts(clientIP)
-	setSessionCookie(w, r)
+	setSessionCookie(w, r, d.trustedProxyNets)
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 
@@ -168,7 +189,14 @@ func (d *Dashboard) resetLoginAttempts(ip string) {
 // cleanupLoginBuckets periodically removes expired login rate-limit entries
 // to prevent unbounded memory growth from unique attacker IPs.
 func (d *Dashboard) cleanupLoginBuckets() {
-	defer func() { recover() }()
+	defer d.cleanupWG.Done()
+	defer func() {
+		if r := recover(); r != nil {
+			loginLog.Error("login bucket cleanup panic recovered",
+				"panic", r,
+				"stack", string(debug.Stack()))
+		}
+	}()
 	ticker := time.NewTicker(loginLockout)
 	defer ticker.Stop()
 	for {
@@ -193,7 +221,14 @@ func (d *Dashboard) cleanupLoginBuckets() {
 
 // cleanupAPIBuckets removes stale API rate limit entries.
 func (d *Dashboard) cleanupAPIBuckets() {
-	defer recover()
+	defer d.cleanupWG.Done()
+	defer func() {
+		if r := recover(); r != nil {
+			loginLog.Error("api bucket cleanup panic recovered",
+				"panic", r,
+				"stack", string(debug.Stack()))
+		}
+	}()
 	ticker := time.NewTicker(apiRateCleanupTick)
 	defer ticker.Stop()
 	for {
@@ -217,8 +252,12 @@ func (d *Dashboard) cleanupAPIBuckets() {
 	}
 }
 
-// Close stops background goroutines (login bucket cleanup and API rate limit cleanup).
-func (d *Dashboard) Close() {
+// CloseWithContext signals background goroutines (login bucket cleanup,
+// API rate limit cleanup, revoked-session cleanup) to stop and waits
+// for them to drain. Returns ctx.Err() if the context fires before
+// the goroutines exit. Safe to call multiple times — stop channel
+// closes are idempotent under select/default.
+func (d *Dashboard) CloseWithContext(ctx context.Context) error {
 	select {
 	case <-d.loginStopCh:
 	default:
@@ -229,16 +268,37 @@ func (d *Dashboard) Close() {
 	default:
 		close(d.apiStopCh)
 	}
+	done := make(chan struct{})
+	go func() {
+		d.cleanupWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// Close waits for background goroutines to stop with no timeout.
+func (d *Dashboard) Close() {
+	_ = d.CloseWithContext(context.Background())
 }
 
 func (d *Dashboard) handleLogout(w http.ResponseWriter, r *http.Request) {
-	// CSRF protection: verify Origin/Referer for non-GET requests.
-	// GET logout is allowed (user clicking a link), but verify referrer when present.
-	if origin := r.Header.Get("Origin"); origin != "" {
-		if !verifySameOrigin(r) {
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return
-		}
+	// CSRF protection: logout is a state-changing operation, so it must
+	// be a non-GET request. Same-origin check rejects requests without
+	// either Origin or Referer — browsers can strip these headers in
+	// some scenarios, and a malicious page can submit requests without
+	// them, making the absence a CSRF risk indicator.
+	if r.Method == http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !verifySameOrigin(r) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
 	}
 	// Revoke session server-side immediately
 	if cookie, err := r.Cookie(sessionCookieName); err == nil && cookie.Value != "" {
@@ -250,7 +310,7 @@ func (d *Dashboard) handleLogout(w http.ResponseWriter, r *http.Request) {
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   secureCookieForRequest(r),
+		Secure:   secureCookieForRequest(r, d.trustedProxyNets),
 		SameSite: http.SameSiteStrictMode,
 	})
 	http.Redirect(w, r, "/login", http.StatusFound)
