@@ -181,3 +181,53 @@ jobs:
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: sbom.spdx.json
+
+      - name: Verify signed image digest
+        env:
+          IMAGE_REF: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
+        run: |
+          set -o pipefail
+          {
+            echo "image_ref=${IMAGE_REF}"
+            echo "certificate_identity_regexp=https://github.com/guardianwaf/guardianwaf/.github/workflows/release.yml@refs/tags/v.*"
+            echo "certificate_oidc_issuer=https://token.actions.githubusercontent.com"
+            cosign verify \
+              --certificate-identity-regexp 'https://github.com/guardianwaf/guardianwaf/.github/workflows/release.yml@refs/tags/v.*' \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              "${IMAGE_REF}" 2>&1
+          } | tee dist/release-evidence/release/supply-chain/cosign-verify.txt
+
+      - name: Verify provenance attestation
+        env:
+          IMAGE_REF: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
+        run: |
+          set -o pipefail
+          {
+            echo "image_ref=${IMAGE_REF}"
+            echo "certificate_identity_regexp=https://github.com/guardianwaf/guardianwaf/.github/workflows/release.yml@refs/tags/v.*"
+            echo "certificate_oidc_issuer=https://token.actions.githubusercontent.com"
+            cosign verify-attestation \
+              --type slsaprovenance \
+              --certificate-identity-regexp 'https://github.com/guardianwaf/guardianwaf/.github/workflows/release.yml@refs/tags/v.*' \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              "${IMAGE_REF}" 2>&1
+          } | tee dist/release-evidence/release/supply-chain/provenance-verify.txt
+
+      - name: Verify SBOM attestation
+        env:
+          IMAGE_REF: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
+        run: |
+          set -o pipefail
+          {
+            echo "image_ref=${IMAGE_REF}"
+            echo "certificate_identity_regexp=https://github.com/guardianwaf/guardianwaf/.github/workflows/release.yml@refs/tags/v.*"
+            echo "certificate_oidc_issuer=https://token.actions.githubusercontent.com"
+            cosign verify-attestation \
+              --type spdxjson \
+              --certificate-identity-regexp 'https://github.com/guardianwaf/guardianwaf/.github/workflows/release.yml@refs/tags/v.*' \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              "${IMAGE_REF}" 2>&1
+          } | tee dist/release-evidence/release/supply-chain/sbom-attestation-verify.txt
+
+      - name: Verify release supply-chain evidence
+        run: ./scripts/verify-release-evidence.sh --check-supply-chain dist/release-evidence/release
