@@ -2,13 +2,20 @@ package clientside
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"sync"
 	"time"
 )
 
-const maxReports = 1000
+const (
+	maxReports         = 1000
+	maxReportBodyBytes = 1 << 20
+)
+
+var errReportBodyTooLarge = errors.New("client-side report body too large")
 
 // ClientReport represents a report from the injected security agent.
 type ClientReport struct {
@@ -38,8 +45,12 @@ func (h *ReportHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20)) // 1MB max
+	body, err := readReportBody(r.Body)
 	if err != nil {
+		if errors.Is(err, errReportBodyTooLarge) {
+			http.Error(w, "body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "failed to read body", http.StatusBadRequest)
 		return
 	}
@@ -67,8 +78,12 @@ func (h *ReportHandler) ServeCSPReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	body, err := readReportBody(r.Body)
 	if err != nil {
+		if errors.Is(err, errReportBodyTooLarge) {
+			http.Error(w, "body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "failed to read body", http.StatusBadRequest)
 		return
 	}
@@ -88,6 +103,17 @@ func (h *ReportHandler) ServeCSPReport(w http.ResponseWriter, r *http.Request) {
 	h.mu.Unlock()
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func readReportBody(r io.Reader) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(r, maxReportBodyBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > maxReportBodyBytes {
+		return nil, fmt.Errorf("%w: exceeds %d bytes", errReportBodyTooLarge, maxReportBodyBytes)
+	}
+	return body, nil
 }
 
 // Reports returns a copy of all collected reports.

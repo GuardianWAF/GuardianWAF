@@ -341,6 +341,27 @@ func TestVerifyHandler(t *testing.T) {
 		}
 	})
 
+	t.Run("oversized body", func(t *testing.T) {
+		form := url.Values{
+			"challenge": {challenge},
+			"nonce":     {validNonce},
+			"redirect":  {"/original/page"},
+		}
+		req := httptest.NewRequest("POST", "/__guardianwaf/challenge/verify",
+			strings.NewReader(form.Encode()+"&padding="+strings.Repeat("x", maxChallengeVerifyBody)))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+
+		if w.Code != http.StatusRequestEntityTooLarge {
+			t.Fatalf("expected 413, got %d", w.Code)
+		}
+		if cookies := w.Result().Cookies(); len(cookies) != 0 {
+			t.Fatalf("oversized challenge verification set cookies: %+v", cookies)
+		}
+	})
+
 	t.Run("GET not allowed", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/__guardianwaf/challenge/verify", nil)
 		w := httptest.NewRecorder()
@@ -392,6 +413,32 @@ func TestVerifyHandler(t *testing.T) {
 			t.Errorf("expected redirect sanitized to /, got %s", loc)
 		}
 	})
+}
+
+func TestSafeChallengeRedirectPath(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "empty", in: "", want: "/"},
+		{name: "relative", in: "relative/path", want: "/"},
+		{name: "valid", in: "/original/page?x=1", want: "/original/page?x=1"},
+		{name: "protocol relative", in: "//evil.test/path", want: "/"},
+		{name: "backslash prefix", in: "/\\evil.test", want: "/"},
+		{name: "backslash anywhere", in: "/safe\\evil", want: "/"},
+		{name: "userinfo marker", in: "/path@evil.test", want: "/"},
+		{name: "embedded scheme", in: "/https://evil.test", want: "/"},
+		{name: "control character", in: "/safe\nLocation: https://evil.test", want: "/"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := safeChallengeRedirectPath(tt.in); got != tt.want {
+				t.Fatalf("safeChallengeRedirectPath(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
 }
 
 func TestVerifyHandlerParseFormError(t *testing.T) {

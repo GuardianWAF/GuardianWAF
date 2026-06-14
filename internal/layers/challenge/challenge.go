@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -120,8 +121,13 @@ func (s *Service) VerifyHandler() http.Handler {
 			return
 		}
 
-		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB max
+		r.Body = http.MaxBytesReader(w, r.Body, maxChallengeVerifyBody)
 		if err := r.ParseForm(); err != nil {
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) {
+				http.Error(w, "Request body too large", http.StatusRequestEntityTooLarge)
+				return
+			}
 			http.Error(w, "Bad request", http.StatusBadRequest)
 			return
 		}
@@ -160,17 +166,34 @@ func (s *Service) VerifyHandler() http.Handler {
 			SameSite: http.SameSiteLaxMode,
 		})
 
-		// Sanitize redirect path — must be a safe site-relative path
-		if redirect == "" || redirect[0] != '/' || (len(redirect) > 1 && redirect[1] == '/') || strings.ContainsAny(redirect, "\\@") {
-			redirect = "/"
-		}
+		redirect = safeChallengeRedirectPath(redirect)
 
-		http.Redirect(w, r, redirect, http.StatusSeeOther)
+		http.Redirect(w, r, redirect, http.StatusSeeOther) // #nosec G710 -- redirect is constrained by safeChallengeRedirectPath to a same-origin absolute path.
 	})
 }
 
 // VerifyPath is the endpoint path for challenge verification.
 const VerifyPath = "/__guardianwaf/challenge/verify"
+
+const maxChallengeVerifyBody = 1 << 20
+
+func safeChallengeRedirectPath(redirect string) string {
+	if redirect == "" || redirect[0] != '/' {
+		return "/"
+	}
+	if len(redirect) > 1 && (redirect[1] == '/' || redirect[1] == '\\') {
+		return "/"
+	}
+	if strings.ContainsAny(redirect, "\\@") || strings.Contains(redirect, "://") {
+		return "/"
+	}
+	for _, r := range redirect {
+		if r < 0x20 || r == 0x7f {
+			return "/"
+		}
+	}
+	return redirect
+}
 
 // --- Token management ---
 

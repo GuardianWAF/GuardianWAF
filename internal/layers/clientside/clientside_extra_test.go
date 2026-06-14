@@ -582,11 +582,11 @@ func TestDefaultConfig_Values(t *testing.T) {
 
 func TestCompilePatterns_AllDisabled(t *testing.T) {
 	cfg := &MagecartConfig{
-		Enabled:                true,
-		DetectObfuscatedJS:     false,
+		Enabled:                 true,
+		DetectObfuscatedJS:      false,
 		DetectSuspiciousDomains: false,
-		DetectKeyloggers:       false,
-		DetectFormExfiltration: false,
+		DetectKeyloggers:        false,
+		DetectFormExfiltration:  false,
 	}
 
 	patterns := CompilePatterns(cfg)
@@ -1003,6 +1003,22 @@ func TestReportHandler_InvalidJSON(t *testing.T) {
 	}
 }
 
+func TestReportHandlerRejectsOversizedBody(t *testing.T) {
+	handler := NewReportHandler()
+
+	validPrefix := `{"type":"script_injected","data":{},"url":"https://example.com","ts":1}`
+	req := httptest.NewRequest(http.MethodPost, "/_guardian/report", strings.NewReader(validPrefix+strings.Repeat(" ", maxReportBodyBytes)))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413", w.Code)
+	}
+	if got := len(handler.Reports()); got != 0 {
+		t.Fatalf("oversized report was stored; got %d reports", got)
+	}
+}
+
 func TestReportHandler_MaxReportsEviction(t *testing.T) {
 	handler := NewReportHandler()
 
@@ -1069,6 +1085,21 @@ func TestReportHandler_CSPReport_MethodNotAllowed(t *testing.T) {
 
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Errorf("status = %d, want 405", w.Code)
+	}
+}
+
+func TestReportHandlerRejectsOversizedCSPReport(t *testing.T) {
+	handler := NewReportHandler()
+
+	req := httptest.NewRequest(http.MethodPost, "/_guardian/csp-report", strings.NewReader(strings.Repeat("x", maxReportBodyBytes+1)))
+	w := httptest.NewRecorder()
+	handler.ServeCSPReport(w, req)
+
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413", w.Code)
+	}
+	if got := len(handler.Reports()); got != 0 {
+		t.Fatalf("oversized CSP report was stored; got %d reports", got)
 	}
 }
 
