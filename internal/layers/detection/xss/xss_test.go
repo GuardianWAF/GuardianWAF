@@ -47,6 +47,9 @@ var benignInputs = []struct {
 	{"heart emoji text", "I love <3 puppies", 0},
 	{"plain text", "Click here for details", 0},
 	{"comparison operators", "a > b && c < d", 0},
+	{"mustache variable", "{{ username }}", 0},
+	{"shell variable docs", "${HOME}", 0},
+	{"template placeholders", "{{a}} and ${b}", 0},
 }
 
 func TestDetect_AttackPayloads(t *testing.T) {
@@ -623,7 +626,8 @@ func TestDetectTemplateInjection(t *testing.T) {
 		{"{{constructor}}", 1},
 		{"${alert(1)}", 1},
 		{"#{alert(1)}", 1},
-		{"{{a}} and ${b}", 2},
+		{"{{7*7}} and ${alert(1)}", 2},
+		{"{{a}} and ${b}", 0},
 		{"normal text", 0},
 	}
 
@@ -815,7 +819,7 @@ func TestDetect_TemplateInjectionRuby(t *testing.T) {
 }
 
 func TestDetect_TemplateInjectionMultiple(t *testing.T) {
-	findings := Detect("{{a}} ${b} #{c}", "query")
+	findings := Detect("{{7*7}} ${alert(1)} #{system('id')}", "query")
 	templateCount := 0
 	for _, f := range findings {
 		if strings.Contains(f.Description, "Template injection") {
@@ -969,6 +973,15 @@ func TestDetect_StandaloneEventHandler(t *testing.T) {
 	}
 	if totalScore < 70 {
 		t.Errorf("expected score >= 70 for standalone event handler, got %d", totalScore)
+	}
+}
+
+func TestDetect_EventHandlerDoesNotMatchInsideLogKey(t *testing.T) {
+	findings := Detect(`level=info component=docs msg="curl command disabled in dry-run mode"`, "body")
+	for _, finding := range findings {
+		if strings.Contains(finding.Description, "Inline event handler") {
+			t.Fatalf("component= log key was treated as inline event handler: %+v", findings)
+		}
 	}
 }
 

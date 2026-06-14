@@ -236,19 +236,25 @@ func checkCommandSubstitution(input, lower, location string) []engine.Finding {
 	// $( ... ) pattern
 	idx := strings.Index(lower, "$(")
 	if idx >= 0 {
-		end := strings.Index(lower[idx:], ")")
+		contentStart := idx + 2
+		contentEnd := len(lower)
+		if end := strings.Index(lower[idx:], ")"); end > 2 {
+			contentEnd = idx + end
+		}
 		content := ""
-		if end > 2 {
-			content = strings.TrimSpace(lower[idx+2 : idx+end])
+		if contentStart < contentEnd {
+			content = strings.TrimSpace(lower[contentStart:contentEnd])
 		}
 		cmd := extractFirstWord(content)
-		score := 80
-		desc := "Command substitution $() detected"
-		if IsCommand(cmd) {
-			desc = "Command substitution $(" + cmd + ") detected"
+		if IsCommand(cmd) || containsShellExecutionSignal(content) {
+			score := 80
+			desc := "Command substitution $() detected"
+			if IsCommand(cmd) {
+				desc = "Command substitution $(" + cmd + ") detected"
+			}
+			findings = append(findings, makeFinding(score, engine.SeverityCritical,
+				desc, extractContext(lower, "$("), location, 0.90))
 		}
-		findings = append(findings, makeFinding(score, engine.SeverityCritical,
-			desc, extractContext(lower, "$("), location, 0.90))
 	}
 
 	// Backtick pattern
@@ -258,17 +264,28 @@ func checkCommandSubstitution(input, lower, location string) []engine.Finding {
 		if secondBt >= 0 {
 			content := strings.TrimSpace(strings.ToLower(input[firstBt+1 : firstBt+1+secondBt]))
 			cmd := extractFirstWord(content)
-			score := 80
-			desc := "Backtick command substitution detected"
-			if IsCommand(cmd) {
-				desc = "Backtick command substitution with " + cmd + " detected"
+			if IsCommand(cmd) || containsShellExecutionSignal(content) {
+				score := 80
+				desc := "Backtick command substitution detected"
+				if IsCommand(cmd) {
+					desc = "Backtick command substitution with " + cmd + " detected"
+				}
+				findings = append(findings, makeFinding(score, engine.SeverityCritical,
+					desc, extractContext(lower, "`"), location, 0.90))
 			}
-			findings = append(findings, makeFinding(score, engine.SeverityCritical,
-				desc, extractContext(lower, "`"), location, 0.90))
 		}
 	}
 
 	return findings
+}
+
+func containsShellExecutionSignal(content string) bool {
+	return strings.Contains(content, "/bin/") ||
+		strings.Contains(content, " -c ") ||
+		strings.Contains(content, " -e ") ||
+		strings.Contains(content, "|") ||
+		strings.Contains(content, "&&") ||
+		strings.Contains(content, "||")
 }
 
 // checkShellPaths detects references to shell interpreters.
@@ -375,10 +392,7 @@ func checkEncodedNewline(input, lower, location string) []engine.Finding {
 		}
 	}
 
-	// No command found, but newlines themselves are suspicious
-	return []engine.Finding{makeFinding(newlineScore, engine.SeverityHigh,
-		fmt.Sprintf("Encoded newline injection detected (%d occurrences)", newlineCount),
-		extractContext(lower, "%0"), location, 0.70)}
+	return nil
 }
 
 // checkRedirection detects output redirection operators.

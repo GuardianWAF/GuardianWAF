@@ -1,6 +1,7 @@
 package ssrf
 
 import (
+	"math"
 	"strings"
 )
 
@@ -42,8 +43,12 @@ func ParseDecimalIP(s string) IPv4 {
 	}
 	// Parse as uint32
 	var n uint64
-	for _, c := range s {
-		n = n*10 + uint64(c-'0')
+	for i := 0; i < len(s); i++ {
+		digit := uint64(s[i] - '0')
+		if n > (0xFFFFFFFF-digit)/10 {
+			return nil
+		}
+		n = n*10 + digit
 		if n > 0xFFFFFFFF {
 			return nil
 		}
@@ -53,10 +58,10 @@ func ParseDecimalIP(s string) IPv4 {
 		return nil
 	}
 	return IPv4{
-		byte(n >> 24),
-		byte(n >> 16),
-		byte(n >> 8),
-		byte(n),
+		uint64ToIPv4Byte(n >> 24),
+		uint64ToIPv4Byte(n >> 16),
+		uint64ToIPv4Byte(n >> 8),
+		uint64ToIPv4Byte(n),
 	}
 }
 
@@ -257,17 +262,21 @@ func parseFlexibleUint(s string) (uint64, bool) {
 		}
 		var n uint64
 		for _, c := range hexStr {
-			n <<= 4
+			var digit uint64
 			switch {
 			case c >= '0' && c <= '9':
-				n += uint64(c - '0')
+				digit = uint64(c - '0')
 			case c >= 'a' && c <= 'f':
-				n += uint64(c-'a') + 10
+				digit = uint64(c-'a') + 10
 			case c >= 'A' && c <= 'F':
-				n += uint64(c-'A') + 10
+				digit = uint64(c-'A') + 10
 			default:
 				return 0, false
 			}
+			if n > (math.MaxUint64-digit)/16 {
+				return 0, false
+			}
+			n = n*16 + digit
 		}
 		return n, true
 	}
@@ -278,7 +287,11 @@ func parseFlexibleUint(s string) (uint64, bool) {
 			if c < '0' || c > '7' {
 				return 0, false
 			}
-			n = n*8 + uint64(c-'0')
+			digit := uint64(c - '0')
+			if n > (math.MaxUint64-digit)/8 {
+				return 0, false
+			}
+			n = n*8 + digit
 		}
 		return n, true
 	}
@@ -288,7 +301,11 @@ func parseFlexibleUint(s string) (uint64, bool) {
 		if c < '0' || c > '9' {
 			return 0, false
 		}
-		n = n*10 + uint64(c-'0')
+		digit := uint64(c - '0')
+		if n > (math.MaxUint64-digit)/10 {
+			return 0, false
+		}
+		n = n*10 + digit
 	}
 	return n, true
 }
@@ -325,10 +342,10 @@ func ParseAbbreviatedIP(s string) IPv4 {
 			return nil
 		}
 		return IPv4{
-			byte(parsed[0]),
-			byte(parsed[1] >> 16),
-			byte(parsed[1] >> 8),
-			byte(parsed[1]),
+			uint64ToIPv4Byte(parsed[0]),
+			uint64ToIPv4Byte(parsed[1] >> 16),
+			uint64ToIPv4Byte(parsed[1] >> 8),
+			uint64ToIPv4Byte(parsed[1]),
 		}
 	case 3:
 		// A.B.C → A is first (8-bit), B is second (8-bit), C is 16-bit host
@@ -336,10 +353,10 @@ func ParseAbbreviatedIP(s string) IPv4 {
 			return nil
 		}
 		return IPv4{
-			byte(parsed[0]),
-			byte(parsed[1]),
-			byte(parsed[2] >> 8),
-			byte(parsed[2]),
+			uint64ToIPv4Byte(parsed[0]),
+			uint64ToIPv4Byte(parsed[1]),
+			uint64ToIPv4Byte(parsed[2] >> 8),
+			uint64ToIPv4Byte(parsed[2]),
 		}
 	}
 	return nil
@@ -373,9 +390,34 @@ func ParseHexSingleIP(s string) IPv4 {
 		return nil
 	}
 	return IPv4{
-		byte(n >> 24),
-		byte(n >> 16),
-		byte(n >> 8),
-		byte(n),
+		uint64ToIPv4Byte(n >> 24),
+		uint64ToIPv4Byte(n >> 16),
+		uint64ToIPv4Byte(n >> 8),
+		uint64ToIPv4Byte(n),
 	}
+}
+
+// ParseOctalSingleIP parses a single octal number as an IP address
+// (e.g., 017700000001 -> 127.0.0.1).
+// Returns nil if the input is not a valid octal-encoded IP.
+func ParseOctalSingleIP(s string) IPv4 {
+	if len(s) <= 1 || !strings.HasPrefix(s, "0") || strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0X") {
+		return nil
+	}
+	n, ok := parseFlexibleUint(s)
+	if !ok || n > 0xFFFFFFFF {
+		return nil
+	}
+	return IPv4{
+		uint64ToIPv4Byte(n >> 24),
+		uint64ToIPv4Byte(n >> 16),
+		uint64ToIPv4Byte(n >> 8),
+		uint64ToIPv4Byte(n),
+	}
+}
+
+func uint64ToIPv4Byte(n uint64) byte {
+	// #nosec G115 -- callers pass IPv4 octets or shifted uint32-sized values;
+	// masking keeps the byte narrowing local and explicit.
+	return byte(n & 0xFF)
 }

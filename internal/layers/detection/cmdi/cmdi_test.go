@@ -44,6 +44,9 @@ var benignInputs = []struct {
 	{"math expression", "2 + 3 = 5", 0},
 	{"filepath", "/home/user/documents/report.pdf", 0},
 	{"simple sentence", "the quick brown fox jumps over the lazy dog", 0},
+	{"markdown inline code", "Markdown sample: `{{ value }}`", 0},
+	{"make variable syntax", "Use $(VARIABLE) syntax in Makefile documentation", 0},
+	{"encoded newline prose", "The string %0a appears in URL encoding docs", 0},
 }
 
 func TestDetect_AttackPayloads(t *testing.T) {
@@ -456,14 +459,14 @@ func TestDetect_BacktickWithCommand(t *testing.T) {
 	}
 }
 
-func TestDetect_BacktickNonCommand(t *testing.T) {
+func TestDetect_BacktickNonCommandIsBenignMarkdown(t *testing.T) {
 	findings := Detect("`notacommand`", "query")
 	totalScore := 0
 	for _, f := range findings {
 		totalScore += f.Score
 	}
-	if totalScore < 50 {
-		t.Errorf("expected score >= 50 for backtick substitution, got %d", totalScore)
+	if totalScore != 0 {
+		t.Errorf("expected no score for non-command Markdown backticks, got %d findings=%v", totalScore, findings)
 	}
 }
 
@@ -537,8 +540,8 @@ func TestDetect_EncodedCRWithoutCommand(t *testing.T) {
 	for _, f := range findings {
 		totalScore += f.Score
 	}
-	if totalScore == 0 {
-		t.Error("expected non-zero score for encoded CR injection")
+	if totalScore != 0 {
+		t.Errorf("expected no score for encoded CR without command, got %d findings=%v", totalScore, findings)
 	}
 }
 
@@ -548,8 +551,8 @@ func TestDetect_EncodedNewlineWithoutCommand(t *testing.T) {
 	for _, f := range findings {
 		totalScore += f.Score
 	}
-	if totalScore == 0 {
-		t.Error("expected non-zero score for encoded newline injection without command")
+	if totalScore != 0 {
+		t.Errorf("expected no score for encoded newline without command, got %d findings=%v", totalScore, findings)
 	}
 }
 

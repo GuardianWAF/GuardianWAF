@@ -24,8 +24,13 @@ var attackPayloads = []struct {
 	{"private 192.168.x", "http://192.168.1.1/router", 65},
 	{"decimal ip", "http://2130706433/", 85},
 	{"octal ip", "http://0177.0.0.1/", 85},
+	{"single octal ip", "http://017700000001/", 85},
 	{"hex ip", "http://0x7f.0x0.0x0.0x1/", 85},
 	{"url with at", "http://attacker.com@127.0.0.1/", 70},
+	{"gopher scheme", "gopher://evil.com:25/_HELO", 75},
+	{"dict scheme", "dict://evil.com:11111/info", 75},
+	{"ftp scheme", "ftp://evil.com/pub/file.txt", 75},
+	{"ldap scheme", "ldap://evil.com/dc=evil,dc=com", 75},
 	{"https localhost", "https://localhost:8443/api", 80},
 }
 
@@ -919,6 +924,56 @@ func TestParseHexIP_TooLongSegment(t *testing.T) {
 	ip := ParseHexIP("0x1FF.0x0.0x0.0x1")
 	if ip != nil {
 		t.Error("expected nil for hex segment 0x1FF (too long)")
+	}
+}
+
+func TestParseDecimalIP_Uint32Boundaries(t *testing.T) {
+	ip := ParseDecimalIP("4294967295")
+	if ip == nil {
+		t.Fatal("expected max uint32 decimal IP")
+	}
+	if ip[0] != 255 || ip[1] != 255 || ip[2] != 255 || ip[3] != 255 {
+		t.Fatalf("expected 255.255.255.255, got %v", ip)
+	}
+	if got := ParseDecimalIP("4294967296"); got != nil {
+		t.Fatalf("expected nil for decimal IP above uint32, got %v", got)
+	}
+}
+
+func TestParseAbbreviatedIP_HostPartBoundaries(t *testing.T) {
+	twoPart := ParseAbbreviatedIP("10.16777215")
+	if twoPart == nil {
+		t.Fatal("expected valid two-part abbreviated IP")
+	}
+	if twoPart[0] != 10 || twoPart[1] != 255 || twoPart[2] != 255 || twoPart[3] != 255 {
+		t.Fatalf("expected 10.255.255.255, got %v", twoPart)
+	}
+	if got := ParseAbbreviatedIP("10.16777216"); got != nil {
+		t.Fatalf("expected nil for two-part host above 24 bits, got %v", got)
+	}
+
+	threePart := ParseAbbreviatedIP("10.1.65535")
+	if threePart == nil {
+		t.Fatal("expected valid three-part abbreviated IP")
+	}
+	if threePart[0] != 10 || threePart[1] != 1 || threePart[2] != 255 || threePart[3] != 255 {
+		t.Fatalf("expected 10.1.255.255, got %v", threePart)
+	}
+	if got := ParseAbbreviatedIP("10.1.65536"); got != nil {
+		t.Fatalf("expected nil for three-part host above 16 bits, got %v", got)
+	}
+}
+
+func TestParseFlexibleUint_RejectsOverflow(t *testing.T) {
+	inputs := []string{
+		"18446744073709551616",
+		"02000000000000000000000",
+		"0x10000000000000000",
+	}
+	for _, input := range inputs {
+		if got := ParseAbbreviatedIP("10." + input); got != nil {
+			t.Fatalf("expected nil for overflowing abbreviated IP component %q, got %v", input, got)
+		}
 	}
 }
 

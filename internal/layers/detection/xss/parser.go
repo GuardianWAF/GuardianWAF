@@ -151,17 +151,94 @@ func hasJavaScriptProtocol(attrs map[string]string) (attrName, protocol string, 
 	return "", "", false
 }
 
-// detectTemplateInjection scans input for template injection markers:
-// {{ (Mustache/Angular), ${ (ES6 template literals), #{ (Ruby/Pug).
+// detectTemplateInjection scans input for template injection markers with
+// executable or probing content. Plain template variables such as
+// "{{ user_name }}" and "${HOME}" are common in documentation and legitimate
+// templates, so delimiters alone are not enough to report XSS.
 func detectTemplateInjection(input string) []string {
 	var found []string
 	patterns := []string{"{{", "${", "#{"}
 	for _, p := range patterns {
-		if strings.Contains(input, p) {
+		if hasDangerousTemplateExpression(input, p) {
 			found = append(found, p)
 		}
 	}
 	return found
+}
+
+func hasDangerousTemplateExpression(input, open string) bool {
+	lower := strings.ToLower(input)
+	for from := 0; ; {
+		idx := strings.Index(lower[from:], open)
+		if idx < 0 {
+			return false
+		}
+		start := from + idx + len(open)
+		end := start + 96
+		if end > len(lower) {
+			end = len(lower)
+		}
+		body := lower[start:end]
+		if hasTemplateArithmeticProbe(body) || hasTemplateExecutionToken(body) {
+			return true
+		}
+		from = start
+	}
+}
+
+func hasTemplateArithmeticProbe(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] != '*' {
+			continue
+		}
+		l := i - 1
+		for l >= 0 && s[l] == ' ' {
+			l--
+		}
+		if l < 0 || s[l] < '0' || s[l] > '9' {
+			continue
+		}
+		r := i + 1
+		for r < len(s) && s[r] == ' ' {
+			r++
+		}
+		if r < len(s) && (s[r] == '\'' || s[r] == '"') {
+			r++
+		}
+		if r < len(s) && s[r] >= '0' && s[r] <= '9' {
+			return true
+		}
+	}
+	return false
+}
+
+func hasTemplateExecutionToken(s string) bool {
+	dangerous := []string{
+		"alert(",
+		"constructor",
+		"eval(",
+		"function(",
+		"=>",
+		"document.cookie",
+		"document.write",
+		"innerhtml",
+		"javascript:",
+		"location=",
+		"window.",
+		"system(",
+		"exec(",
+		"process.",
+		"require(",
+		"import(",
+		"onerror",
+		"onload",
+	}
+	for _, token := range dangerous {
+		if strings.Contains(s, token) {
+			return true
+		}
+	}
+	return false
 }
 
 // detectEncodedLT scans for encoded < variants that may be used to evade
@@ -202,7 +279,7 @@ func decodeCommonEncodings(s string) string {
 			hi := hexVal(s[i+2])
 			lo := hexVal(s[i+3])
 			if hi >= 0 && lo >= 0 {
-				b.WriteByte(byte(hi<<4 | lo))
+				b.WriteByte(hexPairByte(hi, lo))
 				i += 4
 				continue
 			}
@@ -214,8 +291,7 @@ func decodeCommonEncodings(s string) string {
 			h3 := hexVal(s[i+4])
 			h4 := hexVal(s[i+5])
 			if h1 >= 0 && h2 >= 0 && h3 >= 0 && h4 >= 0 {
-				code := rune(h1<<12 | h2<<8 | h3<<4 | h4)
-				b.WriteRune(code)
+				b.WriteRune(codePointRune((h1 << 12) | (h2 << 8) | (h3 << 4) | h4))
 				i += 6
 				continue
 			}
@@ -225,7 +301,7 @@ func decodeCommonEncodings(s string) string {
 			hi := hexVal(s[i+1])
 			lo := hexVal(s[i+2])
 			if hi >= 0 && lo >= 0 {
-				b.WriteByte(byte(hi<<4 | lo))
+				b.WriteByte(hexPairByte(hi, lo))
 				i += 3
 				continue
 			}
@@ -242,7 +318,7 @@ func decodeCommonEncodings(s string) string {
 				if j < len(s) && s[j] == ';' {
 					j++
 				}
-				b.WriteRune(rune(val))
+				b.WriteRune(codePointRune(val))
 				i = j
 				continue
 			}
@@ -259,7 +335,7 @@ func decodeCommonEncodings(s string) string {
 				if j < len(s) && s[j] == ';' {
 					j++
 				}
-				b.WriteRune(rune(val))
+				b.WriteRune(codePointRune(val))
 				i = j
 				continue
 			}
@@ -282,6 +358,19 @@ func hexVal(c byte) int {
 	default:
 		return -1
 	}
+}
+
+func hexPairByte(hi, lo int) byte {
+	// #nosec G115 -- hexVal constrains each nibble to 0..15 before this byte narrowing.
+	return byte((hi << 4) | lo)
+}
+
+func codePointRune(val int) rune {
+	if val <= 0 || val >= 0x110000 {
+		return '\uFFFD'
+	}
+	// #nosec G115 -- val is bounded to the Unicode scalar range above.
+	return rune(val)
 }
 
 // removeNullBytes strips null bytes from input. Attackers insert null bytes

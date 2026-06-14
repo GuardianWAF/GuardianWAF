@@ -38,6 +38,7 @@ func (d *Detector) Patterns() []string {
 		"metadata-endpoint",
 		"decimal-ip",
 		"octal-ip",
+		"dangerous-url-scheme",
 		"url-credential",
 	}
 }
@@ -166,7 +167,10 @@ func Detect(input, location string) []engine.Finding {
 	// 4. Decimal/Octal/Hex IP encoding
 	findings = append(findings, checkEncodedIPs(lower, location)...)
 
-	// 5. URL with @ (credential injection / redirect)
+	// 5. Dangerous non-HTTP URL schemes commonly used in SSRF payloads.
+	findings = append(findings, checkDangerousSchemes(lower, location)...)
+
+	// 6. URL with @ (credential injection / redirect)
 	findings = append(findings, checkURLCredential(lower, location)...)
 
 	return findings
@@ -476,9 +480,45 @@ func checkEncodedIPs(lower, location string) []engine.Finding {
 						extractContext(lower, host), location, 0.95))
 				}
 			}
+
+			// Check for single octal number IP (017700000001)
+			octalSingle := ParseOctalSingleIP(host)
+			if octalSingle != nil {
+				findings = append(findings, makeFinding(85, engine.SeverityCritical,
+					"Octal single-number encoded IP address detected: "+host,
+					extractContext(lower, host), location, 0.90))
+				if IsPrivateIP(octalSingle) || IsLoopback(octalSingle) || IsMetadataEndpoint(octalSingle) {
+					findings = append(findings, makeFinding(85, engine.SeverityCritical,
+						"Octal encoded IP resolves to private/loopback/metadata range",
+						extractContext(lower, host), location, 0.95))
+				}
+			}
 		}
 	}
 
+	return findings
+}
+
+// checkDangerousSchemes detects non-HTTP schemes that can make SSRF impact worse
+// when forwarded to URL-fetching backends or command-line clients.
+func checkDangerousSchemes(lower, location string) []engine.Finding {
+	var findings []engine.Finding
+	schemes := []struct {
+		prefix string
+		desc   string
+	}{
+		{"file://", "Local file URL scheme detected in SSRF candidate"},
+		{"gopher://", "Gopher URL scheme detected in SSRF candidate"},
+		{"dict://", "DICT URL scheme detected in SSRF candidate"},
+		{"ftp://", "FTP URL scheme detected in SSRF candidate"},
+		{"ldap://", "LDAP URL scheme detected in SSRF candidate"},
+	}
+	for _, scheme := range schemes {
+		if strings.Contains(lower, scheme.prefix) {
+			findings = append(findings, makeFinding(75, engine.SeverityHigh,
+				scheme.desc, extractContext(lower, scheme.prefix), location, 0.85))
+		}
+	}
 	return findings
 }
 

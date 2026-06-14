@@ -241,6 +241,10 @@ func containsEventHandler(lower string) bool {
 			break
 		}
 		pos := i + idx
+		if pos > 0 && !isEventHandlerBoundary(lower[pos-1]) && !isMergedTagEventHandlerPrefix(lower, pos) {
+			i = pos + 2
+			continue
+		}
 		// Check that the character after "on" is a lowercase letter
 		nextPos := pos + 2
 		if nextPos < len(lower) && lower[nextPos] >= 'a' && lower[nextPos] <= 'z' {
@@ -254,6 +258,24 @@ func containsEventHandler(lower string) bool {
 			}
 		}
 		i = pos + 2
+	}
+	return false
+}
+
+func isEventHandlerBoundary(ch byte) bool {
+	return !((ch >= 'a' && ch <= 'z') ||
+		(ch >= '0' && ch <= '9') ||
+		ch == '_' ||
+		ch == '-')
+}
+
+func isMergedTagEventHandlerPrefix(lower string, eventStart int) bool {
+	for _, tag := range []string{"img", "svg", "body", "div", "input"} {
+		tagStart := eventStart - len(tag)
+		if tagStart < 0 || lower[tagStart:eventStart] != tag {
+			continue
+		}
+		return tagStart == 0 || isEventHandlerBoundary(lower[tagStart-1]) || lower[tagStart-1] == '<'
 	}
 	return false
 }
