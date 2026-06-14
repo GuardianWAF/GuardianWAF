@@ -10,18 +10,6 @@ import (
 )
 
 func TestReleaseWorkflowPublishesVerifiableSupplyChainArtifacts(t *testing.T) {
-	// SKIPPED: describes a future-state release.yml that does not exist yet.
-	// The test asserts the release workflow scopes write/OIDC permissions per
-	// job, signs images with cosign, attaches SBOM and provenance attestations,
-	// and uploads a release-supply-chain evidence bundle. None of that is
-	// implemented in release.yml today. The full implementation lives in the
-	// supply-chain evidence epic (see scripts/release-evidence.sh and
-	// docs/release-checklist.md, which DO exist and are exercised by the
-	// passing TestReleaseEvidenceVerifierEnforcesStrictHeavyAndExternalEvidence).
-	// The assertions below are preserved as the spec — delete the t.Skip line
-	// above and the test re-activates as the implementation lands.
-	t.Skip("release.yml supply-chain pipeline not yet implemented; see release-evidence epic")
-
 	root := filepath.Join("..", "..")
 	workflow := readTextFixture(t, filepath.Join(root, ".github/workflows/release.yml"))
 	topLevel := strings.Split(workflow, "\njobs:\n")[0]
@@ -96,15 +84,6 @@ func TestReleaseWorkflowPublishesVerifiableSupplyChainArtifacts(t *testing.T) {
 }
 
 func TestCIWorkflowPinsActionsToolsAndReleaseGates(t *testing.T) {
-	// SKIPPED: describes a future-state ci.yml and release.yml that do not
-	// exist yet. The test asserts both workflows invoke check-prereqs.sh,
-	// pin go tool versions, and include the full gosec include set, plus a
-	// release-evidence hosted-CI job. The prereq-script is implemented
-	// (scripts/check-prereqs.sh) and exercised by scripts/build.sh; the
-	// workflow invocations are not yet wired in. Re-enable this test when
-	// the workflow prereq gates and the release-evidence CI job land.
-	t.Skip("ci.yml/release.yml prereq gates and release-evidence job not yet wired; see release-evidence epic")
-
 	root := filepath.Join("..", "..")
 	ci := readTextFixture(t, filepath.Join(root, ".github/workflows/ci.yml"))
 	release := readTextFixture(t, filepath.Join(root, ".github/workflows/release.yml"))
