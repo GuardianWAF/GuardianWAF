@@ -26,7 +26,8 @@ http://localhost:9443/api/v1
 
 ```bash
 # Dashboard API Key header
-curl -H "X-API-Key: your-api-key" http://localhost:9443/api/v1/stats
+curl -H "X-API-Key: ${GWAF_DASHBOARD_API_KEY:?set GWAF_DASHBOARD_API_KEY}" \
+  http://localhost:9443/api/v1/stats
 ```
 
 ---
@@ -40,7 +41,7 @@ curl -H "X-API-Key: your-api-key" http://localhost:9443/api/v1/stats
 curl -s http://localhost:9443/api/v1/stats | jq
 
 # Full stats with API key
-curl -s -H "X-API-Key: secret123" \
+curl -s -H "X-API-Key: ${GWAF_DASHBOARD_API_KEY:?set GWAF_DASHBOARD_API_KEY}" \
   http://localhost:9443/api/v1/stats | jq
 ```
 
@@ -73,40 +74,43 @@ curl -s "http://localhost:9443/api/v1/events?min_score=50&since=1h" | jq
 
 ```bash
 # Add to whitelist
-curl -X POST http://localhost:9443/api/v1/acl/whitelist \
+curl -X POST http://localhost:9443/api/v1/ipacl \
   -H "Content-Type: application/json" \
-  -d '{"ip": "192.168.1.0/24", "comment": "Office network"}'
+  -d '{"list": "whitelist", "ip": "192.168.1.0/24"}'
 
 # Add to blacklist
-curl -X POST http://localhost:9443/api/v1/acl/blacklist \
+curl -X POST http://localhost:9443/api/v1/ipacl \
   -H "Content-Type: application/json" \
-  -d '{"ip": "10.0.0.99", "comment": "Attacker"}'
+  -d '{"list": "blacklist", "ip": "10.0.0.99"}'
 
 # Remove from whitelist
-curl -X DELETE http://localhost:9443/api/v1/acl/whitelist/192.168.1.0/24
+curl -X DELETE http://localhost:9443/api/v1/ipacl \
+  -H "Content-Type: application/json" \
+  -d '{"list": "whitelist", "ip": "192.168.1.0/24"}'
 
 # List all ACLs
-curl -s http://localhost:9443/api/v1/acl | jq
+curl -s http://localhost:9443/api/v1/ipacl | jq
 ```
 
-### Rate Limit Management
+### Temporary Ban Management
 
 ```bash
-# Add rate limit
-curl -X POST http://localhost:9443/api/v1/ratelimits \
+# List active bans
+curl -s http://localhost:9443/api/v1/bans | jq
+
+# Add a temporary ban
+curl -X POST http://localhost:9443/api/v1/bans \
   -H "Content-Type: application/json" \
   -d '{
-    "id": "api-limit",
-    "path": "/api/*",
-    "requests_per_minute": 100,
-    "burst": 10
+    "ip": "10.0.0.99",
+    "duration": "1h",
+    "reason": "manual block"
   }'
 
-# Remove rate limit
-curl -X DELETE http://localhost:9443/api/v1/ratelimits/api-limit
-
-# List rate limits
-curl -s http://localhost:9443/api/v1/ratelimits | jq
+# Remove a temporary ban
+curl -X DELETE http://localhost:9443/api/v1/bans \
+  -H "Content-Type: application/json" \
+  -d '{"ip": "10.0.0.99"}'
 ```
 
 ### Webhook Management
@@ -155,6 +159,7 @@ import (
     "encoding/json"
     "fmt"
     "net/http"
+    "os"
     "time"
 )
 
@@ -229,7 +234,7 @@ type Stats struct {
 
 // Usage
 func main() {
-    client := NewClient("http://localhost:9443/api/v1", "secret123")
+    client := NewClient("http://localhost:9443/api/v1", os.Getenv("GWAF_DASHBOARD_API_KEY"))
     
     stats, err := client.GetStats()
     if err != nil {
@@ -337,7 +342,7 @@ type Event struct {
 
 // Usage
 func main() {
-    client := NewClient("http://localhost:9443/api/v1", "secret123")
+    client := NewClient("http://localhost:9443/api/v1", os.Getenv("GWAF_DASHBOARD_API_KEY"))
     ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
     defer cancel()
     
@@ -363,6 +368,7 @@ pip install requests
 
 ```python
 import requests
+import os
 from typing import Optional, Dict, Any
 
 class GuardianWAFClient:
@@ -429,7 +435,10 @@ class GuardianWAFClient:
         return resp.text
 
 # Usage
-client = GuardianWAFClient('http://localhost:9443/api/v1', 'secret123')
+client = GuardianWAFClient(
+    'http://localhost:9443/api/v1',
+    os.environ['GWAF_DASHBOARD_API_KEY']
+)
 
 # Get stats
 stats = client.get_stats()
@@ -476,7 +485,10 @@ class GuardianWAFAsyncClient:
 
 # Usage
 async def main():
-    client = GuardianWAFAsyncClient('http://localhost:9443/api/v1', 'secret123')
+    client = GuardianWAFAsyncClient(
+        'http://localhost:9443/api/v1',
+        os.environ['GWAF_DASHBOARD_API_KEY']
+    )
     stats = await client.get_stats()
     print(stats)
 
@@ -572,7 +584,7 @@ class GuardianWAFClient {
 // Usage
 const client = new GuardianWAFClient(
     'http://localhost:9443/api/v1',
-    'secret123'
+    process.env.GWAF_DASHBOARD_API_KEY
 );
 
 async function main() {
@@ -611,7 +623,7 @@ main();
       "command": "guardianwaf",
       "args": ["mcp"],
       "env": {
-        "GWAF_MCP_API_KEY": "your-api-key"
+        "GWAF_MCP_API_KEY": "set-from-secret-manager"
       }
     }
   }
@@ -724,7 +736,7 @@ Real-time event streaming via Server-Sent Events:
 
 ```javascript
 const eventSource = new EventSource(
-    'http://localhost:9443/api/v1/events/stream'
+    'http://localhost:9443/api/v1/sse'
 );
 
 eventSource.onmessage = (event) => {

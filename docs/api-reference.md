@@ -1,12 +1,12 @@
 # API Reference
 
-GuardianWAF exposes a REST API through the dashboard server (default `:9443`). All endpoints are prefixed with `/api/v1/`.
+GuardianWAF exposes a REST API through the dashboard server (default `:9443`). Runtime management endpoints are prefixed with `/api/v1/`; cross-tenant operator endpoints are prefixed with `/api/admin/`.
 
 ---
 
 ## Authentication
 
-If `dashboard.api_key` is set in the configuration, all API requests must include the `X-API-Key` header:
+If `dashboard.api_key` is set in the configuration, `/api/v1/*` API requests must include the `X-API-Key` header:
 
 ```bash
 curl -H "X-API-Key: your-secret-key" http://localhost:9443/api/v1/stats
@@ -15,6 +15,8 @@ curl -H "X-API-Key: your-secret-key" http://localhost:9443/api/v1/stats
 Requests without a valid API key receive `401 Unauthorized`.
 
 Query-string API keys are rejected; send credentials with `X-API-Key` or use an authenticated dashboard session cookie for browser-driven streams.
+
+`/api/admin/*` endpoints do not accept the dashboard session cookie or `dashboard.api_key`. They require `dashboard.admin_key` in `X-API-Key` and remain inaccessible when `dashboard.admin_key` is unset.
 
 ---
 
@@ -190,205 +192,207 @@ curl -X PUT http://localhost:9443/api/v1/config \
 
 ```json
 {
-  "message": "Configuration update received",
-  "updates": {
-    "mode": "monitor"
-  }
+  "status": "ok",
+  "message": "Configuration updated and saved"
 }
 ```
+
+This endpoint updates supported in-memory request-policy fields and persists through the dashboard save callback when configured. It does not recreate listeners, startup-owned background services, or WAF layer instances. Patches that change WAF layer topology or layer-instance configuration return `409 Conflict` and leave the active config unchanged. See [Runtime Reload Contract](runtime-reload.md).
 
 ---
 
 ### POST /api/v1/config/reload
 
-Trigger a configuration reload.
+Re-apply the current in-memory configuration and rebuild routing state where configured. This endpoint does not reread the YAML file from disk.
 
 ```bash
-curl -X POST http://localhost:9443/api/v1/config/reload
+curl -X POST http://localhost:9443/api/v1/config/reload \
+  -H "X-API-Key: your-secret-key"
 ```
 
 **Response:**
 
 ```json
 {
-  "message": "Configuration reloaded successfully"
+  "status": "ok",
+  "message": "Configuration reloaded"
 }
 ```
 
+Use a rolling restart for listener, TLS/ACME, event store, Docker watcher, AI, alerting, tenant, MCP, tracing, compliance, SIEM, cluster, WAF layer topology/configuration, or other startup-owned service changes.
+
 ---
 
-### GET /api/v1/rules/whitelist
+### GET /api/v1/ipacl
 
-List all whitelisted IPs.
+List whitelisted and blacklisted IP/CIDR entries.
 
 **Response:**
 
 ```json
 {
-  "rules": [
-    {
-      "id": "1",
-      "value": "10.0.0.0/8",
-      "reason": "Internal network",
-      "created_at": "2026-03-17T08:00:00Z"
-    }
-  ]
+  "whitelist": ["10.0.0.0/8"],
+  "blacklist": ["203.0.113.0/24"]
 }
 ```
 
 ---
 
-### POST /api/v1/rules/whitelist
+### POST /api/v1/ipacl
 
-Add an IP to the whitelist.
+Add an IP/CIDR to the whitelist or blacklist.
 
 **Request:**
 
 ```json
 {
-  "value": "10.0.0.0/8",
-  "reason": "Internal network"
+  "list": "blacklist",
+  "ip": "203.0.113.0/24"
 }
 ```
-
-**Response:** `201 Created` with the created entry including its `id`.
-
----
-
-### DELETE /api/v1/rules/whitelist/{id}
-
-Remove a whitelist entry by ID.
 
 **Response:**
 
 ```json
 {
-  "message": "Removed"
+  "status": "ok",
+  "ip": "203.0.113.0/24",
+  "list": "blacklist"
 }
 ```
 
 ---
 
-### GET /api/v1/rules/blacklist
+### DELETE /api/v1/ipacl
 
-List all blacklisted IPs.
-
-**Response:** Same structure as whitelist.
-
----
-
-### POST /api/v1/rules/blacklist
-
-Add an IP to the blacklist.
+Remove an IP/CIDR from the whitelist or blacklist.
 
 **Request:**
 
 ```json
 {
-  "value": "203.0.113.0/24",
-  "reason": "Known attacker range"
+  "list": "blacklist",
+  "ip": "203.0.113.0/24"
 }
 ```
-
-**Response:** `201 Created`.
-
----
-
-### DELETE /api/v1/rules/blacklist/{id}
-
-Remove a blacklist entry by ID.
-
----
-
-### GET /api/v1/rules/ratelimit
-
-List all rate limit rules.
 
 **Response:**
 
 ```json
 {
-  "rules": [
-    {
-      "id": "1",
-      "path": "/api/login",
-      "limit": 5,
-      "window": "1m",
-      "action": "block"
-    }
-  ]
+  "status": "ok",
+  "ip": "203.0.113.0/24",
+  "list": "blacklist"
 }
 ```
 
 ---
 
-### POST /api/v1/rules/ratelimit
+### GET /api/v1/bans
 
-Add a rate limit rule.
-
-**Request:**
-
-```json
-{
-  "path": "/api/login",
-  "limit": 5,
-  "window": "1m",
-  "action": "block"
-}
-```
-
-**Response:** `201 Created`.
-
----
-
-### DELETE /api/v1/rules/ratelimit/{id}
-
-Remove a rate limit rule by ID.
-
----
-
-### GET /api/v1/rules/exclusions
-
-List all detection exclusions.
+List active temporary bans.
 
 **Response:**
 
 ```json
 {
-  "rules": [
-    {
-      "id": "1",
-      "path": "/api/webhook",
-      "detectors": ["sqli", "xss"],
-      "reason": "Webhook receives arbitrary payloads"
-    }
-  ]
+  "bans": []
 }
 ```
 
 ---
 
-### POST /api/v1/rules/exclusions
+### POST /api/v1/bans
 
-Add a detection exclusion.
+Add a temporary ban.
 
 **Request:**
 
 ```json
 {
-  "path": "/api/webhook",
-  "detectors": ["sqli", "xss"],
-  "reason": "Webhook receives arbitrary payloads"
+  "ip": "203.0.113.45",
+  "duration": "1h",
+  "reason": "manual incident response"
 }
 ```
 
-**Response:** `201 Created`.
+**Response:**
+
+```json
+{
+  "status": "ok",
+  "ip": "203.0.113.45",
+  "duration": "1h0m0s"
+}
+```
 
 ---
 
-### DELETE /api/v1/rules/exclusions/{id}
+### DELETE /api/v1/bans
 
-Remove an exclusion by ID.
+Remove a temporary ban.
+
+**Request:**
+
+```json
+{
+  "ip": "203.0.113.45"
+}
+```
+
+---
+
+### GET /api/v1/rules
+
+List custom WAF rules managed by the dashboard.
+
+**Response:**
+
+```json
+{
+  "rules": []
+}
+```
+
+---
+
+### POST /api/v1/rules
+
+Add a custom WAF rule. The rule body depends on the active rule store implementation.
+
+**Response:**
+
+```json
+{
+  "status": "ok"
+}
+```
+
+---
+
+### PUT /api/v1/rules/{id}
+
+Update a custom WAF rule.
+
+---
+
+### DELETE /api/v1/rules/{id}
+
+Delete a custom WAF rule.
+
+---
+
+### GET /api/v1/events/export
+
+Export events as JSON or CSV.
+
+**Query Parameters:** same filters as `GET /api/v1/events`, plus `format=json|csv`.
+
+---
+
+### GET /api/v1/sse
+
+Open the dashboard Server-Sent Events stream. `GET /api/v1/events/stream` is also supported as a compatibility alias.
 
 ---
 
@@ -404,15 +408,16 @@ Remove an exclusion by ID.
 | GET | `/api/v1/config` | Get configuration |
 | PUT | `/api/v1/config` | Update configuration |
 | POST | `/api/v1/config/reload` | Reload configuration |
-| GET | `/api/v1/rules/whitelist` | List whitelist |
-| POST | `/api/v1/rules/whitelist` | Add to whitelist |
-| DELETE | `/api/v1/rules/whitelist/{id}` | Remove from whitelist |
-| GET | `/api/v1/rules/blacklist` | List blacklist |
-| POST | `/api/v1/rules/blacklist` | Add to blacklist |
-| DELETE | `/api/v1/rules/blacklist/{id}` | Remove from blacklist |
-| GET | `/api/v1/rules/ratelimit` | List rate limits |
-| POST | `/api/v1/rules/ratelimit` | Add rate limit |
-| DELETE | `/api/v1/rules/ratelimit/{id}` | Remove rate limit |
-| GET | `/api/v1/rules/exclusions` | List exclusions |
-| POST | `/api/v1/rules/exclusions` | Add exclusion |
-| DELETE | `/api/v1/rules/exclusions/{id}` | Remove exclusion |
+| GET | `/api/v1/ipacl` | List IP whitelist/blacklist |
+| POST | `/api/v1/ipacl` | Add whitelist/blacklist entry |
+| DELETE | `/api/v1/ipacl` | Remove whitelist/blacklist entry |
+| GET | `/api/v1/bans` | List temporary bans |
+| POST | `/api/v1/bans` | Add temporary ban |
+| DELETE | `/api/v1/bans` | Remove temporary ban |
+| GET | `/api/v1/rules` | List custom WAF rules |
+| POST | `/api/v1/rules` | Add custom WAF rule |
+| PUT | `/api/v1/rules/{id}` | Update custom WAF rule |
+| DELETE | `/api/v1/rules/{id}` | Delete custom WAF rule |
+| GET | `/api/v1/events/export` | Export events |
+| GET | `/api/v1/sse` | Dashboard SSE stream |
+| GET | `/api/v1/events/stream` | SSE compatibility alias |

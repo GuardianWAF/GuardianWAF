@@ -148,7 +148,7 @@ api_security:
 | gRPC | ❌ | ✅ | ✅ |
 | WebSocket | ✅ | ✅ | ✅ |
 
-**Etki:** Modern microservices gRPC kullanıyor.
+**Etki:** Modern microservices gRPC kullanıyor. GuardianWAF current state: HTTP/2-compatible gRPC traffic can pass through the proxy as ordinary HTTP/2, but message-aware gRPC inspection is planned. HTTP/3/QUIC has config/build-tag compatibility only and is not a production listener in the current tree.
 
 ---
 
@@ -352,7 +352,7 @@ tenancy:
   enabled: true
   isolation: "strict"  # namespace-based
   
-# 3. gRPC Support
+# 3. Planned gRPC Message Inspection
 protocols:
   grpc:
     enabled: true
@@ -412,8 +412,8 @@ compliance:
 | 2 | Advanced Bot Management | 🔴 High | Orta |
 | 3 | API Discovery | 🟡 Medium | Yüksek |
 | 4 | GraphQL Security | 🟡 Medium | Orta |
-| 5 | gRPC Support | 🟡 Medium | Orta |
-| 6 | HTTP/3 QUIC | 🟢 Low | Yüksek |
+| 5 | Planned gRPC message inspection | 🟡 Medium | Orta |
+| 6 | Planned HTTP/3 QUIC listener | 🟢 Low | Yüksek |
 | 7 | Client-side Protection | 🟢 Low | Yüksek |
 | 8 | Compliance Reports | 🟢 Low | Düşük |
 
@@ -427,7 +427,7 @@ compliance:
 
 **Geliştirilmesi gereken:**
 - Enterprise özellikleri (ML, API discovery)
-- Modern protocol desteği (gRPC, HTTP/3)
+- Modern protocol roadmap'i: planned gRPC message inspection ve planned HTTP/3/QUIC listener
 - Advanced bot management
 
 **Özet:** GuardianWAF modern, lightweight ve developer-friendly bir WAF. Enterprise özellikleri eklendiğinde Signal Sciences/CloudFlare alternatifi olabilir.

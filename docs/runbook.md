@@ -28,28 +28,42 @@ guardianwaf validate -config /path/to/guardianwaf.yaml
 **Diagnosis**:
 ```bash
 # Check which detectors are firing
-curl -s http://localhost:9443/api/stats | jq '.findings_by_detector'
+curl -s http://localhost:9443/api/v1/stats | jq '.findings_by_detector'
 
 # Review recent blocked events
-curl -s "http://localhost:9443/api/events?action=block&limit=20"
+curl -s "http://localhost:9443/api/v1/events?action=block&limit=20"
 ```
 
 **Resolution**:
-- Lower `block_threshold` in config (default: 50)
+- Move to `monitor` mode or raise the block threshold while triaging:
+  <!-- guardianwaf-config:validate -->
+  ```yaml
+  mode: monitor
+  waf:
+    detection:
+      threshold:
+        block: 80
+        log: 25
+  ```
 - Add path exclusions for specific detectors:
+  <!-- guardianwaf-config:validate -->
   ```yaml
   waf:
     detection:
       exclusions:
         - path: /api/webhook
           detectors: [sqli, xss]
+          reason: trusted webhook payloads
   ```
 - Per-detector multipliers can reduce sensitivity:
+  <!-- guardianwaf-config:validate -->
   ```yaml
   waf:
     detection:
-      multipliers:
-        sqli: 0.7
+      detectors:
+        sqli:
+          enabled: true
+          multiplier: 0.7
   ```
 
 ### 2. Backend Upstream Unreachable
@@ -59,10 +73,10 @@ curl -s "http://localhost:9443/api/events?action=block&limit=20"
 **Diagnosis**:
 ```bash
 # Check upstream health
-curl -s http://localhost:9443/api/upstreams | jq '.[].targets[] | {url, healthy}'
+curl -s http://localhost:9443/api/v1/upstreams | jq '.[].targets[] | {url, healthy}'
 
 # Check circuit breaker state
-curl -s http://localhost:9443/api/proxy/status
+curl -s http://localhost:9443/api/v1/routing
 ```
 
 **Resolution**:
@@ -70,9 +84,12 @@ curl -s http://localhost:9443/api/proxy/status
 - Check firewall rules between WAF and upstream
 - If circuit breaker is open, wait for half-open probe (30s default) or restart WAF
 - Adjust health check settings:
+  <!-- guardianwaf-config:validate -->
   ```yaml
   upstreams:
     - name: backend
+      targets:
+        - url: http://app:3000
       health_check:
         interval: 10s
         timeout: 5s
@@ -108,12 +125,13 @@ curl -s http://localhost:9443/debug/pprof/heap > heap.pprof
 go tool pprof heap.pprof
 
 # Check event buffer size
-curl -s http://localhost:9443/api/stats | jq '.events_stored'
+curl -s http://localhost:9443/api/v1/stats | jq '.events_stored'
 ```
 
 **Resolution**:
 - Reduce `events.max_events` (default: 10000)
 - Enable file-based event storage:
+  <!-- guardianwaf-config:validate -->
   ```yaml
   events:
     storage: file
@@ -128,10 +146,10 @@ curl -s http://localhost:9443/api/stats | jq '.events_stored'
 **Diagnosis**:
 ```bash
 # Check cluster state
-curl -s http://localhost:9443/api/cluster/status | jq .
+curl -s http://localhost:9443/api/v1/cluster/status | jq .
 
 # Check node connectivity
-curl -s https://peer-node:9443/api/cluster/health
+curl -s https://peer-node:9443/api/v1/cluster/health
 ```
 
 **Resolution**:
@@ -146,15 +164,28 @@ curl -s https://peer-node:9443/api/cluster/health
 **Diagnosis**:
 ```bash
 # Check rate limit stats
-curl -s http://localhost:9443/api/stats | jq '.rate_limits'
+curl -s http://localhost:9443/api/v1/stats | jq '.rate_limits'
 ```
 
 **Resolution**:
-- Increase `requests_per_second` in rate limit rules
-- Increase `auto_ban.threshold` (violations before ban)
+- Increase the relevant rule `limit`, `window`, or `burst`:
+  <!-- guardianwaf-config:validate -->
+  ```yaml
+  waf:
+    rate_limit:
+      rules:
+        - id: global
+          scope: ip
+          limit: 1000
+          window: 1m
+          burst: 100
+          action: block
+  ```
+- Increase `auto_ban_after` on path-specific rules when automatic bans are too aggressive.
 - Add trusted proxy CIDRs so real IPs are used. These must be the direct proxy,
   load balancer, or ingress addresses that connect to GuardianWAF, not the
   public client address range:
+  <!-- guardianwaf-config:validate -->
   ```yaml
   trusted_proxies:
     - 10.0.0.10
@@ -170,7 +201,7 @@ curl -s http://localhost:9443/api/stats | jq '.rate_limits'
 **Diagnosis**:
 ```bash
 # Check dashboard health
-curl -s http://localhost:9443/api/health
+curl -s http://localhost:9443/api/v1/health
 
 # Check if dashboard is enabled
 grep dashboard guardianwaf.yaml
@@ -187,8 +218,8 @@ grep dashboard guardianwaf.yaml
 
 **Diagnosis**:
 ```bash
-# Check p50/p90/p99 latency
-curl -s http://localhost:9443/metrics | grep guardianwaf_request_duration
+# Check average WAF processing latency
+curl -s http://localhost:9443/metrics | grep guardianwaf_latency_avg_microseconds
 
 # Check per-layer timing
 curl -s http://localhost:9443/debug/pprof/profile?seconds=10 > cpu.pprof
@@ -199,6 +230,7 @@ go tool pprof cpu.pprof
 - Disable unused layers (e.g., ML anomaly, DLP) if not needed
 - Reduce `waf.sanitizer.max_body_size` to limit body scanning
 - Enable response caching:
+  <!-- guardianwaf-config:validate -->
   ```yaml
   waf:
     cache:
@@ -207,10 +239,213 @@ go tool pprof cpu.pprof
       ttl: 60s
   ```
 
+### 9. High Block Spike
+
+**Symptoms**: `guardianwaf_requests_blocked_total` rate rises sharply, users report 403s, upstream traffic drops.
+
+**Diagnosis**:
+```bash
+# Compare block rate to total request rate
+curl -s http://localhost:9443/metrics | egrep 'guardianwaf_requests_(total|blocked)_total'
+
+# Inspect recent blocked events
+curl -s "http://localhost:9443/api/v1/events?action=block&limit=50" \
+  -H "Authorization: Bearer $GWAF_DASHBOARD_API_KEY" | jq '.events[] | {path, score, findings}'
+
+# Check recent deploy/config changes
+guardianwaf validate -config /etc/guardianwaf/guardianwaf.yaml
+kubectl rollout history deploy/guardianwaf
+```
+
+**Resolution**:
+- If the spike is a real attack, keep `mode: enforce`, confirm upstream capacity, and export incident evidence.
+- If likely false positive, switch to `mode: monitor` or raise `waf.detection.threshold.block` while collecting samples.
+- Add the narrowest path/detector exclusion needed and record the reason.
+- Verify recovery with `guardianwaf_requests_blocked_total` rate and a known-good user workflow.
+
+### 10. False Positive Rollback
+
+**Symptoms**: A rule/config change blocks valid traffic after rollout.
+
+**Diagnosis**:
+```bash
+# Identify current config and blocked evidence
+guardianwaf validate -config /etc/guardianwaf/guardianwaf.yaml
+curl -s "http://localhost:9443/api/v1/events?action=block&limit=20" \
+  -H "Authorization: Bearer $GWAF_DASHBOARD_API_KEY" | jq .
+```
+
+**Resolution**:
+- Roll back to the last known-good config from version control or your config store.
+- If rollback is slow, temporarily set `mode: monitor` and reload/restart GuardianWAF.
+- Re-apply only the smallest safe exclusion or detector multiplier after reproducing with `guardianwaf check`.
+- Verify that clean traffic passes and the original attack sample still blocks before returning to `enforce`.
+
+### 11. Dashboard Lockout
+
+**Symptoms**: Dashboard API returns 401/403, tenant-admin APIs unavailable, or operators lost the API/admin key.
+
+**Diagnosis**:
+```bash
+# Health does not require an API key
+curl -i http://localhost:9443/api/v1/health
+
+# Stats should reject missing key and accept the configured key
+curl -i http://localhost:9443/api/v1/stats
+curl -i http://localhost:9443/api/v1/stats -H "Authorization: Bearer $GWAF_DASHBOARD_API_KEY"
+```
+
+**Resolution**:
+- Rotate `GWAF_DASHBOARD_API_KEY` in the secret manager and restart/reload the deployment.
+- Set `GWAF_DASHBOARD_ADMIN_KEY` only when tenant-admin APIs are required.
+- Keep dashboard bound to loopback or an internal network and expose it through an authenticated TLS proxy.
+- Confirm the startup log no longer says tenant admin APIs are disabled if admin APIs are expected.
+
+### 12. Event Store Full or Dropping Events
+
+**Symptoms**: Missing dashboard events, file event store write errors, disk pressure, or increasing memory use.
+
+**Diagnosis**:
+```bash
+# Check event config and current event count
+guardianwaf validate -config /etc/guardianwaf/guardianwaf.yaml
+curl -s http://localhost:9443/api/v1/stats -H "Authorization: Bearer $GWAF_DASHBOARD_API_KEY" | jq '.events_stored'
+
+# Check bounded overload signals
+curl -s http://localhost:8088/metrics | grep -E 'guardianwaf_event_store_dropped_total|guardianwaf_event_bus_dropped_total|guardianwaf_event_bus_rejected_subscriptions_total|guardianwaf_alert_manager_dropped_total|guardianwaf_ai_pending_events'
+
+# Check disk usage for file-backed events
+df -h /var/log/guardianwaf
+du -sh /var/log/guardianwaf/events.jsonl
+```
+
+**Resolution**:
+- For durable production events, use `events.storage: file` with a persistent volume.
+- Increase disk capacity or reduce `events.max_events` to bound replay/load time.
+- If `guardianwaf_event_bus_dropped_total` rises, identify slow dashboard/SSE or alerting consumers and reduce subscriber work or scale the instance.
+- If `guardianwaf_event_bus_rejected_subscriptions_total` rises, the event fan-out subscriber cap has been reached; reduce duplicate consumers or split traffic across instances.
+- If `guardianwaf_alert_manager_dropped_total` rises, reduce alert fan-out, fix slow webhook/SMTP targets, or temporarily disable non-critical alert targets.
+- If `guardianwaf_ai_pending_events` remains near the configured batch size while AI requests are capped, raise approved provider limits or disable AI analysis until capacity is available.
+- Archive or rotate old JSONL files according to retention policy.
+- Verify new events appear in the dashboard after cleanup.
+
+### 13. AI Provider Cost Cap Hit
+
+**Symptoms**: AI analysis stops, analysis queue remains low but events no longer receive AI verdicts, logs mention token/request budget limits.
+
+**Diagnosis**:
+```bash
+# Inspect AI config
+guardianwaf validate -config /etc/guardianwaf/guardianwaf.yaml
+grep -n "ai_analysis" -A20 /etc/guardianwaf/guardianwaf.yaml
+
+# Review recent logs
+kubectl logs -l app=guardianwaf --tail=200 | grep -i 'ai\\|token\\|budget\\|cost'
+```
+
+**Resolution**:
+- Confirm the cap was intentional and no provider key leaked.
+- Raise `waf.ai_analysis.max_tokens_per_hour`, `max_tokens_per_day`, or `max_requests_per_hour` only after approval.
+- Disable `auto_block` if AI verdict volume is uncertain.
+- Verify logs show analysis resumed and provider credentials remain masked in dashboard/API responses.
+
+### 14. ACME Renewal Failure
+
+**Symptoms**: Certificate near expiry, ACME errors in logs, HTTPS clients report expired or invalid certificate.
+
+**Diagnosis**:
+```bash
+guardianwaf validate -config /etc/guardianwaf/guardianwaf.yaml
+openssl s_client -connect app.example.com:443 -servername app.example.com < /dev/null 2>/dev/null \
+  | openssl x509 -noout -dates -issuer -subject
+kubectl logs -l app=guardianwaf --tail=200 | grep -i acme
+```
+
+**Resolution**:
+- Ensure HTTP-01 traffic can reach the GuardianWAF ACME listener and no ingress blocks challenge paths.
+- Check `tls.acme.email`, `tls.acme.domains`, and writable `tls.acme.cache_dir`.
+- If expiry is imminent, deploy a manually issued cert via `tls.cert_file` and `tls.key_file`, then restore ACME.
+- Confirm renewal by checking certificate dates and startup logs.
+
+### 15. Docker Discovery Failure
+
+**Symptoms**: Docker-labeled services do not appear, fallback route is used, or discovered routes disappear.
+
+**Diagnosis**:
+```bash
+# Verify Docker config
+grep -n "docker:" -A10 /etc/guardianwaf/guardianwaf.yaml
+
+# Check socket access from the GuardianWAF container/host
+docker ps --format '{{.Names}} {{.Labels}}' | grep gwaf
+kubectl logs -l app=guardianwaf --tail=200 | grep -i docker
+```
+
+**Resolution**:
+- Verify `docker.enabled: true`, `docker.socket_path`, `docker.label_prefix`, and container labels.
+- Confirm the GuardianWAF process can read the Docker socket.
+- Keep a validated fallback upstream/route so traffic has a deterministic failure mode.
+- Restart GuardianWAF only after confirming labels and socket permissions.
+
+### 16. Suspected WAF Bypass
+
+**Symptoms**: Malicious payload reaches the application, but GuardianWAF logs show pass/log instead of block.
+
+**Diagnosis**:
+```bash
+# Reproduce through the CLI with the production config
+guardianwaf check -config /etc/guardianwaf/guardianwaf.yaml \
+  -url '/suspect/path?payload=...' \
+  -H 'User-Agent: reproduction'
+
+# Export recent related events
+curl -s "http://localhost:9443/api/v1/events?limit=100" \
+  -H "Authorization: Bearer $GWAF_DASHBOARD_API_KEY" > bypass-events.json
+```
+
+**Resolution**:
+- Preserve payload, headers, route, upstream response, and request ID as incident evidence.
+- Add a temporary custom rule or virtual patch scoped to the affected path.
+- Add the sample to the attack corpus/regression tests before broad detector changes.
+- Keep the deployment in `enforce` after confirming the compensating rule blocks the sample.
+
+### 17. Incident Export for Compliance
+
+**Symptoms**: Security, audit, or compliance team requests evidence for a time window.
+
+**Procedure**:
+```bash
+mkdir -p incident-export
+
+# Metrics snapshot
+curl -s http://localhost:9443/metrics > incident-export/metrics.prom
+
+# Event export
+curl -s "http://localhost:9443/api/v1/events?limit=1000" \
+  -H "Authorization: Bearer $GWAF_DASHBOARD_API_KEY" > incident-export/events.json
+
+# Config snapshot with secrets redacted manually before sharing
+cp /etc/guardianwaf/guardianwaf.yaml incident-export/guardianwaf.yaml
+
+# Runtime logs
+kubectl logs -l app=guardianwaf --since=24h > incident-export/guardianwaf.log
+
+# Audit-chain integrity snapshot for external anchoring
+curl -s http://localhost:9443/api/v1/compliance/audit-chain \
+  -H "Authorization: Bearer $GWAF_DASHBOARD_API_KEY" > incident-export/audit-chain.json
+```
+
+**Verification**:
+- Confirm exported events have request IDs and redacted sensitive fields.
+- Record the GuardianWAF version and image digest.
+- Confirm `audit-chain.json` has `"integrity": true` and store its `head_hash` in the approved write-once evidence system for later truncation/tamper checks.
+- Store the export in the approved evidence repository with retention tags.
+
 ## Emergency Procedures
 
 ### Disable WAF (Pass-Through Mode)
 
+<!-- guardianwaf-config:validate -->
 ```yaml
 # Set mode to "disabled" — all requests pass through without inspection
 mode: disabled
@@ -224,13 +459,16 @@ export GWAF_MODE=disabled
 ### Clear All Auto-Bans
 
 ```bash
-curl -X DELETE http://localhost:9443/api/ipacl/auto-ban \
+curl -X DELETE http://localhost:9443/api/v1/bans \
   -H "Authorization: Bearer YOUR_API_KEY"
 ```
 
 ### Force Config Reload
 
 ```bash
-# Send SIGHUP to reload config (if supported)
-kill -HUP $(pidof guardianwaf)
+# Re-apply the current in-memory config and rebuild routing when configured
+curl -X POST http://localhost:9443/api/v1/config/reload \
+  -H "X-API-Key: YOUR_API_KEY"
 ```
+
+This does not reread the YAML file from disk. For listener, storage, TLS/ACME, Docker watcher, AI, alerting, tenant, MCP, tracing, compliance, SIEM, cluster, or other startup-owned service changes, update the config through your deployment system and perform a rolling restart. See [Runtime Reload Contract](runtime-reload.md).

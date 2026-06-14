@@ -39,11 +39,32 @@ docker pull guardianwaf/guardianwaf:latest
 
 ### Build from Source
 
+Prerequisites:
+
+- Go 1.26.4 or newer
+- Node.js 20.19.0 or newer
+- npm 10.x or newer
+- `git`
+
 ```bash
 git clone https://github.com/guardianwaf/guardianwaf.git
 cd guardianwaf
-make build
-# Binary: ./guardianwaf
+./scripts/dev.sh
+# Local binary: ./dist/guardianwaf-dev
+```
+
+To start a temporary demo backend, GuardianWAF, and the dashboard after the build:
+
+```bash
+./scripts/dev.sh --demo
+```
+
+For release-style multi-platform artifacts:
+
+```bash
+./scripts/check-prereqs.sh
+./scripts/build.sh
+# Binaries and checksums: ./dist/
 ```
 
 ---
@@ -56,6 +77,7 @@ Full-featured mode: reverse proxy + web dashboard + MCP server.
 
 Create `guardianwaf.yaml`:
 
+<!-- guardianwaf-config:validate -->
 ```yaml
 mode: enforce
 listen: ":8088"
@@ -171,6 +193,7 @@ spec:
 
 GuardianWAF ships with production-safe defaults. This minimal config is enough:
 
+<!-- guardianwaf-config:validate -->
 ```yaml
 mode: enforce
 listen: ":8088"
@@ -276,6 +299,8 @@ Configuration guardianwaf.yaml is valid.
 ## Next Steps
 
 - [Configuration Reference](configuration.md) -- full YAML schema
+- [Production Config Profiles](config-profiles.md) -- validated profile configs and rollout runbooks
+- [Metrics Contract](metrics.md) -- Prometheus metric names and baseline queries
 - [Detection Engine](detection-engine.md) -- how scoring works
 - [Tuning Guide](tuning-guide.md) -- reducing false positives
 - [API Reference](api-reference.md) -- REST API endpoints

@@ -8,6 +8,7 @@ This guide covers reducing false positives, adjusting thresholds, and configurin
 
 Before enforcing, run in monitor mode to observe traffic patterns without blocking anything:
 
+<!-- guardianwaf-config:validate -->
 ```yaml
 mode: monitor
 ```
@@ -26,6 +27,7 @@ In monitor mode, all detection runs normally and events are logged, but no reque
 
 The two main thresholds control when requests are logged and blocked:
 
+<!-- guardianwaf-config:validate -->
 ```yaml
 waf:
   detection:
@@ -59,6 +61,7 @@ GWAF_WAF_DETECTION_THRESHOLD_BLOCK=70 GWAF_WAF_DETECTION_THRESHOLD_LOG=35 guardi
 
 Each detector has a score multiplier that scales all its findings:
 
+<!-- guardianwaf-config:validate -->
 ```yaml
 waf:
   detection:
@@ -93,6 +96,7 @@ Multiplier math: a UNION SELECT finding with base score 90 and multiplier 0.5 pr
 
 When specific endpoints legitimately contain content that triggers detectors, use exclusions instead of lowering global thresholds:
 
+<!-- guardianwaf-config:validate -->
 ```yaml
 waf:
   detection:
@@ -120,15 +124,14 @@ waf:
 
 Exclusions match by path prefix. `/api/webhook/github` matches the `/api/webhook` exclusion.
 
-You can also manage exclusions at runtime via the REST API or MCP:
+Apply exclusion changes through configuration management and reload the dashboard configuration when needed:
 
 ```bash
-# REST API
-curl -X POST http://localhost:9443/api/v1/rules/exclusions \
-  -H "X-API-Key: your-key" \
-  -H "Content-Type: application/json" \
-  -d '{"path": "/api/webhook", "detectors": ["sqli", "xss"], "reason": "Webhook"}'
+curl -X POST http://localhost:9443/api/v1/config/reload \
+  -H "X-API-Key: your-key"
 ```
+
+For the exact runtime update boundary, see [Runtime Reload Contract](runtime-reload.md).
 
 ---
 
@@ -136,6 +139,7 @@ curl -X POST http://localhost:9443/api/v1/rules/exclusions \
 
 If a detector is not relevant to your application:
 
+<!-- guardianwaf-config:validate -->
 ```yaml
 waf:
   detection:
@@ -193,6 +197,7 @@ Your API has a search endpoint that accepts queries like `SELECT name FROM produ
 
 **Solution:**
 
+<!-- guardianwaf-config:validate -->
 ```yaml
 waf:
   detection:
@@ -210,6 +215,7 @@ Your CMS allows users to input HTML content.
 
 **Solution:**
 
+<!-- guardianwaf-config:validate -->
 ```yaml
 waf:
   detection:
@@ -228,6 +234,7 @@ Your API handles large file uploads that may contain various content.
 
 **Solution:**
 
+<!-- guardianwaf-config:validate -->
 ```yaml
 waf:
   sanitizer:
@@ -247,12 +254,15 @@ Internal services communicate with each other and should not be blocked.
 
 **Solution:**
 
+<!-- guardianwaf-config:validate -->
 ```yaml
 waf:
   ip_acl:
     whitelist:
-      - "10.0.0.0/8"          # Internal network
-      - "172.16.0.0/12"       # Docker network
+      # Internal network
+      - 10.0.0.0/8
+      # Docker network
+      - 172.16.0.0/12
 ```
 
 Whitelisted IPs bypass all checks entirely.
@@ -263,6 +273,7 @@ Your login endpoint should have extra protection.
 
 **Solution:** Use rate limiting combined with higher detection sensitivity:
 
+<!-- guardianwaf-config:validate -->
 ```yaml
 waf:
   rate_limit:
@@ -327,6 +338,7 @@ The verbose output shows exactly which detectors triggered and why, making it st
 
 Rate limits prevent abuse without affecting normal traffic:
 
+<!-- guardianwaf-config:validate -->
 ```yaml
 waf:
   rate_limit:

@@ -127,11 +127,11 @@ waf:
     max_tokens_per_day: 500000    # ~$0.50/day max
     max_requests_per_hour: 30     # Max 30 API calls per hour
     min_score: 25                 # Only analyze events with score ≥ 25
-    batch_size: 20                # 20 events per batch (fewer API calls)
+    batch_size: 20                # 1-1000 events per batch (default: 20)
     batch_interval: 60s           # Max 1 batch per minute
 ```
 
-When any limit is reached, analysis is **skipped** (not queued), and a warning is logged. Counters reset automatically every hour/day.
+`batch_size` is validated with an upper bound of 1000 to keep the pending AI analysis batch bounded in memory. When any usage limit is reached, analysis is **skipped** (not queued), and a warning is logged. Counters reset automatically every hour/day.
 
 ### Cost Estimation
 
@@ -254,7 +254,7 @@ waf:
 
 ### AI responses are inaccurate
 - Use a more capable model (e.g., GPT-4o instead of GPT-4o-mini).
-- Increase `batch_size` for more context per analysis.
+- Increase `batch_size` for more context per analysis, up to the 1000-event validation limit.
 - Lower `min_score` to include more borderline events.
 
 ### High costs

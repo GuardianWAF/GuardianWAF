@@ -406,7 +406,7 @@ docker volume create guardianwaf-data
 # Open browser dev tools -> Network -> SSE
 
 # Check if events are flowing
-curl http://localhost:9443/api/v1/events/stream
+curl http://localhost:9443/api/v1/sse
 
 # Check CORS settings
 # server:
@@ -421,19 +421,19 @@ curl http://localhost:9443/api/v1/events/stream
 **A:**
 ```bash
 # Check API key permissions
-curl -H "X-API-Key: your-key" http://localhost:9443/api/v1/acl
+curl -H "X-API-Key: your-key" http://localhost:9443/api/v1/ipacl
 
 # Check IP format
-curl -X POST http://localhost:9443/api/v1/acl/whitelist \
+curl -X POST http://localhost:9443/api/v1/ipacl \
   -H "X-API-Key: key" \
   -H "Content-Type: application/json" \
-  -d '{"ip": "192.168.1.1"}'  # Not CIDR
+  -d '{"list": "whitelist", "ip": "192.168.1.1"}'
 
 # Use CIDR format
-curl -X POST http://localhost:9443/api/v1/acl/whitelist \
+curl -X POST http://localhost:9443/api/v1/ipacl \
   -H "X-API-Key: key" \
   -H "Content-Type: application/json" \
-  -d '{"ip": "192.168.1.0/24"}'
+  -d '{"list": "whitelist", "ip": "192.168.1.0/24"}'
 ```
 
 ### Q: Graph not rendering
@@ -441,7 +441,7 @@ curl -X POST http://localhost:9443/api/v1/acl/whitelist \
 **A:**
 ```bash
 # Check if topology endpoint works
-curl http://localhost:9443/api/v1/topology
+curl http://localhost:9443/api/v1/routing
 
 # Check browser console for errors
 # Open F12 -> Console
@@ -502,7 +502,7 @@ curl -H "X-API-Key: correct-key" http://localhost:9443/api/v1/stats
 sleep 60
 
 # Or check current limits
-curl http://localhost:9443/api/v1/ratelimits
+curl http://localhost:9443/api/v1/config
 ```
 
 ---
@@ -616,4 +616,3 @@ GuardianWAF writes structured logs to stdout/stderr. For production deployments,
 - **Bare metal:** Pipe to `logrotate` or use `slog` JSON output with file rotation
 
 Event JSONL files are rotated automatically at 100MB. No external configuration needed.
-
