@@ -1,6 +1,8 @@
 package tenant
 
 import (
+	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -94,11 +96,195 @@ func TestAlertManager_TriggerAlert_WithHandler(t *testing.T) {
 	mu.Unlock()
 }
 
+func TestAlertManager_CloseWithContextWaitsForDispatchLoop(t *testing.T) {
+	am := NewAlertManager()
+	am.TriggerAlert("tenant-1", AlertQuotaWarning, AlertWarning, "Test Alert", "Test message", nil)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := am.CloseWithContext(ctx); err != nil {
+		t.Fatalf("CloseWithContext: %v", err)
+	}
+}
+
+func TestAlertManager_CloseWithContextDrainsQueuedAlerts(t *testing.T) {
+	am := NewAlertManager()
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	received := make(chan AlertType, 2)
+	var once sync.Once
+
+	am.RegisterHandler(func(alert *Alert) {
+		received <- alert.Type
+		if alert.Type == AlertQuotaWarning {
+			once.Do(func() {
+				close(entered)
+				<-release
+			})
+		}
+	})
+
+	if alert := am.TriggerAlert("tenant-1", AlertQuotaWarning, AlertWarning, "First", "queued", nil); alert == nil {
+		t.Fatal("expected first alert")
+	}
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("first alert handler did not start")
+	}
+	if alert := am.TriggerAlert("tenant-1", AlertSecurityEvent, AlertCritical, "Second", "queued", nil); alert == nil {
+		t.Fatal("expected second alert")
+	}
+
+	closeDone := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		closeDone <- am.CloseWithContext(ctx)
+	}()
+
+	close(release)
+	if err := <-closeDone; err != nil {
+		t.Fatalf("CloseWithContext: %v", err)
+	}
+
+	got := map[AlertType]bool{}
+	for i := 0; i < 2; i++ {
+		select {
+		case alertType := <-received:
+			got[alertType] = true
+		default:
+			t.Fatalf("expected 2 dispatched alerts, got %d", i)
+		}
+	}
+	if !got[AlertQuotaWarning] || !got[AlertSecurityEvent] {
+		t.Fatalf("CloseWithContext did not drain queued alerts, got %v", got)
+	}
+}
+
+func TestAlertManager_RejectsNewAlertsAfterClose(t *testing.T) {
+	am := NewAlertManager()
+	if err := am.CloseWithContext(context.Background()); err != nil {
+		t.Fatalf("CloseWithContext: %v", err)
+	}
+
+	am.RegisterHandler(func(*Alert) {
+		t.Fatal("handler should not be registered after close")
+	})
+	alert := am.TriggerAlert("tenant-1", AlertQuotaWarning, AlertWarning, "Test Alert", "Test message", nil)
+	if alert != nil {
+		t.Fatalf("expected nil alert after close, got %#v", alert)
+	}
+	if got := am.GetAlerts("tenant-1", true); len(got) != 0 {
+		t.Fatalf("expected no stored alerts after close, got %d", len(got))
+	}
+}
+
+func TestAlertManager_CloseWithContextHonorsDeadline(t *testing.T) {
+	am := NewAlertManager()
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	am.RegisterHandler(func(*Alert) {
+		close(entered)
+		<-release
+	})
+	am.TriggerAlert("tenant-1", AlertQuotaWarning, AlertWarning, "Test Alert", "Test message", nil)
+
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("handler did not start")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+	defer cancel()
+	err := am.CloseWithContext(ctx)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("CloseWithContext error = %v, want deadline exceeded", err)
+	}
+
+	close(release)
+	if err := am.CloseWithContext(context.Background()); err != nil {
+		t.Fatalf("final CloseWithContext: %v", err)
+	}
+}
+
+func TestManager_CloseWithContextClosesAlertManager(t *testing.T) {
+	m := NewManager(10)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := m.CloseWithContext(ctx); err != nil {
+		t.Fatalf("CloseWithContext: %v", err)
+	}
+}
+
+type blockingClusterSync struct {
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (b *blockingClusterSync) BroadcastEvent(string, string, string, map[string]any) error {
+	close(b.entered)
+	<-b.release
+	return nil
+}
+
+func TestManager_CloseWithContextWaitsForClusterBroadcast(t *testing.T) {
+	m := NewManager(10)
+	cs := &blockingClusterSync{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	m.SetClusterSync(cs)
+	if _, err := m.CreateTenant("Tenant", "desc", []string{"tenant.example.com"}, nil); err != nil {
+		t.Fatalf("CreateTenant: %v", err)
+	}
+	select {
+	case <-cs.entered:
+	case <-time.After(time.Second):
+		t.Fatal("cluster broadcast did not start")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+	defer cancel()
+	err := m.CloseWithContext(ctx)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("CloseWithContext error = %v, want deadline exceeded", err)
+	}
+
+	close(cs.release)
+	if err := m.CloseWithContext(context.Background()); err != nil {
+		t.Fatalf("final CloseWithContext: %v", err)
+	}
+}
+
+func TestManager_CloseWithContextRejectsNewClusterBroadcast(t *testing.T) {
+	m := NewManager(10)
+	cs := &mockClusterSync{}
+	m.SetClusterSync(cs)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := m.CloseWithContext(ctx); err != nil {
+		t.Fatalf("CloseWithContext: %v", err)
+	}
+	if _, err := m.CreateTenant("Tenant", "desc", []string{"tenant.example.com"}, nil); err != nil {
+		t.Fatalf("CreateTenant: %v", err)
+	}
+
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	if len(cs.calls) != 0 {
+		t.Fatalf("expected no cluster broadcasts after close, got %v", cs.calls)
+	}
+}
+
 func TestAlertManager_CheckQuotaAlert(t *testing.T) {
 	am := NewAlertManager()
 
 	tenant := &Tenant{
-		ID: "tenant-1",
+		ID:    "tenant-1",
 		Quota: ResourceQuota{MaxRequestsPerMinute: 100},
 	}
 

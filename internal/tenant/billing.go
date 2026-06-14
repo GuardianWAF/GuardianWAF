@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,7 +26,7 @@ const (
 // PlanPricing defines the cost structure for a plan.
 type PlanPricing struct {
 	BaseMonthlyCost      float64 `json:"base_monthly_cost"`
-	PerRequestCost       float64 `json:"per_request_cost"`       // per 1000 requests
+	PerRequestCost       float64 `json:"per_request_cost"` // per 1000 requests
 	PerGBBandwidthCost   float64 `json:"per_gb_bandwidth_cost"`
 	PerBlockedAttackCost float64 `json:"per_blocked_attack_cost"` // security value
 	IncludedRequests     int64   `json:"included_requests"`
@@ -81,48 +82,52 @@ func DefaultPlanPricing(plan BillingPlan) PlanPricing {
 
 // UsageMetrics tracks billable usage for a tenant.
 type UsageMetrics struct {
-	Requests       int64   `json:"requests"`
-	BytesTransferred int64 `json:"bytes_transferred"`
-	BlockedAttacks int64   `json:"blocked_attacks"`
-	PeriodStart    time.Time `json:"period_start"`
-	PeriodEnd      time.Time `json:"period_end"`
+	Requests         int64     `json:"requests"`
+	BytesTransferred int64     `json:"bytes_transferred"`
+	BlockedAttacks   int64     `json:"blocked_attacks"`
+	PeriodStart      time.Time `json:"period_start"`
+	PeriodEnd        time.Time `json:"period_end"`
 }
 
 // Invoice represents a billing invoice for a tenant.
 type Invoice struct {
-	ID              string      `json:"id"`
-	TenantID        string      `json:"tenant_id"`
-	TenantName      string      `json:"tenant_name"`
-	Plan            BillingPlan `json:"plan"`
-	PeriodStart     time.Time   `json:"period_start"`
-	PeriodEnd       time.Time   `json:"period_end"`
-	Usage           UsageMetrics `json:"usage"`
-	BaseCost        float64     `json:"base_cost"`
-	RequestCost     float64     `json:"request_cost"`
-	BandwidthCost   float64     `json:"bandwidth_cost"`
-	SecurityCost    float64     `json:"security_cost"`
-	TotalCost       float64     `json:"total_cost"`
-	Status          string      `json:"status"` // "draft", "pending", "paid", "overdue"
-	CreatedAt       time.Time   `json:"created_at"`
+	ID            string       `json:"id"`
+	TenantID      string       `json:"tenant_id"`
+	TenantName    string       `json:"tenant_name"`
+	Plan          BillingPlan  `json:"plan"`
+	PeriodStart   time.Time    `json:"period_start"`
+	PeriodEnd     time.Time    `json:"period_end"`
+	Usage         UsageMetrics `json:"usage"`
+	BaseCost      float64      `json:"base_cost"`
+	RequestCost   float64      `json:"request_cost"`
+	BandwidthCost float64      `json:"bandwidth_cost"`
+	SecurityCost  float64      `json:"security_cost"`
+	TotalCost     float64      `json:"total_cost"`
+	Status        string       `json:"status"` // "draft", "pending", "paid", "overdue"
+	CreatedAt     time.Time    `json:"created_at"`
 }
 
 // BillingManager handles tenant billing and metering.
 type BillingManager struct {
-	mu          sync.RWMutex
-	pricing     map[BillingPlan]PlanPricing
-	invoices    map[string][]Invoice       // key: tenant ID
+	mu           sync.RWMutex
+	pricing      map[BillingPlan]PlanPricing
+	invoices     map[string][]Invoice     // key: tenant ID
 	currentUsage map[string]*UsageMetrics // key: tenant ID
-	storePath   string
-	log         *slog.Logger
+	storePath    string
+	log          *slog.Logger
 }
 
 // NewBillingManager creates a new billing manager.
 func NewBillingManager(storePath string) *BillingManager {
+	cleanStorePath, err := cleanBillingStorePath(storePath)
+	if err != nil {
+		cleanStorePath = ""
+	}
 	bm := &BillingManager{
 		pricing:      make(map[BillingPlan]PlanPricing),
 		invoices:     make(map[string][]Invoice),
 		currentUsage: make(map[string]*UsageMetrics),
-		storePath:    storePath,
+		storePath:    cleanStorePath,
 		log:          logging.NewLogger("tenant/billing"),
 	}
 
@@ -138,6 +143,16 @@ func NewBillingManager(storePath string) *BillingManager {
 	}
 
 	return bm
+}
+
+func cleanBillingStorePath(storePath string) (string, error) {
+	if storePath == "" {
+		return "", nil
+	}
+	if strings.ContainsRune(storePath, 0) {
+		return "", fmt.Errorf("billing store path contains NUL byte")
+	}
+	return filepath.Clean(storePath), nil
 }
 
 // RecordUsage records usage for billing calculation.
@@ -208,20 +223,20 @@ func (bm *BillingManager) GenerateInvoice(tenantID, tenantName string, plan Bill
 	totalCost := baseCost + requestCost + bandwidthCost + securityCost
 
 	invoice := &Invoice{
-		ID:              generateInvoiceID(tenantID),
-		TenantID:        tenantID,
-		TenantName:      tenantName,
-		Plan:            plan,
-		PeriodStart:     periodStart,
-		PeriodEnd:       periodEnd,
-		Usage:           *usage,
-		BaseCost:        baseCost,
-		RequestCost:     requestCost,
-		BandwidthCost:   bandwidthCost,
-		SecurityCost:    securityCost,
-		TotalCost:       totalCost,
-		Status:          "draft",
-		CreatedAt:       time.Now(),
+		ID:            generateInvoiceID(tenantID),
+		TenantID:      tenantID,
+		TenantName:    tenantName,
+		Plan:          plan,
+		PeriodStart:   periodStart,
+		PeriodEnd:     periodEnd,
+		Usage:         *usage,
+		BaseCost:      baseCost,
+		RequestCost:   requestCost,
+		BandwidthCost: bandwidthCost,
+		SecurityCost:  securityCost,
+		TotalCost:     totalCost,
+		Status:        "draft",
+		CreatedAt:     time.Now(),
 	}
 
 	// Store invoice
@@ -313,19 +328,25 @@ func (bm *BillingManager) save() error {
 	if bm.storePath == "" {
 		return nil
 	}
+	storePath, err := cleanBillingStorePath(bm.storePath)
+	if err != nil {
+		return err
+	}
+	bm.storePath = storePath
 
 	data := struct {
-		Invoices     map[string][]Invoice    `json:"invoices"`
+		Invoices     map[string][]Invoice     `json:"invoices"`
 		CurrentUsage map[string]*UsageMetrics `json:"current_usage"`
 	}{
 		Invoices:     bm.invoices,
 		CurrentUsage: bm.currentUsage,
 	}
 
-	if err := os.MkdirAll(filepath.Dir(bm.storePath), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(storePath), 0700); err != nil {
 		return fmt.Errorf("creating billing directory: %w", err)
 	}
-	tmpFile := bm.storePath + ".tmp"
+	tmpFile := storePath + ".tmp"
+	// #nosec G304 -- billing store path is operator-selected, NUL-rejected, and cleaned before use.
 	file, err := os.Create(tmpFile)
 	if err != nil {
 		return fmt.Errorf("creating billing temp file: %w", err)
@@ -340,7 +361,7 @@ func (bm *BillingManager) save() error {
 	if err := file.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmpFile, bm.storePath)
+	return os.Rename(tmpFile, storePath)
 }
 
 // load loads billing data from disk.
@@ -348,8 +369,14 @@ func (bm *BillingManager) load() error {
 	if bm.storePath == "" {
 		return nil
 	}
+	storePath, err := cleanBillingStorePath(bm.storePath)
+	if err != nil {
+		return err
+	}
+	bm.storePath = storePath
 
-	file, err := os.Open(bm.storePath)
+	// #nosec G304 -- billing store path is operator-selected, NUL-rejected, and cleaned before use.
+	file, err := os.Open(storePath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil

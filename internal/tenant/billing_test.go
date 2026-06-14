@@ -65,6 +65,17 @@ func TestBillingManager_NewBillingManager_WithStorePath(t *testing.T) {
 	}
 }
 
+func TestBillingManager_RejectsNULStorePath(t *testing.T) {
+	bm := NewBillingManager("")
+	bm.storePath = "bad\x00billing.json"
+	if err := bm.save(); err == nil {
+		t.Fatal("expected save error for NUL store path")
+	}
+	if err := bm.load(); err == nil {
+		t.Fatal("expected load error for NUL store path")
+	}
+}
+
 func TestBillingManager_RecordUsage(t *testing.T) {
 	bm := NewBillingManager("")
 

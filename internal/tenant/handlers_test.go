@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -49,9 +50,25 @@ func TestHandlers_CreateTenant(t *testing.T) {
 	if _, hasHash := tenantMap["api_key_hash"]; hasHash {
 		t.Error("api_key_hash should not be exposed in API response")
 	}
+	if _, hasKey := tenantMap["api_key"]; hasKey {
+		t.Error("tenant object should not contain plaintext api_key")
+	}
+	if configMap, ok := tenantMap["waf_config"].(map[string]any); ok {
+		if dashboard, ok := configMap["dashboard"].(map[string]any); ok {
+			if _, hasAPIKey := dashboard["api_key"]; hasAPIKey {
+				t.Fatal("nested dashboard api_key should not be exposed in tenant response")
+			}
+			if _, hasAdminKey := dashboard["admin_key"]; hasAdminKey {
+				t.Fatal("nested dashboard admin_key should not be exposed in tenant response")
+			}
+		}
+	}
 
 	if resp.APIKey == "" {
 		t.Error("expected API key in response")
+	}
+	if resp.APIKey == manager.GetTenant(resp.Tenant.(map[string]any)["id"].(string)).APIKeyHash {
+		t.Fatal("one-time api key response should not equal stored hash")
 	}
 }
 
@@ -88,6 +105,41 @@ func TestHandlers_CreateTenant_Validation(t *testing.T) {
 				t.Errorf("status = %d, want %d", rr.Code, tt.wantStatus)
 			}
 		})
+	}
+}
+
+func TestHandlers_CreateTenantRejectsOversizedBody(t *testing.T) {
+	manager := NewManager(10)
+	handlers := NewHandlers(manager)
+
+	validPrefix := `{"name":"Test Tenant","domains":["test.example.com"]}`
+	req := httptest.NewRequest("POST", "/api/v1/tenants", strings.NewReader(validPrefix+strings.Repeat(" ", maxTenantRequestBody)))
+	rr := httptest.NewRecorder()
+
+	handlers.createTenant(rr, req)
+
+	if rr.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusRequestEntityTooLarge)
+	}
+	if got := len(manager.ListTenants()); got != 0 {
+		t.Fatalf("oversized create request created %d tenants", got)
+	}
+}
+
+func TestHandlers_CreateTenantRejectsTrailingJSON(t *testing.T) {
+	manager := NewManager(10)
+	handlers := NewHandlers(manager)
+
+	req := httptest.NewRequest("POST", "/api/v1/tenants", strings.NewReader(`{"name":"Test Tenant","domains":["test.example.com"]} {}`))
+	rr := httptest.NewRecorder()
+
+	handlers.createTenant(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusBadRequest)
+	}
+	if got := len(manager.ListTenants()); got != 0 {
+		t.Fatalf("trailing JSON create request created %d tenants", got)
 	}
 }
 
@@ -191,6 +243,24 @@ func TestHandlers_UpdateTenant(t *testing.T) {
 
 	if tenant.Active {
 		t.Error("expected tenant to be inactive")
+	}
+}
+
+func TestHandlers_UpdateTenantRejectsOversizedBody(t *testing.T) {
+	manager := NewManager(10)
+	handlers := NewHandlers(manager)
+
+	created, _ := manager.CreateTenant("Test", "Desc", []string{"test.com"}, nil)
+	req := httptest.NewRequest("PUT", "/api/v1/tenants/"+created.ID, strings.NewReader(`{"name":"Updated"}`+strings.Repeat(" ", maxTenantRequestBody)))
+	rr := httptest.NewRecorder()
+
+	handlers.updateTenant(rr, req, created.ID)
+
+	if rr.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusRequestEntityTooLarge)
+	}
+	if tenant := manager.GetTenant(created.ID); tenant.Name != "Test" {
+		t.Fatalf("oversized update changed tenant name to %q", tenant.Name)
 	}
 }
 

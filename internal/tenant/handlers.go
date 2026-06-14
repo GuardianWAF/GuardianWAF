@@ -3,6 +3,8 @@ package tenant
 import (
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -11,6 +13,8 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/config"
 	logging "github.com/guardianwaf/guardianwaf/internal/logging"
 )
+
+const maxTenantRequestBody = 1 << 20
 
 // Handlers provides HTTP handlers for tenant management.
 type Handlers struct {
@@ -128,7 +132,9 @@ type CreateTenantRequest struct {
 
 // CreateTenantResponse represents the response when creating a tenant.
 type CreateTenantResponse struct {
-	Tenant any    `json:"tenant"`
+	Tenant any `json:"tenant"`
+	// #nosec G117 -- tenant API keys are returned only once on create/regenerate;
+	// stored tenant representations expose only APIKeyHash and sanitizeTenant strips it.
 	APIKey string `json:"api_key"`
 }
 
@@ -163,9 +169,7 @@ func sanitizeTenant(t *Tenant) PublicTenant {
 
 func (h *Handlers) createTenant(w http.ResponseWriter, r *http.Request) {
 	var req CreateTenantRequest
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+	if !decodeTenantJSON(w, r, &req) {
 		return
 	}
 
@@ -190,6 +194,8 @@ func (h *Handlers) createTenant(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
+	// #nosec G117 -- create returns the tenant API key exactly once; Tenant is
+	// sanitized and stored tenant objects retain only APIKeyHash.
 	if err := json.NewEncoder(w).Encode(CreateTenantResponse{
 		Tenant: sanitizeTenant(tenant),
 		APIKey: apiKey,
@@ -243,9 +249,7 @@ type UpdateTenantRequest struct {
 
 func (h *Handlers) updateTenant(w http.ResponseWriter, r *http.Request, tenantID string) {
 	var req UpdateTenantRequest
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+	if !decodeTenantJSON(w, r, &req) {
 		return
 	}
 
@@ -302,9 +306,7 @@ func (h *Handlers) getTenantWAFConfig(w http.ResponseWriter, r *http.Request, te
 // updateTenantWAFConfig updates only the WAF config for a tenant (partial update).
 func (h *Handlers) updateTenantWAFConfig(w http.ResponseWriter, r *http.Request, tenantID string) {
 	var wafCfg config.WAFConfig
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-	if err := json.NewDecoder(r.Body).Decode(&wafCfg); err != nil {
-		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+	if !decodeTenantJSON(w, r, &wafCfg) {
 		return
 	}
 
@@ -344,6 +346,29 @@ func (h *Handlers) updateTenantWAFConfig(w http.ResponseWriter, r *http.Request,
 		// Client disconnected, error ignored
 		_ = err
 	}
+}
+
+func decodeTenantJSON(w http.ResponseWriter, r *http.Request, v any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, maxTenantRequestBody)
+	dec := json.NewDecoder(r.Body)
+	if err := dec.Decode(v); err != nil {
+		writeTenantJSONDecodeError(w, err)
+		return false
+	}
+	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		writeTenantJSONDecodeError(w, err)
+		return false
+	}
+	return true
+}
+
+func writeTenantJSONDecodeError(w http.ResponseWriter, err error) {
+	var maxBytesErr *http.MaxBytesError
+	if errors.As(err, &maxBytesErr) {
+		http.Error(w, "Request body too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+	http.Error(w, "Invalid JSON", http.StatusBadRequest)
 }
 
 // RegenerateAPIKeyHandler regenerates API key for a tenant.

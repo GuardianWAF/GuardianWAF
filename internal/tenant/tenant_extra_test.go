@@ -450,6 +450,62 @@ func TestStore_LoadTenant_InvalidID(t *testing.T) {
 	}
 }
 
+func TestStore_SaveTenant_InvalidID(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(dir)
+	if err := s.Init(); err != nil {
+		t.Fatal(err)
+	}
+
+	err := s.SaveTenant(&Tenant{
+		ID:        "../escape",
+		Name:      "Bad",
+		Active:    true,
+		Quota:     DefaultQuota(),
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid tenant ID")
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "..", "escape.json")); !os.IsNotExist(statErr) {
+		t.Fatalf("tenant file escaped store: stat err=%v", statErr)
+	}
+}
+
+func TestStore_LoadTenant_RejectsUnexpectedIndexPath(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(dir)
+	if err := s.Init(); err != nil {
+		t.Fatal(err)
+	}
+
+	good := &Tenant{
+		ID:        "good-tenant",
+		Name:      "Good",
+		Active:    true,
+		Quota:     DefaultQuota(),
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	if err := s.SaveTenant(good); err != nil {
+		t.Fatalf("SaveTenant: %v", err)
+	}
+
+	s.index["good-tenant"] = "../other.json"
+	if _, err := s.LoadTenant("good-tenant"); err == nil {
+		t.Fatal("expected error for index path traversal")
+	}
+	if err := s.DeleteTenant("good-tenant"); err == nil {
+		t.Fatal("expected delete error for unexpected index path")
+	}
+
+	s.index["good-tenant"] = "other-tenant.json"
+	if _, err := s.LoadTenant("good-tenant"); err == nil {
+		t.Fatal("expected error for index pointing to another tenant file")
+	}
+}
+
 // =====================================================================
 // Store.DeleteTenant with invalid tenant ID
 // =====================================================================
@@ -758,6 +814,26 @@ func TestHandlers_UpdateTenantWAFConfig_NotFound(t *testing.T) {
 	h.updateTenantWAFConfig(rr, req, "nonexistent")
 	if rr.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", rr.Code)
+	}
+}
+
+func TestHandlers_UpdateTenantWAFConfigRejectsOversizedBody(t *testing.T) {
+	m := NewManager(10)
+	h := NewHandlers(m)
+	h.SetAPIKey("test-key")
+
+	tenant, err := m.CreateTenant("WAF Config Limit", "test", []string{"waf-limit.example.com"}, nil)
+	if err != nil {
+		t.Fatalf("CreateTenant: %v", err)
+	}
+
+	req := httptest.NewRequest("PUT", "/api/v1/tenants/"+tenant.ID+"/waf-config", strings.NewReader(`{"enabled":true}`+strings.Repeat(" ", maxTenantRequestBody)))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	h.updateTenantWAFConfig(rr, req, tenant.ID)
+	if rr.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusRequestEntityTooLarge)
 	}
 }
 
@@ -1084,6 +1160,46 @@ func TestStore_LoadAllTenants_CorruptedFile(t *testing.T) {
 	// Corrupted file should be skipped
 	if len(tenants) != 0 {
 		t.Errorf("expected 0 tenants from corrupted file, got %d", len(tenants))
+	}
+}
+
+func TestStore_LoadAllTenants_SkipsUnsafeFilenamesAndIDs(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(dir)
+	if err := s.Init(); err != nil {
+		t.Fatal(err)
+	}
+
+	mismatched := tenantData{ID: "actual-tenant", Name: "Mismatch", Active: true, Quota: DefaultQuota()}
+	data, err := json.Marshal(mismatched)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "other-tenant.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "bad.name.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	valid := &Tenant{
+		ID:        "actual-tenant",
+		Name:      "Actual",
+		Active:    true,
+		Quota:     DefaultQuota(),
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	if err := s.SaveTenant(valid); err != nil {
+		t.Fatalf("SaveTenant: %v", err)
+	}
+
+	tenants, err := s.LoadAllTenants()
+	if err != nil {
+		t.Fatalf("LoadAllTenants: %v", err)
+	}
+	if len(tenants) != 1 || tenants[0].ID != "actual-tenant" {
+		t.Fatalf("tenants = %+v, want only actual-tenant", tenants)
 	}
 }
 

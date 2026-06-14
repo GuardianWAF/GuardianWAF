@@ -1,6 +1,7 @@
 package tenant
 
 import (
+	"context"
 	"crypto/rand"
 	"fmt"
 	"sync"
@@ -29,15 +30,15 @@ const (
 
 // Alert represents a tenant alert notification.
 type Alert struct {
-	ID          string        `json:"id"`
-	TenantID    string        `json:"tenant_id"`
-	Type        AlertType     `json:"type"`
-	Severity    AlertSeverity `json:"severity"`
-	Title       string        `json:"title"`
-	Message     string        `json:"message"`
-	Timestamp   time.Time     `json:"timestamp"`
-	Acknowledged bool         `json:"acknowledged"`
-	Metadata    map[string]any `json:"metadata,omitempty"`
+	ID           string         `json:"id"`
+	TenantID     string         `json:"tenant_id"`
+	Type         AlertType      `json:"type"`
+	Severity     AlertSeverity  `json:"severity"`
+	Title        string         `json:"title"`
+	Message      string         `json:"message"`
+	Timestamp    time.Time      `json:"timestamp"`
+	Acknowledged bool           `json:"acknowledged"`
+	Metadata     map[string]any `json:"metadata,omitempty"`
 }
 
 // AlertHandler is called when an alert is triggered.
@@ -51,11 +52,12 @@ type AlertManager struct {
 	cooldowns   map[string]time.Time // key: alert cooldown key
 	cooldownDur time.Duration
 	maxAlerts   int // per tenant
+	closed      bool
 
 	// Bounded dispatch channel
 	dispatchCh chan *Alert
-	stopCh     chan struct{}
-	wg        sync.WaitGroup
+	stopOnce   sync.Once
+	wg         sync.WaitGroup
 }
 
 // NewAlertManager creates a new alert manager.
@@ -67,7 +69,6 @@ func NewAlertManager() *AlertManager {
 		cooldownDur: 5 * time.Minute,
 		maxAlerts:   100,
 		dispatchCh:  make(chan *Alert, 256),
-		stopCh:      make(chan struct{}),
 	}
 	// Start bounded dispatch workers
 	am.wg.Add(1)
@@ -79,6 +80,9 @@ func NewAlertManager() *AlertManager {
 func (am *AlertManager) RegisterHandler(handler AlertHandler) {
 	am.mu.Lock()
 	defer am.mu.Unlock()
+	if am.closed {
+		return
+	}
 	am.handlers = append(am.handlers, handler)
 }
 
@@ -87,6 +91,10 @@ func (am *AlertManager) TriggerAlert(tenantID string, alertType AlertType, sever
 	// Check cooldown
 	cooldownKey := fmt.Sprintf("%s:%s", tenantID, alertType)
 	am.mu.RLock()
+	if am.closed {
+		am.mu.RUnlock()
+		return nil
+	}
 	if lastTime, exists := am.cooldowns[cooldownKey]; exists && time.Since(lastTime) < am.cooldownDur {
 		am.mu.RUnlock()
 		return nil // In cooldown
@@ -94,17 +102,21 @@ func (am *AlertManager) TriggerAlert(tenantID string, alertType AlertType, sever
 	am.mu.RUnlock()
 
 	alert := &Alert{
-		ID:         generateAlertID(),
-		TenantID:   tenantID,
-		Type:       alertType,
-		Severity:   severity,
-		Title:      title,
-		Message:    message,
-		Timestamp:  time.Now(),
-		Metadata:   metadata,
+		ID:        generateAlertID(),
+		TenantID:  tenantID,
+		Type:      alertType,
+		Severity:  severity,
+		Title:     title,
+		Message:   message,
+		Timestamp: time.Now(),
+		Metadata:  metadata,
 	}
 
 	am.mu.Lock()
+	if am.closed {
+		am.mu.Unlock()
+		return nil
+	}
 	// Store alert
 	am.alerts[tenantID] = append(am.alerts[tenantID], *alert)
 	// Trim if too many
@@ -113,10 +125,6 @@ func (am *AlertManager) TriggerAlert(tenantID string, alertType AlertType, sever
 	}
 	// Update cooldown
 	am.cooldowns[cooldownKey] = time.Now()
-	// Get handlers copy
-	handlers := make([]AlertHandler, len(am.handlers))
-	copy(handlers, am.handlers)
-	am.mu.Unlock()
 
 	// Dispatch to handlers via bounded channel
 	select {
@@ -124,6 +132,7 @@ func (am *AlertManager) TriggerAlert(tenantID string, alertType AlertType, sever
 	default:
 		// Channel full — drop alert dispatch to prevent backpressure
 	}
+	am.mu.Unlock()
 
 	return alert
 }
@@ -148,9 +157,9 @@ func (am *AlertManager) CheckQuotaAlert(tenant *Tenant, currentRPM int64) {
 			"Quota Exceeded",
 			fmt.Sprintf("Request rate limit exceeded: %d/%d requests per minute", currentRPM, tenant.Quota.MaxRequestsPerMinute),
 			map[string]any{
-				"current_rpm":  currentRPM,
-				"limit_rpm":    tenant.Quota.MaxRequestsPerMinute,
-				"percentage":   percentage,
+				"current_rpm": currentRPM,
+				"limit_rpm":   tenant.Quota.MaxRequestsPerMinute,
+				"percentage":  percentage,
 			},
 		)
 	} else if percentage >= 80 {
@@ -161,9 +170,9 @@ func (am *AlertManager) CheckQuotaAlert(tenant *Tenant, currentRPM int64) {
 			"Approaching Quota Limit",
 			fmt.Sprintf("Request rate at %.0f%% of limit: %d/%d requests per minute", percentage, currentRPM, tenant.Quota.MaxRequestsPerMinute),
 			map[string]any{
-				"current_rpm":  currentRPM,
-				"limit_rpm":    tenant.Quota.MaxRequestsPerMinute,
-				"percentage":   percentage,
+				"current_rpm": currentRPM,
+				"limit_rpm":   tenant.Quota.MaxRequestsPerMinute,
+				"percentage":  percentage,
 			},
 		)
 	}
@@ -278,32 +287,48 @@ func (am *AlertManager) Cleanup(maxAge time.Duration) {
 // dispatchLoop runs a bounded dispatch worker that calls handlers sequentially.
 func (am *AlertManager) dispatchLoop() {
 	defer am.wg.Done()
-	for {
-		select {
-		case alert := <-am.dispatchCh:
-			am.mu.RLock()
-			handlers := make([]AlertHandler, len(am.handlers))
-			copy(handlers, am.handlers)
-			am.mu.RUnlock()
+	for alert := range am.dispatchCh {
+		am.mu.RLock()
+		handlers := make([]AlertHandler, len(am.handlers))
+		copy(handlers, am.handlers)
+		am.mu.RUnlock()
 
-			for _, handler := range handlers {
-				handler(alert)
-			}
-		case <-am.stopCh:
-			return
+		for _, handler := range handlers {
+			handler(alert)
 		}
 	}
 }
 
 // Close stops the dispatch loop.
 func (am *AlertManager) Close() {
+	_ = am.CloseWithContext(context.Background())
+}
+
+// CloseWithContext stops the dispatch loop and waits within ctx for any active
+// alert handler to return.
+func (am *AlertManager) CloseWithContext(ctx context.Context) error {
+	am.stopOnce.Do(func() {
+		am.mu.Lock()
+		am.closed = true
+		close(am.dispatchCh)
+		am.mu.Unlock()
+	})
+	return waitForAlertDispatch(ctx, &am.wg)
+}
+
+func waitForAlertDispatch(ctx context.Context, wg *sync.WaitGroup) error {
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
 	select {
-	case <-am.stopCh:
-		return
-	default:
-		close(am.stopCh)
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
-	am.wg.Wait()
 }
 
 func generateAlertID() string {
