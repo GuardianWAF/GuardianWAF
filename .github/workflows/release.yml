@@ -244,3 +244,11 @@ jobs:
 
       - name: Verify release supply-chain evidence
         run: ./scripts/verify-release-evidence.sh --check-supply-chain dist/release-evidence/release
+
+      - name: Upload release-supply-chain-evidence artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-supply-chain-evidence
+          path: dist/release-evidence/release/
+          retention-days: 90
