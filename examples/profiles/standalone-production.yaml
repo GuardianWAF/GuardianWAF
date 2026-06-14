@@ -1,0 +1,102 @@
+# Standalone production profile: public edge proxy with ACME-managed TLS.
+mode: enforce
+listen: ":8088"
+
+tls:
+  enabled: true
+  listen: ":8443"
+  http_redirect: true
+  acme:
+    enabled: true
+    email: "security@example.com"
+    domains:
+      - "app.example.com"
+    cache_dir: "/var/lib/guardianwaf/acme"
+
+upstreams:
+  - name: app
+    load_balancer: weighted
+    targets:
+      - url: "https://app-origin.example.com"
+        weight: 3
+      - url: "https://app-origin-2.example.com"
+        weight: 1
+    health_check:
+      enabled: true
+      interval: 10s
+      timeout: 2s
+      path: /healthz
+
+routes:
+  - path: /
+    upstream: app
+    strip_prefix: false
+
+trusted_proxies:
+  - "203.0.113.10/32"
+
+waf:
+  ip_acl:
+    enabled: true
+    auto_ban:
+      enabled: true
+      default_ttl: 1h
+      max_ttl: 24h
+  detection:
+    enabled: true
+    threshold:
+      block: 50
+      log: 25
+  rate_limit:
+    enabled: true
+    rules:
+      - id: global
+        scope: ip
+        limit: 600
+        window: 1m
+        burst: 60
+        action: block
+  sanitizer:
+    enabled: true
+    max_url_length: 8192
+    max_header_size: 8192
+    max_header_count: 100
+    max_body_size: 10485760
+    max_cookie_size: 4096
+  response:
+    security_headers:
+      enabled: true
+      hsts:
+        enabled: true
+        max_age: 31536000
+        include_subdomains: true
+    data_masking:
+      enabled: true
+      mask_credit_cards: true
+      mask_ssn: true
+      mask_api_keys: true
+      strip_stack_traces: true
+
+dashboard:
+  enabled: true
+  listen: "127.0.0.1:9443"
+  api_key: "${GWAF_DASHBOARD_API_KEY}"
+  admin_key: "${GWAF_DASHBOARD_ADMIN_KEY}"
+  tls: false
+
+mcp:
+  enabled: false
+
+logging:
+  level: info
+  format: json
+  output: stdout
+  log_allowed: false
+  log_blocked: true
+  log_body: false
+
+events:
+  storage: file
+  max_events: 100000
+  file_path: "/var/lib/guardianwaf/events/events.jsonl"
+

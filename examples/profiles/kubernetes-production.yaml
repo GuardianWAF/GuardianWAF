@@ -1,0 +1,75 @@
+# Kubernetes production profile: service-network upstream and mounted secrets.
+mode: enforce
+listen: ":8088"
+allow_private_upstreams: true
+
+upstreams:
+  - name: app-service
+    load_balancer: round_robin
+    targets:
+      - url: "http://app.default.svc.cluster.local:3000"
+        weight: 1
+    health_check:
+      enabled: true
+      interval: 10s
+      timeout: 2s
+      path: /readyz
+
+routes:
+  - path: /
+    upstream: app-service
+
+trusted_proxies:
+  - "10.0.0.0/8"
+
+waf:
+  ip_acl:
+    enabled: true
+    auto_ban:
+      enabled: true
+      default_ttl: 30m
+      max_ttl: 6h
+  detection:
+    enabled: true
+    threshold:
+      block: 50
+      log: 25
+  rate_limit:
+    enabled: true
+    rules:
+      - id: ingress
+        scope: ip
+        limit: 1000
+        window: 1m
+        burst: 100
+        action: block
+  sanitizer:
+    enabled: true
+    max_url_length: 8192
+    max_header_size: 8192
+    max_header_count: 100
+    max_body_size: 10485760
+    max_cookie_size: 4096
+
+dashboard:
+  enabled: true
+  listen: ":9443"
+  api_key: "${GWAF_DASHBOARD_API_KEY}"
+  admin_key: ""
+  tls: false
+
+mcp:
+  enabled: false
+
+logging:
+  level: info
+  format: json
+  output: stdout
+  log_allowed: false
+  log_blocked: true
+
+events:
+  storage: file
+  max_events: 100000
+  file_path: "/var/lib/guardianwaf/events/events.jsonl"
+

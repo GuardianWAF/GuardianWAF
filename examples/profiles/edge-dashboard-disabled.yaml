@@ -1,0 +1,78 @@
+# Dashboard-disabled edge profile: WAF only, no local admin surface.
+mode: enforce
+listen: ":8088"
+
+tls:
+  enabled: true
+  listen: ":8443"
+  http_redirect: true
+  acme:
+    enabled: true
+    email: "edge-security@example.com"
+    domains:
+      - "edge.example.com"
+    cache_dir: "/var/lib/guardianwaf/acme"
+
+upstreams:
+  - name: public-origin
+    targets:
+      - url: "https://origin.example.com"
+        weight: 1
+    health_check:
+      enabled: true
+      interval: 10s
+      timeout: 2s
+      path: /healthz
+
+routes:
+  - path: /
+    upstream: public-origin
+
+waf:
+  detection:
+    enabled: true
+    threshold:
+      block: 50
+      log: 25
+  rate_limit:
+    enabled: true
+    rules:
+      - id: edge
+        scope: ip
+        limit: 500
+        window: 1m
+        burst: 50
+        action: block
+  sanitizer:
+    enabled: true
+    max_url_length: 8192
+    max_header_size: 8192
+    max_header_count: 100
+    max_body_size: 10485760
+    max_cookie_size: 4096
+  response:
+    security_headers:
+      enabled: true
+      hsts:
+        enabled: true
+        max_age: 31536000
+        include_subdomains: true
+
+dashboard:
+  enabled: false
+
+mcp:
+  enabled: false
+
+logging:
+  level: info
+  format: json
+  output: stdout
+  log_allowed: false
+  log_blocked: true
+
+events:
+  storage: file
+  max_events: 100000
+  file_path: "/var/lib/guardianwaf/events/events.jsonl"
+

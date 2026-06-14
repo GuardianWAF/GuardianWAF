@@ -1,0 +1,66 @@
+# Local development profile: local backend, generated dashboard API key allowed.
+mode: monitor
+listen: "127.0.0.1:8088"
+allow_private_upstreams: true
+
+upstreams:
+  - name: local-app
+    targets:
+      - url: "http://127.0.0.1:3000"
+        weight: 1
+    health_check:
+      enabled: true
+      interval: 5s
+      timeout: 1s
+      path: /healthz
+
+routes:
+  - path: /
+    upstream: local-app
+    strip_prefix: false
+
+waf:
+  detection:
+    enabled: true
+    threshold:
+      block: 50
+      log: 25
+  rate_limit:
+    enabled: true
+    rules:
+      - id: local
+        scope: ip
+        limit: 1000
+        window: 1m
+        burst: 100
+        action: log
+  sanitizer:
+    enabled: true
+    max_url_length: 8192
+    max_header_size: 8192
+    max_header_count: 100
+    max_body_size: 10485760
+    max_cookie_size: 4096
+
+dashboard:
+  enabled: true
+  listen: "127.0.0.1:9443"
+  api_key: ""
+  admin_key: ""
+  tls: false
+
+mcp:
+  enabled: false
+
+logging:
+  level: debug
+  format: text
+  output: stdout
+  log_allowed: true
+  log_blocked: true
+  log_body: false
+
+events:
+  storage: memory
+  max_events: 10000
+

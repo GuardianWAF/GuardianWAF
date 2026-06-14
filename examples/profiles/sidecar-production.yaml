@@ -1,0 +1,64 @@
+# Sidecar production profile: one local workload behind a loopback WAF listener.
+mode: enforce
+listen: "127.0.0.1:8088"
+allow_private_upstreams: true
+
+upstreams:
+  - name: workload
+    targets:
+      - url: "http://127.0.0.1:3000"
+        weight: 1
+    health_check:
+      enabled: true
+      interval: 5s
+      timeout: 1s
+      path: /healthz
+
+routes:
+  - path: /
+    upstream: workload
+
+waf:
+  detection:
+    enabled: true
+    threshold:
+      block: 50
+      log: 25
+  rate_limit:
+    enabled: true
+    rules:
+      - id: sidecar
+        scope: ip
+        limit: 300
+        window: 1m
+        burst: 30
+        action: block
+  sanitizer:
+    enabled: true
+    max_url_length: 4096
+    max_header_size: 4096
+    max_header_count: 80
+    max_body_size: 5242880
+    max_cookie_size: 4096
+  response:
+    security_headers:
+      enabled: true
+
+dashboard:
+  enabled: false
+
+mcp:
+  enabled: false
+
+logging:
+  level: warn
+  format: json
+  output: stdout
+  log_allowed: false
+  log_blocked: true
+
+events:
+  storage: file
+  max_events: 50000
+  file_path: "/var/lib/guardianwaf/events/events.jsonl"
+

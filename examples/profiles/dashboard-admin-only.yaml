@@ -1,0 +1,60 @@
+# Dashboard-enabled admin-only profile: local dashboard for operations, proxy bound locally.
+mode: monitor
+listen: "127.0.0.1:18088"
+allow_private_upstreams: true
+
+upstreams:
+  - name: admin-placeholder
+    targets:
+      - url: "http://127.0.0.1:18080"
+        weight: 1
+    health_check:
+      enabled: false
+
+routes:
+  - path: /
+    upstream: admin-placeholder
+
+waf:
+  detection:
+    enabled: true
+    threshold:
+      block: 50
+      log: 25
+  rate_limit:
+    enabled: true
+    rules:
+      - id: admin-local
+        scope: ip
+        limit: 120
+        window: 1m
+        burst: 20
+        action: log
+  sanitizer:
+    enabled: true
+    max_url_length: 4096
+    max_header_size: 4096
+    max_header_count: 80
+    max_body_size: 1048576
+    max_cookie_size: 4096
+
+dashboard:
+  enabled: true
+  listen: "127.0.0.1:19443"
+  api_key: "${GWAF_DASHBOARD_API_KEY}"
+  admin_key: "${GWAF_DASHBOARD_ADMIN_KEY}"
+  tls: false
+
+mcp:
+  enabled: false
+
+logging:
+  level: info
+  format: json
+  output: stdout
+  log_allowed: false
+  log_blocked: true
+
+events:
+  storage: memory
+  max_events: 50000

@@ -1,0 +1,72 @@
+# Docker discovery production profile: Docker labels manage upstream routes.
+mode: enforce
+listen: ":8088"
+allow_private_upstreams: true
+
+upstreams:
+  - name: fallback
+    targets:
+      - url: "http://fallback:3000"
+        weight: 1
+    health_check:
+      enabled: true
+      interval: 10s
+      timeout: 2s
+      path: /healthz
+
+routes:
+  - path: /
+    upstream: fallback
+
+docker:
+  enabled: true
+  socket_path: /var/run/docker.sock
+  label_prefix: gwaf
+  poll_interval: 5s
+  network: guardianwaf
+
+waf:
+  detection:
+    enabled: true
+    threshold:
+      block: 50
+      log: 25
+  rate_limit:
+    enabled: true
+    rules:
+      - id: docker-global
+        scope: ip
+        limit: 800
+        window: 1m
+        burst: 80
+        action: block
+  sanitizer:
+    enabled: true
+    max_url_length: 8192
+    max_header_size: 8192
+    max_header_count: 100
+    max_body_size: 10485760
+    max_cookie_size: 4096
+
+dashboard:
+  enabled: true
+  listen: "127.0.0.1:9443"
+  api_key: "${GWAF_DASHBOARD_API_KEY}"
+  admin_key: ""
+  tls: false
+
+mcp:
+  enabled: false
+
+logging:
+  level: info
+  format: json
+  output: stdout
+  log_allowed: false
+  log_blocked: true
+
+events:
+  storage: file
+  max_events: 100000
+  file_path: "/var/lib/guardianwaf/events/events.jsonl"
+
