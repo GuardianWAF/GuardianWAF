@@ -163,17 +163,19 @@ jobs:
             -v "$PWD:/out" \
             anchore/syft:v1.38.0 \
             ghcr.io/${{ github.repository }}:${{ github.ref_name }} \
-            -o spdx-json=/out/sbom.spdx.json
+            -o spdx-json=/out/dist/release-evidence/release/supply-chain/sbom.spdx.json
+          cp dist/release-evidence/release/supply-chain/sbom.spdx.json sbom.spdx.json
 
       - name: Scan released image
         run: |
+          set -o pipefail
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
             aquasec/trivy:0.68.1 image \
             --severity HIGH,CRITICAL \
             --exit-code 1 \
             --no-progress \
-            ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+            ghcr.io/${{ github.repository }}:${{ github.ref_name }} | tee dist/release-evidence/release/supply-chain/trivy.txt
 
       - name: Upload SBOM to release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
