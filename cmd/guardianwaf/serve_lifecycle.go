@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"reflect"
 	"sync"
 
 	"github.com/guardianwaf/guardianwaf/internal/ai"
@@ -22,8 +23,10 @@ type serveShutdownResources struct {
 	tlsServer           *http.Server
 	dashboardServer     *http.Server
 	certStore           *tls.CertStore
+	acmeRenewal         interface{ StopRenewal() }
 	engine              *engine.Engine
 	proxyRuntimeMu      *sync.RWMutex
+	proxyRouter         **proxy.Router
 	proxyHealthCheckers *[]*proxy.HealthChecker
 	cleanupStop         chan struct{}
 	cleanupWG           *sync.WaitGroup
@@ -31,7 +34,19 @@ type serveShutdownResources struct {
 	aiAnalyzer          *ai.Analyzer
 	alertManager        *alerting.Manager
 	dashboard           *dashboard.Dashboard
+	tenantManager       interface{ CloseWithContext(context.Context) error }
 	eventConsumerWG     *sync.WaitGroup
+	layerResources      *layerRuntimeResources
+}
+
+type sidecarShutdownResources struct {
+	server              *http.Server
+	engine              *engine.Engine
+	proxyRouter         **proxy.Router
+	proxyHealthCheckers *[]*proxy.HealthChecker
+	cleanupStop         chan struct{}
+	cleanupWG           *sync.WaitGroup
+	layerResources      *layerRuntimeResources
 }
 
 func startServeHTTPServer(cfg *config.Config, eng *engine.Engine, srv *http.Server) {
@@ -90,21 +105,30 @@ func shutdownServeRuntime(ctx context.Context, resources serveShutdownResources)
 		_ = resources.tlsServer.Shutdown(ctx) // nolint:errcheck // best-effort; error logged upstream
 	}
 	if resources.certStore != nil {
-		resources.certStore.StopReload()
+		if err := resources.certStore.StopReloadWithContext(ctx); err != nil {
+			eng.Logs.Warnf("TLS certificate reload shutdown timed out: %v", err)
+		}
 	}
+	stopACMERenewal(ctx, eng, resources.acmeRenewal)
 	if resources.dashboardServer != nil {
 		_ = resources.dashboardServer.Shutdown(ctx) // nolint:errcheck // best-effort; error logged upstream
 	}
 
-	stopThreatIntel(eng)
-	stopProxyHealthCheckers(resources.proxyRuntimeMu, resources.proxyHealthCheckers)
+	stopEngineLayer(ctx, eng, "threat_intel", "Threat intel")
+	stopEngineLayer(ctx, eng, "virtualpatch", "Virtual patch")
+	stopEngineLayer(ctx, eng, "ipacl", "IP ACL")
+	stopProxyRuntime(ctx, eng, resources.proxyRuntimeMu, resources.proxyRouter, resources.proxyHealthCheckers)
 	stopCleanupLoop(ctx, eng, resources.cleanupStop, resources.cleanupWG)
 
 	if resources.dockerWatcher != nil {
-		resources.dockerWatcher.Stop()
+		if err := resources.dockerWatcher.StopWithContext(ctx); err != nil {
+			eng.Logs.Warnf("Docker watcher shutdown timed out: %v", err)
+		}
 	}
 	if resources.aiAnalyzer != nil {
-		resources.aiAnalyzer.Stop()
+		if err := resources.aiAnalyzer.StopWithContext(ctx); err != nil {
+			eng.Logs.Warnf("AI analyzer shutdown timed out: %v", err)
+		}
 	}
 	if resources.alertManager != nil {
 		if err := resources.alertManager.CloseWithContext(ctx); err != nil {
@@ -112,7 +136,17 @@ func shutdownServeRuntime(ctx context.Context, resources serveShutdownResources)
 		}
 	}
 	if resources.dashboard != nil {
-		resources.dashboard.Close()
+		if err := resources.dashboard.CloseWithContext(ctx); err != nil {
+			eng.Logs.Warnf("Dashboard shutdown timed out: %v", err)
+		}
+	}
+	if resources.tenantManager != nil && !isNilInterface(resources.tenantManager) {
+		if err := resources.tenantManager.CloseWithContext(ctx); err != nil {
+			eng.Logs.Warnf("Tenant manager shutdown timed out: %v", err)
+		}
+	}
+	if err := resources.layerResources.stopGeoIPRefresh(ctx); err != nil {
+		eng.Logs.Warnf("GeoIP auto-refresh shutdown timed out: %v", err)
 	}
 
 	eng.Close()
@@ -122,19 +156,74 @@ func shutdownServeRuntime(ctx context.Context, resources serveShutdownResources)
 	fmt.Println("GuardianWAF stopped.")
 }
 
-func stopThreatIntel(eng *engine.Engine) {
+func shutdownSidecarRuntime(ctx context.Context, resources sidecarShutdownResources) {
+	eng := resources.engine
+	eng.Logs.Info("Shutting down sidecar...")
+	fmt.Println("\nShutting down sidecar...")
+
+	if resources.server != nil {
+		_ = resources.server.Shutdown(ctx) // nolint:errcheck // best-effort; error logged upstream
+	}
+	stopEngineLayer(ctx, eng, "ipacl", "IP ACL")
+	stopProxyRuntime(ctx, eng, nil, resources.proxyRouter, resources.proxyHealthCheckers)
+	stopCleanupLoop(ctx, eng, resources.cleanupStop, resources.cleanupWG)
+	if err := resources.layerResources.stopGeoIPRefresh(ctx); err != nil {
+		eng.Logs.Warnf("GeoIP auto-refresh shutdown timed out: %v", err)
+	}
+	eng.Close()
+
+	fmt.Println("GuardianWAF sidecar stopped.")
+}
+
+func isNilInterface(v any) bool {
+	if v == nil {
+		return true
+	}
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return rv.IsNil()
+	default:
+		return false
+	}
+}
+
+func stopACMERenewal(ctx context.Context, eng *engine.Engine, renewal interface{ StopRenewal() }) {
+	if renewal == nil || isNilInterface(renewal) {
+		return
+	}
+	type contextRenewalStopper interface {
+		StopRenewalWithContext(context.Context) error
+	}
+	if s, ok := renewal.(contextRenewalStopper); ok {
+		if err := s.StopRenewalWithContext(ctx); err != nil {
+			eng.Logs.Warnf("ACME renewal shutdown timed out: %v", err)
+		}
+		return
+	}
+	renewal.StopRenewal()
+}
+
+func stopEngineLayer(ctx context.Context, eng *engine.Engine, layerName, logName string) {
 	if eng == nil {
 		return
 	}
-	if tiLayer := eng.FindLayer("threat_intel"); tiLayer != nil {
+	if layer := eng.FindLayer(layerName); layer != nil {
+		type contextStopper interface{ StopWithContext(context.Context) error }
+		if s, ok := layer.(contextStopper); ok {
+			if err := s.StopWithContext(ctx); err != nil {
+				eng.Logs.Warnf("%s shutdown timed out: %v", logName, err)
+			}
+			return
+		}
 		type stopper interface{ Stop() }
-		if s, ok := tiLayer.(stopper); ok {
+		if s, ok := layer.(stopper); ok {
 			s.Stop()
 		}
 	}
 }
 
-func stopProxyHealthCheckers(mu *sync.RWMutex, checkers *[]*proxy.HealthChecker) {
+func stopProxyHealthCheckers(ctx context.Context, eng *engine.Engine, mu *sync.RWMutex, checkers *[]*proxy.HealthChecker) {
 	if checkers == nil {
 		return
 	}
@@ -148,7 +237,41 @@ func stopProxyHealthCheckers(mu *sync.RWMutex, checkers *[]*proxy.HealthChecker)
 		stoppingHealthCheckers = *checkers
 		*checkers = nil
 	}
-	stopHealthCheckers(stoppingHealthCheckers)
+	if err := stopHealthCheckersWithContext(ctx, stoppingHealthCheckers); err != nil && eng != nil {
+		eng.Logs.Warnf("Proxy health checker shutdown timed out: %v", err)
+	}
+}
+
+func stopProxyRuntime(ctx context.Context, eng *engine.Engine, mu *sync.RWMutex, router **proxy.Router, checkers *[]*proxy.HealthChecker) {
+	if router == nil {
+		stopProxyHealthCheckers(ctx, eng, mu, checkers)
+		return
+	}
+
+	var stoppingRouter *proxy.Router
+	var stoppingHealthCheckers []*proxy.HealthChecker
+	if mu != nil {
+		mu.Lock()
+		stoppingRouter = *router
+		*router = nil
+		if checkers != nil {
+			stoppingHealthCheckers = *checkers
+			*checkers = nil
+		}
+		mu.Unlock()
+	} else {
+		stoppingRouter = *router
+		*router = nil
+		if checkers != nil {
+			stoppingHealthCheckers = *checkers
+			*checkers = nil
+		}
+	}
+
+	if err := stopHealthCheckersWithContext(ctx, stoppingHealthCheckers); err != nil && eng != nil {
+		eng.Logs.Warnf("Proxy health checker shutdown timed out: %v", err)
+	}
+	closeProxyRouter(stoppingRouter)
 }
 
 func stopCleanupLoop(ctx context.Context, eng *engine.Engine, cleanupStop chan struct{}, cleanupWG *sync.WaitGroup) {
