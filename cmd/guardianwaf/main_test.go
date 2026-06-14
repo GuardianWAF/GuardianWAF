@@ -37,7 +37,7 @@ import (
 
 func init() {
 	// Allow private/reserved IPs in tests (httptest.NewServer uses 127.0.0.1).
-	proxy.AllowPrivateTargets()
+	proxy.SetPrivateTargetsAllowed(true)
 }
 
 // --- isValidIPOrCIDR ---
@@ -621,6 +621,32 @@ func TestStartDashboard(t *testing.T) {
 	defer srv.Close()
 }
 
+func TestStartDashboard_ReturnsNilWhenListenFails(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen error: %v", err)
+	}
+	defer ln.Close()
+
+	cfg := config.DefaultConfig()
+	cfg.Dashboard.Enabled = true
+	cfg.Dashboard.Listen = ln.Addr().String()
+	cfg.Dashboard.APIKey = "dashboard-api-key-123456"
+
+	store := events.NewMemoryStore(1000)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatalf("NewEngine error: %v", err)
+	}
+	defer eng.Close()
+
+	srv, sse, dash := startDashboard(cfg, eng)
+	if srv != nil || sse != nil || dash != nil {
+		t.Fatalf("expected nil dashboard runtime on listen failure, got srv=%v sse=%v dash=%v", srv, sse, dash)
+	}
+}
+
 func TestStartDashboard_NoAdminKeyDisablesTenantAdminAPI(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Dashboard.Enabled = true
@@ -676,6 +702,14 @@ func TestStartDashboard_ConfiguredAdminKeyEnablesTenantAdminAPI(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected configured dashboard.admin_key to authorize tenant admin API, got %d: %s", w.Code, w.Body.String())
+	}
+
+	dashboardKeyReq := httptest.NewRequest(http.MethodGet, "/api/admin/tenants", nil)
+	dashboardKeyReq.Header.Set("X-API-Key", "dashboard-api-key-123456")
+	dashboardKeyResp := httptest.NewRecorder()
+	dash.Handler().ServeHTTP(dashboardKeyResp, dashboardKeyReq)
+	if dashboardKeyResp.Code != http.StatusUnauthorized {
+		t.Fatalf("expected dashboard.api_key to be insufficient for tenant admin API, got %d: %s", dashboardKeyResp.Code, dashboardKeyResp.Body.String())
 	}
 }
 
@@ -2869,6 +2903,176 @@ func TestReadyzEndpoint_UnhealthyUpstream(t *testing.T) {
 	if !strings.Contains(body, `"status":"not_ready"`) {
 		t.Errorf("expected not_ready in body, got: %s", body)
 	}
+	if !strings.Contains(body, `"upstreams_unhealthy"`) {
+		t.Errorf("expected upstreams_unhealthy reason in body, got: %s", body)
+	}
+}
+
+func TestReadyzEndpoint_ConfiguredProxyWithoutRouterIsNotReady(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Upstreams = []config.UpstreamConfig{{
+		Name: "default",
+		Targets: []config.TargetConfig{
+			{URL: "http://127.0.0.1:1", Weight: 1},
+		},
+	}}
+	cfg.Routes = []config.RouteConfig{{Path: "/", Upstream: "default"}}
+	store := events.NewMemoryStore(1000)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatalf("NewEngine error: %v", err)
+	}
+	defer eng.Close()
+
+	mux := http.NewServeMux()
+	registerProbeHandlers(mux, cfg, eng, func() *proxy.Router {
+		return nil
+	})
+
+	req := httptest.NewRequest("GET", "/readyz", nil)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, `"router_not_ready"`) {
+		t.Fatalf("expected router_not_ready reason in body, got: %s", body)
+	}
+	if !strings.Contains(body, `"event_store_ready":true`) {
+		t.Fatalf("expected event_store_ready true in body, got: %s", body)
+	}
+}
+
+func TestReadyzEndpoint_EngineAndEventStoreNotReady(t *testing.T) {
+	cfg := config.DefaultConfig()
+	mux := http.NewServeMux()
+	registerProbeHandlers(mux, cfg, nil, nil)
+
+	req := httptest.NewRequest("GET", "/readyz", nil)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 when engine and event store are not ready, got %d", rr.Code)
+	}
+	body := rr.Body.String()
+	for _, want := range []string{
+		`"status":"not_ready"`,
+		`"engine_not_ready"`,
+		`"event_store_ready":false`,
+		`"router_ready":true`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("readyz body missing %s: %s", want, body)
+		}
+	}
+	if strings.Contains(body, "event_store_not_ready") {
+		t.Fatalf("nil engine should report engine_not_ready without duplicating event_store_not_ready: %s", body)
+	}
+
+	mux = http.NewServeMux()
+	registerProbeHandlers(mux, cfg, &engine.Engine{}, nil)
+
+	rr = httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 when event store is not ready, got %d", rr.Code)
+	}
+	body = rr.Body.String()
+	for _, want := range []string{
+		`"status":"not_ready"`,
+		`"event_store_not_ready"`,
+		`"event_store_ready":false`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("readyz body missing %s: %s", want, body)
+		}
+	}
+	if strings.Contains(body, "engine_not_ready") {
+		t.Fatalf("engine exists, so readyz should report event_store_not_ready without engine_not_ready: %s", body)
+	}
+}
+
+func TestReadyzEndpoint_DashboardEnabledButNotReady(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Dashboard.Enabled = true
+	cfg.Dashboard.Listen = "127.0.0.1:9443"
+	store := events.NewMemoryStore(1000)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatalf("NewEngine error: %v", err)
+	}
+	defer eng.Close()
+
+	mux := http.NewServeMux()
+	registerProbeHandlersWithDeps(mux, cfg, eng, probeDependencies{
+		DashboardReady: func() bool { return false },
+	})
+
+	req := httptest.NewRequest("GET", "/readyz", nil)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, `"dashboard_not_ready"`) {
+		t.Fatalf("expected dashboard_not_ready reason in body, got: %s", body)
+	}
+	if !strings.Contains(body, `"dashboard_ready":false`) {
+		t.Fatalf("expected dashboard_ready false in body, got: %s", body)
+	}
+}
+
+func TestReadyzEndpoint_GeoIPRequiredButNotReady(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.WAF.GeoIP.Enabled = true
+	cfg.WAF.GeoIP.RequireReady = true
+	store := events.NewMemoryStore(1000)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatalf("NewEngine error: %v", err)
+	}
+	defer eng.Close()
+
+	mux := http.NewServeMux()
+	registerProbeHandlers(mux, cfg, eng, nil)
+
+	req := httptest.NewRequest("GET", "/readyz", nil)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 while required GeoIP is not loaded, got %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, `"geoip_not_ready"`) {
+		t.Fatalf("expected geoip_not_ready reason in body, got: %s", body)
+	}
+	if !strings.Contains(body, `"geoip_ready":false`) {
+		t.Fatalf("expected geoip_ready false in body, got: %s", body)
+	}
+
+	eng.SetGeoIPStatus(true, 42)
+	rr = httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 after required GeoIP is ready, got %d: %s", rr.Code, rr.Body.String())
+	}
+	body = rr.Body.String()
+	if strings.Contains(body, `"geoip_not_ready"`) {
+		t.Fatalf("did not expect geoip_not_ready after GeoIP is ready, got: %s", body)
+	}
+	if !strings.Contains(body, `"geoip_ready":true`) || !strings.Contains(body, `"geoip_ranges":42`) {
+		t.Fatalf("expected ready GeoIP details in body, got: %s", body)
+	}
 }
 
 func TestMetricsEndpoint(t *testing.T) {
@@ -3388,6 +3592,75 @@ func TestAccessLog_JSONIncludesTenantID(t *testing.T) {
 	}
 	if logEntry["tenant_id"] != "tenant-audit" {
 		t.Fatalf("tenant_id = %v, want tenant-audit; output=%s", logEntry["tenant_id"], string(out))
+	}
+}
+
+func TestAccessLog_LogBodyTrueWarnsAndDoesNotEmitBody(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Logging.Format = "json"
+	cfg.Logging.LogAllowed = true
+	cfg.Logging.LogBody = true
+
+	store := events.NewMemoryStore(10)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatal(err)
+	}
+	setupAccessLogging(eng, cfg)
+
+	logs := eng.Logs.Recent(10)
+	foundWarning := false
+	for _, entry := range logs {
+		if entry.Level == "warn" && strings.Contains(entry.Message, "logging.log_body=true") && strings.Contains(entry.Message, "credentials/PII") {
+			foundWarning = true
+			break
+		}
+	}
+	if !foundWarning {
+		t.Fatalf("expected log_body warning in engine logs, got %#v", logs)
+	}
+
+	origStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	defer func() {
+		os.Stdout = origStdout
+	}()
+
+	const secretBody = `{"password":"super-secret-body-value"}`
+	req := httptest.NewRequest(http.MethodPost, "/body-log-test", strings.NewReader(secretBody))
+	req.RemoteAddr = "192.0.2.10:12345"
+	rr := httptest.NewRecorder()
+	eng.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})).ServeHTTP(rr, req)
+
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = origStdout
+
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	var logEntry map[string]any
+	if err := json.Unmarshal(out, &logEntry); err != nil {
+		t.Fatalf("access log is not valid JSON: %v; output=%q", err, string(out))
+	}
+	if _, ok := logEntry["body"]; ok {
+		t.Fatalf("access log unexpectedly includes body field: %s", string(out))
+	}
+	if strings.Contains(string(out), "super-secret-body-value") || strings.Contains(string(out), "password") {
+		t.Fatalf("access log leaked request body content: %s", string(out))
 	}
 }
 
