@@ -56,7 +56,14 @@ func TestRebuildDockerProxyRuntimeInstallsDiscoveredRouter(t *testing.T) {
 
 	var upstream atomic.Value
 	upstream.Store(http.NotFoundHandler())
-	var proxyRouter *proxy.Router
+	oldTarget, err := proxy.NewTargetWithPolicy("http://127.0.0.1:18079", 1, proxy.TargetPolicy{AllowPrivateTargets: true})
+	if err != nil {
+		t.Fatalf("NewTargetWithPolicy: %v", err)
+	}
+	proxyRouter := proxy.NewRouter([]proxy.Route{{
+		PathPrefix: "/",
+		Balancer:   proxy.NewBalancer([]*proxy.Target{oldTarget}, proxy.StrategyRoundRobin),
+	}})
 	var proxyHealthCheckers []*proxy.HealthChecker
 	var proxyRuntimeMu sync.RWMutex
 
@@ -90,5 +97,8 @@ func TestRebuildDockerProxyRuntimeInstallsDiscoveredRouter(t *testing.T) {
 	}
 	if loadHTTPHandler(&upstream) == nil {
 		t.Fatal("expected upstream handler to be atomically replaced")
+	}
+	if !oldTarget.Closed() {
+		t.Fatal("expected old Docker proxy target to be closed after rebuild")
 	}
 }

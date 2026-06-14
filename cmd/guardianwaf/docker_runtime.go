@@ -26,7 +26,13 @@ func setupDockerRuntime(
 		return nil
 	}
 
-	dockerClient := dkr.NewClient(cfg.Docker.SocketPath)
+	dockerClient := dkr.NewClientWithOptions(dkr.ClientOptions{
+		SocketPath: cfg.Docker.SocketPath,
+		TLSVerify:  cfg.Docker.TLSVerify,
+		TLSCACert:  cfg.Docker.TLSCACert,
+		TLSCert:    cfg.Docker.TLSCert,
+		TLSKey:     cfg.Docker.TLSKey,
+	})
 	if err := dockerClient.Ping(); err != nil {
 		eng.Logs.Warnf("Docker: connection failed: %v (auto-discovery disabled)", err)
 		return nil
@@ -71,8 +77,10 @@ func rebuildDockerProxyRuntime(
 	newHandler, newHealthCheckers := buildReverseProxy(mergedCfg)
 	newRouter, _ := newHandler.(*proxy.Router)
 
+	var oldRouter *proxy.Router
 	var oldHealthCheckers []*proxy.HealthChecker
 	proxyRuntimeMu.Lock()
+	oldRouter = *proxyRouter
 	oldHealthCheckers = *proxyHealthCheckers
 	*proxyRouter = newRouter
 	*proxyHealthCheckers = newHealthCheckers
@@ -86,5 +94,6 @@ func rebuildDockerProxyRuntime(
 	}
 	upstreamHandler.Store(wrappedHandler)
 	stopHealthCheckers(oldHealthCheckers)
+	closeProxyRouter(oldRouter)
 	eng.Logs.Infof("Docker: proxy rebuilt (%d services discovered)", len(services))
 }
