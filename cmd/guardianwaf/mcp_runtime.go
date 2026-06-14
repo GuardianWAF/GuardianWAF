@@ -33,3 +33,19 @@ func startMCPServer(eng *engine.Engine, cfg *config.Config, store events.EventSt
 		fmt.Fprintf(os.Stderr, "MCP server error: %v\n", err)
 	}
 }
+
+func startMCPStdioRuntime(eng *engine.Engine, cfg *config.Config, store events.EventStore, alertMgr *alerting.Manager, stdin io.Reader, stdout io.Writer) bool {
+	if cfg == nil || !cfg.MCP.Enabled || cfg.MCP.Transport != "stdio" {
+		return false
+	}
+	go startMCPServer(eng, cfg, store, alertMgr, stdin, stdout)
+	return true
+}
+
+func buildMCPSSEHandler(eng *engine.Engine, cfg *config.Config, store events.EventStore, alertMgr *alerting.Manager) *mcp.SSEHandler {
+	mcpSrv := mcp.NewServer(nil, nil)
+	mcpSrv.SetServerInfo("guardianwaf", version)
+	mcpSrv.SetEngine(&mcpEngineAdapter{engine: eng, cfg: cfg, eventStore: store, alertMgr: alertMgr})
+	mcpSrv.RegisterAllTools()
+	return mcp.NewSSEHandler(mcpSrv, cfg.Dashboard.APIKey)
+}

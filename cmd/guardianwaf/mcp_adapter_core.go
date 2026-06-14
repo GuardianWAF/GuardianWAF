@@ -29,11 +29,12 @@ type mcpEngineAdapter struct {
 func (a *mcpEngineAdapter) GetStats() any {
 	s := a.engine.Stats()
 	return map[string]any{
-		"total_requests":   s.TotalRequests,
-		"blocked_requests": s.BlockedRequests,
-		"logged_requests":  s.LoggedRequests,
-		"passed_requests":  s.PassedRequests,
-		"avg_latency_us":   s.AvgLatencyUs,
+		"total_requests":     s.TotalRequests,
+		"blocked_requests":   s.BlockedRequests,
+		"logged_requests":    s.LoggedRequests,
+		"passed_requests":    s.PassedRequests,
+		"event_store_errors": s.EventStoreErrors,
+		"avg_latency_us":     s.AvgLatencyUs,
 	}
 }
 

@@ -41,9 +41,6 @@ func setupAlertingRuntime(
 		dash.SetAlertingStatsFn(func() any { return alertMgr.GetStats() })
 	}
 
-	if cfg.MCP.Enabled && cfg.MCP.Transport == "stdio" {
-		go startMCPServer(eng, cfg, eventStore, alertMgr, stdin, stdout)
-	}
 	return alertMgr
 }
 
