@@ -23,6 +23,9 @@ jobs:
   build-dashboard:
     runs-on: ubuntu-latest
     steps:
+      - name: Check build prerequisites
+        run: ./scripts/check-prereqs.sh
+
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -61,6 +64,9 @@ jobs:
         go-version: ['1.26.4']
       fail-fast: false
     steps:
+      - name: Check build prerequisites
+        run: ./scripts/check-prereqs.sh
+
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -130,6 +136,9 @@ jobs:
     needs: [build-dashboard]
     runs-on: ubuntu-latest
     steps:
+      - name: Check build prerequisites
+        run: ./scripts/check-prereqs.sh
+
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -153,6 +162,9 @@ jobs:
     needs: [build-dashboard]
     runs-on: ubuntu-latest
     steps:
+      - name: Check build prerequisites
+        run: ./scripts/check-prereqs.sh
+
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -182,6 +194,9 @@ jobs:
     # `make fmt-check` and the pre-commit hook run the same command; this
     # CI job is the merge gate so drift cannot reach main.
     steps:
+      - name: Check build prerequisites
+        run: ./scripts/check-prereqs.sh
+
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -202,6 +217,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Check build prerequisites
+        run: ./scripts/check-prereqs.sh
+
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Docker Compose integration smoke
@@ -217,6 +235,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - name: Check build prerequisites
+        run: ./scripts/check-prereqs.sh
+
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -242,6 +263,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
+      - name: Check build prerequisites
+        run: ./scripts/check-prereqs.sh
+
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -264,6 +288,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - name: Check build prerequisites
+        run: ./scripts/check-prereqs.sh
+
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Runtime image SBOM and scan
@@ -273,6 +300,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Check build prerequisites
+        run: ./scripts/check-prereqs.sh
+
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -288,6 +318,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
+      - name: Check build prerequisites
+        run: ./scripts/check-prereqs.sh
+
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -307,6 +340,9 @@ jobs:
     needs: [build-dashboard]
     runs-on: ubuntu-latest
     steps:
+      - name: Check build prerequisites
+        run: ./scripts/check-prereqs.sh
+
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
@@ -351,6 +387,9 @@ jobs:
   govulncheck:
     runs-on: ubuntu-latest
     steps:
+    - name: Check build prerequisites
+      run: ./scripts/check-prereqs.sh
+
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
     - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
       with:
@@ -361,6 +400,9 @@ jobs:
   gosec:
     runs-on: ubuntu-latest
     steps:
+    - name: Check build prerequisites
+      run: ./scripts/check-prereqs.sh
+
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
     - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
       with:
@@ -373,6 +415,9 @@ jobs:
   trufflehog:
     runs-on: ubuntu-latest
     steps:
+    - name: Check build prerequisites
+      run: ./scripts/check-prereqs.sh
+
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       with:
         fetch-depth: 0
@@ -384,6 +429,9 @@ jobs:
   trivy-docker:
     runs-on: ubuntu-latest
     steps:
+    - name: Check build prerequisites
+      run: ./scripts/check-prereqs.sh
+
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
     - name: Run Trivy vulnerability scanner on base image
       run: |
@@ -403,6 +451,9 @@ jobs:
     needs: [build-dashboard]
     runs-on: ubuntu-latest
     steps:
+    - name: Check build prerequisites
+      run: ./scripts/check-prereqs.sh
+
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
     - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
       with:
