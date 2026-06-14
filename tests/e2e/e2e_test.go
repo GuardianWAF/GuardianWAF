@@ -1389,5 +1389,3 @@ func TestE2E_Events_MultipleActions(t *testing.T) {
 // Helpers for tests that need a custom listener port (e.g., to inspect the
 // RemoteAddr seen by the WAF). Standard httptest.Server binds to 127.0.0.1.
 // --------------------------------------------------------------------------
-
-
