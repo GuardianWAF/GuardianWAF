@@ -21,6 +21,7 @@ Docker Daemon ──► Watcher ──► Label Parse ──► BuildConfig ─�
 
 ### 1. Enable Docker Discovery
 
+<!-- guardianwaf-config:validate -->
 ```yaml
 # guardianwaf.yaml
 docker:
@@ -185,6 +186,7 @@ If `gwaf.port` is not specified, GuardianWAF auto-detects the port:
 
 Docker-discovered services are **merged** with static config. Static upstreams take priority:
 
+<!-- guardianwaf-config:validate -->
 ```yaml
 # guardianwaf.yaml — static config
 upstreams:
@@ -250,10 +252,11 @@ When a container starts or stops:
 | Linux | Unix socket | `/var/run/docker.sock` |
 | macOS | Unix socket | Docker Desktop socket |
 | Windows | Docker CLI | Named pipe via `docker` command |
-| Remote | Docker CLI | Any Docker context |
+| Remote | Docker CLI | `tcp://` endpoints require Docker TLS verification |
 
 ## Configuration Reference
 
+<!-- guardianwaf-config:validate -->
 ```yaml
 docker:
   # Enable/disable Docker auto-discovery
@@ -261,6 +264,13 @@ docker:
 
   # Docker socket path (Linux/macOS)
   socket_path: /var/run/docker.sock
+
+  # Remote Docker endpoint hardening. Required when socket_path uses tcp://.
+  # Use Docker's TLS port, not an unauthenticated tcp://...:2375 daemon.
+  tls_verify: false
+  tls_ca_cert: ""
+  tls_cert: ""
+  tls_key: ""
 
   # Label prefix for container labels
   label_prefix: gwaf
@@ -286,4 +296,21 @@ docker:
 
 ### Permission denied
 - Mount Docker socket: `-v /var/run/docker.sock:/var/run/docker.sock:ro`
-- Or enable TCP: Docker Desktop → Settings → General → "Expose daemon on tcp://localhost:2375"
+- Prefer a read-only Docker socket proxy when GuardianWAF runs in a container.
+- For remote Docker, expose only a TLS-authenticated Docker API endpoint and configure GuardianWAF with certificate verification:
+
+<!-- guardianwaf-config:validate -->
+```yaml
+docker:
+  enabled: true
+  socket_path: tcp://docker.example.com:2376
+  tls_verify: true
+  tls_ca_cert: /etc/guardianwaf/docker/ca.pem
+  tls_cert: /etc/guardianwaf/docker/cert.pem
+  tls_key: /etc/guardianwaf/docker/key.pem
+  label_prefix: gwaf
+  poll_interval: 5s
+  network: bridge
+```
+
+GuardianWAF rejects `tcp://` Docker endpoints unless `tls_verify: true` and all remote Docker certificate paths are configured.

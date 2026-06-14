@@ -33,6 +33,14 @@ This guide covers production deployment best practices for GuardianWAF v0.4.0.
 - [ ] SMTP server for alerts (optional)
 - [ ] Webhook endpoints for notifications (optional)
 - [ ] Reverse proxy (nginx/traefik/caddy) - **recommended**
+- [ ] Source builds only: Go 1.26.4 or newer, Node.js 20.19.0 or newer, npm 10.x or newer, and `git`
+
+For source builds, validate the local toolchain before building:
+
+```bash
+./scripts/check-prereqs.sh
+./scripts/build.sh
+```
 
 ### Network Requirements
 
@@ -254,74 +262,95 @@ spec:
 
 ### Minimal Production Config
 
+<!-- guardianwaf-config:validate -->
 ```yaml
-# /etc/guardianwaf/config.yaml
-server:
-  listen: ":8080"
-  tls_listen: ":8443"
-  dashboard_listen: "127.0.0.1:9443"  # Restrict to localhost
-  mode: "block"  # block, challenge, log
-  block_threshold: 50
-  log_threshold: 25
+# /etc/guardianwaf/guardianwaf.yaml
+mode: enforce
+listen: ":8080"
+allowed_upstream_cidrs:
+  - "10.0.1.0/24"
 
 tls:
-  auto: true  # ACME Let's Encrypt
-  email: "admin@example.com"
-  domains:
-    - "waf.example.com"
-    - "api.example.com"
-
-rate_limit:
   enabled: true
-  requests_per_minute: 1000
-  burst: 100
-  ban_duration_minutes: 60
+  listen: ":8443"
+  acme:
+    enabled: true
+    email: "admin@example.com"
+    domains:
+      - "waf.example.com"
+      - "api.example.com"
 
-ip_acl:
-  whitelist:
-    - "10.0.0.0/8"      # Internal network
-    - "127.0.0.1/32"    # localhost
-  blacklist: []
+waf:
+  detection:
+    threshold:
+      block: 50
+      log: 25
+  rate_limit:
+    enabled: true
+    rules:
+      - id: global
+        scope: ip
+        limit: 1000
+        window: 1m
+        burst: 100
+        action: block
+  ip_acl:
+    enabled: true
+    whitelist:
+      # Internal network and localhost
+      - "10.0.0.0/8"
+      - "127.0.0.1/32"
+    blacklist: []
 
 alerting:
+  enabled: false
   webhooks:
     - name: "security-alerts"
-      url: "https://hooks.slack.com/services/..."
+      url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+      type: "slack"
       events: ["block"]
       min_score: 50
 
-  email:
-    enabled: false  # Enable if SMTP configured
-    smtp_host: "smtp.gmail.com"
-    smtp_port: 587
-    username: "alerts@example.com"
-    password: "${SMTP_PASSWORD}"  # Use env var
-    from: "alerts@example.com"
-    to:
-      - "security@example.com"
-    use_tls: true
+  emails:
+    - name: "security-email"
+      smtp_host: "smtp.gmail.com"
+      smtp_port: 587
+      username: "alerts@example.com"
+      password: "${SMTP_PASSWORD}"  # Use env var
+      from: "alerts@example.com"
+      to:
+        - "security@example.com"
+      use_tls: true
+      events: ["block"]
 
 logging:
   level: "info"
   format: "json"
-  file: "/var/log/guardianwaf/guardianwaf.log"
-  access_log: "/var/log/guardianwaf/access.log"
+  output: "/var/log/guardianwaf/guardianwaf.log"
+  log_blocked: true
+  log_allowed: false
+
+dashboard:
+  enabled: true
+  listen: "127.0.0.1:9443"  # Restrict to localhost
+  api_key: "${GWAF_DASHBOARD_API_KEY}"
+  admin_key: "${GWAF_DASHBOARD_ADMIN_KEY}"
 
 # Upstreams (your backend services)
 upstreams:
   - name: "api-backend"
     targets:
-      - "10.0.1.10:8080"
-      - "10.0.1.11:8080"
+      - url: "http://10.0.1.10:8080"
+      - url: "http://10.0.1.11:8080"
     health_check:
+      enabled: true
       path: "/health"
       interval: 10s
 
 routes:
-  - host: "api.example.com"
+  - path: "/api"
     upstream: "api-backend"
-    paths:
-      - "/api/*"
+    strip_prefix: false
 ```
 
 ### Environment Variables
@@ -329,6 +358,7 @@ routes:
 ```bash
 # .env file (don't commit this!)
 GWAF_LOG_LEVEL=info
+GWAF_ALLOWED_UPSTREAM_CIDRS=10.0.1.0/24
 SMTP_PASSWORD=your-secret-password
 ACME_ACCEPT_TOS=true
 ```
@@ -351,6 +381,7 @@ ufw enable
 
 ### 2. Dashboard Access Control
 
+<!-- guardianwaf-config:validate -->
 ```yaml
 # Require API key for dashboard
 dashboard:
@@ -367,14 +398,22 @@ ssh -L 9443:localhost:9443 user@waf-server
 
 ### 3. TLS Configuration
 
+<!-- guardianwaf-config:validate -->
 ```yaml
 tls:
-  min_version: "1.3"  # or "1.2"
-  cipher_suites:
-    - "TLS_AES_256_GCM_SHA384"
-    - "TLS_CHACHA20_POLY1305_SHA256"
-  hsts: true
-  hsts_max_age: 31536000
+  enabled: true
+  listen: ":8443"
+  cert_file: "/etc/guardianwaf/certs/cert.pem"
+  key_file: "/etc/guardianwaf/certs/key.pem"
+
+waf:
+  response:
+    security_headers:
+      enabled: true
+      hsts:
+        enabled: true
+        max_age: 31536000
+        include_subdomains: true
 ```
 
 ### 4. File Permissions
@@ -397,7 +436,7 @@ chown guardianwaf:guardianwaf /var/lib/guardianwaf
 
 ## Monitoring & Alerting
 
-### Prometheus Metrics (if available)
+### Prometheus Metrics
 
 ```yaml
 # prometheus.yml
@@ -407,6 +446,8 @@ scrape_configs:
       - targets: ['guardianwaf:8080']
     metrics_path: '/metrics'
 ```
+
+See [Metrics Contract](metrics.md) for stable metric names, types, and baseline PromQL queries.
 
 ### Health Checks
 
@@ -448,9 +489,12 @@ BACKUP_DIR="/backups/guardianwaf/$(date +%Y%m%d)"
 mkdir -p "$BACKUP_DIR"
 
 cp /etc/guardianwaf/config.yaml "$BACKUP_DIR/"
-cp -r /var/lib/guardianwaf/events "$BACKUP_DIR/"
+cp /var/log/guardianwaf/events.jsonl "$BACKUP_DIR/" 2>/dev/null || true
 cp -r /var/lib/guardianwaf/acme "$BACKUP_DIR/"  # TLS certs
-cp -r /var/lib/guardianwaf/geoip "$BACKUP_DIR/"
+cp /var/lib/guardianwaf/geoip.csv "$BACKUP_DIR/" 2>/dev/null || true
+cp -r /var/lib/guardianwaf/tenants "$BACKUP_DIR/" 2>/dev/null || true
+cp -r /var/lib/guardianwaf/replay "$BACKUP_DIR/" 2>/dev/null || true
+cp -r /var/lib/guardianwaf/remediation "$BACKUP_DIR/" 2>/dev/null || true
 
 tar -czf "$BACKUP_DIR.tar.gz" "$BACKUP_DIR"
 rm -rf "$BACKUP_DIR"
@@ -470,6 +514,7 @@ sudo tar -xzf /backups/guardianwaf/20260404.tar.gz -C /
 
 # 3. Fix permissions
 sudo chown -R guardianwaf:guardianwaf /var/lib/guardianwaf
+sudo chown -R guardianwaf:guardianwaf /var/log/guardianwaf
 
 # 4. Start service
 sudo systemctl start guardianwaf

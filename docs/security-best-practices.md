@@ -343,10 +343,13 @@ server {
 
 GuardianWAF should trust only the direct Nginx peer addresses, not arbitrary client networks:
 
+<!-- guardianwaf-config:validate -->
 ```yaml
 trusted_proxies:
-  - 10.0.0.10        # Nginx instance or pod IP
-  - 10.0.1.0/24      # Nginx/ingress subnet, if IPs are ephemeral
+  # Nginx instance or pod IP
+  - "10.0.0.10"
+  # Nginx/ingress subnet, if IPs are ephemeral
+  - "10.0.1.0/24"
 ```
 
 For Kubernetes ingress controllers, use the ingress controller pod/node CIDR that directly connects to GuardianWAF. For AWS ALB, Cloudflare, or another managed edge, trust only the private hop that forwards traffic into GuardianWAF, or the documented provider CIDRs if GuardianWAF directly receives traffic from that provider. Leave `trusted_proxies` empty when GuardianWAF is directly exposed to clients.
@@ -357,6 +360,7 @@ For Kubernetes ingress controllers, use the ingress controller pod/node CIDR tha
 
 ### Dashboard API Key
 
+<!-- guardianwaf-config:validate -->
 ```yaml
 # config.yaml
 dashboard:
@@ -407,45 +411,34 @@ location / {
 
 ### Strong TLS Settings
 
+<!-- guardianwaf-config:validate -->
 ```yaml
 # config.yaml
 tls:
   enabled: true
   listen: ":8443"
-  
-  # Minimum TLS version
-  min_version: "1.2"
-  
-  # Modern cipher suites
-  cipher_suites:
-    - "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"
-    - "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
-    - "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"
-    - "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
-    - "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305"
-    - "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305"
-    - "TLS_AES_128_GCM_SHA256"
-    - "TLS_AES_256_GCM_SHA384"
-    - "TLS_CHACHA20_POLY1305_SHA256"
-  
-  # HSTS
-  hsts: true
-  hsts_max_age: 31536000
-  hsts_include_subdomains: true
-  
-  # OCSP Stapling
-  ocsp_stapling: true
-  
+
   # Certificate files
   cert_file: "/etc/guardianwaf/certs/cert.pem"
   key_file: "/etc/guardianwaf/certs/key.pem"
-  
+
   # ACME (Let's Encrypt)
-  auto: true
-  email: "security@example.com"
-  domains:
-    - "api.example.com"
-    - "www.example.com"
+  acme:
+    enabled: true
+    email: "security@example.com"
+    domains:
+      - "api.example.com"
+      - "www.example.com"
+    cache_dir: "/var/lib/guardianwaf/acme"
+
+waf:
+  response:
+    security_headers:
+      enabled: true
+      hsts:
+        enabled: true
+        max_age: 31536000
+        include_subdomains: true
 ```
 
 ### Certificate Permissions
@@ -571,9 +564,11 @@ func loadSecretsFromVault() (map[string]string, error) {
 
 ### Security Event Monitoring
 
+<!-- guardianwaf-config:validate -->
 ```yaml
 # config.yaml
 alerting:
+  enabled: true
   webhooks:
     - name: "security-alerts"
       url: "https://hooks.slack.com/services/..."
@@ -584,48 +579,47 @@ alerting:
       url: "https://events.pagerduty.com/v2/enqueue"
       events: ["block"]
       min_score: 80
-      
-  email:
-    enabled: true
-    smtp_host: "smtp.gmail.com"
-    smtp_port: 587
-    username: "alerts@example.com"
-    password: "${SMTP_PASSWORD}"
-    from: "alerts@example.com"
-    to:
-      - "security@example.com"
-      - "oncall@example.com"
-    use_tls: true
-    events: ["block"]
-    min_score: 70
+
+  emails:
+    - name: "security-email"
+      smtp_host: "smtp.gmail.com"
+      smtp_port: 587
+      username: "alerts@example.com"
+      password: "${SMTP_PASSWORD}"
+      from: "alerts@example.com"
+      to:
+        - "security@example.com"
+        - "oncall@example.com"
+      use_tls: true
+      events: ["block"]
+      min_score: 70
 ```
 
 ### Audit Logging
 
+<!-- guardianwaf-config:validate -->
 ```yaml
 logging:
   level: "info"
   format: "json"
-  file: "/var/log/guardianwaf/audit.log"
-  
-  # Include sensitive fields (careful!)
-  mask_headers:
-    - "Authorization"
-    - "Cookie"
-    - "X-API-Key"
+  output: "/var/log/guardianwaf/audit.log"
+  log_blocked: true
+  log_allowed: false
+  log_body: false
 ```
 
 ### Failed Login Detection
 
+<!-- guardianwaf-config:validate -->
 ```yaml
-layers:
-  ato:
+waf:
+  ato_protection:
     enabled: true
     brute_force:
       enabled: true
-      threshold: 5
+      max_attempts_per_ip: 5
       window: "5m"
-      ban_duration: "1h"
+      block_duration: "1h"
 ```
 
 ---
@@ -644,41 +638,42 @@ curl http://localhost:9443/api/v1/stats | jq '.rate_limit'
 curl http://localhost:9443/api/v1/stats | jq '.top_ips'
 
 # Block IP immediately
-curl -X POST http://localhost:9443/api/v1/acl/blacklist \
+curl -X POST http://localhost:9443/api/v1/ipacl \
   -H "X-API-Key: secret" \
-  -d '{"ip": "192.0.2.1", "comment": "DDoS attack"}'
+  -d '{"list": "blacklist", "ip": "192.0.2.1"}'
 
 # Check if IP is blocked
-curl "http://localhost:9443/api/v1/acl?ip=192.0.2.1"
+curl "http://localhost:9443/api/v1/ipacl"
 ```
 
 #### SQL Injection Attempt
 
+<!-- guardianwaf-config:validate -->
 ```yaml
 # Increase detection sensitivity for SQLi
-layers:
+waf:
   detection:
-    sqli:
-      enabled: true
-      score_multiplier: 2.0  # Double the score
-      patterns:
-        - "union.*select"
-        - "1\s*=\s*1"
+    detectors:
+      sqli:
+        enabled: true
+        multiplier: 2.0  # Double the score
 ```
 
 #### False Positive
 
+<!-- guardianwaf-config:validate -->
 ```yaml
 # Add exclusion for legitimate traffic
-rules:
-  exclusions:
-    - path: "/api/internal/*"
-      source_ips: ["10.0.0.0/8"]
-      detectors: []  # Skip all
-      
-    - path: "/webhook/*"
-      detectors: ["sqli"]  # Skip SQLi only
-      methods: ["POST"]
+waf:
+  detection:
+    exclusions:
+      - path: "/api/internal/"
+        detectors: []  # Skip all detectors
+        reason: "Trusted internal API traffic"
+
+      - path: "/webhook/"
+        detectors: ["sqli"]  # Skip SQLi only
+        reason: "Webhook payloads may contain SQL-like text"
 ```
 
 ### Emergency Response Playbook
@@ -738,13 +733,13 @@ mkdir -p "$BACKUP_DIR"
 cp /etc/guardianwaf/config.yaml "$BACKUP_DIR/"
 
 # Backup ACLs
-curl -s http://localhost:9443/api/v1/acl > "$BACKUP_DIR/acl.json"
+curl -s http://localhost:9443/api/v1/ipacl > "$BACKUP_DIR/ipacl.json"
 
 # Backup events (last hour)
 curl -s "http://localhost:9443/api/v1/events/export?since=1h" > "$BACKUP_DIR/events.json"
 
 # Backup rate limits
-curl -s http://localhost:9443/api/v1/ratelimits > "$BACKUP_DIR/ratelimits.json"
+curl -s http://localhost:9443/api/v1/config > "$BACKUP_DIR/config.json"
 
 tar -czf "$BACKUP_DIR.tar.gz" "$BACKUP_DIR"
 rm -rf "$BACKUP_DIR"

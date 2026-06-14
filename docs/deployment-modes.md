@@ -37,6 +37,7 @@ Full-featured reverse proxy with integrated dashboard and MCP server. Sits in fr
 
 ### Configuration
 
+<!-- guardianwaf-config:validate -->
 ```yaml
 mode: enforce
 listen: ":8088"
@@ -102,7 +103,7 @@ docker run -d \
 - **Web dashboard** with real-time monitoring and rule management
 - **MCP server** for AI agent integration (Claude Code, etc.)
 - **TLS termination** with optional ACME auto-certificate
-- **Graceful shutdown** (15-second drain on SIGINT/SIGTERM)
+- **Graceful shutdown** (30-second drain on SIGINT/SIGTERM)
 
 ---
 

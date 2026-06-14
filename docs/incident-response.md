@@ -42,16 +42,17 @@
 
 1. **Identify** — Check attack patterns:
    ```bash
-   curl -s "http://localhost:9443/api/events?action=block&limit=50" | \
+   curl -s "http://localhost:9443/api/v1/events?action=block&limit=50" | \
      jq -r '.[].client_ip' | sort | uniq -c | sort -rn | head -20
    ```
 
 2. **Contain** — Block attacking IPs:
    ```bash
    # Add to blacklist
-   curl -X POST http://localhost:9443/api/ipacl/blacklist \
-     -H "Authorization: Bearer $API_KEY" \
-     -d '{"cidr": "192.0.2.0/24"}'
+   curl -X POST http://localhost:9443/api/v1/ipacl \
+     -H "X-API-Key: $API_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{"list": "blacklist", "ip": "192.0.2.0/24"}'
    ```
 
 3. **Monitor** — Track block rate:
@@ -63,7 +64,7 @@
 
 1. **Identify** — Find the detector/layer causing blocks:
    ```bash
-   curl -s "http://localhost:9443/api/events?action=block&limit=20" | \
+   curl -s "http://localhost:9443/api/v1/events?action=block&limit=20" | \
      jq -r '.[].findings[]?.detector_name' | sort | uniq -c | sort -rn
    ```
 
@@ -85,12 +86,12 @@
 
 1. **Verify** — Check tenant context in events:
    ```bash
-   curl -s "http://localhost:9443/api/events?tenant_id=TENANT_ID&limit=10"
+   curl -s "http://localhost:9443/api/v1/events?tenant_id=TENANT_ID&limit=10"
    ```
 
 2. **Check** — Ensure tenant config is isolated:
    ```bash
-   curl -s http://localhost:9443/api/tenants | jq '.[].id'
+   curl -s http://localhost:9443/api/admin/tenants -H "X-API-Key: $ADMIN_KEY" | jq '.tenants[].id'
    ```
 
 3. **Escalate** — If tenant data leakage suspected, immediately:
@@ -104,16 +105,16 @@ When investigating a security incident, collect:
 
 ```bash
 # 1. Recent events (JSON)
-curl -s "http://localhost:9443/api/events?limit=1000" > events.json
+curl -s "http://localhost:9443/api/v1/events?limit=1000" > events.json
 
 # 2. Current configuration
-curl -s http://localhost:9443/api/config > config_snapshot.json
+curl -s http://localhost:9443/api/v1/config > config_snapshot.json
 
 # 3. IP ACL state
-curl -s http://localhost:9443/api/ipacl/auto-ban > autobans.json
+curl -s http://localhost:9443/api/v1/bans > autobans.json
 
 # 4. Rate limit state
-curl -s http://localhost:9443/api/stats > stats.json
+curl -s http://localhost:9443/api/v1/stats > stats.json
 
 # 5. Metrics snapshot
 curl -s http://localhost:9443/metrics > metrics.txt

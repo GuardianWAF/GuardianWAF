@@ -2,6 +2,8 @@
 
 This document describes the GuardianWAF architecture using Mermaid diagrams.
 
+Note: the pipeline diagrams show current registered runtime pipeline layers together with planned/config-compatibility layer orders for orientation. The current runtime pipeline does not include Cluster, WebSocket frame-security, gRPC message inspection, Canary, or Replay packages; WebSocket support today is transparent proxy upgrade handling, and HTTP/3/QUIC is not a production listener.
+
 ## System Overview
 
 ```mermaid
@@ -23,15 +25,15 @@ flowchart TB
             Dash[":9443 Dashboard"]
         end
 
-        subgraph Pipeline["16-Layer Pipeline"]
+        subgraph Pipeline["Pipeline Orders: Current + Planned"]
             direction TB
-            LC["75: Cluster<br/>Leader Election/Ban Sync"]
-            LW["76: WebSocket<br/>Security Handshake"]
-            LG["78: gRPC<br/>Security"]
-            L0["95: Canary<br/>Traffic Splitting"]
+            LC["75: Cluster (planned)<br/>Leader Election/Ban Sync"]
+            LW["76: WebSocket Frame Security (planned)<br/>Upgrade forwarding exists"]
+            LG["78: gRPC Message Inspection (planned)<br/>HTTP/2 forwarding only"]
+            L0["95: Canary (planned)<br/>Traffic Splitting"]
             L1["100: IP ACL<br/>Radix Tree CIDR"]
             L2["125: Threat Intel<br/>Reputation Feeds"]
-            L2b["145: Replay Recorder<br/>JSONL Sampling"]
+            L2b["145: Replay Recorder (planned)<br/>JSONL Sampling"]
             L3["150: CORS<br/>Origin Validation"]
             L4["150: Custom Rules<br/>Geo-aware"]
             L5["200: Rate Limit<br/>Token Bucket"]
@@ -40,7 +42,7 @@ flowchart TB
             L7b["280: API Validation<br/>OpenAPI Schema"]
             L8["300: Sanitizer<br/>Multi-layer Decode"]
             L8b["350: CRS<br/>OWASP ModSecurity"]
-            L9["400: Detection<br/>6 Detectors"]
+            L9["400: Detection<br/>8 Detectors"]
             L9b["450: Virtual Patch<br/>CVE/NVD"]
             L9c["475: DLP + ML<br/>Masking + Anomaly"]
             L10["500: Bot Detection<br/>JA3/JA4/Fingerprint"]

@@ -27,7 +27,60 @@ The MCP server supports two transports:
 - **stdio** — JSON-RPC over stdin/stdout (local process, for Claude Code CLI)
 - **SSE** — Server-Sent Events over HTTP (remote, for Claude Desktop, VS Code, web clients)
 
-Both transports expose the same 44 tools (21 base + 23 extended: CRS, Virtual Patch, API Validation, Client-Side, DLP, HTTP/3).
+Both transports expose the same 44 tools (21 base + 23 extended: CRS, Virtual Patch, API Validation, Client-Side, DLP, HTTP/3). The HTTP/3 tools currently report and configure the planned compatibility surface; they do not imply a production QUIC listener in this tree.
+
+---
+
+## Tool Authorization Classes
+
+All MCP tools require the configured local stdio access path or the dashboard SSE authentication boundary. Mutating tool calls emit a structured MCP audit log with the tool name, success/error outcome, and available transport identity fields (`transport`, `auth_type`, `principal`, and `remote_addr` for SSE API-key calls); arguments are intentionally omitted because they can contain webhook URLs, SMTP credentials, patterns, or other sensitive values. Treat mutating tools as operator actions: include the MCP audit log in incident timelines and review it before granting remote MCP access.
+
+| Tool | Class | Operator impact |
+|---|---|---|
+| `guardianwaf_get_stats` | Read-only | Runtime metrics query |
+| `guardianwaf_get_events` | Read-only | Security event query |
+| `guardianwaf_add_whitelist` | Mutating | Adds an IP/CIDR bypass |
+| `guardianwaf_remove_whitelist` | Mutating | Removes an IP/CIDR bypass |
+| `guardianwaf_add_blacklist` | Mutating | Adds an IP/CIDR block |
+| `guardianwaf_remove_blacklist` | Mutating | Removes an IP/CIDR block |
+| `guardianwaf_add_ratelimit` | Mutating | Adds a rate-limit rule |
+| `guardianwaf_remove_ratelimit` | Mutating | Removes a rate-limit rule |
+| `guardianwaf_add_exclusion` | Mutating | Adds a detection exclusion |
+| `guardianwaf_remove_exclusion` | Mutating | Removes a detection exclusion |
+| `guardianwaf_set_mode` | Mutating | Changes enforce/monitor/disabled mode |
+| `guardianwaf_get_config` | Read-only | Configuration query |
+| `guardianwaf_test_request` | Read-only | Dry-run detection test |
+| `guardianwaf_get_top_ips` | Read-only | Aggregated event query |
+| `guardianwaf_get_detectors` | Read-only | Detector configuration query |
+| `guardianwaf_get_alerting_status` | Read-only | Alerting status query |
+| `guardianwaf_add_webhook` | Mutating | Adds an alert target |
+| `guardianwaf_remove_webhook` | Mutating | Removes an alert target |
+| `guardianwaf_add_email_target` | Mutating | Adds an email alert target |
+| `guardianwaf_remove_email_target` | Mutating | Removes an email alert target |
+| `guardianwaf_test_alert` | Mutating | Sends an outbound test alert |
+| `guardianwaf_get_crs_rules` | Read-only | CRS rule query |
+| `guardianwaf_enable_crs_rule` | Mutating | Enables or disables a CRS rule |
+| `guardianwaf_set_paranoia_level` | Mutating | Changes CRS sensitivity |
+| `guardianwaf_add_crs_exclusion` | Mutating | Adds a CRS exclusion |
+| `guardianwaf_get_virtual_patches` | Read-only | Virtual patch query |
+| `guardianwaf_enable_virtual_patch` | Mutating | Enables or disables a virtual patch |
+| `guardianwaf_add_custom_patch` | Mutating | Adds a virtual patch |
+| `guardianwaf_update_cve_database` | Mutating | Refreshes CVE data from NVD |
+| `guardianwaf_get_api_schemas` | Read-only | API schema query |
+| `guardianwaf_upload_api_schema` | Mutating | Uploads an API schema |
+| `guardianwaf_remove_api_schema` | Mutating | Removes an API schema |
+| `guardianwaf_set_api_validation_mode` | Mutating | Changes API validation behavior |
+| `guardianwaf_test_api_schema` | Read-only | Dry-run schema validation test |
+| `guardianwaf_get_clientside_stats` | Read-only | Client-side protection query |
+| `guardianwaf_set_clientside_mode` | Mutating | Changes client-side protection behavior |
+| `guardianwaf_add_skimming_domain` | Mutating | Adds a skimming-domain block |
+| `guardianwaf_get_csp_report` | Read-only | CSP report query |
+| `guardianwaf_get_dlp_alerts` | Read-only | DLP alert query |
+| `guardianwaf_add_dlp_pattern` | Mutating | Adds a DLP pattern |
+| `guardianwaf_remove_dlp_pattern` | Mutating | Removes a DLP pattern |
+| `guardianwaf_test_dlp_pattern` | Read-only | Dry-run DLP pattern test |
+| `guardianwaf_get_http3_status` | Read-only | HTTP/3 compatibility status query |
+| `guardianwaf_set_http3_config` | Mutating | Changes HTTP/3 compatibility config |
 
 ---
 
@@ -139,7 +192,7 @@ Once configured, you can ask Claude natural language questions like:
 
 ---
 
-## All 15 Base MCP Tools
+## All 21 Base MCP Tools
 
 ### 1. guardianwaf_get_stats
 

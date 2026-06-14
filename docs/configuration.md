@@ -16,6 +16,7 @@ Each layer overrides the previous. If you set `mode: monitor` in the YAML file a
 
 ## Full YAML Schema
 
+<!-- guardianwaf-config:validate -->
 ```yaml
 # ─────────────────────────────────────────────────────────────────────────────
 # Top-level settings
@@ -35,6 +36,12 @@ listen: ":8088"                  # Default: :8088
 # actual load balancer, ingress, or reverse proxy addresses that connect to
 # GuardianWAF; never trust broad client networks.
 trusted_proxies: []              # Example: ["10.0.0.10", "192.0.2.0/24"]
+
+# Private/reserved upstreams are blocked by default. Prefer a narrow allowlist
+# for service-network backends; use allow_private_upstreams only when the whole
+# deployment intentionally trusts all configured private upstream targets.
+allowed_upstream_cidrs: []        # Example: ["10.0.0.0/16", "127.0.0.1"]
+allow_private_upstreams: false    # Default: false
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TLS
@@ -101,6 +108,14 @@ waf:
       enabled: true              # Default: true
       default_ttl: 1h           # Default ban duration
       max_ttl: 24h              # Maximum ban duration (escalation)
+
+  # ── GeoIP Enrichment ───────────────────────────────────────────────────
+  geoip:
+    enabled: false               # Default: false
+    db_path: ""                  # CSV database path
+    auto_download: false         # Download DB when missing
+    download_url: ""             # Optional custom GeoIP download URL
+    require_ready: false         # If true, /readyz fails until GeoIP is loaded
 
   # ── Rate Limiting ───────────────────────────────────────────────────────
   rate_limit:
@@ -230,7 +245,7 @@ dashboard:
   listen: ":9443"                # Default: :9443
   api_key: ""                    # Empty generates a strong random key at startup
   admin_key: ""                  # Required for tenant-admin endpoints; empty disables them
-  tls: true                      # Default: true
+  tls: false                     # Dashboard TLS is not terminated in-process; use ingress/reverse proxy TLS
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MCP Server (Model Context Protocol)
@@ -250,7 +265,7 @@ logging:
   output: stdout                 # "stdout", "stderr", or file path
   log_allowed: false             # Log allowed (non-suspicious) requests
   log_blocked: true              # Log blocked requests
-  log_body: false                # Include request body in logs
+  log_body: false                # Security risk: request bodies may contain credentials/PII; keep false unless explicitly debugging in a controlled environment
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Events
@@ -338,7 +353,7 @@ All environment variables use the `GWAF_` prefix. These override values from the
 | `GWAF_DASHBOARD_API_KEY` | `dashboard.api_key` | `my-secret-key` |
 | `GWAF_DASHBOARD_ADMIN_KEY` | `dashboard.admin_key` | `my-admin-secret-key` |
 | `GWAF_EVENTS_STORAGE` | `events.storage` | `file` |
-| `GWAF_EVENTS_FILE_PATH` | `events.file_path` | `/var/log/events.jsonl` |
+| `GWAF_EVENTS_FILE_PATH` | `events.file_path` | `/var/log/guardianwaf/events.jsonl` |
 | `GWAF_EVENTS_MAX_EVENTS` | `events.max_events` | `50000` |
 | `GWAF_TLS_ENABLED` | `tls.enabled` | `true` |
 | `GWAF_TLS_LISTEN` | `tls.listen` | `:8443` |
@@ -351,6 +366,22 @@ Example:
 ```bash
 GWAF_MODE=monitor GWAF_LISTEN=:9090 guardianwaf serve
 ```
+
+---
+
+## Migrating Legacy Config Keys
+
+GuardianWAF does not silently accept legacy or design-era top-level keys. Unknown keys fail validation with their field path, for example `server: unknown top-level key`. Update old examples before using them in production:
+
+| Legacy key | Current key |
+|---|---|
+| `server.listen` | `listen` |
+| `server.mode` | `mode` |
+| `proxy.upstreams` | `upstreams` |
+| `proxy.routes` | `routes` |
+| `security.waf` | `waf` |
+
+Run `guardianwaf validate -c guardianwaf.yaml` after migration. Public GuardianWAF YAML snippets in this repository must be preceded by `<!-- guardianwaf-config:validate -->` so CI parses them against `internal/config.Config`.
 
 ---
 
@@ -406,7 +437,7 @@ guardianwaf validate [options]
 
 ## Hot Reload
 
-GuardianWAF supports hot-reloading configuration changes without restarting.
+GuardianWAF supports targeted hot-reloading for a small set of request policy and routing changes. Listener, storage, startup-owned background service, and WAF layer-instance changes require a rolling restart. See [Runtime Reload Contract](runtime-reload.md) for the exact supported set.
 
 ### Via REST API
 
@@ -418,9 +449,11 @@ curl -X POST http://localhost:9443/api/v1/config/reload \
 Reloadable settings include:
 - WAF mode (enforce / monitor / disabled)
 - Scoring thresholds (block, log)
-- Maximum body size
+- Maximum request body inspection size
+- Trusted proxy CIDRs
+- Upstreams/routes through the routing API
 
-Layer-level changes (adding/removing detectors, IP ACL entries, rate limit rules) are applied through the respective REST API endpoints without requiring a full reload.
+Layer-level state changes such as IP ACL entries, auto-bans, and custom rules are applied through their respective REST API endpoints without requiring a full process restart. `PUT /api/v1/config` rejects WAF layer topology or layer configuration changes with `409 Conflict`; apply those changes through your deployment system and perform a rolling restart.
 
 ---
 

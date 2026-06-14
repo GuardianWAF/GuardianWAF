@@ -6,14 +6,14 @@ GuardianWAF uses a tokenizer-based scoring engine to detect attacks. Instead of 
 
 ## How Scoring Works
 
-Every request flows through a 16-layer pipeline (simplified view):
+Every request flows through the current registered runtime pipeline (simplified view):
 
 ```
 Request → IP ACL → Rate Limit → Sanitizer → Detection → Bot Detect → Response
            100       200          300          400          500         600
 ```
 
-The full pipeline includes additional layers between these stages: Cluster (75), WebSocket Security (76), gRPC Security (78), Canary (95), Threat Intel (125), Replay (145), CORS (150), Custom Rules (150), ATO Protection (250), API Security (275), API Validation (280), CRS (350), Virtual Patch (450), DLP (475), Client-Side (590), and Response (600).
+The current CLI pipeline is assembled from the registered runtime layers: IP ACL, Threat Intel, CORS, Custom Rules, Rate Limit, ATO Protection, API Security, API Validation, Sanitizer, CRS, Detection, Virtual Patch, DLP, Bot Detection, Client-Side, and Response. Design docs reserve orders for planned/runtime-absent layers such as Cluster, WebSocket frame security, gRPC message inspection, Canary, and Replay; those are not production pipeline layers unless their packages exist and are registered.
 
 The detection layer (order 400) runs all enabled detectors. Each detector produces **findings** with individual scores. The cumulative score determines the action:
 
@@ -69,7 +69,7 @@ Token 6: Comment        --     (SQL line comment)
 
 ## Detectors
 
-GuardianWAF ships with 6 attack detectors. Each runs independently and contributes findings to the total score.
+GuardianWAF ships with 8 attack detectors. Each runs independently and contributes findings to the total score.
 
 ### 1. SQL Injection (sqli)
 
@@ -154,6 +154,24 @@ Detects SSRF attempts in URL parameters:
 - Cloud metadata endpoints (`169.254.169.254/latest/meta-data`)
 - DNS rebinding patterns
 - Protocol smuggling (`gopher://`, `file://`, `dict://`)
+
+### 7. Server-Side Template Injection (ssti)
+
+Detects template execution attempts across common template engines:
+
+- Template expression delimiters (`{{...}}`, `${...}`, `<%=...%>`)
+- Dangerous template globals and helpers
+- Runtime and process access patterns
+- Template-engine specific payload shapes
+
+### 8. NoSQL Injection (nosqli)
+
+Detects attempts to alter document-database queries:
+
+- Operator injection (`$ne`, `$gt`, `$regex`, `$where`)
+- JSON and form-encoded query object manipulation
+- JavaScript execution inside query predicates
+- Authentication bypass patterns in MongoDB-style filters
 
 ---
 
