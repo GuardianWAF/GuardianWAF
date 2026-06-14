@@ -1,6 +1,7 @@
 package virtualpatch
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -232,6 +233,34 @@ func TestValidateURLNotPrivate_UnspecifiedIP(t *testing.T) {
 	}
 }
 
+func TestValidateURLNotPrivate_MulticastIP(t *testing.T) {
+	err := validateURLNotPrivate("http://224.0.0.1/api")
+	if err == nil {
+		t.Error("expected error for multicast IP")
+	}
+}
+
+func TestValidateURLNotPrivate_HostlessURL(t *testing.T) {
+	err := validateURLNotPrivate("https:///api")
+	if err == nil {
+		t.Error("expected error for hostless URL")
+	}
+}
+
+func TestValidateURLNotPrivate_CredentialBearingURL(t *testing.T) {
+	err := validateURLNotPrivate("https://user:pass@nvd.example.com/api")
+	if err == nil {
+		t.Error("expected error for URL userinfo")
+	}
+}
+
+func TestValidateURLNotPrivate_NonHTTPScheme(t *testing.T) {
+	err := validateURLNotPrivate("file:///etc/passwd")
+	if err == nil {
+		t.Error("expected error for non-HTTP(S) URL")
+	}
+}
+
 func TestValidateURLNotPrivate_PublicIP(t *testing.T) {
 	err := validateURLNotPrivate("http://8.8.8.8/api")
 	if err != nil {
@@ -282,6 +311,14 @@ func TestSetBaseURL_PrivateRejected(t *testing.T) {
 	err := client.SetBaseURL("http://127.0.0.1/api")
 	if err == nil {
 		t.Error("private URL should be rejected")
+	}
+}
+
+func TestSetBaseURL_CredentialsRejected(t *testing.T) {
+	client := NewNVDClient("")
+	err := client.SetBaseURL("https://user:pass@nvd.example.com/api")
+	if err == nil {
+		t.Error("credential-bearing URL should be rejected")
 	}
 }
 
@@ -424,6 +461,27 @@ func TestNVDClient_Search_InvalidJSON(t *testing.T) {
 	_, err := client.Search(SearchOptions{Keyword: "test"})
 	if err == nil {
 		t.Error("expected error for invalid JSON")
+	}
+}
+
+func TestNVDClient_SearchRejectsOversizedValidPrefix(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"resultsPerPage":0,"startIndex":0,"totalResults":0,"vulnerabilities":[]}`))
+		_, _ = w.Write([]byte(strings.Repeat(" ", maxNVDResponseBytes)))
+	}))
+	defer srv.Close()
+
+	client := NewNVDClient("")
+	client.allowPrivate = true
+	client.baseURL = srv.URL // bypass private IP validation for test server
+
+	_, err := client.Search(SearchOptions{Keyword: "test"})
+	if err == nil {
+		t.Fatal("expected oversized NVD response to be rejected")
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("oversized NVD response rejected with unexpected error: %v", err)
 	}
 }
 
@@ -734,6 +792,29 @@ func TestLayer_Stop_NoAutoUpdate_Cov(t *testing.T) {
 	})
 	// Should be a no-op (stopUpdate is nil)
 	layer.Stop()
+}
+
+func TestLayer_StopWithContextHonorsDeadline(t *testing.T) {
+	layer := &Layer{stopUpdate: make(chan struct{})}
+	done := make(chan struct{})
+	layer.updateWg.Add(1)
+	go func() {
+		defer layer.updateWg.Done()
+		<-done
+	}()
+	defer close(done)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	if err := layer.StopWithContext(ctx); err == nil {
+		t.Fatal("expected StopWithContext to return context deadline error")
+	}
+
+	select {
+	case <-layer.stopUpdate:
+	default:
+		t.Fatal("expected StopWithContext to close stopUpdate")
+	}
 }
 
 func TestLayer_GetUpdateStats(t *testing.T) {
@@ -2083,7 +2164,7 @@ func TestLayer_RunUpdate_NilNVDClient(t *testing.T) {
 		AutoUpdate: false,
 	})
 	// nvdClient is nil — runUpdate should return early
-	layer.runUpdate()
+	layer.runUpdate(context.Background())
 	// No panic = success
 }
 

@@ -16,13 +16,15 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/logging"
 )
 
+const maxNVDResponseBytes = 50 << 20
+
 // NVDClient is a client for the National Vulnerability Database API.
 type NVDClient struct {
-	log          *slog.Logger
-	mu           sync.RWMutex
-	baseURL      string
-	apiKey       string
-	httpClient   *http.Client
+	log        *slog.Logger
+	mu         sync.RWMutex
+	baseURL    string
+	apiKey     string
+	httpClient *http.Client
 	// allowPrivate is used by tests that exercise the client with httptest
 	// loopback servers. Production code must leave this false.
 	allowPrivate bool
@@ -31,7 +33,7 @@ type NVDClient struct {
 // NewNVDClient creates a new NVD API client.
 func NewNVDClient(apiKey string) *NVDClient {
 	c := &NVDClient{
-		log:    logging.NewLogger("nvd"),
+		log:     logging.NewLogger("nvd"),
 		baseURL: "https://services.nvd.nist.gov/rest/json/cves/2.0",
 		apiKey:  apiKey,
 	}
@@ -115,19 +117,28 @@ func validateURLNotPrivate(rawURL string) error {
 	if err != nil {
 		return fmt.Errorf("invalid URL: %w", err)
 	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("must use http or https")
+	}
+	if u.User != nil {
+		return fmt.Errorf("must not include URL userinfo or credentials")
+	}
 	host := u.Hostname()
+	if host == "" {
+		return fmt.Errorf("must include a host")
+	}
 	if host == "localhost" || strings.HasSuffix(host, ".internal") || strings.HasSuffix(host, ".local") {
 		return fmt.Errorf("must not target localhost or internal hosts")
 	}
 	ip := net.ParseIP(host)
 	if ip != nil {
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() || ip.IsMulticast() {
 			return fmt.Errorf("must not target private/loopback/link-local addresses")
 		}
 		return nil
 	}
 	// Hostname — resolve DNS and check all resulting IPs (prevents DNS rebinding)
-	addrs, err := net.LookupHost(host)
+	addrs, err := net.LookupHost(host) // #nosec G704 -- preflight DNS check is paired with NVD client's SSRF-safe DialContext and redirect validation.
 	if err != nil {
 		return nil // DNS failure — will fail at connection time
 	}
@@ -136,7 +147,7 @@ func validateURLNotPrivate(rawURL string) error {
 		if ip == nil {
 			continue
 		}
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() || ip.IsMulticast() {
 			return fmt.Errorf("hostname resolves to private/loopback address %s", ip)
 		}
 	}
@@ -285,6 +296,11 @@ type SearchOptions struct {
 
 // Search searches for CVEs in the NVD.
 func (c *NVDClient) Search(opts SearchOptions) (*NVDResponse, error) {
+	return c.SearchWithContext(context.Background(), opts)
+}
+
+// SearchWithContext searches for CVEs in the NVD using ctx for cancellation.
+func (c *NVDClient) SearchWithContext(ctx context.Context, opts SearchOptions) (*NVDResponse, error) {
 	c.mu.RLock()
 	baseURL := c.baseURL
 	apiKey := c.apiKey
@@ -324,7 +340,7 @@ func (c *NVDClient) Search(opts SearchOptions) (*NVDResponse, error) {
 
 	u.RawQuery = q.Encode()
 
-	req, err := http.NewRequest("GET", u.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", u.String(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
@@ -345,7 +361,7 @@ func (c *NVDClient) Search(opts SearchOptions) (*NVDResponse, error) {
 	}
 
 	var result NVDResponse
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 50<<20)).Decode(&result); err != nil {
+	if err := decodeNVDResponse(resp.Body, &result); err != nil {
 		return nil, fmt.Errorf("decoding response: %w", err)
 	}
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20)) // nolint:errcheck // response body drain; error ignored
@@ -391,7 +407,7 @@ func (c *NVDClient) GetCVE(cveID string) (*CVEEntry, error) {
 	}
 
 	var result NVDResponse
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 50<<20)).Decode(&result); err != nil {
+	if err := decodeNVDResponse(resp.Body, &result); err != nil {
 		return nil, fmt.Errorf("decoding response: %w", err)
 	}
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20)) // nolint:errcheck // response body drain; error ignored
@@ -401,6 +417,17 @@ func (c *NVDClient) GetCVE(cveID string) (*CVEEntry, error) {
 	}
 
 	return convertToCVEEntry(result.Vulnerabilities[0].CVE), nil
+}
+
+func decodeNVDResponse(r io.Reader, out any) error {
+	body, err := io.ReadAll(io.LimitReader(r, maxNVDResponseBytes+1))
+	if err != nil {
+		return err
+	}
+	if len(body) > maxNVDResponseBytes {
+		return fmt.Errorf("NVD response exceeds %d bytes", maxNVDResponseBytes)
+	}
+	return json.Unmarshal(body, out)
 }
 
 // convertToCVEEntry converts NVD CVE to our CVEEntry format.
