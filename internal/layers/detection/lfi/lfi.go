@@ -251,11 +251,16 @@ func checkSensitivePaths(lower, location string) []engine.Finding {
 func checkWindowsPaths(lower, location string) []engine.Finding {
 	var findings []engine.Finding
 
-	// C:\ or C:/ drive letter — only at start of string or after a boundary character
+	// C:\ or C:/ drive letter — only at start of string or after a non-letter
+	// boundary character (avoids false positives like "abc:C:\foo").
 	for i := 0; i < len(lower)-2; i++ {
-		if lower[i] >= 'a' && lower[i] <= 'z' && lower[i+1] == ':' && (lower[i+2] == '\\' || lower[i+2] == '/') {
-			// Must be at start or preceded by a non-letter (boundary)
-			if i == 0 || !isLetter(lower[i-1]) {
+		if lower[i] >= 'a' && lower[i] <= 'z' && lower[i+1] == ':' &&
+			(lower[i+2] == '\\' || lower[i+2] == '/') {
+			atStart := i == 0
+			atBoundary := !atStart &&
+				((lower[i-1] < 'a' || lower[i-1] > 'z') &&
+					(lower[i-1] < 'A' || lower[i-1] > 'Z'))
+			if atStart || atBoundary {
 				findings = append(findings, makeFinding(55, engine.SeverityHigh,
 					"Windows drive letter path detected",
 					extractContext(lower, lower[i:i+3]), location, 0.75))
@@ -347,11 +352,6 @@ func checkBypassPatterns(lower, location string) []engine.Finding {
 	}
 
 	return findings
-}
-
-// isLetter returns true if the byte is an ASCII letter.
-func isLetter(b byte) bool {
-	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
 }
 
 // extractContext extracts a context window around the matched pattern.
