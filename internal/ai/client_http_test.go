@@ -2,6 +2,7 @@ package ai
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -49,5 +50,46 @@ func TestClientHTTPClientRejectsPrivateRedirect(t *testing.T) {
 	}
 	if err := client.httpClient.CheckRedirect(req, nil); err == nil {
 		t.Fatal("expected private redirect rejection")
+	}
+}
+
+func TestNewClientValidatedRejectsPrivateEndpoint(t *testing.T) {
+	origAllow := testAllowPrivate
+	testAllowPrivate = false
+	defer func() { testAllowPrivate = origAllow }()
+
+	_, err := NewClientValidated(ClientConfig{BaseURL: "http://127.0.0.1:8080/v1"})
+	if err == nil {
+		t.Fatal("expected private endpoint rejection")
+	}
+	if !strings.Contains(err.Error(), "private/loopback") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestNewClientValidatedRejectsCredentialEndpoint(t *testing.T) {
+	origAllow := testAllowPrivate
+	testAllowPrivate = false
+	defer func() { testAllowPrivate = origAllow }()
+
+	_, err := NewClientValidated(ClientConfig{BaseURL: "https://token@example.com/v1"})
+	if err == nil {
+		t.Fatal("expected credential-bearing endpoint rejection")
+	}
+	if !strings.Contains(err.Error(), "userinfo") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestNewClientValidatedAllowsPrivateEndpointWithExplicitOptIn(t *testing.T) {
+	client, err := NewClientValidated(ClientConfig{
+		BaseURL:              "http://127.0.0.1:8080/v1",
+		AllowPrivateEndpoint: true,
+	})
+	if err != nil {
+		t.Fatalf("NewClientValidated: %v", err)
+	}
+	if client == nil {
+		t.Fatal("expected client")
 	}
 }

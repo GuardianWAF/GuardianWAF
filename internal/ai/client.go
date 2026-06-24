@@ -17,6 +17,8 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/logging"
 )
 
+const maxAIProviderResponseBytes = 1 * 1024 * 1024
+
 // Client is an OpenAI-compatible chat completions HTTP client.
 // Most AI providers (OpenAI, Anthropic via proxy, Google, Groq, Together, etc.)
 // support the OpenAI chat completions API format.
@@ -121,6 +123,17 @@ func NewClient(cfg ClientConfig) *Client {
 	}
 }
 
+// NewClientValidated creates a client only after enforcing the outbound
+// endpoint SSRF policy. Use this for operator-supplied provider configuration.
+func NewClientValidated(cfg ClientConfig) (*Client, error) {
+	if cfg.BaseURL != "" && !cfg.AllowPrivateEndpoint && !testAllowPrivate {
+		if err := validateURLNotPrivate(cfg.BaseURL); err != nil {
+			return nil, fmt.Errorf("invalid AI endpoint URL: %w", err)
+		}
+	}
+	return NewClient(cfg), nil
+}
+
 // TokenUsage tracks token consumption for cost accounting.
 type TokenUsage struct {
 	PromptTokens     int `json:"prompt_tokens"`
@@ -189,7 +202,7 @@ func (c *Client) Analyze(ctx context.Context, systemPrompt, userContent string) 
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1*1024*1024)) // 1MB max
+	respBody, err := readAIProviderResponse(resp.Body)
 	if err != nil {
 		return "", TokenUsage{}, fmt.Errorf("reading response: %w", err)
 	}
@@ -212,6 +225,17 @@ func (c *Client) Analyze(ctx context.Context, systemPrompt, userContent string) 
 	}
 
 	return chatResp.Choices[0].Message.Content, chatResp.Usage, nil
+}
+
+func readAIProviderResponse(r io.Reader) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(r, maxAIProviderResponseBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > maxAIProviderResponseBytes {
+		return nil, fmt.Errorf("AI provider response exceeds %d bytes", maxAIProviderResponseBytes)
+	}
+	return body, nil
 }
 
 // TestConnection tests the API key by sending a minimal request.

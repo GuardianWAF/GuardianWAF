@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -225,10 +226,14 @@ func TestValidateURLNotPrivate_Cov(t *testing.T) {
 		{"http://172.16.0.1:8080/api", true, "private IP 172.16"},
 		{"http://169.254.1.1:8080/api", true, "link-local"},
 		{"http://0.0.0.0:8080/api", true, "unspecified"},
+		{"http://224.0.0.1:8080/api", true, "multicast"},
+		{"https:///api", true, "hostless"},
+		{"file:///tmp/catalog.json", true, "non-HTTP scheme"},
 		{"http://host.internal:8080/api", true, ".internal suffix"},
 		{"http://host.local:8080/api", true, ".local suffix"},
 		{"http://example.com/api", false, "public domain"},
-		{"not-a-url", false, "no scheme (URL parses as path)"},
+		{"not-a-url", true, "no scheme"},
+		{"https://token@example.com/api", true, "userinfo credentials"},
 	}
 
 	for _, tt := range tests {
@@ -379,16 +384,16 @@ func TestAnalyzer_CollectEvent_WithTenantID_Cov(t *testing.T) {
 
 	// Manually collect an event with tenant ID
 	ev := engine.Event{
-		ClientIP:   "1.2.3.4",
-		Method:     "POST",
-		Path:       "/api/data",
-		Query:      "q=test",
-		UserAgent:  "Mozilla/5.0",
-		Score:      60,
-		Action:     engine.ActionBlock,
-		Timestamp:  time.Now(),
-		TenantID:   "tenant-abc",
-		Findings:   []engine.Finding{{DetectorName: "xss", Description: "XSS attempt", Score: 60}},
+		ClientIP:  "1.2.3.4",
+		Method:    "POST",
+		Path:      "/api/data",
+		Query:     "q=test",
+		UserAgent: "Mozilla/5.0",
+		Score:     60,
+		Action:    engine.ActionBlock,
+		Timestamp: time.Now(),
+		TenantID:  "tenant-abc",
+		Findings:  []engine.Finding{{DetectorName: "xss", Description: "XSS attempt", Score: 60}},
 	}
 	a.collectEvent(ev)
 
@@ -736,6 +741,23 @@ func TestFetchCatalog_LargeResponse_Cov(t *testing.T) {
 	}
 }
 
+func TestFetchCatalogRejectsOversizedValidPrefix(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"test-provider":{"id":"test-provider","name":"Test Provider","models":{}}}`))
+		_, _ = w.Write([]byte(strings.Repeat(" ", maxCatalogBytes)))
+	}))
+	defer srv.Close()
+
+	_, err := FetchCatalog(srv.URL)
+	if err == nil {
+		t.Fatal("expected oversized catalog response to be rejected")
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("oversized catalog rejected with unexpected error: %v", err)
+	}
+}
+
 // --- Analyzer with initial provider from store ---
 
 func TestNewAnalyzer_WithInitialProvider_Cov(t *testing.T) {
@@ -781,5 +803,18 @@ func TestNewAnalyzer_Defaults_Cov(t *testing.T) {
 	}
 	if a.config.MaxRequestsHour != 30 {
 		t.Errorf("default MaxRequestsHour = %d, want 30", a.config.MaxRequestsHour)
+	}
+}
+
+func TestNewAnalyzer_ClampsOversizedBatchSize_Cov(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(dir)
+	a := NewAnalyzer(AnalyzerConfig{Enabled: true, BatchSize: maxAnalyzerBatchSize + 1}, store, "")
+
+	if a.config.BatchSize != maxAnalyzerBatchSize {
+		t.Fatalf("BatchSize = %d, want %d", a.config.BatchSize, maxAnalyzerBatchSize)
+	}
+	if cap(a.pending) != maxAnalyzerBatchSize {
+		t.Fatalf("pending capacity = %d, want %d", cap(a.pending), maxAnalyzerBatchSize)
 	}
 }

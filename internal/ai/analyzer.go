@@ -31,6 +31,8 @@ IMPORTANT: Respond ONLY with valid JSON in this exact format:
   "threats_detected": ["sql_injection_campaign", "credential_stuffing"]
 }`
 
+const maxAnalyzerBatchSize = 1000
+
 // IPBlocker is the interface for auto-banning IPs.
 // Implemented by ipacl.Layer to avoid circular imports.
 type IPBlocker interface {
@@ -93,6 +95,8 @@ type aiResponse struct {
 func NewAnalyzer(cfg AnalyzerConfig, store *Store, catalogURL string) *Analyzer {
 	if cfg.BatchSize <= 0 {
 		cfg.BatchSize = 20
+	} else if cfg.BatchSize > maxAnalyzerBatchSize {
+		cfg.BatchSize = maxAnalyzerBatchSize
 	}
 	if cfg.BatchInterval <= 0 {
 		cfg.BatchInterval = 60 * time.Second
@@ -114,22 +118,24 @@ func NewAnalyzer(cfg AnalyzerConfig, store *Store, catalogURL string) *Analyzer 
 	}
 
 	a := &Analyzer{
-		store:    store,
-		config:   cfg,
-		catalog:  NewCatalogCache(catalogURL),
-		stopCh:   make(chan struct{}),
-		logs:     func(_, _ string) {}, // noop default
-		pending:  make([]eventSummary, 0, cfg.BatchSize), // pre-allocated to avoid slice reallocation
+		store:   store,
+		config:  cfg,
+		catalog: NewCatalogCache(catalogURL),
+		stopCh:  make(chan struct{}),
+		logs:    func(_, _ string) {},                   // noop default
+		pending: make([]eventSummary, 0, cfg.BatchSize), // pre-allocated to avoid slice reallocation
 	}
 
 	// Initialize client from stored config if available
 	if store.HasConfig() {
 		provCfg := store.GetConfig()
-		a.client = NewClient(ClientConfig{
+		if client, err := NewClientValidated(ClientConfig{
 			BaseURL: provCfg.BaseURL,
 			APIKey:  provCfg.APIKey,
 			Model:   provCfg.ModelID,
-		})
+		}); err == nil {
+			a.client = client
+		}
 	}
 
 	return a
@@ -157,13 +163,27 @@ func (a *Analyzer) Start(eventCh <-chan engine.Event) {
 
 // Stop gracefully stops the analyzer.
 func (a *Analyzer) Stop() {
+	_ = a.StopWithContext(context.Background())
+}
+
+// StopWithContext gracefully stops the analyzer without waiting past ctx.
+func (a *Analyzer) StopWithContext(ctx context.Context) error {
 	select {
 	case <-a.stopCh:
-		return
 	default:
 		close(a.stopCh)
 	}
-	a.wg.Wait()
+	done := make(chan struct{})
+	go func() {
+		a.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // loop is the main background processing loop.
@@ -179,10 +199,10 @@ func (a *Analyzer) loop(eventCh <-chan engine.Event) {
 	}()
 
 	batchInterval := a.config.BatchInterval
-		if batchInterval <= 0 {
-			batchInterval = 30 * time.Second
-		}
-		ticker := time.NewTicker(batchInterval)
+	if batchInterval <= 0 {
+		batchInterval = 30 * time.Second
+	}
+	ticker := time.NewTicker(batchInterval)
 	defer ticker.Stop()
 
 	for {
@@ -434,16 +454,21 @@ func (a *Analyzer) ManualAnalyze(events []engine.Event) (*AnalysisResult, error)
 
 // UpdateProvider updates the AI provider configuration and recreates the client.
 func (a *Analyzer) UpdateProvider(cfg ProviderConfig) error {
+	client, err := NewClientValidated(ClientConfig{
+		BaseURL: cfg.BaseURL,
+		APIKey:  cfg.APIKey,
+		Model:   cfg.ModelID,
+	})
+	if err != nil {
+		return err
+	}
+
 	if err := a.store.SetConfig(cfg); err != nil {
 		return err
 	}
 
 	a.mu.Lock()
-	a.client = NewClient(ClientConfig{
-		BaseURL: cfg.BaseURL,
-		APIKey:  cfg.APIKey,
-		Model:   cfg.ModelID,
-	})
+	a.client = client
 	a.mu.Unlock()
 	return nil
 }
@@ -456,6 +481,13 @@ func (a *Analyzer) GetCatalog() ([]ProviderSummary, error) {
 // GetStore returns the underlying store for dashboard access.
 func (a *Analyzer) GetStore() *Store {
 	return a.store
+}
+
+// PendingEvents returns the number of events currently waiting for the next AI batch.
+func (a *Analyzer) PendingEvents() int {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return len(a.pending)
 }
 
 // TestConnection tests the current provider configuration.

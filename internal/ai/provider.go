@@ -30,6 +30,7 @@ var aiLogger = logging.NewLogger("ai")
 const (
 	defaultCatalogURL = "https://models.dev/api.json"
 	catalogCacheTTL   = 24 * time.Hour
+	maxCatalogBytes   = 5 * 1024 * 1024
 )
 
 // ProviderInfo describes an AI provider from the models.dev catalog.
@@ -291,7 +292,7 @@ func FetchCatalog(catalogURL string) (*Catalog, error) {
 		return nil, fmt.Errorf("catalog HTTP %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 5*1024*1024)) // 5MB max
+	body, err := readCatalogResponse(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("reading catalog: %w", err)
 	}
@@ -323,6 +324,17 @@ func FetchCatalog(catalogURL string) (*Catalog, error) {
 	}, nil
 }
 
+func readCatalogResponse(r io.Reader) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(r, maxCatalogBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > maxCatalogBytes {
+		return nil, fmt.Errorf("catalog response exceeds %d bytes", maxCatalogBytes)
+	}
+	return body, nil
+}
+
 func hasText(modalities []string) bool {
 	if len(modalities) == 0 {
 		return true // empty = assume text
@@ -337,14 +349,37 @@ func validateURLNotPrivate(rawURL string) error {
 	if err != nil {
 		return fmt.Errorf("invalid URL: %w", err)
 	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("URL scheme must be http or https")
+	}
+	if u.User != nil {
+		return fmt.Errorf("URL must not include userinfo or credentials")
+	}
 	host := u.Hostname()
+	if host == "" {
+		return fmt.Errorf("URL must include a host")
+	}
 	if host == "localhost" || strings.HasSuffix(host, ".internal") || strings.HasSuffix(host, ".local") {
 		return fmt.Errorf("must not target localhost or internal hosts")
 	}
 	ip := net.ParseIP(host)
 	if ip != nil {
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() || ip.IsMulticast() {
 			return fmt.Errorf("must not target private/loopback/link-local addresses")
+		}
+		return nil
+	}
+	addrs, err := net.LookupHost(host) // #nosec G704 -- preflight DNS check is paired with catalog/provider clients' SSRF-safe DialContext and redirect validation.
+	if err != nil {
+		return nil
+	}
+	for _, addr := range addrs {
+		ip := net.ParseIP(addr)
+		if ip == nil {
+			continue
+		}
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() || ip.IsMulticast() {
+			return fmt.Errorf("hostname resolves to private/loopback address %s", ip)
 		}
 	}
 	return nil

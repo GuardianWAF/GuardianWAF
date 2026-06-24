@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -351,6 +352,40 @@ func TestNewStore_EmptyPath(t *testing.T) {
 	store := NewStore("")
 	if store == nil {
 		t.Fatal("expected non-nil store with empty path")
+	}
+}
+
+func TestCleanAIStoreDirPath(t *testing.T) {
+	t.Parallel()
+
+	got, err := cleanAIStoreDirPath(filepath.Join("data", "..", "ai"))
+	if err != nil {
+		t.Fatalf("cleanAIStoreDirPath: %v", err)
+	}
+	if !filepath.IsAbs(got) {
+		t.Fatalf("cleanAIStoreDirPath returned non-absolute path %q", got)
+	}
+	if strings.Contains(got, "..") {
+		t.Fatalf("cleanAIStoreDirPath returned unclean path %q", got)
+	}
+
+	for _, path := range []string{"", "ai\x00store"} {
+		if _, err := cleanAIStoreDirPath(path); err == nil {
+			t.Fatalf("expected error for %q", path)
+		}
+	}
+}
+
+func TestNewStore_InvalidPathFallsBack(t *testing.T) {
+	store := NewStore("ai\x00store")
+	if store == nil {
+		t.Fatal("expected non-nil store")
+	}
+	if strings.ContainsRune(store.Path(), 0) {
+		t.Fatalf("store retained invalid path %q", store.Path())
+	}
+	if !strings.Contains(store.Path(), filepath.Join("guardianwaf", "ai")) {
+		t.Fatalf("expected fallback temp AI path, got %q", store.Path())
 	}
 }
 
@@ -710,6 +745,17 @@ func TestStore_Save_MkdirAllError(t *testing.T) {
 	}
 }
 
+func TestStore_SaveRejectsInvalidPath(t *testing.T) {
+	t.Parallel()
+
+	store := NewStore(t.TempDir())
+	store.path = "ai\x00store"
+
+	if err := store.save(); err == nil {
+		t.Fatal("expected invalid path error")
+	}
+}
+
 // --- Client.Analyze: bad URL (NewRequestWithContext error) ---
 
 func TestClient_Analyze_BadURL(t *testing.T) {
@@ -735,10 +781,10 @@ func TestClient_Analyze_Non200(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient(ClientConfig{
-		BaseURL: srv.URL,
+		BaseURL:              srv.URL,
 		AllowPrivateEndpoint: true,
-		APIKey:  "test",
-		Model:   "test",
+		APIKey:               "test",
+		Model:                "test",
 	})
 
 	_, _, err := client.Analyze(context.Background(), "sys", "user")
@@ -760,11 +806,11 @@ func TestClient_Analyze_EmptyChoices(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient(ClientConfig{
-		BaseURL:   srv.URL,
+		BaseURL:              srv.URL,
 		AllowPrivateEndpoint: true,
-		APIKey:    "test",
-		Model:     "test",
-		MaxTokens: 1024,
+		APIKey:               "test",
+		Model:                "test",
+		MaxTokens:            1024,
 	})
 
 	_, _, err := client.Analyze(context.Background(), "sys", "user")
@@ -787,10 +833,10 @@ func TestClient_Analyze_ResponseError(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient(ClientConfig{
-		BaseURL: srv.URL,
+		BaseURL:              srv.URL,
 		AllowPrivateEndpoint: true,
-		APIKey:  "test",
-		Model:   "test",
+		APIKey:               "test",
+		Model:                "test",
 	})
 
 	_, _, err := client.Analyze(context.Background(), "sys", "user")
@@ -808,15 +854,39 @@ func TestClient_Analyze_InvalidJSON(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient(ClientConfig{
-		BaseURL: srv.URL,
+		BaseURL:              srv.URL,
 		AllowPrivateEndpoint: true,
-		APIKey:  "test",
-		Model:   "test",
+		APIKey:               "test",
+		Model:                "test",
 	})
 
 	_, _, err := client.Analyze(context.Background(), "sys", "user")
 	if err == nil {
 		t.Error("expected error for invalid JSON response")
+	}
+}
+
+func TestClientAnalyzeRejectsOversizedValidPrefix(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`))
+		_, _ = w.Write([]byte(strings.Repeat(" ", maxAIProviderResponseBytes)))
+	}))
+	defer srv.Close()
+
+	client := NewClient(ClientConfig{
+		BaseURL:              srv.URL,
+		AllowPrivateEndpoint: true,
+		APIKey:               "test",
+		Model:                "test",
+	})
+
+	_, _, err := client.Analyze(context.Background(), "sys", "user")
+	if err == nil {
+		t.Fatal("expected oversized AI provider response to be rejected")
+	}
+	if !strings.Contains(err.Error(), "AI provider response exceeds") {
+		t.Fatalf("oversized AI provider response rejected with unexpected error: %v", err)
 	}
 }
 
@@ -845,10 +915,10 @@ func TestClient_Analyze_ContextCancelled(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient(ClientConfig{
-		BaseURL: srv.URL,
+		BaseURL:              srv.URL,
 		AllowPrivateEndpoint: true,
-		APIKey:  "test",
-		Model:   "test",
+		APIKey:               "test",
+		Model:                "test",
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -897,7 +967,7 @@ func TestAnalyzer_Loop_ChannelClosed(t *testing.T) {
 		ModelID:    "test-model",
 		APIKey:     "test-key",
 		BaseURL:    srv.URL,
-})
+	})
 
 	a := NewAnalyzer(AnalyzerConfig{
 		Enabled:       true,
@@ -988,7 +1058,7 @@ func TestAnalyzer_FlushBatch_AnalysisError(t *testing.T) {
 		ModelID:    "test-model",
 		APIKey:     "test-key",
 		BaseURL:    srv.URL,
-})
+	})
 
 	a := NewAnalyzer(AnalyzerConfig{
 		Enabled:       true,
@@ -1044,7 +1114,7 @@ func TestAnalyzer_FlushBatch_ParseError(t *testing.T) {
 		ModelID:    "test-model",
 		APIKey:     "test-key",
 		BaseURL:    srv.URL,
-})
+	})
 
 	a := NewAnalyzer(AnalyzerConfig{
 		Enabled:       true,
@@ -1097,7 +1167,7 @@ func TestAnalyzer_BatchUsageLimitExceeded(t *testing.T) {
 		ModelID:    "test-model",
 		APIKey:     "test-key",
 		BaseURL:    srv.URL,
-})
+	})
 
 	store.TrackUsage(100000)
 
@@ -1185,6 +1255,54 @@ func TestAnalyzer_UpdateProvider_SaveError(t *testing.T) {
 	os.Remove(configFile)
 }
 
+func TestAnalyzer_UpdateProviderRejectsPrivateEndpointBeforeSaving(t *testing.T) {
+	origAllow := testAllowPrivate
+	testAllowPrivate = false
+	defer func() { testAllowPrivate = origAllow }()
+
+	dir := t.TempDir()
+	store := NewStore(dir)
+	a := NewAnalyzer(AnalyzerConfig{Enabled: true}, store, "")
+
+	err := a.UpdateProvider(ProviderConfig{
+		ProviderID: "local",
+		ModelID:    "test",
+		APIKey:     "key",
+		BaseURL:    "http://127.0.0.1:8080/v1",
+	})
+	if err == nil {
+		t.Fatal("expected private endpoint rejection")
+	}
+	if store.HasConfig() {
+		t.Fatal("invalid private endpoint was saved")
+	}
+	if a.client != nil {
+		t.Fatal("invalid private endpoint created an active client")
+	}
+}
+
+func TestNewAnalyzerDoesNotActivateStoredPrivateEndpoint(t *testing.T) {
+	origAllow := testAllowPrivate
+	testAllowPrivate = false
+	defer func() { testAllowPrivate = origAllow }()
+
+	dir := t.TempDir()
+	store := NewStore(dir)
+	if err := store.SetConfig(ProviderConfig{
+		ProviderID: "local",
+		ModelID:    "test",
+		APIKey:     "key",
+		BaseURL:    "http://127.0.0.1:8080/v1",
+	}); err != nil {
+		t.Fatalf("SetConfig: %v", err)
+	}
+
+	a := NewAnalyzer(AnalyzerConfig{Enabled: true}, store, "")
+	if a.client != nil {
+		t.Fatal("stored private endpoint should not become an active client")
+	}
+}
+
 // --- Analyzer: collectEvent and flush via channel ---
 
 func TestAnalyzer_CollectAndFlush_SmallBatch(t *testing.T) {
@@ -1206,7 +1324,7 @@ func TestAnalyzer_CollectAndFlush_SmallBatch(t *testing.T) {
 		ModelID:    "test-model",
 		APIKey:     "test-key",
 		BaseURL:    srv.URL,
-})
+	})
 
 	a := NewAnalyzer(AnalyzerConfig{
 		Enabled:       true,
@@ -1323,7 +1441,7 @@ func TestAnalyzer_FlushViaTicker(t *testing.T) {
 		ModelID:    "test-model",
 		APIKey:     "test-key",
 		BaseURL:    srv.URL,
-})
+	})
 
 	a := NewAnalyzer(AnalyzerConfig{
 		Enabled:       true,
