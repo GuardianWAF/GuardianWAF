@@ -95,6 +95,8 @@ export default function ClustersPage() {
     return { healthy, total: nodeIds.length }
   }
 
+  const clusterSyncAvailable = clusters.length > 0 || (syncStatus?.nodes.length ?? 0) > 0
+
   const formatNumber = (num: number) => {
     if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M'
     if (num >= 1000) return (num / 1000).toFixed(1) + 'K'
@@ -110,7 +112,11 @@ export default function ClustersPage() {
             <RefreshCw className="w-4 h-4 mr-2" />
             Refresh
           </Button>
-          <Button onClick={() => navigate('/clusters/new')}>
+          <Button
+            onClick={() => navigate('/clusters/new')}
+            disabled={!clusterSyncAvailable}
+            title={clusterSyncAvailable ? 'New cluster' : 'Cluster sync is not enabled'}
+          >
             <Plus className="w-4 h-4 mr-2" />
             New Cluster
           </Button>

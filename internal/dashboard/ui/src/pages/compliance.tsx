@@ -316,23 +316,31 @@ export default function CompliancePage() {
         </CardHeader>
         <CardContent>
           {auditChain ? (
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <div className="text-2xl font-bold">{auditChain.length}</div>
-                <p className="text-xs text-muted-foreground">Chain entries</p>
-              </div>
-              <div>
-                <div className={cn('text-2xl font-bold', auditChain.integrity ? 'text-green-500' : 'text-red-500')}>
-                  {auditChain.valid}/{auditChain.length}
+            <div className="space-y-4">
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <div className="text-2xl font-bold">{auditChain.length}</div>
+                  <p className="text-xs text-muted-foreground">Chain entries</p>
                 </div>
-                <p className="text-xs text-muted-foreground">Valid entries</p>
-              </div>
-              <div>
-                <div className={cn('text-2xl font-bold', auditChain.integrity ? 'text-green-500' : 'text-red-500')}>
-                  {auditChain.integrity ? 'Intact' : `${auditChain.errors?.length ?? 0} errors`}
+                <div>
+                  <div className={cn('text-2xl font-bold', auditChain.integrity ? 'text-green-500' : 'text-red-500')}>
+                    {auditChain.valid}/{auditChain.length}
+                  </div>
+                  <p className="text-xs text-muted-foreground">Valid entries</p>
                 </div>
-                <p className="text-xs text-muted-foreground">Integrity</p>
+                <div>
+                  <div className={cn('text-2xl font-bold', auditChain.integrity ? 'text-green-500' : 'text-red-500')}>
+                    {auditChain.integrity ? 'Intact' : `${auditChain.errors?.length ?? 0} errors`}
+                  </div>
+                  <p className="text-xs text-muted-foreground">Integrity</p>
+                </div>
               </div>
+              {auditChain.head_hash && (
+                <div className="rounded-md bg-muted/50 p-3">
+                  <p className="text-xs text-muted-foreground">Current chain head hash</p>
+                  <p className="font-mono text-xs break-all">{auditChain.head_hash}</p>
+                </div>
+              )}
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">Audit trail not available or not configured.</p>

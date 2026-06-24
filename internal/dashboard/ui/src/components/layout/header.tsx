@@ -51,13 +51,15 @@ export function Header({ connected }: HeaderProps) {
         </button>
 
         {/* Logout */}
-        <a
-          href="/logout"
-          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <LogOut className="h-3.5 w-3.5" />
-          <span>Logout</span>
-        </a>
+        <form method="POST" action="/logout">
+          <button
+            type="submit"
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <LogOut className="h-3.5 w-3.5" />
+            <span>Logout</span>
+          </button>
+        </form>
       </div>
     </header>
   )

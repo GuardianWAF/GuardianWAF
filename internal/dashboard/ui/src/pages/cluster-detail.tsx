@@ -23,13 +23,18 @@ export default function ClusterDetailPage() {
   const loadData = useCallback(async () => {
     if (!id) return
     try {
-      const [clusterData, nodesData, allNodesData] = await Promise.all([
-        api.getCluster(id),
+      const [clustersData, nodesData, allNodesData] = await Promise.all([
+        api.getClusters(),
         api.getNodes(),
         api.getNodes()
       ])
+      const clusterData = clustersData.find((candidate) => candidate.id === id) ?? null
       setCluster(clusterData)
       setAllNodes(allNodesData)
+      if (!clusterData) {
+        setNodes([])
+        return
+      }
 
       // Filter nodes that belong to this cluster
       const clusterNodeIds = new Set(clusterData.nodes)
@@ -124,8 +129,12 @@ export default function ClusterDetailPage() {
 
   if (!cluster) {
     return (
-      <div className="flex items-center justify-center h-64">
+      <div className="flex flex-col items-center justify-center gap-4 h-64">
         <div className="text-lg text-red-500">Cluster not found</div>
+        <Button variant="outline" onClick={() => navigate('/clusters')}>
+          <ArrowLeft className="w-4 h-4 mr-2" />
+          Back
+        </Button>
       </div>
     )
   }

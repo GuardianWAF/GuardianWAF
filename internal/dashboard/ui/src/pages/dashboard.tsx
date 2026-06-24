@@ -36,7 +36,7 @@ interface SystemHealth {
 export default function DashboardPage() {
   const [stats, setStats] = useState<Stats>({
     total_requests: 0, blocked_requests: 0, challenged_requests: 0,
-    logged_requests: 0, passed_requests: 0, avg_latency_us: 0,
+    logged_requests: 0, passed_requests: 0, event_store_errors: 0, avg_latency_us: 0,
   })
   const [upstreams, setUpstreams] = useState<UpstreamStatus[]>([])
   const [sseConnected, setSseConnected] = useState(false)

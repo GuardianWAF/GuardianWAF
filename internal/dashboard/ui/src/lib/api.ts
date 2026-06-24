@@ -1,18 +1,68 @@
 const BASE = ''
+let adminKeyInMemory = ''
+
+function getStoredAdminKey() {
+  return adminKeyInMemory
+}
+
+function setStoredAdminKey(key: string) {
+  adminKeyInMemory = key.trim()
+}
+
+function mergeHeaders(input?: HeadersInit): Record<string, string> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (!input) return headers
+  if (input instanceof Headers) {
+    input.forEach((value, key) => {
+      headers[key] = value
+    })
+    return headers
+  }
+  if (Array.isArray(input)) {
+    for (const [key, value] of input) {
+      headers[key] = value
+    }
+    return headers
+  }
+  return { ...headers, ...input }
+}
+
+function parseJSON(text: string) {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return undefined
+  }
+}
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(BASE + path, {
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    ...options,
-  })
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ error: res.statusText }))
-    throw new Error(body.error || `HTTP ${res.status}`)
+  const headers = mergeHeaders(options?.headers)
+  if (path.startsWith('/api/admin/') && !headers['X-API-Key']) {
+    const adminKey = getStoredAdminKey()
+    if (adminKey) headers['X-API-Key'] = adminKey
   }
-  return res.json()
+  const rest: RequestInit = { ...options }
+  delete rest.headers
+  const res = await fetch(BASE + path, {
+    ...rest,
+    headers,
+  })
+  const text = await res.text()
+  if (!res.ok) {
+    const body = text ? parseJSON(text) : undefined
+    const message = body && typeof body === 'object' && 'error' in body
+      ? String(body.error)
+      : res.statusText || `HTTP ${res.status}`
+    throw new Error(message)
+  }
+  return (text ? parseJSON(text) : undefined) as T
 }
 
 export const api = {
+  setAdminKey: setStoredAdminKey,
+  clearAdminKey: () => setStoredAdminKey(''),
+  hasAdminKey: () => getStoredAdminKey() !== '',
+
   // Generic request methods
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body?: unknown) =>
@@ -112,22 +162,23 @@ export const api = {
     request<{ api_key: string }>('/api/v1/tenants/' + id + '/apikey', { method: 'POST' }),
 
   // Admin tenant management (backend at /api/admin/tenants)
-  adminGetTenants: () => request<{tenants: AdminTenant[]}>('/api/admin/tenants'),
+  adminGetTenants: () => request<{tenants: AdminTenant[], count?: number, enabled?: boolean}>('/api/admin/tenants'),
   adminGetTenant: (id: string) => request<AdminTenantDetail>('/api/admin/tenants/' + id),
   adminCreateTenant: (data: AdminCreateTenantRequest) => request<{tenant: AdminTenantDetail, api_key: string}>('/api/admin/tenants', { method: 'POST', body: JSON.stringify(data) }),
   adminUpdateTenant: (id: string, data: AdminUpdateTenantRequest) => request<AdminTenantDetail>('/api/admin/tenants/' + id, { method: 'PUT', body: JSON.stringify(data) }),
   adminDeleteTenant: (id: string) => request<void>('/api/admin/tenants/' + id, { method: 'DELETE' }),
   adminRegenerateKey: (id: string) => request<{api_key: string}>('/api/admin/tenants/' + id + '/regenerate-key', { method: 'POST', body: JSON.stringify({}) }),
+  adminGetUsage: (id: string) => request<TenantUsage>('/api/admin/usage/' + id),
 
   // Cluster Sync
   getClusters: () => request<Cluster[]>('/api/clusters'),
-  getCluster: (id: string) => request<Cluster>('/api/clusters/' + id),
+  getCluster: (id: string) => request<void>('/api/clusters/' + id),
   createCluster: (cluster: CreateClusterRequest) =>
-    request<Cluster>('/api/clusters', { method: 'POST', body: JSON.stringify(cluster) }),
+    request<void>('/api/clusters', { method: 'POST', body: JSON.stringify(cluster) }),
   deleteCluster: (id: string) =>
     request<void>('/api/clusters/' + id, { method: 'DELETE' }),
   joinCluster: (id: string, node: ClusterNode) =>
-    request<ClusterNode>('/api/clusters/' + id + '?action=join', { method: 'POST', body: JSON.stringify(node) }),
+    request<void>('/api/clusters/' + id + '?action=join', { method: 'POST', body: JSON.stringify(node) }),
   leaveCluster: (id: string, nodeId: string) =>
     request<void>('/api/clusters/' + id + '?action=leave&node_id=' + encodeURIComponent(nodeId), { method: 'POST' }),
   getNodes: () => request<ClusterNode[]>('/api/nodes'),
@@ -148,6 +199,9 @@ export const api = {
 
   // Docker Services
   getDockerServices: () => request<{ enabled: boolean; services: DockerService[] }>('/api/v1/docker/services'),
+  getDockerContainers: () => request<DockerContainersResponse>('/api/v1/docker/containers'),
+  getDockerEvents: (limit = 20) =>
+    request<DockerEventsResponse>('/api/v1/docker/events?limit=' + encodeURIComponent(String(limit))),
 
   // Compliance
   getComplianceControls: (framework?: string) => {
@@ -169,6 +223,7 @@ export interface Stats {
   challenged_requests: number
   logged_requests: number
   passed_requests: number
+  event_store_errors: number
   avg_latency_us: number
   alerting?: AlertingStats
 }
@@ -632,6 +687,35 @@ export interface DockerService {
   labels: Record<string, string>
 }
 
+export interface DockerContainersResponse {
+  enabled: boolean
+  count?: number
+  containers: DockerService[]
+}
+
+export interface DockerServicesResponse {
+  enabled: boolean
+  count?: number
+  services: DockerService[]
+}
+
+export interface DockerEvent {
+  id?: string
+  time?: string
+  timestamp?: string
+  action?: string
+  status?: string
+  container?: string
+  image?: string
+  message?: string
+  [key: string]: unknown
+}
+
+export interface DockerEventsResponse {
+  enabled: boolean
+  events: DockerEvent[]
+}
+
 // Compliance Types
 export interface ComplianceControl {
   id: string
@@ -676,4 +760,5 @@ export interface AuditChainResponse {
   length: number
   errors: string[]
   integrity: boolean
+  head_hash?: string
 }

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
 import { Button } from '@/components/ui/button'
+import { AdminKeyGate } from '@/components/admin-key-gate'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -102,6 +103,7 @@ export default function TenantNewPage() {
   const [step, setStep] = useState<Step>(1)
   const [loading, setLoading] = useState(false)
   const [, setCreated] = useState(false)
+  const [adminReady, setAdminReady] = useState(api.hasAdminKey())
   const [apiKey, setApiKey] = useState('')
   const [tenantId, setTenantId] = useState('')
   const { toast } = useToast()
@@ -218,6 +220,10 @@ export default function TenantNewPage() {
         description: 'Tenant created successfully'
       })
     } catch (error: unknown) {
+      if (error instanceof Error && error.message.toLowerCase().includes('unauthorized')) {
+        api.clearAdminKey()
+        setAdminReady(false)
+      }
       toast({
         title: 'Error',
         description: error instanceof Error ? error.message : 'Failed to create tenant',
@@ -644,6 +650,7 @@ export default function TenantNewPage() {
   }
 
   return (
+    <AdminKeyGate locked={!adminReady} onLocked={() => setAdminReady(false)} onUnlocked={() => setAdminReady(true)}>
     <div className="max-w-3xl mx-auto">
       {/* Header */}
       <div className="flex items-center gap-4 mb-6">
@@ -703,5 +710,6 @@ export default function TenantNewPage() {
         </div>
       )}
     </div>
+    </AdminKeyGate>
   )
 }

@@ -247,6 +247,27 @@ export default function RoutingPage() {
   }
 
   if (!routing) {
+    if (error) {
+      return (
+        <div className="flex min-h-[50vh] items-center justify-center">
+          <div className="max-w-md rounded-lg border border-border bg-card p-6 text-center shadow-sm">
+            <h1 className="text-lg font-semibold text-foreground">Routing Management</h1>
+            <p className="mt-2 text-sm text-destructive">{error}</p>
+            <Button
+              className="mt-4"
+              onClick={() => {
+                setError(null)
+                fetchData()
+              }}
+              variant="secondary"
+            >
+              <RefreshCw size={14} />
+              Retry
+            </Button>
+          </div>
+        </div>
+      )
+    }
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />

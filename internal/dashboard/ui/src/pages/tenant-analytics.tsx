@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { useToast } from '@/components/ui/toast'
-import { api, Tenant, TenantUsage as TenantUsageType } from '@/lib/api'
+import { api, AdminTenantDetail, TenantUsage as TenantUsageType } from '@/lib/api'
 import {
   ArrowLeft,
   RefreshCw,
@@ -22,7 +22,7 @@ import {
 } from 'lucide-react'
 
 // Helper to safely access tenant quota with defaults
-const getQuota = (tenant: Tenant) => ({
+const getQuota = (tenant: AdminTenantDetail) => ({
   max_requests_per_minute: tenant.quota?.max_requests_per_minute ?? 0,
   max_requests_per_hour: tenant.quota?.max_requests_per_hour ?? 0,
   max_bandwidth_mbps: tenant.quota?.max_bandwidth_mbps ?? 0,
@@ -62,13 +62,30 @@ const OVERAGE_RATES = {
   bandwidth_per_gb: 0.10   // $0.10 per GB over quota
 }
 
+function tenantUsageFromSummary(tenant: AdminTenantDetail): TenantUsageType {
+  const maxRPM = tenant.quota?.max_requests_per_minute ?? 0
+  const requestsPerMinute = 0
+  const quotaPercentage = maxRPM > 0 ? (requestsPerMinute / maxRPM) * 100 : 0
+  return {
+    tenant_id: tenant.id,
+    name: tenant.name,
+    active: tenant.status === 'active',
+    requests_per_minute: requestsPerMinute,
+    total_requests: tenant.usage?.requests_this_month ?? 0,
+    blocked_requests: tenant.usage?.blocked_requests ?? 0,
+    bytes_transferred: 0,
+    bandwidth_mbps: 0,
+    quota_percentage: quotaPercentage,
+    quota_status: maxRPM > 0 ? 'ok' : 'unlimited'
+  }
+}
+
 export default function TenantAnalyticsPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
-  const [tenant, setTenant] = useState<Tenant | null>(null)
+  const [tenant, setTenant] = useState<AdminTenantDetail | null>(null)
   const [usage, setUsage] = useState<TenantUsageType | null>(null)
-  const [history] = useState<UsageHistory[]>([])
   const [refreshing, setRefreshing] = useState(false)
   const [timeRange, setTimeRange] = useState<'24h' | '7d' | '30d'>('24h')
   const { toast } = useToast()
@@ -76,17 +93,21 @@ export default function TenantAnalyticsPage() {
   const loadData = useCallback(async () => {
     if (!id) return
     try {
-      const [tenantData, usageData] = await Promise.all([
-        api.getTenant(id),
-        api.getTenantUsage(id)
-      ])
+      const list = await api.adminGetTenants()
+      if (list.enabled === false || !list.tenants.some((tenant) => tenant.id === id)) {
+        setTenant(null)
+        setUsage(null)
+        return
+      }
+      const tenantData = await api.adminGetTenant(id)
+      let usageData: TenantUsageType
+      try {
+        usageData = await api.adminGetUsage(id)
+      } catch {
+        usageData = tenantUsageFromSummary(tenantData)
+      }
       setTenant(tenantData)
       setUsage(usageData)
-
-      // TODO: Replace with real history API when backend endpoint is available
-      // const historyData = await api.getTenantHistory(id!, timeRange)
-      // setHistory(historyData)
-      void timeRange // suppress unused warning until real API is connected
     } catch {
       toast({
         title: 'Error',
@@ -96,7 +117,7 @@ export default function TenantAnalyticsPage() {
     } finally {
       setLoading(false)
     }
-  }, [id, timeRange, toast])
+  }, [id, toast])
 
   const refreshData = async () => {
     setRefreshing(true)
@@ -114,7 +135,7 @@ export default function TenantAnalyticsPage() {
         name: tenant.name,
         description: tenant.description,
         domains: tenant.domains,
-        plan: tenant.plan || 'basic',
+        plan: tenant.plan,
         created_at: tenant.created_at
       },
       usage: {
@@ -146,7 +167,7 @@ export default function TenantAnalyticsPage() {
       return { plan_cost: 0, overage_cost: 0, total_cost: 0, currency: 'USD', breakdown: { requests_overages: 0, bandwidth_overages: 0 } }
     }
 
-    const planCost = PLAN_PRICES[tenant.plan || 'basic'] || 0
+    const planCost = PLAN_PRICES[tenant.plan] || 0
 
     // Calculate overages
     const monthlyRequests = usage.total_requests
@@ -215,9 +236,20 @@ export default function TenantAnalyticsPage() {
     }
   }
 
-  const totalRequestsInRange = history.reduce((sum, h) => sum + h.requests, 0)
-  const totalBlockedInRange = history.reduce((sum, h) => sum + h.blocked, 0)
-  const totalBandwidthInRange = history.reduce((sum, h) => sum + h.bandwidth_gb, 0)
+  const history: UsageHistory[] = []
+  const totalRequestsInRange = history.length > 0
+    ? history.reduce((sum, h) => sum + h.requests, 0)
+    : usage.total_requests
+  const totalBlockedInRange = history.length > 0
+    ? history.reduce((sum, h) => sum + h.blocked, 0)
+    : usage.blocked_requests
+  const totalBandwidthInRange = history.length > 0
+    ? history.reduce((sum, h) => sum + h.bandwidth_gb, 0)
+    : usage.bytes_transferred / (1024 * 1024 * 1024)
+  const quota = getQuota(tenant)
+  const bandwidthPercent = quota.max_bandwidth_mbps > 0
+    ? Math.min((usage.bandwidth_mbps / quota.max_bandwidth_mbps) * 100, 100)
+    : 0
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
@@ -232,10 +264,10 @@ export default function TenantAnalyticsPage() {
             <h1 className="text-3xl font-bold">{tenant.name}</h1>
             <div className="flex items-center gap-2 text-sm text-gray-500">
               <span>Usage Analytics & Billing</span>
-              <Badge variant={tenant.active ? 'default' : 'secondary'}>
-                {tenant.active ? 'Active' : 'Inactive'}
+              <Badge variant={tenant.status === 'active' ? 'default' : 'secondary'}>
+                {tenant.status}
               </Badge>
-              <Badge variant="outline">{tenant.plan || 'basic'}</Badge>
+              <Badge variant="outline">{tenant.plan}</Badge>
             </div>
           </div>
         </div>
@@ -315,7 +347,7 @@ export default function TenantAnalyticsPage() {
           <CardContent>
             <div className="text-3xl font-bold">{usage.requests_per_minute.toLocaleString()}</div>
             <div className="text-sm text-gray-500">
-              Limit: {getQuota(tenant).max_requests_per_minute > 0 ? getQuota(tenant).max_requests_per_minute.toLocaleString() : '∞'}
+              Limit: {quota.max_requests_per_minute > 0 ? quota.max_requests_per_minute.toLocaleString() : '∞'}
             </div>
             <div className="mt-2 h-1.5 bg-gray-200 rounded-full overflow-hidden">
               <div
@@ -375,7 +407,7 @@ export default function TenantAnalyticsPage() {
               Current: {usage.bandwidth_mbps.toFixed(2)} Mbps
             </div>
             <div className="mt-2 text-sm text-gray-500">
-              Limit: {getQuota(tenant).max_bandwidth_mbps > 0 ? `${getQuota(tenant).max_bandwidth_mbps} Mbps` : 'Unlimited'}
+              Limit: {quota.max_bandwidth_mbps > 0 ? `${quota.max_bandwidth_mbps} Mbps` : 'Unlimited'}
             </div>
           </CardContent>
         </Card>
@@ -393,7 +425,7 @@ export default function TenantAnalyticsPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="space-y-4">
               <div className="text-sm text-gray-500">Current Plan</div>
-              <div className="text-2xl font-bold capitalize">{tenant.plan || 'basic'}</div>
+              <div className="text-2xl font-bold capitalize">{tenant.plan}</div>
               <div className="text-3xl font-bold text-accent">
                 ${billing.plan_cost}
                 <span className="text-sm text-gray-500 font-normal">/month</span>
@@ -466,7 +498,7 @@ export default function TenantAnalyticsPage() {
                 />
               </div>
               <div className="text-xs text-gray-500 mt-1">
-                {usage.requests_per_minute.toLocaleString()} / {getQuota(tenant).max_requests_per_minute.toLocaleString()} requests
+                {usage.requests_per_minute.toLocaleString()} / {quota.max_requests_per_minute > 0 ? quota.max_requests_per_minute.toLocaleString() : '∞'} requests
               </div>
             </div>
 
@@ -480,11 +512,11 @@ export default function TenantAnalyticsPage() {
               <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
                 <div
                   className="h-full rounded-full bg-blue-500 transition-all duration-500"
-                  style={{ width: `${Math.min((usage.bandwidth_mbps / getQuota(tenant).max_bandwidth_mbps) * 100, 100)}%` }}
+                  style={{ width: `${bandwidthPercent}%` }}
                 />
               </div>
               <div className="text-xs text-gray-500 mt-1">
-                {usage.bandwidth_mbps.toFixed(2)} / {getQuota(tenant).max_bandwidth_mbps} Mbps
+                {usage.bandwidth_mbps.toFixed(2)} / {quota.max_bandwidth_mbps > 0 ? quota.max_bandwidth_mbps : '∞'} Mbps
               </div>
             </div>
 

@@ -7,6 +7,8 @@ const DashboardPage = lazy(() => import('@/pages/dashboard'))
 const ConfigPage = lazy(() => import('@/pages/config'))
 const RoutingPage = lazy(() => import('@/pages/routing'))
 const LogsPage = lazy(() => import('@/pages/logs'))
+const AnalyticsPage = lazy(() => import('@/pages/analytics'))
+const DockerPage = lazy(() => import('@/pages/docker'))
 const RulesPage = lazy(() => import('@/pages/rules'))
 const AIPage = lazy(() => import('@/pages/ai'))
 const AlertingPage = lazy(() => import('@/pages/alerting'))
@@ -42,6 +44,8 @@ export function App() {
             <Route path="/ai" element={<Suspense fallback={<PageLoader />}><AIPage /></Suspense>} />
             <Route path="/compliance" element={<Suspense fallback={<PageLoader />}><CompliancePage /></Suspense>} />
             <Route path="/logs" element={<Suspense fallback={<PageLoader />}><LogsPage /></Suspense>} />
+            <Route path="/analytics" element={<Suspense fallback={<PageLoader />}><AnalyticsPage /></Suspense>} />
+            <Route path="/docker" element={<Suspense fallback={<PageLoader />}><DockerPage /></Suspense>} />
             <Route path="/tenants" element={<Suspense fallback={<PageLoader />}><TenantsPage /></Suspense>} />
             <Route path="/tenants/new" element={<Suspense fallback={<PageLoader />}><TenantNewPage /></Suspense>} />
             <Route path="/tenants/:id" element={<Suspense fallback={<PageLoader />}><TenantDetailPage /></Suspense>} />

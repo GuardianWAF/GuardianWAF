@@ -4,6 +4,8 @@ import { useParams, useNavigate } from 'react-router'
 
 import { Button } from '@/components/ui/button'
 
+import { AdminKeyGate } from '@/components/admin-key-gate'
+
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
 import { Input } from '@/components/ui/input'
@@ -104,6 +106,8 @@ export default function TenantDetailPage() {
 
   const [saving, setSaving] = useState(false)
 
+  const [adminReady, setAdminReady] = useState(api.hasAdminKey())
+
   const [tenant, setTenant] = useState<Tenant | null>(null)
 
   const [showApiKey, setShowApiKey] = useState(false)
@@ -142,8 +146,17 @@ export default function TenantDetailPage() {
 
   const loadTenant = useCallback(async () => {
     if (!id) return
+    if (!adminReady) {
+      setLoading(false)
+      return
+    }
 
     try {
+      const list = await api.adminGetTenants()
+      if (list.enabled === false || !list.tenants.some((tenant) => tenant.id === id)) {
+        setTenant(null)
+        return
+      }
 
       const data = await api.adminGetTenant(id)
 
@@ -163,13 +176,17 @@ export default function TenantDetailPage() {
 
       })
 
-    } catch {
+    } catch (error: unknown) {
+      if (error instanceof Error && error.message.toLowerCase().includes('unauthorized')) {
+        api.clearAdminKey()
+        setAdminReady(false)
+      }
 
       toast({
 
         title: 'Error',
 
-        description: 'Failed to load tenant',
+        description: error instanceof Error ? error.message : 'Failed to load tenant',
 
         variant: 'destructive'
 
@@ -181,7 +198,7 @@ export default function TenantDetailPage() {
 
     }
 
-  }, [id, toast])
+  }, [adminReady, id, toast])
 
   useEffect(() => {
 
@@ -218,6 +235,10 @@ export default function TenantDetailPage() {
       loadTenant()
 
     } catch (error: unknown) {
+      if (error instanceof Error && error.message.toLowerCase().includes('unauthorized')) {
+        api.clearAdminKey()
+        setAdminReady(false)
+      }
 
       toast({
 
@@ -289,13 +310,17 @@ export default function TenantDetailPage() {
 
       })
 
-    } catch {
+    } catch (error: unknown) {
+      if (error instanceof Error && error.message.toLowerCase().includes('unauthorized')) {
+        api.clearAdminKey()
+        setAdminReady(false)
+      }
 
       toast({
 
         title: 'Error',
 
-        description: 'Failed to regenerate API key',
+        description: error instanceof Error ? error.message : 'Failed to regenerate API key',
 
         variant: 'destructive'
 
@@ -319,13 +344,17 @@ export default function TenantDetailPage() {
 
       navigate('/tenants')
 
-    } catch {
+    } catch (error: unknown) {
+      if (error instanceof Error && error.message.toLowerCase().includes('unauthorized')) {
+        api.clearAdminKey()
+        setAdminReady(false)
+      }
 
       toast({
 
         title: 'Error',
 
-        description: 'Failed to delete tenant',
+        description: error instanceof Error ? error.message : 'Failed to delete tenant',
 
         variant: 'destructive'
 
@@ -400,6 +429,17 @@ export default function TenantDetailPage() {
   }
 
 
+
+  if (!adminReady) {
+    return (
+      <AdminKeyGate locked={!adminReady} onLocked={() => setAdminReady(false)} onUnlocked={() => {
+        setAdminReady(true)
+        setLoading(true)
+      }}>
+        <></>
+      </AdminKeyGate>
+    )
+  }
 
   if (loading) {
 

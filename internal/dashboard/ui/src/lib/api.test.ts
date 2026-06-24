@@ -4,6 +4,7 @@ import { api } from './api'
 describe('api.request', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn())
+    api.clearAdminKey()
   })
 
   afterEach(() => {
@@ -14,7 +15,7 @@ describe('api.request', () => {
     const data = { total_requests: 100 }
     vi.mocked(fetch).mockResolvedValueOnce({
       ok: true,
-      json: () => Promise.resolve(data),
+      text: () => Promise.resolve(JSON.stringify(data)),
     } as Response)
 
     const result = await api.getStats()
@@ -29,7 +30,7 @@ describe('api.request', () => {
       ok: false,
       status: 500,
       statusText: 'Internal Server Error',
-      json: () => Promise.resolve({ error: 'something broke' }),
+      text: () => Promise.resolve(JSON.stringify({ error: 'something broke' })),
     } as Response)
 
     await expect(api.getStats()).rejects.toThrow('something broke')
@@ -40,7 +41,7 @@ describe('api.request', () => {
       ok: false,
       status: 502,
       statusText: 'Bad Gateway',
-      json: () => Promise.reject(new Error('not json')),
+      text: () => Promise.resolve(''),
     } as Response)
 
     await expect(api.getStats()).rejects.toThrow('Bad Gateway')
@@ -49,7 +50,7 @@ describe('api.request', () => {
   it('sends POST with JSON body', async () => {
     vi.mocked(fetch).mockResolvedValueOnce({
       ok: true,
-      json: () => Promise.resolve({ status: 'ok' }),
+      text: () => Promise.resolve(JSON.stringify({ status: 'ok' })),
     } as Response)
 
     await api.addIP('blacklist', '1.2.3.4')
@@ -62,7 +63,7 @@ describe('api.request', () => {
   it('sends PUT request', async () => {
     vi.mocked(fetch).mockResolvedValueOnce({
       ok: true,
-      json: () => Promise.resolve({ status: 'ok' }),
+      text: () => Promise.resolve(JSON.stringify({ status: 'ok' })),
     } as Response)
 
     await api.updateConfig({ mode: 'monitor' })
@@ -75,7 +76,7 @@ describe('api.request', () => {
   it('sends DELETE request', async () => {
     vi.mocked(fetch).mockResolvedValueOnce({
       ok: true,
-      json: () => Promise.resolve({ status: 'ok' }),
+      text: () => Promise.resolve(JSON.stringify({ status: 'ok' })),
     } as Response)
 
     await api.deleteRule('rule-123')
@@ -84,10 +85,20 @@ describe('api.request', () => {
     }))
   })
 
+  it('accepts empty successful responses', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      status: 204,
+      text: () => Promise.resolve(''),
+    } as Response)
+
+    await expect(api.deleteTenant('tenant-123')).resolves.toBeUndefined()
+  })
+
   it('appends query params for events', async () => {
     vi.mocked(fetch).mockResolvedValueOnce({
       ok: true,
-      json: () => Promise.resolve({ events: [], total: 0 }),
+      text: () => Promise.resolve(JSON.stringify({ events: [], total: 0 })),
     } as Response)
 
     await api.getEvents({ action: 'block' })
@@ -100,10 +111,50 @@ describe('api.request', () => {
   it('works without query params for events', async () => {
     vi.mocked(fetch).mockResolvedValueOnce({
       ok: true,
-      json: () => Promise.resolve({ events: [], total: 0 }),
+      text: () => Promise.resolve(JSON.stringify({ events: [], total: 0 })),
     } as Response)
 
     await api.getEvents()
     expect(fetch).toHaveBeenCalledWith('/api/v1/events', expect.any(Object))
+  })
+
+  it('adds stored admin key only to admin API requests', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      text: () => Promise.resolve(JSON.stringify({ tenants: [] })),
+    } as Response)
+
+    api.setAdminKey('admin-secret')
+    await api.adminGetTenants()
+
+    expect(fetch).toHaveBeenCalledWith('/api/admin/tenants', expect.objectContaining({
+      headers: expect.objectContaining({ 'X-API-Key': 'admin-secret' }),
+    }))
+
+    vi.mocked(fetch).mockClear()
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      text: () => Promise.resolve(JSON.stringify({ total_requests: 1 })),
+    } as Response)
+
+    await api.getStats()
+    expect(fetch).toHaveBeenCalledWith('/api/v1/stats', expect.objectContaining({
+      headers: expect.not.objectContaining({ 'X-API-Key': 'admin-secret' }),
+    }))
+  })
+
+  it('clears stored admin key for admin requests', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      text: () => Promise.resolve(JSON.stringify({ tenants: [] })),
+    } as Response)
+
+    api.setAdminKey('admin-secret')
+    api.clearAdminKey()
+    await api.adminGetTenants()
+
+    expect(fetch).toHaveBeenCalledWith('/api/admin/tenants', expect.objectContaining({
+      headers: expect.not.objectContaining({ 'X-API-Key': 'admin-secret' }),
+    }))
   })
 })

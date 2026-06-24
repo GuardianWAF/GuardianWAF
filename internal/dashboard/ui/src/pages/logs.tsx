@@ -3,7 +3,7 @@ import { api } from '@/lib/api'
 import type { LogEntry } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { useToast } from '@/components/ui/toast'
-import { RefreshCw } from 'lucide-react'
+import { RefreshCw, Search } from 'lucide-react'
 
 const levelStyles: Record<string, string> = {
   info: 'text-accent',
@@ -21,6 +21,7 @@ export default function LogsPage() {
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [total, setTotal] = useState(0)
   const [level, setLevel] = useState('')
+  const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(false)
   const [autoRefresh, setAutoRefresh] = useState(true)
   const { toast } = useToast()
@@ -54,11 +55,28 @@ export default function LogsPage() {
     return () => { clearInterval(interval); document.removeEventListener('visibilitychange', onVis) }
   }, [autoRefresh, fetchLogs])
 
+  const visibleLogs = logs.filter((entry) => {
+    const q = search.trim().toLowerCase()
+    if (!q) return true
+    return `${entry.level} ${entry.message}`.toLowerCase().includes(q)
+  })
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold">Application Logs</h1>
         <div className="flex items-center gap-3">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted" />
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search logs"
+              className="h-8 w-44 rounded-md border border-border bg-background pl-8 pr-2 text-xs text-foreground outline-none focus:ring-1 focus:ring-accent"
+            />
+          </div>
+
           {/* Level filter */}
           <div className="flex rounded-md border border-border overflow-hidden">
             {['', 'info', 'warn', 'error'].map(l => (
@@ -94,12 +112,12 @@ export default function LogsPage() {
       {/* Log entries */}
       <div className="rounded-lg border border-border bg-card overflow-hidden">
         <div className="max-h-[calc(100vh-200px)] overflow-y-auto font-mono text-xs">
-          {logs.length === 0 && (
+          {visibleLogs.length === 0 && (
             <div className="text-center py-12 text-muted">
               {loading ? 'Loading...' : 'No log entries'}
             </div>
           )}
-          {logs.map((entry, i) => (
+          {visibleLogs.map((entry, i) => (
             <div
               key={i}
               className={cn(

@@ -118,6 +118,7 @@ export default function RulesPage() {
   const [rules, setRules] = useState<CustomRule[]>([])
   const [editing, setEditing] = useState<CustomRule | null>(null)
   const [isNew, setIsNew] = useState(false)
+  const [search, setSearch] = useState('')
   const [localToast, setLocalToast] = useState<{msg: string; err: boolean} | null>(null)
   const [sortKey, setSortKey] = useState<'priority' | 'name' | 'action' | 'score'>('priority')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
@@ -192,7 +193,19 @@ export default function RulesPage() {
     else { setSortKey(key); setSortDir('asc') }
   }
 
-  const sorted = [...rules].sort((a, b) => {
+  const filtered = rules.filter((r) => {
+    const q = search.trim().toLowerCase()
+    if (!q) return true
+    const haystack = [
+      r.id,
+      r.name,
+      r.action,
+      ...(r.conditions || []).map((c) => `${c.field} ${c.op} ${typeof c.value === 'string' ? c.value : JSON.stringify(c.value)}`),
+    ].join(' ').toLowerCase()
+    return haystack.includes(q)
+  })
+
+  const sorted = [...filtered].sort((a, b) => {
     let cmp = 0
     switch (sortKey) {
       case 'priority': cmp = a.priority - b.priority; break
@@ -221,6 +234,16 @@ export default function RulesPage() {
           <span className="text-xs text-muted">({rules.length})</span>
         </div>
         <div className="flex items-center gap-2">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted" />
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Filter rules"
+              className="h-8 w-44 rounded-md border border-border bg-background pl-8 pr-2 text-xs text-foreground outline-none focus:ring-1 focus:ring-accent"
+            />
+          </div>
           <button onClick={() => setShowTemplates(v => !v)} className={cn('flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium transition-colors', showTemplates ? 'border-accent bg-accent/10 text-accent' : 'border-border text-muted hover:text-foreground')}>
             <BookTemplate className="h-4 w-4" /> Templates
           </button>

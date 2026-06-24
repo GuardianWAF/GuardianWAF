@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { useToast } from '@/components/ui/toast'
+import { AdminKeyGate } from '@/components/admin-key-gate'
 import { api } from '@/lib/api'
 import type { AdminTenant } from '@/lib/api'
 import { Plus, Search, Edit, Trash2, Copy, RefreshCw, BarChart3 } from 'lucide-react'
@@ -14,22 +15,31 @@ export default function TenantsPage() {
   const [tenants, setTenants] = useState<AdminTenant[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [adminReady, setAdminReady] = useState(api.hasAdminKey())
   const { toast } = useToast()
 
   const loadTenants = useCallback(async () => {
+    if (!adminReady) {
+      setLoading(false)
+      return
+    }
     try {
       const response = await api.adminGetTenants()
       setTenants(response.tenants || [])
-    } catch {
+    } catch (error: unknown) {
+      if (error instanceof Error && error.message.toLowerCase().includes('unauthorized')) {
+        api.clearAdminKey()
+        setAdminReady(false)
+      }
       toast({
         title: 'Error',
-        description: 'Failed to load tenants',
+        description: error instanceof Error ? error.message : 'Failed to load tenants',
         variant: 'destructive'
       })
     } finally {
       setLoading(false)
     }
-  }, [toast])
+  }, [adminReady, toast])
 
   useEffect(() => {
     loadTenants()
@@ -104,6 +114,10 @@ export default function TenantsPage() {
         </Button>
       </div>
 
+      <AdminKeyGate locked={!adminReady} onLocked={() => setAdminReady(false)} onUnlocked={() => {
+        setAdminReady(true)
+        setLoading(true)
+      }}>
       <Card>
         <CardHeader>
           <div className="flex items-center gap-4">
@@ -230,6 +244,7 @@ export default function TenantsPage() {
           )}
         </CardContent>
       </Card>
+      </AdminKeyGate>
     </div>
   )
 }
