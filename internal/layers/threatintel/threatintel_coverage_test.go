@@ -164,7 +164,7 @@ func TestNewFeedManager_DefaultTransport_Cov(t *testing.T) {
 		Format: "jsonl",
 	})
 	if fm == nil {
-		t.Error("expected non-nil feed manager")
+		t.Fatal("expected non-nil feed manager")
 	}
 	if fm.client == nil {
 		t.Error("expected non-nil HTTP client")

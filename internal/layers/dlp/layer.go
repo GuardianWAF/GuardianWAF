@@ -24,37 +24,37 @@ type Layer struct {
 
 // Config for DLP layer.
 type Config struct {
-	Enabled             bool     `yaml:"enabled"`
-	ScanRequest         bool     `yaml:"scan_request"`          // Scan incoming request bodies
-	ScanResponse        bool     `yaml:"scan_response"`         // Scan outgoing response bodies
-	BlockOnMatch        bool     `yaml:"block_on_match"`        // Block request/response if PII detected
-	MaskResponse        bool     `yaml:"mask_response"`         // Mask PII in response bodies
-	MaxBodySize         int      `yaml:"max_body_size"`         // Max body size to scan (default: 1MB)
-	MaxFileSize         int64    `yaml:"max_file_size"`         // Max file upload size (default: 10MB)
-	Patterns            []string `yaml:"patterns"`              // Enabled pattern types
-	ScanFileUploads     bool     `yaml:"scan_file_uploads"`     // Scan multipart file uploads
-	BlockExecutableFiles bool    `yaml:"block_executable_files"` // Block executable file uploads
-	BlockArchiveFiles   bool     `yaml:"block_archive_files"`   // Block archive file uploads
-	BlockDangerousWebExtensions bool `yaml:"block_dangerous_web_extensions"` // Block dangerous web extensions (.php, .jsp, etc.)
-	CustomPatterns      map[string]string `yaml:"custom_patterns"` // Custom regex patterns
+	Enabled                     bool              `yaml:"enabled"`
+	ScanRequest                 bool              `yaml:"scan_request"`                   // Scan incoming request bodies
+	ScanResponse                bool              `yaml:"scan_response"`                  // Scan outgoing response bodies
+	BlockOnMatch                bool              `yaml:"block_on_match"`                 // Block request/response if PII detected
+	MaskResponse                bool              `yaml:"mask_response"`                  // Mask PII in response bodies
+	MaxBodySize                 int               `yaml:"max_body_size"`                  // Max body size to scan (default: 1MB)
+	MaxFileSize                 int64             `yaml:"max_file_size"`                  // Max file upload size (default: 10MB)
+	Patterns                    []string          `yaml:"patterns"`                       // Enabled pattern types
+	ScanFileUploads             bool              `yaml:"scan_file_uploads"`              // Scan multipart file uploads
+	BlockExecutableFiles        bool              `yaml:"block_executable_files"`         // Block executable file uploads
+	BlockArchiveFiles           bool              `yaml:"block_archive_files"`            // Block archive file uploads
+	BlockDangerousWebExtensions bool              `yaml:"block_dangerous_web_extensions"` // Block dangerous web extensions (.php, .jsp, etc.)
+	CustomPatterns              map[string]string `yaml:"custom_patterns"`                // Custom regex patterns
 }
 
 // DefaultConfig returns default DLP configuration.
 func DefaultConfig() *Config {
 	return &Config{
-		Enabled:              false,
-		ScanRequest:          true,
-		ScanResponse:         true,
-		BlockOnMatch:         false,
-		MaskResponse:         true,
-		MaxBodySize:          1024 * 1024, // 1MB
-		MaxFileSize:          10 << 20,    // 10MB
-		Patterns:             []string{"credit_card", "ssn", "api_key", "private_key"},
-		ScanFileUploads:      true,
-		BlockExecutableFiles: true,
-		BlockArchiveFiles:    false,
+		Enabled:                     false,
+		ScanRequest:                 true,
+		ScanResponse:                true,
+		BlockOnMatch:                false,
+		MaskResponse:                true,
+		MaxBodySize:                 1024 * 1024, // 1MB
+		MaxFileSize:                 10 << 20,    // 10MB
+		Patterns:                    []string{"credit_card", "ssn", "api_key", "private_key"},
+		ScanFileUploads:             true,
+		BlockExecutableFiles:        true,
+		BlockArchiveFiles:           false,
 		BlockDangerousWebExtensions: true,
-		CustomPatterns:       make(map[string]string),
+		CustomPatterns:              make(map[string]string),
 	}
 }
 
@@ -123,7 +123,7 @@ func (l *Layer) Name() string {
 
 // Order returns the layer order (runs after detection, before response).
 func (l *Layer) Order() int {
-	return 550
+	return engine.OrderDLP
 }
 
 // snapshotConfig returns a copy of the current config under RLock.
@@ -215,19 +215,35 @@ func (l *Layer) ScanRequest(r *http.Request) (*ScanResult, error) {
 		return &ScanResult{Safe: true}, nil
 	}
 
-	// Read body
-	body, err := io.ReadAll(io.LimitReader(r.Body, int64(cfg.MaxBodySize)))
+	if r.Body == nil || r.Body == http.NoBody {
+		return &ScanResult{Safe: true}, nil
+	}
+
+	scanLimit := int64(cfg.MaxBodySize)
+	if scanLimit <= 0 {
+		scanLimit = 1
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, scanLimit+1))
 	if err != nil {
 		return nil, err
 	}
-	r.Body.Close()
 
-	// Restore body for downstream handlers
-	r.Body = io.NopCloser(bytes.NewReader(body))
-	r.ContentLength = int64(len(body))
+	r.Body = &replayReadCloser{
+		Reader: io.MultiReader(bytes.NewReader(body), r.Body),
+		Closer: r.Body,
+	}
 
-	// Scan body
+	if int64(len(body)) > scanLimit {
+		return &ScanResult{Safe: true}, nil
+	}
+
 	return l.scanContent(string(body)), nil
+}
+
+type replayReadCloser struct {
+	io.Reader
+	io.Closer
 }
 
 // ScanResponse scans an HTTP response body for sensitive data.

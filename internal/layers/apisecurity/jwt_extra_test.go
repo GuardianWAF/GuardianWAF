@@ -1408,7 +1408,7 @@ func TestFetchJWKS_ECKey(t *testing.T) {
 	if !ok {
 		t.Fatal("expected ECDSA public key")
 	}
-	if ecKey.X.Cmp(privateKey.X) != 0 {
+	if !ecKey.Equal(privateKey.Public()) {
 		t.Error("X mismatch")
 	}
 }
@@ -1860,7 +1860,7 @@ func TestFetchJWKS_EC_P384_P521(t *testing.T) {
 				t.Fatal("expected key to be cached")
 			}
 			ecKey := k.(*ecdsa.PublicKey)
-			if ecKey.X.Cmp(privateKey.X) != 0 {
+			if !ecKey.Equal(privateKey.Public()) {
 				t.Error("X mismatch")
 			}
 		})

@@ -117,7 +117,7 @@ func (t *AttemptTracker) RecordAttempt(attempt *LoginAttempt) {
 
 		// Track IP->Email mapping for credential stuffing (capped by maxEntries)
 		if t.ipToEmails[ip] == nil {
-			if len(t.ipToEmails) >= t.maxEntries {
+			if t.maxEntries > 0 && len(t.ipToEmails) >= t.maxEntries {
 				for k := range t.ipToEmails {
 					delete(t.ipToEmails, k)
 					break
@@ -125,11 +125,13 @@ func (t *AttemptTracker) RecordAttempt(attempt *LoginAttempt) {
 			}
 			t.ipToEmails[ip] = make(map[string]bool)
 		}
-		t.ipToEmails[ip][attempt.Email] = true
+		if t.maxEntries <= 0 || t.ipToEmails[ip][attempt.Email] || len(t.ipToEmails[ip]) < t.maxEntries {
+			t.ipToEmails[ip][attempt.Email] = true
+		}
 
 		// Track Email->IP mapping (capped by maxEntries)
 		if t.emailToIPs[attempt.Email] == nil {
-			if len(t.emailToIPs) >= t.maxEntries {
+			if t.maxEntries > 0 && len(t.emailToIPs) >= t.maxEntries {
 				for k := range t.emailToIPs {
 					delete(t.emailToIPs, k)
 					break
@@ -137,7 +139,9 @@ func (t *AttemptTracker) RecordAttempt(attempt *LoginAttempt) {
 			}
 			t.emailToIPs[attempt.Email] = make(map[string]bool)
 		}
-		t.emailToIPs[attempt.Email][ip] = true
+		if t.maxEntries <= 0 || t.emailToIPs[attempt.Email][ip] || len(t.emailToIPs[attempt.Email]) < t.maxEntries {
+			t.emailToIPs[attempt.Email][ip] = true
+		}
 	}
 
 	// Record password hash for spray detection (with size cap)
@@ -155,7 +159,9 @@ func (t *AttemptTracker) RecordAttempt(attempt *LoginAttempt) {
 			pwRec.mu.Lock()
 			pwRec.Count++
 			pwRec.LastSeen = now
-			pwRec.SourceIPs[ip] = true
+			if t.maxEntries <= 0 || pwRec.SourceIPs[ip] || len(pwRec.SourceIPs) < t.maxEntries {
+				pwRec.SourceIPs[ip] = true
+			}
 			pwRec.mu.Unlock()
 		}
 	}
@@ -246,6 +252,9 @@ func (t *AttemptTracker) BlockIP(ip net.IP, until time.Time, reason string) {
 	ipStr := ip.String()
 	rec := t.ipAttempts[ipStr]
 	if rec == nil {
+		if t.maxEntries > 0 && len(t.ipAttempts) >= t.maxEntries {
+			return
+		}
 		rec = &AttemptRecord{}
 		t.ipAttempts[ipStr] = rec
 	}
@@ -262,6 +271,9 @@ func (t *AttemptTracker) BlockEmail(email string, until time.Time, reason string
 
 	rec := t.emailAttempts[email]
 	if rec == nil {
+		if t.maxEntries > 0 && len(t.emailAttempts) >= t.maxEntries {
+			return
+		}
 		rec = &AttemptRecord{}
 		t.emailAttempts[email] = rec
 	}

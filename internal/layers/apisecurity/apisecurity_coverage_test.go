@@ -337,8 +337,8 @@ func TestCoverage_ParseRawRSAPublicExponent(t *testing.T) {
 
 	// Test with negative exponent
 	content = []byte{
-		0x02, 0x01, 0x01,  // modulus = 1
-		0x02, 0x01, 0xFF,  // exponent negative
+		0x02, 0x01, 0x01, // modulus = 1
+		0x02, 0x01, 0xFF, // exponent negative
 	}
 	seq = append([]byte{0x30}, encodeASN1Length(len(content))...)
 	seq = append(seq, content...)
@@ -497,6 +497,8 @@ func TestCoverage_ValidateJWKSURL(t *testing.T) {
 	}{
 		{"empty host", "http://", true},
 		{"invalid url", "://invalid", true},
+		{"non HTTP scheme", "file:///tmp/jwks.json", true},
+		{"credential-bearing URL", "https://user:pass@auth.example.com/jwks", true},
 		{"localhost", "http://localhost/jwks", true},
 		{"internal suffix", "http://something.internal/jwks", true},
 		{"local suffix", "http://something.local/jwks", true},
@@ -504,6 +506,7 @@ func TestCoverage_ValidateJWKSURL(t *testing.T) {
 		{"loopback IP", "http://127.0.0.1/jwks", true},
 		{"private IP", "http://10.0.0.1/jwks", true},
 		{"link local IP", "http://169.254.1.1/jwks", true},
+		{"multicast IP", "http://224.0.0.1/jwks", true},
 		{"public URL", "https://auth.example.com/.well-known/jwks.json", false},
 	}
 
@@ -514,6 +517,19 @@ func TestCoverage_ValidateJWKSURL(t *testing.T) {
 				t.Errorf("validateJWKSURL(%s) error = %v, wantErr %v", tt.url, err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestCoverage_NewJWTValidatorRejectsCredentialBearingJWKSURL(t *testing.T) {
+	_, err := NewJWTValidator(JWTConfig{
+		Enabled: true,
+		JWKSURL: "https://user:pass@auth.example.com/.well-known/jwks.json",
+	})
+	if err == nil {
+		t.Fatal("expected credential-bearing JWKS URL to be rejected")
+	}
+	if !strings.Contains(err.Error(), "userinfo") {
+		t.Fatalf("JWKS URL rejected for wrong reason: %v", err)
 	}
 }
 
@@ -759,8 +775,8 @@ func TestCoverage_FetchJWKS_ECKeys(t *testing.T) {
 
 func TestCoverage_FetchJWKS_EmptyURL(t *testing.T) {
 	v := &JWTValidator{
-		config:     JWTConfig{JWKSURL: ""},
-		jwksCache:  &sync.Map{},
+		config:    JWTConfig{JWKSURL: ""},
+		jwksCache: &sync.Map{},
 	}
 	v.fetchJWKS() // Should return immediately
 }
@@ -993,8 +1009,8 @@ func TestCoverage_RefreshJWKSPeriodically_Exercise(t *testing.T) {
 
 	// Wait for at least one refresh
 	time.Sleep(200 * time.Millisecond)
-	v.Stop()    // triggers stopCh close
-	<-done      // wait for goroutine to exit
+	v.Stop() // triggers stopCh close
+	<-done   // wait for goroutine to exit
 
 	if callCount == 0 {
 		t.Error("expected at least one JWKS refresh call")
@@ -1088,14 +1104,36 @@ func TestCoverage_FetchJWKS_SSRFRevalidation(t *testing.T) {
 
 	// ssrfChecked=false should trigger re-validation, which rejects localhost
 	v := &JWTValidator{
-		config:     JWTConfig{JWKSURL: server.URL},
-		log:        logging.NewLogger("jwt"),
-		jwksCache:  &sync.Map{},
-		client:     server.Client(),
+		config:      JWTConfig{JWKSURL: server.URL},
+		log:         logging.NewLogger("jwt"),
+		jwksCache:   &sync.Map{},
+		client:      server.Client(),
 		ssrfChecked: false,
 	}
 	v.fetchJWKS()
 	// Should not panic; SSRF check fails silently
+}
+
+func TestFetchJWKSRejectsOversizedResponseBeforeCaching(t *testing.T) {
+	oversizedJWKS := `{"keys":[{"kid":"oversize","kty":"oct","k":"c2VjcmV0"}]}` + strings.Repeat(" ", maxJWKSResponseBytes)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, oversizedJWKS)
+	}))
+	defer server.Close()
+
+	v := &JWTValidator{
+		config:      JWTConfig{JWKSURL: server.URL},
+		log:         logging.NewLogger("jwt"),
+		jwksCache:   &sync.Map{},
+		hmacKeys:    &sync.Map{},
+		client:      server.Client(),
+		ssrfChecked: true,
+	}
+	v.fetchJWKS()
+	if _, ok := v.hmacKeys.Load("oversize"); ok {
+		t.Fatal("fetchJWKS cached a key from an oversized JWKS response")
+	}
 }
 
 // --- parseASN1Sequence edge case: length exceeds data ---

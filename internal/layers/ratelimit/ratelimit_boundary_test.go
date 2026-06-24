@@ -139,3 +139,50 @@ func TestRateLimitLayer_BoundaryEmptyPathList(t *testing.T) {
 		t.Errorf("second request should block, got %v", result.Action)
 	}
 }
+
+func TestRateLimitLayer_CleanupReleasesBucketCapacity(t *testing.T) {
+	rule := &Rule{ID: "bounded", Scope: "ip", Limit: 1, Window: time.Minute, Burst: 1, Action: "block"}
+	layer := NewLayer(&Config{Enabled: true, Rules: []Rule{*rule}})
+
+	bucket := layer.getOrCreateBucket("bounded:tenant-a:192.0.2.1", rule)
+	if got := layer.bucketCount.Load(); got != 1 {
+		t.Fatalf("bucket count = %d, want 1", got)
+	}
+
+	bucket.mu.Lock()
+	bucket.lastAccess = time.Now().Add(-2 * time.Hour)
+	bucket.mu.Unlock()
+
+	layer.CleanupExpired(time.Hour)
+	if got := layer.bucketCount.Load(); got != 0 {
+		t.Fatalf("bucket count after cleanup = %d, want 0", got)
+	}
+	if _, exists := layer.buckets.Load("bounded:tenant-a:192.0.2.1"); exists {
+		t.Fatal("stale bucket still exists after cleanup")
+	}
+
+	newBucket := layer.getOrCreateBucket("bounded:tenant-a:192.0.2.2", rule)
+	if newBucket == blockedBucket {
+		t.Fatal("cleanup did not restore capacity for new buckets")
+	}
+	if got := layer.bucketCount.Load(); got != 1 {
+		t.Fatalf("bucket count after new bucket = %d, want 1", got)
+	}
+}
+
+func TestRateLimitLayer_RemoveRuleReleasesBucketCapacity(t *testing.T) {
+	rule := Rule{ID: "remove-me", Scope: "ip", Limit: 1, Window: time.Minute, Burst: 1, Action: "block"}
+	layer := NewLayer(&Config{Enabled: true, Rules: []Rule{rule}})
+
+	layer.getOrCreateBucket("remove-me:tenant-a:192.0.2.1", &rule)
+	if got := layer.bucketCount.Load(); got != 1 {
+		t.Fatalf("bucket count = %d, want 1", got)
+	}
+
+	if !layer.RemoveRule("remove-me") {
+		t.Fatal("expected rule to be removed")
+	}
+	if got := layer.bucketCount.Load(); got != 0 {
+		t.Fatalf("bucket count after rule removal = %d, want 0", got)
+	}
+}

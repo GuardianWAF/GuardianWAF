@@ -264,7 +264,7 @@ func TestEngineLayer_Process_FileUploadViaHeaders(t *testing.T) {
 
 	ctx := &engine.RequestContext{
 		Body:        buf.Bytes(),
-		BodyString:  string(buf.Bytes()),
+		BodyString:  buf.String(),
 		Headers:     map[string][]string{"Content-Type": {writer.FormDataContentType()}},
 		Accumulator: engine.NewScoreAccumulator(2),
 	}
@@ -298,7 +298,7 @@ func TestEngineLayer_Process_FileUploadSafe(t *testing.T) {
 
 	ctx := &engine.RequestContext{
 		Body:        buf.Bytes(),
-		BodyString:  string(buf.Bytes()),
+		BodyString:  buf.String(),
 		Headers:     map[string][]string{"Content-Type": {writer.FormDataContentType()}},
 		Accumulator: engine.NewScoreAccumulator(2),
 	}

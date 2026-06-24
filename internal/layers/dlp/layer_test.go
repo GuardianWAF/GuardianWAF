@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/guardianwaf/guardianwaf/internal/engine"
 )
 
 func TestNewPatternRegistry(t *testing.T) {
@@ -491,7 +493,7 @@ func TestLayer_Name(t *testing.T) {
 
 func TestLayer_Order(t *testing.T) {
 	layer := NewLayer(&Config{})
-	if layer.Order() != 550 {
-		t.Errorf("Order() = %d, want 550", layer.Order())
+	if layer.Order() != engine.OrderDLP {
+		t.Errorf("Order() = %d, want %d", layer.Order(), engine.OrderDLP)
 	}
 }

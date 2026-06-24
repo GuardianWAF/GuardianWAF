@@ -1,7 +1,11 @@
 package detection
 
 import (
+	"bufio"
 	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -18,6 +22,11 @@ func defaultConfig() *Config {
 			"cmdi": {Enabled: true, Multiplier: 1.0},
 			"xxe":  {Enabled: true, Multiplier: 1.0},
 			"ssrf": {Enabled: true, Multiplier: 1.0},
+			"ssti": {Enabled: true, Multiplier: 1.0},
+			"nosqli": {
+				Enabled:    true,
+				Multiplier: 1.0,
+			},
 		},
 	}
 }
@@ -256,6 +265,199 @@ func TestDetectionLayer_XXE_XMLBodyNonXMLContentType(t *testing.T) {
 	}
 }
 
+func TestDetectionLayer_CorpusQualityBaseline(t *testing.T) {
+	layer := NewLayer(defaultConfig())
+	root := filepath.Join("..", "..", "..", "testdata")
+	attackFiles := map[string]string{
+		"cmdi":   filepath.Join(root, "attacks", "cmdi.txt"),
+		"lfi":    filepath.Join(root, "attacks", "lfi.txt"),
+		"nosqli": filepath.Join(root, "attacks", "nosqli.txt"),
+		"sqli":   filepath.Join(root, "attacks", "sqli.txt"),
+		"ssrf":   filepath.Join(root, "attacks", "ssrf.txt"),
+		"ssti":   filepath.Join(root, "attacks", "ssti.txt"),
+		"xss":    filepath.Join(root, "attacks", "xss.txt"),
+		"xxe":    filepath.Join(root, "attacks", "xxe.txt"),
+	}
+
+	for detector, path := range attackFiles {
+		samples := readDetectionCorpus(t, path)
+		if len(samples) < 20 {
+			t.Fatalf("%s attack corpus too small: got %d samples", detector, len(samples))
+		}
+
+		detected := 0
+		var missed []string
+		for _, sample := range samples {
+			result := processCorpusSample(layer, detector, sample)
+			if result.Score > 0 && len(result.Findings) > 0 {
+				detected++
+			} else if len(missed) < 10 {
+				missed = append(missed, sample)
+			}
+		}
+
+		rate := float64(detected) / float64(len(samples))
+		t.Logf("%s attack corpus detection rate: %d/%d %.1f%%", detector, detected, len(samples), rate*100)
+		if rate < 0.90 {
+			t.Logf("%s first missed attack samples: %q", detector, missed)
+			t.Fatalf("%s attack corpus detection rate %.1f%% below 90%% baseline", detector, rate*100)
+		}
+	}
+
+	benignCorpora := []struct {
+		name    string
+		path    string
+		context string
+		min     int
+	}{
+		{name: "generic", path: filepath.Join(root, "benign", "queries.txt"), context: "benign", min: 40},
+		{name: "cmdi", path: filepath.Join(root, "benign", "cmdi.txt"), context: "benign-cmdi", min: 20},
+		{name: "lfi", path: filepath.Join(root, "benign", "lfi.txt"), context: "benign-lfi", min: 20},
+		{name: "nosqli", path: filepath.Join(root, "benign", "nosqli.txt"), context: "benign-nosqli", min: 20},
+		{name: "ssrf", path: filepath.Join(root, "benign", "ssrf.txt"), context: "benign-ssrf", min: 20},
+		{name: "ssti", path: filepath.Join(root, "benign", "ssti.txt"), context: "benign-ssti", min: 20},
+		{name: "application_logs", path: filepath.Join(root, "benign", "application_logs.txt"), context: "benign-log", min: 20},
+	}
+
+	totalBenignSamples := 0
+	totalFalseBlocks := 0
+	totalWeightedFalsePositiveScore := 0
+	for _, corpus := range benignCorpora {
+		samples := readDetectionCorpus(t, corpus.path)
+		if len(samples) < corpus.min {
+			t.Fatalf("%s benign corpus too small: got %d samples, want at least %d", corpus.name, len(samples), corpus.min)
+		}
+
+		falseBlocks := 0
+		weightedScore := 0
+		for _, sample := range samples {
+			result := processCorpusSample(layer, corpus.context, sample)
+			weightedScore += weightedFalsePositiveScore(result.Findings)
+			if result.Score >= 50 {
+				falseBlocks++
+				t.Logf("%s benign sample reached block threshold: score=%d weighted_fp=%d findings=%s sample=%q", corpus.name, result.Score, weightedFalsePositiveScore(result.Findings), summarizeFindings(result.Findings), sample)
+			}
+		}
+
+		totalBenignSamples += len(samples)
+		totalFalseBlocks += falseBlocks
+		totalWeightedFalsePositiveScore += weightedScore
+		falseBlockRate := float64(falseBlocks) / float64(len(samples))
+		avgWeightedScore := float64(weightedScore) / float64(len(samples))
+		t.Logf("%s benign corpus block false-positive rate: %d/%d %.1f%%; weighted FP avg: %.2f", corpus.name, falseBlocks, len(samples), falseBlockRate*100, avgWeightedScore)
+	}
+
+	falseBlockRate := float64(totalFalseBlocks) / float64(totalBenignSamples)
+	avgWeightedFalsePositiveScore := float64(totalWeightedFalsePositiveScore) / float64(totalBenignSamples)
+	t.Logf("combined benign corpus block false-positive rate: %d/%d %.1f%%; weighted FP avg: %.2f", totalFalseBlocks, totalBenignSamples, falseBlockRate*100, avgWeightedFalsePositiveScore)
+	if falseBlockRate > 0.06 {
+		t.Fatalf("combined benign corpus block false-positive rate %.1f%% exceeds 6%% baseline", falseBlockRate*100)
+	}
+	if avgWeightedFalsePositiveScore > 1.0 {
+		t.Fatalf("combined benign corpus weighted false-positive average %.2f exceeds 1.00 baseline", avgWeightedFalsePositiveScore)
+	}
+}
+
+func readDetectionCorpus(t *testing.T, path string) []string {
+	t.Helper()
+
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("Open(%s): %v", path, err)
+	}
+	defer f.Close()
+
+	var samples []string
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		samples = append(samples, line)
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("Scan(%s): %v", path, err)
+	}
+	return samples
+}
+
+func processCorpusSample(layer *Layer, detector, sample string) engine.LayerResult {
+	path := "/corpus"
+	query := "q=" + url.QueryEscape(sample)
+	body := ""
+	contentType := ""
+
+	switch detector {
+	case "lfi":
+		path = "/download/" + sample
+		query = "file=" + url.QueryEscape(sample)
+	case "xxe":
+		path = "/xml"
+		query = ""
+		body = sample
+		contentType = "application/xml"
+	case "benign":
+		path = "/search"
+		query = "q=" + url.QueryEscape(sample)
+	case "benign-cmdi":
+		path = "/docs/commands"
+		query = "text=" + url.QueryEscape(sample)
+	case "benign-lfi":
+		path = "/download/reference"
+		query = "file=" + url.QueryEscape(sample)
+	case "benign-nosqli":
+		path = "/api/filter"
+		query = ""
+		body = sample
+		contentType = "application/json"
+	case "benign-ssrf":
+		path = "/link-preview"
+		query = "url=" + url.QueryEscape(sample)
+	case "benign-ssti":
+		path = "/templates/preview"
+		query = "template=" + url.QueryEscape(sample)
+	case "benign-log":
+		path = "/observability/logs"
+		query = ""
+		body = sample
+		contentType = "text/plain"
+	}
+
+	ctx := makeContext(path, query, body, contentType)
+	defer engine.ReleaseContext(ctx)
+
+	return layer.Process(ctx)
+}
+
+func weightedFalsePositiveScore(findings []engine.Finding) int {
+	total := 0
+	for _, finding := range findings {
+		switch finding.Severity {
+		case engine.SeverityCritical:
+			total += 12
+		case engine.SeverityHigh:
+			total += 7
+		case engine.SeverityMedium:
+			total += 3
+		case engine.SeverityLow:
+			total++
+		}
+	}
+	return total
+}
+
+func summarizeFindings(findings []engine.Finding) string {
+	if len(findings) == 0 {
+		return "(none)"
+	}
+	parts := make([]string, 0, len(findings))
+	for _, finding := range findings {
+		parts = append(parts, finding.DetectorName+":"+finding.Severity.String()+":"+finding.Description)
+	}
+	return strings.Join(parts, "; ")
+}
+
 // 9. TestDetectionLayer_SSRF - SSRF URL in query triggers ssrf findings
 func TestDetectionLayer_SSRF(t *testing.T) {
 	layer := NewLayer(defaultConfig())
@@ -408,21 +610,23 @@ func TestDetectionLayer_Multiplier(t *testing.T) {
 	}
 }
 
-// 14. TestDetectionLayer_AllDetectorsPresent - verify all 6 detectors initialized
+// 14. TestDetectionLayer_AllDetectorsPresent - verify all configured detectors initialized
 func TestDetectionLayer_AllDetectorsPresent(t *testing.T) {
 	layer := NewLayer(defaultConfig())
 
-	if len(layer.detectors) != 6 {
-		t.Errorf("expected 6 detectors, got %d", len(layer.detectors))
+	if len(layer.detectors) != 8 {
+		t.Errorf("expected 8 detectors, got %d", len(layer.detectors))
 	}
 
 	expected := map[string]bool{
-		"sqli": false,
-		"xss":  false,
-		"lfi":  false,
-		"cmdi": false,
-		"xxe":  false,
-		"ssrf": false,
+		"sqli":   false,
+		"xss":    false,
+		"lfi":    false,
+		"cmdi":   false,
+		"xxe":    false,
+		"ssrf":   false,
+		"ssti":   false,
+		"nosqli": false,
 	}
 
 	for _, det := range layer.detectors {

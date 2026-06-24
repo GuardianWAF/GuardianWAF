@@ -32,10 +32,10 @@ type Config struct {
 
 // Layer implements engine.Layer for rate limiting.
 type Layer struct {
-	mu         sync.RWMutex
-	config     Config
-	buckets    sync.Map // key -> *TokenBucket
-	violations sync.Map // key -> *int64 (violation count for auto-ban)
+	mu          sync.RWMutex
+	config      Config
+	buckets     sync.Map // key -> *TokenBucket
+	violations  sync.Map // key -> *int64 (violation count for auto-ban)
 	bucketCount atomic.Int64
 
 	// OnAutoBan is called when violation count exceeds AutoBanAfter.
@@ -58,7 +58,7 @@ func NewLayer(cfg *Config) *Layer {
 
 // Name returns the layer name.
 func (l *Layer) Name() string { return "ratelimit" }
-func (l *Layer) Order() int { return engine.OrderRateLimit }
+func (l *Layer) Order() int   { return engine.OrderRateLimit }
 
 // AddRule adds a rate limit rule dynamically at runtime.
 func (l *Layer) AddRule(rule Rule) {
@@ -84,12 +84,12 @@ func (l *Layer) RemoveRule(id string) bool {
 			// Clean up buckets associated with this rule
 			l.buckets.Range(func(key, _ any) bool {
 				k, ok := key.(string)
-			if !ok {
-				l.buckets.Delete(key)
-				return true
-			}
-			if strings.HasPrefix(k, id+":") {
-					l.buckets.Delete(key)
+				if !ok {
+					l.deleteBucket(key)
+					return true
+				}
+				if strings.HasPrefix(k, id+":") {
+					l.deleteBucket(key)
 				}
 				return true
 			})
@@ -106,8 +106,7 @@ func (l *Layer) Cleanup(maxAge time.Duration) {
 	l.buckets.Range(func(key, value any) bool {
 		b, ok := value.(*TokenBucket)
 		if !ok || now.Sub(b.LastAccess()) > maxAge {
-			l.buckets.Delete(key)
-			l.bucketCount.Add(-1)
+			l.deleteBucket(key)
 		}
 		return true
 	})
@@ -241,6 +240,14 @@ func (l *Layer) getOrCreateBucket(key string, rule *Rule) *TokenBucket {
 	return actual.(*TokenBucket)
 }
 
+func (l *Layer) deleteBucket(key any) {
+	if _, loaded := l.buckets.LoadAndDelete(key); loaded {
+		if l.bucketCount.Load() > 0 {
+			l.bucketCount.Add(-1)
+		}
+	}
+}
+
 // matchesRule checks if the request path matches the rule's path patterns.
 func (l *Layer) matchesRule(rule *Rule, reqPath string) bool {
 	// If no paths specified, match all
@@ -304,7 +311,7 @@ func (l *Layer) CleanupExpired(staleDuration time.Duration) {
 	l.buckets.Range(func(key, value any) bool {
 		bucket := value.(*TokenBucket)
 		if bucket.LastAccess().Before(cutoff) {
-			l.buckets.Delete(key)
+			l.deleteBucket(key)
 		}
 		return true
 	})

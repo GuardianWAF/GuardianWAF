@@ -196,7 +196,7 @@ func parseUint8List(s string) []uint8 {
 				case c >= 'A' && c <= 'F':
 					nibble = c - 'A' + 10
 				default:
-					break
+					continue
 				}
 				v = v<<4 | nibble
 			}

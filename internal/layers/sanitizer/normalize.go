@@ -43,8 +43,7 @@ func decodeURLOnce(s string) string {
 				if h2, ok2 := hexVal(s[i+3]); ok2 {
 					if h3, ok3 := hexVal(s[i+4]); ok3 {
 						if h4, ok4 := hexVal(s[i+5]); ok4 {
-							r := rune(h<<12 | h2<<8 | h3<<4 | h4)
-							b.WriteRune(r)
+							b.WriteRune(hexQuadRune(h, h2, h3, h4))
 							i += 6
 							continue
 						}
@@ -57,7 +56,7 @@ func decodeURLOnce(s string) string {
 		if i+2 < len(s) {
 			if h, ok := hexVal(s[i+1]); ok {
 				if h2, ok2 := hexVal(s[i+2]); ok2 {
-					b.WriteByte(byte(h<<4 | h2))
+					b.WriteByte(hexPairByte(h, h2))
 					i += 3
 					continue
 				}
@@ -83,6 +82,23 @@ func hexVal(c byte) (int, bool) {
 	default:
 		return 0, false
 	}
+}
+
+func hexPairByte(hi, lo int) byte {
+	// #nosec G115 -- hexVal constrains each nibble to 0..15 before this byte narrowing.
+	return byte((hi << 4) | lo)
+}
+
+func hexQuadRune(h1, h2, h3, h4 int) rune {
+	return entityRune((h1 << 12) | (h2 << 8) | (h3 << 4) | h4)
+}
+
+func entityRune(val int) rune {
+	if val < 0 || val > utf8.MaxRune {
+		return utf8.RuneError
+	}
+	// #nosec G115 -- val is bounded to utf8.MaxRune above before rune narrowing.
+	return rune(val)
 }
 
 // RemoveNullBytes strips \x00, %00, and \0 from input.
@@ -259,14 +275,14 @@ func DecodeHTMLEntities(s string) string {
 			if entity[1] == 'x' || entity[1] == 'X' {
 				// Hex: &#xNN;
 				if val, ok := parseHexEntity(entity[2:]); ok {
-					b.WriteRune(rune(val))
+					b.WriteRune(entityRune(val))
 					i = end + 1
 					continue
 				}
 			} else {
 				// Decimal: &#NNN;
 				if val, ok := parseDecEntity(entity[1:]); ok {
-					b.WriteRune(rune(val))
+					b.WriteRune(entityRune(val))
 					i = end + 1
 					continue
 				}

@@ -4,17 +4,17 @@ package apisecurity
 
 import (
 	"context"
+	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
-	"crypto"
 	"crypto/hmac"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/sha512"
-	"hash"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"hash"
 	"io"
 	"log/slog"
 	"math/big"
@@ -28,14 +28,16 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/logging"
 )
 
+const maxJWKSResponseBytes = 1 << 20
+
 // NewJWTValidator creates a new JWT validator.
 func NewJWTValidator(cfg JWTConfig) (*JWTValidator, error) {
 	v := &JWTValidator{
-		config:     cfg,
-		log:        logging.NewLogger("jwt"),
-		jwksCache:  &sync.Map{},
-		hmacKeys:   &sync.Map{},
-		stopCh:     make(chan struct{}),
+		config:    cfg,
+		log:       logging.NewLogger("jwt"),
+		jwksCache: &sync.Map{},
+		hmacKeys:  &sync.Map{},
+		stopCh:    make(chan struct{}),
 	}
 	v.client = v.newJWKSHTTPClient()
 
@@ -301,7 +303,7 @@ func (v *JWTValidator) fetchJWKS() {
 		} `json:"keys"`
 	}
 
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&jwks); err != nil {
+	if err := decodeJWKSResponse(resp.Body, &jwks); err != nil {
 		return
 	}
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
@@ -352,6 +354,17 @@ func (v *JWTValidator) fetchJWKS() {
 			}
 		}
 	}
+}
+
+func decodeJWKSResponse(r io.Reader, out any) error {
+	body, err := io.ReadAll(io.LimitReader(r, maxJWKSResponseBytes+1))
+	if err != nil {
+		return err
+	}
+	if len(body) > maxJWKSResponseBytes {
+		return fmt.Errorf("JWKS response exceeds %d bytes", maxJWKSResponseBytes)
+	}
+	return json.Unmarshal(body, out)
 }
 
 func (v *JWTValidator) refreshJWKSPeriodically(interval time.Duration) {
@@ -438,6 +451,12 @@ func validateJWKSURL(rawURL string) error {
 	if err != nil {
 		return fmt.Errorf("invalid URL: %w", err)
 	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("must use http or https")
+	}
+	if u.User != nil {
+		return fmt.Errorf("must not include URL userinfo or credentials")
+	}
 	host := u.Hostname()
 	if host == "" {
 		return fmt.Errorf("URL has no host")
@@ -450,13 +469,13 @@ func validateJWKSURL(rawURL string) error {
 	// Check raw IP
 	if ip := net.ParseIP(host); ip != nil {
 		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
-			ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+			ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() {
 			return fmt.Errorf("must not target private/loopback/link-local addresses")
 		}
 		return nil
 	}
 	// Resolve DNS and check all resulting IPs
-	addrs, err := net.LookupHost(host)
+	addrs, err := net.LookupHost(host) // #nosec G704 -- preflight DNS check is paired with JWKS client's SSRF-safe DialContext and redirect validation.
 	if err != nil {
 		// Allow through if DNS fails — will fail at connection time
 		return nil
@@ -467,7 +486,7 @@ func validateJWKSURL(rawURL string) error {
 			continue
 		}
 		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
-			ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+			ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() {
 			return fmt.Errorf("hostname resolves to private/loopback address %s", ip)
 		}
 	}

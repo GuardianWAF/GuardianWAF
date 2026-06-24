@@ -488,6 +488,34 @@ func TestLayerScanRequest_BodyRestored(t *testing.T) {
 	}
 }
 
+func TestLayerScanRequest_OversizedBodyRestored(t *testing.T) {
+	layer := NewLayer(&Config{
+		Enabled:     true,
+		ScanRequest: true,
+		MaxBodySize: 10,
+		Patterns:    []string{"credit_card"},
+	})
+	body := `{"card":"4111111111111111","padding":"` + strings.Repeat("x", 128) + `"}`
+	req := httptestRequest("POST", "/", body, "application/json")
+	result, err := layer.ScanRequest(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Safe {
+		t.Fatal("expected oversized request body to skip partial DLP scan")
+	}
+	readBody, err := io.ReadAll(req.Body)
+	if err != nil {
+		t.Fatalf("reading restored body: %v", err)
+	}
+	if string(readBody) != body {
+		t.Fatalf("oversized body not restored fully: got %d bytes, want %d", len(readBody), len(body))
+	}
+	if req.ContentLength != int64(len(body)) {
+		t.Fatalf("ContentLength = %d, want %d", req.ContentLength, len(body))
+	}
+}
+
 func TestLayerScanRequest_EmptyBody(t *testing.T) {
 	layer := NewLayer(&Config{
 		Enabled:     true,
@@ -1747,12 +1775,12 @@ func TestEngineLayer_Process_WithPII_LogThreshold(t *testing.T) {
 
 func TestEngineLayer_Process_FileUpload(t *testing.T) {
 	el := NewEngineLayer(&Config{
-		Enabled:          true,
-		ScanRequest:      true,
-		BlockOnMatch:     true,
-		ScanFileUploads:  true,
-		MaxFileSize:      10 << 20,
-		Patterns:         []string{"credit_card"},
+		Enabled:         true,
+		ScanRequest:     true,
+		BlockOnMatch:    true,
+		ScanFileUploads: true,
+		MaxFileSize:     10 << 20,
+		Patterns:        []string{"credit_card"},
 	})
 
 	var buf bytes.Buffer
@@ -2171,7 +2199,7 @@ func TestScan_SSN_EdgeCases(t *testing.T) {
 	}{
 		{"Starts with 0", "012-34-5678", 1},
 		{"Starts with 8", "812-34-5678", 1}, // [0-8] includes 8, so 812 matches
-		{"999", "999-99-9999", 0},            // starts with 9, outside [0-8]
+		{"999", "999-99-9999", 0},           // starts with 9, outside [0-8]
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
