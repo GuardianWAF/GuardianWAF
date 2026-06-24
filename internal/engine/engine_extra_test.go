@@ -1,9 +1,11 @@
 package engine
 
 import (
+	"bytes"
 	"compress/flate"
 	"compress/gzip"
 	"crypto/tls"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -864,6 +866,66 @@ func TestNewEvent_WithContentEncodingGzip(t *testing.T) {
 	}
 }
 
+func TestAcquireContext_GzipDecompressionBoundedByMaxBodySize(t *testing.T) {
+	payload := strings.Repeat("A", 2048)
+	var gzipBuf strings.Builder
+	gw := gzip.NewWriter(&gzipBuf)
+	if _, err := gw.Write([]byte(payload)); err != nil {
+		t.Fatalf("write gzip payload: %v", err)
+	}
+	if err := gw.Close(); err != nil {
+		t.Fatalf("close gzip writer: %v", err)
+	}
+	compressed := gzipBuf.String()
+
+	req := httptest.NewRequest("POST", "/gzip-limit", strings.NewReader(compressed))
+	req.Header.Set("Content-Encoding", "gzip")
+
+	const maxBodySize int64 = 128
+	ctx := AcquireContext(req, 2, maxBodySize)
+	defer ReleaseContext(ctx)
+
+	if got, want := int64(len(ctx.Body)), maxBodySize+1; got != want {
+		t.Fatalf("decompressed inspection body length = %d, want %d", got, want)
+	}
+	if want := strings.Repeat("A", int(maxBodySize+1)); ctx.BodyString != want {
+		t.Fatalf("decompressed inspection body was not capped at expected payload prefix")
+	}
+	restored, err := io.ReadAll(req.Body)
+	if err != nil {
+		t.Fatalf("read restored body: %v", err)
+	}
+	if string(restored) != compressed {
+		t.Fatalf("restored body changed: got %d bytes, want %d", len(restored), len(compressed))
+	}
+}
+
+func TestAcquireContext_GzipBombRatioFallsBackToRawInspection(t *testing.T) {
+	payload := strings.Repeat("A", 100_000)
+	var gzipBuf strings.Builder
+	gw := gzip.NewWriter(&gzipBuf)
+	if _, err := gw.Write([]byte(payload)); err != nil {
+		t.Fatalf("write gzip payload: %v", err)
+	}
+	if err := gw.Close(); err != nil {
+		t.Fatalf("close gzip writer: %v", err)
+	}
+	compressed := []byte(gzipBuf.String())
+
+	req := httptest.NewRequest("POST", "/gzip-bomb", bytes.NewReader(compressed))
+	req.Header.Set("Content-Encoding", "gzip")
+
+	ctx := AcquireContext(req, 2, int64(len(payload)))
+	defer ReleaseContext(ctx)
+
+	if bytes.Equal(ctx.Body, []byte(payload)) {
+		t.Fatal("gzip ratio abuse was accepted as decompressed inspection data")
+	}
+	if !bytes.Equal(ctx.Body, compressed) {
+		t.Fatalf("inspection body should fall back to raw compressed bytes: got %d bytes, want %d", len(ctx.Body), len(compressed))
+	}
+}
+
 func TestNewEvent_WithContentEncodingDeflate(t *testing.T) {
 	// Create deflated body
 	var deflateBuf strings.Builder
@@ -884,6 +946,43 @@ func TestNewEvent_WithContentEncodingDeflate(t *testing.T) {
 		t.Errorf("expected decompressed deflate body, got %q", ctx.BodyString)
 	}
 	_ = event
+}
+
+func TestAcquireContext_DeflateDecompressionBoundedByMaxBodySize(t *testing.T) {
+	payload := strings.Repeat("B", 2048)
+	var deflateBuf strings.Builder
+	fw, err := flate.NewWriter(&deflateBuf, flate.DefaultCompression)
+	if err != nil {
+		t.Fatalf("new deflate writer: %v", err)
+	}
+	if _, err := fw.Write([]byte(payload)); err != nil {
+		t.Fatalf("write deflate payload: %v", err)
+	}
+	if err := fw.Close(); err != nil {
+		t.Fatalf("close deflate writer: %v", err)
+	}
+	compressed := deflateBuf.String()
+
+	req := httptest.NewRequest("POST", "/deflate-limit", strings.NewReader(compressed))
+	req.Header.Set("Content-Encoding", "deflate")
+
+	const maxBodySize int64 = 128
+	ctx := AcquireContext(req, 2, maxBodySize)
+	defer ReleaseContext(ctx)
+
+	if got, want := int64(len(ctx.Body)), maxBodySize+1; got != want {
+		t.Fatalf("decompressed inspection body length = %d, want %d", got, want)
+	}
+	if want := strings.Repeat("B", int(maxBodySize+1)); ctx.BodyString != want {
+		t.Fatalf("decompressed inspection body was not capped at expected payload prefix")
+	}
+	restored, err := io.ReadAll(req.Body)
+	if err != nil {
+		t.Fatalf("read restored body: %v", err)
+	}
+	if string(restored) != compressed {
+		t.Fatalf("restored body changed: got %d bytes, want %d", len(restored), len(compressed))
+	}
 }
 
 func TestNewEvent_NilClientIP(t *testing.T) {

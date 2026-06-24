@@ -34,6 +34,90 @@ func TestRotatingFileWriter_Basic(t *testing.T) {
 	}
 }
 
+func TestRotatingFileWriter_CreatesPrivateLogFiles(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "logs")
+	path := filepath.Join(dir, "private.log")
+
+	w, err := NewRotatingFileWriter(path, 1, 2, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte("first\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	dirInfo, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := dirInfo.Mode().Perm(); got != 0o750 {
+		t.Fatalf("log dir permissions = %o, want 0750", got)
+	}
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fileInfo.Mode().Perm(); got != 0o600 {
+		t.Fatalf("log file permissions = %o, want 0600", got)
+	}
+}
+
+func TestCleanRotatingLogPath(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		path    string
+		want    string
+		wantErr bool
+	}{
+		{name: "relative", path: filepath.Join("logs", "..", "access.log"), want: "access.log"},
+		{name: "empty", wantErr: true},
+		{name: "nul", path: "access\x00.log", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := cleanRotatingLogPath(tt.path)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("cleanRotatingLogPath: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("cleanRotatingLogPath() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRotatingFileWriterRejectsInvalidPath(t *testing.T) {
+	t.Parallel()
+
+	for _, path := range []string{"", "access\x00.log"} {
+		if _, err := NewRotatingFileWriter(path, 1, 1, 0); err == nil {
+			t.Fatalf("expected invalid path error for %q", path)
+		}
+	}
+}
+
+func TestParseLogOutputRejectsNULFilePath(t *testing.T) {
+	t.Parallel()
+
+	if _, err := ParseLogOutput("access\x00.log", 1, 1, 0); err == nil {
+		t.Fatal("expected invalid file path error")
+	}
+}
+
 func TestRotatingFileWriter_Rotation(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "rotate.log")
@@ -71,6 +155,14 @@ func TestRotatingFileWriter_Rotation(t *testing.T) {
 	// .3 should not exist (maxBackups=2)
 	if _, err := os.Stat(path + ".3"); err == nil {
 		t.Error("backup .3 should have been removed")
+	}
+
+	currentInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := currentInfo.Mode().Perm(); got != 0o600 {
+		t.Fatalf("rotated current log permissions = %o, want 0600", got)
 	}
 }
 

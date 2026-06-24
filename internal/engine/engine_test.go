@@ -23,6 +23,41 @@ type mockEventStore struct {
 	closed bool
 }
 
+type failingEventStore struct {
+	err error
+}
+
+func (s failingEventStore) Store(Event) error {
+	return s.err
+}
+
+func (s failingEventStore) Close() error {
+	return nil
+}
+
+type closeCountingEventStore struct {
+	err   error
+	mu    sync.Mutex
+	count int
+}
+
+func (s *closeCountingEventStore) Store(Event) error {
+	return nil
+}
+
+func (s *closeCountingEventStore) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.count++
+	return s.err
+}
+
+func (s *closeCountingEventStore) closeCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.count
+}
+
 func newMockEventStore() *mockEventStore {
 	return &mockEventStore{}
 }
@@ -66,9 +101,11 @@ func (s *mockEventStore) get(i int) Event {
 
 // mockEventBus is a minimal event bus for testing.
 type mockEventBus struct {
-	mu          sync.Mutex
-	subscribers []chan<- Event
-	closed      bool
+	mu           sync.Mutex
+	subscribers  []chan<- Event
+	closed       bool
+	closeCalls   int
+	publishCalls int
 }
 
 func newMockEventBus() *mockEventBus {
@@ -87,6 +124,7 @@ func (b *mockEventBus) Subscribe(ch chan<- Event) {
 func (b *mockEventBus) Publish(event Event) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.publishCalls++
 	for _, ch := range b.subscribers {
 		select {
 		case ch <- event:
@@ -98,11 +136,27 @@ func (b *mockEventBus) Publish(event Event) {
 func (b *mockEventBus) Close() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.closeCalls++
+	if b.closed {
+		return
+	}
 	b.closed = true
 	for _, ch := range b.subscribers {
 		close(ch)
 	}
 	b.subscribers = nil
+}
+
+func (b *mockEventBus) closeCount() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.closeCalls
+}
+
+func (b *mockEventBus) publishCount() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.publishCalls
 }
 
 // --- Helpers ---
@@ -201,6 +255,30 @@ func TestEngine_Config_ReturnsDefensiveCopy(t *testing.T) {
 		if proxy == "127.0.0.1" {
 			t.Fatal("mutating Config() result changed engine trusted proxies")
 		}
+	}
+}
+
+func TestNewEngine_RejectsUnsafeDetectionThresholdConversions(t *testing.T) {
+	tests := []struct {
+		name  string
+		block int
+		log   int
+	}{
+		{name: "negative block threshold", block: -1, log: 25},
+		{name: "negative log threshold", block: 50, log: -1},
+		{name: "oversized block threshold", block: maxAtomicThreshold + 1, log: 25},
+		{name: "oversized log threshold", block: 50, log: maxAtomicThreshold + 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := config.DefaultConfig()
+			cfg.WAF.Detection.Threshold.Block = tt.block
+			cfg.WAF.Detection.Threshold.Log = tt.log
+			if _, err := NewEngine(cfg, newMockEventStore(), newMockEventBus()); err == nil {
+				t.Fatal("expected unsafe detection threshold to be rejected")
+			}
+		})
 	}
 }
 
@@ -678,6 +756,24 @@ func TestEngine_Reload(t *testing.T) {
 	}
 }
 
+func TestEngine_ReloadRejectsUnsafeDetectionThresholdConversions(t *testing.T) {
+	e, _, _ := testEngine(t)
+	defer e.Close()
+
+	cfg := config.DefaultConfig()
+	cfg.WAF.Detection.Threshold.Block = maxAtomicThreshold + 1
+	cfg.WAF.Detection.Threshold.Log = 10
+	if err := e.Reload(cfg); err == nil {
+		t.Fatal("expected reload to reject oversized threshold")
+	}
+	if got := e.blockThreshold.Load(); got != 50 {
+		t.Fatalf("expected block threshold to remain unchanged, got %d", got)
+	}
+	if got := e.logThreshold.Load(); got != 25 {
+		t.Fatalf("expected log threshold to remain unchanged, got %d", got)
+	}
+}
+
 func TestEngine_Reload_MaxBodySize(t *testing.T) {
 	e, _, _ := testEngine(t)
 	defer e.Close()
@@ -872,6 +968,105 @@ func TestEngine_Close(t *testing.T) {
 	}
 }
 
+func TestEngine_CloseIsIdempotent(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Events.Storage = "memory"
+	wantErr := errors.New("close failed")
+	store := &closeCountingEventStore{err: wantErr}
+	bus := newMockEventBus()
+	e, err := NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+
+	const callers = 16
+	var wg sync.WaitGroup
+	errCh := make(chan error, callers)
+	for range callers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errCh <- e.Close()
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		if !errors.Is(err, wantErr) {
+			t.Fatalf("Close error = %v, want %v", err, wantErr)
+		}
+	}
+	if got := store.closeCount(); got != 1 {
+		t.Fatalf("event store Close calls = %d, want 1", got)
+	}
+	if got := bus.closeCount(); got != 1 {
+		t.Fatalf("event bus Close calls = %d, want 1", got)
+	}
+}
+
+func TestEngine_CheckAfterCloseDoesNotStoreOrPublish(t *testing.T) {
+	e, store, bus := testEngine(t)
+	if err := e.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/after-close", nil)
+	event := e.Check(req)
+	if event == nil {
+		t.Fatal("expected Check to still return an event")
+	}
+	if got := store.len(); got != 0 {
+		t.Fatalf("stored events after Close = %d, want 0", got)
+	}
+	if got := bus.publishCount(); got != 0 {
+		t.Fatalf("published events after Close = %d, want 0", got)
+	}
+	if got := e.Stats().EventStoreErrors; got != 0 {
+		t.Fatalf("event store errors after Close = %d, want 0", got)
+	}
+}
+
+func TestEngine_StatsCountsEventStoreWriteErrors(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Events.Storage = "memory"
+	bus := newMockEventBus()
+	ch := make(chan Event, 1)
+	bus.Subscribe(ch)
+	e, err := NewEngine(cfg, failingEventStore{err: errors.New("disk full")}, bus)
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+	defer e.Close()
+
+	event := e.Check(testRequest("GET", "/store-error"))
+	if event == nil {
+		t.Fatal("expected event despite store failure")
+	}
+	stats := e.Stats()
+	if stats.EventStoreErrors != 1 {
+		t.Fatalf("event store errors = %d, want 1", stats.EventStoreErrors)
+	}
+	select {
+	case published := <-ch:
+		if published.ID != event.ID {
+			t.Fatalf("published event ID = %q, want %q", published.ID, event.ID)
+		}
+	default:
+		t.Fatal("expected event to still be published after store failure")
+	}
+	logs := e.Logs.Recent(10)
+	found := false
+	for _, entry := range logs {
+		if entry.Level == "error" && strings.Contains(entry.Message, "event store write failed") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected event store write failure log, got %#v", logs)
+	}
+}
+
 func TestEngine_Stats_AvgLatency(t *testing.T) {
 	e, _, _ := testEngine(t)
 	defer e.Close()
@@ -895,6 +1090,62 @@ func TestEngine_Stats_AvgLatency(t *testing.T) {
 	// Avg latency should be non-negative (likely very small but non-negative)
 	if stats.AvgLatencyUs < 0 {
 		t.Errorf("average latency should be non-negative, got %d", stats.AvgLatencyUs)
+	}
+}
+
+func TestEngine_Stats_LatencyHistogramBuckets(t *testing.T) {
+	e, _, _ := testEngine(t)
+	defer e.Close()
+
+	e.recordStats(ActionPass, 50*time.Microsecond)
+	e.recordStats(ActionPass, 750*time.Microsecond)
+	e.recordStats(ActionPass, 7*time.Second)
+
+	stats := e.Stats()
+	if stats.TotalRequests != 3 {
+		t.Fatalf("expected 3 total requests, got %d", stats.TotalRequests)
+	}
+	if stats.LatencySumUs != 7_000_800 {
+		t.Fatalf("expected latency sum 7000800us, got %d", stats.LatencySumUs)
+	}
+	if len(stats.LatencyBuckets) != len(requestLatencyBucketBoundsUs) {
+		t.Fatalf("expected %d latency buckets, got %d", len(requestLatencyBucketBoundsUs), len(stats.LatencyBuckets))
+	}
+	if stats.LatencyBuckets[0].UpperBoundMicros != 100 || stats.LatencyBuckets[0].Count != 1 {
+		t.Fatalf("expected <=100us bucket count 1, got %+v", stats.LatencyBuckets[0])
+	}
+	if stats.LatencyBuckets[2].UpperBoundMicros != 1_000 || stats.LatencyBuckets[2].Count != 2 {
+		t.Fatalf("expected <=1000us bucket count 2, got %+v", stats.LatencyBuckets[2])
+	}
+	last := stats.LatencyBuckets[len(stats.LatencyBuckets)-1]
+	if last.UpperBoundMicros != 5_000_000 || last.Count != 2 {
+		t.Fatalf("expected <=5s bucket count 2, got %+v", last)
+	}
+}
+
+func TestEngine_Stats_LayerTimingHistogramBuckets(t *testing.T) {
+	e, _, _ := testEngine(t)
+	defer e.Close()
+
+	e.AddLayer(OrderedLayer{Layer: &passLayer{name: "timing"}, Order: 1})
+	e.Check(testRequest("GET", "/layer-timing"))
+
+	stats := e.Stats()
+	if len(stats.LayerTiming) != 1 {
+		t.Fatalf("expected 1 layer timing stat, got %#v", stats.LayerTiming)
+	}
+	layer := stats.LayerTiming[0]
+	if layer.Layer != "timing" {
+		t.Fatalf("expected timing layer, got %q", layer.Layer)
+	}
+	if layer.Count != 1 {
+		t.Fatalf("expected layer count 1, got %d", layer.Count)
+	}
+	if len(layer.LatencyBuckets) != len(requestLatencyBucketBoundsUs) {
+		t.Fatalf("expected %d layer timing buckets, got %d", len(requestLatencyBucketBoundsUs), len(layer.LatencyBuckets))
+	}
+	if layer.LatencyBuckets[len(layer.LatencyBuckets)-1].Count != 1 {
+		t.Fatalf("expected final layer timing bucket count 1, got %+v", layer.LatencyBuckets[len(layer.LatencyBuckets)-1])
 	}
 }
 
@@ -1422,16 +1673,14 @@ func TestEngine_TenantContext_Propagation(t *testing.T) {
 		WAFConfig: &config.WAFConfig{},
 	}
 
-	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Inject tenant context into request
-		ctx := context.WithValue(r.Context(), tenantContextKey, tenantCtx)
-		r = r.WithContext(ctx)
+	handler := e.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-	})
+	}))
 
-	handler := e.Middleware(next)
 	rec := httptest.NewRecorder()
 	r2 := testRequest("GET", "/tenant-test")
+	ctx := context.WithValue(r2.Context(), tenantContextKey, tenantCtx)
+	r2 = r2.WithContext(ctx)
 	handler.ServeHTTP(rec, r2)
 
 	// The middleware should have extracted tenant context and set it on ctx.TenantWAFConfig

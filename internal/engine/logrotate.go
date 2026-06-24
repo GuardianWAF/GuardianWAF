@@ -27,19 +27,23 @@ type RotatingFileWriter struct {
 // maxSize is in MB, maxBackups is the number of .1, .2, ... files to keep,
 // maxAgeDays removes backups older than N days (0 = no age limit).
 func NewRotatingFileWriter(path string, maxSizeMB, maxBackups, maxAgeDays int) (*RotatingFileWriter, error) {
+	cleanPath, err := cleanRotatingLogPath(path)
+	if err != nil {
+		return nil, err
+	}
 	if maxBackups < 1 {
 		maxBackups = 5
 	}
 	if maxSizeMB < 1 {
 		maxSizeMB = 100
 	}
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	dir := filepath.Dir(cleanPath)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return nil, fmt.Errorf("create log dir %s: %w", dir, err)
 	}
 
 	w := &RotatingFileWriter{
-		path:       path,
+		path:       cleanPath,
 		maxSize:    int64(maxSizeMB) * 1024 * 1024,
 		maxBackups: maxBackups,
 	}
@@ -47,9 +51,9 @@ func NewRotatingFileWriter(path string, maxSizeMB, maxBackups, maxAgeDays int) (
 		w.maxAge = time.Duration(maxAgeDays) * 24 * time.Hour
 	}
 
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	f, err := os.OpenFile(cleanPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600) // #nosec G304 -- operator-selected log sink is rejected on empty/NUL and cleaned before use.
 	if err != nil {
-		return nil, fmt.Errorf("open log file %s: %w", path, err)
+		return nil, fmt.Errorf("open log file %s: %w", cleanPath, err)
 	}
 	w.file = f
 	fi, _ := f.Stat()
@@ -104,7 +108,7 @@ func (w *RotatingFileWriter) rotate() error {
 	}
 	os.Rename(w.path, fmt.Sprintf("%s.1", w.path))
 
-	f, err := os.OpenFile(w.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	f, err := os.OpenFile(w.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600) // #nosec G304 -- w.path is normalized by NewRotatingFileWriter before storage.
 	if err != nil {
 		return err
 	}
@@ -157,6 +161,16 @@ func ParseLogOutput(output string, maxSizeMB, maxBackups, maxAgeDays int) (Write
 	default:
 		return NewRotatingFileWriter(output, maxSizeMB, maxBackups, maxAgeDays)
 	}
+}
+
+func cleanRotatingLogPath(path string) (string, error) {
+	if strings.ContainsRune(path, 0) {
+		return "", fmt.Errorf("log file path contains NUL byte")
+	}
+	if path == "" {
+		return "", fmt.Errorf("log file path must not be empty")
+	}
+	return filepath.Clean(path), nil
 }
 
 // WriteCloser combines io.Writer and io.Closer.
