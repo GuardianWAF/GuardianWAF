@@ -11,21 +11,24 @@ package testreliability
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 )
 
 // TestResult records a single test outcome.
 type TestResult struct {
-	Name     string    `json:"name"`
-	Package  string    `json:"package"`
-	Passed   bool      `json:"passed"`
-	Duration float64   `json:"duration_sec"`
-	RunID    string    `json:"run_id"`
-	Time     time.Time `json:"time"`
-	GoVersion string  `json:"go_version"`
+	Name      string    `json:"name"`
+	Package   string    `json:"package"`
+	Passed    bool      `json:"passed"`
+	Duration  float64   `json:"duration_sec"`
+	RunID     string    `json:"run_id"`
+	Time      time.Time `json:"time"`
+	GoVersion string    `json:"go_version"`
 }
 
 // runID is unique per test run.
@@ -75,7 +78,12 @@ func (r *Recorder) Flush() error {
 		return nil
 	}
 
-	f, err := os.OpenFile(r.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	cleanPath, err := cleanResultPath(r.path, false)
+	if err != nil {
+		return err
+	}
+
+	f, err := os.OpenFile(cleanPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600) // #nosec G304 -- result file is caller-selected test output, rejected on NUL and cleaned before use.
 	if err != nil {
 		return err
 	}
@@ -109,7 +117,12 @@ func (r *Recorder) Flush() error {
 // DetectFlaky reads a JSONL results file and finds tests that both passed
 // and failed across different runs. Returns test names that flipped.
 func DetectFlaky(path string) []string {
-	data, err := os.ReadFile(path)
+	cleanPath, err := cleanResultPath(path, false)
+	if err != nil {
+		return nil
+	}
+
+	data, err := os.ReadFile(cleanPath) // #nosec G304 -- result file is caller-selected test input, rejected on NUL and cleaned before use.
 	if err != nil {
 		return nil
 	}
@@ -166,6 +179,19 @@ func DetectFlaky(path string) []string {
 
 func inferPackage() string {
 	return ""
+}
+
+func cleanResultPath(path string, allowEmpty bool) (string, error) {
+	if strings.ContainsRune(path, 0) {
+		return "", fmt.Errorf("test result path contains NUL byte")
+	}
+	if path == "" {
+		if allowEmpty {
+			return "", nil
+		}
+		return "", fmt.Errorf("test result path must not be empty")
+	}
+	return filepath.Clean(path), nil
 }
 
 func splitLines(s string) []string {

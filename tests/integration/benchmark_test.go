@@ -1,9 +1,15 @@
 package integration
 
 import (
+	"bytes"
+	"compress/flate"
+	"compress/gzip"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -60,6 +66,94 @@ func BenchmarkEngine_XSSRequest(b *testing.B) {
 	for range b.N {
 		eng.Check(req)
 	}
+}
+
+func BenchmarkEngine_LargeHeaders(b *testing.B) {
+	eng, _ := setupIntegrationEngine(b)
+	defer eng.Close()
+
+	headerValue := strings.Repeat("a", 512)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		req := httptest.NewRequest("GET", "/api/data", nil)
+		req.RemoteAddr = "1.2.3.4:12345"
+		for i := 0; i < 100; i++ {
+			req.Header.Set(fmt.Sprintf("X-Bench-%03d", i), headerValue)
+		}
+		eng.Check(req)
+	}
+}
+
+func BenchmarkEngine_LargeBody(b *testing.B) {
+	eng, _ := setupIntegrationEngine(b)
+	defer eng.Close()
+
+	body := []byte(strings.Repeat(`{"message":"hello world","value":42}`+"\n", 4096))
+
+	b.ReportAllocs()
+	b.SetBytes(int64(len(body)))
+	b.ResetTimer()
+	for range b.N {
+		req := httptest.NewRequest("POST", "/api/upload", bytes.NewReader(body))
+		req.RemoteAddr = "1.2.3.4:12345"
+		req.Header.Set("Content-Type", "application/json")
+		eng.Check(req)
+	}
+}
+
+func BenchmarkEngine_GzipBody(b *testing.B) {
+	benchmarkCompressedBody(b, "gzip")
+}
+
+func BenchmarkEngine_DeflateBody(b *testing.B) {
+	benchmarkCompressedBody(b, "deflate")
+}
+
+func benchmarkCompressedBody(b *testing.B, encoding string) {
+	b.Helper()
+	eng, _ := setupIntegrationEngine(b)
+	defer eng.Close()
+
+	raw := []byte(strings.Repeat(`{"query":"normal search","page":1}`+"\n", 4096))
+	compressed := compressBenchmarkPayload(b, encoding, raw)
+
+	b.ReportAllocs()
+	b.SetBytes(int64(len(raw)))
+	b.ResetTimer()
+	for range b.N {
+		req := httptest.NewRequest("POST", "/api/search", bytes.NewReader(compressed))
+		req.RemoteAddr = "1.2.3.4:12345"
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Content-Encoding", encoding)
+		eng.Check(req)
+	}
+}
+
+func compressBenchmarkPayload(b testing.TB, encoding string, raw []byte) []byte {
+	b.Helper()
+	var buf bytes.Buffer
+	var w io.WriteCloser
+	switch encoding {
+	case "gzip":
+		w = gzip.NewWriter(&buf)
+	case "deflate":
+		fw, err := flate.NewWriter(&buf, flate.DefaultCompression)
+		if err != nil {
+			b.Fatalf("flate.NewWriter() error = %v", err)
+		}
+		w = fw
+	default:
+		b.Fatalf("unsupported encoding %q", encoding)
+	}
+	if _, err := w.Write(raw); err != nil {
+		b.Fatalf("compress write error = %v", err)
+	}
+	if err := w.Close(); err != nil {
+		b.Fatalf("compress close error = %v", err)
+	}
+	return buf.Bytes()
 }
 
 func BenchmarkSQLiTokenizer(b *testing.B) {
@@ -231,6 +325,69 @@ func BenchmarkEventStore(b *testing.B) {
 		}
 		_ = store.Store(ev)
 	}
+}
+
+func BenchmarkEventStore_HighEventRate(b *testing.B) {
+	store := events.NewMemoryStore(100000)
+	ev := engine.Event{
+		ID:         "bench-event",
+		Timestamp:  time.Now(),
+		RequestID:  "req-1",
+		ClientIP:   "1.2.3.4",
+		Method:     "GET",
+		Path:       "/hello",
+		Action:     engine.ActionPass,
+		Score:      0,
+		StatusCode: 200,
+	}
+
+	b.ReportAllocs()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			_ = store.Store(ev)
+		}
+	})
+}
+
+func BenchmarkRouteLookup_ManyRoutes(b *testing.B) {
+	vhosts := make([]config.VirtualHostConfig, 100)
+	for i := range vhosts {
+		routes := make([]config.RouteConfig, 100)
+		for j := range routes {
+			routes[j] = config.RouteConfig{
+				Path:     fmt.Sprintf("/tenant-%03d/service-%03d", i, j),
+				Upstream: fmt.Sprintf("backend-%03d-%03d", i, j),
+			}
+		}
+		vhosts[i] = config.VirtualHostConfig{
+			Domains: []string{fmt.Sprintf("tenant-%03d.example.com", i)},
+			Routes:  routes,
+		}
+	}
+	req := httptest.NewRequest("GET", "https://tenant-099.example.com/tenant-099/service-099/orders", nil)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		vh := config.FindVirtualHost(vhosts, req.Host)
+		if vh == nil {
+			b.Fatal("virtual host not found")
+		}
+		if route := findBenchmarkRoute(vh.Routes, req); route == nil {
+			b.Fatal("route not found")
+		}
+	}
+}
+
+func findBenchmarkRoute(routes []config.RouteConfig, req *http.Request) *config.RouteConfig {
+	var best *config.RouteConfig
+	for i := range routes {
+		route := &routes[i]
+		if strings.HasPrefix(req.URL.Path, route.Path) && (best == nil || len(route.Path) > len(best.Path)) {
+			best = route
+		}
+	}
+	return best
 }
 
 func BenchmarkEngine_FullPipeline_MultiParam(b *testing.B) {

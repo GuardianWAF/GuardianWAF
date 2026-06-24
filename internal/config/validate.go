@@ -62,7 +62,11 @@ func ResolveConfigPath(explicit string) string {
 		return p
 	}
 	if env := os.Getenv("GWAF_ENV"); env != "" {
+		if !safeConfigEnvName(env) {
+			return "guardianwaf.yaml"
+		}
 		name := "guardianwaf." + env + ".yaml"
+		// #nosec G703 -- env is restricted to a single filename-safe fragment above.
 		if _, err := os.Stat(name); err == nil {
 			return name
 		}
@@ -70,9 +74,88 @@ func ResolveConfigPath(explicit string) string {
 	return "guardianwaf.yaml"
 }
 
+func safeConfigEnvName(env string) bool {
+	if env == "" {
+		return false
+	}
+	for _, r := range env {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '_' || r == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func cleanConfigPath(path string) (string, error) {
+	if strings.ContainsRune(path, 0) {
+		return "", fmt.Errorf("config path contains NUL byte")
+	}
+	if path == "" {
+		return ".", nil
+	}
+	return filepath.Clean(path), nil
+}
+
+func configChildFile(dir, name string, allowedExts ...string) (string, error) {
+	dir, err := cleanConfigPath(dir)
+	if err != nil {
+		return "", err
+	}
+	if name == "" || strings.ContainsRune(name, 0) {
+		return "", fmt.Errorf("invalid config file name %q", name)
+	}
+	if filepath.Base(name) != name || strings.ContainsAny(name, `/\`) {
+		return "", fmt.Errorf("config file name %q must not contain path separators", name)
+	}
+	if len(allowedExts) > 0 && !hasAllowedConfigExt(name, allowedExts) {
+		return "", fmt.Errorf("config file %q has unsupported extension", name)
+	}
+
+	path := filepath.Join(dir, name)
+	if !configPathWithinDir(dir, path) {
+		return "", fmt.Errorf("config file %q escapes directory %q", name, dir)
+	}
+	return path, nil
+}
+
+func hasAllowedConfigExt(name string, allowedExts []string) bool {
+	for _, ext := range allowedExts {
+		if strings.HasSuffix(name, ext) {
+			return true
+		}
+	}
+	return false
+}
+
+func configPathWithinDir(dir, path string) bool {
+	dirAbs, err := filepath.Abs(dir)
+	if err != nil {
+		return false
+	}
+	pathAbs, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(dirAbs, pathAbs)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)))
+}
+
 // LoadFile reads a YAML config file, parses it, and returns a populated Config.
 // Starts with defaults, then overlays values from the file.
 func LoadFile(path string) (*Config, error) {
+	path, err := cleanConfigPath(path)
+	if err != nil {
+		return nil, fmt.Errorf("validating config file path: %w", err)
+	}
+	// #nosec G304 -- config file path is operator-selected, NUL-rejected, and cleaned before use.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading config file: %w", err)
@@ -224,8 +307,13 @@ func isStructuredNodeKind(node *Node) bool {
 //
 // Arrays are appended (not replaced) when loading from subdirectory files.
 func LoadDir(dir string) (*Config, error) {
+	dir, err := cleanConfigPath(dir)
+	if err != nil {
+		return nil, fmt.Errorf("validating config directory path: %w", err)
+	}
+
 	// Load main config file
-	mainPath := dir + string(os.PathSeparator) + "guardianwaf.yaml"
+	mainPath := filepath.Join(dir, "guardianwaf.yaml")
 	cfg, err := LoadFile(mainPath)
 	if err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("loading main config: %w", err)
@@ -239,15 +327,17 @@ func LoadDir(dir string) (*Config, error) {
 	subdirs := map[string]func(path string, cfg *Config) error{
 		"rules.d":   appendRulesFromDir,
 		"domains.d": appendDomainsFromDir,
-		"tenants.d": appendTenantsFromDir,
 	}
 
 	for subdir, loader := range subdirs {
-		subdirPath := dir + string(os.PathSeparator) + subdir
+		subdirPath := filepath.Join(dir, subdir)
 		if entries, err := os.ReadDir(subdirPath); err == nil {
 			for _, entry := range entries {
 				if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".yaml") {
-					filePath := subdirPath + string(os.PathSeparator) + entry.Name()
+					filePath, err := configChildFile(subdirPath, entry.Name(), ".yaml")
+					if err != nil {
+						return nil, fmt.Errorf("loading %s: %w", subdirPath, err)
+					}
 					if err := loader(filePath, cfg); err != nil {
 						return nil, fmt.Errorf("loading %s: %w", filePath, err)
 					}
@@ -256,11 +346,20 @@ func LoadDir(dir string) (*Config, error) {
 		}
 	}
 
+	if err := appendTenantsFromDir(filepath.Join(dir, "tenants.d"), cfg); err != nil {
+		return nil, fmt.Errorf("loading tenants.d: %w", err)
+	}
+
 	return cfg, nil
 }
 
 // appendRulesFromDir loads rules from a rules.d/*.yaml file and appends to config.
 func appendRulesFromDir(path string, cfg *Config) error {
+	path, err := cleanConfigPath(path)
+	if err != nil {
+		return err
+	}
+	// #nosec G304 -- caller supplies a cleaned rules.d child file selected from directory entries.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
@@ -313,6 +412,11 @@ func appendRulesFromDir(path string, cfg *Config) error {
 
 // appendDomainsFromDir loads domain configs from domains.d/*.yaml and appends to virtual hosts.
 func appendDomainsFromDir(path string, cfg *Config) error {
+	path, err := cleanConfigPath(path)
+	if err != nil {
+		return err
+	}
+	// #nosec G304 -- caller supplies a cleaned domains.d child file selected from directory entries.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
@@ -529,6 +633,11 @@ func DefaultWAFConfig() WAFConfig {
 
 // appendTenantsFromDir loads tenant configs from tenants.d/*.yaml and appends.
 func appendTenantsFromDir(dir string, cfg *Config) error {
+	dir, err := cleanConfigPath(dir)
+	if err != nil {
+		return fmt.Errorf("validate tenants directory: %w", err)
+	}
+
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -546,7 +655,12 @@ func appendTenantsFromDir(dir string, cfg *Config) error {
 			continue
 		}
 
-		data, err := os.ReadFile(filepath.Join(dir, name))
+		path, err := configChildFile(dir, name, ".yaml", ".yml")
+		if err != nil {
+			return fmt.Errorf("tenant file %s: %w", name, err)
+		}
+		// #nosec G304 -- tenant file path is constrained to a cleaned tenants.d child file.
+		data, err := os.ReadFile(path)
 		if err != nil {
 			return fmt.Errorf("read tenant file %s: %w", name, err)
 		}
@@ -763,6 +877,9 @@ func LoadEnv(cfg *Config) {
 				cfg.AllowPrivateUpstreams = &b
 			}
 		},
+		"GWAF_ALLOWED_UPSTREAM_CIDRS": func(v string) {
+			cfg.AllowedUpstreamCIDRs = splitCommaList(v)
+		},
 
 		"GWAF_LOGGING_LEVEL":  func(v string) { cfg.Logging.Level = v },
 		"GWAF_LOGGING_FORMAT": func(v string) { cfg.Logging.Format = v },
@@ -874,6 +991,7 @@ func Validate(cfg *Config) error {
 
 	// Trusted proxy validation
 	validateTrustedProxies(cfg.TrustedProxies, ve)
+	validateAllowedUpstreamCIDRs(cfg.AllowedUpstreamCIDRs, ve)
 
 	// TLS validation
 	validateTLS(&cfg.TLS, ve)
@@ -895,6 +1013,9 @@ func Validate(cfg *Config) error {
 
 	// Events validation
 	validateEvents(&cfg.Events, ve)
+
+	// Docker discovery validation
+	validateDocker(&cfg.Docker, ve)
 
 	// Virtual hosts validation
 	validateVirtualHosts(cfg.VirtualHosts, cfg.Upstreams, ve)
@@ -1056,11 +1177,138 @@ func validateTrustedProxies(proxies []string, ve *ValidationError) {
 	}
 }
 
+func validateAllowedUpstreamCIDRs(cidrs []string, ve *ValidationError) {
+	for i, entry := range cidrs {
+		field := fmt.Sprintf("allowed_upstream_cidrs[%d]", i)
+		if !isValidIPOrCIDR(entry) {
+			ve.addError(field, fmt.Sprintf("invalid IP or CIDR: %q", entry))
+			continue
+		}
+		if !strings.Contains(entry, "/") {
+			ip := net.ParseIP(entry)
+			if ip == nil {
+				continue
+			}
+			if ip.IsUnspecified() || ip.IsMulticast() {
+				ve.addError(field, fmt.Sprintf("must not allow unspecified or multicast address %q", entry))
+			}
+			continue
+		}
+		ip, cidr, err := net.ParseCIDR(entry)
+		if err != nil {
+			continue
+		}
+		ones, _ := cidr.Mask.Size()
+		if ip.IsUnspecified() {
+			ve.addError(field, fmt.Sprintf("must not allow unspecified range %q", entry))
+			continue
+		}
+		if ones == 0 {
+			ve.addError(field, fmt.Sprintf("must not allow all addresses: %q", entry))
+		}
+		if ip.IsMulticast() {
+			ve.addError(field, fmt.Sprintf("must not allow multicast range %q", entry))
+		}
+	}
+}
+
+func splitCommaList(v string) []string {
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
 func validateWAF(waf *WAFConfig, ve *ValidationError) {
 	validateDetection(&waf.Detection, ve)
 	validateRateLimit(&waf.RateLimit, ve)
 	validateIPACL(&waf.IPACL, ve)
 	validateSanitizer(&waf.Sanitizer, ve)
+	validateGeoIP(&waf.GeoIP, ve)
+	validateAIAnalysis(&waf.AIAnalysis, ve)
+}
+
+func validateGeoIP(geo *GeoIPConfig, ve *ValidationError) {
+	if geo.RequireReady && !geo.Enabled {
+		ve.addError("waf.geoip.require_ready", "requires waf.geoip.enabled to be true")
+	}
+}
+
+func validateAIAnalysis(ai *AIAnalysisConfig, ve *ValidationError) {
+	if !ai.Enabled {
+		return
+	}
+	if ai.BatchSize <= 0 {
+		ve.addError("waf.ai_analysis.batch_size", fmt.Sprintf("must be > 0; got %d", ai.BatchSize))
+	}
+	if ai.BatchSize > 1000 {
+		ve.addError("waf.ai_analysis.batch_size", fmt.Sprintf("must be <= 1000 to bound pending AI batch memory; got %d", ai.BatchSize))
+	}
+	if ai.BatchInterval <= 0 {
+		ve.addError("waf.ai_analysis.batch_interval", fmt.Sprintf("must be > 0; got %v", ai.BatchInterval))
+	}
+	if ai.MinScore < 0 {
+		ve.addError("waf.ai_analysis.min_score", fmt.Sprintf("must be >= 0; got %d", ai.MinScore))
+	}
+	if ai.MaxTokensPerHour < 0 {
+		ve.addError("waf.ai_analysis.max_tokens_per_hour", fmt.Sprintf("must be >= 0; got %d", ai.MaxTokensPerHour))
+	}
+	if ai.MaxTokensPerDay < 0 {
+		ve.addError("waf.ai_analysis.max_tokens_per_day", fmt.Sprintf("must be >= 0; got %d", ai.MaxTokensPerDay))
+	}
+	if ai.MaxRequestsHour < 0 {
+		ve.addError("waf.ai_analysis.max_requests_per_hour", fmt.Sprintf("must be >= 0; got %d", ai.MaxRequestsHour))
+	}
+	if ai.AutoBlockTTL < 0 {
+		ve.addError("waf.ai_analysis.auto_block_ttl", fmt.Sprintf("must be >= 0; got %v", ai.AutoBlockTTL))
+	}
+}
+
+func validateDocker(dock *DockerConfig, ve *ValidationError) {
+	if !dock.Enabled {
+		return
+	}
+	if dock.SocketPath == "" {
+		ve.addError("docker.socket_path", "must not be empty when Docker discovery is enabled")
+		return
+	}
+	if strings.ContainsAny(dock.SocketPath, "\x00\r\n\t") {
+		ve.addError("docker.socket_path", "must not contain control characters")
+		return
+	}
+
+	if strings.HasPrefix(dock.SocketPath, "tcp://") {
+		u, err := url.Parse(dock.SocketPath)
+		if err != nil || u.Host == "" {
+			ve.addError("docker.socket_path", fmt.Sprintf("invalid Docker TCP endpoint %q", dock.SocketPath))
+			return
+		}
+		if u.User != nil {
+			ve.addError("docker.socket_path", "must not include credentials")
+		}
+		if !dock.TLSVerify {
+			ve.addError("docker.tls_verify", "must be true for tcp:// Docker endpoints")
+		}
+		if dock.TLSCACert == "" {
+			ve.addError("docker.tls_ca_cert", "must not be empty for tcp:// Docker endpoints")
+		}
+		if dock.TLSCert == "" {
+			ve.addError("docker.tls_cert", "must not be empty for tcp:// Docker endpoints")
+		}
+		if dock.TLSKey == "" {
+			ve.addError("docker.tls_key", "must not be empty for tcp:// Docker endpoints")
+		}
+		return
+	}
+
+	if dock.TLSVerify || dock.TLSCACert != "" || dock.TLSCert != "" || dock.TLSKey != "" {
+		ve.addError("docker.tls_verify", "remote Docker TLS fields are only supported with tcp:// Docker endpoints")
+	}
 }
 
 func validateDetection(det *DetectionConfig, ve *ValidationError) {
@@ -1160,6 +1408,9 @@ func validateDashboard(dash *DashboardConfig, ve *ValidationError) {
 	}
 	if dash.Listen != "" {
 		validateListenAddr(dash.Listen, "dashboard.listen", ve)
+	}
+	if dash.TLS {
+		ve.addError("dashboard.tls", "built-in dashboard TLS termination is not implemented; keep this false and terminate TLS at an ingress or reverse proxy")
 	}
 	validateDashboardSecret("dashboard.api_key", dash.APIKey, ve)
 	validateDashboardSecret("dashboard.admin_key", dash.AdminKey, ve)

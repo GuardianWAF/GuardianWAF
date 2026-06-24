@@ -363,6 +363,34 @@ active: true
 	}
 }
 
+func TestLoadDir_WithTenants(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmpDir, "tenants.d"), 0o755); err != nil {
+		t.Fatalf("create tenants.d: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "guardianwaf.yaml"), []byte("mode: enforce\n"), 0o644); err != nil {
+		t.Fatalf("write main config: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "tenants.d", "tenant.yaml"), []byte(`
+id: tenant-load-dir
+name: LoadDir Tenant
+active: true
+`), 0o644); err != nil {
+		t.Fatalf("write tenant config: %v", err)
+	}
+
+	cfg, err := LoadDir(tmpDir)
+	if err != nil {
+		t.Fatalf("LoadDir: %v", err)
+	}
+	if len(cfg.Tenant.Tenants) != 1 {
+		t.Fatalf("tenants: got %d, want 1", len(cfg.Tenant.Tenants))
+	}
+	if cfg.Tenant.Tenants[0].ID != "tenant-load-dir" {
+		t.Fatalf("tenant ID: got %q", cfg.Tenant.Tenants[0].ID)
+	}
+}
+
 // TestAppendTenantsFromDir_NonExistent tests appendTenantsFromDir with non-existent dir.
 func TestAppendTenantsFromDir_NonExistent(t *testing.T) {
 	cfg := DefaultConfig()
@@ -722,6 +750,25 @@ func TestResolveConfigPath_Coverage(t *testing.T) {
 		// If the file doesn't exist, falls back to default
 		if p := ResolveConfigPath(""); p != "guardianwaf.yaml" {
 			t.Logf("ResolveConfigPath returned %q (file may exist)", p)
+		}
+	})
+	t.Run("env-based existing file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Chdir(tmpDir)
+		t.Setenv("GWAF_CONFIG_PATH", "")
+		t.Setenv("GWAF_ENV", "staging-1")
+		if err := os.WriteFile("guardianwaf.staging-1.yaml", []byte("mode: enforce\n"), 0o644); err != nil {
+			t.Fatalf("write env config: %v", err)
+		}
+		if p := ResolveConfigPath(""); p != "guardianwaf.staging-1.yaml" {
+			t.Errorf("got %q, want guardianwaf.staging-1.yaml", p)
+		}
+	})
+	t.Run("unsafe env name falls back", func(t *testing.T) {
+		t.Setenv("GWAF_CONFIG_PATH", "")
+		t.Setenv("GWAF_ENV", "../staging")
+		if p := ResolveConfigPath(""); p != "guardianwaf.yaml" {
+			t.Errorf("got %q, want guardianwaf.yaml", p)
 		}
 	})
 	t.Run("default", func(t *testing.T) {

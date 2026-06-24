@@ -3,6 +3,7 @@ package testreliability
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -77,5 +78,43 @@ func TestDetectFlaky_EmptyFile(t *testing.T) {
 	flaky := DetectFlaky("/nonexistent/path.jsonl")
 	if len(flaky) != 0 {
 		t.Error("should return empty for missing file")
+	}
+}
+
+func TestCleanResultPath(t *testing.T) {
+	dir := t.TempDir()
+	dirty := filepath.Join(dir, "results", "..", "results.jsonl")
+
+	clean, err := cleanResultPath(dirty, false)
+	if err != nil {
+		t.Fatalf("cleanResultPath returned error: %v", err)
+	}
+	if clean != filepath.Clean(dirty) {
+		t.Fatalf("cleanResultPath = %q, want %q", clean, filepath.Clean(dirty))
+	}
+
+	if clean, err := cleanResultPath("", true); err != nil || clean != "" {
+		t.Fatalf("cleanResultPath empty allow = %q, %v", clean, err)
+	}
+	if _, err := cleanResultPath("", false); err == nil {
+		t.Fatal("expected empty path to be rejected")
+	}
+	if _, err := cleanResultPath("bad\x00path", false); err == nil || !strings.Contains(err.Error(), "NUL") {
+		t.Fatalf("expected NUL path rejection, got %v", err)
+	}
+}
+
+func TestRecorderFlushRejectsInvalidPath(t *testing.T) {
+	rec := NewRecorder("bad\x00path")
+	rec.Record("TestInvalidPath", true, 10000000)
+	if err := rec.Flush(); err == nil || !strings.Contains(err.Error(), "NUL") {
+		t.Fatalf("expected NUL path error, got %v", err)
+	}
+}
+
+func TestDetectFlakyRejectsInvalidPath(t *testing.T) {
+	flaky := DetectFlaky("bad\x00path")
+	if len(flaky) != 0 {
+		t.Fatalf("expected invalid path to return no flaky tests, got %v", flaky)
 	}
 }

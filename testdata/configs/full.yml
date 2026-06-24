@@ -158,7 +158,7 @@ dashboard:
   enabled: true
   listen: ":9443"
   api_key: "test-api-key-12345"
-  tls: true
+  tls: false
 
 mcp:
   enabled: true

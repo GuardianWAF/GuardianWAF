@@ -20,6 +20,9 @@ logging:
   format: text
   output: stderr
 waf:
+  geoip:
+    enabled: true
+    require_ready: true
   detection:
     enabled: true
     threshold:
@@ -65,6 +68,9 @@ routes:
 	if cfg.WAF.Detection.Threshold.Log != 30 {
 		t.Fatalf("expected log threshold 30, got %d", cfg.WAF.Detection.Threshold.Log)
 	}
+	if !cfg.WAF.GeoIP.Enabled || !cfg.WAF.GeoIP.RequireReady {
+		t.Fatalf("expected GeoIP enabled with require_ready, got enabled=%v require_ready=%v", cfg.WAF.GeoIP.Enabled, cfg.WAF.GeoIP.RequireReady)
+	}
 	if cfg.Events.Storage != "file" {
 		t.Fatalf("expected events storage 'file', got %q", cfg.Events.Storage)
 	}
@@ -87,6 +93,36 @@ func TestLoadFile_NotFound(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "reading config file") {
 		t.Fatalf("expected reading config file error, got: %v", err)
+	}
+}
+
+func TestLoadFile_RejectsNULPath(t *testing.T) {
+	_, err := LoadFile("bad\x00.yaml")
+	if err == nil {
+		t.Fatal("expected error for NUL path")
+	}
+	if !strings.Contains(err.Error(), "NUL") {
+		t.Fatalf("expected NUL path error, got: %v", err)
+	}
+}
+
+func TestConfigChildFile(t *testing.T) {
+	dir := t.TempDir()
+
+	path, err := configChildFile(dir, "safe.yaml", ".yaml")
+	if err != nil {
+		t.Fatalf("configChildFile valid: %v", err)
+	}
+	if path != filepath.Join(dir, "safe.yaml") {
+		t.Fatalf("path: got %q, want %q", path, filepath.Join(dir, "safe.yaml"))
+	}
+
+	for _, name := range []string{"../escape.yaml", "nested/escape.yaml", `nested\escape.yaml`, "bad.txt", "bad\x00.yaml"} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := configChildFile(dir, name, ".yaml"); err == nil {
+				t.Fatalf("expected error for %q", name)
+			}
+		})
 	}
 }
 
@@ -425,6 +461,27 @@ func TestValidate_ValidConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no validation errors for DefaultConfig, got: %v", err)
 	}
+}
+
+func TestValidate_DashboardTLSUnsupported(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Dashboard.TLS = true
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("expected validation error for unsupported dashboard TLS termination")
+	}
+	ve, ok := err.(*ValidationError)
+	if !ok {
+		t.Fatalf("expected *ValidationError, got %T", err)
+	}
+
+	for _, fe := range ve.Errors {
+		if fe.Field == "dashboard.tls" && strings.Contains(fe.Message, "reverse proxy") {
+			return
+		}
+	}
+	t.Fatalf("expected dashboard.tls reverse proxy validation error, got: %v", err)
 }
 
 func TestValidate_InvalidMode(t *testing.T) {
@@ -1180,6 +1237,20 @@ func TestValidate_DisabledSectionsSkipValidation(t *testing.T) {
 	}
 }
 
+func TestValidate_GeoIPRequireReadyRequiresEnabled(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.WAF.GeoIP.Enabled = false
+	cfg.WAF.GeoIP.RequireReady = true
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("expected validation error when GeoIP require_ready is set while GeoIP is disabled")
+	}
+	if !strings.Contains(err.Error(), "waf.geoip.require_ready") {
+		t.Fatalf("expected waf.geoip.require_ready error, got: %v", err)
+	}
+}
+
 func TestValidate_ValidModesAllPass(t *testing.T) {
 	for _, mode := range []string{"enforce", "monitor", "disabled"} {
 		t.Run(mode, func(t *testing.T) {
@@ -1499,5 +1570,93 @@ func TestValidateListenAddr_InvalidFormat(t *testing.T) {
 	err := Validate(cfg)
 	if err == nil {
 		t.Fatal("expected error for invalid host:port format")
+	}
+}
+
+func TestValidateAIAnalysisBounds(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*Config)
+		want   string
+	}{
+		{
+			name: "batch size zero",
+			mutate: func(cfg *Config) {
+				cfg.WAF.AIAnalysis.BatchSize = 0
+			},
+			want: "waf.ai_analysis.batch_size",
+		},
+		{
+			name: "batch size too large",
+			mutate: func(cfg *Config) {
+				cfg.WAF.AIAnalysis.BatchSize = 1001
+			},
+			want: "must be <= 1000",
+		},
+		{
+			name: "negative token hour limit",
+			mutate: func(cfg *Config) {
+				cfg.WAF.AIAnalysis.MaxTokensPerHour = -1
+			},
+			want: "waf.ai_analysis.max_tokens_per_hour",
+		},
+		{
+			name: "negative requests hour limit",
+			mutate: func(cfg *Config) {
+				cfg.WAF.AIAnalysis.MaxRequestsHour = -1
+			},
+			want: "waf.ai_analysis.max_requests_per_hour",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			cfg.WAF.AIAnalysis.Enabled = true
+			tt.mutate(cfg)
+
+			err := Validate(cfg)
+			if err == nil {
+				t.Fatal("Validate() error = nil, want validation error")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Validate() error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidateDockerRejectsUnsafeRemoteEndpoint(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Docker.Enabled = true
+	cfg.Docker.SocketPath = "tcp://docker.example.com:2375"
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("Validate() error = nil, want unsafe remote Docker validation error")
+	}
+	for _, want := range []string{
+		"docker.tls_verify",
+		"docker.tls_ca_cert",
+		"docker.tls_cert",
+		"docker.tls_key",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("Validate() error missing %q: %v", want, err)
+		}
+	}
+}
+
+func TestValidateDockerAcceptsTLSVerifiedRemoteEndpoint(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Docker.Enabled = true
+	cfg.Docker.SocketPath = "tcp://docker.example.com:2376"
+	cfg.Docker.TLSVerify = true
+	cfg.Docker.TLSCACert = "/etc/guardianwaf/docker/ca.pem"
+	cfg.Docker.TLSCert = "/etc/guardianwaf/docker/cert.pem"
+	cfg.Docker.TLSKey = "/etc/guardianwaf/docker/key.pem"
+
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("Validate() error = %v", err)
 	}
 }

@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -331,7 +332,7 @@ func DefaultConfig() *Config {
 		Dashboard: DashboardConfig{
 			Enabled: true,
 			Listen:  ":9443",
-			TLS:     true,
+			TLS:     false,
 		},
 		Docker: DockerConfig{
 			Enabled:      false,
@@ -387,6 +388,9 @@ func PopulateFromNode(cfg *Config, node *Node) error {
 			return fmt.Errorf("allow_private_upstreams: %w", err)
 		}
 		cfg.AllowPrivateUpstreams = &b
+	}
+	if v := node.Get("allowed_upstream_cidrs"); v != nil {
+		cfg.AllowedUpstreamCIDRs = nodeStringSlice(v)
 	}
 
 	// TLS
@@ -472,7 +476,189 @@ func PopulateFromNode(cfg *Config, node *Node) error {
 		}
 	}
 
+	if err := populateTaggedValue(reflect.ValueOf(cfg), node); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+var durationType = reflect.TypeOf(time.Duration(0))
+
+func populateTaggedValue(dst reflect.Value, node *Node) error {
+	if node == nil || node.IsNull || !dst.IsValid() {
+		return nil
+	}
+	for dst.Kind() == reflect.Pointer {
+		if dst.IsNil() {
+			dst.Set(reflect.New(dst.Type().Elem()))
+		}
+		dst = dst.Elem()
+	}
+
+	switch dst.Kind() {
+	case reflect.Struct:
+		if dst.Type() == durationType {
+			d, err := parseDuration(node.String())
+			if err != nil {
+				return err
+			}
+			dst.SetInt(int64(d))
+			return nil
+		}
+		if node.Kind != MapNode {
+			return nil
+		}
+		return populateTaggedStruct(dst, node)
+	case reflect.String:
+		dst.SetString(node.String())
+	case reflect.Bool:
+		b, err := nodeBool(node)
+		if err != nil {
+			return err
+		}
+		dst.SetBool(b)
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		if dst.Type() == durationType {
+			d, err := parseDuration(node.String())
+			if err != nil {
+				return err
+			}
+			dst.SetInt(int64(d))
+			return nil
+		}
+		i, err := nodeInt64(node)
+		if err != nil {
+			return err
+		}
+		dst.SetInt(i)
+	case reflect.Float32, reflect.Float64:
+		f, err := nodeFloat64(node)
+		if err != nil {
+			return err
+		}
+		dst.SetFloat(f)
+	case reflect.Slice:
+		return populateTaggedSlice(dst, node)
+	case reflect.Map:
+		return populateTaggedMap(dst, node)
+	case reflect.Interface:
+		dst.Set(reflect.ValueOf(nodeToInterface(node)))
+	}
+	return nil
+}
+
+func populateTaggedStruct(dst reflect.Value, node *Node) error {
+	typ := dst.Type()
+	for i := range typ.NumField() {
+		field := typ.Field(i)
+		if !dst.Field(i).CanSet() {
+			continue
+		}
+		name := yamlFieldName(field)
+		if name == "" {
+			continue
+		}
+		child := node.Get(name)
+		if child == nil || child.IsNull {
+			continue
+		}
+		if err := populateTaggedValue(dst.Field(i), child); err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+func populateTaggedSlice(dst reflect.Value, node *Node) error {
+	if node.Kind != SequenceNode {
+		return nil
+	}
+	elemType := dst.Type().Elem()
+	items := node.Slice()
+	out := reflect.MakeSlice(dst.Type(), 0, len(items))
+	for i, item := range items {
+		if elemType.Kind() == reflect.Struct && item.Kind != MapNode {
+			continue
+		}
+		elem := reflect.New(elemType).Elem()
+		if i < dst.Len() {
+			elem.Set(dst.Index(i))
+		}
+		if err := populateTaggedValue(elem, item); err != nil {
+			return fmt.Errorf("[%d]: %w", i, err)
+		}
+		out = reflect.Append(out, elem)
+	}
+	dst.Set(out)
+	return nil
+}
+
+func populateTaggedMap(dst reflect.Value, node *Node) error {
+	if node.Kind != MapNode {
+		return nil
+	}
+	if dst.Type().Key().Kind() != reflect.String {
+		return nil
+	}
+	valueType := dst.Type().Elem()
+	out := reflect.MakeMapWithSize(dst.Type(), len(node.MapItems))
+	if !dst.IsNil() {
+		for _, key := range dst.MapKeys() {
+			out.SetMapIndex(key, dst.MapIndex(key))
+		}
+	}
+	for _, key := range node.MapKeys {
+		child := node.MapItems[key]
+		if child == nil || child.IsNull {
+			continue
+		}
+		value := reflect.New(valueType).Elem()
+		mapKey := reflect.ValueOf(key)
+		if existing := out.MapIndex(mapKey); existing.IsValid() {
+			value.Set(existing)
+		}
+		if err := populateTaggedValue(value, child); err != nil {
+			return fmt.Errorf("%s: %w", key, err)
+		}
+		out.SetMapIndex(mapKey, value)
+	}
+	dst.Set(out)
+	return nil
+}
+
+func nodeToInterface(node *Node) any {
+	if node == nil || node.IsNull {
+		return nil
+	}
+	switch node.Kind {
+	case ScalarNode:
+		if b, err := nodeBool(node); err == nil {
+			return b
+		}
+		if i, err := nodeInt64(node); err == nil {
+			return i
+		}
+		if f, err := nodeFloat64(node); err == nil {
+			return f
+		}
+		return node.String()
+	case SequenceNode:
+		items := node.Slice()
+		out := make([]any, 0, len(items))
+		for _, item := range items {
+			out = append(out, nodeToInterface(item))
+		}
+		return out
+	case MapNode:
+		out := make(map[string]any, len(node.MapItems))
+		for _, key := range node.MapKeys {
+			out[key] = nodeToInterface(node.MapItems[key])
+		}
+		return out
+	default:
+		return nil
+	}
 }
 
 // nodeBoolField populates a bool field from a config node, returning any parse error.
@@ -867,6 +1053,7 @@ func populateGeoIP(geo *GeoIPConfig, n *Node) error {
 	nodeStringField(n, "db_path", &geo.DBPath)
 	fe.boolField(n, "auto_download", "", &geo.AutoDownload)
 	nodeStringField(n, "download_url", &geo.DownloadURL)
+	fe.boolField(n, "require_ready", "", &geo.RequireReady)
 	return fe.err()
 }
 
@@ -1716,6 +1903,7 @@ func populateDashboard(dash *DashboardConfig, n *Node) error {
 	}
 	nodeStringField(n, "listen", &dash.Listen)
 	nodeStringField(n, "api_key", &dash.APIKey)
+	nodeStringField(n, "admin_key", &dash.AdminKey)
 	if err := nodeBoolField(n, "tls", "", &dash.TLS); err != nil {
 		return err
 	}
@@ -1745,6 +1933,12 @@ func populateDocker(dock *DockerConfig, n *Node) error {
 		return err
 	}
 	nodeStringField(n, "socket_path", &dock.SocketPath)
+	if err := nodeBoolField(n, "tls_verify", "", &dock.TLSVerify); err != nil {
+		return err
+	}
+	nodeStringField(n, "tls_ca_cert", &dock.TLSCACert)
+	nodeStringField(n, "tls_cert", &dock.TLSCert)
+	nodeStringField(n, "tls_key", &dock.TLSKey)
 	nodeStringField(n, "label_prefix", &dock.LabelPrefix)
 	if v := n.Get("poll_interval"); v != nil && !v.IsNull {
 		d, err := parseDuration(v.String())

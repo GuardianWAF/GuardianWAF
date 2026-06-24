@@ -1,6 +1,7 @@
 package layerregistry
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -68,6 +69,73 @@ func TestDefaultRegistryHasUniqueNames(t *testing.T) {
 		seen[descriptor.Name] = struct{}{}
 		if descriptor.Enabled == nil {
 			t.Fatalf("descriptor %q has nil Enabled function", descriptor.Name)
+		}
+	}
+}
+
+func TestDefaultRegistryDescriptorInventoryIsIntentional(t *testing.T) {
+	descriptors := DefaultRegistry()
+	got := make([]PipelineEntry, 0, len(descriptors))
+	for _, descriptor := range descriptors {
+		if descriptor.Build == nil && descriptor.ContextBuild == nil {
+			t.Fatalf("descriptor %q has no builder", descriptor.Name)
+		}
+		if descriptor.Build != nil && descriptor.ContextBuild != nil {
+			t.Fatalf("descriptor %q has both Build and ContextBuild; choose one construction path", descriptor.Name)
+		}
+		got = append(got, PipelineEntry{
+			Name:        descriptor.Name,
+			RuntimeName: descriptor.RuntimeName,
+			Order:       descriptor.Order,
+		})
+	}
+
+	want := []PipelineEntry{
+		{Name: "ip_acl", RuntimeName: "ipacl", Order: engine.OrderIPACL},
+		{Name: "threat_intelligence", RuntimeName: "threat_intel", Order: engine.OrderThreatIntel},
+		{Name: "cors", RuntimeName: "cors", Order: engine.OrderCORS},
+		{Name: "custom_rules", RuntimeName: "rules", Order: engine.OrderRules},
+		{Name: "rate_limit", RuntimeName: "ratelimit", Order: engine.OrderRateLimit},
+		{Name: "ato_protection", RuntimeName: "ato_protection", Order: engine.OrderATO},
+		{Name: "api_security", RuntimeName: "api_security", Order: engine.OrderAPISecurity},
+		{Name: "api_validation", RuntimeName: "apivalidation", Order: engine.OrderAPIValidation},
+		{Name: "sanitizer", RuntimeName: "sanitizer", Order: engine.OrderSanitizer},
+		{Name: "crs", RuntimeName: "crs", Order: engine.OrderCRS},
+		{Name: "detection", RuntimeName: "detection", Order: engine.OrderDetection},
+		{Name: "virtual_patch", RuntimeName: "virtualpatch", Order: engine.OrderVirtualPatch},
+		{Name: "dlp", RuntimeName: "dlp", Order: engine.OrderDLP},
+		{Name: "bot_detection", RuntimeName: "botdetect", Order: engine.OrderBotDetect},
+		{Name: "client_side", RuntimeName: "clientside", Order: engine.OrderClientSide},
+		{Name: "response", RuntimeName: "response", Order: engine.OrderResponse},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("registry descriptor inventory changed\n got: %#v\nwant: %#v", got, want)
+	}
+}
+
+func TestPipelineSummaryMatchesEffectivePipelineShape(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.WAF.IPACL.Enabled = true
+	cfg.WAF.RateLimit.Enabled = true
+	cfg.WAF.Detection.Enabled = false
+
+	entries := EffectivePipeline(cfg)
+	summary := PipelineSummary(cfg)
+	if len(summary) != len(entries) {
+		t.Fatalf("summary length = %d, want %d", len(summary), len(entries))
+	}
+	for i, entry := range entries {
+		got := summary[i]
+		want := map[string]any{
+			"name":         entry.Name,
+			"runtime_name": entry.RuntimeName,
+			"order":        entry.Order,
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("summary[%d] = %#v, want %#v", i, got, want)
+		}
+		if len(got) != 3 {
+			t.Fatalf("summary[%d] has unexpected fields: %#v", i, got)
 		}
 	}
 }

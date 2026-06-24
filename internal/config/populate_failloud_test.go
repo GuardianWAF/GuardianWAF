@@ -20,6 +20,7 @@ func TestPopulate_FailsLoudOnMalformedScalar(t *testing.T) {
 		{"bad int", "waf:\n  crs:\n    paranoia_level: abc\n", "paranoia_level"},
 		{"bad nested bool", "waf:\n  threat_intel:\n    ip_reputation:\n      block_malicious: ture\n", "block_malicious"},
 		{"bad geoip bool", "waf:\n  geoip:\n    auto_download: nope\n", "auto_download"},
+		{"bad geoip require_ready bool", "waf:\n  geoip:\n    require_ready: nope\n", "require_ready"},
 		{"bad api_validation int", "waf:\n  api_validation:\n    cache_size: lots\n", "cache_size"},
 	}
 	for _, tc := range reject {
