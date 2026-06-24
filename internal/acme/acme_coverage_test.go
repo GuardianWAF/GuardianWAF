@@ -1,6 +1,7 @@
 package acme
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -14,6 +15,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -160,6 +162,18 @@ func TestCoverage_HTTP01Handler_Allow_WithPort(t *testing.T) {
 	}
 }
 
+func TestACMEResponseReaderRejectsOversizedValidPrefix(t *testing.T) {
+	body := `{"newNonce":"https://ca.example.test/nonce"}` + strings.Repeat(" ", maxACMEResponseBytes)
+	var dir directory
+	err := decodeACMEResponse(strings.NewReader(body), &dir)
+	if err == nil {
+		t.Fatal("expected oversized ACME response to be rejected")
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("oversized ACME response rejected with unexpected error: %v", err)
+	}
+}
+
 // --- LoadOrObtain edge cases ---
 
 func TestCoverage_LoadOrObtain_NoDomains(t *testing.T) {
@@ -212,6 +226,30 @@ func TestCoverage_StopRenewal_Twice(t *testing.T) {
 	store := NewCertDiskStore(t.TempDir(), nil, nil)
 	store.StopRenewal()
 	store.StopRenewal()
+}
+
+func TestCoverage_StopRenewalWithContext(t *testing.T) {
+	store := NewCertDiskStore(t.TempDir(), nil, nil)
+	store.StartRenewal(time.Hour)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := store.StopRenewalWithContext(ctx); err != nil {
+		t.Fatalf("StopRenewalWithContext: %v", err)
+	}
+}
+
+func TestCoverage_StopRenewalWithContext_HonorsDeadline(t *testing.T) {
+	store := NewCertDiskStore(t.TempDir(), nil, nil)
+	store.wg.Add(1)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+	defer cancel()
+	err := store.StopRenewalWithContext(ctx)
+	store.wg.Done()
+	if err == nil {
+		t.Fatal("expected deadline error")
+	}
 }
 
 // --- sanitizeDomain edge cases ---

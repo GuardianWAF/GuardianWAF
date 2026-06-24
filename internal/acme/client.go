@@ -29,6 +29,7 @@ import (
 const (
 	LetsEncryptProduction = "https://acme-v02.api.letsencrypt.org/directory"
 	LetsEncryptStaging    = "https://acme-staging-v02.api.letsencrypt.org/directory"
+	maxACMEResponseBytes  = 1 << 20
 )
 
 // Client is an ACME client that can register accounts, create orders,
@@ -158,7 +159,7 @@ func (c *Client) Register(email string) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 && resp.StatusCode != 201 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		body, _ := readACMEResponse(resp.Body)
 		return fmt.Errorf("account registration failed (%d): %s", resp.StatusCode, body)
 	}
 
@@ -235,7 +236,7 @@ func (c *Client) fetchDirectory() (*directory, error) {
 	}
 
 	var dir directory
-	if err := json.NewDecoder(resp.Body).Decode(&dir); err != nil {
+	if err := decodeACMEResponse(resp.Body, &dir); err != nil {
 		return nil, err
 	}
 	return &dir, nil
@@ -255,12 +256,12 @@ func (c *Client) createOrder(domains []string) (*order, string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 201 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		body, _ := readACMEResponse(resp.Body)
 		return nil, "", fmt.Errorf("create order failed (%d): %s", resp.StatusCode, body)
 	}
 
 	var o order
-	if err := json.NewDecoder(resp.Body).Decode(&o); err != nil {
+	if err := decodeACMEResponse(resp.Body, &o); err != nil {
 		return nil, "", err
 	}
 	return &o, resp.Header.Get("Location"), nil
@@ -274,7 +275,7 @@ func (c *Client) completeAuthorization(authzURL string, handler *HTTP01Handler) 
 	defer resp.Body.Close()
 
 	var authz authorization
-	if decodeErr := json.NewDecoder(resp.Body).Decode(&authz); decodeErr != nil {
+	if decodeErr := decodeACMEResponse(resp.Body, &authz); decodeErr != nil {
 		return decodeErr
 	}
 
@@ -334,7 +335,7 @@ func (c *Client) completeAuthorization(authzURL string, handler *HTTP01Handler) 
 			return err
 		}
 
-		bodyBytes, err := io.ReadAll(io.LimitReader(pollResp.Body, 1<<20))
+		bodyBytes, err := readACMEResponse(pollResp.Body)
 		pollResp.Body.Close()
 		if err != nil {
 			return fmt.Errorf("failed to read authorization response: %w", err)
@@ -367,7 +368,7 @@ func (c *Client) finalizeOrder(finalizeURL string, csr []byte) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		body, _ := readACMEResponse(resp.Body)
 		return fmt.Errorf("finalize failed (%d): %s", resp.StatusCode, body)
 	}
 	return nil
@@ -393,12 +394,10 @@ func (c *Client) pollCertificate(orderURL string) ([]byte, error) {
 		}
 
 		var o order
-		if err := json.NewDecoder(resp.Body).Decode(&o); err != nil {
-			io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+		if err := decodeACMEResponse(resp.Body, &o); err != nil {
 			resp.Body.Close()
 			return nil, fmt.Errorf("failed to decode order response: %w", err)
 		}
-		io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
 		resp.Body.Close()
 
 		if o.Status == "valid" && o.Certificate != "" {
@@ -417,7 +416,26 @@ func (c *Client) fetchCertificateChain(certURL string) ([]byte, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	return io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	return readACMEResponse(resp.Body)
+}
+
+func readACMEResponse(r io.Reader) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(r, maxACMEResponseBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > maxACMEResponseBytes {
+		return nil, fmt.Errorf("ACME response exceeds %d bytes", maxACMEResponseBytes)
+	}
+	return body, nil
+}
+
+func decodeACMEResponse(r io.Reader, out any) error {
+	body, err := readACMEResponse(r)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(body, out)
 }
 
 // --- JWS signing ---
@@ -544,23 +562,19 @@ func (c *Client) signedPost(url string, payload any, useJWK bool) (*http.Respons
 }
 
 func (c *Client) jwk() map[string]string {
-	// Use crypto/ecdh's fixed-length uncompressed encoding (0x04 || X || Y) rather
-	// than the deprecated PublicKey.X/Y. big.Int.Bytes() is variable-length, but
-	// RFC 7518 requires fixed-width, zero-padded coordinates — otherwise the JWK
-	// thumbprint is wrong whenever a coordinate has a leading zero byte.
+	// Use elliptic.Marshal to get the uncompressed EC point encoding (0x04 || X || Y),
+	// then extract fixed-width, zero-padded X and Y coordinates per RFC 7518.
+	// big.Int.Bytes() is variable-length and would produce wrong JWK thumbprint
+	// when a coordinate has a leading zero byte.
 	pub := &c.accountKey.PublicKey
-	var x, y string
-	if ep, err := pub.ECDH(); err == nil {
-		raw := ep.Bytes() // 0x04 || X || Y
-		coord := (len(raw) - 1) / 2
-		x = base64.RawURLEncoding.EncodeToString(raw[1 : 1+coord])
-		y = base64.RawURLEncoding.EncodeToString(raw[1+coord:])
-	}
+	raw := elliptic.Marshal(elliptic.P256(), pub.X, pub.Y) // 65 bytes: 0x04 || X(32) || Y(32)
+	xBytes := raw[1:33]
+	yBytes := raw[33:]
 	return map[string]string{
 		"kty": "EC",
 		"crv": "P-256",
-		"x":   x,
-		"y":   y,
+		"x":   base64.RawURLEncoding.EncodeToString(xBytes),
+		"y":   base64.RawURLEncoding.EncodeToString(yBytes),
 	}
 }
 

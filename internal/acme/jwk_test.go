@@ -5,15 +5,12 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"encoding/base64"
-	"math/big"
 	"testing"
 )
 
 // TestJWK_FixedLengthCoordinates pins the RFC 7518 requirement that EC JWK x/y
 // coordinates are fixed-width (32 bytes for P-256), zero-padded — and that they
-// still decode to the public key's actual coordinates. The previous
-// PublicKey.X.Bytes()/Y.Bytes() encoding was variable-length and produced a wrong
-// thumbprint whenever a coordinate had a leading zero byte.
+// still decode to the public key's actual coordinates.
 func TestJWK_FixedLengthCoordinates(t *testing.T) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -34,10 +31,18 @@ func TestJWK_FixedLengthCoordinates(t *testing.T) {
 
 	xb, _ := base64.RawURLEncoding.DecodeString(jwk["x"])
 	yb, _ := base64.RawURLEncoding.DecodeString(jwk["y"])
-	if new(big.Int).SetBytes(xb).Cmp(key.PublicKey.X) != 0 {
+
+	// Verify by reconstructing the EC point from the JWK coordinates and
+	// comparing to the original public key via elliptic.Unmarshal.
+	point := make([]byte, 65)
+	point[0] = 0x04 // uncompressed point prefix
+	copy(point[1:33], xb)
+	copy(point[33:65], yb)
+	X, Y := elliptic.Unmarshal(elliptic.P256(), point)
+	if X.Cmp(key.PublicKey.X) != 0 {
 		t.Error("decoded x does not match public key X")
 	}
-	if new(big.Int).SetBytes(yb).Cmp(key.PublicKey.Y) != 0 {
+	if Y.Cmp(key.PublicKey.Y) != 0 {
 		t.Error("decoded y does not match public key Y")
 	}
 }
