@@ -16,6 +16,12 @@ type EventStore interface {
 	Close() error
 }
 
+// DropReporter is implemented by stores that can report events dropped after
+// they were accepted for storage or could not be accepted because buffers were full.
+type DropReporter interface {
+	DroppedEvents() int64
+}
+
 // EventFilter specifies criteria for querying events.
 type EventFilter struct {
 	Limit       int
@@ -24,6 +30,7 @@ type EventFilter struct {
 	Until       time.Time
 	Action      string // "", "blocked", "logged", "passed"
 	ClientIP    string
+	RuleID      string
 	MinScore    int
 	Path        string // prefix match
 	SortBy      string // "timestamp", "score"

@@ -77,6 +77,26 @@ func TestPersistentMemoryStore_Truncation(t *testing.T) {
 	}
 }
 
+func TestPersistentMemoryStore_RewriteFileReturnsCommitError(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "events-dir")
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	ps := &PersistentMemoryStore{
+		MemoryStore: NewMemoryStore(1),
+		path:        path,
+	}
+	err := ps.rewriteFile([]engine.Event{{ID: "kept"}})
+	if err == nil {
+		t.Fatal("expected rewrite commit error")
+	}
+	if _, statErr := os.Stat(path + ".tmp"); !os.IsNotExist(statErr) {
+		t.Fatalf("expected failed rewrite temp file to be removed, stat error = %v", statErr)
+	}
+}
+
 func TestPersistentMemoryStore_NoPath(t *testing.T) {
 	ps, err := NewPersistentMemoryStore(10, "")
 	if err != nil {
@@ -88,6 +108,12 @@ func TestPersistentMemoryStore_NoPath(t *testing.T) {
 	recent, _ := ps.Recent(1)
 	if len(recent) != 1 || recent[0].ID != "test" {
 		t.Error("should work without file path")
+	}
+}
+
+func TestPersistentMemoryStore_RejectsNULPath(t *testing.T) {
+	if _, err := NewPersistentMemoryStore(10, "bad\x00events.jsonl"); err == nil {
+		t.Fatal("expected error for NUL persistence path")
 	}
 }
 
@@ -128,5 +154,59 @@ func TestPersistentMemoryStore_ConcurrentStoreAndClose(t *testing.T) {
 	close(errCh)
 	for r := range errCh {
 		t.Fatalf("Store panicked during concurrent Close: %v", r)
+	}
+}
+
+func TestPersistentMemoryStore_CloseReturnsPersistenceErrors(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.jsonl")
+	ps, err := NewPersistentMemoryStore(10, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ps.Store(engine.Event{ID: "close-error"}); err != nil {
+		t.Fatal(err)
+	}
+
+	ps.fileMu.Lock()
+	if err := ps.file.Close(); err != nil {
+		ps.fileMu.Unlock()
+		t.Fatal(err)
+	}
+	ps.fileMu.Unlock()
+
+	if err := ps.Close(); err == nil {
+		t.Fatal("expected Close to return persistence flush/close error")
+	}
+	if err := ps.Close(); err != nil {
+		t.Fatalf("second Close should be idempotent, got %v", err)
+	}
+	if got := ps.DroppedEvents(); got != 0 {
+		t.Fatalf("close error should not be counted as a dropped accepted event, got %d", got)
+	}
+}
+
+func TestPersistentMemoryStore_StoreReturnsPersistenceWriteErrors(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "events.jsonl")
+	ps, err := NewPersistentMemoryStore(10, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ps.Close()
+
+	ps.fileMu.Lock()
+	if err := ps.file.Close(); err != nil {
+		ps.fileMu.Unlock()
+		t.Fatal(err)
+	}
+	ps.fileMu.Unlock()
+
+	if err := ps.Store(engine.Event{ID: "write-error"}); err == nil {
+		t.Fatal("expected Store to return persistence write error")
+	}
+	if got := ps.DroppedEvents(); got != 1 {
+		t.Fatalf("expected 1 dropped persisted event after write error, got %d", got)
+	}
+	if _, err := ps.Get("write-error"); err == nil {
+		t.Fatal("event with failed durable append should not be added to memory")
 	}
 }

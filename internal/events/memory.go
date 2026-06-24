@@ -147,6 +147,12 @@ func (ms *MemoryStore) Close() error {
 	return nil
 }
 
+// DroppedEvents reports dropped events. MemoryStore overwrites old entries when
+// full, but does not reject new events, so this is always zero.
+func (ms *MemoryStore) DroppedEvents() int64 {
+	return 0
+}
+
 // matchesFilter checks if an event matches the given filter criteria.
 func (ms *MemoryStore) matchesFilter(ev engine.Event, f EventFilter) bool {
 	if !f.Since.IsZero() && ev.Timestamp.Before(f.Since) {
@@ -156,12 +162,14 @@ func (ms *MemoryStore) matchesFilter(ev engine.Event, f EventFilter) bool {
 		return false
 	}
 	if f.Action != "" {
-		actionStr := actionToFilterString(ev.Action)
-		if actionStr != f.Action {
+		if !eventActionMatches(ev.Action, f.Action) {
 			return false
 		}
 	}
 	if f.ClientIP != "" && ev.ClientIP != f.ClientIP {
+		return false
+	}
+	if f.RuleID != "" && !eventRuleMatches(ev, f.RuleID) {
 		return false
 	}
 	if f.MinScore > 0 && ev.Score < f.MinScore {
@@ -174,6 +182,24 @@ func (ms *MemoryStore) matchesFilter(ev engine.Event, f EventFilter) bool {
 		return false
 	}
 	return true
+}
+
+func eventActionMatches(action engine.Action, filter string) bool {
+	switch filter {
+	case action.String(), actionToFilterString(action):
+		return true
+	default:
+		return false
+	}
+}
+
+func eventRuleMatches(ev engine.Event, ruleID string) bool {
+	for _, finding := range ev.Findings {
+		if finding.DetectorName == ruleID || strings.TrimPrefix(finding.DetectorName, "rule:") == ruleID {
+			return true
+		}
+	}
+	return false
 }
 
 // actionToFilterString converts an Action to its filter string representation.

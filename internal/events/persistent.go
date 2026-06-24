@@ -3,9 +3,12 @@ package events
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"sync"
+	"sync/atomic"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/logging"
@@ -16,11 +19,12 @@ import (
 // New events are appended to the file so that a subsequent restart can replay them.
 type PersistentMemoryStore struct {
 	*MemoryStore
-	path   string
-	file   *os.File
-	fileMu sync.Mutex
-	closed bool
-	log    *slog.Logger
+	path    string
+	file    *os.File
+	fileMu  sync.Mutex
+	dropped atomic.Int64
+	closed  bool
+	log     *slog.Logger
 }
 
 // NewPersistentMemoryStore creates a MemoryStore preloaded from path and
@@ -29,6 +33,10 @@ type PersistentMemoryStore struct {
 // opened, an error is returned so configured persistence can fail fast.
 func NewPersistentMemoryStore(capacity int, path string) (*PersistentMemoryStore, error) {
 	ms := NewMemoryStore(capacity)
+	path, err := cleanEventFilePath(path, true)
+	if err != nil {
+		return nil, err
+	}
 
 	if path == "" {
 		return &PersistentMemoryStore{MemoryStore: ms}, nil
@@ -41,10 +49,13 @@ func NewPersistentMemoryStore(capacity int, path string) (*PersistentMemoryStore
 	}
 
 	// Replay existing events from file
-	ps.replay()
+	if err := ps.replay(); err != nil {
+		return nil, err
+	}
 
 	// Open for append
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	// #nosec G304 -- event persistence path is operator-selected, NUL-rejected, and cleaned before use.
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, err
 	}
@@ -55,48 +66,76 @@ func NewPersistentMemoryStore(capacity int, path string) (*PersistentMemoryStore
 
 // Store writes the event to the ring buffer and appends it to the JSONL file.
 func (ps *PersistentMemoryStore) Store(event engine.Event) error {
-	if err := ps.MemoryStore.Store(event); err != nil {
-		return err
-	}
-
 	data, err := json.Marshal(event)
-	if err == nil {
-		ps.fileMu.Lock()
-		if !ps.closed && ps.file != nil {
-			if _, werr := ps.file.Write(data); werr != nil {
-				ps.log.Warn("failed to write event to JSONL", "error", werr)
-			}
-			if _, werr := ps.file.Write([]byte("\n")); werr != nil {
-				ps.log.Warn("failed to write newline to JSONL", "error", werr)
-			}
-		}
-		ps.fileMu.Unlock()
+	if err != nil {
+		ps.dropped.Add(1)
+		ps.log.Warn("failed to marshal event to JSONL", "error", err)
+		return nil
 	}
 
-	return nil
+	ps.fileMu.Lock()
+	defer ps.fileMu.Unlock()
+	if ps.closed {
+		ps.dropped.Add(1)
+		return errors.New("event dropped: persistent memory store is closed")
+	}
+
+	if ps.file == nil {
+		return ps.MemoryStore.Store(event)
+	}
+	if _, werr := ps.file.Write(data); werr != nil {
+		ps.dropped.Add(1)
+		ps.log.Warn("failed to write event to JSONL", "error", werr)
+		return fmt.Errorf("persisting event JSON: %w", werr)
+	}
+	if _, werr := ps.file.Write([]byte("\n")); werr != nil {
+		ps.dropped.Add(1)
+		ps.log.Warn("failed to write newline to JSONL", "error", werr)
+		return fmt.Errorf("persisting event newline: %w", werr)
+	}
+
+	return ps.MemoryStore.Store(event)
+}
+
+// DroppedEvents returns the number of events that could not be appended to the
+// persistence file after being stored in memory.
+func (ps *PersistentMemoryStore) DroppedEvents() int64 {
+	if ps == nil {
+		return 0
+	}
+	return ps.dropped.Load()
 }
 
 // Close flushes and closes the persistence file.
 func (ps *PersistentMemoryStore) Close() error {
+	var closeErr error
 	ps.fileMu.Lock()
 	if ps.file != nil {
 		ps.closed = true
-		_ = ps.file.Sync() // nolint:errcheck // best-effort flush on Close; error irrelevant at shutdown
-		_ = ps.file.Close() // nolint:errcheck // best-effort close; error irrelevant at shutdown
+		closeErr = errors.Join(ps.file.Sync(), ps.file.Close())
 		ps.file = nil
 	} else {
 		ps.closed = true
 	}
 	ps.fileMu.Unlock()
-	return ps.MemoryStore.Close()
+	return errors.Join(closeErr, ps.MemoryStore.Close())
 }
 
 // replay loads events from the JSONL file into the ring buffer.
 // Only the last `capacity` events are kept (oldest are dropped).
-func (ps *PersistentMemoryStore) replay() {
+func (ps *PersistentMemoryStore) replay() error {
+	path, err := cleanEventFilePath(ps.path, false)
+	if err != nil {
+		return err
+	}
+	ps.path = path
+	// #nosec G304 -- event persistence path is operator-selected, NUL-rejected, and cleaned before use.
 	f, err := os.Open(ps.path)
 	if err != nil {
-		return
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("opening event persistence file for replay: %w", err)
 	}
 	defer f.Close()
 
@@ -113,6 +152,9 @@ func (ps *PersistentMemoryStore) replay() {
 		}
 		all = append(all, ev)
 	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("scanning event persistence file: %w", err)
+	}
 
 	// Keep only the last `capacity` events
 	start := 0
@@ -125,25 +167,44 @@ func (ps *PersistentMemoryStore) replay() {
 
 	// Truncate the file to only contain events we kept (rewrite)
 	if len(all) > ps.capacity {
-		ps.rewriteFile(all[start:])
+		if err := ps.rewriteFile(all[start:]); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 // rewriteFile replaces the JSONL file with only the given events.
-func (ps *PersistentMemoryStore) rewriteFile(events []engine.Event) {
-	tmpPath := ps.path + ".tmp"
-	f, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+func (ps *PersistentMemoryStore) rewriteFile(events []engine.Event) error {
+	path, err := cleanEventFilePath(ps.path, false)
 	if err != nil {
-		return
+		return err
 	}
-	for _, ev := range events {
-		data, err := json.Marshal(ev)
-		if err != nil {
-			continue
+	ps.path = path
+	tmpPath := ps.path + ".tmp"
+	// #nosec G304 -- tmpPath is derived from the cleaned event persistence path.
+	f, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return fmt.Errorf("opening event persistence rewrite temp file: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = os.Remove(tmpPath)
 		}
-		f.Write(data)
-		f.Write([]byte("\n"))
+	}()
+	enc := json.NewEncoder(f)
+	for _, ev := range events {
+		if err := enc.Encode(ev); err != nil {
+			return errors.Join(fmt.Errorf("writing event persistence rewrite temp file: %w", err), f.Close())
+		}
 	}
-	f.Close()
-	os.Rename(tmpPath, ps.path)
+	if err := errors.Join(f.Sync(), f.Close()); err != nil {
+		return fmt.Errorf("finalizing event persistence rewrite temp file: %w", err)
+	}
+	if err := os.Rename(tmpPath, ps.path); err != nil {
+		return fmt.Errorf("committing event persistence rewrite: %w", err)
+	}
+	committed = true
+	return nil
 }

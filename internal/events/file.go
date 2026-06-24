@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -41,7 +42,12 @@ func NewFileStore(filePath string, maxSize int64) (*FileStore, error) {
 	if maxSize <= 0 {
 		maxSize = defaultMaxSize
 	}
+	filePath, err := cleanEventFilePath(filePath, false)
+	if err != nil {
+		return nil, err
+	}
 
+	// #nosec G304 -- event file path is operator-selected, NUL-rejected, and cleaned before use.
 	f, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, err
@@ -98,6 +104,12 @@ func (fs *FileStore) Count(_ EventFilter) (int, error) {
 	return 0, errors.New("query not supported on file store")
 }
 
+// DroppedEvents returns the number of events dropped because the async writer
+// buffer was full, the store was closed, or disk writes failed.
+func (fs *FileStore) DroppedEvents() int64 {
+	return fs.dropped.Load()
+}
+
 // Close stops the background writer, drains remaining events, flushes the buffer, and closes the file.
 func (fs *FileStore) Close() error {
 	fs.mu.Lock()
@@ -114,12 +126,10 @@ func (fs *FileStore) Close() error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 
-	if err := fs.writer.Flush(); err != nil {
-		fs.file.Close()
-		return err
-	}
-	_ = fs.file.Sync()
-	return fs.file.Close()
+	flushErr := fs.writer.Flush()
+	syncErr := fs.file.Sync()
+	closeErr := fs.file.Close()
+	return errors.Join(flushErr, syncErr, closeErr)
 }
 
 // writeLoop is the background goroutine that reads events from the channel and writes them to the file.
@@ -142,12 +152,12 @@ func (fs *FileStore) writeLoop() {
 			fs.writeEvent(ev)
 			eventsSinceFlush++
 			if eventsSinceFlush >= flushEventCount {
-				fs.flush()
+				_ = fs.flush()
 				eventsSinceFlush = 0
 			}
 		case <-ticker.C:
 			if eventsSinceFlush > 0 {
-				fs.flush()
+				_ = fs.flush()
 				eventsSinceFlush = 0
 			}
 		}
@@ -159,7 +169,7 @@ func (fs *FileStore) drainRemaining() {
 	for ev := range fs.ch {
 		fs.writeEvent(ev)
 	}
-	fs.flush()
+	_ = fs.flush()
 }
 
 // writeEvent marshals and writes a single event as a JSON line.
@@ -185,14 +195,22 @@ func (fs *FileStore) writeEvent(ev engine.Event) {
 	fs.checkRotation()
 }
 
-// flush flushes the buffered writer to disk.
-func (fs *FileStore) flush() {
+// flush flushes the buffered writer to disk and records durability failures.
+func (fs *FileStore) flush() error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	fs.writer.Flush()
+	return fs.flushLocked()
+}
+
+func (fs *FileStore) flushLocked() error {
+	flushErr := fs.writer.Flush()
 	// Sync to OS to reduce data loss window on crash.
-	// Best-effort — ignore errors to avoid blocking the write loop.
-	_ = fs.file.Sync()
+	syncErr := fs.file.Sync()
+	err := errors.Join(flushErr, syncErr)
+	if err != nil {
+		fs.dropped.Add(1)
+	}
+	return err
 }
 
 // checkRotation checks if the file exceeds maxSize and rotates if necessary.
@@ -201,7 +219,7 @@ func (fs *FileStore) flush() {
 func (fs *FileStore) checkRotation() {
 	fs.mu.Lock()
 	// Flush buffered data so the on-disk size is accurate
-	fs.writer.Flush()
+	_ = fs.flushLocked()
 
 	info, err := fs.file.Stat()
 	if err != nil {
@@ -222,44 +240,50 @@ func (fs *FileStore) checkRotation() {
 	defer fs.rotateMu.Unlock()
 
 	// Close current file before rename (required on Windows where open files cannot be renamed)
-	oldFile.Close()
+	if err := oldFile.Close(); err != nil {
+		fs.dropped.Add(1)
+	}
 
 	// Rename current file with timestamp
 	ts := time.Now().Format("20060102-150405")
-	ext := ""
-	base := fp
-	if idx := strings.LastIndex(fp, "."); idx >= 0 {
-		ext = fp[idx:]
-		base = fp[:idx]
-	}
+	ext := filepath.Ext(fp)
+	base := strings.TrimSuffix(fp, ext)
 	rotatedName := base + "-" + ts + ext
 
 	var newFile *os.File
 	if renameErr := os.Rename(fp, rotatedName); renameErr != nil {
+		fs.dropped.Add(1)
 		// If rename fails, reopen the original file
+		// #nosec G304 -- fp is the cleaned event file path captured from FileStore initialization.
 		f, reopenErr := os.OpenFile(fp, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 		if reopenErr != nil {
-			fs.mu.Lock()
-			if !fs.closed {
-				fs.closed = true
-				close(fs.ch)
-			}
-			fs.mu.Unlock()
+			fs.dropped.Add(1)
+			fs.closeAfterRotationFailure()
 			return
 		}
 		newFile = f
 	} else {
 		// Create new file
+		// #nosec G304 -- fp is the cleaned event file path captured from FileStore initialization.
 		f, openErr := os.OpenFile(fp, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 		if openErr != nil {
-			f, _ = os.OpenFile(rotatedName, os.O_WRONLY|os.O_APPEND, 0o600)
+			fs.dropped.Add(1)
+			// #nosec G304 -- rotatedName is derived from the cleaned event file path and timestamp.
+			var fallbackErr error
+			f, fallbackErr = os.OpenFile(rotatedName, os.O_WRONLY|os.O_APPEND, 0o600)
+			if fallbackErr != nil {
+				fs.dropped.Add(1)
+			}
 		}
 		if f != nil {
 			newFile = f
 		} else {
+			// #nosec G304 -- fp is the cleaned event file path captured from FileStore initialization.
 			f2, f2err := os.OpenFile(fp, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 			if f2err == nil {
 				newFile = f2
+			} else {
+				fs.dropped.Add(1)
 			}
 		}
 	}
@@ -268,24 +292,34 @@ func (fs *FileStore) checkRotation() {
 	if newFile != nil {
 		fs.file = newFile
 		fs.writer = bufio.NewWriterSize(newFile, 32*1024)
+	} else if !fs.closed {
+		fs.closed = true
+		close(fs.ch)
 	}
 	fs.mu.Unlock()
 
 	fs.cleanupRotated(base, ext)
 }
 
+func (fs *FileStore) closeAfterRotationFailure() {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	if fs.closed {
+		return
+	}
+	fs.closed = true
+	close(fs.ch)
+}
+
 // cleanupRotated removes old rotated files, keeping only the most recent ones.
 // Must be called with fs.rotateMu held.
 func (fs *FileStore) cleanupRotated(base, ext string) {
-	dir := "."
-	// Use filepath.Separator for cross-platform compatibility
-	if idx := strings.LastIndexAny(base, "/\\"); idx >= 0 {
-		dir = base[:idx]
-		base = base[idx+1:]
-	}
+	dir := filepath.Dir(base)
+	base = filepath.Base(base)
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {
+		fs.dropped.Add(1)
 		return
 	}
 
@@ -305,7 +339,9 @@ func (fs *FileStore) cleanupRotated(base, ext string) {
 
 	// Remove files beyond retention limit
 	for i := defaultMaxRotated; i < len(rotated); i++ {
-		_ = os.Remove(dir + string(os.PathSeparator) + rotated[i])
+		if err := os.Remove(filepath.Join(dir, rotated[i])); err != nil {
+			fs.dropped.Add(1)
+		}
 	}
 }
 
@@ -482,10 +518,18 @@ func writeJSONFloat(b *strings.Builder, f float64) {
 	for range 6 {
 		frac *= 10
 		digit := int(frac)
-		b.WriteByte(byte(digit) + '0')
+		b.WriteByte(decimalDigitByte(digit))
 		frac -= float64(digit)
 		if frac < 1e-9 {
 			break
 		}
 	}
+}
+
+func decimalDigitByte(digit int) byte {
+	if digit < 0 || digit > 9 {
+		return '0'
+	}
+	// #nosec G115 -- digit is bounded to 0..9 above before byte narrowing.
+	return byte(digit) + '0'
 }

@@ -104,6 +104,48 @@ func TestWriteEvent_WriteByteError(t *testing.T) {
 	fs.writeEvent(ev) // WriteString fits, WriteByte triggers flush and fails
 }
 
+func TestWriteJSONFloat_WritesBoundedDecimalDigits(t *testing.T) {
+	var b strings.Builder
+	writeJSONFloat(&b, 12.125)
+	if got, want := b.String(), "12.125"; got != want {
+		t.Fatalf("writeJSONFloat() = %q, want %q", got, want)
+	}
+
+	for digit := 0; digit <= 9; digit++ {
+		if got, want := decimalDigitByte(digit), byte('0'+digit); got != want {
+			t.Fatalf("decimalDigitByte(%d) = %q, want %q", digit, got, want)
+		}
+	}
+	if got := decimalDigitByte(10); got != '0' {
+		t.Fatalf("decimalDigitByte overflow fallback = %q, want '0'", got)
+	}
+}
+
+func TestCleanEventFilePath(t *testing.T) {
+	cleaned, err := cleanEventFilePath(filepath.Join("events", "..", "events.jsonl"), false)
+	if err != nil {
+		t.Fatalf("cleanEventFilePath valid: %v", err)
+	}
+	if cleaned != "events.jsonl" {
+		t.Fatalf("cleanEventFilePath = %q, want events.jsonl", cleaned)
+	}
+	if _, err := cleanEventFilePath("bad\x00events.jsonl", false); err == nil {
+		t.Fatal("expected error for NUL event path")
+	}
+	if _, err := cleanEventFilePath("", false); err == nil {
+		t.Fatal("expected error for empty required event path")
+	}
+	if cleaned, err := cleanEventFilePath("", true); err != nil || cleaned != "" {
+		t.Fatalf("optional empty path = %q, %v; want empty nil", cleaned, err)
+	}
+}
+
+func TestNewFileStore_RejectsNULPath(t *testing.T) {
+	if _, err := NewFileStore("bad\x00events.jsonl", 0); err == nil {
+		t.Fatal("expected error for NUL file store path")
+	}
+}
+
 // --- FileStore.Close flush error ---
 
 func TestFileStore_CloseFlushError(t *testing.T) {
@@ -138,6 +180,63 @@ func TestFileStore_CloseFlushError(t *testing.T) {
 	err = fs.Close()
 	if err == nil {
 		t.Error("expected flush error")
+	}
+}
+
+func TestFileStore_CloseSyncError(t *testing.T) {
+	path := t.TempDir() + "/events.jsonl"
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fs := &FileStore{
+		file:     f,
+		writer:   bufio.NewWriterSize(f, 32*1024),
+		ch:       make(chan engine.Event),
+		done:     make(chan struct{}),
+		filePath: path,
+		maxSize:  defaultMaxSize,
+	}
+	close(fs.done)
+
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	err = fs.Close()
+	if err == nil {
+		t.Fatal("expected sync/close error")
+	}
+	if !strings.Contains(err.Error(), "file already closed") && !strings.Contains(err.Error(), "invalid argument") {
+		t.Fatalf("expected closed-file sync/close error, got %v", err)
+	}
+}
+
+func TestFileStore_FlushRecordsSyncErrorAsDropped(t *testing.T) {
+	path := t.TempDir() + "/events.jsonl"
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fs := &FileStore{
+		file:     f,
+		writer:   bufio.NewWriterSize(f, 32*1024),
+		ch:       make(chan engine.Event),
+		done:     make(chan struct{}),
+		filePath: path,
+		maxSize:  defaultMaxSize,
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := fs.flush(); err == nil {
+		t.Fatal("expected flush to return sync error")
+	}
+	if got := fs.DroppedEvents(); got != 1 {
+		t.Fatalf("DroppedEvents = %d, want 1", got)
 	}
 }
 
@@ -199,12 +298,38 @@ func TestCheckRotation_RenameError(t *testing.T) {
 	// Rename should fail because destination exists as directory
 	fs.checkRotation()
 
+	if got := fs.DroppedEvents(); got == 0 {
+		t.Fatal("expected rotation rename failure to increment dropped counter")
+	}
+
 	// fs.file should be nil or the reopened file
 	if fs.file == nil {
 		t.Error("expected file to remain open after rename error")
 	}
 	if fs.file != nil {
 		fs.file.Close()
+	}
+}
+
+func TestCleanupRotatedRecordsRemoveError(t *testing.T) {
+	dir := t.TempDir()
+	base := filepath.Join(dir, "events")
+	for i := range defaultMaxRotated + 1 {
+		name := filepath.Join(dir, "events-20250101-0000"+intToStr(i)+".jsonl")
+		if err := os.WriteFile(name, []byte("old\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(dir, 0o700)
+
+	fs := &FileStore{}
+	fs.cleanupRotated(base, ".jsonl")
+
+	if got := fs.DroppedEvents(); got != 1 {
+		t.Fatalf("DroppedEvents = %d, want 1", got)
 	}
 }
 
