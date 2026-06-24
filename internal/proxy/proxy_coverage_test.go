@@ -65,13 +65,13 @@ func TestCoverage_IsPrivateOrReservedIP(t *testing.T) {
 }
 
 // =============================================================================
-// AllowPrivateTargets / PrivateTargetsAllowed: was 0%
+// SetPrivateTargetsAllowed / PrivateTargetsAllowed: was 0%
 // =============================================================================
 
-func TestCoverage_AllowPrivateTargets(t *testing.T) {
-	// Already enabled by init()
+func TestCoverage_SetPrivateTargetsAllowed(t *testing.T) {
+	SetPrivateTargetsAllowed(true)
 	if !PrivateTargetsAllowed() {
-		t.Error("expected private targets to be allowed after init()")
+		t.Error("expected private targets to be allowed")
 	}
 }
 
@@ -342,11 +342,56 @@ func TestCoverage_StripPort_IPv6WithPort(t *testing.T) {
 func TestCoverage_NewTarget_SSRFBlock(t *testing.T) {
 	// Temporarily disable private targets
 	allowPrivateTargets.Store(false)
+	if err := SetAllowedUpstreamCIDRs(nil); err != nil {
+		t.Fatalf("SetAllowedUpstreamCIDRs(nil) error = %v", err)
+	}
 	defer allowPrivateTargets.Store(true)
+	defer SetAllowedUpstreamCIDRs(nil)
 
 	_, err := NewTarget("http://127.0.0.1:8080", 1)
 	if err == nil {
 		t.Error("expected SSRF error for loopback target")
+	}
+}
+
+func TestNewTarget_AllowsConfiguredUpstreamCIDR(t *testing.T) {
+	allowPrivateTargets.Store(false)
+	if err := SetAllowedUpstreamCIDRs([]string{"127.0.0.1/32"}); err != nil {
+		t.Fatalf("SetAllowedUpstreamCIDRs() error = %v", err)
+	}
+	defer allowPrivateTargets.Store(true)
+	defer SetAllowedUpstreamCIDRs(nil)
+
+	target, err := NewTarget("http://127.0.0.1:8080", 1)
+	if err != nil {
+		t.Fatalf("NewTarget() error = %v", err)
+	}
+	if target == nil {
+		t.Fatal("NewTarget() = nil")
+	}
+}
+
+func TestNewTargetWithPolicyDoesNotUseGlobalPrivateAllowance(t *testing.T) {
+	allowPrivateTargets.Store(false)
+	if err := SetAllowedUpstreamCIDRs(nil); err != nil {
+		t.Fatalf("SetAllowedUpstreamCIDRs(nil) error = %v", err)
+	}
+	defer allowPrivateTargets.Store(true)
+	defer SetAllowedUpstreamCIDRs(nil)
+
+	cidrs, err := ParseAllowedUpstreamCIDRs([]string{"127.0.0.1/32"})
+	if err != nil {
+		t.Fatalf("ParseAllowedUpstreamCIDRs() error = %v", err)
+	}
+	target, err := NewTargetWithPolicy("http://127.0.0.1:8080", 1, TargetPolicy{AllowedCIDRs: cidrs})
+	if err != nil {
+		t.Fatalf("NewTargetWithPolicy() error = %v", err)
+	}
+	if target == nil {
+		t.Fatal("NewTargetWithPolicy() = nil")
+	}
+	if _, err := NewTarget("http://127.0.0.1:8080", 1); err == nil {
+		t.Fatal("global NewTarget unexpectedly used instance policy")
 	}
 }
 
@@ -439,7 +484,11 @@ func TestCoverage_ExtractClientIPForHash(t *testing.T) {
 func TestCoverage_SSRFDialContext_NoValidIPs(t *testing.T) {
 	// Temporarily disable private targets
 	allowPrivateTargets.Store(false)
+	if err := SetAllowedUpstreamCIDRs(nil); err != nil {
+		t.Fatalf("SetAllowedUpstreamCIDRs(nil) error = %v", err)
+	}
 	defer allowPrivateTargets.Store(true)
+	defer SetAllowedUpstreamCIDRs(nil)
 
 	dialFn := SSRFDialContext()
 	ctx := context.Background()
@@ -448,6 +497,73 @@ func TestCoverage_SSRFDialContext_NoValidIPs(t *testing.T) {
 	_, err := dialFn(ctx, "tcp", "127.0.0.1:80")
 	if err == nil {
 		t.Error("expected error for SSRF-protected dial to loopback")
+	}
+}
+
+func TestSSRFDialContext_AllowsConfiguredUpstreamCIDR(t *testing.T) {
+	allowPrivateTargets.Store(false)
+	if err := SetAllowedUpstreamCIDRs([]string{"127.0.0.1/32"}); err != nil {
+		t.Fatalf("SetAllowedUpstreamCIDRs() error = %v", err)
+	}
+	defer allowPrivateTargets.Store(true)
+	defer SetAllowedUpstreamCIDRs(nil)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer ts.Close()
+
+	conn, err := SSRFDialContext()(context.Background(), "tcp", ts.Listener.Addr().String())
+	if err != nil {
+		t.Fatalf("SSRFDialContext() error = %v", err)
+	}
+	conn.Close()
+}
+
+func TestSetAllowedUpstreamCIDRsRejectsUnsafeEntries(t *testing.T) {
+	tests := []string{
+		"not-a-cidr",
+		"0.0.0.0",
+		"0.0.0.0/0",
+		"0.0.0.0/32",
+		"::/0",
+		"224.0.0.0/4",
+	}
+	for _, entry := range tests {
+		t.Run(entry, func(t *testing.T) {
+			if err := SetAllowedUpstreamCIDRs([]string{entry}); err == nil {
+				t.Fatal("SetAllowedUpstreamCIDRs() error = nil, want error")
+			}
+		})
+	}
+}
+
+func TestHealthCheckerUsesTargetScopedPolicy(t *testing.T) {
+	allowPrivateTargets.Store(false)
+	if err := SetAllowedUpstreamCIDRs(nil); err != nil {
+		t.Fatalf("SetAllowedUpstreamCIDRs(nil) error = %v", err)
+	}
+	defer allowPrivateTargets.Store(true)
+	defer SetAllowedUpstreamCIDRs(nil)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer ts.Close()
+
+	cidrs, err := ParseAllowedUpstreamCIDRs([]string{"127.0.0.1/32"})
+	if err != nil {
+		t.Fatalf("ParseAllowedUpstreamCIDRs() error = %v", err)
+	}
+	target, err := NewTargetWithPolicy(ts.URL, 1, TargetPolicy{AllowedCIDRs: cidrs})
+	if err != nil {
+		t.Fatalf("NewTargetWithPolicy() error = %v", err)
+	}
+	lb := NewBalancer([]*Target{target}, StrategyRoundRobin)
+	hc := NewHealthChecker(lb, HealthConfig{Timeout: time.Second, Path: "/"})
+	hc.checkAll(context.Background())
+	if !target.IsHealthy() {
+		t.Fatal("expected health check to use target-scoped allowlist")
 	}
 }
 

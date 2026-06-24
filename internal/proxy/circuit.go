@@ -5,6 +5,8 @@ import (
 	"time"
 )
 
+const maxCircuitThreshold = int(1<<31 - 1)
+
 // CircuitState represents the state of a circuit breaker.
 type CircuitState int32
 
@@ -32,12 +34,12 @@ func (s CircuitState) String() string {
 // It tracks consecutive failures and opens the circuit when a threshold is reached.
 // After a reset timeout, it transitions to half-open and allows one probe request.
 type CircuitBreaker struct {
-	state        atomic.Int32  // CircuitState
-	failures     atomic.Int32  // consecutive failure count
-	threshold    int32         // failures before opening
-	resetTimeout time.Duration // how long to stay open before half-open
-	lastFailure  atomic.Value  // stores time.Time of last failure
-	halfOpenProbe atomic.Bool  // true while a probe request is in-flight
+	state         atomic.Int32  // CircuitState
+	failures      atomic.Int32  // consecutive failure count
+	threshold     int32         // failures before opening
+	resetTimeout  time.Duration // how long to stay open before half-open
+	lastFailure   atomic.Value  // stores time.Time of last failure
+	halfOpenProbe atomic.Bool   // true while a probe request is in-flight
 }
 
 // CircuitConfig configures the circuit breaker.
@@ -50,11 +52,14 @@ type CircuitConfig struct {
 func NewCircuitBreaker(cfg CircuitConfig) *CircuitBreaker {
 	if cfg.Threshold <= 0 {
 		cfg.Threshold = 5
+	} else if cfg.Threshold > maxCircuitThreshold {
+		cfg.Threshold = maxCircuitThreshold
 	}
 	if cfg.ResetTimeout <= 0 {
 		cfg.ResetTimeout = 30 * time.Second
 	}
 	cb := &CircuitBreaker{
+		// #nosec G115 -- cfg.Threshold is clamped to the int32 range above.
 		threshold:    int32(cfg.Threshold),
 		resetTimeout: cfg.ResetTimeout,
 	}

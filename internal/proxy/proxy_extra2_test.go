@@ -119,6 +119,35 @@ func TestHealthChecker_StopCancelsInFlightProbe(t *testing.T) {
 	}
 }
 
+func TestHealthChecker_StopWithContext(t *testing.T) {
+	target, err := NewTargetWithPolicy("http://127.0.0.1:1", 1, TargetPolicy{AllowPrivateTargets: true})
+	if err != nil {
+		t.Fatalf("NewTargetWithPolicy: %v", err)
+	}
+	lb := NewBalancer([]*Target{target}, StrategyRoundRobin)
+	hc := NewHealthChecker(lb, HealthConfig{Interval: time.Hour, Timeout: time.Second})
+	hc.Start()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := hc.StopWithContext(ctx); err != nil {
+		t.Fatalf("StopWithContext: %v", err)
+	}
+}
+
+func TestHealthChecker_StopWithContextHonorsDeadline(t *testing.T) {
+	hc := NewHealthChecker(NewBalancer(nil, StrategyRoundRobin), HealthConfig{})
+	hc.wg.Add(1)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+	defer cancel()
+	err := hc.StopWithContext(ctx)
+	hc.wg.Done()
+	if err == nil {
+		t.Fatal("expected deadline error")
+	}
+}
+
 // --- check ---
 
 func TestCheck_HealthyUpstream(t *testing.T) {
@@ -248,6 +277,13 @@ func TestNewCircuitBreaker_CustomThreshold(t *testing.T) {
 	cb := NewCircuitBreaker(CircuitConfig{Threshold: 10})
 	if cb.threshold != 10 {
 		t.Errorf("expected threshold 10, got %d", cb.threshold)
+	}
+}
+
+func TestNewCircuitBreaker_ClampsOversizedThreshold(t *testing.T) {
+	cb := NewCircuitBreaker(CircuitConfig{Threshold: maxCircuitThreshold + 1})
+	if cb.threshold != int32(maxCircuitThreshold) {
+		t.Errorf("expected threshold clamp to %d, got %d", maxCircuitThreshold, cb.threshold)
 	}
 }
 
@@ -486,6 +522,22 @@ func TestWeightedRoundRobin_ZeroWeightFailsafe(t *testing.T) {
 	got := lb.Next(req)
 	if got == nil {
 		t.Error("expected non-nil target")
+	}
+}
+
+func TestWeightedRoundRobin_IgnoresNonPositiveWeights(t *testing.T) {
+	t1, _ := NewTarget("http://disabled:3000", 1)
+	t2, _ := NewTarget("http://active:3000", 1)
+	t1.Weight = -100
+	t2.Weight = 3
+	lb := NewBalancer([]*Target{t1, t2}, StrategyWeighted)
+
+	req := httptest.NewRequest("GET", "/", nil)
+	for range 10 {
+		got := lb.Next(req)
+		if got != t2 {
+			t.Fatalf("expected positive-weight target, got %v", got)
+		}
 	}
 }
 

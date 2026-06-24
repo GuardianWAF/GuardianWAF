@@ -24,7 +24,7 @@ func TestHealthCheckHTTPClientDoesNotFollowRedirects(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	resp, err := newHealthCheckHTTPClient(time.Second).Get(srv.URL + "/healthz")
+	resp, err := newHealthCheckHTTPClient(time.Second, TargetPolicy{AllowPrivateTargets: true}).Get(srv.URL + "/healthz")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -41,7 +41,7 @@ func TestHealthCheckHTTPClientDoesNotFollowRedirects(t *testing.T) {
 func TestHealthCheckHTTPClientHasTransportTimeouts(t *testing.T) {
 	t.Parallel()
 
-	client := newHealthCheckHTTPClient(2 * time.Second)
+	client := newHealthCheckHTTPClient(2*time.Second, TargetPolicy{AllowPrivateTargets: true})
 	if client.Timeout != 2*time.Second {
 		t.Fatalf("client timeout = %v, want 2s", client.Timeout)
 	}

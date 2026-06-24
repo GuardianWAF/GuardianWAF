@@ -99,18 +99,23 @@ func (b *Balancer) roundRobin(healthy []*Target) *Target {
 // weightedRoundRobin uses smooth weighted round-robin (Nginx-style).
 // For simplicity, expand targets by weight and round-robin over expanded list.
 func (b *Balancer) weightedRoundRobin(healthy []*Target) *Target {
-	totalWeight := 0
+	var totalWeight uint64
 	for _, t := range healthy {
-		totalWeight += t.Weight
+		if t.Weight > 0 {
+			totalWeight += uint64(t.Weight)
+		}
 	}
 	if totalWeight == 0 {
 		return healthy[0]
 	}
 
-	idx := int(b.counter.Add(1)-1) % totalWeight
-	cumulative := 0
+	idx := (b.counter.Add(1) - 1) % totalWeight
+	var cumulative uint64
 	for _, t := range healthy {
-		cumulative += t.Weight
+		if t.Weight <= 0 {
+			continue
+		}
+		cumulative += uint64(t.Weight)
 		if idx < cumulative {
 			return t
 		}
@@ -135,7 +140,8 @@ func (b *Balancer) ipHash(healthy []*Target, r *http.Request) *Target {
 	ip := extractClientIPForHash(r)
 	h := fnv.New32a()
 	h.Write([]byte(ip))
-	idx := h.Sum32() % uint32(len(healthy))
+	// #nosec G115 -- modulo by len(healthy) guarantees the result fits a slice index.
+	idx := int(uint64(h.Sum32()) % uint64(len(healthy)))
 	return healthy[idx]
 }
 

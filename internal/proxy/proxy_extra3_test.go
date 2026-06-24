@@ -74,6 +74,46 @@ func TestRouter_AllUpstreamStatus_VHosts(t *testing.T) {
 	}
 }
 
+func TestRouterCloseClosesUniqueTargetsAcrossRoutes(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer backend.Close()
+
+	shared, err := NewTarget(backend.URL, 1)
+	if err != nil {
+		t.Fatalf("NewTarget shared: %v", err)
+	}
+	vhostOnly, err := NewTarget(backend.URL, 1)
+	if err != nil {
+		t.Fatalf("NewTarget vhostOnly: %v", err)
+	}
+
+	sharedBalancer := NewBalancer([]*Target{shared}, StrategyRoundRobin)
+	vhostBalancer := NewBalancer([]*Target{shared, vhostOnly}, StrategyRoundRobin)
+	nilTargetBalancer := NewBalancer([]*Target{nil}, StrategyRoundRobin)
+	router := NewRouterWithVHosts(
+		[]VirtualHost{
+			{Domains: []string{"api.example.com"}, Routes: []Route{{PathPrefix: "/", Balancer: vhostBalancer}}},
+			{Domains: []string{"*.example.com"}, Routes: []Route{{PathPrefix: "/wild", Balancer: sharedBalancer}}},
+			{Domains: []string{"nil.example.com"}, Routes: []Route{{PathPrefix: "/nil", Balancer: nilTargetBalancer}}},
+		},
+		[]Route{
+			{PathPrefix: "/", Balancer: sharedBalancer},
+			{PathPrefix: "/nil", Balancer: nil},
+		},
+	)
+
+	router.Close()
+
+	if !shared.Closed() {
+		t.Fatal("expected shared target to be closed")
+	}
+	if !vhostOnly.Closed() {
+		t.Fatal("expected vhost-only target to be closed")
+	}
+}
+
 func TestStripPort_IPv6NoPort(t *testing.T) {
 	if got := stripPort("[::1]"); got != "[::1]" {
 		t.Errorf("expected [::1], got %s", got)

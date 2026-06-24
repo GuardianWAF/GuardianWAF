@@ -33,7 +33,16 @@ type Target struct {
 	circuit     *CircuitBreaker
 	activeConns atomic.Int64
 	healthy     atomic.Bool
+	closed      atomic.Bool
 	lastCheck   atomic.Value // stores time.Time
+	policy      TargetPolicy
+}
+
+// TargetPolicy controls backend SSRF protection for one target/router
+// generation. Prefer this over package-global test hooks in production paths.
+type TargetPolicy struct {
+	AllowPrivateTargets bool
+	AllowedCIDRs        []*net.IPNet
 }
 
 // IsPrivateOrReservedIP checks if a host resolves to a private, loopback,
@@ -48,7 +57,7 @@ func IsPrivateOrReservedIP(host string) error {
 	// Check if it's already an IP literal
 	ip := net.ParseIP(h)
 	if ip != nil {
-		return classifyIP(ip, host)
+		return classifyIPWithAllowedCIDRs(ip, host, allowedUpstreamNets())
 	}
 
 	// Resolve hostname to IPs
@@ -58,7 +67,33 @@ func IsPrivateOrReservedIP(host string) error {
 	}
 
 	for _, addr := range ips {
-		if err := classifyIP(addr, host); err != nil {
+		if err := classifyIPWithAllowedCIDRs(addr, host, allowedUpstreamNets()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// IsPrivateOrReservedIPWithPolicy checks a host against the supplied per-target
+// policy instead of package-global test/runtime state.
+func IsPrivateOrReservedIPWithPolicy(host string, policy TargetPolicy) error {
+	if policy.AllowPrivateTargets {
+		return nil
+	}
+	h, _, err := net.SplitHostPort(host)
+	if err != nil {
+		h = host
+	}
+	ip := net.ParseIP(h)
+	if ip != nil {
+		return classifyIPWithAllowedCIDRs(ip, host, policy.AllowedCIDRs)
+	}
+	ips, err := net.LookupIP(h)
+	if err != nil {
+		return nil
+	}
+	for _, addr := range ips {
+		if err := classifyIPWithAllowedCIDRs(addr, host, policy.AllowedCIDRs); err != nil {
 			return err
 		}
 	}
@@ -82,6 +117,13 @@ func validateTargetURL(rawURL string) (*url.URL, error) {
 }
 
 func classifyIP(ip net.IP, host string) error {
+	return classifyIPWithAllowedCIDRs(ip, host, nil)
+}
+
+func classifyIPWithAllowedCIDRs(ip net.IP, host string, allowed []*net.IPNet) error {
+	if ipAllowedByCIDRs(ip, allowed) {
+		return nil
+	}
 	// Unspecified (0.0.0.0, ::) — would bind to all interfaces
 	if ip.IsUnspecified() {
 		return fmt.Errorf("target %q resolves to unspecified address %s — blocked by SSRF filter", host, ip)
@@ -107,13 +149,18 @@ func classifyIP(ip net.IP, host string) error {
 	return nil
 }
 
+func ipAllowedByCIDRs(ip net.IP, allowed []*net.IPNet) bool {
+	for _, cidr := range allowed {
+		if cidr != nil && cidr.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
 // allowPrivateTargets is set to true in tests to allow httptest.NewServer URLs.
 var allowPrivateTargets atomic.Bool
-
-// AllowPrivateTargets enables private/reserved IP targets for testing.
-func AllowPrivateTargets() {
-	allowPrivateTargets.Store(true)
-}
+var allowedUpstreamCIDRs atomic.Value // stores []*net.IPNet
 
 // SetPrivateTargetsAllowed controls whether upstream targets may resolve to
 // private, loopback, link-local, or otherwise reserved IP ranges.
@@ -121,14 +168,89 @@ func SetPrivateTargetsAllowed(allowed bool) {
 	allowPrivateTargets.Store(allowed)
 }
 
+// SetAllowedUpstreamCIDRs controls the narrow private/reserved upstream CIDR
+// allowlist used when global private target allowance is disabled.
+func SetAllowedUpstreamCIDRs(cidrs []string) error {
+	parsed, err := ParseAllowedUpstreamCIDRs(cidrs)
+	if err != nil {
+		return err
+	}
+	allowedUpstreamCIDRs.Store(parsed)
+	return nil
+}
+
+// ParseAllowedUpstreamCIDRs validates and parses upstream CIDR/IP allowlists.
+func ParseAllowedUpstreamCIDRs(cidrs []string) ([]*net.IPNet, error) {
+	parsed := make([]*net.IPNet, 0, len(cidrs))
+	for _, raw := range cidrs {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		if strings.Contains(raw, "/") {
+			ip, cidr, err := net.ParseCIDR(raw)
+			if err != nil {
+				return nil, fmt.Errorf("invalid allowed upstream CIDR %q: %w", raw, err)
+			}
+			ones, _ := cidr.Mask.Size()
+			if ip.IsUnspecified() {
+				return nil, fmt.Errorf("invalid allowed upstream CIDR %q: unspecified ranges are not allowed", raw)
+			}
+			if ip.IsMulticast() {
+				return nil, fmt.Errorf("invalid allowed upstream CIDR %q: multicast ranges are not allowed", raw)
+			}
+			if ones == 0 {
+				return nil, fmt.Errorf("invalid allowed upstream CIDR %q: all-address ranges are not allowed", raw)
+			}
+			parsed = append(parsed, cidr)
+			continue
+		}
+		ip := net.ParseIP(raw)
+		if ip == nil {
+			return nil, fmt.Errorf("invalid allowed upstream IP %q", raw)
+		}
+		if ip.IsUnspecified() {
+			return nil, fmt.Errorf("invalid allowed upstream IP %q: unspecified addresses are not allowed", raw)
+		}
+		if ip.IsMulticast() {
+			return nil, fmt.Errorf("invalid allowed upstream IP %q: multicast addresses are not allowed", raw)
+		}
+		bits := 32
+		if ip.To4() == nil {
+			bits = 128
+		}
+		parsed = append(parsed, &net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)})
+	}
+	return parsed, nil
+}
+
+func allowedUpstreamNets() []*net.IPNet {
+	if v := allowedUpstreamCIDRs.Load(); v != nil {
+		if cidrs, ok := v.([]*net.IPNet); ok {
+			return cidrs
+		}
+	}
+	return nil
+}
+
 // SSRFDialContext returns a DialContext function that validates the resolved IP
 // against private/reserved ranges at connection time. This prevents DNS rebinding
 // attacks where DNS resolves to a public IP at validation time but to a private IP
 // at actual connection time (TOCTOU gap).
 func SSRFDialContext() func(ctx context.Context, network, addr string) (net.Conn, error) {
+	return SSRFDialContextWithPolicy(TargetPolicy{
+		AllowPrivateTargets: allowPrivateTargets.Load(),
+		AllowedCIDRs:        allowedUpstreamNets(),
+	})
+}
+
+// SSRFDialContextWithPolicy returns a DialContext function bound to a specific
+// backend SSRF policy. It resolves and validates IPs once, then dials the
+// validated IP directly to avoid DNS rebinding TOCTOU gaps.
+func SSRFDialContextWithPolicy(policy TargetPolicy) func(ctx context.Context, network, addr string) (net.Conn, error) {
 	dialer := &net.Dialer{Timeout: 10 * time.Second}
 	return func(ctx context.Context, network, addr string) (net.Conn, error) {
-		if allowPrivateTargets.Load() {
+		if policy.AllowPrivateTargets {
 			return dialer.DialContext(ctx, network, addr)
 		}
 
@@ -146,7 +268,7 @@ func SSRFDialContext() func(ctx context.Context, network, addr string) (net.Conn
 
 		var validIP net.IP
 		for _, ip := range ips {
-			if err := classifyIP(ip, host); err == nil {
+			if err := classifyIPWithAllowedCIDRs(ip, host, policy.AllowedCIDRs); err == nil {
 				validIP = ip
 				break
 			}
@@ -167,6 +289,15 @@ func PrivateTargetsAllowed() bool {
 }
 
 func NewTarget(rawURL string, weight int) (*Target, error) {
+	return NewTargetWithPolicy(rawURL, weight, TargetPolicy{
+		AllowPrivateTargets: allowPrivateTargets.Load(),
+		AllowedCIDRs:        allowedUpstreamNets(),
+	})
+}
+
+// NewTargetWithPolicy creates a backend target bound to an instance-scoped SSRF
+// policy. This avoids cross-router interference from package-global policy state.
+func NewTargetWithPolicy(rawURL string, weight int, policy TargetPolicy) (*Target, error) {
 	u, err := validateTargetURL(rawURL)
 	if err != nil {
 		return nil, err
@@ -176,8 +307,8 @@ func NewTarget(rawURL string, weight int) (*Target, error) {
 	}
 
 	// SSRF prevention: block targets resolving to private/reserved IPs
-	if !allowPrivateTargets.Load() {
-		if err := IsPrivateOrReservedIP(u.Host); err != nil {
+	if !policy.AllowPrivateTargets {
+		if err := IsPrivateOrReservedIPWithPolicy(u.Host, policy); err != nil {
 			return nil, err
 		}
 	}
@@ -185,6 +316,7 @@ func NewTarget(rawURL string, weight int) (*Target, error) {
 	t := &Target{
 		URL:    u,
 		Weight: weight,
+		policy: policy,
 		circuit: NewCircuitBreaker(CircuitConfig{
 			Threshold:    5,
 			ResetTimeout: 30 * time.Second,
@@ -231,7 +363,7 @@ func NewTarget(rawURL string, weight int) (*Target, error) {
 	}
 
 	transport := &http.Transport{
-		DialContext:           SSRFDialContext(),
+		DialContext:           SSRFDialContextWithPolicy(policy),
 		MaxIdleConns:          100,
 		MaxIdleConnsPerHost:   20,
 		IdleConnTimeout:       90 * time.Second,
@@ -328,7 +460,13 @@ func (t *Target) CircuitState() CircuitState {
 // Close releases resources held by the target, including idle transport connections.
 // Call this when removing a target during routing reconfiguration.
 func (t *Target) Close() {
+	t.closed.Store(true)
 	if tr, ok := t.proxy.Transport.(*http.Transport); ok {
 		tr.CloseIdleConnections()
 	}
+}
+
+// Closed reports whether Close has been called for this target.
+func (t *Target) Closed() bool {
+	return t.closed.Load()
 }
