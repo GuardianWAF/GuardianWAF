@@ -103,13 +103,17 @@ func (d *Dashboard) handleComplianceReport(w http.ResponseWriter, r *http.Reques
 		m.LogCompletenessPct = 100.0
 	}
 
-	report := d.complianceEngine.GenerateReport(framework, "", compliance.Period{From: from, To: to}, m)
+	report, err := d.complianceEngine.GenerateReportWithError(framework, "", compliance.Period{From: from, To: to}, m)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to persist compliance audit entry"})
+		return
+	}
 	writeJSON(w, http.StatusOK, report)
 }
 
 func (d *Dashboard) handleAuditChain(w http.ResponseWriter, r *http.Request) {
 	if d.complianceEngine == nil {
-		writeJSON(w, http.StatusOK, map[string]any{"entries": []any{}, "length": 0})
+		writeJSON(w, http.StatusOK, map[string]any{"entries": []any{}, "length": 0, "valid": 0, "errors": []string{}, "integrity": true, "head_hash": "genesis"})
 		return
 	}
 	valid, errors := d.complianceEngine.VerifyChain()
@@ -118,10 +122,16 @@ func (d *Dashboard) handleAuditChain(w http.ResponseWriter, r *http.Request) {
 		"valid":     valid,
 		"errors":    errors,
 		"integrity": len(errors) == 0,
+		"head_hash": d.complianceEngine.ChainHeadHash(),
 	})
 }
 
 func (d *Dashboard) handleSPA(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/mcp") {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
+		return
+	}
+
 	// Try dist/index.html (React build)
 	data, err := distFS.ReadFile("dist/index.html")
 	if err != nil {
@@ -174,5 +184,5 @@ func (d *Dashboard) handleDistAssets(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", ct)
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-	_, _ = w.Write(data) // nolint:errcheck // download write; error ignored
+	_, _ = w.Write(data) // #nosec G705 -- data is read from embedded dashboard assets, not from the request. // nolint:errcheck // download write; error ignored
 }

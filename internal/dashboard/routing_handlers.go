@@ -157,6 +157,10 @@ func (d *Dashboard) handleUpdateRouting(w http.ResponseWriter, r *http.Request) 
 	if !limitedDecodeJSON(w, r, &body) {
 		return
 	}
+	if body.Upstreams == nil && body.VirtualHosts == nil && body.Routes == nil {
+		writeError(w, http.StatusBadRequest, "at least one of upstreams, virtual_hosts, or routes is required")
+		return
+	}
 
 	cfg := deepCopyConfig(d.engine.Config())
 

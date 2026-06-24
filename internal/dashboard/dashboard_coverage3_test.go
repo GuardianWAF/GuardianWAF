@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,7 +11,7 @@ import (
 )
 
 func init() {
-	proxy.AllowPrivateTargets()
+	proxy.SetPrivateTargetsAllowed(true)
 }
 
 // --- CRS Handler Tests ---
@@ -1061,8 +1062,49 @@ func TestTenantAdminHandler_NilManager_ListTenants(t *testing.T) {
 	req := httptest.NewRequest("GET", "/api/admin/tenants", nil)
 	req.Header.Set("X-API-Key", "admin-key")
 	h.listTenants(rr, req)
-	if rr.Code != http.StatusServiceUnavailable {
-		t.Errorf("expected 503, got %d", rr.Code)
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rr.Code)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if enabled, ok := body["enabled"].(bool); !ok || enabled {
+		t.Errorf("expected enabled=false, got %#v", body["enabled"])
+	}
+	if count, ok := body["count"].(float64); !ok || count != 0 {
+		t.Errorf("expected count=0, got %#v", body["count"])
+	}
+}
+
+func TestSanitizeTenantResponseAddsDashboardFields(t *testing.T) {
+	body := sanitizeTenantResponse(map[string]any{
+		"id":            "tenant-1",
+		"name":          "Tenant 1",
+		"active":        true,
+		"RequestCount":  float64(42),
+		"BlockedCount":  float64(3),
+		"api_key_hash":  "secret",
+		"billing_plan":  "pro",
+		"domains":       []any{"example.com"},
+		"nested_secret": map[string]any{"api_key": "secret"},
+	}).(map[string]any)
+
+	if _, ok := body["api_key_hash"]; ok {
+		t.Fatal("api_key_hash should be stripped")
+	}
+	if body["status"] != "active" {
+		t.Fatalf("expected active status, got %#v", body["status"])
+	}
+	if body["plan"] != "pro" {
+		t.Fatalf("expected plan alias, got %#v", body["plan"])
+	}
+	if body["email"] != "" {
+		t.Fatalf("expected default email, got %#v", body["email"])
+	}
+	usage := body["usage"].(map[string]any)
+	if usage["requests_this_month"] != int64(42) || usage["blocked_requests"] != int64(3) {
+		t.Fatalf("unexpected usage: %#v", usage)
 	}
 }
 
@@ -1183,6 +1225,44 @@ func TestLimitedDecodeJSON_MalformedJSON(t *testing.T) {
 	}
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", rr.Code)
+	}
+}
+
+func TestLimitedDecodeJSON_OversizedBody(t *testing.T) {
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/test", strings.NewReader(`{"data":"`+strings.Repeat("x", maxRequestBody)+`"}`))
+	req.Header.Set("Content-Type", "application/json")
+
+	var target map[string]any
+	result := limitedDecodeJSON(rr, req, &target)
+	if result {
+		t.Error("expected false for oversized JSON")
+	}
+	if rr.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("expected 413, got %d", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), "request body too large") {
+		t.Errorf("expected body size error, got %s", rr.Body.String())
+	}
+}
+
+func TestLimitedDecodeJSONRejectsTrailingJSON(t *testing.T) {
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/test", strings.NewReader(`{"enabled":true} {"extra":true}`))
+	req.Header.Set("Content-Type", "application/json")
+
+	var target map[string]any
+	if limitedDecodeJSON(rr, req, &target) {
+		t.Fatal("expected false for trailing JSON")
+	}
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rr.Code)
+	}
+	if target["enabled"] != true {
+		t.Fatalf("expected first JSON object to decode before rejection, got %#v", target)
+	}
+	if !strings.Contains(rr.Body.String(), "invalid JSON") {
+		t.Fatalf("expected invalid JSON response, got %s", rr.Body.String())
 	}
 }
 

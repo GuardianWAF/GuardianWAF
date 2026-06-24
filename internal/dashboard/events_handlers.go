@@ -20,6 +20,7 @@ func (d *Dashboard) handleGetStats(w http.ResponseWriter, r *http.Request) {
 		"challenged_requests": stats.ChallengedRequests,
 		"logged_requests":     stats.LoggedRequests,
 		"passed_requests":     stats.PassedRequests,
+		"event_store_errors":  stats.EventStoreErrors,
 		"avg_latency_us":      stats.AvgLatencyUs,
 	}
 	if d.alertingStats != nil {
@@ -51,7 +52,8 @@ func (d *Dashboard) handleGetEvents(w http.ResponseWriter, r *http.Request) {
 		Limit:     limit,
 		Offset:    offset,
 		Action:    q.Get("action"),
-		ClientIP:  q.Get("client_ip"),
+		ClientIP:  firstNonEmpty(q.Get("client_ip"), q.Get("ip")),
+		RuleID:    q.Get("rule_id"),
 		Path:      q.Get("path"),
 		SortBy:    q.Get("sort_by"),
 		SortOrder: q.Get("sort_order"),
@@ -63,13 +65,13 @@ func (d *Dashboard) handleGetEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if v := q.Get("since"); v != "" {
-		if t, err := time.Parse(time.RFC3339, v); err == nil {
+	if v := firstNonEmpty(q.Get("since"), q.Get("start"), q.Get("from")); v != "" {
+		if t, err := parseEventQueryTime(v); err == nil {
 			filter.Since = t
 		}
 	}
-	if v := q.Get("until"); v != "" {
-		if t, err := time.Parse(time.RFC3339, v); err == nil {
+	if v := firstNonEmpty(q.Get("until"), q.Get("end"), q.Get("to")); v != "" {
+		if t, err := parseEventQueryTime(v); err == nil {
 			filter.Until = t
 		}
 	}
@@ -83,7 +85,10 @@ func (d *Dashboard) handleGetEvents(w http.ResponseWriter, r *http.Request) {
 	// Cap offset to prevent out-of-range enumeration
 	if offset > total {
 		offset = total
-		evts = nil
+		evts = []engine.Event{}
+	}
+	if evts == nil {
+		evts = []engine.Event{}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -92,6 +97,19 @@ func (d *Dashboard) handleGetEvents(w http.ResponseWriter, r *http.Request) {
 		"limit":  limit,
 		"offset": offset,
 	})
+}
+
+func parseEventQueryTime(value string) (time.Time, error) {
+	if t, err := time.Parse(time.RFC3339, value); err == nil {
+		return t, nil
+	}
+	if n, err := strconv.ParseInt(value, 10, 64); err == nil {
+		if n > 1_000_000_000_000 {
+			return time.UnixMilli(n), nil
+		}
+		return time.Unix(n, 0), nil
+	}
+	return time.Time{}, fmt.Errorf("invalid event time %q", value)
 }
 
 func (d *Dashboard) handleGetEvent(w http.ResponseWriter, r *http.Request) {
@@ -111,7 +129,7 @@ func (d *Dashboard) handleGetEvent(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleExportEvents exports events to JSON or CSV format.
-// Query params: format (json|csv), action, client_ip, path, min_score, since, until
+// Query params: format (json|csv), action, client_ip/ip, rule_id, path, min_score, since/start/from, until/end/to
 func (d *Dashboard) handleExportEvents(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	format := q.Get("format")
@@ -126,7 +144,8 @@ func (d *Dashboard) handleExportEvents(w http.ResponseWriter, r *http.Request) {
 	// Build filter (same as handleGetEvents but with higher limit for exports)
 	filter := events.EventFilter{
 		Action:    q.Get("action"),
-		ClientIP:  q.Get("client_ip"),
+		ClientIP:  firstNonEmpty(q.Get("client_ip"), q.Get("ip")),
+		RuleID:    q.Get("rule_id"),
 		Path:      q.Get("path"),
 		SortBy:    q.Get("sort_by"),
 		SortOrder: q.Get("sort_order"),
@@ -145,13 +164,13 @@ func (d *Dashboard) handleExportEvents(w http.ResponseWriter, r *http.Request) {
 			filter.MinScore = n
 		}
 	}
-	if v := q.Get("since"); v != "" {
-		if t, err := time.Parse(time.RFC3339, v); err == nil {
+	if v := firstNonEmpty(q.Get("since"), q.Get("start"), q.Get("from")); v != "" {
+		if t, err := parseEventQueryTime(v); err == nil {
 			filter.Since = t
 		}
 	}
-	if v := q.Get("until"); v != "" {
-		if t, err := time.Parse(time.RFC3339, v); err == nil {
+	if v := firstNonEmpty(q.Get("until"), q.Get("end"), q.Get("to")); v != "" {
+		if t, err := parseEventQueryTime(v); err == nil {
 			filter.Until = t
 		}
 	}

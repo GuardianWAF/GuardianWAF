@@ -67,6 +67,9 @@ func TestHandleComplianceReport_WithEngine(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
+	if len(d.engine.Config().Alerting.Emails) != 0 {
+		t.Fatalf("expected email target to be removed from runtime config")
+	}
 }
 
 // TestHandleComplianceReport_WithTimeRange covers report with from/to parameters.
@@ -88,7 +91,9 @@ func TestHandleComplianceReport_WithTimeRange(t *testing.T) {
 // TestHandleAuditChain_WithEngine covers audit chain with engine.
 func TestHandleAuditChain_WithEngine(t *testing.T) {
 	d := newTestDashboard(t, "test-key")
-	d.SetComplianceEngine(compliance.NewEngine(config.ComplianceConfig{}))
+	engine := compliance.NewEngine(config.ComplianceConfig{})
+	engine.AppendChain("test_event", map[string]string{"source": "dashboard-test"})
+	d.SetComplianceEngine(engine)
 
 	req := authenticatedRequest("GET", "/api/v1/compliance/audit-chain", "", "test-key")
 	w := httptest.NewRecorder()
@@ -101,6 +106,9 @@ func TestHandleAuditChain_WithEngine(t *testing.T) {
 	json.Unmarshal(w.Body.Bytes(), &result)
 	if _, ok := result["valid"]; !ok {
 		t.Error("expected 'valid' field in response")
+	}
+	if headHash, ok := result["head_hash"].(string); !ok || headHash == "" || headHash == "genesis" {
+		t.Fatalf("expected non-genesis head_hash field in response, got %#v", result["head_hash"])
 	}
 }
 
@@ -117,7 +125,7 @@ func TestHandleLogout_WithOrigin(t *testing.T) {
 	d.mux.ServeHTTP(loginW, loginReq)
 
 	// Now logout with matching origin
-	req := httptest.NewRequest("GET", "/logout", nil)
+	req := httptest.NewRequest("POST", "/logout", nil)
 	req.Header.Set("Origin", "https://localhost")
 	req.Host = "localhost"
 	w := httptest.NewRecorder()
@@ -132,7 +140,7 @@ func TestHandleLogout_WithOrigin(t *testing.T) {
 func TestHandleLogout_MismatchedOrigin(t *testing.T) {
 	d := newTestDashboard(t, "test-key")
 
-	req := httptest.NewRequest("GET", "/logout", nil)
+	req := httptest.NewRequest("POST", "/logout", nil)
 	req.Header.Set("Origin", "https://evil.com")
 	req.Host = "localhost"
 	w := httptest.NewRecorder()
@@ -143,16 +151,16 @@ func TestHandleLogout_MismatchedOrigin(t *testing.T) {
 	}
 }
 
-// TestHandleLogout_NoOrigin covers logout without Origin header (GET allowed).
+// TestHandleLogout_NoOrigin covers logout without Origin header (rejected).
 func TestHandleLogout_NoOrigin(t *testing.T) {
 	d := newTestDashboard(t, "test-key")
 
-	req := httptest.NewRequest("GET", "/logout", nil)
+	req := httptest.NewRequest("POST", "/logout", nil)
 	w := httptest.NewRecorder()
 	d.mux.ServeHTTP(w, req)
 
-	if w.Code != http.StatusFound {
-		t.Logf("logout without origin returned %d", w.Code)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for logout without origin, got %d", w.Code)
 	}
 }
 
@@ -183,6 +191,12 @@ func TestHandleAddWebhook_Success(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if len(d.engine.Config().Alerting.Webhooks) != 1 {
+		t.Fatalf("expected webhook to be added to runtime config")
+	}
+	if got := d.engine.Config().Alerting.Webhooks[0].Name; got != "test-hook" {
+		t.Fatalf("expected test-hook webhook, got %q", got)
 	}
 }
 
@@ -217,6 +231,9 @@ func TestHandleDeleteWebhook_Success(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if len(d.engine.Config().Alerting.Webhooks) != 0 {
+		t.Fatalf("expected webhook to be removed from runtime config")
 	}
 }
 
@@ -258,6 +275,12 @@ func TestHandleAddEmail_Success(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
+	if len(d.engine.Config().Alerting.Emails) != 1 {
+		t.Fatalf("expected email target to be added to runtime config")
+	}
+	if got := d.engine.Config().Alerting.Emails[0].Name; got != "test-email" {
+		t.Fatalf("expected test-email target, got %q", got)
+	}
 }
 
 // TestHandleAddEmail_SaveError covers email creation when save fails.
@@ -292,6 +315,9 @@ func TestHandleDeleteEmail_Success(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if len(d.engine.Config().Alerting.Emails) != 0 {
+		t.Fatalf("expected email target to be removed from runtime config")
 	}
 }
 
@@ -386,8 +412,8 @@ func TestHandleCWVReport_BodyTooLarge(t *testing.T) {
 	w := httptest.NewRecorder()
 	d.handleCWVReport(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected %d, got %d", http.StatusBadRequest, w.Code)
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected %d, got %d", http.StatusRequestEntityTooLarge, w.Code)
 	}
 }
 
@@ -551,8 +577,8 @@ func TestHandleUpdateConfig_WAFBotDetection(t *testing.T) {
 	w := httptest.NewRecorder()
 	d.mux.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", w.Code)
+	if w.Code != http.StatusConflict {
+		t.Errorf("expected 409, got %d", w.Code)
 	}
 }
 
@@ -606,7 +632,7 @@ func TestHandleUpdateConfig_WAFSanitizer(t *testing.T) {
 	d := newTestDashboard(t, "test-key")
 	d.SetSaveFn(func() error { return nil })
 
-	body := `{"waf":{"sanitizer":{"enabled":true,"max_body_size":10485760,"max_url_length":2048}}}`
+	body := `{"waf":{"sanitizer":{"enabled":true,"max_body_size":2097152}}}`
 	req := authenticatedRequest("PUT", "/api/v1/config", body, "test-key")
 	w := httptest.NewRecorder()
 	d.mux.ServeHTTP(w, req)
@@ -626,8 +652,8 @@ func TestHandleUpdateConfig_WAFBehavior(t *testing.T) {
 	w := httptest.NewRecorder()
 	d.mux.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", w.Code)
+	if w.Code != http.StatusConflict {
+		t.Errorf("expected 409, got %d", w.Code)
 	}
 }
 

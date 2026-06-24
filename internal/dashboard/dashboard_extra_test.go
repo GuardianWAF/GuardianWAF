@@ -481,7 +481,7 @@ func TestUpdateRouting_InvalidUpstream(t *testing.T) {
 }
 
 func TestUpdateRouting_PrivateTargetUsesConfigNotGlobalState(t *testing.T) {
-	proxy.AllowPrivateTargets()
+	proxy.SetPrivateTargetsAllowed(true)
 	cfg := config.DefaultConfig()
 	store := events.NewMemoryStore(100)
 	bus := events.NewEventBus()
@@ -695,8 +695,8 @@ func TestUpdateConfig_Detectors(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := authenticatedRequest("PUT", "/api/v1/config", body, "k")
 	d.Handler().ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusConflict {
+		t.Errorf("expected 409, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -1068,6 +1068,16 @@ func TestUpdateRouting_InvalidJSON(t *testing.T) {
 	d := newTestDashboard(t, "k")
 	w := httptest.NewRecorder()
 	req := authenticatedRequest("PUT", "/api/v1/routing", "bad", "k")
+	d.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestUpdateRouting_UnknownFieldsOnly(t *testing.T) {
+	d := newTestDashboard(t, "k")
+	w := httptest.NewRecorder()
+	req := authenticatedRequest("PUT", "/api/v1/routing", `{"invalid":"field"}`, "k")
 	d.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", w.Code)

@@ -30,3 +30,23 @@ func (d *Dashboard) handleDockerServices(w http.ResponseWriter, r *http.Request)
 		"services": docker.ServiceSummary(services),
 	})
 }
+
+func (d *Dashboard) handleDockerContainers(w http.ResponseWriter, r *http.Request) {
+	if d.dockerWatcher == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"enabled": false, "containers": []any{}})
+		return
+	}
+	services := docker.ServiceSummary(d.dockerWatcher.Services())
+	writeJSON(w, http.StatusOK, map[string]any{
+		"enabled":    true,
+		"count":      len(services),
+		"containers": services,
+	})
+}
+
+func (d *Dashboard) handleDockerEvents(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"enabled": d.dockerWatcher != nil,
+		"events":  []any{},
+	})
+}

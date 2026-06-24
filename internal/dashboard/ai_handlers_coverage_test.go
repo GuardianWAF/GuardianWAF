@@ -117,6 +117,22 @@ func TestHandleAIGetConfig_WithAnalyzer(t *testing.T) {
 	}
 }
 
+func TestHandleAIGetConfig_NilStore(t *testing.T) {
+	d := &Dashboard{}
+	d.aiAnalyzer = &mockAIAnalyzerForCoverage{}
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/api/ai/config", nil)
+	d.handleAIGetConfig(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), `"enabled":false`) {
+		t.Errorf("expected disabled config response, got %s", rr.Body.String())
+	}
+}
+
 // --- handleAISetConfig: nil analyzer returns error ---
 func TestHandleAISetConfig_NilAnalyzer(t *testing.T) {
 	d := &Dashboard{}
@@ -516,6 +532,25 @@ func TestHandleAIAnalyze_NoEvents(t *testing.T) {
 	}
 	if !strings.Contains(rr.Body.String(), "no suspicious events") {
 		t.Error("expected no suspicious events message")
+	}
+}
+
+func TestHandleAIAnalyze_NilEventStore(t *testing.T) {
+	store := ai.NewStore(t.TempDir())
+	d := &Dashboard{}
+	d.aiAnalyzer = &mockAIAnalyzerForCoverage{
+		storeFn: func() *ai.Store { return store },
+	}
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/api/ai/analyze", nil)
+	d.handleAIAnalyze(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), "no suspicious events") {
+		t.Errorf("expected no suspicious events message, got %s", rr.Body.String())
 	}
 }
 

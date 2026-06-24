@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -32,7 +33,7 @@ func newTestEngine(t *testing.T) *engine.Engine {
 
 func newTestDashboard(t *testing.T, apiKey string) *Dashboard {
 	t.Helper()
-	proxy.AllowPrivateTargets()
+	proxy.SetPrivateTargetsAllowed(true)
 	eng := newTestEngine(t)
 	store := events.NewMemoryStore(100)
 	if apiKey == "" {
@@ -152,6 +153,25 @@ func TestIsAuthenticated_NoCreds(t *testing.T) {
 	req := httptest.NewRequest("GET", "/api/v1/stats", nil)
 	if _, ok := d.isAuthenticated(req); ok {
 		t.Error("should not be authenticated without credentials")
+	}
+}
+
+func TestHandleSPA_MCPPathReturnsJSONNotSPA(t *testing.T) {
+	d := newTestDashboard(t, "k")
+	w := httptest.NewRecorder()
+	req := authenticatedRequest("POST", "/mcp", `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`, "k")
+
+	d.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for disabled MCP fallback, got %d: %s", w.Code, w.Body.String())
+	}
+	if got := w.Header().Get("Content-Type"); !strings.Contains(got, "application/json") {
+		t.Fatalf("expected JSON response, got content-type %q body %q", got, w.Body.String())
+	}
+	body := decodeJSON(t, w)
+	if body["error"] != "not found" {
+		t.Fatalf("expected not found error, got %#v", body)
 	}
 }
 
@@ -317,6 +337,70 @@ func TestGetEventEndpoint_NotFound(t *testing.T) {
 	}
 }
 
+func TestEventsEndpoint_QueryAliasesFilterEvents(t *testing.T) {
+	d := newTestDashboard(t, "mykey")
+	base := time.Now().Add(-10 * time.Minute).UTC().Truncate(time.Second)
+	stored := []engine.Event{
+		{
+			ID:        "evt-block",
+			Timestamp: base.Add(2 * time.Minute),
+			ClientIP:  "203.0.113.10",
+			Path:      "/blocked",
+			Action:    engine.ActionBlock,
+			Score:     90,
+			Findings:  []engine.Finding{{DetectorName: "rule:e2e-rule"}},
+		},
+		{
+			ID:        "evt-pass",
+			Timestamp: base.Add(3 * time.Minute),
+			ClientIP:  "203.0.113.11",
+			Path:      "/allowed",
+			Action:    engine.ActionPass,
+			Score:     0,
+		},
+	}
+	for _, evt := range stored {
+		if err := d.eventStore.Store(evt); err != nil {
+			t.Fatalf("store event: %v", err)
+		}
+	}
+
+	path := "/api/v1/events?action=block&ip=203.0.113.10&rule_id=e2e-rule&start=" +
+		strconv.FormatInt(base.UnixMilli(), 10) +
+		"&end=" + strconv.FormatInt(base.Add(5*time.Minute).UnixMilli(), 10)
+	w := httptest.NewRecorder()
+	req := authenticatedRequest("GET", path, "", "mykey")
+	d.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body %s", w.Code, w.Body.String())
+	}
+	body := decodeJSON(t, w)
+	evts, ok := body["events"].([]any)
+	if !ok {
+		t.Fatalf("expected events array, got %#v", body["events"])
+	}
+	if len(evts) != 1 {
+		t.Fatalf("expected one matching event, got %d: %#v", len(evts), evts)
+	}
+	evt, ok := evts[0].(map[string]any)
+	if !ok || evt["id"] != "evt-block" {
+		t.Fatalf("expected evt-block, got %#v", evts[0])
+	}
+
+	exportW := httptest.NewRecorder()
+	exportReq := authenticatedRequest("GET", "/api/v1/events/export?format=json&action=block&ip=203.0.113.10&rule_id=e2e-rule&start="+
+		strconv.FormatInt(base.UnixMilli(), 10)+
+		"&end="+strconv.FormatInt(base.Add(5*time.Minute).UnixMilli(), 10), "", "mykey")
+	d.Handler().ServeHTTP(exportW, exportReq)
+	if exportW.Code != http.StatusOK {
+		t.Fatalf("expected export 200, got %d body %s", exportW.Code, exportW.Body.String())
+	}
+	exportBody := decodeJSON(t, exportW)
+	if exportBody["count"].(float64) != 1 {
+		t.Fatalf("expected one exported event, got %#v", exportBody)
+	}
+}
+
 // --- Config endpoints ---
 
 func TestGetConfigEndpoint(t *testing.T) {
@@ -335,13 +419,28 @@ func TestGetConfigEndpoint(t *testing.T) {
 
 func TestUpdateConfigEndpoint(t *testing.T) {
 	d := newTestDashboard(t, "k")
-	body := `{"mode":"proxy","waf":{"detection":{"enabled":false},"rate_limit":{"enabled":false},"sanitizer":{"enabled":false,"max_body_size":2048,"max_url_length":512},"bot_detection":{"enabled":false,"mode":"log","user_agent":{"block_empty":true,"block_known_scanners":true},"behavior":{"rps_threshold":50,"error_rate_threshold":80}},"challenge":{"enabled":false,"difficulty":5},"ip_acl":{"enabled":false,"auto_ban":{"enabled":false}},"response":{"security_headers":{"enabled":false},"data_masking":{"enabled":false,"mask_credit_cards":true,"mask_ssn":true,"mask_api_keys":true,"strip_stack_traces":true}}}}`
+	body := `{"mode":"proxy","waf":{"detection":{"threshold":{"block":60,"log":30}},"sanitizer":{"max_body_size":2048}}}`
 
 	w := httptest.NewRecorder()
 	req := authenticatedRequest("PUT", "/api/v1/config", body, "k")
 	d.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d, body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUpdateConfigEndpoint_RejectsLayerTopologyChange(t *testing.T) {
+	d := newTestDashboard(t, "k")
+	body := `{"waf":{"rate_limit":{"enabled":false}}}`
+
+	w := httptest.NewRecorder()
+	req := authenticatedRequest("PUT", "/api/v1/config", body, "k")
+	d.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d, body: %s", w.Code, w.Body.String())
+	}
+	if !d.engine.Config().WAF.RateLimit.Enabled {
+		t.Fatal("topology-changing config should not be applied")
 	}
 }
 
@@ -352,6 +451,167 @@ func TestUpdateConfigEndpoint_InvalidJSON(t *testing.T) {
 	d.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestReloadConfigEndpoint(t *testing.T) {
+	d := newTestDashboard(t, "k")
+	w := httptest.NewRecorder()
+	req := authenticatedRequest("POST", "/api/v1/config/reload", "", "k")
+	d.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body: %s", w.Code, w.Body.String())
+	}
+	body := decodeJSON(t, w)
+	if body["status"] != "ok" {
+		t.Fatalf("expected status ok, got %#v", body["status"])
+	}
+}
+
+func TestAnalyticsEndpoints(t *testing.T) {
+	d := newTestDashboard(t, "k")
+	now := time.Now()
+	for _, evt := range []engine.Event{
+		{ID: "evt-1", Timestamp: now, ClientIP: "192.0.2.10", Path: "/login", Action: engine.ActionBlock, Score: 90},
+		{ID: "evt-2", Timestamp: now, ClientIP: "192.0.2.11", Path: "/api", Action: engine.ActionPass, Score: 0},
+	} {
+		if err := d.eventStore.Store(evt); err != nil {
+			t.Fatalf("store event: %v", err)
+		}
+	}
+
+	tests := []struct {
+		path string
+		keys []string
+	}{
+		{"/api/v1/analytics/traffic?period=1h", []string{"requests", "total", "actions"}},
+		{"/api/v1/analytics/attacks?period=1h", []string{"blocks", "attacks", "top_rules"}},
+		{"/api/v1/analytics/top?limit=5", []string{"top_ips", "top_paths", "top_rules", "targets"}},
+		{"/api/v1/analytics/dashboard?period=1h", []string{"traffic", "attacks", "top", "metrics"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			req := authenticatedRequest("GET", tt.path, "", "k")
+			d.Handler().ServeHTTP(w, req)
+			if w.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d body %s", w.Code, w.Body.String())
+			}
+			body := decodeJSON(t, w)
+			for _, key := range tt.keys {
+				if _, ok := body[key]; !ok {
+					t.Fatalf("expected key %q in %#v", key, body)
+				}
+			}
+		})
+	}
+}
+
+func TestAlertCompatibilityEndpoints(t *testing.T) {
+	d := newTestDashboard(t, "k")
+
+	tests := []struct {
+		method string
+		path   string
+		body   string
+		code   int
+		key    string
+	}{
+		{"GET", "/api/v1/alerts", "", http.StatusOK, "alerts"},
+		{"GET", "/api/v1/alerts/history", "", http.StatusOK, "history"},
+		{"POST", "/api/v1/alerts", `{"name":"x"}`, http.StatusBadRequest, "error"},
+		{"PUT", "/api/v1/alerts/missing", `{}`, http.StatusNotFound, "error"},
+		{"DELETE", "/api/v1/alerts/missing", "", http.StatusNotFound, "error"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			req := authenticatedRequest(tt.method, tt.path, tt.body, "k")
+			d.Handler().ServeHTTP(w, req)
+			if w.Code != tt.code {
+				t.Fatalf("expected %d, got %d body %s", tt.code, w.Code, w.Body.String())
+			}
+			body := decodeJSON(t, w)
+			if _, ok := body[tt.key]; !ok {
+				t.Fatalf("expected key %q in %#v", tt.key, body)
+			}
+		})
+	}
+}
+
+func TestTenantCompatibilityEndpointsDisabled(t *testing.T) {
+	d := newTestDashboard(t, "k")
+
+	w := httptest.NewRecorder()
+	req := authenticatedRequest("GET", "/api/v1/tenants", "", "k")
+	d.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected tenant list 200, got %d body %s", w.Code, w.Body.String())
+	}
+	body := decodeJSON(t, w)
+	if body["enabled"] != false {
+		t.Fatalf("expected disabled tenant list, got %#v", body)
+	}
+
+	for _, tt := range []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{"POST", "/api/v1/tenants", `{"name":"t","domain":"example.com"}`},
+		{"GET", "/api/v1/tenants/t/config", ""},
+		{"PUT", "/api/v1/tenants/t/config", `{"block_threshold":60}`},
+		{"GET", "/api/v1/tenants/t/stats", ""},
+		{"DELETE", "/api/v1/tenants/t", ""},
+	} {
+		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			req := authenticatedRequest(tt.method, tt.path, tt.body, "k")
+			d.Handler().ServeHTTP(w, req)
+			if w.Code != http.StatusServiceUnavailable {
+				t.Fatalf("expected 503, got %d body %s", w.Code, w.Body.String())
+			}
+			body := decodeJSON(t, w)
+			if body["enabled"] != false {
+				t.Fatalf("expected disabled response, got %#v", body)
+			}
+		})
+	}
+}
+
+func TestConfigSubresourceEndpoints(t *testing.T) {
+	d := newTestDashboard(t, "k")
+
+	tests := []struct {
+		method string
+		path   string
+		body   string
+		code   int
+		key    string
+	}{
+		{"GET", "/api/v1/config/ratelimit", "", http.StatusOK, "enabled"},
+		{"PUT", "/api/v1/config/ratelimit", `{"enabled":true,"default_limit":100,"window":"1m"}`, http.StatusConflict, "error"},
+		{"GET", "/api/v1/config/bot", "", http.StatusOK, "enabled"},
+		{"PUT", "/api/v1/config/bot", `{"enabled":true,"mode":"monitor"}`, http.StatusOK, "status"},
+		{"POST", "/api/v1/ssl/certificates", `{"name":"bad","cert":"%%%","key":"%%%"} `, http.StatusBadRequest, "error"},
+		{"DELETE", "/api/v1/ssl/certificates/missing", "", http.StatusNotFound, "error"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			req := authenticatedRequest(tt.method, tt.path, tt.body, "k")
+			d.Handler().ServeHTTP(w, req)
+			if w.Code != tt.code {
+				t.Fatalf("expected %d, got %d body %s", tt.code, w.Code, w.Body.String())
+			}
+			body := decodeJSON(t, w)
+			if _, ok := body[tt.key]; !ok {
+				t.Fatalf("expected key %q in %#v", tt.key, body)
+			}
+		})
 	}
 }
 
@@ -476,6 +736,57 @@ func TestRulesEndpoint_WithFn(t *testing.T) {
 	}
 }
 
+func TestRulesEndpoint_FiltersRules(t *testing.T) {
+	d := newTestDashboard(t, "k")
+	d.SetRulesFns(
+		func() any {
+			return []map[string]any{
+				{
+					"id":         "r-sqli-block",
+					"name":       "SQLi block",
+					"enabled":    true,
+					"action":     "block",
+					"conditions": []map[string]any{{"field": "query", "op": "contains", "value": "union"}},
+				},
+				{
+					"id":         "r-access-log",
+					"name":       "Access log",
+					"enabled":    false,
+					"action":     "log",
+					"conditions": []map[string]any{{"field": "path", "op": "starts_with", "value": "/status"}},
+				},
+			}
+		},
+		func(m map[string]any) error { return nil },
+		func(id string, m map[string]any) error { return nil },
+		func(id string) bool { return true },
+		func(id string, enabled bool) bool { return true },
+		nil,
+	)
+
+	w := httptest.NewRecorder()
+	req := authenticatedRequest("GET", "/api/v1/rules?action=block&type=sqli&enabled=true", "", "k")
+	d.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	result := decodeJSON(t, w)
+	rules, ok := result["rules"].([]any)
+	if !ok {
+		t.Fatalf("expected rules array, got %#v", result["rules"])
+	}
+	if len(rules) != 1 {
+		t.Fatalf("expected one filtered rule, got %d: %#v", len(rules), rules)
+	}
+	rule, ok := rules[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected rule object, got %#v", rules[0])
+	}
+	if rule["id"] != "r-sqli-block" {
+		t.Fatalf("expected r-sqli-block, got %#v", rule["id"])
+	}
+}
+
 func TestAddRuleEndpoint_NoFn(t *testing.T) {
 	d := newTestDashboard(t, "k")
 	w := httptest.NewRecorder()
@@ -511,6 +822,51 @@ func TestUpdateRuleEndpoint_NoFn(t *testing.T) {
 	d.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusNotImplemented {
 		t.Errorf("expected 501, got %d", w.Code)
+	}
+}
+
+func TestPatchRuleEndpoint_TogglesRule(t *testing.T) {
+	d := newTestDashboard(t, "k")
+	var toggledID string
+	var toggledEnabled bool
+	d.SetRulesFns(
+		func() any { return nil },
+		func(m map[string]any) error { return nil },
+		func(id string, m map[string]any) error { return nil },
+		func(id string) bool { return true },
+		func(id string, enabled bool) bool {
+			toggledID = id
+			toggledEnabled = enabled
+			return id == "r1"
+		},
+		nil,
+	)
+	w := httptest.NewRecorder()
+	req := authenticatedRequest("PATCH", "/api/v1/rules/r1", `{"enabled":false}`, "k")
+	d.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if toggledID != "r1" || toggledEnabled {
+		t.Fatalf("unexpected toggle call: id=%q enabled=%v", toggledID, toggledEnabled)
+	}
+}
+
+func TestPatchRuleEndpoint_RequiresEnabled(t *testing.T) {
+	d := newTestDashboard(t, "k")
+	d.SetRulesFns(
+		func() any { return nil },
+		func(m map[string]any) error { return nil },
+		func(id string, m map[string]any) error { return nil },
+		func(id string) bool { return true },
+		func(id string, enabled bool) bool { return true },
+		nil,
+	)
+	w := httptest.NewRecorder()
+	req := authenticatedRequest("PATCH", "/api/v1/rules/r1", `{"name":"updated"}`, "k")
+	d.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
 	}
 }
 
@@ -682,6 +1038,37 @@ func TestLoginPage_AlreadyAuthenticated(t *testing.T) {
 	}
 }
 
+func TestAuthWrapRateLimitsAPIKeysButNotBrowserSessions(t *testing.T) {
+	d := newTestDashboard(t, "secret")
+	d.apiBuckets.Store("192.0.2.1", &apiBucket{
+		tokens:     0,
+		maxTokens:  0,
+		refillRate: 0,
+		lastRefill: time.Now(),
+	})
+	handler := d.authWrap(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	})
+
+	apiReq := httptest.NewRequest("GET", "/api/v1/smoke", nil)
+	apiReq.RemoteAddr = "192.0.2.1:1234"
+	apiReq.Header.Set("X-API-Key", "secret")
+	apiResp := httptest.NewRecorder()
+	handler(apiResp, apiReq)
+	if apiResp.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected API key request to be rate limited, got %d", apiResp.Code)
+	}
+
+	sessionReq := httptest.NewRequest("GET", "/api/v1/smoke", nil)
+	sessionReq.RemoteAddr = "192.0.2.1:1234"
+	sessionReq.AddCookie(&http.Cookie{Name: sessionCookieName, Value: signSession("192.0.2.1")})
+	sessionResp := httptest.NewRecorder()
+	handler(sessionResp, sessionReq)
+	if sessionResp.Code != http.StatusOK {
+		t.Fatalf("expected session request to bypass API key bucket, got %d", sessionResp.Code)
+	}
+}
+
 func TestLoginSubmit_Success(t *testing.T) {
 	d := newTestDashboard(t, "secret")
 	w := httptest.NewRecorder()
@@ -712,20 +1099,27 @@ func TestLoginSubmit_SessionCookieSecureFlag(t *testing.T) {
 		name       string
 		scheme     string
 		forwarded  string
+		remoteAddr string
+		trusted    []string
 		wantSecure bool
 	}{
 		{name: "plain http", scheme: "http", wantSecure: false},
 		{name: "direct https", scheme: "https", wantSecure: true},
-		{name: "forwarded https", scheme: "http", forwarded: "https", wantSecure: true},
+		{name: "untrusted forwarded https", scheme: "http", forwarded: "https", remoteAddr: "203.0.113.10:1234", wantSecure: false},
+		{name: "trusted forwarded https", scheme: "http", forwarded: "https", remoteAddr: "10.0.0.10:1234", trusted: []string{"10.0.0.0/24"}, wantSecure: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			d := newTestDashboard(t, "secret")
+			d.SetTrustedProxies(tt.trusted)
 			w := httptest.NewRecorder()
 			req := httptest.NewRequest("POST", tt.scheme+"://localhost:9443/login", strings.NewReader("key=secret"))
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			req.Header.Set("Origin", tt.scheme+"://localhost:9443")
+			if tt.remoteAddr != "" {
+				req.RemoteAddr = tt.remoteAddr
+			}
 			if tt.forwarded != "" {
 				req.Header.Set("X-Forwarded-Proto", tt.forwarded)
 			}
@@ -748,6 +1142,15 @@ func TestLoginSubmit_SessionCookieSecureFlag(t *testing.T) {
 			if sessionCookie.Secure != tt.wantSecure {
 				t.Fatalf("expected Secure=%v, got %v", tt.wantSecure, sessionCookie.Secure)
 			}
+			if !sessionCookie.HttpOnly {
+				t.Fatal("expected session cookie to be HttpOnly")
+			}
+			if sessionCookie.SameSite != http.SameSiteStrictMode {
+				t.Fatalf("expected SameSite=Strict, got %v", sessionCookie.SameSite)
+			}
+			if sessionCookie.Path != "/" {
+				t.Fatalf("expected Path=/, got %q", sessionCookie.Path)
+			}
 		})
 	}
 }
@@ -768,20 +1171,73 @@ func TestLoginSubmit_WrongKey(t *testing.T) {
 	}
 }
 
+func TestLoginSubmitRejectsOversizedBody(t *testing.T) {
+	d := newTestDashboard(t, "secret")
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "https://localhost:9443/login", strings.NewReader("key=secret&padding="+strings.Repeat("x", maxLoginRequestBody)))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", "https://localhost:9443")
+	req.RemoteAddr = "192.0.2.10:12345"
+
+	d.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusRequestEntityTooLarge)
+	}
+	if _, ok := d.loginBuckets.Load("192.0.2.10"); ok {
+		t.Fatal("oversized login body should not be counted as an authentication failure")
+	}
+}
+
 func TestLogout(t *testing.T) {
 	d := newTestDashboard(t, "secret")
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/logout", nil)
+	req := httptest.NewRequest("POST", "https://localhost:9443/logout", nil)
+	req.Header.Set("Origin", "https://localhost:9443")
 	d.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusFound {
 		t.Errorf("expected redirect, got %d", w.Code)
 	}
 	// Check cookie was cleared
 	cookies := w.Result().Cookies()
+	found := false
 	for _, c := range cookies {
-		if c.Name == sessionCookieName && c.MaxAge != -1 {
+		if c.Name != sessionCookieName {
+			continue
+		}
+		found = true
+		if c.MaxAge != -1 {
 			t.Error("expected cookie to be cleared")
 		}
+		if !c.HttpOnly {
+			t.Fatal("expected logout cookie to be HttpOnly")
+		}
+		if c.SameSite != http.SameSiteStrictMode {
+			t.Fatalf("expected logout cookie SameSite=Strict, got %v", c.SameSite)
+		}
+	}
+	if !found {
+		t.Fatal("expected logout to set session clearing cookie")
+	}
+}
+
+func TestLogoutRejectsGET(t *testing.T) {
+	d := newTestDashboard(t, "secret")
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/logout", nil)
+	d.handleLogout(w, req)
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405 for GET logout, got %d", w.Code)
+	}
+}
+
+func TestLogoutRequiresSameOrigin(t *testing.T) {
+	d := newTestDashboard(t, "secret")
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "https://localhost:9443/logout", nil)
+	d.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for POST logout without Origin/Referer, got %d", w.Code)
 	}
 }
 
@@ -891,6 +1347,31 @@ func TestDashboard_SSE(t *testing.T) {
 	d := newTestDashboard(t, "")
 	if d.SSE() == nil {
 		t.Error("expected non-nil SSE broadcaster")
+	}
+}
+
+func TestEventsStreamAlias(t *testing.T) {
+	d := newTestDashboard(t, "k")
+	server := httptest.NewServer(d.Handler())
+	defer server.Close()
+
+	client := &http.Client{Timeout: 250 * time.Millisecond}
+	req, err := http.NewRequest(http.MethodGet, server.URL+"/api/v1/events/stream", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("X-API-Key", "k")
+	req.Header.Set("Accept", "text/event-stream")
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("events stream request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "text/event-stream") {
+		t.Fatalf("expected text/event-stream content type, got %q", ct)
 	}
 }
 

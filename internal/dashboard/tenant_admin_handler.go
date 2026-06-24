@@ -37,7 +37,7 @@ func (h *TenantAdminHandler) RegisterRoutes(mux *http.ServeMux) {
 		}
 	}
 
-	// Admin API routes (require authentication via session cookie or API key)
+	// Admin API routes (require the dashboard.admin_key via X-API-Key)
 	mux.HandleFunc("/api/admin/tenants", auth(h.handleTenants))
 	mux.HandleFunc("/api/admin/tenants/", auth(h.handleTenantDetail))
 	mux.HandleFunc("/api/admin/stats", auth(h.handleStats))
@@ -92,8 +92,10 @@ func (h *TenantAdminHandler) handleTenantDetail(w http.ResponseWriter, r *http.R
 
 func (h *TenantAdminHandler) listTenants(w http.ResponseWriter, r *http.Request) {
 	if h.manager == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
-			"error": "multi-tenant mode not enabled",
+		writeJSON(w, http.StatusOK, map[string]any{
+			"tenants": []any{},
+			"count":   0,
+			"enabled": false,
 		})
 		return
 	}
@@ -191,6 +193,8 @@ func (h *TenantAdminHandler) updateTenant(w http.ResponseWriter, r *http.Request
 		"name": true, "description": true, "domains": true,
 		"enabled": true, "billing_plan": true, "quota": true,
 		"waf_config": true, "rate_limits": true,
+		"active": true, "status": true, "plan": true,
+		"email": true, "auto_rotation": true, "rotation_interval": true,
 	}
 	for k := range update {
 		if !allowedKeys[k] {
@@ -198,6 +202,7 @@ func (h *TenantAdminHandler) updateTenant(w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
+	update = normalizeTenantAdminUpdate(update)
 
 	if err := h.manager.UpdateTenant(tenantID, update); err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": sanitizeErr(err)})
@@ -226,6 +231,9 @@ func (h *TenantAdminHandler) deleteTenant(w http.ResponseWriter, r *http.Request
 // is returned from admin APIs. Tenant API keys are returned only by explicit
 // create/regenerate-key responses, never embedded in tenant objects.
 func sanitizeTenantResponse(tenant any) any {
+	if tenant == nil {
+		return nil
+	}
 	data, err := json.Marshal(tenant)
 	if err != nil {
 		return tenant
@@ -237,7 +245,31 @@ func sanitizeTenantResponse(tenant any) any {
 	return sanitizeTenantMap(m)
 }
 
+func normalizeTenantAdminUpdate(update map[string]any) map[string]any {
+	normalized := make(map[string]any, len(update))
+	for k, v := range update {
+		switch k {
+		case "email", "auto_rotation", "rotation_interval":
+			// Accepted for dashboard form compatibility. These fields are not
+			// persisted by the current tenant manager model.
+			continue
+		case "status":
+			if status, ok := v.(string); ok {
+				normalized["active"] = status == "active" || status == "trial"
+			}
+		case "plan":
+			normalized["billing_plan"] = v
+		default:
+			normalized[k] = v
+		}
+	}
+	return normalized
+}
+
 func sanitizeTenantMap(m map[string]any) map[string]any {
+	if m == nil {
+		return nil
+	}
 	for key, value := range m {
 		normalized := strings.ToLower(strings.ReplaceAll(key, "-", "_"))
 		switch normalized {
@@ -263,7 +295,45 @@ func sanitizeTenantMap(m map[string]any) map[string]any {
 			m[key] = typed
 		}
 	}
+	active, _ := m["active"].(bool)
+	if _, ok := m["status"]; !ok {
+		if active {
+			m["status"] = "active"
+		} else {
+			m["status"] = "suspended"
+		}
+	}
+	if _, ok := m["plan"]; !ok {
+		if plan, ok := m["billing_plan"].(string); ok && plan != "" {
+			m["plan"] = plan
+		} else {
+			m["plan"] = "basic"
+		}
+	}
+	if _, ok := m["email"]; !ok {
+		m["email"] = ""
+	}
+	if _, ok := m["usage"]; !ok {
+		m["usage"] = map[string]any{
+			"requests_this_month": tenantNumber(m, "RequestCount", "request_count", "total_requests"),
+			"blocked_requests":    tenantNumber(m, "BlockedCount", "blocked_count", "blocked_requests"),
+		}
+	}
 	return m
+}
+
+func tenantNumber(m map[string]any, keys ...string) int64 {
+	for _, key := range keys {
+		switch v := m[key].(type) {
+		case float64:
+			return int64(v)
+		case int64:
+			return v
+		case int:
+			return int64(v)
+		}
+	}
+	return 0
 }
 
 func (h *TenantAdminHandler) regenerateAPIKey(w http.ResponseWriter, r *http.Request, tenantID string) {

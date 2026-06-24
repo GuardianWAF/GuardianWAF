@@ -67,6 +67,10 @@ func (d *Dashboard) handleAIGetConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	store := d.aiAnalyzer.GetStore()
+	if store == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"enabled": false})
+		return
+	}
 	cfg := store.GetConfig()
 	// Mask API key — show only whether a key is set, not partial content
 	maskedKey := ""
@@ -186,6 +190,10 @@ func (d *Dashboard) handleAIStats(w http.ResponseWriter, r *http.Request) {
 func (d *Dashboard) handleAIAnalyze(w http.ResponseWriter, r *http.Request) {
 	if d.aiAnalyzer == nil {
 		writeError(w, http.StatusBadRequest, "AI analysis not enabled")
+		return
+	}
+	if d.eventStore == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"message": "no suspicious events to analyze"})
 		return
 	}
 

@@ -275,7 +275,7 @@ func TestVirtualPatchHandler_New(t *testing.T) {
 	d := &Dashboard{}
 	h := NewVirtualPatchHandler(d)
 	if h == nil {
-		t.Error("expected non-nil handler")
+		t.Fatal("expected non-nil handler")
 	}
 	if h.dashboard != d {
 		t.Error("dashboard not set correctly")

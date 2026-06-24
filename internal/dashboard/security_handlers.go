@@ -35,9 +35,17 @@ func (d *Dashboard) handleGetIPACL(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	whitelist := acl.WhitelistEntries()
+	if whitelist == nil {
+		whitelist = []string{}
+	}
+	blacklist := acl.BlacklistEntries()
+	if blacklist == nil {
+		blacklist = []string{}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"whitelist": acl.WhitelistEntries(),
-		"blacklist": acl.BlacklistEntries(),
+		"whitelist": whitelist,
+		"blacklist": blacklist,
 	})
 }
 
