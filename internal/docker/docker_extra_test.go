@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 	"time"
 
@@ -28,6 +29,25 @@ func TestNewClient_WithSocket(t *testing.T) {
 	c := NewClient("/var/run/docker.sock")
 	if c.socketPath != "/var/run/docker.sock" {
 		t.Errorf("expected socket path, got %q", c.socketPath)
+	}
+}
+
+func TestNewClient_InvalidSocketHostFlag(t *testing.T) {
+	c := NewClient("/var/run/docker.sock\n--host=tcp://evil")
+	if c.hostFlag != "" {
+		t.Fatalf("expected invalid socket path not to become hostFlag, got %q", c.hostFlag)
+	}
+}
+
+func TestValidateDockerCLIArg(t *testing.T) {
+	if err := validateDockerCLIArg("docker argument", "ps"); err != nil {
+		t.Fatalf("valid docker arg rejected: %v", err)
+	}
+	if err := validateDockerCLIArg("docker argument", "bad\x00arg"); err == nil {
+		t.Fatal("expected NUL argument rejection")
+	}
+	if err := validateDockerCLIArg("docker argument", "bad\narg"); err == nil {
+		t.Fatal("expected control character rejection")
 	}
 }
 
@@ -119,6 +139,32 @@ func TestWatcher_StartStop(t *testing.T) {
 	w.Stop()
 
 	_ = onChangeCalled // may or may not be called depending on Docker availability
+}
+
+func TestWatcher_StopWithContextHonorsDeadline(t *testing.T) {
+	w := NewWatcher(nil, "gwaf", "bridge", time.Hour)
+	done := make(chan struct{})
+	w.wg.Add(1)
+	go func() {
+		defer w.wg.Done()
+		<-done
+	}()
+	defer close(done)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	if err := w.StopWithContext(ctx); err == nil {
+		t.Fatal("expected StopWithContext to return context deadline error")
+	}
+
+	select {
+	case <-w.stopCh:
+	default:
+		t.Fatal("expected StopWithContext to close stopCh")
+	}
+	if w.eventStreamConnected.Load() {
+		t.Fatal("expected StopWithContext timeout to mark event stream disconnected")
+	}
 }
 
 // --- Watcher sync ---
@@ -824,6 +870,13 @@ func TestWatcher_Sync_ListError(t *testing.T) {
 	if changed {
 		t.Fatal("expected no change when Docker is unavailable")
 	}
+	stats := w.Stats()
+	if stats.LastSyncOK {
+		t.Fatal("expected failed sync status")
+	}
+	if stats.SyncFailures != 1 {
+		t.Fatalf("expected 1 sync failure, got %d", stats.SyncFailures)
+	}
 }
 
 // TestWatcher_Sync_ServiceAdded verifies that transitioning from zero
@@ -1080,6 +1133,64 @@ func TestClient_dockerCmd_NonExitError(t *testing.T) {
 	}
 }
 
+func TestClient_dockerCmd_RejectsInvalidArgs(t *testing.T) {
+	c := NewClient("")
+	_, err := c.dockerCmd(context.Background(), "ps\n--all")
+	if err == nil {
+		t.Fatal("expected invalid docker argument error")
+	}
+}
+
+func TestClient_dockerCmd_RejectsInvalidHostFlag(t *testing.T) {
+	c := NewClient("")
+	c.hostFlag = "unix:///var/run/docker.sock\n--host=tcp://evil"
+	_, err := c.dockerCmd(context.Background(), "ps")
+	if err == nil {
+		t.Fatal("expected invalid docker host error")
+	}
+}
+
+func TestClient_dockerCmd_RemoteTLSArgs(t *testing.T) {
+	c := NewClientWithOptions(ClientOptions{
+		SocketPath: "tcp://docker.example.com:2376",
+		TLSVerify:  true,
+		TLSCACert:  "/etc/guardianwaf/docker/ca.pem",
+		TLSCert:    "/etc/guardianwaf/docker/cert.pem",
+		TLSKey:     "/etc/guardianwaf/docker/key.pem",
+	})
+	if c.hostFlag != "tcp://docker.example.com:2376" {
+		t.Fatalf("unexpected docker host flag: %q", c.hostFlag)
+	}
+
+	var got []string
+	c.cmdFunc = func(_ context.Context, args ...string) (string, error) {
+		got = append([]string(nil), args...)
+		return "24.0.0\n", nil
+	}
+	if err := c.Ping(); err != nil {
+		t.Fatalf("Ping() error = %v", err)
+	}
+	want := []string{"version", "--format", "{{.Server.Version}}"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("cmdFunc bypass should receive raw command args, got %#v want %#v", got, want)
+	}
+
+	baseArgs, err := c.dockerCLIBaseArgs()
+	if err != nil {
+		t.Fatalf("dockerCLIBaseArgs() error = %v", err)
+	}
+	wantBase := []string{
+		"--host", "tcp://docker.example.com:2376",
+		"--tlsverify",
+		"--tlscacert", "/etc/guardianwaf/docker/ca.pem",
+		"--tlscert", "/etc/guardianwaf/docker/cert.pem",
+		"--tlskey", "/etc/guardianwaf/docker/key.pem",
+	}
+	if !reflect.DeepEqual(baseArgs, wantBase) {
+		t.Fatalf("unexpected Docker CLI base args: %#v want %#v", baseArgs, wantBase)
+	}
+}
+
 // TestContainerName_LongID verifies ContainerName returns the first 12 chars
 // when Names is empty and ID is longer than 12 characters.
 func TestContainerName_LongID(t *testing.T) {
@@ -1224,6 +1335,14 @@ func TestClient_StreamEvents_WithHostFlag(t *testing.T) {
 	ch := make(chan Event, 1)
 	_ = c.StreamEvents(ctx, "gwaf", ch)
 	// Should return quickly
+}
+
+func TestClient_StreamEvents_RejectsInvalidLabelPrefix(t *testing.T) {
+	c := NewClient("")
+	err := c.StreamEvents(context.Background(), "gwaf\n--format={{.}}", make(chan Event, 1))
+	if err == nil {
+		t.Fatal("expected invalid label prefix error")
+	}
 }
 
 // TestClient_StreamEvents_SendBlockedCtxDone verifies the select inside the

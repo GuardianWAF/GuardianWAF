@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -56,24 +57,41 @@ func (h *SSEHandler) RegisterRoutes(mux *http.ServeMux) {
 }
 
 func (h *SSEHandler) authenticate(r *http.Request) bool {
+	_, ok := h.authenticateContext(r)
+	return ok
+}
+
+func (h *SSEHandler) authenticateContext(r *http.Request) (*AuditContext, bool) {
 	if h.apiKey == "" {
 		h.log.Warn("SECURITY: rejecting unauthenticated request — no API key configured", "remote_addr", r.RemoteAddr)
-		return false
+		return nil, false
 	}
 	if key := r.Header.Get("X-API-Key"); key != "" {
-		return subtle.ConstantTimeCompare([]byte(key), []byte(h.apiKey)) == 1
+		if subtle.ConstantTimeCompare([]byte(key), []byte(h.apiKey)) == 1 {
+			return &AuditContext{
+				Transport:  "sse",
+				AuthType:   "api_key",
+				Principal:  "dashboard_api_key",
+				RemoteAddr: r.RemoteAddr,
+			}, true
+		}
+		return nil, false
 	}
 	if key := r.URL.Query().Get("api_key"); key != "" {
 		h.log.Warn("MCP API key passed via query parameter — rejected, use X-API-Key header", "remote_addr", r.RemoteAddr)
-		return false // Reject query-param-based API keys to prevent credential leakage
+		return nil, false // Reject query-param-based API keys to prevent credential leakage
 	}
-	return false
+	return nil, false
 }
 
 // handleSSE establishes the SSE connection for server→client messages.
 func (h *SSEHandler) handleSSE(w http.ResponseWriter, r *http.Request) {
 	if !h.authenticate(r) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -114,9 +132,14 @@ func (h *SSEHandler) handleSSE(w http.ResponseWriter, r *http.Request) {
 	if r.TLS != nil {
 		scheme = "https"
 	}
-	messageURL := fmt.Sprintf("%s://%s/mcp/message", scheme, r.Host)
+	host := sanitizeSSEEndpointHost(r.Host)
+	if host == "" {
+		http.Error(w, "invalid host", http.StatusBadRequest)
+		return
+	}
+	messageURL := fmt.Sprintf("%s://%s/mcp/message", scheme, host)
 	client.mu.Lock()
-	fmt.Fprintf(w, "event: endpoint\ndata: %s\n\n", messageURL)
+	fmt.Fprintf(w, "event: endpoint\ndata: %s\n\n", messageURL) // #nosec G705 -- messageURL uses a fixed path and a Host value sanitized against SSE/control injection.
 	flusher.Flush()
 	client.mu.Unlock()
 
@@ -145,10 +168,27 @@ func (h *SSEHandler) handleSSE(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func sanitizeSSEEndpointHost(host string) string {
+	if host == "" || strings.ContainsAny(host, "@/\\") {
+		return ""
+	}
+	for _, r := range host {
+		if r <= 0x20 || r == 0x7f {
+			return ""
+		}
+	}
+	return host
+}
+
 // handleMessage receives JSON-RPC requests from the client via POST.
 func (h *SSEHandler) handleMessage(w http.ResponseWriter, r *http.Request) {
-	if !h.authenticate(r) {
+	authCtx, ok := h.authenticateContext(r)
+	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -164,8 +204,8 @@ func (h *SSEHandler) handleMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Process via HandleRequestJSON (thread-safe, no writer swap)
-	respData, err := h.server.HandleRequestJSON(body)
+	// Process via HandleRequestJSONWithAuditContext (thread-safe, no writer swap)
+	respData, err := h.server.HandleRequestJSONWithAuditContext(body, authCtx)
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return

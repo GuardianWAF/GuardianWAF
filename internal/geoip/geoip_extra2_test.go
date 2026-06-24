@@ -1,6 +1,7 @@
 package geoip
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -20,6 +21,114 @@ func TestLoadCSV_ScannerError(t *testing.T) {
 	_, err := LoadCSV(csv)
 	if err == nil {
 		t.Error("expected scanner error for oversized line")
+	}
+}
+
+func TestGeoIPDownloadLimitReaderRejectsTrailingOversize(t *testing.T) {
+	reader := limitGeoIPDownloadReader(strings.NewReader("abcdef"), 3)
+	data, err := io.ReadAll(reader)
+	if err == nil {
+		t.Fatal("expected oversized GeoIP download to be rejected")
+	}
+	if string(data) != "abc" {
+		t.Fatalf("read data = %q, want first bounded bytes", data)
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("oversized download rejected with unexpected error: %v", err)
+	}
+}
+
+func TestCleanGeoIPFilePath(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		path       string
+		allowEmpty bool
+		want       string
+		wantErr    bool
+	}{
+		{name: "relative", path: filepath.Join("data", "..", "geo.csv"), want: "geo.csv"},
+		{name: "empty allowed", allowEmpty: true, want: ""},
+		{name: "empty rejected", wantErr: true},
+		{name: "nul rejected", path: "geo\x00.csv", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := cleanGeoIPFilePath(tt.path, tt.allowEmpty)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("cleanGeoIPFilePath: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("cleanGeoIPFilePath() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLoadCSVRejectsNULPath(t *testing.T) {
+	t.Parallel()
+
+	if _, err := LoadCSV("geo\x00.csv"); err == nil {
+		t.Fatal("expected NUL path error")
+	}
+}
+
+func TestLoadOrDownloadRejectsNULPath(t *testing.T) {
+	t.Parallel()
+
+	if _, err := LoadOrDownload("geo\x00.csv", "http://127.0.0.1:1/geo.csv", 0); err == nil {
+		t.Fatal("expected NUL path error")
+	}
+}
+
+func TestDownloadDBRejectsNULPathBeforeRequest(t *testing.T) {
+	t.Parallel()
+
+	var requested bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requested = true
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("1.0.0.0,1.0.0.255,AU\n"))
+	}))
+	defer srv.Close()
+
+	if err := downloadDB(srv.URL+"/geo.csv", "geo\x00.csv"); err == nil {
+		t.Fatal("expected NUL path error")
+	}
+	if requested {
+		t.Fatal("downloadDB should reject path before making HTTP request")
+	}
+}
+
+func TestStartAutoRefreshRejectsNULPath(t *testing.T) {
+	db := New()
+	var requested bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requested = true
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("1.0.0.0,1.0.0.255,AU\n"))
+	}))
+	defer srv.Close()
+
+	stop := db.StartAutoRefresh("geo\x00.csv", srv.URL+"/geo.csv", time.Millisecond)
+	time.Sleep(20 * time.Millisecond)
+	stop()
+
+	if requested {
+		t.Fatal("auto-refresh should reject invalid path before download")
+	}
+	if db.Count() != 0 {
+		t.Fatalf("auto-refresh loaded data despite invalid path: %d ranges", db.Count())
 	}
 }
 

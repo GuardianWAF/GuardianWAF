@@ -70,6 +70,34 @@ func TestValidateURLNotPrivate_UnspecifiedIP(t *testing.T) {
 	}
 }
 
+func TestValidateURLNotPrivate_MulticastIP(t *testing.T) {
+	err := validateURLNotPrivate("http://224.0.0.1/geoip.csv")
+	if err == nil {
+		t.Error("expected error for multicast IP")
+	}
+}
+
+func TestValidateURLNotPrivate_HostlessURL(t *testing.T) {
+	err := validateURLNotPrivate("https:///geoip.csv")
+	if err == nil {
+		t.Error("expected error for hostless URL")
+	}
+}
+
+func TestValidateURLNotPrivate_CredentialBearingURL(t *testing.T) {
+	err := validateURLNotPrivate("https://user:pass@geoip.example.com/geoip.csv")
+	if err == nil {
+		t.Error("expected error for URL userinfo")
+	}
+}
+
+func TestValidateURLNotPrivate_NonHTTPScheme(t *testing.T) {
+	err := validateURLNotPrivate("file:///tmp/geoip.csv")
+	if err == nil {
+		t.Error("expected error for non-HTTP(S) URL")
+	}
+}
+
 func TestValidateURLNotPrivate_Localhost(t *testing.T) {
 	err := validateURLNotPrivate("http://localhost/geoip.csv")
 	if err == nil {

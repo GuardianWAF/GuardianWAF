@@ -51,6 +51,15 @@ const (
 // ToolHandler handles a single MCP tool invocation.
 type ToolHandler func(params json.RawMessage) (any, error)
 
+// AuditContext carries transport authentication metadata for structured audit logs.
+// It intentionally excludes credentials and tool arguments.
+type AuditContext struct {
+	Transport  string
+	AuthType   string
+	Principal  string
+	RemoteAddr string
+}
+
 // EngineInterface defines what the MCP server needs from the WAF engine.
 // This interface avoids circular imports between the mcp and engine packages.
 type EngineInterface interface {
@@ -333,6 +342,64 @@ type toolsCallParams struct {
 	Arguments json.RawMessage `json:"arguments"`
 }
 
+var mutatingMCPTools = map[string]struct{}{
+	"guardianwaf_add_whitelist":           {},
+	"guardianwaf_remove_whitelist":        {},
+	"guardianwaf_add_blacklist":           {},
+	"guardianwaf_remove_blacklist":        {},
+	"guardianwaf_add_ratelimit":           {},
+	"guardianwaf_remove_ratelimit":        {},
+	"guardianwaf_add_exclusion":           {},
+	"guardianwaf_remove_exclusion":        {},
+	"guardianwaf_set_mode":                {},
+	"guardianwaf_add_webhook":             {},
+	"guardianwaf_remove_webhook":          {},
+	"guardianwaf_add_email_target":        {},
+	"guardianwaf_remove_email_target":     {},
+	"guardianwaf_test_alert":              {},
+	"guardianwaf_enable_crs_rule":         {},
+	"guardianwaf_set_paranoia_level":      {},
+	"guardianwaf_add_crs_exclusion":       {},
+	"guardianwaf_enable_virtual_patch":    {},
+	"guardianwaf_add_custom_patch":        {},
+	"guardianwaf_update_cve_database":     {},
+	"guardianwaf_upload_api_schema":       {},
+	"guardianwaf_remove_api_schema":       {},
+	"guardianwaf_set_api_validation_mode": {},
+	"guardianwaf_set_clientside_mode":     {},
+	"guardianwaf_add_skimming_domain":     {},
+	"guardianwaf_add_dlp_pattern":         {},
+	"guardianwaf_remove_dlp_pattern":      {},
+	"guardianwaf_set_http3_config":        {},
+}
+
+func isMutatingMCPTool(name string) bool {
+	_, ok := mutatingMCPTools[name]
+	return ok
+}
+
+func (s *Server) auditToolCall(name, outcome string, ctx *AuditContext) {
+	if !isMutatingMCPTool(name) {
+		return
+	}
+	attrs := []any{"tool", name, "outcome", outcome}
+	if ctx != nil {
+		if ctx.Transport != "" {
+			attrs = append(attrs, "transport", ctx.Transport)
+		}
+		if ctx.AuthType != "" {
+			attrs = append(attrs, "auth_type", ctx.AuthType)
+		}
+		if ctx.Principal != "" {
+			attrs = append(attrs, "principal", ctx.Principal)
+		}
+		if ctx.RemoteAddr != "" {
+			attrs = append(attrs, "remote_addr", ctx.RemoteAddr)
+		}
+	}
+	s.log.Info("MCP mutating tool call", attrs...)
+}
+
 // handleToolsCall dispatches a tools/call request to the registered handler.
 func (s *Server) handleToolsCall(req JSONRPCRequest) {
 	// Reject tool calls if authentication is required but client is not authenticated
@@ -358,6 +425,7 @@ func (s *Server) handleToolsCall(req JSONRPCRequest) {
 
 	result, err := handler(params.Arguments)
 	if err != nil {
+		s.auditToolCall(params.Name, "error", &AuditContext{Transport: "stdio"})
 		// Return as tool error content, not JSON-RPC error
 		s.sendResult(req.ID, map[string]any{
 			"content": []map[string]any{
@@ -370,6 +438,7 @@ func (s *Server) handleToolsCall(req JSONRPCRequest) {
 		})
 		return
 	}
+	s.auditToolCall(params.Name, "success", &AuditContext{Transport: "stdio"})
 
 	// Marshal result to text for MCP content
 	resultJSON, _ := json.Marshal(result)
@@ -427,6 +496,12 @@ func (s *Server) writeResponse(resp JSONRPCResponse) {
 // HandleRequestJSON processes a JSON-RPC request and returns the response.
 // Thread-safe — uses a per-request buffer instead of swapping the server writer.
 func (s *Server) HandleRequestJSON(reqData []byte) ([]byte, error) {
+	return s.HandleRequestJSONWithAuditContext(reqData, nil)
+}
+
+// HandleRequestJSONWithAuditContext processes a JSON-RPC request with transport
+// metadata available to mutating-tool audit logs.
+func (s *Server) HandleRequestJSONWithAuditContext(reqData []byte, auditCtx *AuditContext) ([]byte, error) {
 	var req JSONRPCRequest
 	if err := json.Unmarshal(reqData, &req); err != nil {
 		resp := JSONRPCResponse{JSONRPC: "2.0", Error: &RPCError{Code: ErrCodeParseError, Message: "Parse error"}}
@@ -437,7 +512,7 @@ func (s *Server) HandleRequestJSON(reqData []byte) ([]byte, error) {
 		return json.Marshal(resp)
 	}
 
-	resp := s.processRequest(req)
+	resp := s.processRequestWithAuditContext(req, auditCtx)
 	data, err := json.Marshal(resp)
 	if err != nil {
 		return nil, err
@@ -448,6 +523,10 @@ func (s *Server) HandleRequestJSON(reqData []byte) ([]byte, error) {
 // processRequest handles a JSON-RPC request and returns the response directly.
 // Used by HandleRequestJSON for thread-safe per-request response handling.
 func (s *Server) processRequest(req JSONRPCRequest) JSONRPCResponse {
+	return s.processRequestWithAuditContext(req, nil)
+}
+
+func (s *Server) processRequestWithAuditContext(req JSONRPCRequest, auditCtx *AuditContext) JSONRPCResponse {
 	switch req.Method {
 	case "initialize":
 		s.mu.Lock()
@@ -479,7 +558,7 @@ func (s *Server) processRequest(req JSONRPCRequest) JSONRPCResponse {
 		if apiKey != "" && !authed {
 			return JSONRPCResponse{JSONRPC: "2.0", ID: req.ID, Error: &RPCError{Code: ErrCodeUnauthorized, Message: "authentication required"}}
 		}
-		return s.processToolsCall(req)
+		return s.processToolsCall(req, auditCtx)
 	default:
 		return JSONRPCResponse{
 			JSONRPC: "2.0",
@@ -490,7 +569,7 @@ func (s *Server) processRequest(req JSONRPCRequest) JSONRPCResponse {
 }
 
 // processToolsCall handles a tools/call request and returns a response directly.
-func (s *Server) processToolsCall(req JSONRPCRequest) JSONRPCResponse {
+func (s *Server) processToolsCall(req JSONRPCRequest, auditCtx *AuditContext) JSONRPCResponse {
 	var params toolsCallParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		return JSONRPCResponse{JSONRPC: "2.0", ID: req.ID, Error: &RPCError{Code: ErrCodeInvalidParams, Message: "Invalid params for tools/call"}}
@@ -506,6 +585,7 @@ func (s *Server) processToolsCall(req JSONRPCRequest) JSONRPCResponse {
 
 	result, err := handler(params.Arguments)
 	if err != nil {
+		s.auditToolCall(params.Name, "error", auditCtx)
 		return JSONRPCResponse{
 			JSONRPC: "2.0",
 			ID:      req.ID,
@@ -515,6 +595,7 @@ func (s *Server) processToolsCall(req JSONRPCRequest) JSONRPCResponse {
 			},
 		}
 	}
+	s.auditToolCall(params.Name, "success", auditCtx)
 
 	resultJSON, _ := json.Marshal(result)
 	return JSONRPCResponse{

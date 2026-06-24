@@ -3,6 +3,8 @@ package geoip
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -384,6 +386,42 @@ func TestStartAutoRefresh_Stop(t *testing.T) {
 
 	// Should not panic on stop
 	stop()
+}
+
+func TestStartAutoRefreshWithContextStopsAndIsIdempotent(t *testing.T) {
+	dir := t.TempDir()
+	csv := filepath.Join(dir, "geo.csv")
+	_ = os.WriteFile(csv, []byte("1.0.0.0,1.0.0.255,AU\n"), 0o644)
+
+	db, _ := LoadCSV(csv)
+	handle := db.StartAutoRefreshWithContext(csv, "", time.Hour)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := handle.StopWithContext(ctx); err != nil {
+		t.Fatalf("StopWithContext: %v", err)
+	}
+	if err := handle.StopWithContext(ctx); err != nil {
+		t.Fatalf("second StopWithContext: %v", err)
+	}
+	handle.Stop()
+}
+
+func TestAutoRefreshHandleStopWithContextDeadline(t *testing.T) {
+	handle := &AutoRefreshHandle{
+		stop: make(chan struct{}),
+		done: make(chan struct{}),
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+	defer cancel()
+	err := handle.StopWithContext(ctx)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("StopWithContext error = %v, want deadline exceeded", err)
+	}
+	close(handle.done)
+	if err := handle.StopWithContext(context.Background()); err != nil {
+		t.Fatalf("final StopWithContext: %v", err)
+	}
 }
 
 func TestStartAutoRefresh_WithDownloadURL(t *testing.T) {

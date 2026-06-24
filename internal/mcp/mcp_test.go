@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -97,7 +100,7 @@ func (m *mockEngine) GetCRSRules(phase int, severity string) (any, error) {
 	return map[string]any{"enabled": true, "rules": []any{}}, nil
 }
 func (m *mockEngine) EnableCRSRule(ruleID string, enabled bool) error { return nil }
-func (m *mockEngine) SetParanoiaLevel(level int) error               { return nil }
+func (m *mockEngine) SetParanoiaLevel(level int) error                { return nil }
 func (m *mockEngine) AddCRSExclusion(ruleID, path, parameter, reason string) error {
 	return nil
 }
@@ -117,7 +120,7 @@ func (m *mockEngine) GetAPISchemas() (any, error) {
 	return map[string]any{"enabled": true, "schemas": []any{}}, nil
 }
 func (m *mockEngine) UploadAPISchema(name, content, format string, strictMode bool) error { return nil }
-func (m *mockEngine) RemoveAPISchema(name string) error                                  { return nil }
+func (m *mockEngine) RemoveAPISchema(name string) error                                   { return nil }
 func (m *mockEngine) SetAPIValidationMode(validateRequest, validateResponse, strictMode, blockOnViolation *bool) error {
 	return nil
 }
@@ -302,6 +305,140 @@ func TestAllToolsDefinitions(t *testing.T) {
 		if !toolNames[name] {
 			t.Errorf("missing expected tool: %s", name)
 		}
+	}
+}
+
+func TestMCPIntegrationDocsClassifyEveryTool(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "docs", "mcp-integration.md"))
+	if err != nil {
+		t.Fatalf("ReadFile docs/mcp-integration.md: %v", err)
+	}
+	doc := string(data)
+
+	for _, want := range []string{
+		"## Tool Authorization Classes",
+		"All MCP tools require",
+		"Mutating tool calls emit a structured MCP audit log",
+		"arguments are intentionally omitted",
+		"Treat mutating tools as operator actions",
+		"## All 21 Base MCP Tools",
+		"Both transports expose the same 44 tools",
+	} {
+		if !strings.Contains(doc, want) {
+			t.Fatalf("MCP integration docs missing %q", want)
+		}
+	}
+
+	for _, tool := range AllTools() {
+		readOnlyRow := "| `" + tool.Name + "` | Read-only |"
+		mutatingRow := "| `" + tool.Name + "` | Mutating |"
+		hasReadOnly := strings.Contains(doc, readOnlyRow)
+		hasMutating := strings.Contains(doc, mutatingRow)
+		switch {
+		case hasReadOnly && hasMutating:
+			t.Fatalf("MCP tool %s is classified as both read-only and mutating", tool.Name)
+		case !hasReadOnly && !hasMutating:
+			t.Fatalf("MCP tool %s is missing from the authorization class table", tool.Name)
+		case hasMutating && !isMutatingMCPTool(tool.Name):
+			t.Fatalf("MCP tool %s is documented as mutating but not audited as mutating", tool.Name)
+		case hasReadOnly && isMutatingMCPTool(tool.Name):
+			t.Fatalf("MCP tool %s is documented as read-only but audited as mutating", tool.Name)
+		}
+	}
+}
+
+func TestMutatingMCPToolCallsAreAuditedWithoutArguments(t *testing.T) {
+	var logs bytes.Buffer
+	srv := NewServer(nil, nil)
+	srv.log = slog.New(slog.NewJSONHandler(&logs, nil))
+	srv.SetEngine(newMockEngine())
+	srv.RegisterAllTools()
+
+	reqData := []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"guardianwaf_add_webhook","arguments":{"name":"ops","url":"https://hooks.example.test/secret-token","type":"generic"}}}`)
+	respData, err := srv.HandleRequestJSON(reqData)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var resp JSONRPCResponse
+	if err := json.Unmarshal(respData, &resp); err != nil {
+		t.Fatalf("response not valid JSON: %v", err)
+	}
+	if resp.Error != nil {
+		t.Fatalf("unexpected JSON-RPC error: %+v", resp.Error)
+	}
+
+	out := logs.String()
+	for _, want := range []string{
+		"MCP mutating tool call",
+		"guardianwaf_add_webhook",
+		"success",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("audit log missing %q: %s", want, out)
+		}
+	}
+	for _, forbidden := range []string{
+		"hooks.example.test",
+		"secret-token",
+	} {
+		if strings.Contains(out, forbidden) {
+			t.Fatalf("audit log leaked tool arguments %q: %s", forbidden, out)
+		}
+	}
+}
+
+func TestReadOnlyMCPToolCallsAreNotAuditedAsMutations(t *testing.T) {
+	var logs bytes.Buffer
+	srv := NewServer(nil, nil)
+	srv.log = slog.New(slog.NewJSONHandler(&logs, nil))
+	srv.SetEngine(newMockEngine())
+	srv.RegisterAllTools()
+
+	reqData := []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"guardianwaf_get_stats","arguments":{}}}`)
+	if _, err := srv.HandleRequestJSON(reqData); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out := logs.String(); strings.Contains(out, "MCP mutating tool call") {
+		t.Fatalf("read-only tool produced mutation audit log: %s", out)
+	}
+}
+
+func TestFailedMutatingMCPToolCallsAreAudited(t *testing.T) {
+	var logs bytes.Buffer
+	srv := NewServer(nil, nil)
+	srv.log = slog.New(slog.NewJSONHandler(&logs, nil))
+	srv.SetEngine(newFailEngine())
+	srv.RegisterAllTools()
+
+	reqData := []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"guardianwaf_add_whitelist","arguments":{"ip":"1.2.3.4"}}}`)
+	respData, err := srv.HandleRequestJSON(reqData)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var resp JSONRPCResponse
+	if err := json.Unmarshal(respData, &resp); err != nil {
+		t.Fatalf("response not valid JSON: %v", err)
+	}
+	result, ok := resp.Result.(map[string]any)
+	if !ok {
+		t.Fatalf("result not a map: %#v", resp.Result)
+	}
+	if isError, _ := result["isError"].(bool); !isError {
+		t.Fatalf("expected tool error result, got %#v", result)
+	}
+
+	out := logs.String()
+	for _, want := range []string{
+		"MCP mutating tool call",
+		"guardianwaf_add_whitelist",
+		"error",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("audit log missing %q: %s", want, out)
+		}
+	}
+	if strings.Contains(out, "1.2.3.4") {
+		t.Fatalf("audit log leaked tool arguments: %s", out)
 	}
 }
 
@@ -1732,44 +1869,52 @@ func (m *failEngine) RemoveExclusion(path string) error { return fmt.Errorf("fai
 func (m *failEngine) SetMode(mode string) error         { return fmt.Errorf("fail") }
 
 // New Feature Methods - fail versions
-func (m *failEngine) GetCRSRules(phase int, severity string) (any, error) { return nil, fmt.Errorf("fail") }
-func (m *failEngine) EnableCRSRule(ruleID string, enabled bool) error    { return fmt.Errorf("fail") }
-func (m *failEngine) SetParanoiaLevel(level int) error                   { return fmt.Errorf("fail") }
+func (m *failEngine) GetCRSRules(phase int, severity string) (any, error) {
+	return nil, fmt.Errorf("fail")
+}
+func (m *failEngine) EnableCRSRule(ruleID string, enabled bool) error { return fmt.Errorf("fail") }
+func (m *failEngine) SetParanoiaLevel(level int) error                { return fmt.Errorf("fail") }
 func (m *failEngine) AddCRSExclusion(ruleID, path, parameter, reason string) error {
 	return fmt.Errorf("fail")
 }
 func (m *failEngine) GetVirtualPatches(severity string, activeOnly bool) (any, error) {
 	return nil, fmt.Errorf("fail")
 }
-func (m *failEngine) EnableVirtualPatch(patchID string, enabled bool) error { return fmt.Errorf("fail") }
+func (m *failEngine) EnableVirtualPatch(patchID string, enabled bool) error {
+	return fmt.Errorf("fail")
+}
 func (m *failEngine) AddCustomPatch(id, name, description, cveID, pattern, patternType, target, action, severity string, score int) error {
 	return fmt.Errorf("fail")
 }
-func (m *failEngine) UpdateCVEDatabase() error                               { return fmt.Errorf("fail") }
-func (m *failEngine) GetAPISchemas() (any, error)                            { return nil, fmt.Errorf("fail") }
+func (m *failEngine) UpdateCVEDatabase() error    { return fmt.Errorf("fail") }
+func (m *failEngine) GetAPISchemas() (any, error) { return nil, fmt.Errorf("fail") }
 func (m *failEngine) UploadAPISchema(name, content, format string, strictMode bool) error {
 	return fmt.Errorf("fail")
 }
-func (m *failEngine) RemoveAPISchema(name string) error                      { return fmt.Errorf("fail") }
+func (m *failEngine) RemoveAPISchema(name string) error { return fmt.Errorf("fail") }
 func (m *failEngine) SetAPIValidationMode(validateRequest, validateResponse, strictMode, blockOnViolation *bool) error {
 	return fmt.Errorf("fail")
 }
-func (m *failEngine) TestAPISchema(method, path, body string) (any, error) { return nil, fmt.Errorf("fail") }
-func (m *failEngine) GetClientSideStats() (any, error)                      { return nil, fmt.Errorf("fail") }
+func (m *failEngine) TestAPISchema(method, path, body string) (any, error) {
+	return nil, fmt.Errorf("fail")
+}
+func (m *failEngine) GetClientSideStats() (any, error) { return nil, fmt.Errorf("fail") }
 func (m *failEngine) SetClientSideMode(mode string, magecartDetection, agentInjection, cspEnabled *bool) error {
 	return fmt.Errorf("fail")
 }
-func (m *failEngine) AddSkimmingDomain(domain string) error               { return fmt.Errorf("fail") }
-func (m *failEngine) GetCSPReports(limit int) (any, error)                { return nil, fmt.Errorf("fail") }
+func (m *failEngine) AddSkimmingDomain(domain string) error { return fmt.Errorf("fail") }
+func (m *failEngine) GetCSPReports(limit int) (any, error)  { return nil, fmt.Errorf("fail") }
 func (m *failEngine) GetDLPAlerts(limit int, patternType string) (any, error) {
 	return nil, fmt.Errorf("fail")
 }
 func (m *failEngine) AddDLPPattern(id, name, pattern, description, action string, score int) error {
 	return fmt.Errorf("fail")
 }
-func (m *failEngine) RemoveDLPPattern(id string) error                    { return fmt.Errorf("fail") }
-func (m *failEngine) TestDLPPattern(pattern, testData string) (any, error) { return nil, fmt.Errorf("fail") }
-func (m *failEngine) GetHTTP3Status() (any, error)                        { return nil, fmt.Errorf("fail") }
+func (m *failEngine) RemoveDLPPattern(id string) error { return fmt.Errorf("fail") }
+func (m *failEngine) TestDLPPattern(pattern, testData string) (any, error) {
+	return nil, fmt.Errorf("fail")
+}
+func (m *failEngine) GetHTTP3Status() (any, error) { return nil, fmt.Errorf("fail") }
 func (m *failEngine) SetHTTP3Config(enabled, enable0RTT, advertiseAltSvc *bool) error {
 	return fmt.Errorf("fail")
 }
@@ -1778,7 +1923,7 @@ func (m *failEngine) SetHTTP3Config(enabled, enable0RTT, advertiseAltSvc *bool) 
 func (m *failEngine) AddWebhook(name, url, webhookType string, events []string, minScore int, cooldown string) error {
 	return fmt.Errorf("fail")
 }
-func (m *failEngine) RemoveWebhook(name string) error        { return fmt.Errorf("fail") }
+func (m *failEngine) RemoveWebhook(name string) error { return fmt.Errorf("fail") }
 func (m *failEngine) AddEmailTarget(name, smtpHost string, smtpPort int, username, password, from string, to []string, useTLS bool, events []string, minScore int) error {
 	return fmt.Errorf("fail")
 }

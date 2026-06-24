@@ -23,15 +23,44 @@ import (
 type Client struct {
 	socketPath string
 	hostFlag   string                                                    // --host flag for docker CLI, empty = use default context
+	tlsArgs    []string                                                  // TLS flags for remote Docker CLI connections
 	cmdFunc    func(ctx context.Context, args ...string) (string, error) // overrides dockerCmd if set
+}
+
+// ClientOptions configures a Docker CLI client.
+type ClientOptions struct {
+	SocketPath string
+	TLSVerify  bool
+	TLSCACert  string
+	TLSCert    string
+	TLSKey     string
 }
 
 // NewClient creates a Docker client using a local socket.
 // socketPath is used for direct socket connections on Linux; on Windows the CLI is always used.
 func NewClient(socketPath string) *Client {
-	c := &Client{socketPath: socketPath}
-	if socketPath != "" && runtime.GOOS != "windows" {
-		c.hostFlag = "unix://" + socketPath
+	return NewClientWithOptions(ClientOptions{SocketPath: socketPath})
+}
+
+// NewClientWithOptions creates a Docker client for local sockets or explicit Docker CLI endpoints.
+func NewClientWithOptions(opts ClientOptions) *Client {
+	c := &Client{socketPath: opts.SocketPath}
+	if opts.SocketPath != "" && strings.Contains(opts.SocketPath, "://") {
+		c.hostFlag = cleanDockerHostFlag(opts.SocketPath)
+	} else if opts.SocketPath != "" && runtime.GOOS != "windows" {
+		c.hostFlag = cleanDockerHostFlag("unix://" + opts.SocketPath)
+	}
+	if opts.TLSVerify {
+		c.tlsArgs = append(c.tlsArgs, "--tlsverify")
+	}
+	if opts.TLSCACert != "" {
+		c.tlsArgs = append(c.tlsArgs, "--tlscacert", opts.TLSCACert)
+	}
+	if opts.TLSCert != "" {
+		c.tlsArgs = append(c.tlsArgs, "--tlscert", opts.TLSCert)
+	}
+	if opts.TLSKey != "" {
+		c.tlsArgs = append(c.tlsArgs, "--tlskey", opts.TLSKey)
 	}
 	return c
 }
@@ -229,6 +258,13 @@ func (c *Client) InspectContainer(id string) (*ContainerDetail, error) {
 // Sends container start/stop/die events to the channel.
 // Blocks until ctx is canceled or the process exits.
 func (c *Client) StreamEvents(ctx context.Context, labelPrefix string, ch chan<- Event) error {
+	if err := validateDockerCLIArg("label prefix", labelPrefix); err != nil {
+		return err
+	}
+	if err := validateDockerCLIArg("docker host", c.hostFlag); err != nil {
+		return err
+	}
+
 	filter := fmt.Sprintf("label=%s.enable=true", labelPrefix)
 	args := []string{
 		"events", "--filter", "type=container",
@@ -241,7 +277,7 @@ func (c *Client) StreamEvents(ctx context.Context, labelPrefix string, ch chan<-
 		args = append([]string{"--host", c.hostFlag}, args...)
 	}
 
-	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd := exec.CommandContext(ctx, "docker", args...) // #nosec G204 -- docker is executed without a shell and all caller-controlled args are rejected on control/NUL bytes.
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("creating pipe: %w", err)
@@ -281,12 +317,17 @@ func (c *Client) dockerCmd(ctx context.Context, args ...string) (string, error) 
 	if c.cmdFunc != nil {
 		return c.cmdFunc(ctx, args...)
 	}
-	baseArgs := []string{}
-	if c.hostFlag != "" {
-		baseArgs = append(baseArgs, "--host", c.hostFlag)
+	baseArgs, err := c.dockerCLIBaseArgs()
+	if err != nil {
+		return "", err
+	}
+	for _, arg := range args {
+		if err := validateDockerCLIArg("docker argument", arg); err != nil {
+			return "", err
+		}
 	}
 	args = append(baseArgs, args...)
-	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd := exec.CommandContext(ctx, "docker", args...) // #nosec G204 -- docker is executed without a shell and caller-controlled args are rejected on control/NUL bytes.
 	out, err := cmd.Output()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
@@ -295,6 +336,42 @@ func (c *Client) dockerCmd(ctx context.Context, args ...string) (string, error) 
 		return "", err
 	}
 	return string(out), nil
+}
+
+func (c *Client) dockerCLIBaseArgs() ([]string, error) {
+	baseArgs := []string{}
+	if c.hostFlag != "" {
+		if err := validateDockerCLIArg("docker host", c.hostFlag); err != nil {
+			return nil, err
+		}
+		baseArgs = append(baseArgs, "--host", c.hostFlag)
+	}
+	for _, arg := range c.tlsArgs {
+		if err := validateDockerCLIArg("docker TLS argument", arg); err != nil {
+			return nil, err
+		}
+	}
+	baseArgs = append(baseArgs, c.tlsArgs...)
+	return baseArgs, nil
+}
+
+func cleanDockerHostFlag(host string) string {
+	if err := validateDockerCLIArg("docker host", host); err != nil {
+		return ""
+	}
+	return host
+}
+
+func validateDockerCLIArg(name, arg string) error {
+	if strings.ContainsRune(arg, 0) {
+		return fmt.Errorf("%s contains NUL byte", name)
+	}
+	for _, r := range arg {
+		if r < 0x20 || r == 0x7f {
+			return fmt.Errorf("%s contains control character", name)
+		}
+	}
+	return nil
 }
 
 // ContainerName returns the clean name (strips leading /).
@@ -321,6 +398,9 @@ func NewHTTPClient(socketPath string) *http.Client {
 			IdleConnTimeout:       30 * time.Second,
 		},
 		Timeout: 30 * time.Second,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
 	}
 }
 

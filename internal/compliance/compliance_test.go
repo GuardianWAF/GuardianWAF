@@ -257,6 +257,9 @@ func TestAuditChain(t *testing.T) {
 	if e.ChainLen() != 2 {
 		t.Errorf("chain len = %d, want 2", e.ChainLen())
 	}
+	if got := e.ChainHeadHash(); got != entry2.Hash {
+		t.Errorf("chain head hash = %s, want %s", got, entry2.Hash)
+	}
 }
 
 func TestVerifyChain(t *testing.T) {

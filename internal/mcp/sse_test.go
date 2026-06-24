@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -103,6 +104,30 @@ func TestAuthenticate_NoKeyWhenRequiredDenies(t *testing.T) {
 	}
 }
 
+func TestSanitizeSSEEndpointHost(t *testing.T) {
+	tests := []struct {
+		name string
+		host string
+		want string
+	}{
+		{name: "hostname", host: "example.com", want: "example.com"},
+		{name: "port", host: "example.com:8443", want: "example.com:8443"},
+		{name: "empty", host: "", want: ""},
+		{name: "userinfo", host: "example.com@evil.test", want: ""},
+		{name: "slash", host: "example.com/evil", want: ""},
+		{name: "backslash", host: "example.com\\evil", want: ""},
+		{name: "newline", host: "example.com\nevent: injected", want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := sanitizeSSEEndpointHost(tt.host); got != tt.want {
+				t.Fatalf("sanitizeSSEEndpointHost(%q) = %q, want %q", tt.host, got, tt.want)
+			}
+		})
+	}
+}
+
 // --- RegisterRoutes ---
 
 func TestRegisterRoutes_Registered(t *testing.T) {
@@ -131,6 +156,46 @@ func TestRegisterRoutes_Registered(t *testing.T) {
 	// After context cancellation the handler unblocks; check that it wrote the SSE headers.
 	if !strings.Contains(sseW.Body.String(), "endpoint") {
 		t.Fatal("expected SSE endpoint event in response body")
+	}
+}
+
+func TestHandleMessage_AuditsMutatingToolWithSSEAuthContext(t *testing.T) {
+	handler, srv := helperSSEServer("test-api-key")
+	var logs bytes.Buffer
+	srv.log = slog.New(slog.NewJSONHandler(&logs, nil))
+
+	body := strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"guardianwaf_add_webhook","arguments":{"name":"ops","url":"https://hooks.example.test/secret-token","type":"generic"}}}`)
+	req := helperAuthReq(http.MethodPost, "/mcp/message", body)
+	req.RemoteAddr = "203.0.113.10:4444"
+	w := httptest.NewRecorder()
+
+	handler.handleMessage(w, req)
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected status 202, got %d: %s", w.Code, w.Body.String())
+	}
+
+	out := logs.String()
+	for _, want := range []string{
+		"MCP mutating tool call",
+		"guardianwaf_add_webhook",
+		"success",
+		`"transport":"sse"`,
+		`"auth_type":"api_key"`,
+		`"principal":"dashboard_api_key"`,
+		`"remote_addr":"203.0.113.10:4444"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("audit log missing %q: %s", want, out)
+		}
+	}
+	for _, forbidden := range []string{
+		"test-api-key",
+		"hooks.example.test",
+		"secret-token",
+	} {
+		if strings.Contains(out, forbidden) {
+			t.Fatalf("audit log leaked %q: %s", forbidden, out)
+		}
 	}
 }
 
@@ -195,6 +260,17 @@ func TestHandleSSE_Unauthorized(t *testing.T) {
 
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", w.Code)
+	}
+}
+
+func TestHandleSSE_MethodNotAllowed(t *testing.T) {
+	handler, _ := helperSSEServer("test-api-key")
+	req := helperAuthReq(http.MethodPost, "/mcp/sse", nil)
+	w := httptest.NewRecorder()
+	handler.handleSSE(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405 for non-GET SSE request, got %d", w.Code)
 	}
 }
 
@@ -706,6 +782,17 @@ func TestHandleMessage_BodyTooLarge(t *testing.T) {
 
 	if w.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("expected 413 for oversized body, got %d", w.Code)
+	}
+}
+
+func TestHandleMessage_MethodNotAllowed(t *testing.T) {
+	handler, _ := helperSSEServer("test-api-key")
+	req := helperAuthReq(http.MethodGet, "/mcp/message", nil)
+	w := httptest.NewRecorder()
+	handler.handleMessage(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405 for non-POST message request, got %d", w.Code)
 	}
 }
 

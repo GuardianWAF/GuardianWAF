@@ -1,12 +1,42 @@
 package tls
 
 import (
+	"bytes"
+	"context"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 )
+
+func TestMain(m *testing.M) {
+	ocspHTTPClient = newTestOCSPHTTPClient()
+	os.Exit(m.Run())
+}
+
+func newTestOCSPHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			DialContext: (&net.Dialer{
+				Timeout:   5 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+			IdleConnTimeout:       30 * time.Second,
+			TLSHandshakeTimeout:   5 * time.Second,
+			ResponseHeaderTimeout: 10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		},
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+}
 
 func TestOCSPHTTPClientDoesNotFollowRedirects(t *testing.T) {
 	targetHits := atomic.Int64{}
@@ -49,5 +79,41 @@ func TestNewOCSPHTTPClientHasTransportTimeouts(t *testing.T) {
 	}
 	if client.CheckRedirect == nil {
 		t.Fatal("expected CheckRedirect to be configured")
+	}
+}
+
+func TestNewOCSPHTTPClientRejectsPrivateResolvedIPs(t *testing.T) {
+	client := newOCSPHTTPClient()
+	transport, ok := client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("transport type = %T, want *http.Transport", client.Transport)
+	}
+	if transport.DialContext == nil {
+		t.Fatal("expected DialContext to be configured")
+	}
+
+	_, err := transport.DialContext(context.Background(), "tcp", "127.0.0.1:80")
+	if err == nil {
+		t.Fatal("expected private OCSP responder dial to be rejected")
+	}
+	if !strings.Contains(err.Error(), "OCSP SSRF dial") {
+		t.Fatalf("expected OCSP SSRF dial error, got %v", err)
+	}
+}
+
+func TestReadOCSPResponseRejectsOversizedValidPrefix(t *testing.T) {
+	valid := extraBuildValidOCSPResponse()
+	body, err := readOCSPResponse(io.MultiReader(
+		bytes.NewReader(valid),
+		strings.NewReader(strings.Repeat(" ", maxOCSPResponseBytes)),
+	))
+	if err == nil {
+		t.Fatal("expected oversized OCSP response to fail")
+	}
+	if body != nil {
+		t.Fatalf("expected no body on oversized OCSP response, got %d bytes", len(body))
+	}
+	if !strings.Contains(err.Error(), "OCSP response exceeds") {
+		t.Fatalf("expected OCSP response size error, got %v", err)
 	}
 }

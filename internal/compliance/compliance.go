@@ -7,8 +7,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -35,10 +38,10 @@ const (
 
 // Control represents a single compliance control mapped to WAF capabilities.
 type Control struct {
-	ID             string         `json:"id"`
-	Name           string         `json:"name"`
-	Frameworks     []string       `json:"frameworks"`
-	Evidence       []EvidenceSpec `json:"evidence"`
+	ID              string         `json:"id"`
+	Name            string         `json:"name"`
+	Frameworks      []string       `json:"frameworks"`
+	Evidence        []EvidenceSpec `json:"evidence"`
 	PassingCriteria []Criterion    `json:"passing_criteria"`
 }
 
@@ -57,10 +60,10 @@ type Criterion struct {
 
 // ControlResult holds the evaluation result for a single control.
 type ControlResult struct {
-	ID       string                 `json:"id"`
-	Name     string                 `json:"name"`
-	Status   string                 `json:"status"`
-	Evidence map[string]any         `json:"evidence,omitempty"`
+	ID       string         `json:"id"`
+	Name     string         `json:"name"`
+	Status   string         `json:"status"`
+	Evidence map[string]any `json:"evidence,omitempty"`
 }
 
 // Report represents a generated compliance report.
@@ -131,35 +134,72 @@ type Engine struct {
 
 // NewEngine creates a new compliance engine with built-in controls.
 func NewEngine(cfg config.ComplianceConfig) *Engine {
+	e, _ := newEngine(cfg, false)
+	return e
+}
+
+// NewEngineWithError creates a compliance engine and returns an error when an
+// explicitly configured persistence path cannot be opened. Runtime startup paths
+// should use this so durable audit trails do not silently degrade to memory only.
+func NewEngineWithError(cfg config.ComplianceConfig) (*Engine, error) {
+	return newEngine(cfg, true)
+}
+
+func newEngine(cfg config.ComplianceConfig, strictPersistence bool) (*Engine, error) {
+	persistPath, pathErr := cleanComplianceAuditPath(cfg.AuditTrail.PersistPath, true)
+	if pathErr != nil && strictPersistence {
+		return nil, pathErr
+	}
+	if pathErr == nil {
+		cfg.AuditTrail.PersistPath = persistPath
+	}
 	e := &Engine{
 		config:   cfg,
 		controls: builtinControls(),
 		lastHash: "genesis",
 	}
-	e.replayChain(cfg.AuditTrail.PersistPath)
-	if cfg.AuditTrail.PersistPath != "" {
-		f, err := os.OpenFile(cfg.AuditTrail.PersistPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if pathErr != nil {
+		return e, nil
+	}
+	e.replayChain(persistPath)
+	if persistPath != "" {
+		if strictPersistence {
+			dir := filepath.Dir(persistPath)
+			if dir != "." && dir != "" {
+				if err := os.MkdirAll(dir, 0o700); err != nil {
+					return nil, fmt.Errorf("creating compliance audit directory %q: %w", dir, err)
+				}
+			}
+		}
+		f, err := os.OpenFile(persistPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600) // #nosec G304 -- audit path is operator-selected, rejected on NUL and cleaned before use.
 		if err == nil {
 			e.file = f
+		} else if strictPersistence {
+			return nil, fmt.Errorf("opening compliance audit trail %q: %w", persistPath, err)
 		}
 	}
-	return e
+	return e, nil
 }
 
 // Close flushes and closes the persistence file.
-func (e *Engine) Close() {
-	if e.file != nil {
-		e.file.Sync()
-		e.file.Close()
+func (e *Engine) Close() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.file == nil {
+		return nil
 	}
+	err := errors.Join(e.file.Sync(), e.file.Close())
+	e.file = nil
+	return err
 }
 
 // replayChain loads audit chain entries from a JSONL file on startup.
 func (e *Engine) replayChain(path string) {
-	if path == "" {
+	cleanPath, err := cleanComplianceAuditPath(path, true)
+	if err != nil || cleanPath == "" {
 		return
 	}
-	f, err := os.Open(path)
+	f, err := os.Open(cleanPath) // #nosec G304 -- replay path is rejected on NUL and cleaned before use.
 	if err != nil {
 		return
 	}
@@ -177,6 +217,19 @@ func (e *Engine) replayChain(path string) {
 		e.chain = append(e.chain, entry)
 		e.lastHash = entry.Hash
 	}
+}
+
+func cleanComplianceAuditPath(path string, allowEmpty bool) (string, error) {
+	if strings.ContainsRune(path, 0) {
+		return "", fmt.Errorf("compliance audit path contains NUL byte")
+	}
+	if path == "" {
+		if allowEmpty {
+			return "", nil
+		}
+		return "", fmt.Errorf("compliance audit path must not be empty")
+	}
+	return filepath.Clean(path), nil
 }
 
 // Controls returns all registered controls.
@@ -245,6 +298,13 @@ func (e *Engine) Evaluate(framework string, m Metrics) []ControlResult {
 
 // GenerateReport creates a compliance report for a framework and time period.
 func (e *Engine) GenerateReport(framework, tenantID string, period Period, m Metrics) Report {
+	report, _ := e.GenerateReportWithError(framework, tenantID, period, m)
+	return report
+}
+
+// GenerateReportWithError creates a compliance report and returns audit-chain
+// persistence errors when the audit trail has durable storage configured.
+func (e *Engine) GenerateReportWithError(framework, tenantID string, period Period, m Metrics) (Report, error) {
 	results := e.Evaluate(framework, m)
 
 	summary := ReportSummary{}
@@ -279,11 +339,14 @@ func (e *Engine) GenerateReport(framework, tenantID string, period Period, m Met
 	}
 
 	if e.config.AuditTrail.Enabled {
-		entry := e.AppendChain("report_generated", report)
+		entry, err := e.AppendChainWithError("report_generated", report)
+		if err != nil {
+			return report, err
+		}
 		report.ChainHash = entry.Hash
 	}
 
-	return report
+	return report, nil
 }
 
 // ActiveFrameworks returns the list of enabled frameworks.
@@ -296,6 +359,13 @@ func (e *Engine) ActiveFrameworks() []string {
 
 // AppendChain adds an entry to the hash-chained audit trail.
 func (e *Engine) AppendChain(entryType string, data any) ChainEntry {
+	entry, _ := e.AppendChainWithError(entryType, data)
+	return entry
+}
+
+// AppendChainWithError adds an entry to the hash-chained audit trail and
+// returns durable write errors when file-backed audit persistence is configured.
+func (e *Engine) AppendChainWithError(entryType string, data any) (ChainEntry, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -316,18 +386,34 @@ func (e *Engine) AppendChain(entryType string, data any) ChainEntry {
 	fmt.Fprintf(hasher, "|%s", entry.PrevHash)
 	entry.Hash = hex.EncodeToString(hasher.Sum(nil))
 
-	e.chain = append(e.chain, entry)
-	e.lastHash = entry.Hash
-
 	// Append to JSONL file
 	if e.file != nil {
 		if data, err := json.Marshal(entry); err == nil {
-			e.file.Write(data)
-			e.file.Write([]byte("\n"))
+			if err := writeFull(e.file, data); err != nil {
+				return entry, fmt.Errorf("writing compliance audit entry: %w", err)
+			}
+			if err := writeFull(e.file, []byte("\n")); err != nil {
+				return entry, fmt.Errorf("writing compliance audit entry newline: %w", err)
+			}
+		} else {
+			return entry, fmt.Errorf("marshaling compliance audit entry: %w", err)
 		}
 	}
 
-	return entry
+	e.chain = append(e.chain, entry)
+	e.lastHash = entry.Hash
+	return entry, nil
+}
+
+func writeFull(w io.Writer, data []byte) error {
+	n, err := w.Write(data)
+	if err != nil {
+		return err
+	}
+	if n != len(data) {
+		return io.ErrShortWrite
+	}
+	return nil
 }
 
 // VerifyChain verifies the integrity of the entire audit chain.
@@ -367,6 +453,14 @@ func (e *Engine) ChainLen() int {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return len(e.chain)
+}
+
+// ChainHeadHash returns the current audit-chain head hash. Operators can anchor
+// this value in external write-once storage to detect later truncation.
+func (e *Engine) ChainHeadHash() string {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.lastHash
 }
 
 // ReportJSON serializes a report to JSON.
@@ -466,8 +560,8 @@ func collectEvidence(c Control, m Metrics) map[string]any {
 func builtinControls() []Control {
 	return []Control{
 		{
-			ID:   "pci_dss_6_4_1",
-			Name: "PCI DSS v4.0 Req 6.4.1 — WAF in place",
+			ID:         "pci_dss_6_4_1",
+			Name:       "PCI DSS v4.0 Req 6.4.1 — WAF in place",
 			Frameworks: []string{FrameworkPCI},
 			Evidence: []EvidenceSpec{
 				{Type: "waf_active", Description: "WAF is operational and processing requests"},
@@ -478,8 +572,8 @@ func builtinControls() []Control {
 			},
 		},
 		{
-			ID:   "pci_dss_6_4_2",
-			Name: "PCI DSS v4.0 Req 6.4.2 — Attack detection and prevention",
+			ID:         "pci_dss_6_4_2",
+			Name:       "PCI DSS v4.0 Req 6.4.2 — Attack detection and prevention",
 			Frameworks: []string{FrameworkPCI},
 			Evidence: []EvidenceSpec{
 				{Type: "block_events", Description: "Attacks detected and blocked"},
@@ -489,8 +583,8 @@ func builtinControls() []Control {
 			},
 		},
 		{
-			ID:   "pci_dss_10_2_1",
-			Name: "PCI DSS v4.0 Req 10.2.1 — Audit log of individual access",
+			ID:         "pci_dss_10_2_1",
+			Name:       "PCI DSS v4.0 Req 10.2.1 — Audit log of individual access",
 			Frameworks: []string{FrameworkPCI},
 			Evidence: []EvidenceSpec{
 				{Type: "access_log_entries", Description: "All requests logged"},
@@ -500,8 +594,8 @@ func builtinControls() []Control {
 			},
 		},
 		{
-			ID:   "gdpr_art32",
-			Name: "GDPR Art. 32 — Technical security measures",
+			ID:         "gdpr_art32",
+			Name:       "GDPR Art. 32 — Technical security measures",
 			Frameworks: []string{FrameworkGDPR},
 			Evidence: []EvidenceSpec{
 				{Type: "waf_active", Description: "WAF operational"},
@@ -513,8 +607,8 @@ func builtinControls() []Control {
 			},
 		},
 		{
-			ID:   "gdpr_art32_dlp",
-			Name: "GDPR Art. 32 — DLP capability active",
+			ID:         "gdpr_art32_dlp",
+			Name:       "GDPR Art. 32 — DLP capability active",
 			Frameworks: []string{FrameworkGDPR},
 			Evidence: []EvidenceSpec{
 				{Type: "dlp_events", Description: "DLP blocks present"},
@@ -524,8 +618,8 @@ func builtinControls() []Control {
 			},
 		},
 		{
-			ID:   "soc2_cc6_6",
-			Name: "SOC 2 CC6.6 — Logical access controls",
+			ID:         "soc2_cc6_6",
+			Name:       "SOC 2 CC6.6 — Logical access controls",
 			Frameworks: []string{FrameworkSOC2},
 			Evidence: []EvidenceSpec{
 				{Type: "waf_active", Description: "WAF operational"},
@@ -537,8 +631,8 @@ func builtinControls() []Control {
 			},
 		},
 		{
-			ID:   "soc2_cc7_2",
-			Name: "SOC 2 CC7.2 — Security event monitoring",
+			ID:         "soc2_cc7_2",
+			Name:       "SOC 2 CC7.2 — Security event monitoring",
 			Frameworks: []string{FrameworkSOC2},
 			Evidence: []EvidenceSpec{
 				{Type: "alert_events", Description: "Security alerts generated"},
@@ -548,8 +642,8 @@ func builtinControls() []Control {
 			},
 		},
 		{
-			ID:   "iso27001_a12_4",
-			Name: "ISO 27001 A.12.4 — Logging and monitoring",
+			ID:         "iso27001_a12_4",
+			Name:       "ISO 27001 A.12.4 — Logging and monitoring",
 			Frameworks: []string{FrameworkISO},
 			Evidence: []EvidenceSpec{
 				{Type: "access_log_entries", Description: "Request logging active"},
@@ -560,8 +654,8 @@ func builtinControls() []Control {
 			},
 		},
 		{
-			ID:   "iso27001_a14_2",
-			Name: "ISO 27001 A.14.2 — Secure development — WAF protection",
+			ID:         "iso27001_a14_2",
+			Name:       "ISO 27001 A.14.2 — Secure development — WAF protection",
 			Frameworks: []string{FrameworkISO},
 			Evidence: []EvidenceSpec{
 				{Type: "block_events", Description: "Web attacks blocked by WAF"},

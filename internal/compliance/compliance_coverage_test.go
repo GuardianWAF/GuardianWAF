@@ -2,6 +2,7 @@ package compliance
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -23,9 +24,96 @@ func TestClose_Cov(t *testing.T) {
 		},
 	})
 	e.AppendChain("test", "data")
-	e.Close()
+	if err := e.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
 	// Should not panic on double close
-	e.Close()
+	if err := e.Close(); err != nil {
+		t.Fatalf("second Close: %v", err)
+	}
+}
+
+func TestCloseReturnsPersistenceError(t *testing.T) {
+	dir := t.TempDir()
+	persistPath := filepath.Join(dir, "audit.jsonl")
+	e := NewEngine(config.ComplianceConfig{
+		Enabled: true,
+		AuditTrail: config.AuditTrailConfig{
+			Enabled:     true,
+			PersistPath: persistPath,
+		},
+	})
+	if e.file == nil {
+		t.Fatal("expected file handle for persist path")
+	}
+	file := e.file
+	if err := file.Close(); err != nil {
+		t.Fatalf("pre-close file: %v", err)
+	}
+	if err := e.Close(); !errors.Is(err, os.ErrClosed) {
+		t.Fatalf("Close error = %v, want os.ErrClosed", err)
+	}
+}
+
+func TestAppendChainWithErrorReturnsPersistenceError(t *testing.T) {
+	dir := t.TempDir()
+	persistPath := filepath.Join(dir, "audit.jsonl")
+	e := NewEngine(config.ComplianceConfig{
+		Enabled: true,
+		AuditTrail: config.AuditTrailConfig{
+			Enabled:     true,
+			PersistPath: persistPath,
+		},
+	})
+	if e.file == nil {
+		t.Fatal("expected file handle for persist path")
+	}
+	if err := e.file.Close(); err != nil {
+		t.Fatalf("pre-close file: %v", err)
+	}
+
+	entry, err := e.AppendChainWithError("event", "data")
+	if !errors.Is(err, os.ErrClosed) {
+		t.Fatalf("AppendChainWithError error = %v, want os.ErrClosed", err)
+	}
+	if entry.Hash == "" {
+		t.Fatal("expected computed entry hash for diagnostics")
+	}
+	if got := e.ChainLen(); got != 0 {
+		t.Fatalf("chain length = %d, want 0 after failed durable append", got)
+	}
+	e.file = nil
+}
+
+func TestGenerateReportWithErrorReturnsAuditPersistenceError(t *testing.T) {
+	dir := t.TempDir()
+	persistPath := filepath.Join(dir, "audit.jsonl")
+	e := NewEngine(config.ComplianceConfig{
+		Enabled: true,
+		AuditTrail: config.AuditTrailConfig{
+			Enabled:     true,
+			PersistPath: persistPath,
+		},
+	})
+	if e.file == nil {
+		t.Fatal("expected file handle for persist path")
+	}
+	if err := e.file.Close(); err != nil {
+		t.Fatalf("pre-close file: %v", err)
+	}
+
+	now := time.Now().UTC()
+	report, err := e.GenerateReportWithError(FrameworkPCI, "tenant", Period{From: now, To: now}, goodMetrics())
+	if !errors.Is(err, os.ErrClosed) {
+		t.Fatalf("GenerateReportWithError error = %v, want os.ErrClosed", err)
+	}
+	if report.ChainHash != "" {
+		t.Fatalf("expected no chain hash on failed durable append, got %q", report.ChainHash)
+	}
+	if got := e.ChainLen(); got != 0 {
+		t.Fatalf("chain length = %d, want 0 after failed report audit append", got)
+	}
+	e.file = nil
 }
 
 // --- NewEngine with persist path ---
@@ -66,6 +154,112 @@ func TestNewEngine_PersistPath_Cov(t *testing.T) {
 	}
 	if lines != 2 {
 		t.Errorf("expected 2 lines in JSONL, got %d", lines)
+	}
+}
+
+func TestNewEngineWithErrorCreatesAuditDirectory(t *testing.T) {
+	persistPath := filepath.Join(t.TempDir(), "nested", "audit.jsonl")
+
+	e, err := NewEngineWithError(config.ComplianceConfig{
+		Enabled: true,
+		AuditTrail: config.AuditTrailConfig{
+			Enabled:     true,
+			PersistPath: persistPath,
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewEngineWithError: %v", err)
+	}
+	defer e.Close()
+
+	e.AppendChain("event", "data")
+	if _, err := os.Stat(persistPath); err != nil {
+		t.Fatalf("expected audit trail file to exist: %v", err)
+	}
+}
+
+func TestNewEngineWithErrorReturnsPersistenceError(t *testing.T) {
+	parentFile := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(parentFile, []byte("x"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	persistPath := filepath.Join(parentFile, "audit.jsonl")
+
+	e, err := NewEngineWithError(config.ComplianceConfig{
+		Enabled: true,
+		AuditTrail: config.AuditTrailConfig{
+			Enabled:     true,
+			PersistPath: persistPath,
+		},
+	})
+	if err == nil {
+		if e != nil {
+			e.Close()
+		}
+		t.Fatal("expected persistence error")
+	}
+	if e != nil {
+		t.Fatal("expected nil engine on persistence error")
+	}
+}
+
+func TestCleanComplianceAuditPath(t *testing.T) {
+	t.Parallel()
+
+	got, err := cleanComplianceAuditPath(filepath.Join("audit", "..", "chain.jsonl"), false)
+	if err != nil {
+		t.Fatalf("cleanComplianceAuditPath: %v", err)
+	}
+	if got != "chain.jsonl" {
+		t.Fatalf("cleanComplianceAuditPath() = %q, want %q", got, "chain.jsonl")
+	}
+	if got, err := cleanComplianceAuditPath("", true); err != nil || got != "" {
+		t.Fatalf("cleanComplianceAuditPath empty allowed = %q, %v", got, err)
+	}
+	for _, path := range []string{"", "audit\x00.jsonl"} {
+		if _, err := cleanComplianceAuditPath(path, false); err == nil {
+			t.Fatalf("expected error for %q", path)
+		}
+	}
+}
+
+func TestNewEngineInvalidPersistPathFallsBackToMemory(t *testing.T) {
+	e := NewEngine(config.ComplianceConfig{
+		Enabled: true,
+		AuditTrail: config.AuditTrailConfig{
+			Enabled:     true,
+			PersistPath: "audit\x00.jsonl",
+		},
+	})
+	if e == nil {
+		t.Fatal("expected engine")
+	}
+	defer e.Close()
+	if e.file != nil {
+		t.Fatal("expected memory-only engine for invalid non-strict path")
+	}
+	e.AppendChain("event", "data")
+	if e.ChainLen() != 1 {
+		t.Fatalf("expected in-memory chain append, got %d", e.ChainLen())
+	}
+}
+
+func TestNewEngineWithErrorRejectsInvalidPersistPath(t *testing.T) {
+	e, err := NewEngineWithError(config.ComplianceConfig{
+		Enabled: true,
+		AuditTrail: config.AuditTrailConfig{
+			Enabled:     true,
+			PersistPath: "audit\x00.jsonl",
+		},
+	})
+	if err == nil {
+		if e != nil {
+			e.Close()
+		}
+		t.Fatal("expected invalid persist path error")
+	}
+	if e != nil {
+		t.Fatal("expected nil engine")
 	}
 }
 
