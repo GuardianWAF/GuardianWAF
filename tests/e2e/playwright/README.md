@@ -6,20 +6,22 @@ Browser-based end-to-end tests for the GuardianWAF dashboard using Playwright.
 
 - Node.js 20+
 - Playwright browsers installed: `npx playwright install`
-- A running GuardianWAF server on port 9443
+- A running GuardianWAF dashboard on port 9443 and WAF proxy on port 8088
 
 ## Setup
 
 ```bash
 # Install dependencies
-npm install -D @playwright/test
+npm install
 
 # Install browsers
-npx playwright install chromium firefox webkit
+npm run install:browsers
 
 # Set environment variables
 export E2E_BASE_URL=http://localhost:9443
+export E2E_WAF_URL=http://localhost:8088
 export E2E_API_KEY=your-api-key
+export E2E_ADMIN_KEY=your-admin-key   # optional; enables /api/admin/* positive checks
 ```
 
 ## Running Tests
@@ -45,7 +47,7 @@ Or use Make targets from the repository root:
 ```bash
 make e2e                          # Run E2E tests against localhost:9443
 make e2e-headed                   # Run with browser visible
-E2E_BASE_URL=https://... make e2e  # Custom server URL
+E2E_BASE_URL=https://... E2E_WAF_URL=http://... make e2e  # Custom URLs
 make e2e-list                     # List all available tests
 ```
 
@@ -83,7 +85,9 @@ make e2e-list                     # List all available tests
 In CI, set these environment variables:
 ```bash
 E2E_BASE_URL=https://your-test-server:9443
+E2E_WAF_URL=http://your-test-server:8088
 E2E_API_KEY=test-api-key
+E2E_ADMIN_KEY=test-admin-key
 ```
 
 Tests run in parallel across Chromium, Firefox, and WebKit.

@@ -17,12 +17,13 @@ test.describe('Config API', () => {
         key: API_KEY,
       },
     })
-    cookies = loginResp.headers()['set-cookie'] || []
+    const setCookie = loginResp.headers()['set-cookie'] || ''
+    cookies = setCookie.split(/,\s*(?=gwaf_session=)/)
   })
 
   test('returns full config', async ({ request }) => {
     // Extract session cookie
-    const sessionCookie = cookies.find(c => c.includes('session'))
+    const sessionCookie = cookies.find(c => c.includes('gwaf_session'))
     const cookieValue = sessionCookie?.split(';')[0] || ''
 
     const resp = await request.get(`${BASE_URL}/api/v1/config`, {
@@ -36,7 +37,7 @@ test.describe('Config API', () => {
   })
 
   test('IP ACL endpoints work', async ({ request }) => {
-    const sessionCookie = cookies.find(c => c.includes('session'))
+    const sessionCookie = cookies.find(c => c.includes('gwaf_session'))
     const cookieValue = sessionCookie?.split(';')[0] || ''
 
     const resp = await request.get(`${BASE_URL}/api/v1/ipacl`, {
@@ -51,7 +52,7 @@ test.describe('Config API', () => {
   })
 
   test('AI config returns status', async ({ request }) => {
-    const sessionCookie = cookies.find(c => c.includes('session'))
+    const sessionCookie = cookies.find(c => c.includes('gwaf_session'))
     const cookieValue = sessionCookie?.split(';')[0] || ''
 
     const resp = await request.get(`${BASE_URL}/api/v1/ai/config`, {

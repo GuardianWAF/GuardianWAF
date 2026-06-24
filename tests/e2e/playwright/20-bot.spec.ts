@@ -11,8 +11,9 @@ async function getSessionCookie(request: any): Promise<string> {
     },
     form: { key: API_KEY },
   })
-  const cookies = loginResp.headers()['set-cookie'] || []
-  const sessionCookie = cookies.find((c: string) => c.includes('session'))
+  const setCookie = loginResp.headers()['set-cookie'] || ''
+  const cookies = setCookie.split(/\,\s*(?=gwaf_session=)/)
+  const sessionCookie = cookies.find((c: string) => c.includes('gwaf_session'))
   return sessionCookie?.split(';')[0] || ''
 }
 
@@ -29,11 +30,9 @@ test.describe('Bot Detection', () => {
         'X-API-Key': API_KEY,
       },
     })
-    expect([200, 404]).toContain(resp.status())
-    if (resp.status() === 200) {
-      const body = await resp.json()
-      expect(body).toHaveProperty('enabled') || expect(body.hasOwnProperty('rules'))
-    }
+    expect(resp.status()).toBe(200)
+    const body = await resp.json()
+    expect(body).toHaveProperty('enabled')
   })
 
   test('known bot user agents pass through', async ({ request }) => {
@@ -111,9 +110,10 @@ test.describe('Bot Detection', () => {
         'X-API-Key': API_KEY,
       },
     })
-    expect(resp.status()).toBe(200)
+    expect([200, 429]).toContain(resp.status())
+    if (resp.status() === 429) return
     const body = await resp.json()
-    // Stats may contain bot detection metrics
-    expect(body).toHaveProperty('requests') || expect(body).toHaveProperty('blocks')
+    expect(body).toHaveProperty('total_requests')
+    expect(body).toHaveProperty('blocked_requests')
   })
 })

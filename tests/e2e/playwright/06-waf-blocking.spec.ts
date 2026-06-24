@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 
 const BASE_URL = process.env.E2E_BASE_URL || 'http://localhost:9443'
+const WAF_URL = process.env.E2E_WAF_URL || 'http://localhost:8088'
 const API_KEY = process.env.E2E_API_KEY || 'test-api-key'
 
 test.describe('WAF Blocking', () => {
@@ -11,7 +12,7 @@ test.describe('WAF Blocking', () => {
   })
 
   test('benign request passes through', async ({ request }) => {
-    const resp = await request.get(`${BASE_URL}/hello?name=world`, {
+    const resp = await request.get(`${WAF_URL}/hello?name=world`, {
       headers: {
         'X-API-Key': API_KEY,
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -22,7 +23,7 @@ test.describe('WAF Blocking', () => {
   })
 
   test('SQL injection is blocked', async ({ request }) => {
-    const resp = await request.get(`${BASE_URL}/search?q='+OR+1%3D1+--`, {
+    const resp = await request.get(`${WAF_URL}/search?q='+OR+1%3D1+--`, {
       headers: {
         'X-API-Key': API_KEY,
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -36,7 +37,7 @@ test.describe('WAF Blocking', () => {
   })
 
   test('XSS attack is blocked', async ({ request }) => {
-    const resp = await request.get(`${BASE_URL}/page?q=%3Cscript%3Ealert(1)%3C/script%3E`, {
+    const resp = await request.get(`${WAF_URL}/page?q=%3Cscript%3Ealert(1)%3C/script%3E`, {
       headers: {
         'X-API-Key': API_KEY,
         'User-Agent': 'Mozilla/5.0',
@@ -49,7 +50,7 @@ test.describe('WAF Blocking', () => {
 
   test('blocked events appear in event log', async ({ request }) => {
     // Send an attack
-    await request.get(`${BASE_URL}/api?q=' OR 1=1--`, {
+    await request.get(`${WAF_URL}/api?q=' OR 1=1--`, {
       headers: { 'X-API-Key': API_KEY },
     }).catch(() => {})
 

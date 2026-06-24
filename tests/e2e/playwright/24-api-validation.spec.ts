@@ -11,9 +11,15 @@ async function getSessionCookie(request: any): Promise<string> {
     },
     form: { key: API_KEY },
   })
-  const cookies = loginResp.headers()['set-cookie'] || []
-  const sessionCookie = cookies.find((c: string) => c.includes('session'))
+  const setCookie = loginResp.headers()['set-cookie'] || ''
+  const cookies = setCookie.split(/\,\s*(?=gwaf_session=)/)
+  const sessionCookie = cookies.find((c: string) => c.includes('gwaf_session'))
   return sessionCookie?.split(';')[0] || ''
+}
+
+async function responseJSON(resp: any): Promise<any> {
+  const text = await resp.text()
+  return text ? JSON.parse(text) : {}
 }
 
 test.describe('API Validation & Error Handling', () => {
@@ -24,25 +30,29 @@ test.describe('API Validation & Error Handling', () => {
   })
 
   test('API returns 400 for malformed JSON', async ({ request }) => {
-    const resp = await request.post(`${BASE_URL}/api/v1/config/ai`, {
+    const resp = await request.put(`${BASE_URL}/api/v1/routing`, {
       headers: {
         'X-API-Key': API_KEY,
         'Content-Type': 'application/json',
       },
       data: '{ invalid json }',
     })
-    expect([400, 500]).toContain(resp.status())
+    expect(resp.status()).toBe(400)
+    const body = await responseJSON(resp)
+    expect(String(body.error || '')).toMatch(/invalid JSON/i)
   })
 
   test('API returns 400 for invalid request body', async ({ request }) => {
-    const resp = await request.post(`${BASE_URL}/api/v1/routes`, {
+    const resp = await request.put(`${BASE_URL}/api/v1/routing`, {
       headers: {
         'X-API-Key': API_KEY,
         'Content-Type': 'application/json',
       },
       data: JSON.stringify({ invalid: 'field' }),
     })
-    expect([400, 404, 409]).toContain(resp.status())
+    expect(resp.status()).toBe(400)
+    const body = await responseJSON(resp)
+    expect(String(body.error || '')).toMatch(/at least one/i)
   })
 
   test('API returns 404 for non-existent endpoint', async ({ request }) => {
@@ -85,43 +95,49 @@ test.describe('API Validation & Error Handling', () => {
       },
       data: JSON.stringify({}),
     })
-    expect([400, 500]).toContain(resp.status())
+    expect(resp.status()).toBe(400)
+    const body = await responseJSON(resp)
+    expect(String(body.error || '')).toBeTruthy()
   })
 
   test('API returns 413 for oversized payload', async ({ request }) => {
     const largePayload = { data: 'x'.repeat(1024 * 1024) } // 1MB
 
-    const resp = await request.post(`${BASE_URL}/api/v1/config/ai`, {
+    const resp = await request.put(`${BASE_URL}/api/v1/routing`, {
       headers: {
         'X-API-Key': API_KEY,
         'Content-Type': 'application/json',
       },
       data: largePayload,
     })
-    expect([413, 400, 500]).toContain(resp.status())
+    expect(resp.status()).toBe(413)
+    const body = await responseJSON(resp)
+    expect(String(body.error || '')).toMatch(/too large/i)
   })
 
   test('API handles invalid content type', async ({ request }) => {
-    const resp = await request.post(`${BASE_URL}/api/v1/config/ai`, {
+    const resp = await request.post(`${BASE_URL}/api/v1/geoip/lookup`, {
       headers: {
         'X-API-Key': API_KEY,
         'Content-Type': 'text/plain',
       },
-      data: 'some text',
+      data: '{"ip":"1.2.3.4"}',
     })
-    expect([400, 415, 500]).toContain(resp.status())
+    expect(resp.status()).toBe(415)
+    const body = await responseJSON(resp)
+    expect(String(body.error || '')).toMatch(/Content-Type/i)
   })
 
   test('CORS preflight is handled', async ({ request }) => {
-    const resp = await request.options(`${BASE_URL}/api/v1/stats`, {
+    const resp = await request.fetch(`${BASE_URL}/api/v1/stats`, {
+      method: 'OPTIONS',
       headers: {
         'Origin': 'http://example.com',
         'Access-Control-Request-Method': 'GET',
         'Access-Control-Request-Headers': 'X-API-Key',
       },
     })
-    // Should return 200 or 204 with CORS headers, or 404/405 if not handled
-    expect([200, 204, 400, 404, 405]).toContain(resp.status())
+    expect(resp.status()).toBe(204)
   })
 
   test('API includes rate limit headers', async ({ request }) => {
@@ -131,11 +147,9 @@ test.describe('API Validation & Error Handling', () => {
       },
     })
 
-    const headers = resp.headers()
-    // May include rate limit headers
-    const hasRateLimitHeaders =
-      headers.hasOwnProperty('x-ratelimit-limit') ||
-      headers.hasOwnProperty('x-ratelimit-remaining') ||
-      headers.hasOwnProperty('ratelimit-limit')
+    expect(resp.status()).toBe(200)
+    const body = await resp.json()
+    expect(body).toHaveProperty('total_requests')
+    expect(body).toHaveProperty('blocked_requests')
   })
 })

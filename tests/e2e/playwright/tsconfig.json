@@ -7,7 +7,7 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "types": ["@playwright/test"]
+    "types": ["@playwright/test", "node"]
   },
   "include": ["./**/*.ts"]
 }

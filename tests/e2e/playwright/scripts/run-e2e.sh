@@ -12,6 +12,7 @@
 # Environment Variables:
 #   E2E_BASE_URL    Base URL of GuardianWAF server (default: http://localhost:9443)
 #   E2E_API_KEY     API key for authentication (default: test-api-key)
+#   E2E_ADMIN_KEY   Admin key for /api/admin/* tests (optional)
 #   E2E_WORKERS     Number of parallel workers (default: 1)
 
 set -e
@@ -31,6 +32,7 @@ LIST=""
 WORKERS="${E2E_WORKERS:-1}"
 BASE_URL="${E2E_BASE_URL:-http://localhost:9443}"
 API_KEY="${E2E_API_KEY:-test-api-key}"
+ADMIN_KEY="${E2E_ADMIN_KEY:-}"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -74,6 +76,7 @@ while [[ $# -gt 0 ]]; do
             echo "Environment:"
             echo "  E2E_BASE_URL  Server URL (default: http://localhost:9443)"
             echo "  E2E_API_KEY   API key (default: test-api-key)"
+            echo "  E2E_ADMIN_KEY Admin key for /api/admin/* tests (optional)"
             exit 0
             ;;
         *)
@@ -93,6 +96,7 @@ fi
 # Export for Playwright
 export E2E_BASE_URL
 export E2E_API_KEY
+export E2E_ADMIN_KEY="${ADMIN_KEY}"
 
 # Build playwright command
 PW_CMD="npx playwright test"

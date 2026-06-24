@@ -3,6 +3,17 @@ import { test, expect } from '@playwright/test'
 const BASE_URL = process.env.E2E_BASE_URL || 'http://localhost:9443'
 const API_KEY = process.env.E2E_API_KEY || 'test-api-key'
 
+type WebhookTarget = {
+  name?: string
+  type?: string
+  url?: string
+}
+
+type EmailTarget = {
+  name?: string
+  smtp_host?: string
+}
+
 async function getSessionCookie(request: any): Promise<string> {
   const loginResp = await request.post(`${BASE_URL}/login`, {
     headers: {
@@ -11,9 +22,36 @@ async function getSessionCookie(request: any): Promise<string> {
     },
     form: { key: API_KEY },
   })
-  const cookies = loginResp.headers()['set-cookie'] || []
-  const sessionCookie = cookies.find((c: string) => c.includes('session'))
+  const setCookie = loginResp.headers()['set-cookie'] || ''
+  const cookies = setCookie.split(/\,\s*(?=gwaf_session=)/)
+  const sessionCookie = cookies.find((c: string) => c.includes('gwaf_session'))
   return sessionCookie?.split(';')[0] || ''
+}
+
+async function getWebhooks(request: any): Promise<WebhookTarget[] | null> {
+  const resp = await request.get(`${BASE_URL}/api/v1/alerting/webhooks`, {
+    headers: {
+      'X-API-Key': API_KEY,
+    },
+  })
+  expect([200, 429]).toContain(resp.status())
+  if (resp.status() === 429) return null
+  const body = await resp.json()
+  expect(Array.isArray(body.webhooks)).toBe(true)
+  return body.webhooks
+}
+
+async function getEmails(request: any): Promise<EmailTarget[] | null> {
+  const resp = await request.get(`${BASE_URL}/api/v1/alerting/emails`, {
+    headers: {
+      'X-API-Key': API_KEY,
+    },
+  })
+  expect([200, 429]).toContain(resp.status())
+  if (resp.status() === 429) return null
+  const body = await resp.json()
+  expect(Array.isArray(body.emails)).toBe(true)
+  return body.emails
 }
 
 test.describe('Alerting Configuration', () => {
@@ -29,14 +67,90 @@ test.describe('Alerting Configuration', () => {
         'X-API-Key': API_KEY,
       },
     })
-    expect([200, 404]).toContain(resp.status())
+    expect([200, 429]).toContain(resp.status())
+    if (resp.status() === 429) return
     if (resp.status() === 200) {
       const body = await resp.json()
       expect(Array.isArray(body.alerts) || body.hasOwnProperty('alerts')).toBe(true)
     }
   })
 
-  test('can create alert rule via API', async ({ request }) => {
+  test('can create and delete webhook target via API', async ({ request }) => {
+    const name = `e2e-webhook-${Date.now()}`
+    try {
+      const resp = await request.post(`${BASE_URL}/api/v1/alerting/webhooks`, {
+        headers: {
+          'X-API-Key': API_KEY,
+          'Content-Type': 'application/json',
+        },
+        data: {
+          name,
+          url: `https://hooks.example.com/${name}`,
+          type: 'generic',
+          events: ['block'],
+          min_score: 50,
+          cooldown: '30s',
+        },
+      })
+      expect([200, 429]).toContain(resp.status())
+      if (resp.status() === 429) return
+
+      const webhooks = await getWebhooks(request)
+      if (!webhooks) return
+      expect(webhooks.some((webhook) => webhook.name === name && webhook.type === 'generic')).toBe(true)
+    } finally {
+      await request.delete(`${BASE_URL}/api/v1/alerting/webhooks/${name}`, {
+        headers: {
+          'X-API-Key': API_KEY,
+        },
+      })
+    }
+
+    const webhooks = await getWebhooks(request)
+    if (!webhooks) return
+    expect(webhooks.some((webhook) => webhook.name === name)).toBe(false)
+  })
+
+  test('can create and delete email target via API', async ({ request }) => {
+    const name = `e2e-email-${Date.now()}`
+    try {
+      const resp = await request.post(`${BASE_URL}/api/v1/alerting/emails`, {
+        headers: {
+          'X-API-Key': API_KEY,
+          'Content-Type': 'application/json',
+        },
+        data: {
+          name,
+          smtp_host: 'smtp.example.com',
+          smtp_port: 587,
+          from: 'guardianwaf@example.com',
+          to: ['security@example.com'],
+          use_tls: true,
+          events: ['block'],
+          min_score: 50,
+          cooldown: '5m',
+        },
+      })
+      expect([200, 429]).toContain(resp.status())
+      if (resp.status() === 429) return
+
+      const emails = await getEmails(request)
+      if (!emails) return
+      expect(emails.some((email) => email.name === name && email.smtp_host === 'smtp.example.com')).toBe(true)
+    } finally {
+      await request.delete(`${BASE_URL}/api/v1/alerting/emails/${name}`, {
+        headers: {
+          'X-API-Key': API_KEY,
+        },
+      })
+    }
+
+    const emails = await getEmails(request)
+    if (!emails) return
+    expect(emails.some((email) => email.name === name)).toBe(false)
+  })
+
+  test('compat alert create explains concrete target endpoints', async ({ request }) => {
     const resp = await request.post(`${BASE_URL}/api/v1/alerts`, {
       headers: {
         'X-API-Key': API_KEY,
@@ -51,38 +165,18 @@ test.describe('Alerting Configuration', () => {
         enabled: true,
       },
     })
-    expect([200, 201, 400, 409]).toContain(resp.status())
-  })
-
-  test('can update alert rule via API', async ({ request }) => {
-    // Try to update with a non-existent ID
-    const resp = await request.put(`${BASE_URL}/api/v1/alerts/e2e-test-alert`, {
-      headers: {
-        'X-API-Key': API_KEY,
-        'Content-Type': 'application/json',
-      },
-      data: {
-        threshold: 20,
-      },
-    })
-    expect([200, 204, 404]).toContain(resp.status())
-  })
-
-  test('can delete alert rule via API', async ({ request }) => {
-    const resp = await request.delete(`${BASE_URL}/api/v1/alerts/e2e-test-alert`, {
-      headers: {
-        'X-API-Key': API_KEY,
-      },
-    })
-    expect([200, 204, 404]).toContain(resp.status())
+    expect([400, 429]).toContain(resp.status())
+    if (resp.status() === 429) return
+    const body = await resp.json()
+    expect(String(body.error)).toContain('/api/v1/alerting/webhooks')
   })
 
   test('alerting page loads', async ({ page }) => {
     await page.context().addCookies([
       {
-        name: 'session',
+        name: 'gwaf_session',
         value: sessionCookie.split('=')[1] || '',
-        domain: 'localhost',
+        domain: new URL(BASE_URL).hostname,
         path: '/',
         httpOnly: true,
         secure: false,
@@ -100,9 +194,9 @@ test.describe('Alerting Configuration', () => {
   test('alerting page shows alert rules', async ({ page }) => {
     await page.context().addCookies([
       {
-        name: 'session',
+        name: 'gwaf_session',
         value: sessionCookie.split('=')[1] || '',
-        domain: 'localhost',
+        domain: new URL(BASE_URL).hostname,
         path: '/',
         httpOnly: true,
         secure: false,
@@ -123,10 +217,8 @@ test.describe('Alerting Configuration', () => {
         'X-API-Key': API_KEY,
       },
     })
-    expect([200, 404]).toContain(resp.status())
-    if (resp.status() === 200) {
-      const body = await resp.json()
-      expect(Array.isArray(body.history) || body.hasOwnProperty('history')).toBe(true)
-    }
+    expect(resp.status()).toBe(200)
+    const body = await resp.json()
+    expect(body).toHaveProperty('history')
   })
 })

@@ -11,8 +11,9 @@ async function getSessionCookie(request: any): Promise<string> {
     },
     form: { key: API_KEY },
   })
-  const cookies = loginResp.headers()['set-cookie'] || []
-  const sessionCookie = cookies.find((c: string) => c.includes('session'))
+  const setCookie = loginResp.headers()['set-cookie'] || ''
+  const cookies = setCookie.split(/\,\s*(?=gwaf_session=)/)
+  const sessionCookie = cookies.find((c: string) => c.includes('gwaf_session'))
   return sessionCookie?.split(';')[0] || ''
 }
 
@@ -29,11 +30,9 @@ test.describe('Docker Integration', () => {
         'X-API-Key': API_KEY,
       },
     })
-    expect([200, 404, 500]).toContain(resp.status())
-    if (resp.status() === 200) {
-      const body = await resp.json()
-      expect(Array.isArray(body.containers) || body.hasOwnProperty('containers')).toBe(true)
-    }
+    expect(resp.status()).toBe(200)
+    const body = await resp.json()
+    expect(body).toHaveProperty('containers')
   })
 
   test('docker containers API returns discovered services', async ({ request }) => {
@@ -42,11 +41,9 @@ test.describe('Docker Integration', () => {
         'X-API-Key': API_KEY,
       },
     })
-    expect([200, 404, 500]).toContain(resp.status())
-    if (resp.status() === 200) {
-      const body = await resp.json()
-      expect(Array.isArray(body.services) || body.hasOwnProperty('services')).toBe(true)
-    }
+    expect(resp.status()).toBe(200)
+    const body = await resp.json()
+    expect(body).toHaveProperty('services')
   })
 
   test('docker events API returns recent events', async ({ request }) => {
@@ -55,19 +52,17 @@ test.describe('Docker Integration', () => {
         'X-API-Key': API_KEY,
       },
     })
-    expect([200, 404, 500]).toContain(resp.status())
-    if (resp.status() === 200) {
-      const body = await resp.json()
-      expect(Array.isArray(body.events) || body.hasOwnProperty('events')).toBe(true)
-    }
+    expect(resp.status()).toBe(200)
+    const body = await resp.json()
+    expect(body).toHaveProperty('events')
   })
 
   test('docker page loads', async ({ page }) => {
     await page.context().addCookies([
       {
-        name: 'session',
+        name: 'gwaf_session',
         value: sessionCookie.split('=')[1] || '',
-        domain: 'localhost',
+        domain: new URL(BASE_URL).hostname,
         path: '/',
         httpOnly: true,
         secure: false,
@@ -75,18 +70,17 @@ test.describe('Docker Integration', () => {
     ])
 
     await page.goto(`${BASE_URL}/docker`)
-    const url = page.url()
 
-    // Should load docker page or redirect
-    expect(url.includes('/docker')).toBe(true)
+    await expect(page.getByRole('heading', { name: 'Docker Discovery' })).toBeVisible()
+    await expect(page.locator('.docker-page')).toBeVisible()
   })
 
   test('docker page shows container list or empty state', async ({ page }) => {
     await page.context().addCookies([
       {
-        name: 'session',
+        name: 'gwaf_session',
         value: sessionCookie.split('=')[1] || '',
-        domain: 'localhost',
+        domain: new URL(BASE_URL).hostname,
         path: '/',
         httpOnly: true,
         secure: false,
@@ -96,8 +90,8 @@ test.describe('Docker Integration', () => {
     await page.goto(`${BASE_URL}/docker`)
     await page.waitForTimeout(2000)
 
-    // Should have some content
-    const hasContent = await page.locator('table, [class*="container"], .empty-state, [class*="docker"]').count() > 0
-    expect(hasContent || (await page.content()).length > 500).toBe(true)
+    await expect(page.getByRole('heading', { name: 'Discovered Services' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Containers' })).toBeVisible()
+    await expect(page.locator('table, .empty-state').first()).toBeVisible()
   })
 })

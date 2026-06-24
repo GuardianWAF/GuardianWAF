@@ -11,8 +11,9 @@ async function getSessionCookie(request: any): Promise<string> {
     },
     form: { key: API_KEY },
   })
-  const cookies = loginResp.headers()['set-cookie'] || []
-  const sessionCookie = cookies.find((c: string) => c.includes('session'))
+  const setCookie = loginResp.headers()['set-cookie'] || ''
+  const cookies = setCookie.split(/\,\s*(?=gwaf_session=)/)
+  const sessionCookie = cookies.find((c: string) => c.includes('gwaf_session'))
   return sessionCookie?.split(';')[0] || ''
 }
 
@@ -29,11 +30,10 @@ test.describe('Cluster Mode', () => {
         'X-API-Key': API_KEY,
       },
     })
-    expect([200, 404, 503]).toContain(resp.status())
-    if (resp.status() === 200) {
-      const body = await resp.json()
-      expect(body).toHaveProperty('nodes') || expect(body).toHaveProperty('cluster')
-    }
+    expect([200, 429]).toContain(resp.status())
+    if (resp.status() === 429) return
+    const body = await resp.json()
+    expect('nodes' in body || 'cluster' in body).toBe(true)
   })
 
   test('cluster nodes API returns member list', async ({ request }) => {
@@ -42,11 +42,10 @@ test.describe('Cluster Mode', () => {
         'X-API-Key': API_KEY,
       },
     })
-    expect([200, 404, 503]).toContain(resp.status())
-    if (resp.status() === 200) {
-      const body = await resp.json()
-      expect(Array.isArray(body.nodes) || body.hasOwnProperty('nodes')).toBe(true)
-    }
+    expect([200, 429]).toContain(resp.status())
+    if (resp.status() === 429) return
+    const body = await resp.json()
+    expect(Array.isArray(body.nodes) || Object.prototype.hasOwnProperty.call(body, 'nodes')).toBe(true)
   })
 
   test('cluster health endpoint returns status', async ({ request }) => {
@@ -55,11 +54,10 @@ test.describe('Cluster Mode', () => {
         'X-API-Key': API_KEY,
       },
     })
-    expect([200, 404, 503]).toContain(resp.status())
-    if (resp.status() === 200) {
-      const body = await resp.json()
-      expect(body).toHaveProperty('status') || expect(body).toHaveProperty('healthy')
-    }
+    expect([200, 429]).toContain(resp.status())
+    if (resp.status() === 429) return
+    const body = await resp.json()
+    expect('status' in body || 'healthy' in body).toBe(true)
   })
 
   test('node stats API returns local metrics', async ({ request }) => {
@@ -68,11 +66,10 @@ test.describe('Cluster Mode', () => {
         'X-API-Key': API_KEY,
       },
     })
-    expect([200, 404, 503]).toContain(resp.status())
-    if (resp.status() === 200) {
-      const body = await resp.json()
-      expect(body).toHaveProperty('requests') || expect(body).toHaveProperty('cpu')
-    }
+    expect([200, 429]).toContain(resp.status())
+    if (resp.status() === 429) return
+    const body = await resp.json()
+    expect('requests' in body || 'cpu' in body).toBe(true)
   })
 
   test('cluster config API returns sync settings', async ({ request }) => {
@@ -81,15 +78,15 @@ test.describe('Cluster Mode', () => {
         'X-API-Key': API_KEY,
       },
     })
-    expect([200, 404, 503]).toContain(resp.status())
+    expect([200, 429]).toContain(resp.status())
   })
 
   test('cluster page loads in dashboard', async ({ page }) => {
     await page.context().addCookies([
       {
-        name: 'session',
+        name: 'gwaf_session',
         value: sessionCookie.split('=')[1] || '',
-        domain: 'localhost',
+        domain: new URL(BASE_URL).hostname,
         path: '/',
         httpOnly: true,
         secure: false,

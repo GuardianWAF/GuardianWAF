@@ -12,8 +12,9 @@ async function getSessionCookie(request: any): Promise<string> {
     },
     form: { key: API_KEY },
   })
-  const cookies = loginResp.headers()['set-cookie'] || []
-  const sessionCookie = cookies.find((c: string) => c.includes('session'))
+  const setCookie = loginResp.headers()['set-cookie'] || ''
+  const cookies = setCookie.split(/\,\s*(?=gwaf_session=)/)
+  const sessionCookie = cookies.find((c: string) => c.includes('gwaf_session'))
   return sessionCookie?.split(';')[0] || ''
 }
 
@@ -27,9 +28,9 @@ test.describe('Dashboard UI Pages', () => {
   test('logs page loads', async ({ page }) => {
     await page.context().addCookies([
       {
-        name: 'session',
+        name: 'gwaf_session',
         value: sessionCookie.split('=')[1] || '',
-        domain: 'localhost',
+        domain: new URL(BASE_URL).hostname,
         path: '/',
         httpOnly: true,
         secure: false, // http for localhost
@@ -47,9 +48,9 @@ test.describe('Dashboard UI Pages', () => {
   test('config page loads', async ({ page }) => {
     await page.context().addCookies([
       {
-        name: 'session',
+        name: 'gwaf_session',
         value: sessionCookie.split('=')[1] || '',
-        domain: 'localhost',
+        domain: new URL(BASE_URL).hostname,
         path: '/',
         httpOnly: true,
         secure: false,
@@ -65,9 +66,9 @@ test.describe('Dashboard UI Pages', () => {
   test('rules page loads', async ({ page }) => {
     await page.context().addCookies([
       {
-        name: 'session',
+        name: 'gwaf_session',
         value: sessionCookie.split('=')[1] || '',
-        domain: 'localhost',
+        domain: new URL(BASE_URL).hostname,
         path: '/',
         httpOnly: true,
         secure: false,
@@ -83,9 +84,9 @@ test.describe('Dashboard UI Pages', () => {
   test('routing page loads', async ({ page }) => {
     await page.context().addCookies([
       {
-        name: 'session',
+        name: 'gwaf_session',
         value: sessionCookie.split('=')[1] || '',
-        domain: 'localhost',
+        domain: new URL(BASE_URL).hostname,
         path: '/',
         httpOnly: true,
         secure: false,
@@ -101,9 +102,9 @@ test.describe('Dashboard UI Pages', () => {
   test('AI page loads', async ({ page }) => {
     await page.context().addCookies([
       {
-        name: 'session',
+        name: 'gwaf_session',
         value: sessionCookie.split('=')[1] || '',
-        domain: 'localhost',
+        domain: new URL(BASE_URL).hostname,
         path: '/',
         httpOnly: true,
         secure: false,

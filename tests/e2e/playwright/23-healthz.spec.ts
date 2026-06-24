@@ -26,11 +26,9 @@ test.describe('Health & Metrics', () => {
 
   test('api/v1/health returns detailed health', async ({ request }) => {
     const resp = await request.get(`${BASE_URL}/api/v1/health`)
-    expect([200, 401, 404]).toContain(resp.status())
-    if (resp.status() === 200) {
-      const body = await resp.json()
-      expect(body).toHaveProperty('status') || expect(body).toHaveProperty('healthy')
-    }
+    expect(resp.status()).toBe(200)
+    const body = await resp.json()
+    expect('status' in body || 'healthy' in body).toBe(true)
   })
 
   test('readyz endpoint for k8s readiness probe', async ({ request }) => {
@@ -45,11 +43,9 @@ test.describe('Health & Metrics', () => {
 
   test('version endpoint returns build info', async ({ request }) => {
     const resp = await request.get(`${BASE_URL}/api/v1/version`)
-    expect([200, 404]).toContain(resp.status())
-    if (resp.status() === 200) {
-      const body = await resp.json()
-      expect(body).toHaveProperty('version') || expect(body).toHaveProperty('build')
-    }
+    expect(resp.status()).toBe(200)
+    const body = await resp.json()
+    expect('version' in body || 'build' in body).toBe(true)
   })
 
   test('prometheus metrics contain key WAF indicators', async ({ request }) => {
@@ -58,7 +54,7 @@ test.describe('Health & Metrics', () => {
     const body = await resp.text()
 
     // Should contain request counters
-    expect(body).toContain('waf_requests_total') || expect(body).toContain('guardianwaf_requests')
+    expect(body.includes('waf_requests_total') || body.includes('guardianwaf_requests')).toBe(true)
   })
 
   test('metrics require no auth', async ({ request }) => {

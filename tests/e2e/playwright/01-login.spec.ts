@@ -9,7 +9,8 @@ test.describe('Login', () => {
   })
 
   test('shows login page', async ({ page }) => {
-    await expect(page.locator('body')).toContainText(/login/i)
+    await expect(page.getByLabel('API Key')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Sign In' })).toBeVisible()
   })
 
   test('redirects to dashboard on valid credentials', async ({ page }) => {
