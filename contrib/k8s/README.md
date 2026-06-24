@@ -2,6 +2,8 @@
 
 This directory contains Kubernetes manifests for deploying GuardianWAF in production.
 
+For Helm values covering Secret-backed dashboard keys, persistent state, and proxy/dashboard ingress, see [Kubernetes and Helm Deployment](../../docs/kubernetes-helm.md).
+
 ## Quick Start
 
 ```bash
@@ -38,6 +40,11 @@ kubectl logs -l app=guardianwaf
 ### ingress.yaml
 - Ingress for API traffic
 - Separate ingress for dashboard with basic auth
+
+### networkpolicy.yaml
+- Optional ingress isolation for GuardianWAF pods
+- Allows proxy and dashboard traffic from the `ingress-nginx` namespace and same-namespace pods by default
+- Adjust selectors for your ingress controller, service mesh, monitoring, or admin namespace before applying to production clusters
 
 ## Configuration
 
@@ -159,7 +166,7 @@ spec:
 - [ ] Configure rate limits
 - [ ] Set resource limits
 - [ ] Enable PodDisruptionBudget
-- [ ] Configure network policies
+- [ ] Configure and apply NetworkPolicy selectors for ingress, monitoring, and admin access
 - [ ] Set up monitoring
 - [ ] Configure backups (if using file event storage)
 

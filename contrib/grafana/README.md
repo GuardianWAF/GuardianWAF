@@ -6,36 +6,43 @@ Production-ready Grafana dashboard for monitoring GuardianWAF.
 
 ### Overview Section
 - **Instances Up**: Current number of healthy GuardianWAF instances
-- **Request Rate by Status**: HTTP status code distribution over time
+- **Passed Request Rate**: Requests allowed through GuardianWAF
 - **Block Rate**: Percentage of requests blocked by the WAF
-- **P99 Latency**: 99th percentile request latency
-- **Threats by Type**: Time series of detected threats by category
-- **Memory Usage**: Per-instance memory consumption
+- **P99 WAF Latency**: 99th percentile request processing latency from the stable histogram
+- **Blocked Request Rate**: Blocked requests per second
+- **Total Requests**: Total processed request counter
 
 ### Detection Layer Performance
-- **Detection Latency by Detector (P95)**: Performance of each detection engine
-- **Detections by Type & Action**: Breakdown of detections and actions taken
+- **WAF Latency Quantiles**: P95 and P99 request processing latency
+- **Slowest Layer P95**: Maximum P95 layer processing latency across the active WAF pipeline
+- **Blocked Request Rate**: Blocked requests per second
 
 ### Rate Limiting & IP Management
-- **Rate Limited IPs**: Currently rate-limited IP addresses
-- **Blacklisted IPs**: Active IP blacklist size
-- **Rate Limit Hits**: Hits per rate limit rule
-- **Cache Hit Rate**: Performance of various internal caches
+- **Blocked Requests**: Total blocked request counters
+- **Pass Rate**: Ratio of passed requests to total requests
+- **Event Store Drops**: Events rejected, dropped, or not persisted by the configured event store
 
 ### Cluster & Upstream Health
-- **Upstream Health Status**: Health status of all upstream targets
-- **Cluster Status**: Node count and leader election status
+- **Healthy Upstream Targets**: Total healthy upstream targets across configured routes
+- **Open Upstream Circuits**: Targets whose circuit breaker is currently open
+- **GeoIP Ready**: GeoIP readiness status
+- **GeoIP Status**: Number of loaded GeoIP ranges
+- **Alert Delivery Failures**: Alert manager and SMTP email failures over the last 5 minutes
+- **Alert Targets**: Configured webhook and email alert targets
+- **Docker Discovery Sync Failures**: Docker auto-discovery sync failures over the last 5 minutes
+- **Docker Discovered Services**: Current Docker service discovery count
 
 ### Geographic Distribution
-- **Requests by Country**: World map visualization of request origins
-- **Top Countries by Request Rate**: Table of top 20 countries
+- **GeoIP Ranges Loaded**: Loaded GeoIP range count
+- **GeoIP Ready**: GeoIP readiness status
 
 ### AI Analysis & Threat Intelligence
-- **AI Queue Depth**: Pending AI analysis requests
-- **AI Cost (USD/hour)**: Real-time cost tracking
-- **AI Detection Rate**: Threats detected per analysis
-- **Threat Intel Hits by Feed**: Reputation feed effectiveness
-- **AI Verdict Distribution**: Breakdown of AI classifications
+- **Logged Requests**: Suspicious requests logged without blocking
+- **Challenges**: Challenge actions over the last hour
+- **Block Rate**: Blocked request ratio
+- **Logged Requests (1h)**: Logged suspicious requests over the last hour
+- **AI Tokens (1h)**: AI provider tokens used in the current hour
+- **AI Cost Total**: Estimated total AI provider cost in USD
 
 ## Installation
 
@@ -79,32 +86,43 @@ spec:
 
 ## Required Metrics
 
-This dashboard expects the following Prometheus metrics:
+This dashboard uses the stable GuardianWAF metrics documented in `docs/metrics.md`:
 
 | Metric | Description |
 |--------|-------------|
-| `guardianwaf_up` | Instance health status |
-| `guardianwaf_requests_total` | Total HTTP requests |
+| `guardianwaf_requests_total` | Total requests processed |
 | `guardianwaf_requests_blocked_total` | Blocked request count |
-| `guardianwaf_request_duration_seconds_*` | Request latency histogram |
-| `guardianwaf_threats_total` | Threats by type |
-| `guardianwaf_detection_duration_seconds_*` | Detection latency histogram |
-| `guardianwaf_detections_total` | Detection events |
-| `guardianwaf_rate_limit_blocked_ips` | Active rate-limited IPs |
-| `guardianwaf_ipacl_blacklist_size` | Blacklist size |
-| `guardianwaf_rate_limit_hits_total` | Rate limit hits |
-| `guardianwaf_cache_hits_total` / `guardianwaf_cache_misses_total` | Cache statistics |
-| `guardianwaf_upstream_healthy` | Upstream health status |
-| `guardianwaf_cluster_nodes_total` | Cluster node count |
-| `guardianwaf_cluster_leader` | Leader election status |
-| `guardianwaf_requests_by_country_total` | Geographic distribution |
-| `guardianwaf_ai_analysis_queue_depth` | AI analysis queue |
-| `guardianwaf_ai_analysis_cost_usd` | AI analysis cost |
-| `guardianwaf_ai_threats_detected_total` | AI-detected threats |
-| `guardianwaf_ai_analysis_completed_total` | Completed AI analyses |
-| `guardianwaf_ai_analysis_verdict_total` | AI verdicts by category |
-| `guardianwaf_threat_intel_hits_total` | Threat intel hits |
-| `guardianwaf_memory_usage_bytes` | Memory usage |
+| `guardianwaf_requests_challenged_total` | Challenged request count |
+| `guardianwaf_requests_logged_total` | Logged suspicious request count |
+| `guardianwaf_requests_passed_total` | Passed request count |
+| `guardianwaf_latency_avg_microseconds` | Average engine processing latency |
+| `guardianwaf_request_duration_seconds` | Request latency histogram for P95/P99 panels |
+| `guardianwaf_layer_duration_seconds` | Pipeline layer latency histogram for per-layer P95 panels |
+| `guardianwaf_upstream_targets_total` | Configured target count by upstream route |
+| `guardianwaf_upstream_targets_healthy` | Healthy target count by upstream route |
+| `guardianwaf_upstream_active_connections` | Active proxied connections by upstream route |
+| `guardianwaf_upstream_circuit_state` | Target count by upstream route and circuit-breaker state |
+| `guardianwaf_event_store_dropped_total` | Event store drop/persistence failure counter |
+| `guardianwaf_alert_manager_sent_total` | Alert deliveries marked sent by the alerting manager |
+| `guardianwaf_alert_manager_failed_total` | Alert deliveries marked failed by the alerting manager |
+| `guardianwaf_alert_email_sent_total` | SMTP email alerts sent |
+| `guardianwaf_alert_email_failed_total` | SMTP email alerts that failed to send |
+| `guardianwaf_alert_targets_configured` | Configured alert target count by type |
+| `guardianwaf_docker_discovery_enabled` | Docker auto-discovery configuration status |
+| `guardianwaf_docker_discovery_running` | Docker auto-discovery watcher runtime status |
+| `guardianwaf_docker_discovered_services` | Current Docker discovered service count |
+| `guardianwaf_docker_discovery_last_sync_success` | Last Docker discovery sync status |
+| `guardianwaf_docker_discovery_event_stream_connected` | Docker event stream connection status |
+| `guardianwaf_docker_discovery_sync_failures_total` | Docker discovery sync failure counter |
+| `guardianwaf_ai_enabled` | AI analysis configuration status |
+| `guardianwaf_ai_tokens_used_total` | Total AI provider tokens used |
+| `guardianwaf_ai_tokens_used_current` | AI provider tokens used by current fixed window |
+| `guardianwaf_ai_requests_total` | Total AI provider requests made |
+| `guardianwaf_ai_requests_current` | AI provider requests by current fixed window |
+| `guardianwaf_ai_cost_usd_total` | Estimated total AI provider cost in USD |
+| `guardianwaf_ai_verdicts_total` | AI verdict actions by type |
+| `guardianwaf_geoip_ready` | GeoIP readiness status |
+| `guardianwaf_geoip_ranges` | Loaded GeoIP range count |
 
 ## Variables
 
@@ -129,10 +147,10 @@ groups:
           summary: "High block rate detected"
 
       - alert: HighLatency
-        expr: histogram_quantile(0.99, rate(guardianwaf_request_duration_seconds_bucket[5m])) > 1
+        expr: histogram_quantile(0.99, sum(rate(guardianwaf_request_duration_seconds_bucket[5m])) by (le)) > 1
         for: 5m
         annotations:
-          summary: "P99 latency above 1 second"
+          summary: "P99 WAF latency above 1 second"
 
       - alert: InstanceDown
         expr: up{job="guardianwaf"} == 0
@@ -140,11 +158,53 @@ groups:
         annotations:
           summary: "GuardianWAF instance is down"
 
-      - alert: AIQueueBacklog
-        expr: guardianwaf_ai_analysis_queue_depth > 100
+      - alert: UpstreamUnavailable
+        expr: guardianwaf_upstream_targets_total > 0 and guardianwaf_upstream_targets_healthy == 0
+        for: 2m
+        annotations:
+          summary: "GuardianWAF upstream route has no healthy targets"
+
+      - alert: EventStoreDroppingEvents
+        expr: increase(guardianwaf_event_store_dropped_total[5m]) > 0
+        for: 1m
+        annotations:
+          summary: "GuardianWAF event store is dropping or failing to persist events"
+
+      - alert: AlertDeliveryFailures
+        expr: increase(guardianwaf_alert_manager_failed_total[5m]) + increase(guardianwaf_alert_email_failed_total[5m]) > 0
+        for: 1m
+        annotations:
+          summary: "GuardianWAF alert delivery failures detected"
+
+      - alert: DockerDiscoveryNotRunning
+        expr: guardianwaf_docker_discovery_enabled == 1 and guardianwaf_docker_discovery_running == 0
+        for: 2m
+        annotations:
+          summary: "GuardianWAF Docker discovery is enabled but not running"
+
+      - alert: DockerDiscoverySyncFailures
+        expr: increase(guardianwaf_docker_discovery_sync_failures_total[5m]) > 0
+        for: 1m
+        annotations:
+          summary: "GuardianWAF Docker discovery sync failures detected"
+
+      - alert: AIHourlyTokenBudgetHigh
+        expr: guardianwaf_ai_tokens_used_current{window="hour"} > 40000
+        for: 5m
+        annotations:
+          summary: "GuardianWAF AI hourly token usage is high"
+
+      - alert: AIDailyCostIncrease
+        expr: increase(guardianwaf_ai_cost_usd_total[1d]) > 10
+        for: 5m
+        annotations:
+          summary: "GuardianWAF AI estimated daily cost increased above threshold"
+
+      - alert: GeoIPNotReady
+        expr: guardianwaf_geoip_ready == 0
         for: 10m
         annotations:
-          summary: "AI analysis queue backlog detected"
+          summary: "GuardianWAF GeoIP data is not ready"
 ```
 
 ## Screenshots

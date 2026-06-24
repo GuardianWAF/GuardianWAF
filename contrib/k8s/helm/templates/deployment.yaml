@@ -22,6 +22,7 @@ spec:
         sidecar.istio.io/inject: "true"
         {{- end }}
     spec:
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountToken }}
       {{- if .Values.serviceAccount.create }}
       serviceAccountName: {{ include "guardianwaf.serviceAccountName" . }}
       {{- end }}

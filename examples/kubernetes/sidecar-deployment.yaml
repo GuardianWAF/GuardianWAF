@@ -12,6 +12,7 @@ spec:
       labels:
         app: myapp
     spec:
+      automountServiceAccountToken: false
       securityContext:
         fsGroup: 1000
         fsGroupChangePolicy: OnRootMismatch

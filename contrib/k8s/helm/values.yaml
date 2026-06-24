@@ -192,6 +192,7 @@ persistence:
 # Service account
 serviceAccount:
   create: true
+  automountToken: false
   annotations: {}
   name: ""
 
@@ -208,6 +209,21 @@ prometheus:
     path: /metrics
     labels: {}
 
+# Optional ingress NetworkPolicy. Enable in clusters with a NetworkPolicy
+# controller after adjusting the ingress controller namespace selector.
+networkPolicy:
+  enabled: false
+  ingress:
+    from:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: ingress-nginx
+      - podSelector: {}
+    ports:
+      - protocol: TCP
+        port: 8088
+      - protocol: TCP
+        port: 9443
 
 # Istio service mesh integration
 istio:

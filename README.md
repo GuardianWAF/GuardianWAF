@@ -103,6 +103,7 @@ GuardianWAF is a production-grade Web Application Firewall written in pure Go wi
 - Event callbacks for custom alerting
 - `check` command for dry-run request testing
 - `validate` command for config file verification
+- `scripts/dev.sh` one-command source workflow for prerequisites, dashboard assets, Go tests, local binary build, smoke tests, and optional demo runtime
 - HTTP/2 support with ALPN negotiation
 - WebSocket proxy support (transparent Upgrade forwarding)
 - < 1ms p99 latency overhead target
@@ -158,6 +159,7 @@ guardianwaf serve
 
 ### Multi-Domain with TLS
 
+<!-- guardianwaf-config:validate -->
 ```yaml
 listen: ":8088"
 
@@ -495,11 +497,32 @@ docker pull ghcr.io/guardianwaf/guardianwaf:latest
 
 ### Build from Source
 
+Prerequisites:
+
+- Go 1.26.4 or newer
+- Node.js 20.19.0 or newer
+- npm 10.x or newer
+- `git`
+
 ```bash
 git clone https://github.com/guardianwaf/guardianwaf.git
 cd guardianwaf
-make build
-# Binary: ./guardianwaf
+./scripts/dev.sh
+# Local binary: ./dist/guardianwaf-dev
+```
+
+For a local demo backend plus GuardianWAF:
+
+```bash
+./scripts/dev.sh --demo
+```
+
+For release-style multi-platform artifacts:
+
+```bash
+./scripts/check-prereqs.sh
+./scripts/build.sh
+# Binaries and checksums: ./dist/
 ```
 
 ---
@@ -508,6 +531,7 @@ make build
 
 Minimal `guardianwaf.yaml` to protect a backend:
 
+<!-- guardianwaf-config:validate -->
 ```yaml
 mode: enforce
 listen: ":8088"
@@ -740,13 +764,23 @@ Design choices for performance:
 |---|---|
 | [Getting Started](docs/getting-started.md) | Installation and first deployment |
 | [Configuration Reference](docs/configuration.md) | Full YAML schema with every field |
+| [Production Config Profiles](docs/config-profiles.md) | Validated profile configs and rollout runbooks |
 | [Production Deployment](docs/production-deployment.md) | Production hardening, security, monitoring |
+| [Kubernetes and Helm Deployment](docs/kubernetes-helm.md) | Secret, persistence, and ingress examples for cluster deployments |
 | [Health Probes](docs/health-probes.md) | Liveness, readiness, and legacy health endpoint semantics |
-| [Architecture](docs/ARCHITECTURE.md) | System diagrams and component overview |
+| [Metrics Contract](docs/metrics.md) | Prometheus metric names, types, and baseline queries |
+| [Runtime Reload Contract](docs/runtime-reload.md) | Hot-reload boundaries and restart-required config changes |
+| [Performance Budget](docs/performance-budget.md) | Release latency, throughput, and benchmark evidence requirements |
+| [Release Performance Evidence](docs/release-performance-evidence.md) | Latest local release-candidate benchmark environment and results |
+| [Outbound Network Policy](docs/outbound-network-policy.md) | SSRF, redirect, timeout, and response-size policy for outbound integrations |
+| [Threat Model](docs/threat-model.md) | Trust boundaries, high-risk data flows, and assurance map |
+| [Security Review Scope](docs/security-review-scope.md) | Required external review focus areas, attacker models, and finding format |
+| [Architecture](ARCHITECTURE.md) | System diagrams and component overview |
 | [Security Best Practices](docs/security-best-practices.md) | Security hardening and hardening guide |
 | [API Examples](docs/api-examples.md) | REST API examples in Go, Python, Node.js |
 | [Troubleshooting FAQ](docs/troubleshooting-faq.md) | Common issues and solutions |
 | [Detection Engine](docs/detection-engine.md) | Scoring system, detectors, pattern tables |
+| [Detection Quality](docs/detection-quality.md) | Corpus-based attack detection and benign false-positive baseline |
 | [Deployment Modes](docs/deployment-modes.md) | Standalone, library, sidecar comparison |
 | [Docker Auto-Discovery](docs/docker-discovery.md) | Label-based container discovery and routing |
 | [AI Threat Analysis](docs/ai-analysis.md) | AI-powered threat analysis setup and configuration |

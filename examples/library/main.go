@@ -8,6 +8,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/guardianwaf/guardianwaf"
 )
@@ -43,7 +44,15 @@ func main() {
 	})
 
 	fmt.Println("Server starting on :8088 (protected by GuardianWAF)")
-	if err := http.ListenAndServe(":8088", waf.Middleware(mux)); err != nil {
+	server := &http.Server{
+		Addr:              ":8088",
+		Handler:           waf.Middleware(mux),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+	if err := server.ListenAndServe(); err != nil {
 		panic(err)
 	}
 }

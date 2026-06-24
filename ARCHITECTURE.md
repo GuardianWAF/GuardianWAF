@@ -71,17 +71,17 @@ The repository is organized around one Go module, two React/Vite frontends, depl
 | `internal/mcp/` | JSON-RPC 2.0 Model Context Protocol server, tool definitions, stdio and SSE support. |
 | `internal/docker/` | Docker API client, label parser, service discovery, event watcher, polling fallback, config merge logic. |
 | `internal/ai/` | AI provider catalog, provider config storage, encrypted API key persistence, batch threat analysis, token/request cost limits, optional auto-blocking. |
-| `internal/ai/remediation/` | AI-generated remediation rule engine and storage. |
+| `internal/ai/remediation/` | Planned AI-generated remediation rule engine and storage; no runtime package is present in the current tree. |
 | `internal/alerting/` | Webhook and SMTP alert manager, cooldowns, concurrency limits, SSRF-safe webhook transport, email templating. |
-| `internal/tenant/` | Multi-tenant manager, tenant middleware, per-tenant config/rules/quotas/API keys, billing, alerts, persistence, cluster-sync hooks. |
-| `internal/cluster/`, `internal/clustersync/` | Cluster coordination and cluster data synchronization support. |
+| `internal/tenant/` | Multi-tenant manager, tenant middleware, per-tenant config/rules/quotas/API keys, billing, alerts, and persistence. |
+| `internal/cluster/`, `internal/clustersync/` | Planned cluster coordination and cluster data synchronization packages; the current tree exposes dashboard/API compatibility surfaces and config fields, but no runtime package. |
 | `internal/tls/`, `internal/acme/` | Certificate store, hot reload, OCSP support, ACME client and challenge handling. |
 | `internal/geoip/` | CSV-backed GeoIP database, lookup registration, optional auto-refresh/download. |
-| `internal/discovery/` | Passive API discovery and OpenAPI-oriented schema generation. |
-| `internal/analytics/` | Metrics collector and trend/geo/attack analytics engine. |
+| `internal/discovery/` | Planned passive API discovery and OpenAPI-oriented schema generation; no runtime package is present in the current tree. |
+| `internal/analytics/` | Planned metrics collector and trend/geo/attack analytics engine; dashboard compatibility handlers exist, but no runtime package is present in the current tree. |
 | `internal/compliance/` | PCI DSS, GDPR, SOC 2, and ISO 27001 control evaluation and hash-chained audit trail. |
 | `internal/tracing/` | Lightweight tracing spans and WAF/HTTP attribute helpers. |
-| `internal/http3/` | HTTP/3 server implementation behind the `http3` build tag; stub otherwise. |
+| `internal/http3/` | Planned HTTP/3 server implementation. The current `http3` build tag compiles the mirrored CLI entrypoint, but no HTTP/3 runtime package/server is present in the current tree. |
 | `website/` | Public documentation/marketing website, separate from the embedded dashboard. |
 | `docs/` | User-facing guides, API docs, ADRs, design docs, release docs, and existing diagram-oriented architecture docs. |
 | `contrib/`, `examples/` | Kubernetes/Helm/Grafana examples and sample backend/library/sidecar deployments. |
@@ -97,7 +97,7 @@ The project has two CLI source variants:
 | Default CLI | `cmd/guardianwaf/main_default.go` | `!http3` | Builds the standard CLI path without the HTTP/3 build tag. |
 | HTTP/3 CLI | `cmd/guardianwaf/main.go` | `http3` | Builds the tagged CLI path. Today this file is intentionally kept byte-for-byte identical to the default CLI source except for the build tag line; `cmd/guardianwaf/build_tag_drift_test.go` enforces that constraint while runtime assembly is progressively decomposed behind smaller shared files such as `engine_runtime.go`, `event_consumers.go`, `layers.go`, `observability_runtime.go`, `clientside_runtime.go`, `challenge_runtime.go`, `dashboard_proxy_runtime.go`, `dashboard_rules_runtime.go`, `tenant_runtime.go`, `docker_runtime.go`, `ai_runtime.go`, `alerting_runtime.go`, `cleanup_runtime.go`, `serve_lifecycle.go`, `http_runtime.go`, `server_runtime.go`, `tls_runtime.go`, `dashboard_adapters.go`, `mcp_adapter_core.go`, `mcp_adapter_features.go`, `acme_runtime.go`, `geoip_runtime.go`, `rules_helpers.go`, `network_helpers.go`, `passwords.go`, and `upstreams.go`. |
 
-The root Go module declares `github.com/quic-go/quic-go` and related indirect packages for optional HTTP/3 support. The default runtime remains structured so the core engine and most layers use the Go standard library and local packages.
+The default runtime remains structured so the core engine and most layers use the Go standard library and local packages. The current module does not declare `quic-go`; HTTP/3 is a config/build-tag compatibility surface until a concrete QUIC server package is added.
 
 Dashboard builds are a separate prerequisite for normal Go builds:
 
@@ -106,7 +106,7 @@ Dashboard builds are a separate prerequisite for normal Go builds:
 3. `internal/dashboard/dashboard.go` embeds `dist` with `//go:embed`.
 4. `make build` then compiles `./cmd/guardianwaf`.
 
-Important repository state note: `go list ./...` fails when `internal/dashboard/dist` is missing because of the embedded `dist` directive. `go list -e ./...` still enumerates packages and reports the dashboard embed error. Run `make ui` or `make build` before full package builds/tests in a clean checkout.
+Important repository state note: `internal/dashboard/dist/placeholder.txt` keeps the embedded `dist` directory present for clean-checkout Go package compilation. Run `scripts/build-dashboard.sh`, `scripts/build.sh`, `make ui`, or `make build` before production binary builds or UI/E2E flows so the embedded dashboard serves the real React assets instead of only the placeholder.
 
 ## 4. Deployment Modes
 
@@ -477,9 +477,9 @@ The default CLI build wires:
 - client-side protection,
 - response protection.
 
-### 7.5 HTTP/3 Build Pipeline
+### 7.5 Planned Advanced Runtime Surface
 
-The `http3` build variant wires the default CLI functionality plus additional advanced layers:
+The config model, MCP tool names, docs, and some dashboard compatibility handlers include placeholders for advanced runtime features. In the current tree these are not wired as runtime packages or production listeners:
 
 - SIEM,
 - cluster,
@@ -495,11 +495,13 @@ The `http3` build variant wires the default CLI functionality plus additional ad
 - AI remediation,
 - explicit HTTP/3 ingress support.
 
+The current `http3` build variant is kept in sync with the default CLI source and proves build compatibility; it does not start a separate QUIC/HTTP/3 listener.
+
 ## 8. Request Lifecycle
 
 ### 8.1 Standalone Proxy Request
 
-1. The HTTP, HTTPS, or optional HTTP/3 server accepts a request.
+1. The HTTP or HTTPS server accepts a request. HTTP/3 is not a production listener in the current tree.
 2. If tenant mode is enabled, tenant middleware resolves tenant identity by API key, domain, or default tenant policy.
 3. `engine.Middleware` starts panic recovery.
 4. The engine snapshots optional challenge and access-log callbacks.
@@ -619,7 +621,7 @@ Kubernetes and Helm examples should use `/livez` for liveness probes and `/ready
 - link-local unicast/multicast,
 - interface-local multicast.
 
-The custom dialer resolves and validates IPs at connection time, then dials the validated IP directly. This closes the time-of-check/time-of-use gap from DNS rebinding. Runtime deployments can opt into private/service-network upstreams through the explicit top-level `allow_private_upstreams` config key or the `GWAF_ALLOW_PRIVATE_UPSTREAMS` environment variable. Tests can still opt in at construction time through `proxy.AllowPrivateTargets()`.
+The custom dialer resolves and validates IPs at connection time, then dials the validated IP directly. This closes the time-of-check/time-of-use gap from DNS rebinding. Runtime deployments can opt into specific private/service-network upstream ranges through the explicit top-level `allowed_upstream_cidrs` config key or `GWAF_ALLOWED_UPSTREAM_CIDRS` environment variable. Deployments that intentionally trust every configured private upstream can still use `allow_private_upstreams` or `GWAF_ALLOW_PRIVATE_UPSTREAMS`. Runtime proxy assembly binds this policy to each target/router generation, including health-check transports, so one router rebuild cannot loosen another router's backend SSRF policy. Tests can still opt in at construction time through `proxy.AllowPrivateTargets()`.
 
 ## 10. Security Layers
 
@@ -806,7 +808,7 @@ Standalone mode can start separate HTTP and TLS servers. TLS configuration suppo
 
 `internal/tls` provides certificate store and OCSP support. `internal/acme` provides ACME client and challenge handling.
 
-HTTP/3 support lives behind the `http3` build tag. When enabled, the CLI can start an HTTP/3 server and advertise `Alt-Svc` according to config. The Go module includes `quic-go` for this optional path.
+HTTP/3 configuration fields and the `http3` build tag exist as a compatibility surface. The current tree does not include an HTTP/3 server package, QUIC dependency, or production listener; adding that runtime must include QUIC client E2E coverage before it is documented as supported ingress.
 
 ## 12. Events, Observability, and Runtime State
 
@@ -1190,7 +1192,7 @@ Make targets:
 - `make docker-test`: Docker Compose integration test,
 - `make smoke`: binary smoke tests.
 
-Because `internal/dashboard/dist` is embedded, a clean checkout should run `make ui` before full `go test ./...` or `make test`.
+Because `internal/dashboard/dist` is embedded, clean checkouts keep `internal/dashboard/dist/placeholder.txt` so Go package compilation works before the UI build. Production binary builds and UI/E2E checks should still run `scripts/build-dashboard.sh`, `scripts/build.sh`, `make ui`, or `make build` first.
 
 ## 23. Operational Data Flow
 
@@ -1251,7 +1253,7 @@ Proxy headers influence client IP only when the direct peer is in `trusted_proxi
 
 ### 25.2 Backend Targets
 
-Static upstreams and discovered Docker targets are validated against private/reserved IP rules unless `allow_private_upstreams` is explicitly enabled or test code opts into private targets. Operators deploying inside private networks need to understand this guard because it is intentionally strict by default.
+Static upstreams and discovered Docker targets are validated against private/reserved IP rules unless the target-scoped `allowed_upstream_cidrs` policy permits the resolved address, `allow_private_upstreams` is explicitly enabled, or test code opts into private targets. Operators deploying inside private networks need to understand this guard because it is intentionally strict by default.
 
 ### 25.3 Dashboard API
 
@@ -1279,7 +1281,7 @@ Webhook URLs are validated to avoid private/loopback targets by default. Outboun
 
 ### 25.8 SIEM Exporter
 
-SIEM endpoints are treated as public, security-sensitive outbound destinations. Endpoint configuration requires HTTPS, rejects private/loopback/link-local/internal hosts, validates DNS during configuration, validates resolved IPs again at dial time, validates redirect targets, enforces TLS certificate verification, and uses explicit dial/TLS/response-header/whole-request timeouts.
+SIEM endpoint configuration exists in the config/docs surface, but no `internal/layers/siem` runtime exporter package is present in the current tree. A future SIEM exporter must treat endpoints as public, security-sensitive outbound destinations: require HTTPS, reject private/loopback/link-local/internal hosts by default, validate DNS during configuration, validate resolved IPs again at dial time, validate redirect targets, enforce TLS certificate verification, and use explicit dial/TLS/response-header/whole-request timeouts.
 
 ### 25.9 Threat Intelligence Feeds
 
@@ -1291,9 +1293,9 @@ Virtual patch NVD feeds use the same default-deny posture for private, loopback,
 
 ### 25.11 Cluster Coordination And Sync
 
-Cluster coordination and cluster sync are different from public outbound integrations: peer nodes are expected to live on private service networks. The cluster sync URL validator therefore permits private peer addresses while still rejecting malformed schemes, empty hosts, link-local targets, and unspecified addresses. Plain HTTP is rejected outside tests so the shared cluster secret is not transmitted in cleartext.
+Cluster coordination and cluster sync are config/API compatibility surfaces in the current tree; no `internal/cluster` or `internal/clustersync` runtime package is present. A future implementation is expected to permit operator-managed private peer addresses while rejecting malformed schemes, empty hosts, link-local targets, and unspecified addresses. Plain HTTP should be rejected outside tests so the shared cluster secret is not transmitted in cleartext.
 
-Cluster coordination and cluster sync HTTP clients do not follow redirects. Cluster API calls should terminate at the configured peer endpoint; following redirects would let a peer move replication traffic to an unexpected destination. Both clients use explicit dial, TLS handshake, response-header, and whole-request timeouts.
+Future cluster coordination and cluster sync HTTP clients must not follow redirects. Cluster API calls should terminate at the configured peer endpoint; following redirects would let a peer move replication traffic to an unexpected destination. Clients must use explicit dial, TLS handshake, response-header, and whole-request timeouts.
 
 ### 25.12 OCSP Responders
 
@@ -1345,7 +1347,7 @@ When adding pipeline behavior, preserve these rules:
 
 - The root `guardianwaf.yaml`, major example configs, and static Kubernetes ConfigMaps are now covered by fixture validation. Remaining docs snippets and generated deployment examples should continue to be audited whenever config schema fields change.
 - The existing `docs/ARCHITECTURE.md` is diagram-oriented and describes a broad/full pipeline. This root document distinguishes library, default CLI, and `http3` build wiring because the actual layer set depends on build mode and entrypoint.
-- A clean checkout without `internal/dashboard/dist` cannot fully compile packages that embed dashboard assets until the UI build has run.
+- A clean checkout must include `internal/dashboard/dist/placeholder.txt` so packages that embed dashboard assets compile before the UI build; generated React assets remain a production-build prerequisite.
 - Some advanced layer constants exist in the core engine even when a given build variant does not wire the layer.
 
 ## 28. Maintainer Checklist for Architectural Changes

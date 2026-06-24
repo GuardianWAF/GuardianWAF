@@ -125,7 +125,7 @@ chmod +x guardianwaf` },
       { type: 'code', language: 'bash', filename: 'Terminal', code: `docker pull ghcr.io/guardianwaf/guardianwaf:latest` },
       { type: 'heading', level: 2, text: 'First Run', id: 'first-run' },
       { type: 'paragraph', text: 'Start GuardianWAF as a reverse proxy in front of your application:' },
-      { type: 'code', language: 'bash', filename: 'Terminal', code: `./guardianwaf serve --listen :8088 --upstream http://localhost:3000` },
+      { type: 'code', language: 'bash', filename: 'Terminal', code: `./guardianwaf sidecar --listen :8088 --upstream http://localhost:3000` },
       { type: 'paragraph', text: 'GuardianWAF will start listening on port 8088 and forward clean requests to your application on port 3000. All requests are analyzed in real-time.' },
       { type: 'heading', level: 2, text: 'Verify Installation', id: 'verify' },
       { type: 'paragraph', text: 'Test that GuardianWAF is properly intercepting malicious requests:' },
@@ -134,7 +134,7 @@ curl -i "http://localhost:8088/?id=1' OR 1=1--"
 
 # This should pass through
 curl -i "http://localhost:8088/api/health"` },
-      { type: 'callout', variant: 'tip', text: 'Use --dry-run mode during initial deployment to monitor threats without blocking any traffic.' },
+      { type: 'callout', variant: 'tip', text: 'Use monitor mode during initial deployment to observe threats without blocking traffic.' },
     ],
   },
   {
@@ -144,22 +144,44 @@ curl -i "http://localhost:8088/api/health"` },
       { type: 'paragraph', text: 'GuardianWAF supports configuration through YAML files, environment variables, and CLI flags. Configuration sources are merged with the following precedence: CLI flags > environment variables > config file > defaults.' },
       { type: 'heading', level: 2, text: 'Config File', id: 'config-file' },
       { type: 'paragraph', text: 'Create a guardianwaf.yaml file:' },
-      { type: 'code', language: 'yaml', filename: 'guardianwaf.yaml', code: `server:
-  listen: ":8088"
-  upstream: "http://localhost:3000"
-  read_timeout: 30s
-  write_timeout: 30s
+      { type: 'code', language: 'yaml', filename: 'guardianwaf.yaml', code: `mode: enforce
+listen: ":8088"
+allowed_upstream_cidrs:
+  - "127.0.0.1/32"
 
-detection:
-  block_score: 80
-  log_score: 40
-  detectors:
-    - sqli
-    - xss
-    - path_traversal
-    - command_injection
-    - protocol_anomaly
-    - bot
+upstreams:
+  - name: backend
+    targets:
+      - url: "http://localhost:3000"
+
+routes:
+  - path: /
+    upstream: backend
+
+waf:
+  detection:
+    threshold:
+      block: 80
+      log: 40
+    detectors:
+      sqli:
+        enabled: true
+        multiplier: 1.0
+      xss:
+        enabled: true
+        multiplier: 1.0
+      lfi:
+        enabled: true
+        multiplier: 0.8
+      cmdi:
+        enabled: true
+        multiplier: 1.0
+      xxe:
+        enabled: true
+        multiplier: 1.0
+      ssrf:
+        enabled: true
+        multiplier: 1.0
 
 dashboard:
   enabled: true
@@ -178,25 +200,22 @@ logging:
   format: "json"
   output: "stdout"` },
       { type: 'heading', level: 2, text: 'Environment Variables', id: 'environment-vars' },
-      { type: 'paragraph', text: 'All configuration options can be set via environment variables with the GUARDIANWAF_ prefix:' },
+      { type: 'paragraph', text: 'Configuration options can be set via environment variables with the GWAF_ prefix:' },
       { type: 'table', headers: ['Variable', 'Description', 'Default'], rows: [
-        ['GUARDIANWAF_LISTEN', 'Listen address', ':8088'],
-        ['GUARDIANWAF_UPSTREAM', 'Upstream server URL', '(required)'],
-        ['GUARDIANWAF_BLOCK_SCORE', 'Score threshold for blocking', '80'],
-        ['GUARDIANWAF_LOG_SCORE', 'Score threshold for logging', '40'],
-        ['GUARDIANWAF_DRY_RUN', 'Enable dry-run mode', 'false'],
-        ['GUARDIANWAF_DASHBOARD', 'Dashboard listen address', ':9090'],
-        ['GUARDIANWAF_LOG_LEVEL', 'Log level (debug/info/warn/error)', 'info'],
-        ['GUARDIANWAF_LOG_FORMAT', 'Log format (json/text)', 'json'],
+        ['GWAF_MODE', 'WAF mode: enforce, monitor, or disabled', 'enforce'],
+        ['GWAF_LISTEN', 'HTTP listen address', ':8088'],
+        ['GWAF_WAF_DETECTION_THRESHOLD_BLOCK', 'Score threshold for blocking', '50'],
+        ['GWAF_WAF_DETECTION_THRESHOLD_LOG', 'Score threshold for logging', '25'],
+        ['GWAF_DASHBOARD_LISTEN', 'Dashboard listen address', ':9443'],
+        ['GWAF_LOGGING_LEVEL', 'Log level: debug, info, warn, or error', 'info'],
+        ['GWAF_LOGGING_FORMAT', 'Log format: json or text', 'json'],
+        ['GWAF_EVENTS_STORAGE', 'Event store backend: memory or file', 'memory'],
       ] },
       { type: 'heading', level: 2, text: 'CLI Flags', id: 'cli-flags' },
       { type: 'code', language: 'bash', filename: 'Terminal', code: `./guardianwaf serve \\
   --config guardianwaf.yaml \\
   --listen :8088 \\
-  --upstream http://localhost:3000 \\
-  --block-score 80 \\
-  --log-score 40 \\
-  --dry-run \\
+  --mode monitor \\
   --dashboard :9090 \\
   --log-level info` },
     ],
@@ -227,19 +246,30 @@ logging:
       ] },
       { type: 'heading', level: 2, text: 'Scoring System', id: 'scoring-system' },
       { type: 'paragraph', text: 'Each detector returns a score from 0-100 for every request. The scoring engine aggregates these using configurable weights:' },
-      { type: 'code', language: 'yaml', filename: 'guardianwaf.yaml', code: `detection:
-  weights:
-    sqli: 1.0
-    xss: 1.0
-    path_traversal: 0.8
-    command_injection: 1.0
-    protocol_anomaly: 0.5
-    bot: 0.3
+      { type: 'code', language: 'yaml', filename: 'guardianwaf.yaml', code: `waf:
+  detection:
+    detectors:
+      sqli:
+        enabled: true
+        multiplier: 1.0
+      xss:
+        enabled: true
+        multiplier: 1.0
+      lfi:
+        enabled: true
+        multiplier: 0.8
+      cmdi:
+        enabled: true
+        multiplier: 1.0
+      ssrf:
+        enabled: true
+        multiplier: 1.0
 
-  # Final score = max(weighted_scores)
-  # Actions based on score:
-  block_score: 80    # Score >= 80: Block request
-  log_score: 40      # Score >= 40: Log but allow` },
+    # Final score = max(weighted detector scores)
+    # Actions based on score:
+    threshold:
+      block: 80    # Score >= 80: Block request
+      log: 40      # Score >= 40: Log but allow` },
       { type: 'callout', variant: 'info', text: 'The scoring system uses the maximum weighted score, not an aggregate sum. This means a single high-confidence detection is enough to trigger blocking.' },
     ],
   },
@@ -250,7 +280,7 @@ logging:
       { type: 'paragraph', text: 'GuardianWAF supports three deployment modes to fit any architecture. Each mode uses the same detection engine and scoring system.' },
       { type: 'heading', level: 2, text: 'Standalone Proxy', id: 'standalone-proxy' },
       { type: 'paragraph', text: 'Run GuardianWAF as a reverse proxy in front of your application. This is the simplest deployment mode and requires no code changes.' },
-      { type: 'code', language: 'bash', filename: 'Terminal', code: `./guardianwaf serve --listen :8088 --upstream http://localhost:3000` },
+      { type: 'code', language: 'bash', filename: 'Terminal', code: `./guardianwaf sidecar --listen :8088 --upstream http://localhost:3000` },
       { type: 'list', items: [
         'Zero code changes required',
         'Works with any backend language/framework',
@@ -268,9 +298,11 @@ import (
 
 func main() {
     waf, err := guardianwaf.New(guardianwaf.Config{
-        Mode:       guardianwaf.ModeLibrary,
-        BlockScore: 80,
-        LogScore:   40,
+        Mode: guardianwaf.ModeEnforce,
+        Threshold: guardianwaf.ThresholdConfig{
+            Block: 50,
+            Log:   25,
+        },
     })
     if err != nil {
         panic(err)
@@ -282,7 +314,7 @@ func main() {
         w.Write([]byte("Hello, protected world!"))
     })
 
-    http.ListenAndServe(":8088", waf.Handler(mux))
+    http.ListenAndServe(":8088", waf.Middleware(mux))
 }` },
       { type: 'callout', variant: 'tip', text: 'Library mode adds virtually zero overhead since requests are analyzed in-process without network hops.' },
       { type: 'heading', level: 2, text: 'Sidecar Proxy', id: 'sidecar-proxy' },
@@ -295,13 +327,12 @@ spec:
   containers:
     - name: guardianwaf
       image: ghcr.io/guardianwaf/guardianwaf:latest
+      args: ["sidecar", "--listen", ":8088", "--upstream", "http://localhost:3000"]
       ports:
         - containerPort: 8088
       env:
-        - name: GUARDIANWAF_UPSTREAM
-          value: "http://localhost:3000"
-        - name: GUARDIANWAF_BLOCK_SCORE
-          value: "80"
+        - name: GWAF_MODE
+          value: "enforce"
     - name: app
       image: my-app:latest
       ports:
@@ -326,90 +357,106 @@ Order 500: Bot Detection   → JA3/JA4 TLS fingerprinting, behavioral analysis
 Order 600: Response        → Security headers, data masking` },
       { type: 'heading', level: 2, text: 'IP ACL (100)', id: 'ip-acl' },
       { type: 'paragraph', text: 'First line of defense. Allow or deny requests based on IP addresses or CIDR ranges using a radix tree for O(k) lookups.' },
-      { type: 'code', language: 'yaml', filename: 'guardianwaf.yaml', code: `ip_acl:
-  enabled: true
-  allowlist:
-    - "10.0.0.0/8"       # Internal network
-    - "192.168.1.100"    # Admin IP
-  blocklist:
-    - "192.0.2.0/24"     # Known bad range
-  default_action: "allow"` },
+      { type: 'code', language: 'yaml', filename: 'guardianwaf.yaml', code: `waf:
+  ip_acl:
+    enabled: true
+    whitelist:
+      # Internal network
+      - "10.0.0.0/8"
+      # Admin IP
+      - "192.168.1.100"
+    blacklist:
+      # Known bad range
+      - "192.0.2.0/24"` },
       { type: 'heading', level: 2, text: 'Threat Intelligence (125)', id: 'threat-intel' },
       { type: 'paragraph', text: 'Check IPs and domains against reputation feeds. Supports JSONL, CSV, and JSON formats with automatic refresh.' },
-      { type: 'code', language: 'yaml', filename: 'guardianwaf.yaml', code: `threat_intel:
-  enabled: true
-  ip_reputation:
+      { type: 'code', language: 'yaml', filename: 'guardianwaf.yaml', code: `waf:
+  threat_intel:
     enabled: true
-    block_malicious: true
-    score_threshold: 70
-    sources:
+    ip_reputation:
+      enabled: true
+      block_malicious: true
+      score_threshold: 70
+    domain_reputation:
+      enabled: true
+      check_redirects: true
+    feeds:
       - type: "file"
-        path: "/etc/guardian/threat_ips.jsonl"
-        refresh_minutes: 60
-  domain_reputation:
-    enabled: true
-    check_redirects: true` },
+        path: "/etc/guardianwaf/threat_ips.jsonl"
+        refresh: 1h
+        format: "jsonl"` },
       { type: 'heading', level: 2, text: 'CORS Security (150)', id: 'cors-layer' },
       { type: 'paragraph', text: 'Validate cross-origin requests against an allowlist. Supports wildcard patterns and strict mode blocking.' },
-      { type: 'code', language: 'yaml', filename: 'guardianwaf.yaml', code: `cors:
-  enabled: true
-  allow_origins:
-    - "https://example.com"
-    - "https://*.example.com"
-  allow_methods:
-    - GET
-    - POST
-    - PUT
-    - DELETE
-  allow_credentials: true
-  max_age_seconds: 86400
-  strict_mode: true` },
+      { type: 'code', language: 'yaml', filename: 'guardianwaf.yaml', code: `waf:
+  cors:
+    enabled: true
+    allow_origins:
+      - "https://example.com"
+      - "https://*.example.com"
+    allow_methods:
+      - GET
+      - POST
+      - PUT
+      - DELETE
+    allow_credentials: true
+    max_age_seconds: 86400
+    strict_mode: true` },
       { type: 'heading', level: 2, text: 'Rate Limit (200)', id: 'rate-limit' },
       { type: 'paragraph', text: 'Token bucket rate limiting per IP address or path. Protects against DDoS and abuse.' },
-      { type: 'code', language: 'yaml', filename: 'guardianwaf.yaml', code: `rate_limit:
-  enabled: true
-  requests_per_second: 100
-  burst: 200
-  window: "1m"
-  per_path:
-    "/api/*":
-      requests_per_second: 50
-      burst: 100` },
+      { type: 'code', language: 'yaml', filename: 'guardianwaf.yaml', code: `waf:
+  rate_limit:
+    enabled: true
+    rules:
+      - id: global
+        scope: ip
+        limit: 100
+        window: 1m
+        burst: 200
+        action: block
+      - id: api
+        scope: ip+path
+        paths: ["/api/"]
+        limit: 50
+        window: 1m
+        burst: 100
+        action: block` },
       { type: 'heading', level: 2, text: 'ATO Protection (250)', id: 'ato-protection' },
       { type: 'paragraph', text: 'Account Takeover Protection detects brute force attacks, credential stuffing, password spray, and impossible travel patterns.' },
-      { type: 'code', language: 'yaml', filename: 'guardianwaf.yaml', code: `ato_protection:
-  enabled: true
-  login_paths:
-    - "/login"
-    - "/api/auth"
-  brute_force:
+      { type: 'code', language: 'yaml', filename: 'guardianwaf.yaml', code: `waf:
+  ato_protection:
     enabled: true
-    window_minutes: 15
-    max_attempts_per_ip: 10
-    block_duration_minutes: 30
-  credential_stuffing:
-    enabled: true
-    distributed_threshold: 5
-    window_minutes: 60
-  impossible_travel:
-    enabled: true
-    max_distance_km: 500` },
+    login_paths:
+      - "/login"
+      - "/api/auth"
+    brute_force:
+      enabled: true
+      window: 15m
+      max_attempts_per_ip: 10
+      block_duration: 30m
+    credential_stuffing:
+      enabled: true
+      distributed_threshold: 5
+      window: 1h
+    impossible_travel:
+      enabled: true
+      max_distance_km: 500` },
       { type: 'heading', level: 2, text: 'API Security (275)', id: 'api-security' },
       { type: 'paragraph', text: 'JWT validation with JWKS support and API key authentication with path-based authorization.' },
-      { type: 'code', language: 'yaml', filename: 'guardianwaf.yaml', code: `api_security:
-  enabled: true
-  jwt:
+      { type: 'code', language: 'yaml', filename: 'guardianwaf.yaml', code: `waf:
+  api_security:
     enabled: true
-    issuer: "https://auth.example.com"
-    audience: "api.example.com"
-    jwks_url: "https://auth.example.com/.well-known/jwks.json"
-  api_keys:
-    enabled: true
-    header_name: "X-API-Key"
-    keys:
-      - name: "service-a"
-        key_hash: "sha256:..."
-        allowed_paths: ["/api/*"]` },
+    jwt:
+      enabled: true
+      issuer: "https://auth.example.com"
+      audience: "api.example.com"
+      jwks_url: "https://auth.example.com/.well-known/jwks.json"
+    api_keys:
+      enabled: true
+      header_name: "X-API-Key"
+      keys:
+        - name: "service-a"
+          key_hash: "sha256:replace-with-real-hash"
+          allowed_paths: ["/api/"]` },
       { type: 'heading', level: 2, text: 'Sanitizer (300)', id: 'sanitizer' },
       { type: 'paragraph', text: 'Normalizes requests before detection. Handles URL encoding, unicode normalization, and removes null bytes.' },
       { type: 'heading', level: 2, text: 'Detection (400)', id: 'detection' },
@@ -427,25 +474,38 @@ Order 600: Response        → Security headers, data masking` },
     content: [
       { type: 'paragraph', text: 'GuardianWAF provides both a Go API for library mode and an HTTP API for the dashboard and management.' },
       { type: 'heading', level: 2, text: 'Core API', id: 'core-api' },
-      { type: 'code', language: 'go', filename: 'api.go', code: `// New creates a new WAF instance with the given configuration.
-func New(config Config) (*WAF, error)
+      { type: 'code', language: 'go', filename: 'api.go', code: `// New creates a new WAF engine with the given configuration.
+func New(config Config, opts ...Option) (*Engine, error)
 
-// Handler wraps an http.Handler with WAF protection.
-func (w *WAF) Handler(next http.Handler) http.Handler
+// NewFromFile creates a WAF engine from guardianwaf.yaml.
+func NewFromFile(path string, opts ...Option) (*Engine, error)
 
-// Analyze inspects a request and returns the analysis result.
-func (w *WAF) Analyze(r *http.Request) (*Result, error)
+// Middleware wraps an http.Handler with WAF protection.
+func (e *Engine) Middleware(next http.Handler) http.Handler
 
-// Close gracefully shuts down the WAF and releases resources.
-func (w *WAF) Close() error` },
+// Check inspects a request without proxying and returns the WAF decision.
+func (e *Engine) Check(r *http.Request) Result
+
+// OnEvent registers an asynchronous callback for WAF events.
+func (e *Engine) OnEvent(fn func(Event))
+
+// Stats returns runtime counters and average latency.
+func (e *Engine) Stats() Stats
+
+// Close gracefully shuts down the engine and releases resources.
+func (e *Engine) Close() error` },
       { type: 'heading', level: 3, text: 'Config Struct' },
       { type: 'code', language: 'go', filename: 'config.go', code: `type Config struct {
-    Mode       Mode          // ModeProxy, ModeLibrary, ModeSidecar
-    BlockScore int           // Score threshold for blocking (default: 80)
-    LogScore   int           // Score threshold for logging (default: 40)
-    DryRun     bool          // Log threats but don't block
-    Detectors  []DetectorID  // Enabled detectors (default: all)
-    Weights    WeightConfig  // Per-detector score weights
+    Mode      string          // ModeEnforce, ModeMonitor, ModeDisabled
+    Detection DetectionConfig // Detector enablement and multipliers
+    Threshold ThresholdConfig // Block/log thresholds
+    Sanitizer SanitizerConfig // Request size limits
+    IPACL     IPACLConfig     // IP allow/block lists
+    RateLimit RateLimitConfig // Token-bucket rules
+    Bot       BotConfig       // User-Agent/bot controls
+    Challenge ChallengeConfig // Proof-of-work challenge settings
+    Response  ResponseConfig  // Security headers and masking
+    Events    EventsConfig    // In-memory event retention
 }` },
       { type: 'heading', level: 2, text: 'Middleware', id: 'middleware' },
       { type: 'paragraph', text: 'GuardianWAF provides standard Go middleware compatible with net/http:' },
@@ -453,21 +513,26 @@ func (w *WAF) Close() error` },
 mux := http.NewServeMux()
 mux.HandleFunc("/", handler)
 
-protected := waf.Handler(mux)
+protected := waf.Middleware(mux)
 http.ListenAndServe(":8088", protected)
 
-// Or use the HandlerFunc adapter
-http.HandleFunc("/api/", waf.HandlerFunc(apiHandler))` },
+// Or inspect a request without serving it
+result := waf.Check(req)
+if result.Blocked {
+    log.Printf("blocked request: score=%d action=%s", result.TotalScore, result.Action)
+}` },
       { type: 'heading', level: 2, text: 'Dashboard API', id: 'dashboard-api' },
       { type: 'paragraph', text: 'The dashboard exposes a REST API for monitoring and management:' },
       { type: 'table', headers: ['Endpoint', 'Method', 'Description'], rows: [
-        ['GET /api/stats', 'GET', 'Real-time traffic statistics'],
-        ['GET /api/threats', 'GET', 'Recent threat log entries'],
-        ['GET /api/config', 'GET', 'Current WAF configuration'],
-        ['PUT /api/config', 'PUT', 'Update WAF configuration'],
-        ['GET /api/health', 'GET', 'Health check endpoint'],
-        ['POST /api/rules', 'POST', 'Add custom detection rule'],
-        ['DELETE /api/rules/:id', 'DELETE', 'Remove a custom rule'],
+        ['GET /api/v1/stats', 'GET', 'Real-time traffic statistics'],
+        ['GET /api/v1/events', 'GET', 'Recent WAF event entries'],
+        ['GET /api/v1/config', 'GET', 'Current WAF configuration'],
+        ['PUT /api/v1/config', 'PUT', 'Update WAF configuration'],
+        ['POST /api/v1/config/reload', 'POST', 'Reload current configuration'],
+        ['GET /api/v1/health', 'GET', 'Health check endpoint'],
+        ['GET /api/v1/ipacl', 'GET', 'List IP allow and block entries'],
+        ['POST /api/v1/rules', 'POST', 'Add custom detection rule'],
+        ['DELETE /api/v1/rules/{id}', 'DELETE', 'Remove a custom rule'],
       ] },
     ],
   },
@@ -512,7 +577,7 @@ http.HandleFunc("/api/", waf.HandlerFunc(apiHandler))` },
       { type: 'paragraph', text: 'Every application is different. This guide helps you tune GuardianWAF to minimize false positives while maintaining strong protection.' },
       { type: 'heading', level: 2, text: 'Reducing False Positives', id: 'false-positives' },
       { type: 'paragraph', text: 'Start with dry-run mode to understand your traffic patterns:' },
-      { type: 'code', language: 'bash', filename: 'Terminal', code: `./guardianwaf serve --dry-run --dashboard :9090 --upstream http://localhost:3000` },
+      { type: 'code', language: 'bash', filename: 'Terminal', code: `./guardianwaf sidecar --mode monitor --listen :8088 --upstream http://localhost:3000` },
       { type: 'list', items: [
         'Monitor the dashboard for 24-48 hours to establish a baseline',
         'Review flagged requests to identify false positives',
@@ -528,25 +593,33 @@ http.HandleFunc("/api/", waf.HandlerFunc(apiHandler))` },
       ] },
       { type: 'heading', level: 2, text: 'Custom Rules', id: 'custom-rules' },
       { type: 'paragraph', text: 'Add application-specific rules to refine detection:' },
-      { type: 'code', language: 'yaml', filename: 'guardianwaf.yaml', code: `rules:
-  # Whitelist specific paths
-  - id: allow-editor
-    path: "/admin/editor"
-    action: allow
+      { type: 'code', language: 'yaml', filename: 'guardianwaf.yaml', code: `waf:
+  custom_rules:
+    enabled: true
+    rules:
+      - id: allow-editor
+        name: "Allow editor"
+        pattern: "^/admin/editor$"
+        location: path
+        action: allow
+        score: 0
 
-  # Custom detection rule
-  - id: block-sensitive-paths
-    path: "/.env|/.git|/wp-admin"
-    action: block
-    score: 100
+      - id: block-sensitive-paths
+        name: "Block sensitive paths"
+        pattern: "^/(\\.env|\\.git|wp-admin)"
+        location: path
+        action: block
+        score: 100
 
-  # Rate limiting
-  - id: rate-limit-api
-    path: "/api/*"
-    rate_limit:
-      requests: 100
-      window: 60s
-      action: block` },
+  rate_limit:
+    enabled: true
+    rules:
+      - id: rate-limit-api
+        scope: ip+path
+        paths: ["/api/"]
+        limit: 100
+        window: 1m
+        action: block` },
       { type: 'callout', variant: 'warning', text: 'Be cautious when whitelisting paths. Always validate that whitelisted endpoints cannot be exploited through parameter injection.' },
     ],
   },

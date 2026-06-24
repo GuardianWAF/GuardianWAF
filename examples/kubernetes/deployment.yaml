@@ -14,6 +14,7 @@ spec:
       labels:
         app: guardianwaf
     spec:
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
