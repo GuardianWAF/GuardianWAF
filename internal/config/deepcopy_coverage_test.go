@@ -282,7 +282,7 @@ func fullConfig() *Config {
 			Routes:  []RouteConfig{{Path: "/v1", Upstream: "backend"}},
 			WAF: &WAFConfig{
 				Detection: DetectionConfig{
-					Enabled: true,
+					Enabled:   true,
 					Threshold: ThresholdConfig{Block: 50, Log: 25},
 					Detectors: map[string]DetectorConfig{"sqli": {Enabled: true, Multiplier: 1.0}},
 				},
@@ -332,18 +332,18 @@ func fullConfig() *Config {
 			ProtectedPaths: []string{"/checkout"},
 		},
 		CSP: CSPHeaderConfig{
-			Enabled: true,
-			DefaultSrc:      []string{"'self'"},
-			ScriptSrc:       []string{"'self'"},
-			StyleSrc:        []string{"'self'"},
-			ImgSrc:          []string{"'self'"},
-			ConnectSrc:      []string{"'self'"},
-			FontSrc:         []string{"'self'"},
-			ObjectSrc:       []string{"'none'"},
-			MediaSrc:        []string{"'none'"},
-			FrameSrc:        []string{"'none'"},
-			FrameAncestors:  []string{"'none'"},
-			FormAction:      []string{"'self'"},
+			Enabled:        true,
+			DefaultSrc:     []string{"'self'"},
+			ScriptSrc:      []string{"'self'"},
+			StyleSrc:       []string{"'self'"},
+			ImgSrc:         []string{"'self'"},
+			ConnectSrc:     []string{"'self'"},
+			FontSrc:        []string{"'self'"},
+			ObjectSrc:      []string{"'none'"},
+			MediaSrc:       []string{"'none'"},
+			FrameSrc:       []string{"'none'"},
+			FrameAncestors: []string{"'none'"},
+			FormAction:     []string{"'self'"},
 		},
 	}
 	cfg.WAF.SIEM.Fields = map[string]string{"env": "prod"}
@@ -547,9 +547,9 @@ func TestDeepCopy_EdgeCases(t *testing.T) {
 		}
 	})
 	t.Run("GeoIPConfig", func(t *testing.T) {
-		g := GeoIPConfig{Enabled: true, DBPath: "/geoip.db"}
+		g := GeoIPConfig{Enabled: true, DBPath: "/geoip.db", RequireReady: true}
 		cp := g.DeepCopy()
-		if !cp.Enabled || cp.DBPath != "/geoip.db" {
+		if !cp.Enabled || cp.DBPath != "/geoip.db" || !cp.RequireReady {
 			t.Error("GeoIPConfig DeepCopy failed")
 		}
 	})

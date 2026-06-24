@@ -168,8 +168,8 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Dashboard.Listen != ":9443" {
 		t.Fatalf("expected Dashboard listen ':9443', got %q", cfg.Dashboard.Listen)
 	}
-	if !cfg.Dashboard.TLS {
-		t.Fatal("expected Dashboard TLS true")
+	if cfg.Dashboard.TLS {
+		t.Fatal("expected Dashboard TLS false; terminate dashboard TLS at ingress or reverse proxy")
 	}
 
 	// MCP
@@ -718,6 +718,7 @@ func TestPopulateFromNode_Dashboard(t *testing.T) {
   enabled: false
   listen: ":8443"
   api_key: secret123
+  admin_key: admin-secret-123456
   tls: false`
 	node, err := Parse([]byte(yaml))
 	if err != nil {
@@ -737,6 +738,9 @@ func TestPopulateFromNode_Dashboard(t *testing.T) {
 	}
 	if cfg.Dashboard.APIKey != "secret123" {
 		t.Fatalf("expected api_key 'secret123', got %q", cfg.Dashboard.APIKey)
+	}
+	if cfg.Dashboard.AdminKey != "admin-secret-123456" {
+		t.Fatalf("expected admin_key 'admin-secret-123456', got %q", cfg.Dashboard.AdminKey)
 	}
 	if cfg.Dashboard.TLS {
 		t.Fatal("expected TLS false")
@@ -762,6 +766,354 @@ func TestPopulateFromNode_MCP(t *testing.T) {
 	}
 	if cfg.MCP.Transport != "sse" {
 		t.Fatalf("expected transport 'sse', got %q", cfg.MCP.Transport)
+	}
+}
+
+func TestPopulateFromNode_TaggedSchemaFallbackCoversNestedSections(t *testing.T) {
+	yaml := `trusted_proxies:
+  - 10.0.0.0/8
+tracing:
+  enabled: true
+  service_name: guardianwaf-prod
+  sampling_rate: 0.25
+  exporter_type: stdout
+features:
+  parser_guard: true
+compliance:
+  enabled: true
+  frameworks: [pci_dss, gdpr]
+  report_dir: /var/lib/guardianwaf/reports
+  audit_trail:
+    enabled: true
+    hash_algorithm: sha256
+    persist_path: /var/lib/guardianwaf/audit.jsonl
+  retention:
+    default_days: 90
+    per_framework:
+      pci_dss: 365
+    auto_delete: true
+    archive_path: /archive
+  scheduled_reports:
+    - id: weekly
+      framework: pci_dss
+      schedule: "0 0 * * 1"
+      format: [json, csv]
+      tenant_id: tenant-a
+      output_dir: /reports
+tenant:
+  enabled: true
+  max_tenants: 25
+  header_name: X-Tenant-ID
+  store_path: /var/lib/guardianwaf/tenants.json
+  default_quota:
+    max_requests_per_minute: 100
+    max_requests_per_hour: 1000
+    max_bandwidth_mbps: 50
+    max_rules: 10
+    max_rate_limit_rules: 5
+    max_ip_acls: 20
+  tenants:
+    - id: tenant-a
+      name: Tenant A
+      description: Primary tenant
+      domains: [tenant-a.example.com]
+      api_key: gwaf_test_key
+      active: true
+      quota:
+        max_requests_per_minute: 200
+        max_requests_per_hour: 2000
+tls:
+  http3:
+    enabled: true
+    listen: ":8443"
+    max_header_bytes: 65536
+    read_timeout: 5s
+    write_timeout: 6s
+    idle_timeout: 7s
+    enable_0rtt: true
+    enable_datagrams: true
+    alt_svc_port: 8443
+    advertise_alt_svc: true
+logging:
+  max_size_mb: 200
+  max_backups: 7
+  max_age_days: 45
+virtual_hosts:
+  - domains: [api.example.com]
+    waf:
+      detection:
+        enabled: false
+waf:
+  ip_acl:
+    auto_ban:
+      max_auto_ban_entries: 500
+      persist_path: /var/lib/guardianwaf/bans.json
+      persist_interval: 30s
+  client_side:
+    agent_injection:
+      protected_paths: [/checkout]
+  custom_rules:
+    enabled: true
+    rules:
+      - id: rule-1
+        name: Block debug
+        enabled: true
+        priority: 10
+        conditions:
+          - field: path
+            op: contains
+            value: debug
+        action: block
+        score: 80
+  grpc:
+    enabled: true
+    grpc_web_enabled: true
+    proto_paths: [/schemas/api.proto]
+    allowed_services: [payments.PaymentService]
+    blocked_services: [debug.DebugService]
+    allowed_methods: [payments.PaymentService/Charge]
+    blocked_methods: [debug.DebugService/Dump]
+    validate_proto: true
+    reflection_enabled: true
+    max_message_size: 1048576
+    max_stream_duration: 30s
+    max_concurrent_streams: 100
+    method_rate_limits:
+      - method: payments.PaymentService/Charge
+        requests_per_second: 25
+        burst_size: 50
+    require_tls: true
+  dlp:
+    enabled: true
+    scan_request: true
+    scan_response: true
+    block_on_match: true
+    mask_response: true
+    max_body_size: 1048576
+    patterns: [credit_card]
+  zero_trust:
+    enabled: true
+    require_mtls: true
+    require_attestation: true
+    session_ttl: 15m
+    attestation_ttl: 5m
+    trusted_ca_path: /etc/guardianwaf/ca.pem
+    device_trust_threshold: high
+    allow_bypass_paths: [/healthz]
+  siem:
+    enabled: true
+    endpoint: https://siem.example.com/events
+    format: json
+    api_key: siem-key
+    index: guardianwaf
+    batch_size: 100
+    flush_interval: 10s
+    timeout: 3s
+    skip_verify: true
+    fields:
+      env: prod
+  cache:
+    enabled: true
+    backend: memory
+    ttl: 1m
+    max_size: 128
+    redis_addr: redis:6379
+    redis_password: redis-pass
+    redis_db: 2
+    prefix: gwaf
+    cache_methods: [GET]
+    cache_status_codes: [200, 204]
+    skip_paths: [/admin]
+    max_cache_size: 512
+    stale_while_revalidate: true
+  replay:
+    enabled: true
+    storage_path: /var/lib/guardianwaf/replay
+    format: json
+    max_file_size: 64
+    max_files: 5
+    retention_days: 14
+    capture_request: true
+    capture_response: true
+    capture_headers: [Authorization]
+    skip_paths: [/healthz]
+    skip_methods: [OPTIONS]
+    compress: true
+    replay:
+      enabled: true
+      target_base_url: https://replay.example.com
+      rate_limit: 20
+      concurrency: 4
+      timeout: 2s
+      follow_redirects: true
+      modify_host: true
+      preserve_ids: true
+      dry_run: true
+      headers:
+        X-Replay: "1"
+  canary:
+    enabled: true
+    canary_version: v2
+    stable_upstream: stable
+    canary_upstream: canary
+    strategy: percentage
+    percentage: 10
+    header_name: X-Canary
+    header_value: "1"
+    cookie_name: canary
+    cookie_value: v2
+    regions: [us-east]
+    auto_rollback: true
+    error_threshold: 0.05
+    latency_threshold: 250ms
+    health_check_path: /readyz
+    metadata:
+      owner: platform
+  analytics:
+    enabled: true
+    storage_path: /var/lib/guardianwaf/analytics
+    retention_days: 30
+    flush_interval: 15s
+    max_data_points: 10000
+    enable_time_series: true
+  cluster_sync:
+    enabled: true
+    node_id: node-a
+    node_name: Node A
+    listen: ":9444"
+    port: 9444
+    shared_secret: cluster-secret
+    sync_interval: 10s
+    conflict_resolution: last_write_wins
+    max_retries: 3
+    retry_delay: 2s
+    clusters:
+      - id: cluster-a
+        name: Cluster A
+        sync_scope: all
+        bidirectional: true
+        nodes:
+          - id: node-b
+            name: Node B
+            address: https://node-b.example.com
+  cluster:
+    enabled: true
+    cluster_config:
+      backend: memory
+      node_id: node-a
+  remediation:
+    enabled: true
+    auto_apply: true
+    confidence_threshold: 90
+    max_rules_per_day: 20
+    rule_ttl: 24h
+    excluded_paths: [/admin]
+    storage_path: /var/lib/guardianwaf/remediation.json
+  websocket:
+    enabled: true
+    max_message_size: 1048576
+    max_frame_size: 65536
+    rate_limit_per_second: 10
+    rate_limit_burst: 20
+    allowed_origins: [https://app.example.com]
+    blocked_extensions: [permessage-deflate]
+    block_empty_messages: true
+    block_binary_messages: true
+    max_concurrent_per_ip: 5
+    handshake_timeout: 3s
+    idle_timeout: 1m
+    scan_payloads: true
+  virtual_patch:
+    enabled: true
+    auto_update: true
+    update_interval: 12h
+    cve_path: /var/lib/guardianwaf/cves.json
+    nvd_feed_url: https://nvd.nist.gov/feed
+    auto_generate_rules: true
+    block_severity: [CRITICAL, HIGH]
+    notify_on_patch: true`
+	node, err := Parse([]byte(yaml))
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+
+	cfg := DefaultConfig()
+	if err := PopulateFromNode(cfg, node); err != nil {
+		t.Fatalf("populate error: %v", err)
+	}
+
+	if cfg.TrustedProxies[0] != "10.0.0.0/8" {
+		t.Fatalf("trusted_proxies not populated: %v", cfg.TrustedProxies)
+	}
+	if !cfg.Tracing.Enabled || cfg.Tracing.ServiceName != "guardianwaf-prod" || cfg.Tracing.SamplingRate != 0.25 {
+		t.Fatalf("tracing not populated: %+v", cfg.Tracing)
+	}
+	if !cfg.Features["parser_guard"] {
+		t.Fatalf("features not populated: %+v", cfg.Features)
+	}
+	if !cfg.Compliance.Enabled || cfg.Compliance.Retention.PerFramework["pci_dss"] != 365 || len(cfg.Compliance.ScheduledReports) != 1 {
+		t.Fatalf("compliance not populated: %+v", cfg.Compliance)
+	}
+	if !cfg.Tenant.Enabled || cfg.Tenant.DefaultQuota.MaxRequestsPerMinute != 100 || cfg.Tenant.Tenants[0].Quota.MaxRequestsPerHour != 2000 {
+		t.Fatalf("tenant not populated: %+v", cfg.Tenant)
+	}
+	if !cfg.TLS.HTTP3.Enabled || cfg.TLS.HTTP3.ReadTimeout != 5*time.Second || !cfg.TLS.HTTP3.AdvertiseAltSvc {
+		t.Fatalf("tls.http3 not populated: %+v", cfg.TLS.HTTP3)
+	}
+	if cfg.Logging.MaxSizeMB != 200 || cfg.Logging.MaxBackups != 7 || cfg.Logging.MaxAgeDays != 45 {
+		t.Fatalf("logging rotation not populated: %+v", cfg.Logging)
+	}
+	if cfg.VirtualHosts[0].WAF == nil || cfg.VirtualHosts[0].WAF.Detection.Enabled {
+		t.Fatalf("virtual host waf override not populated: %+v", cfg.VirtualHosts[0].WAF)
+	}
+	if cfg.WAF.IPACL.AutoBan.MaxAutoBanEntries != 500 || cfg.WAF.IPACL.AutoBan.PersistInterval != 30*time.Second {
+		t.Fatalf("ip acl auto-ban persistence not populated: %+v", cfg.WAF.IPACL.AutoBan)
+	}
+	if cfg.WAF.ClientSide.AgentInjection.ProtectedPaths[0] != "/checkout" {
+		t.Fatalf("client-side protected paths not populated: %+v", cfg.WAF.ClientSide.AgentInjection)
+	}
+	if !cfg.WAF.CustomRules.Enabled || cfg.WAF.CustomRules.Rules[0].Conditions[0].Value != "debug" {
+		t.Fatalf("custom rules not populated: %+v", cfg.WAF.CustomRules)
+	}
+	if !cfg.WAF.GRPC.Enabled || cfg.WAF.GRPC.MethodRateLimits[0].BurstSize != 50 || cfg.WAF.GRPC.MaxStreamDuration != 30*time.Second {
+		t.Fatalf("grpc not populated: %+v", cfg.WAF.GRPC)
+	}
+	if !cfg.WAF.DLP.Enabled || cfg.WAF.DLP.Patterns[0] != "credit_card" {
+		t.Fatalf("dlp not populated: %+v", cfg.WAF.DLP)
+	}
+	if !cfg.WAF.ZeroTrust.Enabled || cfg.WAF.ZeroTrust.SessionTTL != 15*time.Minute || cfg.WAF.ZeroTrust.AllowBypassPaths[0] != "/healthz" {
+		t.Fatalf("zero trust not populated: %+v", cfg.WAF.ZeroTrust)
+	}
+	if !cfg.WAF.SIEM.Enabled || cfg.WAF.SIEM.Fields["env"] != "prod" || cfg.WAF.SIEM.FlushInterval != 10*time.Second {
+		t.Fatalf("siem not populated: %+v", cfg.WAF.SIEM)
+	}
+	if !cfg.WAF.Cache.Enabled || cfg.WAF.Cache.CacheStatusCodes[1] != 204 || !cfg.WAF.Cache.StaleWhileRevalidate {
+		t.Fatalf("cache not populated: %+v", cfg.WAF.Cache)
+	}
+	if !cfg.WAF.Replay.Enabled || cfg.WAF.Replay.Replay.Headers["X-Replay"] != "1" || cfg.WAF.Replay.Replay.Timeout != 2*time.Second {
+		t.Fatalf("replay not populated: %+v", cfg.WAF.Replay)
+	}
+	if !cfg.WAF.Canary.Enabled || cfg.WAF.Canary.Metadata["owner"] != "platform" || cfg.WAF.Canary.LatencyThreshold != 250*time.Millisecond {
+		t.Fatalf("canary not populated: %+v", cfg.WAF.Canary)
+	}
+	if !cfg.WAF.Analytics.Enabled || cfg.WAF.Analytics.FlushInterval != 15*time.Second {
+		t.Fatalf("analytics not populated: %+v", cfg.WAF.Analytics)
+	}
+	if !cfg.WAF.ClusterSync.Enabled || cfg.WAF.ClusterSync.Clusters[0].Nodes[0].Address != "https://node-b.example.com" || cfg.WAF.ClusterSync.RetryDelay != 2*time.Second {
+		t.Fatalf("cluster sync not populated: %+v", cfg.WAF.ClusterSync)
+	}
+	clusterConfig, ok := cfg.WAF.Cluster.Config.(map[string]any)
+	if !cfg.WAF.Cluster.Enabled || !ok || clusterConfig["backend"] != "memory" {
+		t.Fatalf("cluster not populated: enabled=%v config=%#v", cfg.WAF.Cluster.Enabled, cfg.WAF.Cluster.Config)
+	}
+	if !cfg.WAF.Remediation.Enabled || cfg.WAF.Remediation.RuleTTL != 24*time.Hour {
+		t.Fatalf("remediation not populated: %+v", cfg.WAF.Remediation)
+	}
+	if !cfg.WAF.WebSocket.Enabled || cfg.WAF.WebSocket.HandshakeTimeout != 3*time.Second || !cfg.WAF.WebSocket.ScanPayloads {
+		t.Fatalf("websocket not populated: %+v", cfg.WAF.WebSocket)
+	}
+	if !cfg.WAF.VirtualPatch.Enabled || cfg.WAF.VirtualPatch.UpdateInterval != 12*time.Hour || cfg.WAF.VirtualPatch.BlockSeverity[1] != "HIGH" {
+		t.Fatalf("virtual patch not populated: %+v", cfg.WAF.VirtualPatch)
 	}
 }
 
@@ -2228,7 +2580,8 @@ func TestPopulateFromNode_DashboardAllFields(t *testing.T) {
   enabled: true
   listen: ":9443"
   api_key: secret-key-123
-  tls: true`
+  admin_key: admin-secret-key-123
+  tls: false`
 	node, err := Parse([]byte(yaml))
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
@@ -2246,8 +2599,11 @@ func TestPopulateFromNode_DashboardAllFields(t *testing.T) {
 	if cfg.Dashboard.APIKey != "secret-key-123" {
 		t.Fatalf("expected api key, got %q", cfg.Dashboard.APIKey)
 	}
-	if !cfg.Dashboard.TLS {
-		t.Fatal("expected dashboard TLS enabled")
+	if cfg.Dashboard.AdminKey != "admin-secret-key-123" {
+		t.Fatalf("expected admin key, got %q", cfg.Dashboard.AdminKey)
+	}
+	if cfg.Dashboard.TLS {
+		t.Fatal("expected dashboard TLS disabled")
 	}
 }
 
@@ -2877,7 +3233,7 @@ dashboard:
   enabled: true
   listen: ":9443"
   api_key: my-secret
-  tls: true
+  tls: false
 mcp:
   enabled: true
   transport: stdio

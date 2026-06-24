@@ -917,6 +917,27 @@ func TestPopulateDocker_ValidEnabled(t *testing.T) {
 	}
 }
 
+func TestPopulateDocker_RemoteTLSFields(t *testing.T) {
+	node := &Node{
+		Kind:    MapNode,
+		MapKeys: []string{"socket_path", "tls_verify", "tls_ca_cert", "tls_cert", "tls_key"},
+		MapItems: map[string]*Node{
+			"socket_path": {Kind: ScalarNode, Value: "tcp://docker.example.com:2376"},
+			"tls_verify":  {Kind: ScalarNode, Value: "true"},
+			"tls_ca_cert": {Kind: ScalarNode, Value: "/etc/guardianwaf/docker/ca.pem"},
+			"tls_cert":    {Kind: ScalarNode, Value: "/etc/guardianwaf/docker/cert.pem"},
+			"tls_key":     {Kind: ScalarNode, Value: "/etc/guardianwaf/docker/key.pem"},
+		},
+	}
+	d := DockerConfig{}
+	if err := populateDocker(&d, node); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if d.SocketPath != "tcp://docker.example.com:2376" || !d.TLSVerify || d.TLSCACert == "" || d.TLSCert == "" || d.TLSKey == "" {
+		t.Fatalf("remote Docker TLS fields not populated: %+v", d)
+	}
+}
+
 func TestMarshalInlineField_BoolExtra(t *testing.T) {
 	var b strings.Builder
 	marshalInlineField(&b, "k", reflect.ValueOf(true), 0)
