@@ -59,7 +59,9 @@ func TestValidateWebhookURL_Coverage(t *testing.T) {
 		wantErr bool
 	}{
 		{"invalid url", "://bad", true},
+		{"hostless", "https:///hook", true},
 		{"http scheme", "http://example.com/hook", true},
+		{"userinfo credentials", "https://token@example.com/hook", true},
 		{"https valid", "https://example.com/hook", false},
 		{"localhost", "https://localhost/hook", true},
 		{"internal suffix", "https://myhost.internal/hook", true},
@@ -69,6 +71,7 @@ func TestValidateWebhookURL_Coverage(t *testing.T) {
 		{"private 172", "https://172.16.0.1/hook", true},
 		{"link local", "https://169.254.1.1/hook", true},
 		{"unspecified", "https://0.0.0.0/hook", true},
+		{"multicast", "https://224.0.0.1/hook", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -124,7 +127,7 @@ func TestHandleEvent_SemaphoreFull(t *testing.T) {
 		{Name: "test", URL: "http://localhost:9999/test", Type: "generic", Events: []string{"all"}},
 	})
 	// Fill the semaphore to capacity
-	for i := 0; i < 32; i++ {
+	for i := 0; i < maxAlertDispatchConcurrency; i++ {
 		m.sem <- struct{}{}
 	}
 	evt := &engine.Event{
@@ -138,9 +141,20 @@ func TestHandleEvent_SemaphoreFull(t *testing.T) {
 	if stats.Failed == 0 {
 		t.Error("expected at least one failure due to full semaphore")
 	}
+	if stats.Dropped == 0 {
+		t.Error("expected at least one dropped alert due to full semaphore")
+	}
 	// Drain semaphore
-	for i := 0; i < 32; i++ {
+	for i := 0; i < maxAlertDispatchConcurrency; i++ {
 		<-m.sem
+	}
+}
+
+func TestManagerStatsExposeDispatchConcurrencyCap(t *testing.T) {
+	m := NewManager(nil)
+	stats := m.GetStats()
+	if stats.MaxDispatch != maxAlertDispatchConcurrency {
+		t.Fatalf("MaxDispatch = %d, want %d", stats.MaxDispatch, maxAlertDispatchConcurrency)
 	}
 }
 
@@ -413,7 +427,7 @@ func TestHandleEvent_EmailSemaphoreFull(t *testing.T) {
 			To: []string{"ops@example.com"}, Events: []string{"all"}},
 	})
 	// Fill semaphore
-	for i := 0; i < 32; i++ {
+	for i := 0; i < maxAlertDispatchConcurrency; i++ {
 		m.sem <- struct{}{}
 	}
 	evt := &engine.Event{
@@ -428,7 +442,7 @@ func TestHandleEvent_EmailSemaphoreFull(t *testing.T) {
 		t.Error("expected failure due to full semaphore")
 	}
 	// Drain
-	for i := 0; i < 32; i++ {
+	for i := 0; i < maxAlertDispatchConcurrency; i++ {
 		<-m.sem
 	}
 }

@@ -53,3 +53,19 @@ func TestManagerHTTPClientRejectsPrivateRedirect(t *testing.T) {
 		t.Fatal("expected private redirect rejection")
 	}
 }
+
+func TestManagerHTTPClientRejectsCredentialRedirect(t *testing.T) {
+	allowWebhookPrivate.Store(false)
+	defer allowWebhookPrivate.Store(true)
+
+	m := NewManager(nil)
+	defer m.Close()
+
+	req, err := http.NewRequest(http.MethodPost, "https://token@example.com/webhook", http.NoBody)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	if err := m.httpClient.CheckRedirect(req, nil); err == nil {
+		t.Fatal("expected credential-bearing redirect rejection")
+	}
+}

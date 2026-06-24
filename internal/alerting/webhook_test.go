@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"sync"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,7 +13,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	AllowWebhookPrivateTargets()
+	allowWebhookPrivateTargetsForTest()
 	os.Exit(m.Run())
 }
 

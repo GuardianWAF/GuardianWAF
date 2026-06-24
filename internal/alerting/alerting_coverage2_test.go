@@ -493,12 +493,9 @@ func TestValidateHostNotPrivate_IPv6Private(t *testing.T) {
 
 // TestValidateHostNotPrivate_Multicast tests multicast IP rejection.
 func TestValidateHostNotPrivate_Multicast(t *testing.T) {
-	// Multicast addresses are checked in webhookSSRFDialContext but not in
-	// validateHostNotPrivate (it checks loopback/private/linklocal/unspecified).
-	// This test exercises the public IP path with a valid public IP.
-	err := validateHostNotPrivate("8.8.8.8")
-	if err != nil {
-		t.Errorf("expected no error for public IP 8.8.8.8, got: %v", err)
+	err := validateHostNotPrivate("224.0.0.1")
+	if err == nil {
+		t.Error("expected error for multicast IP")
 	}
 }
 
