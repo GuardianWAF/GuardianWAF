@@ -318,12 +318,13 @@ func (c *Client) dockerCmd(ctx context.Context, args ...string) (string, error) 
 	if c.cmdFunc != nil {
 		return c.cmdFunc(ctx, args...)
 	}
+	var err error
 	baseArgs, err := c.dockerCLIBaseArgs()
 	if err != nil {
 		return "", err
 	}
 	for _, arg := range args {
-		if err := validateDockerCLIArg("docker argument", arg); err != nil {
+		if err = validateDockerCLIArg("docker argument", arg); err != nil {
 			return "", err
 		}
 	}

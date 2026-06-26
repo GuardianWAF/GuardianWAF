@@ -116,14 +116,16 @@ func (s *Store) Init() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	basePath, err := cleanTenantStorePath(s.basePath)
+	var err error
+	basePath := ""
+	basePath, err = cleanTenantStorePath(s.basePath)
 	if err != nil {
 		return fmt.Errorf("validating tenant directory: %w", err)
 	}
 	s.basePath = basePath
 
 	// Create directory if not exists
-	if err := os.MkdirAll(s.basePath, 0o700); err != nil {
+	if err = os.MkdirAll(s.basePath, 0o700); err != nil {
 		return fmt.Errorf("creating tenant directory: %w", err)
 	}
 

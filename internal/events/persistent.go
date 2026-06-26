@@ -33,7 +33,8 @@ type PersistentMemoryStore struct {
 // opened, an error is returned so configured persistence can fail fast.
 func NewPersistentMemoryStore(capacity int, path string) (*PersistentMemoryStore, error) {
 	ms := NewMemoryStore(capacity)
-	path, err := cleanEventFilePath(path, true)
+	var err error
+	path, err = cleanEventFilePath(path, true)
 	if err != nil {
 		return nil, err
 	}
@@ -49,7 +50,7 @@ func NewPersistentMemoryStore(capacity int, path string) (*PersistentMemoryStore
 	}
 
 	// Replay existing events from file
-	if err := ps.replay(); err != nil {
+	if err = ps.replay(); err != nil {
 		return nil, err
 	}
 

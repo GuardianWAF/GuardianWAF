@@ -391,13 +391,14 @@ func newGeoIPDownloadHTTPClient() *http.Client {
 
 // downloadDB downloads a GeoIP CSV (optionally gzipped) from URL to path.
 func downloadDB(downloadURL, path string) error {
+	var err error
 	cleanPath, err := cleanGeoIPFilePath(path, false)
 	if err != nil {
 		return err
 	}
 	// SSRF protection: reject URLs targeting private/loopback addresses
 	if !testAllowPrivate {
-		if err := validateURLNotPrivate(downloadURL); err != nil {
+		if err = validateURLNotPrivate(downloadURL); err != nil {
 			return fmt.Errorf("download URL rejected: %w", err)
 		}
 	}

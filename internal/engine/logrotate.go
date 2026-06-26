@@ -27,6 +27,7 @@ type RotatingFileWriter struct {
 // maxSize is in MB, maxBackups is the number of .1, .2, ... files to keep,
 // maxAgeDays removes backups older than N days (0 = no age limit).
 func NewRotatingFileWriter(path string, maxSizeMB, maxBackups, maxAgeDays int) (*RotatingFileWriter, error) {
+	var err error
 	cleanPath, err := cleanRotatingLogPath(path)
 	if err != nil {
 		return nil, err
@@ -38,7 +39,7 @@ func NewRotatingFileWriter(path string, maxSizeMB, maxBackups, maxAgeDays int) (
 		maxSizeMB = 100
 	}
 	dir := filepath.Dir(cleanPath)
-	if err := os.MkdirAll(dir, 0o750); err != nil {
+	if err = os.MkdirAll(dir, 0o750); err != nil {
 		return nil, fmt.Errorf("create log dir %s: %w", dir, err)
 	}
 

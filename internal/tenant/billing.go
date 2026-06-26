@@ -328,7 +328,9 @@ func (bm *BillingManager) save() error {
 	if bm.storePath == "" {
 		return nil
 	}
-	storePath, err := cleanBillingStorePath(bm.storePath)
+	var err error
+	storePath := ""
+	storePath, err = cleanBillingStorePath(bm.storePath)
 	if err != nil {
 		return err
 	}
@@ -342,7 +344,7 @@ func (bm *BillingManager) save() error {
 		CurrentUsage: bm.currentUsage,
 	}
 
-	if err := os.MkdirAll(filepath.Dir(storePath), 0700); err != nil {
+	if err = os.MkdirAll(filepath.Dir(storePath), 0700); err != nil {
 		return fmt.Errorf("creating billing directory: %w", err)
 	}
 	tmpFile := storePath + ".tmp"
@@ -354,11 +356,11 @@ func (bm *BillingManager) save() error {
 
 	encoder := json.NewEncoder(file)
 	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(data); err != nil {
+	if err = encoder.Encode(data); err != nil {
 		file.Close() // #nosec G104 -- best-effort close; encode error is the primary failure
 		return fmt.Errorf("encode billing data: %w", err)
 	}
-	if err := file.Close(); err != nil {
+	if err = file.Close(); err != nil {
 		return err
 	}
 	return os.Rename(tmpFile, storePath)

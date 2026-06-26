@@ -217,19 +217,20 @@ func decryptValue(encoded string, key []byte) (string, error) {
 
 // save writes stored data to disk.
 func (s *Store) save() error {
+	var err error
 	dir, err := cleanAIStoreDirPath(s.path)
 	if err != nil {
 		return err
 	}
 	s.path = dir
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err = os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("mkdir %s: %w", dir, err)
 	}
 
 	// Create a copy of data for serialization — encrypt API key if encryption is enabled
 	saveData := s.data
 	if s.encKey != nil && saveData.Config.APIKey != "" && !strings.HasPrefix(saveData.Config.APIKey, encPrefix) {
-		if enc, err := encryptValue(saveData.Config.APIKey, s.encKey); err == nil {
+		if enc, encErr := encryptValue(saveData.Config.APIKey, s.encKey); encErr == nil {
 			saveData.Config.APIKey = encPrefix + enc
 		}
 	}
@@ -240,10 +241,10 @@ func (s *Store) save() error {
 	}
 	target := filepath.Join(dir, "ai_config.json")
 	tmp := target + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+	if err = os.WriteFile(tmp, data, 0o600); err != nil {
 		return fmt.Errorf("write temp: %w", err)
 	}
-	if err := os.Rename(tmp, target); err != nil {
+	if err = os.Rename(tmp, target); err != nil {
 		return fmt.Errorf("rename to %s: %w", target, err)
 	}
 	return nil
