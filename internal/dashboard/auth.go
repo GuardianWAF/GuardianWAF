@@ -58,9 +58,10 @@ func init() {
 		// fail we fall back to a time-seeded random source rather than crashing
 		// the process — sessions won't survive restarts, but the WAF stays up.
 		authLog.Error("crypto/rand failed for session secret; falling back to insecure random", "err", err)
+		// #nosec G404 -- fallback only; crypto/rand already failed at init
 		rng := mathrand.New(newTimeSeedSource())
 		secret = make([]byte, 32)
-		_, _ = rng.Read(secret) // #nosec G404 -- fallback only; crypto/rand already failed
+		_, _ = rng.Read(secret)
 	}
 	secretHolder.Store(secret)
 }

@@ -50,10 +50,10 @@ linters:
       - linters:
           - staticcheck
         text: QF1
-      # (All Go 1.25/1.26 stdlib deprecations have been fully migrated:
-      # elliptic.Unmarshal → crypto/ecdh, ReverseProxy.Director → Rewrite,
-      # ACME JWK PublicKey.X/Y → crypto/ecdh fixed-length encoding. No SA1019
-      # suppressions remain.)
+      # (Go 1.25/1.26 stdlib deprecations — ACME JWK still uses elliptic.Unmarshal
+      # and PublicKey.X/Y for ECDSA key encoding; crypto/ecdh is ECDH-only and
+      # cannot replace these. golangci-lint excludes SA1019 for _test\.go (line 41
+      # above). ReverseProxy.Director → Rewrite is done. No additional suppressions.)
     paths:
       - third_party$
       - builtin$

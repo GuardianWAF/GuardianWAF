@@ -304,6 +304,8 @@ func (d *Dashboard) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if cookie, err := r.Cookie(sessionCookieName); err == nil && cookie.Value != "" {
 		RevokeSession(cookie.Value)
 	}
+	// #nosec G124 -- Secure is set dynamically: true for direct TLS or trusted-proxy, false for plain HTTP.
+	// This is a deletion cookie (Value="", MaxAge=-1) — no sensitive data at stake regardless.
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    "",

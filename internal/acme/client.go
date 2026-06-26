@@ -562,12 +562,13 @@ func (c *Client) signedPost(url string, payload any, useJWK bool) (*http.Respons
 }
 
 func (c *Client) jwk() map[string]string {
-	// Use elliptic.Marshal to get the uncompressed EC point encoding (0x04 || X || Y),
-	// then extract fixed-width, zero-padded X and Y coordinates per RFC 7518.
+	// pub.Bytes() returns the uncompressed EC point encoding (0x04 || X || Y, 65 bytes
+	// for P-256) — identical to what elliptic.Marshal produced. We then extract
+	// fixed-width, zero-padded X and Y coordinates per RFC 7518.
 	// big.Int.Bytes() is variable-length and would produce wrong JWK thumbprint
 	// when a coordinate has a leading zero byte.
 	pub := &c.accountKey.PublicKey
-	raw := elliptic.Marshal(elliptic.P256(), pub.X, pub.Y) // 65 bytes: 0x04 || X(32) || Y(32)
+	raw, _ := pub.Bytes() //nolint:staticcheck // SA1019: ECDSA pub.Bytes() replaces elliptic.Marshal; no alternative for extracting X/Y coords
 	xBytes := raw[1:33]
 	yBytes := raw[33:]
 	return map[string]string{

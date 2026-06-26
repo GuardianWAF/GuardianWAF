@@ -39,10 +39,12 @@ func TestJWK_FixedLengthCoordinates(t *testing.T) {
 	copy(point[1:33], xb)
 	copy(point[33:65], yb)
 	X, Y := elliptic.Unmarshal(elliptic.P256(), point)
-	if X.Cmp(key.PublicKey.X) != 0 {
+	xMatch := X.Cmp(key.PublicKey.X)
+	yMatch := Y.Cmp(key.PublicKey.Y)
+	if xMatch != 0 {
 		t.Error("decoded x does not match public key X")
 	}
-	if Y.Cmp(key.PublicKey.Y) != 0 {
+	if yMatch != 0 {
 		t.Error("decoded y does not match public key Y")
 	}
 }

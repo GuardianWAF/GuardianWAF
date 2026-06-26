@@ -268,8 +268,8 @@ func (fs *FileStore) checkRotation() {
 		f, openErr := os.OpenFile(fp, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 		if openErr != nil {
 			fs.dropped.Add(1)
-			// #nosec G304 -- rotatedName is derived from the cleaned event file path and timestamp.
 			var fallbackErr error
+			// #nosec G304 -- rotatedName is derived from the cleaned event file path and timestamp.
 			f, fallbackErr = os.OpenFile(rotatedName, os.O_WRONLY|os.O_APPEND, 0o600)
 			if fallbackErr != nil {
 				fs.dropped.Add(1)
