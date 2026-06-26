@@ -375,7 +375,7 @@ jobs:
             go install golang.org/x/perf/cmd/benchstat@v0.0.0-20260610192853-712aea8b4705
             benchstat benchmark-base.txt benchmark-new.txt > benchstat-output.txt 2>&1 || true
             cat benchstat-output.txt
-            # Fail if any benchmark shows >20% regression (geomean or individual)
+            # Fail if any benchmark shows >=10% regression (geomean or individual)
             if grep -qE '~\s*[1-9][0-9]*%' benchstat-output.txt; then
               echo "::error::Benchmark regression detected (>=10% slowdown)"
               exit 1
