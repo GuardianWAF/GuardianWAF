@@ -145,9 +145,8 @@ Applied & verified (build + vet + full test suite green; touched pkgs `-race`):
 - **Where:** `internal/dashboard/auth.go:335-348` — `adminOnlyPrefixes` prefix match can mis-handle sibling routes (`/api/v1/ai` vs `/api/v1/ai_export`).
 - **Recommendation:** explicit route→scope mapping (ties into 4.2's per-domain registration).
 
-### 4.6 🟡 LOW — Incomplete CORS preflight coverage
-- **Where:** only 3 explicit `OPTIONS` routes (`dashboard.go:178,181,188`).
-- **Recommendation:** small CORS middleware that auto-answers preflight for all API routes.
+### 4.6 🟢 DONE — Incomplete CORS preflight coverage
+- **Status (2026-06-26):** `Dashboard.Handler()` now returns `CORSMiddleware(d.mux)`. All OPTIONS requests are handled globally; no per-route OPTIONS registration needed. CORS headers are also set on all non-OPTIONS responses so browsers can read error bodies (401/403).
 
 ---
 
