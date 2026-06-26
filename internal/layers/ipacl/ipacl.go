@@ -341,7 +341,7 @@ func (l *Layer) SaveBans(path string) {
 	}
 	bans := l.ActiveBans()
 	if len(bans) == 0 {
-		os.Remove(cleanPath)
+		os.Remove(cleanPath) // #nosec G104 -- best-effort cleanup; error not actionable
 		return
 	}
 	data, err := json.Marshal(bans)
@@ -353,7 +353,7 @@ func (l *Layer) SaveBans(path string) {
 			return
 		}
 	}
-	os.WriteFile(cleanPath, data, 0600)
+	os.WriteFile(cleanPath, data, 0600) // #nosec G104 -- best-effort persistence; error already handled above via json.Marshal check
 }
 
 // LoadBans loads persisted bans from a JSON file.

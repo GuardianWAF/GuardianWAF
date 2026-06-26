@@ -149,7 +149,7 @@ func shutdownServeRuntime(ctx context.Context, resources serveShutdownResources)
 		eng.Logs.Warnf("GeoIP auto-refresh shutdown timed out: %v", err)
 	}
 
-	eng.Close()
+	eng.Close() // #nosec G104 -- shutdown path; engine close error cannot be handled at this point
 	if err := waitForWaitGroup(ctx, resources.eventConsumerWG); err != nil {
 		eng.Logs.Warnf("Event consumer shutdown timed out: %v", err)
 	}
@@ -170,7 +170,7 @@ func shutdownSidecarRuntime(ctx context.Context, resources sidecarShutdownResour
 	if err := resources.layerResources.stopGeoIPRefresh(ctx); err != nil {
 		eng.Logs.Warnf("GeoIP auto-refresh shutdown timed out: %v", err)
 	}
-	eng.Close()
+	eng.Close() // #nosec G104 -- shutdown path; engine close error cannot be handled at this point
 
 	fmt.Println("GuardianWAF sidecar stopped.")
 }

@@ -94,8 +94,12 @@ func (r *Recorder) Flush() error {
 		if err != nil {
 			continue
 		}
-		f.Write(data)
-		f.Write([]byte("\n"))
+		if _, err := f.Write(data); err != nil {
+			fmt.Fprintf(os.Stderr, "tracker: write error: %v\n", err)
+		}
+		if _, err := f.Write([]byte("\n")); err != nil {
+			fmt.Fprintf(os.Stderr, "tracker: write error: %v\n", err)
+		}
 	}
 	r.results = nil
 	return nil

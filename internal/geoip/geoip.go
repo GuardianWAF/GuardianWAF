@@ -442,10 +442,10 @@ func downloadDB(downloadURL, path string) error {
 	if strings.HasSuffix(downloadURL, ".gz") || strings.Contains(resp.Header.Get("Content-Type"), "gzip") {
 		gz, gzErr := gzip.NewReader(reader)
 		if gzErr != nil {
-			f.Close()
+			f.Close() // #nosec G104 -- best-effort close; gzip decode error is the primary failure
 			return fmt.Errorf("gzip decode: %w", gzErr)
 		}
-		defer gz.Close()
+		defer gz.Close() // #nosec G104 -- best-effort gzip close; error not actionable
 		reader = limitGeoIPDownloadReader(gz, maxGeoIPDownloadSize)
 	}
 

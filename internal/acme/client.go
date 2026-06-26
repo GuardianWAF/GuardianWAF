@@ -231,7 +231,7 @@ func (c *Client) fetchDirectory() (*directory, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+		io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20)) // #nosec G104 -- draining response body; close error is not actionable
 		return nil, fmt.Errorf("directory request failed: HTTP %d", resp.StatusCode)
 	}
 
@@ -312,8 +312,8 @@ func (c *Client) completeAuthorization(authzURL string, handler *HTTP01Handler) 
 		return err
 	}
 	defer func() {
-		io.Copy(io.Discard, io.LimitReader(challengeResp.Body, 1<<20))
-		challengeResp.Body.Close()
+		io.Copy(io.Discard, io.LimitReader(challengeResp.Body, 1<<20)) // #nosec G104 -- draining body; close error is not actionable
+		challengeResp.Body.Close()                                     // #nosec G104 -- defer close; error is not actionable
 	}()
 
 	// Poll authorization until valid or invalid
@@ -336,7 +336,7 @@ func (c *Client) completeAuthorization(authzURL string, handler *HTTP01Handler) 
 		}
 
 		bodyBytes, err := readACMEResponse(pollResp.Body)
-		pollResp.Body.Close()
+		pollResp.Body.Close() // #nosec G104 -- body fully read; close error is not actionable
 		if err != nil {
 			return fmt.Errorf("failed to read authorization response: %w", err)
 		}
@@ -395,10 +395,10 @@ func (c *Client) pollCertificate(orderURL string) ([]byte, error) {
 
 		var o order
 		if err := decodeACMEResponse(resp.Body, &o); err != nil {
-			resp.Body.Close()
+			resp.Body.Close() // #nosec G104 -- close after decode error; error is not actionable
 			return nil, fmt.Errorf("failed to decode order response: %w", err)
 		}
-		resp.Body.Close()
+		resp.Body.Close() // #nosec G104 -- normal close; error is not actionable
 
 		if o.Status == "valid" && o.Certificate != "" {
 			return c.fetchCertificateChain(o.Certificate)
@@ -461,8 +461,8 @@ func (c *Client) getNonce() (string, error) {
 		return "", err
 	}
 	defer func() {
-		io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
-		resp.Body.Close()
+		io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20)) // #nosec G104 -- draining body; close error is not actionable
+		resp.Body.Close()                                   // #nosec G104 -- defer close; error is not actionable
 	}()
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		return "", fmt.Errorf("nonce request failed: HTTP %d", resp.StatusCode)

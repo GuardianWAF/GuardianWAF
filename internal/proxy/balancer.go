@@ -139,7 +139,7 @@ func (b *Balancer) leastConnections(healthy []*Target) *Target {
 func (b *Balancer) ipHash(healthy []*Target, r *http.Request) *Target {
 	ip := extractClientIPForHash(r)
 	h := fnv.New32a()
-	h.Write([]byte(ip))
+	h.Write([]byte(ip)) // #nosec G104 -- fnv.Write never returns a non-nil error
 	// #nosec G115 -- modulo by len(healthy) guarantees the result fits a slice index.
 	idx := int(uint64(h.Sum32()) % uint64(len(healthy)))
 	return healthy[idx]

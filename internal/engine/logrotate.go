@@ -100,13 +100,13 @@ func (w *RotatingFileWriter) rotate() error {
 	for i := w.maxBackups; i >= 1; i-- {
 		src := fmt.Sprintf("%s.%d", w.path, i)
 		if i == w.maxBackups {
-			os.Remove(src)
+			os.Remove(src) // #nosec G104 -- best-effort cleanup during rotation; error not actionable
 			continue
 		}
 		dst := fmt.Sprintf("%s.%d", w.path, i+1)
-		os.Rename(src, dst)
+		os.Rename(src, dst) // #nosec G104 -- best-effort during rotation; error not actionable
 	}
-	os.Rename(w.path, fmt.Sprintf("%s.1", w.path))
+	os.Rename(w.path, fmt.Sprintf("%s.1", w.path)) // #nosec G104 -- rotation; error not actionable
 
 	f, err := os.OpenFile(w.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600) // #nosec G304 -- w.path is normalized by NewRotatingFileWriter before storage.
 	if err != nil {
@@ -135,7 +135,7 @@ func (w *RotatingFileWriter) removeOldBackups() {
 			continue
 		}
 		if fi.ModTime().Before(cutoff) {
-			os.Remove(m)
+			os.Remove(m) // #nosec G104 -- best-effort cleanup; error not actionable
 		} else {
 			backups = append(backups, m)
 		}
@@ -144,7 +144,7 @@ func (w *RotatingFileWriter) removeOldBackups() {
 	if len(backups) > w.maxBackups {
 		sort.Strings(backups)
 		for _, b := range backups[:len(backups)-w.maxBackups] {
-			os.Remove(b)
+			os.Remove(b) // #nosec G104 -- best-effort cleanup; error not actionable
 		}
 	}
 }

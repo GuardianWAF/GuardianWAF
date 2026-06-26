@@ -379,8 +379,8 @@ func NewTargetWithPolicy(rawURL string, weight int, policy TargetPolicy) (*Targe
 	t.proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		// Drain the request body so the connection can be reused for keep-alive.
 		if r.Body != nil {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 1<<20)) // nolint:errcheck // response body drain; error ignored
-			r.Body.Close()
+			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 1<<20)) // nolint:errcheck // #nosec G104 -- response body drain; error ignored
+			r.Body.Close() // #nosec G104 -- best-effort close; error not actionable
 		}
 		t.circuit.RecordFailure()
 		// Store error on the writer so ServeHTTP can return it.

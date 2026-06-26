@@ -282,7 +282,7 @@ func AcquireContext(r *http.Request, paranoiaLevel int, maxBodySize int64) *Requ
 							inspectData = decompressed
 						}
 					}
-					gr.Close() //nolint:errcheck // decompression close; error irrelevant — reader already consumed
+					gr.Close() // #nosec G104 -- decompression close; error irrelevant — reader already consumed
 				}
 			case "deflate":
 				fr := flate.NewReader(bytes.NewReader(rawData))
@@ -291,7 +291,7 @@ func AcquireContext(r *http.Request, paranoiaLevel int, maxBodySize int64) *Requ
 						inspectData = decompressed
 					}
 				}
-				fr.Close() //nolint:errcheck // decompression close; error irrelevant — reader already consumed
+				fr.Close() // #nosec G104 -- decompression close; error irrelevant — reader already consumed
 			}
 
 			ctx.Body = inspectData

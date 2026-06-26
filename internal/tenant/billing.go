@@ -355,8 +355,8 @@ func (bm *BillingManager) save() error {
 	encoder := json.NewEncoder(file)
 	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(data); err != nil {
-		file.Close()
-		return err
+		file.Close() // #nosec G104 -- best-effort close; encode error is the primary failure
+		return fmt.Errorf("encode billing data: %w", err)
 	}
 	if err := file.Close(); err != nil {
 		return err
