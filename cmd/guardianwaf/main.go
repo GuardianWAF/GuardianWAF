@@ -253,21 +253,15 @@ func cmdServe(args []string) {
 			defer proxyRuntimeMu.RUnlock()
 			return proxyRouter
 		},
-		AlertManager: func() *alerting.Manager {
-			return alertMgrPtr.Load()
-		},
+		AlertManager: alertMgrPtr.Load,
 		DockerEnabled: func() bool {
 			return cfg.Docker.Enabled
 		},
-		DockerWatcher: func() *dkr.Watcher {
-			return dockerWatcherPtr.Load()
-		},
+		DockerWatcher: dockerWatcherPtr.Load,
 		AIEnabled: func() bool {
 			return cfg.WAF.AIAnalysis.Enabled
 		},
-		AIAnalyzer: func() *ai.Analyzer {
-			return aiAnalyzerPtr.Load()
-		},
+		AIAnalyzer: aiAnalyzerPtr.Load,
 	})
 	var dashboardReady atomic.Bool
 	registerProbeHandlersWithDeps(serveMux, cfg, eng, probeDependencies{

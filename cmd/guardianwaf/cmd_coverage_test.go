@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -39,7 +40,8 @@ func TestCmdHealthcheck_Subprocess(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=TestCmdHealthcheck_Subprocess")
 	cmd.Env = append(os.Environ(), "GUARDIANWAF_TEST_HEALTHCHECK=1")
 	output, err := cmd.CombinedOutput()
-	if exitErr, ok := err.(*exec.ExitError); ok {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
 		if exitErr.ExitCode() != 0 {
 			t.Fatalf("expected exit code 0, got %d: %s", exitErr.ExitCode(), output)
 		}

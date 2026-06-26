@@ -4,6 +4,7 @@ run:
 linters:
   default: none
   enable:
+    - errorlint
     - gocritic
     - govet
     - ineffassign
