@@ -2,6 +2,7 @@ package apisecurity
 
 import (
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"net/http/httptest"
 	"testing"
@@ -48,7 +49,7 @@ func TestAPIKeyValidator_Validate_PrefixLookup(t *testing.T) {
 
 	// Prefix lookup with wrong hash should fail (hashStr[7:] is the hex part)
 	_, err = v.Validate("gwaf_wrong_suffix", "/api/data")
-	if err != ErrInvalidAPIKey {
+	if !errors.Is(err, ErrInvalidAPIKey) {
 		t.Errorf("expected ErrInvalidAPIKey for prefix with wrong hash, got %v", err)
 	}
 }
@@ -62,7 +63,7 @@ func TestValidateConstantTime_UnauthorizedPath(t *testing.T) {
 	})
 
 	_, err := v.ValidateConstantTime(secret, "/blocked")
-	if err != ErrUnauthorizedPath {
+	if !errors.Is(err, ErrUnauthorizedPath) {
 		t.Errorf("expected ErrUnauthorizedPath, got %v", err)
 	}
 }

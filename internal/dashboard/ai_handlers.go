@@ -44,7 +44,7 @@ func (d *Dashboard) handleAIProviders(w http.ResponseWriter, r *http.Request) {
 		// Get from analyzer (shares cache)
 		providers, err := d.aiAnalyzer.GetCatalog()
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "failed to fetch providers"})
+			writeError(w, http.StatusInternalServerError, "failed to fetch providers")
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"providers": providers, "count": len(providers)})
@@ -54,7 +54,7 @@ func (d *Dashboard) handleAIProviders(w http.ResponseWriter, r *http.Request) {
 	// Standalone fetch — AI not enabled but we still show providers
 	providers, err := catalogCache.Summaries()
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "failed to fetch catalog"})
+		writeError(w, http.StatusInternalServerError, "failed to fetch catalog")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"providers": providers, "count": len(providers)})
@@ -129,7 +129,7 @@ func (d *Dashboard) handleAISetConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := d.aiAnalyzer.UpdateProvider(cfg); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusInternalServerError, sanitizeErr(err))
 		return
 	}
 
@@ -212,7 +212,7 @@ func (d *Dashboard) handleAIAnalyze(w http.ResponseWriter, r *http.Request) {
 		SortOrder: "desc",
 	})
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "failed to query events"})
+		writeError(w, http.StatusInternalServerError, "failed to query events")
 		return
 	}
 
@@ -223,7 +223,7 @@ func (d *Dashboard) handleAIAnalyze(w http.ResponseWriter, r *http.Request) {
 
 	result, err := d.aiAnalyzer.ManualAnalyze(evts)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusInternalServerError, sanitizeErr(err))
 		return
 	}
 

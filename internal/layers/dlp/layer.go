@@ -2,6 +2,7 @@ package dlp
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -392,7 +393,7 @@ func (l *Layer) ScanFileUploads(body []byte, contentType string) (*ScanResult, e
 
 	for {
 		part, err := reader.NextPart()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {

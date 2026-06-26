@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -509,7 +510,7 @@ func TestCoverage_RulesManager_QuotaExceeded(t *testing.T) {
 	trm := NewTenantRulesManager(100)
 	trm.AddTenantRule("t1", rules.Rule{ID: "r1", Name: "R1", Enabled: true}, 2)
 	trm.AddTenantRule("t1", rules.Rule{ID: "r2", Name: "R2", Enabled: true}, 2)
-	if trm.AddTenantRule("t1", rules.Rule{ID: "r3", Name: "R3", Enabled: true}, 2) != ErrQuotaExceeded {
+	if !errors.Is(trm.AddTenantRule("t1", rules.Rule{ID: "r3", Name: "R3", Enabled: true}, 2), ErrQuotaExceeded) {
 		t.Error("expected quota exceeded")
 	}
 }

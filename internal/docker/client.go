@@ -6,6 +6,7 @@ package docker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -330,7 +331,8 @@ func (c *Client) dockerCmd(ctx context.Context, args ...string) (string, error) 
 	cmd := exec.CommandContext(ctx, "docker", args...) // #nosec G204 -- docker is executed without a shell and caller-controlled args are rejected on control/NUL bytes.
 	out, err := cmd.Output()
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
 			return "", fmt.Errorf("%w: %s", err, string(exitErr.Stderr))
 		}
 		return "", err

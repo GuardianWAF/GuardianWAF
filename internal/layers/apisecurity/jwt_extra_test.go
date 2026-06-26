@@ -12,6 +12,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash"
 	"math/big"
@@ -848,7 +849,7 @@ func TestAPIKeyValidator_RateLimit(t *testing.T) {
 
 	// 4th request should be rate limited
 	_, err = v.Validate(key, "/api/data")
-	if err != ErrRateLimitExceeded {
+	if !errors.Is(err, ErrRateLimitExceeded) {
 		t.Errorf("expected rate limit error, got: %v", err)
 	}
 }
@@ -883,7 +884,7 @@ func TestAPIKeyValidator_PathRestriction(t *testing.T) {
 
 	// Disallowed path
 	_, err = v.Validate(key, "/admin/dashboard")
-	if err != ErrUnauthorizedPath {
+	if !errors.Is(err, ErrUnauthorizedPath) {
 		t.Errorf("expected unauthorized path error, got: %v", err)
 	}
 }
@@ -930,7 +931,7 @@ func TestAPIKeyValidator_DisabledKey_Runtime(t *testing.T) {
 	}
 
 	_, err = v.Validate(key, "/api/data")
-	if err != ErrAPIKeyDisabled {
+	if !errors.Is(err, ErrAPIKeyDisabled) {
 		t.Errorf("expected disabled error, got: %v", err)
 	}
 }
@@ -983,7 +984,7 @@ func TestAPIKeyValidator_RemoveKey(t *testing.T) {
 	}
 
 	_, err = v.Validate(key, "/api/data")
-	if err != ErrInvalidAPIKey {
+	if !errors.Is(err, ErrInvalidAPIKey) {
 		t.Errorf("expected invalid after removal, got: %v", err)
 	}
 }

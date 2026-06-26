@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -471,8 +472,8 @@ func TestValidate_DashboardTLSUnsupported(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected validation error for unsupported dashboard TLS termination")
 	}
-	ve, ok := err.(*ValidationError)
-	if !ok {
+	var ve *ValidationError
+	if !errors.As(err, &ve) {
 		t.Fatalf("expected *ValidationError, got %T", err)
 	}
 
@@ -492,13 +493,13 @@ func TestValidate_InvalidMode(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected validation error for invalid mode")
 	}
-	ve, ok := err.(*ValidationError)
-	if !ok {
+	var ve2 *ValidationError
+	if !errors.As(err, &ve2) {
 		t.Fatalf("expected *ValidationError, got %T", err)
 	}
 
 	found := false
-	for _, fe := range ve.Errors {
+	for _, fe := range ve2.Errors {
 		if fe.Field == "mode" {
 			found = true
 			break
@@ -564,8 +565,8 @@ func TestValidate_InvalidThresholds(t *testing.T) {
 			if err == nil {
 				t.Fatal("expected validation error")
 			}
-			ve, ok := err.(*ValidationError)
-			if !ok {
+			var ve *ValidationError
+			if !errors.As(err, &ve) {
 				t.Fatalf("expected *ValidationError, got %T", err)
 			}
 
@@ -591,7 +592,10 @@ func TestValidate_NegativeMultiplier(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected validation error for negative multiplier")
 	}
-	ve := err.(*ValidationError)
+	var ve *ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected *ValidationError, got %T", err)
+	}
 	found := false
 	for _, fe := range ve.Errors {
 		if strings.Contains(fe.Field, "sqli.multiplier") {
@@ -614,12 +618,15 @@ func TestValidate_InvalidCIDR(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected validation error for invalid CIDR")
 	}
-	ve := err.(*ValidationError)
+	var ve2 *ValidationError
+	if !errors.As(err, &ve2) {
+		t.Fatalf("expected *ValidationError, got %T", err)
+	}
 
 	// Should have errors for: whitelist[1], whitelist[2], blacklist[0]
 	whitelistErrors := 0
 	blacklistErrors := 0
-	for _, fe := range ve.Errors {
+	for _, fe := range ve2.Errors {
 		if strings.HasPrefix(fe.Field, "waf.ip_acl.whitelist") {
 			whitelistErrors++
 		}
@@ -628,10 +635,10 @@ func TestValidate_InvalidCIDR(t *testing.T) {
 		}
 	}
 	if whitelistErrors != 2 {
-		t.Fatalf("expected 2 whitelist errors, got %d; errors: %v", whitelistErrors, ve.Errors)
+		t.Fatalf("expected 2 whitelist errors, got %d; errors: %v", whitelistErrors, ve2.Errors)
 	}
 	if blacklistErrors != 1 {
-		t.Fatalf("expected 1 blacklist error, got %d; errors: %v", blacklistErrors, ve.Errors)
+		t.Fatalf("expected 1 blacklist error, got %d; errors: %v", blacklistErrors, ve2.Errors)
 	}
 }
 
@@ -677,7 +684,10 @@ func TestValidate_InvalidUpstream(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected validation errors for invalid upstreams")
 	}
-	ve := err.(*ValidationError)
+	var ve3 *ValidationError
+	if !errors.As(err, &ve3) {
+		t.Fatalf("expected *ValidationError, got %T", err)
+	}
 
 	expectedFields := map[string]bool{
 		"upstreams[0].name":              false,
@@ -687,7 +697,7 @@ func TestValidate_InvalidUpstream(t *testing.T) {
 		"upstreams[1].targets[1].weight": false,
 	}
 
-	for _, fe := range ve.Errors {
+	for _, fe := range ve3.Errors {
 		if _, ok := expectedFields[fe.Field]; ok {
 			expectedFields[fe.Field] = true
 		}
@@ -695,7 +705,7 @@ func TestValidate_InvalidUpstream(t *testing.T) {
 
 	for field, found := range expectedFields {
 		if !found {
-			t.Errorf("expected error for field %q, not found in: %v", field, ve.Errors)
+			t.Errorf("expected error for field %q, not found in: %v", field, ve3.Errors)
 		}
 	}
 }
@@ -719,7 +729,7 @@ func TestValidate_InvalidRoutes(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected validation errors for invalid routes")
 	}
-	ve := err.(*ValidationError)
+	var ve *ValidationError; errors.As(err, &ve)
 
 	expectedFields := map[string]bool{
 		"routes[0].path":     false,
@@ -764,7 +774,7 @@ func TestValidate_InvalidRateLimit(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected validation errors for invalid rate limit")
 	}
-	ve := err.(*ValidationError)
+	var ve *ValidationError; errors.As(err, &ve)
 
 	expectedFields := map[string]bool{
 		"waf.rate_limit.rules[0].id":     false,
@@ -798,7 +808,7 @@ func TestValidate_InvalidLogging(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected validation errors for invalid logging")
 	}
-	ve := err.(*ValidationError)
+	var ve *ValidationError; errors.As(err, &ve)
 
 	levelFound := false
 	formatFound := false
@@ -826,7 +836,7 @@ func TestValidate_InvalidEventsStorage(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected validation error for invalid events storage")
 	}
-	ve := err.(*ValidationError)
+	var ve *ValidationError; errors.As(err, &ve)
 
 	found := false
 	for _, fe := range ve.Errors {
@@ -849,7 +859,7 @@ func TestValidate_EventsFileRequiresPath(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected validation error for missing file path")
 	}
-	ve := err.(*ValidationError)
+	var ve *ValidationError; errors.As(err, &ve)
 
 	found := false
 	for _, fe := range ve.Errors {
@@ -871,7 +881,7 @@ func TestValidate_EventsMaxEventsZero(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected validation error for zero max_events")
 	}
-	ve := err.(*ValidationError)
+	var ve *ValidationError; errors.As(err, &ve)
 
 	found := false
 	for _, fe := range ve.Errors {
@@ -893,7 +903,7 @@ func TestValidate_InvalidListenAddress(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected validation error for invalid listen address")
 	}
-	ve := err.(*ValidationError)
+	var ve *ValidationError; errors.As(err, &ve)
 
 	found := false
 	for _, fe := range ve.Errors {
@@ -916,7 +926,7 @@ func TestValidate_DashboardInvalidListen(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected validation error for invalid dashboard listen")
 	}
-	ve := err.(*ValidationError)
+	var ve *ValidationError; errors.As(err, &ve)
 
 	found := false
 	for _, fe := range ve.Errors {
@@ -940,7 +950,7 @@ func TestValidate_DashboardWeakAPIKey(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected validation error for weak dashboard API key")
 	}
-	ve := err.(*ValidationError)
+	var ve *ValidationError; errors.As(err, &ve)
 
 	found := false
 	for _, fe := range ve.Errors {
@@ -986,7 +996,7 @@ func TestValidate_TrustedProxiesRejectsInvalidAndOverbroad(t *testing.T) {
 			if err == nil {
 				t.Fatal("expected validation error for unsafe trusted proxy")
 			}
-			ve := err.(*ValidationError)
+			var ve *ValidationError; errors.As(err, &ve)
 
 			found := false
 			for _, fe := range ve.Errors {
@@ -1025,7 +1035,7 @@ func TestValidate_TLSWithoutCert(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected validation error for TLS without cert/key")
 	}
-	ve := err.(*ValidationError)
+	var ve *ValidationError; errors.As(err, &ve)
 
 	certFound := false
 	keyFound := false
@@ -1056,7 +1066,7 @@ func TestValidate_TLSACMEMissingFields(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected validation error for ACME without email/domains")
 	}
-	ve := err.(*ValidationError)
+	var ve *ValidationError; errors.As(err, &ve)
 
 	emailFound := false
 	domainsFound := false
@@ -1089,7 +1099,7 @@ func TestValidate_SanitizerZeroValues(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected validation errors for zero sanitizer values")
 	}
-	ve := err.(*ValidationError)
+	var ve *ValidationError; errors.As(err, &ve)
 
 	expectedFields := []string{
 		"waf.sanitizer.max_url_length",
@@ -1127,8 +1137,8 @@ func TestValidate_AggregatedErrors(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected validation errors")
 	}
-	ve, ok := err.(*ValidationError)
-	if !ok {
+	var ve *ValidationError
+	if !errors.As(err, &ve) {
 		t.Fatalf("expected *ValidationError, got %T", err)
 	}
 
@@ -1434,7 +1444,7 @@ func TestValidate_EmptyListenAddress(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected validation error for empty listen address")
 	}
-	ve := err.(*ValidationError)
+	var ve *ValidationError; errors.As(err, &ve)
 	found := false
 	for _, fe := range ve.Errors {
 		if fe.Field == "listen" {
@@ -1455,7 +1465,7 @@ func TestValidate_ListenAddressInvalidPort(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected validation error for port 99999")
 	}
-	ve := err.(*ValidationError)
+	var ve *ValidationError; errors.As(err, &ve)
 	found := false
 	for _, fe := range ve.Errors {
 		if fe.Field == "listen" && strings.Contains(fe.Message, "port") {
@@ -1479,7 +1489,7 @@ func TestValidate_TLSInvalidListenAddress(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected validation error for invalid TLS listen")
 	}
-	ve := err.(*ValidationError)
+	var ve *ValidationError; errors.As(err, &ve)
 	found := false
 	for _, fe := range ve.Errors {
 		if fe.Field == "tls.listen" {

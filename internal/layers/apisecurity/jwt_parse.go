@@ -90,7 +90,7 @@ func parsePublicKey(pemData []byte) (crypto.PublicKey, error) {
 	b64 = strings.ReplaceAll(b64, "\r", "")
 	der, err := base64.StdEncoding.DecodeString(b64)
 	if err != nil {
-		return nil, fmt.Errorf("base64 decode failed: %bw", err)
+		return nil, fmt.Errorf("base64 decode failed: %w", err)
 	}
 	if key := parseRSAPublicKey(der); key != nil {
 		return key, nil
