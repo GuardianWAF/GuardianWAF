@@ -3,7 +3,6 @@ package tls
 import (
 	"bytes"
 	"context"
-	"crypto"
 	// #nosec G505 -- OCSP CertID uses SHA-1 issuer name/key hashes for RFC
 	// interoperability; this is not used for signature verification.
 	"crypto/sha1"
@@ -483,6 +482,3 @@ func (cs *CertStore) StartOCSPRefresh(interval time.Duration) {
 		}
 	}()
 }
-
-// Ensure crypto import is used
-var _ = crypto.SHA1

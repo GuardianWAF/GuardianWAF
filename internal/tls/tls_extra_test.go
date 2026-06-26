@@ -21,8 +21,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	_ "crypto" // for crypto.SHA1 reference in ocsp.go
 )
 
 // ---------------------------------------------------------------------------
