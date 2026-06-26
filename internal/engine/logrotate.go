@@ -105,9 +105,9 @@ func (w *RotatingFileWriter) rotate() error {
 			continue
 		}
 		dst := fmt.Sprintf("%s.%d", w.path, i+1)
-		os.Rename(src, dst) // #nosec G104 -- best-effort during rotation; error not actionable
+		_ = os.Rename(src, dst) //nolint:errcheck // #nosec G104 -- best-effort during rotation; error not actionable
 	}
-	os.Rename(w.path, fmt.Sprintf("%s.1", w.path)) // #nosec G104 -- rotation; error not actionable
+	_ = os.Rename(w.path, fmt.Sprintf("%s.1", w.path)) //nolint:errcheck // #nosec G104 -- rotation; error not actionable
 
 	f, err := os.OpenFile(w.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600) // #nosec G304 -- w.path is normalized by NewRotatingFileWriter before storage.
 	if err != nil {

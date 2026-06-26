@@ -163,7 +163,7 @@ func (ps *PersistentMemoryStore) replay() error {
 		start = len(all) - ps.capacity
 	}
 	for _, ev := range all[start:] {
-		ps.MemoryStore.Store(ev) // #nosec G104 -- in-memory store; cannot fail
+		_ = ps.MemoryStore.Store(ev) //nolint:errcheck // #nosec G104 -- in-memory store; cannot fail
 	}
 
 	// Truncate the file to only contain events we kept (rewrite)

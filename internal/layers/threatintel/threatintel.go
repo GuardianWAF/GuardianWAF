@@ -284,7 +284,7 @@ func (l *Layer) updateEntries(entries []ThreatEntry) {
 			l.ipCache.Set(e.IP, e.Info)
 		}
 		if e.CIDR != "" {
-			l.cidrTree.Insert(e.CIDR, e.Info) // #nosec G104 -- in-memory tree insert; cannot fail
+			_ = l.cidrTree.Insert(e.CIDR, e.Info) //nolint:errcheck // #nosec G104 -- in-memory tree insert; cannot fail
 		}
 		if e.Domain != "" {
 			l.domainCache.Set(strings.ToLower(e.Domain), e.Info)

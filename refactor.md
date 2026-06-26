@@ -191,6 +191,7 @@ Applied & verified (build + vet + full test suite green; touched pkgs `-race`):
 ### 7.2 🟠 MEDIUM — Linter excludes all test files
 - **Where:** `.golangci.yml:25-29` excludes `_test.go` from govet/staticcheck/revive — which is *why* padding accumulates.
 - **Recommendation:** at least run `ineffassign`/`staticcheck` on tests; add `errcheck`, `errorlint`, `forbidigo`. *(golangci-lint isn't installed locally — triage the surfaced issues before flipping CI, do this with 7.1.)*
+- **Status (2026-06-26):** `errcheck` enabled in `.golangci.yml`; excluded from `_test.go` (same as the other linters — gating test cleanliness behind §7.1). `errorlint` enabled in prior session. 50 previously-dormant `// nolint:errcheck` directives in production code now take effect (annotation cleanup applied to 8 production sites — io.Copy drains, in-memory ops, best-effort writes). Production lint: 0 issues.
 
 ### 7.3 🟠 MEDIUM — Coverage floor not enforced
 - **Where:** CI `fail_ci_if_error: false`; codecov target 95% is advisory.

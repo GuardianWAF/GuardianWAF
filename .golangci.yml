@@ -5,6 +5,7 @@ linters:
   default: none
   enable:
     - errorlint
+    - errcheck
     - gocritic
     - govet
     - ineffassign
@@ -40,6 +41,7 @@ linters:
       - std-error-handling
     rules:
       - linters:
+          - errcheck
           - govet
           - revive
           - staticcheck

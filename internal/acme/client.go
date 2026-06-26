@@ -231,7 +231,7 @@ func (c *Client) fetchDirectory() (*directory, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20)) // #nosec G104 -- draining response body; close error is not actionable
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20)) //nolint:errcheck // #nosec G104 -- draining response body; close error is not actionable
 		return nil, fmt.Errorf("directory request failed: HTTP %d", resp.StatusCode)
 	}
 
@@ -312,8 +312,8 @@ func (c *Client) completeAuthorization(authzURL string, handler *HTTP01Handler) 
 		return err
 	}
 	defer func() {
-		io.Copy(io.Discard, io.LimitReader(challengeResp.Body, 1<<20)) // #nosec G104 -- draining body; close error is not actionable
-		challengeResp.Body.Close()                                     // #nosec G104 -- defer close; error is not actionable
+		_, _ = io.Copy(io.Discard, io.LimitReader(challengeResp.Body, 1<<20)) //nolint:errcheck // #nosec G104 -- draining body; close error is not actionable
+		_ = challengeResp.Body.Close()                                        //nolint:errcheck // #nosec G104 -- defer close; error is not actionable
 	}()
 
 	// Poll authorization until valid or invalid
@@ -461,8 +461,8 @@ func (c *Client) getNonce() (string, error) {
 		return "", err
 	}
 	defer func() {
-		io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20)) // #nosec G104 -- draining body; close error is not actionable
-		resp.Body.Close()                                   // #nosec G104 -- defer close; error is not actionable
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20)) //nolint:errcheck // #nosec G104 -- draining body; close error is not actionable
+		_ = resp.Body.Close()                                        //nolint:errcheck // #nosec G104 -- defer close; error is not actionable
 	}()
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		return "", fmt.Errorf("nonce request failed: HTTP %d", resp.StatusCode)

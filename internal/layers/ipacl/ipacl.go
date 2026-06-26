@@ -353,7 +353,7 @@ func (l *Layer) SaveBans(path string) {
 			return
 		}
 	}
-	os.WriteFile(cleanPath, data, 0600) // #nosec G104 -- best-effort persistence; error already handled above via json.Marshal check
+	_ = os.WriteFile(cleanPath, data, 0600) //nolint:errcheck // #nosec G104 -- best-effort persistence; error already handled above via json.Marshal check
 }
 
 // LoadBans loads persisted bans from a JSON file.
