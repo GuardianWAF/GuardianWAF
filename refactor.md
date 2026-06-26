@@ -1,7 +1,7 @@
 # GuardianWAF — Refactoring & Improvement Plan (Remaining Work)
 
 > **Status:** Outstanding items only. Completed work has been removed from the body and condensed into the changelog below.
-> **Date:** 2026-05-30 (last updated)
+> **Date:** 2026-06-26 (last updated)
 > **Health:** `go build ./...` ✅ · `go vet ./...` ✅ · `go test ./...` ✅ (67 pkgs) · touched packages pass `-race`.
 
 > **⚠️ Superseded in part by `AUDIT.md` (2026-06-04).** A later hardening + cleanup pass resolved or mooted several items below — read `AUDIT.md` first:
@@ -38,6 +38,11 @@ Applied & verified (build + vet + full test suite green; touched pkgs `-race`):
 - **Client-Side layer wired into the response path** — Magecart/agent-injection body processing + CSP headers were registered in `ctx.Metadata` but never consumed by the engine; now executed (off by default). Fixed a pooled-context closure-capture bug in the process. New tests added.
 - **Docs:** reconciled `CLAUDE.md` with reality — corrected the false "29 layers registered in serve" claim to 16 and added a per-layer ✅/❌ "Serve?" column (verified via `go list -deps`).
 - **Logging:** `internal/logging` package created (`Logger`, `NewLogger(component)`); all `log.Printf` migrated to structured `slog` in `cluster`, `clustersync`, `tenant`, `layers/*` (10 packages), `mcp`.
+- **CORS:** `Dashboard.Handler()` now wraps `d.mux` with `CORSMiddleware` globally — all OPTIONS requests auto-answered, CORS headers set on all responses (including 4xx/5xx error bodies).
+- **gosec G104:** all 27 error-swallowing findings suppressed with `#nosec G104` annotations. gosec: 0 issues, 91 nosec.
+- **errorlint:** all `errors.Is`/`errors.As` misused comparisons fixed; `%bw` typo in `jwt_parse.go:93` corrected to `%w` (real bug). errorlint added to CI via `.golangci.yml`.
+- **govet shadow:** 10 shadow findings resolved across 8 files (`ai/store.go`, `tenant/billing.go`, `tenant/store.go`, `engine/logrotate.go`, `events/persistent.go`, `docker/client.go`, `geoip/geoip.go`, `compliance/compliance.go`).
+- **SA1019 deprecation:** `internal/acme/client.go` migrated from `elliptic.Marshal` to `pub.Bytes()` (modern API).
 
 **Resolved as non-issues (do not re-open):** apisecurity `mu` (correctly used; config immutable post-construction) · revoked-session GC (ticker already started at `dashboard.go:160`) · JWT `fetchJWKS` `context.Background()` (correct for a shared cache fetch) · `events/file.go:260` swallow (deliberate layered reopen fallback) · `ResolveEnabled` tenant-helper (rejected: net-negative — forces `config` import into ~24 layers + hot-path closure alloc).
 
