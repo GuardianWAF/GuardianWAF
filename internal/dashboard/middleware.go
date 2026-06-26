@@ -107,17 +107,19 @@ func verifySameOrigin(r *http.Request) bool {
 	return false
 }
 
-// CORSMiddleware handles CORS preflight requests.
-// The dashboard is same-origin only — CORS headers are only set on OPTIONS
-// preflight responses to satisfy browsers that send them on same-origin
-// requests with custom headers (e.g., X-API-Key).
-// No Access-Control-Allow-Origin is set, so cross-origin requests are rejected.
+// CORSMiddleware sets CORS headers on all responses so that browsers can read
+// the response body even when the server returns 4xx/5xx. For OPTIONS requests
+// it answers the preflight directly with 204 No Content. The dashboard is
+// same-origin; cross-origin requests still require Access-Control-Allow-Origin
+// to be set by callers that need true cross-origin support.
 func CORSMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Set CORS headers on every response so error responses are readable by browsers.
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key")
+		w.Header().Set("Access-Control-Max-Age", "86400")
+
 		if r.Method == "OPTIONS" {
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key")
-			w.Header().Set("Access-Control-Max-Age", "86400")
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}

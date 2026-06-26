@@ -250,7 +250,7 @@ func New(eng *engine.Engine, store events.EventStore, apiKey string) *Dashboard 
 
 // Handler returns the root http.Handler.
 func (d *Dashboard) Handler() http.Handler {
-	return d.mux
+	return CORSMiddleware(d.mux)
 }
 
 // Mux returns the underlying ServeMux for registering additional routes.
