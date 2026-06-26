@@ -553,7 +553,7 @@ func (w *setupWizard) run(configPath string) {
 
 	if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing config: %v\n", err)
-		os.Exit(1)
+		return
 	}
 
 	fmt.Println()
