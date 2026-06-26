@@ -78,7 +78,7 @@ func (d *Dashboard) handleGetEvents(w http.ResponseWriter, r *http.Request) {
 
 	evts, total, err := d.eventStore.Query(filter)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusInternalServerError, sanitizeErr(err))
 		return
 	}
 
@@ -121,7 +121,7 @@ func (d *Dashboard) handleGetEvent(w http.ResponseWriter, r *http.Request) {
 
 	evt, err := d.eventStore.Get(id)
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]any{"error": "event not found"})
+		writeError(w, http.StatusNotFound, "event not found")
 		return
 	}
 
@@ -177,7 +177,7 @@ func (d *Dashboard) handleExportEvents(w http.ResponseWriter, r *http.Request) {
 
 	evts, _, err := d.eventStore.Query(filter)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusInternalServerError, sanitizeErr(err))
 		return
 	}
 

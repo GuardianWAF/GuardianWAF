@@ -31,17 +31,15 @@ func (d *Dashboard) handleAlertsCompat(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *Dashboard) handleAddAlertCompat(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusBadRequest, map[string]any{
-		"error": "use /api/v1/alerting/webhooks or /api/v1/alerting/emails with a concrete alert target",
-	})
+	writeError(w, http.StatusBadRequest, "use /api/v1/alerting/webhooks or /api/v1/alerting/emails with a concrete alert target")
 }
 
 func (d *Dashboard) handleUpdateAlertCompat(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusNotFound, map[string]any{"error": "alert not found"})
+	writeError(w, http.StatusNotFound, "alert not found")
 }
 
 func (d *Dashboard) handleDeleteAlertCompat(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusNotFound, map[string]any{"error": "alert not found"})
+	writeError(w, http.StatusNotFound, "alert not found")
 }
 
 func (d *Dashboard) handleAlertHistoryCompat(w http.ResponseWriter, r *http.Request) {

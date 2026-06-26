@@ -287,7 +287,7 @@ func (d *Dashboard) authWrap(handler http.HandlerFunc) http.HandlerFunc {
 		if !ok {
 			// API requests get 401 JSON, browser requests get redirected to login
 			if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/mcp") {
-				writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
+				writeError(w, http.StatusUnauthorized, "unauthorized")
 			} else {
 				http.Redirect(w, r, "/login", http.StatusFound)
 			}
@@ -308,7 +308,7 @@ func (d *Dashboard) authWrap(handler http.HandlerFunc) http.HandlerFunc {
 		// denied by default.
 		if getAuthType(r) == authTenant && strings.HasPrefix(r.URL.Path, "/api/") {
 			if !tenantKeyAllows(r.URL.Path) {
-				writeJSON(w, http.StatusForbidden, map[string]any{"error": "tenant-scoped API key cannot access this endpoint"})
+				writeError(w, http.StatusForbidden, "tenant-scoped API key cannot access this endpoint")
 				return
 			}
 		}
@@ -322,7 +322,7 @@ func (d *Dashboard) authWrap(handler http.HandlerFunc) http.HandlerFunc {
 		// (API key header auth is inherently CSRF-safe since browsers can't set custom headers cross-origin)
 		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
 			if r.Header.Get("X-API-Key") == "" && !verifySameOrigin(r) {
-				writeJSON(w, http.StatusForbidden, map[string]any{"error": "CSRF validation failed"})
+				writeError(w, http.StatusForbidden, "CSRF validation failed")
 				return
 			}
 		}
@@ -630,12 +630,12 @@ func (d *Dashboard) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	d.logSecurityConfigChanges(d.engine.Config(), cfg, r)
 
 	if err := validateRuntimeReloadableConfig(d.engine.Config(), cfg); err != nil {
-		writeJSON(w, http.StatusConflict, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusConflict, sanitizeErr(err))
 		return
 	}
 
 	if err := d.engine.Reload(cfg); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusInternalServerError, sanitizeErr(err))
 		return
 	}
 
@@ -653,16 +653,16 @@ func (d *Dashboard) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 func (d *Dashboard) handleReloadConfig(w http.ResponseWriter, r *http.Request) {
 	cfg := deepCopyConfig(d.engine.Config())
 	if err := validateRuntimeReloadableConfig(d.engine.Config(), cfg); err != nil {
-		writeJSON(w, http.StatusConflict, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusConflict, sanitizeErr(err))
 		return
 	}
 	if err := d.engine.Reload(cfg); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusInternalServerError, sanitizeErr(err))
 		return
 	}
 	if d.routingCtrl != nil {
 		if err := d.routingCtrl.Rebuild(); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "proxy rebuild failed"})
+			writeError(w, http.StatusInternalServerError, "proxy rebuild failed")
 			return
 		}
 	}
@@ -1172,7 +1172,7 @@ func ruleMatchesSearch(rule map[string]any, search string) bool {
 
 func (d *Dashboard) handleAddRule(w http.ResponseWriter, r *http.Request) {
 	if d.ruleStore == nil {
-		writeJSON(w, http.StatusNotImplemented, map[string]any{"error": "rules not configured"})
+		writeError(w, http.StatusNotImplemented, "rules not configured")
 		return
 	}
 	var rule map[string]any
@@ -1180,7 +1180,7 @@ func (d *Dashboard) handleAddRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := d.ruleStore.AddRule(rule); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusBadRequest, sanitizeErr(err))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
@@ -1189,7 +1189,7 @@ func (d *Dashboard) handleAddRule(w http.ResponseWriter, r *http.Request) {
 func (d *Dashboard) handleUpdateRule(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if d.ruleStore == nil {
-		writeJSON(w, http.StatusNotImplemented, map[string]any{"error": "rules not configured"})
+		writeError(w, http.StatusNotImplemented, "rules not configured")
 		return
 	}
 	var rule map[string]any
@@ -1197,7 +1197,7 @@ func (d *Dashboard) handleUpdateRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := d.ruleStore.UpdateRule(id, rule); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusBadRequest, sanitizeErr(err))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
@@ -1206,7 +1206,7 @@ func (d *Dashboard) handleUpdateRule(w http.ResponseWriter, r *http.Request) {
 func (d *Dashboard) handlePatchRule(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if d.ruleStore == nil {
-		writeJSON(w, http.StatusNotImplemented, map[string]any{"error": "rules not configured"})
+		writeError(w, http.StatusNotImplemented, "rules not configured")
 		return
 	}
 	var patch map[string]any
@@ -1215,11 +1215,11 @@ func (d *Dashboard) handlePatchRule(w http.ResponseWriter, r *http.Request) {
 	}
 	enabled, ok := patch["enabled"].(bool)
 	if !ok {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "enabled boolean is required"})
+		writeError(w, http.StatusBadRequest, "enabled boolean is required")
 		return
 	}
 	if !d.ruleStore.ToggleRule(id, enabled) {
-		writeJSON(w, http.StatusNotFound, map[string]any{"error": "rule not found"})
+		writeError(w, http.StatusNotFound, "rule not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
@@ -1228,7 +1228,7 @@ func (d *Dashboard) handlePatchRule(w http.ResponseWriter, r *http.Request) {
 func (d *Dashboard) handleDeleteRule(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if d.ruleStore == nil || !d.ruleStore.RemoveRule(id) {
-		writeJSON(w, http.StatusNotFound, map[string]any{"error": "rule not found"})
+		writeError(w, http.StatusNotFound, "rule not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
@@ -1237,12 +1237,12 @@ func (d *Dashboard) handleDeleteRule(w http.ResponseWriter, r *http.Request) {
 func (d *Dashboard) handleGeoIPLookup(w http.ResponseWriter, r *http.Request) {
 	ip := r.URL.Query().Get("ip")
 	if ip == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "ip parameter required"})
+		writeError(w, http.StatusBadRequest, "ip parameter required")
 		return
 	}
 	// Validate that the input looks like an IP address
 	if net.ParseIP(ip) == nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid ip address"})
+		writeError(w, http.StatusBadRequest, "invalid ip address")
 		return
 	}
 	if d.geoLookup == nil {
@@ -1257,7 +1257,7 @@ func (d *Dashboard) handleGeoIPLookup(w http.ResponseWriter, r *http.Request) {
 // body to keep client IPs out of server-side access logs.
 func (d *Dashboard) handleGeoIPLookupPost(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("Content-Type") != "application/json" {
-		writeJSON(w, http.StatusUnsupportedMediaType, map[string]any{"error": "Content-Type: application/json required"})
+		writeError(w, http.StatusUnsupportedMediaType, "Content-Type: application/json required")
 		return
 	}
 	var req struct {
@@ -1267,11 +1267,11 @@ func (d *Dashboard) handleGeoIPLookupPost(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if req.IP == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "ip field required"})
+		writeError(w, http.StatusBadRequest, "ip field required")
 		return
 	}
 	if net.ParseIP(req.IP) == nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid ip address"})
+		writeError(w, http.StatusBadRequest, "invalid ip address")
 		return
 	}
 	if d.geoLookup == nil {
@@ -1697,19 +1697,19 @@ func (d *Dashboard) handleAddWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.Name == "" || body.URL == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "name and url are required"})
+		writeError(w, http.StatusBadRequest, "name and url are required")
 		return
 	}
 
 	// Validate webhook URL to prevent SSRF (reject private/loopback IPs)
 	if err := alerting.ValidateWebhookURL(body.URL); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusBadRequest, sanitizeErr(err))
 		return
 	}
 
 	cooldown, err := time.ParseDuration(body.Cooldown)
 	if err != nil && body.Cooldown != "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": fmt.Sprintf("invalid cooldown duration: %q", body.Cooldown)})
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid cooldown duration: %q", body.Cooldown))
 		return
 	}
 	if cooldown <= 0 {
@@ -1736,7 +1736,7 @@ func (d *Dashboard) handleAddWebhook(w http.ResponseWriter, r *http.Request) {
 func (d *Dashboard) handleDeleteWebhook(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if name == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "name is required"})
+		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
 
@@ -1750,7 +1750,7 @@ func (d *Dashboard) handleDeleteWebhook(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 	if !exists {
-		writeJSON(w, http.StatusNotFound, map[string]any{"error": "webhook not found"})
+		writeError(w, http.StatusNotFound, "webhook not found")
 		return
 	}
 
@@ -1807,13 +1807,13 @@ func (d *Dashboard) handleAddEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.Name == "" || body.SMTPHost == "" || body.From == "" || len(body.To) == 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "name, smtp_host, from, and to are required"})
+		writeError(w, http.StatusBadRequest, "name, smtp_host, from, and to are required")
 		return
 	}
 
 	cooldown, err := time.ParseDuration(body.Cooldown)
 	if err != nil && body.Cooldown != "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": fmt.Sprintf("invalid cooldown duration: %q", body.Cooldown)})
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid cooldown duration: %q", body.Cooldown))
 		return
 	}
 	if cooldown <= 0 {
@@ -1846,7 +1846,7 @@ func (d *Dashboard) handleAddEmail(w http.ResponseWriter, r *http.Request) {
 func (d *Dashboard) handleDeleteEmail(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if name == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "name is required"})
+		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
 
@@ -1860,7 +1860,7 @@ func (d *Dashboard) handleDeleteEmail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !exists {
-		writeJSON(w, http.StatusNotFound, map[string]any{"error": "email target not found"})
+		writeError(w, http.StatusNotFound, "email target not found")
 		return
 	}
 
@@ -1883,7 +1883,7 @@ func (d *Dashboard) handleTestAlert(w http.ResponseWriter, r *http.Request) {
 		Target string `json:"target"`
 	}
 	if !limitedDecodeJSON(w, r, &body) || body.Target == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "target is required"})
+		writeError(w, http.StatusBadRequest, "target is required")
 		return
 	}
 
@@ -1910,13 +1910,13 @@ func (d *Dashboard) reloadAndPersist(w http.ResponseWriter, mutate func(cfg *con
 	mutate(cfg)
 
 	if err := d.engine.Reload(cfg); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusInternalServerError, sanitizeErr(err))
 		return false
 	}
 
 	if d.routingCtrl != nil {
 		if err := d.routingCtrl.Save(); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
+			writeError(w, http.StatusInternalServerError, sanitizeErr(err))
 			return false
 		}
 	}

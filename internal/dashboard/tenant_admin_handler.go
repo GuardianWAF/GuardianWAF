@@ -30,7 +30,7 @@ func (h *TenantAdminHandler) RegisterRoutes(mux *http.ServeMux) {
 	auth := func(handler http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			if !h.dashboard.isAdminAuthenticated(r) {
-				writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized: system admin key required"})
+				writeError(w, http.StatusUnauthorized, "unauthorized")
 				return
 			}
 			handler(w, r)
@@ -58,7 +58,7 @@ func (h *TenantAdminHandler) handleTenants(w http.ResponseWriter, r *http.Reques
 	case http.MethodPost:
 		h.createTenant(w, r)
 	default:
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -86,7 +86,7 @@ func (h *TenantAdminHandler) handleTenantDetail(w http.ResponseWriter, r *http.R
 	case http.MethodDelete:
 		h.deleteTenant(w, r, tenantID)
 	default:
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -142,7 +142,7 @@ func (h *TenantAdminHandler) createTenant(w http.ResponseWriter, r *http.Request
 
 	tenant, err := h.manager.CreateTenant(req.Name, req.Description, req.Domains, req.Quota)
 	if err != nil {
-		writeJSON(w, http.StatusConflict, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusConflict, sanitizeErr(err))
 		return
 	}
 
@@ -164,13 +164,13 @@ func (h *TenantAdminHandler) createTenant(w http.ResponseWriter, r *http.Request
 
 func (h *TenantAdminHandler) getTenant(w http.ResponseWriter, r *http.Request, tenantID string) {
 	if h.manager == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "multi-tenant mode not enabled"})
+		writeError(w, http.StatusServiceUnavailable, "multi-tenant mode not enabled")
 		return
 	}
 
 	tenant := h.manager.GetTenant(tenantID)
 	if tenant == nil {
-		writeJSON(w, http.StatusNotFound, map[string]any{"error": "tenant not found"})
+		writeError(w, http.StatusNotFound, "tenant not found")
 		return
 	}
 
@@ -179,7 +179,7 @@ func (h *TenantAdminHandler) getTenant(w http.ResponseWriter, r *http.Request, t
 
 func (h *TenantAdminHandler) updateTenant(w http.ResponseWriter, r *http.Request, tenantID string) {
 	if h.manager == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "multi-tenant mode not enabled"})
+		writeError(w, http.StatusServiceUnavailable, "multi-tenant mode not enabled")
 		return
 	}
 
@@ -205,7 +205,7 @@ func (h *TenantAdminHandler) updateTenant(w http.ResponseWriter, r *http.Request
 	update = normalizeTenantAdminUpdate(update)
 
 	if err := h.manager.UpdateTenant(tenantID, update); err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusNotFound, sanitizeErr(err))
 		return
 	}
 
@@ -215,12 +215,12 @@ func (h *TenantAdminHandler) updateTenant(w http.ResponseWriter, r *http.Request
 
 func (h *TenantAdminHandler) deleteTenant(w http.ResponseWriter, r *http.Request, tenantID string) {
 	if h.manager == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "multi-tenant mode not enabled"})
+		writeError(w, http.StatusServiceUnavailable, "multi-tenant mode not enabled")
 		return
 	}
 
 	if err := h.manager.DeleteTenant(tenantID); err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusNotFound, sanitizeErr(err))
 		return
 	}
 
@@ -338,13 +338,13 @@ func tenantNumber(m map[string]any, keys ...string) int64 {
 
 func (h *TenantAdminHandler) regenerateAPIKey(w http.ResponseWriter, r *http.Request, tenantID string) {
 	if h.manager == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "multi-tenant mode not enabled"})
+		writeError(w, http.StatusServiceUnavailable, "multi-tenant mode not enabled")
 		return
 	}
 
 	apiKey, err := h.manager.RegenerateAPIKey(tenantID)
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusNotFound, sanitizeErr(err))
 		return
 	}
 
@@ -384,7 +384,7 @@ func (h *TenantAdminHandler) handleBilling(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+	writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 }
 
 func (h *TenantAdminHandler) handleBillingDetail(w http.ResponseWriter, r *http.Request) {
@@ -421,14 +421,14 @@ func (h *TenantAdminHandler) handleBillingDetail(w http.ResponseWriter, r *http.
 	if r.Method == http.MethodPost {
 		tenant := h.manager.GetTenant(tenantID)
 		if tenant == nil {
-			writeJSON(w, http.StatusNotFound, map[string]any{"error": "tenant not found"})
+			writeError(w, http.StatusNotFound, "tenant not found")
 			return
 		}
 
 		// Extract tenant data from map
 		tenantMap, ok := tenant.(map[string]any)
 		if !ok {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "invalid tenant data"})
+			writeError(w, http.StatusInternalServerError, "invalid tenant data")
 			return
 		}
 
@@ -448,7 +448,7 @@ func (h *TenantAdminHandler) handleBillingDetail(w http.ResponseWriter, r *http.
 			time.Now(),
 		)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
+			writeError(w, http.StatusInternalServerError, sanitizeErr(err))
 			return
 		}
 
@@ -456,7 +456,7 @@ func (h *TenantAdminHandler) handleBillingDetail(w http.ResponseWriter, r *http.
 		return
 	}
 
-	writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+	writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 }
 
 func (h *TenantAdminHandler) handleAllUsage(w http.ResponseWriter, r *http.Request) {
@@ -477,7 +477,7 @@ func (h *TenantAdminHandler) handleAllUsage(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+	writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 }
 
 func (h *TenantAdminHandler) handleUsageDetail(w http.ResponseWriter, r *http.Request) {
@@ -500,14 +500,14 @@ func (h *TenantAdminHandler) handleUsageDetail(w http.ResponseWriter, r *http.Re
 	if r.Method == http.MethodGet {
 		usage := h.manager.GetTenantUsage(tenantID)
 		if usage == nil {
-			writeJSON(w, http.StatusNotFound, map[string]any{"error": "tenant not found"})
+			writeError(w, http.StatusNotFound, "tenant not found")
 			return
 		}
 		writeJSON(w, http.StatusOK, usage)
 		return
 	}
 
-	writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+	writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 }
 
 func (h *TenantAdminHandler) handleAlerts(w http.ResponseWriter, r *http.Request) {
@@ -529,7 +529,7 @@ func (h *TenantAdminHandler) handleAlerts(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+	writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 }
 
 func (h *TenantAdminHandler) handleTenantRules(w http.ResponseWriter, r *http.Request) {
@@ -573,7 +573,7 @@ func (h *TenantAdminHandler) handleTenantRules(w http.ResponseWriter, r *http.Re
 		}
 		writeJSON(w, http.StatusCreated, map[string]any{"status": "ok"})
 	default:
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
 
@@ -604,7 +604,7 @@ func (h *TenantAdminHandler) handleTenantRuleDetail(w http.ResponseWriter, r *ht
 	case http.MethodGet:
 		rule := h.manager.GetTenantRule(tenantID, ruleID)
 		if rule == nil {
-			writeJSON(w, http.StatusNotFound, map[string]any{"error": "rule not found"})
+			writeError(w, http.StatusNotFound, "rule not found")
 			return
 		}
 		writeJSON(w, http.StatusOK, rule)
@@ -614,13 +614,13 @@ func (h *TenantAdminHandler) handleTenantRuleDetail(w http.ResponseWriter, r *ht
 			return
 		}
 		if err := h.manager.UpdateTenantRule(tenantID, rule); err != nil {
-			writeJSON(w, http.StatusNotFound, map[string]any{"error": sanitizeErr(err)})
+			writeError(w, http.StatusNotFound, sanitizeErr(err))
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 	case http.MethodDelete:
 		if err := h.manager.RemoveTenantRule(tenantID, ruleID); err != nil {
-			writeJSON(w, http.StatusNotFound, map[string]any{"error": sanitizeErr(err)})
+			writeError(w, http.StatusNotFound, sanitizeErr(err))
 			return
 		}
 		writeJSON(w, http.StatusNoContent, nil)
@@ -633,11 +633,11 @@ func (h *TenantAdminHandler) handleTenantRuleDetail(w http.ResponseWriter, r *ht
 			return
 		}
 		if err := h.manager.ToggleTenantRule(tenantID, ruleID, req.Enabled); err != nil {
-			writeJSON(w, http.StatusNotFound, map[string]any{"error": sanitizeErr(err)})
+			writeError(w, http.StatusNotFound, sanitizeErr(err))
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "enabled": req.Enabled})
 	default:
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method not allowed"})
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }

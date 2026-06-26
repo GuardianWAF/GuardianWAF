@@ -45,7 +45,7 @@ func (d *Dashboard) handleTenantCreateCompat(w http.ResponseWriter, r *http.Requ
 	}
 	tenant, err := d.tenantManager.CreateTenant(req.Name, req.Description, req.Domains, req.Quota)
 	if err != nil {
-		writeJSON(w, http.StatusConflict, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusConflict, sanitizeErr(err))
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"tenant": sanitizeTenantResponse(tenant)})
@@ -70,7 +70,7 @@ func (d *Dashboard) handleTenantUpdateCompat(w http.ResponseWriter, r *http.Requ
 	}
 	id := r.PathValue("id")
 	if err := d.tenantManager.UpdateTenant(id, update); err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusNotFound, sanitizeErr(err))
 		return
 	}
 	writeJSON(w, http.StatusOK, sanitizeTenantResponse(d.tenantManager.GetTenant(id)))
@@ -82,7 +82,7 @@ func (d *Dashboard) handleTenantDeleteCompat(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if err := d.tenantManager.DeleteTenant(r.PathValue("id")); err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusNotFound, sanitizeErr(err))
 		return
 	}
 	writeJSON(w, http.StatusNoContent, nil)
@@ -113,7 +113,7 @@ func (d *Dashboard) handleTenantConfigUpdateCompat(w http.ResponseWriter, r *htt
 	}
 	id := r.PathValue("id")
 	if err := d.tenantManager.UpdateTenant(id, map[string]any{"waf_config": cfg}); err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusNotFound, sanitizeErr(err))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
@@ -160,7 +160,7 @@ func (d *Dashboard) handleTenantAPIKeyCompat(w http.ResponseWriter, r *http.Requ
 	}
 	apiKey, err := d.tenantManager.RegenerateAPIKey(r.PathValue("id"))
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusNotFound, sanitizeErr(err))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"api_key": apiKey})
@@ -173,7 +173,7 @@ func (d *Dashboard) compatTenant(w http.ResponseWriter, id string) (any, bool) {
 	}
 	tenant := d.tenantManager.GetTenant(id)
 	if tenant == nil {
-		writeJSON(w, http.StatusNotFound, map[string]any{"error": "tenant not found"})
+		writeError(w, http.StatusNotFound, "tenant not found")
 		return nil, false
 	}
 	return tenant, true

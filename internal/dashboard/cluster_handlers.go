@@ -24,11 +24,11 @@ func (d *Dashboard) handleClusterList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *Dashboard) handleClusterNotFound(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusNotFound, map[string]any{"error": "cluster not found"})
+	writeError(w, http.StatusNotFound, "cluster not found")
 }
 
 func (d *Dashboard) handleClusterMutationDisabled(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "cluster sync is not enabled"})
+	writeError(w, http.StatusServiceUnavailable, "cluster sync is not enabled")
 }
 
 func (d *Dashboard) handleClusterNodesLegacy(w http.ResponseWriter, r *http.Request) {

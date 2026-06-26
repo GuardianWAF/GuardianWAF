@@ -66,7 +66,7 @@ func (d *Dashboard) handleComplianceControls(w http.ResponseWriter, r *http.Requ
 
 func (d *Dashboard) handleComplianceReport(w http.ResponseWriter, r *http.Request) {
 	if d.complianceEngine == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "compliance reporting not configured"})
+		writeError(w, http.StatusServiceUnavailable, "compliance reporting not configured")
 		return
 	}
 	framework := r.PathValue("framework")
@@ -128,7 +128,7 @@ func (d *Dashboard) handleAuditChain(w http.ResponseWriter, r *http.Request) {
 
 func (d *Dashboard) handleSPA(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/mcp") {
-		writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
+		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
 

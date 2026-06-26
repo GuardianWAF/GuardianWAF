@@ -289,14 +289,14 @@ func (d *Dashboard) handleUpdateRouting(w http.ResponseWriter, r *http.Request) 
 
 	// Reload config
 	if err := d.engine.Reload(cfg); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusInternalServerError, sanitizeErr(err))
 		return
 	}
 
 	// Rebuild proxy
 	if d.routingCtrl != nil {
 		if err := d.routingCtrl.Rebuild(); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "proxy rebuild failed"})
+			writeError(w, http.StatusInternalServerError, "proxy rebuild failed")
 			return
 		}
 	}

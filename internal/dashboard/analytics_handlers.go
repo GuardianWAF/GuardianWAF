@@ -25,7 +25,7 @@ func (d *Dashboard) registerAnalytics(mux *http.ServeMux) {
 func (d *Dashboard) handleAnalyticsDashboard(w http.ResponseWriter, r *http.Request) {
 	evts, _, err := d.analyticsEvents(r, 1000)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusInternalServerError, sanitizeErr(err))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -39,7 +39,7 @@ func (d *Dashboard) handleAnalyticsDashboard(w http.ResponseWriter, r *http.Requ
 func (d *Dashboard) handleAnalyticsTraffic(w http.ResponseWriter, r *http.Request) {
 	evts, _, err := d.analyticsEvents(r, 1000)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusInternalServerError, sanitizeErr(err))
 		return
 	}
 	writeJSON(w, http.StatusOK, d.analyticsTrafficPayload(evts))
@@ -48,7 +48,7 @@ func (d *Dashboard) handleAnalyticsTraffic(w http.ResponseWriter, r *http.Reques
 func (d *Dashboard) handleAnalyticsAttacks(w http.ResponseWriter, r *http.Request) {
 	evts, _, err := d.analyticsEvents(r, 1000)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusInternalServerError, sanitizeErr(err))
 		return
 	}
 	writeJSON(w, http.StatusOK, d.analyticsAttackPayload(evts))
@@ -57,7 +57,7 @@ func (d *Dashboard) handleAnalyticsAttacks(w http.ResponseWriter, r *http.Reques
 func (d *Dashboard) handleAnalyticsTop(w http.ResponseWriter, r *http.Request) {
 	evts, _, err := d.analyticsEvents(r, 1000)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusInternalServerError, sanitizeErr(err))
 		return
 	}
 	writeJSON(w, http.StatusOK, d.analyticsTopPayload(evts, analyticsLimit(r, 10)))
@@ -70,7 +70,7 @@ func (d *Dashboard) handleAnalyticsMetrics(w http.ResponseWriter, r *http.Reques
 func (d *Dashboard) handleAnalyticsTrends(w http.ResponseWriter, r *http.Request) {
 	evts, _, err := d.analyticsEvents(r, 1000)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusInternalServerError, sanitizeErr(err))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -83,7 +83,7 @@ func (d *Dashboard) handleAnalyticsTrends(w http.ResponseWriter, r *http.Request
 func (d *Dashboard) handleAnalyticsGeo(w http.ResponseWriter, r *http.Request) {
 	evts, _, err := d.analyticsEvents(r, 1000)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusInternalServerError, sanitizeErr(err))
 		return
 	}
 	countries := make(map[string]int)
@@ -105,7 +105,7 @@ func (d *Dashboard) handleAnalyticsGeo(w http.ResponseWriter, r *http.Request) {
 func (d *Dashboard) handleAnalyticsComparison(w http.ResponseWriter, r *http.Request) {
 	current, _, err := d.analyticsEvents(r, 1000)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusInternalServerError, sanitizeErr(err))
 		return
 	}
 	previousFilter := events.EventFilter{
@@ -122,7 +122,7 @@ func (d *Dashboard) handleAnalyticsComparison(w http.ResponseWriter, r *http.Req
 	}
 	previous, _, err := d.eventStore.Query(previousFilter)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusInternalServerError, sanitizeErr(err))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -134,7 +134,7 @@ func (d *Dashboard) handleAnalyticsComparison(w http.ResponseWriter, r *http.Req
 func (d *Dashboard) handleAnalyticsTimeseries(w http.ResponseWriter, r *http.Request) {
 	evts, _, err := d.analyticsEvents(r, 1000)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusInternalServerError, sanitizeErr(err))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{

@@ -57,7 +57,7 @@ func (d *Dashboard) handleUpdateRateLimitConfig(w http.ResponseWriter, r *http.R
 	if body.Window != "" {
 		window, err := time.ParseDuration(body.Window)
 		if err != nil || window <= 0 {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid window duration"})
+			writeError(w, http.StatusBadRequest, "invalid window duration")
 			return
 		}
 		ensureDefaultRateLimitRule(cfg)
@@ -65,7 +65,7 @@ func (d *Dashboard) handleUpdateRateLimitConfig(w http.ResponseWriter, r *http.R
 	}
 	if body.Action != "" {
 		if body.Action != "block" && body.Action != "log" {
-			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid action"})
+			writeError(w, http.StatusBadRequest, "invalid action")
 			return
 		}
 		ensureDefaultRateLimitRule(cfg)
@@ -73,12 +73,12 @@ func (d *Dashboard) handleUpdateRateLimitConfig(w http.ResponseWriter, r *http.R
 	}
 
 	if err := validateRuntimeReloadableConfig(d.engine.Config(), cfg); err != nil {
-		writeJSON(w, http.StatusConflict, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusConflict, sanitizeErr(err))
 		return
 	}
 
 	if err := d.engine.Reload(cfg); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusInternalServerError, sanitizeErr(err))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
@@ -117,11 +117,11 @@ func (d *Dashboard) handleUpdateBotConfig(w http.ResponseWriter, r *http.Request
 	cfg := deepCopyConfig(d.engine.Config())
 	applyWAFPatch(cfg, map[string]any{"bot_detection": patch})
 	if err := validateRuntimeReloadableConfig(d.engine.Config(), cfg); err != nil {
-		writeJSON(w, http.StatusConflict, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusConflict, sanitizeErr(err))
 		return
 	}
 	if err := d.engine.Reload(cfg); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": sanitizeErr(err)})
+		writeError(w, http.StatusInternalServerError, sanitizeErr(err))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
@@ -137,30 +137,30 @@ func (d *Dashboard) handleUploadCertificateCompat(w http.ResponseWriter, r *http
 		return
 	}
 	if body.Name == "" || body.Cert == "" || body.Key == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "name, cert, and key are required"})
+		writeError(w, http.StatusBadRequest, "name, cert, and key are required")
 		return
 	}
 	certBytes, err := base64.StdEncoding.DecodeString(body.Cert)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "cert must be base64 encoded PEM"})
+		writeError(w, http.StatusBadRequest, "cert must be base64 encoded PEM")
 		return
 	}
 	keyBytes, err := base64.StdEncoding.DecodeString(body.Key)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "key must be base64 encoded PEM"})
+		writeError(w, http.StatusBadRequest, "key must be base64 encoded PEM")
 		return
 	}
 	certBlock, _ := pem.Decode(certBytes)
 	keyBlock, _ := pem.Decode(keyBytes)
 	if certBlock == nil || keyBlock == nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "cert and key must decode to PEM blocks"})
+		writeError(w, http.StatusBadRequest, "cert and key must decode to PEM blocks")
 		return
 	}
-	writeJSON(w, http.StatusNotImplemented, map[string]any{"error": "certificate storage backend is not configured"})
+	writeError(w, http.StatusNotImplemented, "certificate storage backend is not configured")
 }
 
 func (d *Dashboard) handleDeleteCertificateCompat(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusNotFound, map[string]any{"error": "certificate not found"})
+	writeError(w, http.StatusNotFound, "certificate not found")
 }
 
 func ensureDefaultRateLimitRule(cfg *config.Config) {
