@@ -170,7 +170,7 @@ Applied & verified (build + vet + full test suite green; touched pkgs `-race`):
 - **Status:** Completed. All `log.Printf` migrated to structured `log/slog` via `internal/logging` package across `cluster`, `clustersync`, `tenant`, `layers/*` (10 packages), `mcp`. Remaining: fmt.Printf panic-recovery fallbacks in `acme`, `geoip`, `tls`, `proxy`, `docker`, `alerting` (low priority), plus README/docs files (excluded).
 
 ### 6.3 🟢 DONE — `%w` vs `%v` inconsistency
-- **Status (2026-06-26):** All `err != Sentinel` comparisons fixed to `errors.Is(err, Sentinel)`. All `err.(*Type)` type assertions fixed to `errors.As(err, &v)`. Fixed 1 real bug: `jwt_parse.go` had `%bw` (typo, not wrapping) → `%w`. errorlint now reports 0 findings. golangci-lint needs to be installed to run `errorlint` locally (`go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest`).
+- **Status (2026-06-26):** All `err != Sentinel` comparisons fixed to `errors.Is(err, Sentinel)`. All `err.(*Type)` type assertions fixed to `errors.As(err, &v)`. Fixed 1 real bug: `jwt_parse.go` had `%bw` (typo, not wrapping) → `%w`. errorlint added to `.golangci.yml` (CI now runs it). golangci-lint v2.12 is in CI; local dev: `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.0`. Note: 10 pre-existing `govet/shadow` findings remain (govet shadow explicitly enabled in config); not introduced by this session's changes.
 
 ### 6.4 🟢 DONE — `ipacl` auto-ban entry fields mixed atomic/plain
 - **Status:** Already fixed. `ExpiresAt` is plain `time.Time` (not `atomic.Value`), protected by `Layer.mu` lock alongside `Count` and `Reason`. Consistent discipline under lock.
