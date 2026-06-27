@@ -7,7 +7,9 @@
 package tracing
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -229,12 +231,25 @@ func (s *StdoutExporter) Export(span *Span) {
 	if span.Status == SpanStatusError {
 		status = "ERROR"
 	}
-	fmt.Printf(`{"trace_id":"%s","span_id":"%s","name":"%s","duration":"%s","status":"%s"`,
-		span.TraceID, span.SpanID, span.Name, duration, status)
-	for k, v := range span.Attributes {
-		fmt.Printf(`,"%s":"%s"`, k, v)
+
+	// Build a JSON-safe map to avoid fmt.Printf with raw strings
+	logEntry := map[string]any{
+		"trace_id": span.TraceID,
+		"span_id":  span.SpanID,
+		"name":     span.Name,
+		"duration": duration,
+		"status":   status,
 	}
-	fmt.Println("}")
+	for k, v := range span.Attributes {
+		logEntry[k] = v
+	}
+
+	out, err := json.Marshal(logEntry)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "tracing: failed to marshal span: %v\n", err)
+		return
+	}
+	fmt.Println(string(out))
 }
 
 func (s *StdoutExporter) Shutdown() {

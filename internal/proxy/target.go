@@ -3,6 +3,7 @@
 package proxy
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -24,6 +25,21 @@ type proxyError struct {
 
 func (pe *proxyError) WriteHeader(code int)        { pe.ResponseWriter.WriteHeader(code) }
 func (pe *proxyError) Write(p []byte) (int, error) { return pe.ResponseWriter.Write(p) }
+
+// Flush implements http.Flusher to support streaming responses.
+func (pe *proxyError) Flush() {
+	if f, ok := pe.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// Hijack implements http.Hijacker to support WebSocket upgrades.
+func (pe *proxyError) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if h, ok := pe.ResponseWriter.(http.Hijacker); ok {
+		return h.Hijack()
+	}
+	return nil, nil, fmt.Errorf("hijacking not supported by underlying ResponseWriter")
+}
 
 // Target represents a single backend server with its reverse proxy and stats.
 type Target struct {
@@ -380,7 +396,7 @@ func NewTargetWithPolicy(rawURL string, weight int, policy TargetPolicy) (*Targe
 		// Drain the request body so the connection can be reused for keep-alive.
 		if r.Body != nil {
 			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 1<<20)) // nolint:errcheck // #nosec G104 -- response body drain; error ignored
-			r.Body.Close() // #nosec G104 -- best-effort close; error not actionable
+			r.Body.Close()                                            // #nosec G104 -- best-effort close; error not actionable
 		}
 		t.circuit.RecordFailure()
 		// Store error on the writer so ServeHTTP can return it.
@@ -406,6 +422,10 @@ func NewTargetWithPolicy(rawURL string, weight int, policy TargetPolicy) (*Targe
 // Returns an error if the upstream was unreachable (so the router can retry).
 // If the circuit breaker is open, writes 503 and returns nil (not retryable).
 func (t *Target) ServeHTTP(w http.ResponseWriter, r *http.Request, stripPrefix string) error {
+	if t.closed.Load() {
+		http.Error(w, "503 Service Unavailable - Target closed", http.StatusServiceUnavailable)
+		return nil
+	}
 	if !t.circuit.Allow() {
 		http.Error(w, "503 Service Unavailable - Circuit breaker open", http.StatusServiceUnavailable)
 		return nil
