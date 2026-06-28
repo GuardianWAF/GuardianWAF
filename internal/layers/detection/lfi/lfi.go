@@ -359,7 +359,7 @@ func extractContext(input, pattern string) string {
 	idx := strings.Index(input, pattern)
 	if idx < 0 {
 		if len(input) > 100 {
-			return input[:100]
+			return safeTruncate(input, 100)
 		}
 		return input
 	}
@@ -367,7 +367,19 @@ func extractContext(input, pattern string) string {
 	end := min(idx+len(pattern)+20, len(input))
 	result := input[start:end]
 	if len(result) > 200 {
-		result = result[:197] + "..."
+		return safeTruncate(result, 197) + "..."
 	}
 	return result
+}
+
+// safeTruncate truncates a string to at most maxBytes bytes without splitting
+// a multi-byte UTF-8 rune. If truncation occurs, it returns the valid prefix.
+func safeTruncate(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	for maxBytes > 0 && s[maxBytes]&0xC0 == 0x80 {
+		maxBytes--
+	}
+	return s[:maxBytes]
 }

@@ -11,11 +11,17 @@ var cryptoRandRead = cryptoRand.Read
 func generateDashboardPassword() (string, error) {
 	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	b := make([]byte, 24)
-	if _, err := cryptoRandRead(b); err != nil {
-		return "", fmt.Errorf("generate dashboard API key: crypto/rand failed: %w", err)
-	}
 	for i := range b {
-		b[i] = charset[int(b[i])%len(charset)]
+		for {
+			var buf [1]byte
+			if _, err := cryptoRandRead(buf[:]); err != nil {
+				return "", fmt.Errorf("generate dashboard password: crypto/rand failed: %w", err)
+			}
+			if int(buf[0]) < 256-(256%len(charset)) {
+				b[i] = charset[int(buf[0])%len(charset)]
+				break
+			}
+		}
 	}
 	return string(b), nil
 }
