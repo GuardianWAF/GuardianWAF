@@ -1,6 +1,8 @@
 package acme
 
 import (
+	"bytes"
+	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -38,13 +40,15 @@ func TestJWK_FixedLengthCoordinates(t *testing.T) {
 	point[0] = 0x04 // uncompressed point prefix
 	copy(point[1:33], xb)
 	copy(point[33:65], yb)
-	X, Y := elliptic.Unmarshal(elliptic.P256(), point)
-	xMatch := X.Cmp(key.PublicKey.X)
-	yMatch := Y.Cmp(key.PublicKey.Y)
-	if xMatch != 0 {
-		t.Error("decoded x does not match public key X")
+	decoded, err := ecdh.P256().NewPublicKey(point)
+	if err != nil {
+		t.Fatalf("NewPublicKey: %v", err)
 	}
-	if yMatch != 0 {
-		t.Error("decoded y does not match public key Y")
+	expected, err := key.PublicKey.ECDH()
+	if err != nil {
+		t.Fatalf("ECDH: %v", err)
+	}
+	if !bytes.Equal(decoded.Bytes(), expected.Bytes()) {
+		t.Error("decoded point does not match public key")
 	}
 }
