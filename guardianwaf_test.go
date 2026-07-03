@@ -631,10 +631,30 @@ func TestClose_Idempotent(t *testing.T) {
 		t.Fatalf("New() error: %v", err)
 	}
 
-	// First close should succeed
+	// First close should succeed and stop the cleanup goroutine.
 	if err := eng.Close(); err != nil {
 		t.Errorf("first Close() error: %v", err)
 	}
+	// Second close must not panic (double-close of the cleanup stop channel)
+	// or error.
+	if err := eng.Close(); err != nil {
+		t.Errorf("second Close() error: %v", err)
+	}
+}
+
+func TestLibraryCleanupRuns(t *testing.T) {
+	eng, err := New(Config{})
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	defer eng.Close()
+
+	// The cleanup goroutine must be running and runCleanup must be safe to call
+	// directly (it is the body the ticker invokes).
+	if eng.cleanupStop == nil {
+		t.Fatal("expected cleanup goroutine to be started")
+	}
+	eng.runCleanup() // must not panic regardless of which layers are wired
 }
 
 func TestConvertConfig_AllFields(t *testing.T) {

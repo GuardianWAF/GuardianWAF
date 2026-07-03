@@ -32,9 +32,13 @@ type sseClient struct {
 	w       http.ResponseWriter
 	flusher http.Flusher
 	done    chan struct{}
-	closed  bool       // guarded by mu on parent SSEHandler
-	mu      sync.Mutex // Protects writes to w
+	closed  bool        // guarded by mu on parent SSEHandler
+	ch      chan []byte // outbound queue; only the handler goroutine writes to w
 }
+
+// sseClientQueue bounds a client's pending outbound messages. A client that
+// falls this far behind has messages dropped rather than blocking broadcasts.
+const sseClientQueue = 64
 
 // maxMCPSSEClients limits concurrent SSE connections to prevent resource exhaustion.
 const maxMCPSSEClients = 256
@@ -111,7 +115,7 @@ func (h *SSEHandler) handleSSE(w http.ResponseWriter, r *http.Request) {
 		_ = rc.SetWriteDeadline(time.Time{}) //nolint:errcheck // best-effort; falls back to WriteTimeout if unsupported
 	}
 
-	client := &sseClient{w: w, flusher: flusher, done: make(chan struct{})}
+	client := &sseClient{w: w, flusher: flusher, done: make(chan struct{}), ch: make(chan []byte, sseClientQueue)}
 
 	h.mu.Lock()
 	if len(h.clients) >= maxMCPSSEClients {
@@ -144,10 +148,11 @@ func (h *SSEHandler) handleSSE(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	messageURL := fmt.Sprintf("%s://%s/mcp/message", scheme, host)
-	client.mu.Lock()
+	// All writes to w happen in this single goroutine (endpoint event, queued
+	// broadcasts, heartbeats), so no per-write lock is needed and w is never
+	// touched after this handler returns.
 	fmt.Fprintf(w, "event: endpoint\ndata: %s\n\n", messageURL) // #nosec G705 -- messageURL uses a fixed path and a Host value sanitized against SSE/control injection.
 	flusher.Flush()
-	client.mu.Unlock()
 
 	// Keep connection alive until client disconnects
 	// Periodic heartbeat ensures dead connections are cleaned up
@@ -158,18 +163,18 @@ func (h *SSEHandler) handleSSE(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
+		case msg := <-client.ch:
+			if _, err := fmt.Fprintf(w, "event: message\ndata: %s\n\n", msg); err != nil {
+				return // Client disconnected — trigger defer cleanup
+			}
+			flusher.Flush()
 		case <-ticker.C:
 			// Send comment-only heartbeat to detect broken connections.
 			// If the write fails, the client is dead — remove immediately.
-			client.mu.Lock()
-			_, err := fmt.Fprint(w, ": heartbeat\n\n")
-			if err == nil {
-				flusher.Flush()
-			}
-			client.mu.Unlock()
-			if err != nil {
+			if _, err := fmt.Fprint(w, ": heartbeat\n\n"); err != nil {
 				return // Client disconnected — trigger defer cleanup
 			}
+			flusher.Flush()
 		}
 	}
 }
@@ -227,6 +232,10 @@ func (h *SSEHandler) handleMessage(w http.ResponseWriter, r *http.Request) {
 }
 
 // broadcastResponse sends a JSON-RPC response to all connected SSE clients.
+// It snapshots the client set under the lock and enqueues to each client's
+// buffered channel without blocking, so one slow client cannot stall
+// broadcasts, new registrations, or POST /mcp/message. The client's own
+// goroutine performs the network write.
 func (h *SSEHandler) broadcastResponse(resp JSONRPCResponse) {
 	data, err := json.Marshal(resp)
 	if err != nil {
@@ -234,26 +243,23 @@ func (h *SSEHandler) broadcastResponse(resp JSONRPCResponse) {
 	}
 
 	h.mu.Lock()
-	defer h.mu.Unlock()
-
+	clients := make([]*sseClient, 0, len(h.clients))
 	for client := range h.clients {
+		clients = append(clients, client)
+	}
+	h.mu.Unlock()
+
+	for _, client := range clients {
 		select {
 		case <-client.done:
 			continue
 		default:
 		}
-		client.mu.Lock()
-		if _, err := fmt.Fprintf(client.w, "event: message\ndata: %s\n\n", string(data)); err != nil {
-			client.mu.Unlock()
-			if !client.closed {
-				client.closed = true
-				close(client.done)
-			}
-			delete(h.clients, client)
-			continue
+		select {
+		case client.ch <- data:
+		default:
+			// Slow client: drop this message rather than block the broadcast.
 		}
-		client.flusher.Flush()
-		client.mu.Unlock()
 	}
 }
 

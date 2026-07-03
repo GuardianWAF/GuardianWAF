@@ -13,14 +13,12 @@ func TestTenantKeyScoping_FailClosed(t *testing.T) {
 		"/api/v1/events/export",
 		"/api/v1/events/evt-123", // sub-path
 		"/api/v1/sse",
-		"/api/v1/logs",
 		"/api/v1/ssl",
 		"/api/v1/upstreams",
 		"/api/v1/docker/services",
 		"/api/v1/geoip/lookup",
 		"/api/v1/cwv",
 		"/api/v1/alerting/status",
-		"/api/v1/ai/history",
 		"/api/v1/ai/providers",
 		"/api/v1/ai/stats",
 	}
@@ -41,6 +39,9 @@ func TestTenantKeyScoping_FailClosed(t *testing.T) {
 		"/api/v1/ai/config",
 		"/api/v1/ai/analyze",
 		"/api/v1/ai/test",
+		// not tenant-partitioned → must be denied to tenant keys
+		"/api/v1/logs",
+		"/api/v1/ai/history",
 		"/api/v1/alerting/webhooks",
 		"/api/v1/alerting/emails",
 		"/api/v1/alerting/test",

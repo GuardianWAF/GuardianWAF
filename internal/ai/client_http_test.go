@@ -81,6 +81,22 @@ func TestNewClientValidatedRejectsCredentialEndpoint(t *testing.T) {
 	}
 }
 
+func TestNewClientValidatedRejectsCleartextHTTP(t *testing.T) {
+	origAllow := testAllowPrivate
+	testAllowPrivate = false
+	defer func() { testAllowPrivate = origAllow }()
+
+	// A public but cleartext HTTP endpoint passes the SSRF/private check yet must
+	// be rejected because the API key would be sent unencrypted.
+	_, err := NewClientValidated(ClientConfig{BaseURL: "http://api.example.com/v1"})
+	if err == nil {
+		t.Fatal("expected cleartext HTTP endpoint rejection")
+	}
+	if !strings.Contains(err.Error(), "HTTPS") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestNewClientValidatedAllowsPrivateEndpointWithExplicitOptIn(t *testing.T) {
 	client, err := NewClientValidated(ClientConfig{
 		BaseURL:              "http://127.0.0.1:8080/v1",

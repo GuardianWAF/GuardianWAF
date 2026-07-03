@@ -374,18 +374,19 @@ const (
 // endpoint is denied by default.
 var tenantReadablePrefixes = []string{
 	"/api/v1/stats",
-	"/api/v1/events",
-	"/api/v1/sse",
-	"/api/v1/logs",
+	"/api/v1/events", // tenant-filtered in the handler
+	"/api/v1/sse",    // tenant-filtered in the broadcaster
 	"/api/v1/ssl",
 	"/api/v1/upstreams",
 	"/api/v1/docker/services",
 	"/api/v1/geoip/lookup",
 	"/api/v1/cwv",
 	"/api/v1/alerting/status",
-	"/api/v1/ai/history",
 	"/api/v1/ai/providers",
 	"/api/v1/ai/stats",
+	// NOT allow-listed for tenant keys (would disclose cross-tenant data that
+	// is not tenant-partitioned): /api/v1/logs (raw application log buffer) and
+	// /api/v1/ai/history (AI threat analysis spanning all tenants' events).
 }
 
 // tenantKeyAllows reports whether a tenant-scoped API key may access the given

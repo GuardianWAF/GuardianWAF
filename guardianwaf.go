@@ -28,6 +28,7 @@ package guardianwaf
 import (
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/config"
@@ -175,8 +176,65 @@ type Event = engine.Event
 
 // Engine is the WAF engine.
 type Engine struct {
-	internal *engine.Engine
-	cfg      *config.Config
+	internal    *engine.Engine
+	cfg         *config.Config
+	cleanupStop chan struct{}
+	cleanupWG   sync.WaitGroup
+}
+
+// libraryCleanupInterval is how often stale per-IP/per-tenant layer state is
+// swept in library mode so long-running embedded processes don't accumulate
+// unbounded rate-limit buckets, bot trackers, or ATO/IP-ACL entries.
+const libraryCleanupInterval = 5 * time.Minute
+
+// libraryCleanupMaxAge is the age past which idle tracked entries are evicted.
+const libraryCleanupMaxAge = 30 * time.Minute
+
+type staleCleaner interface{ CleanupExpired(time.Duration) }
+type expiryCleaner interface{ CleanupExpired() }
+type simpleCleaner interface{ Cleanup() }
+
+// startCleanup launches the periodic layer-state cleanup goroutine.
+func (e *Engine) startCleanup() {
+	e.cleanupStop = make(chan struct{})
+	e.cleanupWG.Add(1)
+	go func() {
+		defer e.cleanupWG.Done()
+		ticker := time.NewTicker(libraryCleanupInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				e.runCleanup()
+			case <-e.cleanupStop:
+				return
+			}
+		}
+	}()
+}
+
+// runCleanup sweeps stale state from the layers that accumulate per-key maps.
+func (e *Engine) runCleanup() {
+	if rl := e.internal.FindLayer("ratelimit"); rl != nil {
+		if c, ok := rl.(staleCleaner); ok {
+			c.CleanupExpired(libraryCleanupMaxAge)
+		}
+	}
+	if acl := e.internal.FindLayer("ipacl"); acl != nil {
+		if c, ok := acl.(expiryCleaner); ok {
+			c.CleanupExpired()
+		}
+	}
+	if ato := e.internal.FindLayer("ato_protection"); ato != nil {
+		if c, ok := ato.(simpleCleaner); ok {
+			c.Cleanup()
+		}
+	}
+	if bot := e.internal.FindLayer("botdetect"); bot != nil {
+		if c, ok := bot.(simpleCleaner); ok {
+			c.Cleanup()
+		}
+	}
 }
 
 // New creates a new WAF engine with the given configuration.
@@ -215,7 +273,9 @@ func New(cfg Config, opts ...Option) (*Engine, error) {
 		eng.SetChallengeService(challengeSvc)
 	}
 
-	return &Engine{internal: eng, cfg: internalCfg}, nil
+	e := &Engine{internal: eng, cfg: internalCfg}
+	e.startCleanup()
+	return e, nil
 }
 
 // NewFromFile creates a new WAF engine from a YAML config file.
@@ -239,7 +299,9 @@ func NewFromFile(path string, opts ...Option) (*Engine, error) {
 
 	addDefaultLayers(eng, cfg)
 
-	return &Engine{internal: eng, cfg: cfg}, nil
+	e := &Engine{internal: eng, cfg: cfg}
+	e.startCleanup()
+	return e, nil
 }
 
 // NewWithDefaults creates a new WAF engine with sensible defaults.
@@ -301,6 +363,11 @@ type Stats struct {
 
 // Close shuts down the engine and releases resources.
 func (e *Engine) Close() error {
+	if e.cleanupStop != nil {
+		close(e.cleanupStop)
+		e.cleanupWG.Wait()
+		e.cleanupStop = nil
+	}
 	return e.internal.Close()
 }
 

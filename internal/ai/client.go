@@ -130,6 +130,12 @@ func NewClientValidated(cfg ClientConfig) (*Client, error) {
 		if err := validateURLNotPrivate(cfg.BaseURL); err != nil {
 			return nil, fmt.Errorf("invalid AI endpoint URL: %w", err)
 		}
+		// The AI request sends the API key as a Bearer token; refuse cleartext
+		// HTTP so the credential is never transmitted unencrypted. Operators who
+		// intentionally target a local endpoint can set allow_private_endpoint.
+		if u, err := url.Parse(cfg.BaseURL); err == nil && strings.EqualFold(u.Scheme, "http") {
+			return nil, fmt.Errorf("AI endpoint must use HTTPS (the API key would be sent in cleartext over %q); set allow_private_endpoint to override for local testing", cfg.BaseURL)
+		}
 	}
 	return NewClient(cfg), nil
 }
