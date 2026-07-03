@@ -105,6 +105,12 @@ func (h *SSEHandler) handleSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
+	// Clear the server WriteTimeout for this long-lived stream; otherwise the
+	// 30s heartbeat races the deadline and the connection is dropped.
+	if rc := http.NewResponseController(w); rc != nil {
+		_ = rc.SetWriteDeadline(time.Time{}) //nolint:errcheck // best-effort; falls back to WriteTimeout if unsupported
+	}
+
 	client := &sseClient{w: w, flusher: flusher, done: make(chan struct{})}
 
 	h.mu.Lock()
