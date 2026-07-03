@@ -6,7 +6,7 @@
 services:
   # Simple backend that echoes requests
   backend:
-    image: golang:1.26.3-alpine
+    image: golang:1.26.4-alpine
     working_dir: /app
     volumes:
       - ./examples/backend:/app:ro

@@ -331,6 +331,8 @@ TLS responsibilities are split across:
 
 The normal runtime can use static certificates or ACME-provisioned certificates depending on configuration.
 
+HTTP/3 is a config/build-tag compatibility surface only: no HTTP/3 runtime package/server is present in the current production binary, no runtime package backs HTTP/3 today, and HTTP/3/QUIC is not a production listener. The historical `internal/http3` experiment was removed, so references to HTTP/3 describe planned compatibility behavior rather than an active runtime package.
+
 ## Tracing and logging
 
 GuardianWAF uses structured logging and a lightweight tracing package implemented with the standard library.

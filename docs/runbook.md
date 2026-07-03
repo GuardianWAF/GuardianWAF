@@ -227,16 +227,17 @@ go tool pprof cpu.pprof
 ```
 
 **Resolution**:
-- Disable unused layers (e.g., ML anomaly, DLP) if not needed
+- Disable unused detectors via per-detector multipliers or `waf.detection.exclusions` if not needed
 - Reduce `waf.sanitizer.max_body_size` to limit body scanning
-- Enable response caching:
+- Add path exclusions for hot, trusted endpoints so detectors skip them:
   <!-- guardianwaf-config:validate -->
   ```yaml
   waf:
-    cache:
-      enabled: true
-      backend: memory
-      ttl: 60s
+    detection:
+      exclusions:
+        - path: /api/health
+          detectors: [sqli, xss, lfi, cmdi]
+          reason: high-volume internal health endpoint
   ```
 
 ### 9. High Block Spike

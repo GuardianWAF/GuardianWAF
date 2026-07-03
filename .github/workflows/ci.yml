@@ -64,14 +64,14 @@ jobs:
         go-version: ['1.26.4']
       fail-fast: false
     steps:
-      - name: Check build prerequisites
-        run: ./scripts/check-prereqs.sh
-
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: ${{ matrix.go-version }}
+
+      - name: Check build prerequisites
+        run: ./scripts/check-prereqs.sh
 
       - name: Download dashboard assets
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -136,14 +136,14 @@ jobs:
     needs: [build-dashboard]
     runs-on: ubuntu-latest
     steps:
-      - name: Check build prerequisites
-        run: ./scripts/check-prereqs.sh
-
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: 'go.mod'
+
+      - name: Check build prerequisites
+        run: ./scripts/check-prereqs.sh
 
       - name: Download dashboard assets
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -162,14 +162,14 @@ jobs:
     needs: [build-dashboard]
     runs-on: ubuntu-latest
     steps:
-      - name: Check build prerequisites
-        run: ./scripts/check-prereqs.sh
-
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: 'go.mod'
+
+      - name: Check build prerequisites
+        run: ./scripts/check-prereqs.sh
 
       - name: Download dashboard assets
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -194,14 +194,14 @@ jobs:
     # `make fmt-check` and the pre-commit hook run the same command; this
     # CI job is the merge gate so drift cannot reach main.
     steps:
-      - name: Check build prerequisites
-        run: ./scripts/check-prereqs.sh
-
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: 'go.mod'
+
+      - name: Check build prerequisites
+        run: ./scripts/check-prereqs.sh
 
       - name: gofmt check (gofmt -s -l . must be empty)
         run: |
@@ -217,10 +217,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
       - name: Check build prerequisites
         run: ./scripts/check-prereqs.sh
-
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Docker Compose integration smoke
         run: |
@@ -235,14 +235,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Check build prerequisites
-        run: ./scripts/check-prereqs.sh
-
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: 'go.mod'
+
+      - name: Check build prerequisites
+        run: ./scripts/check-prereqs.sh
 
       - name: Download dashboard assets
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -263,14 +263,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - name: Check build prerequisites
-        run: ./scripts/check-prereqs.sh
-
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: 'go.mod'
+
+      - name: Check build prerequisites
+        run: ./scripts/check-prereqs.sh
 
       - name: Install KinD
         run: go install sigs.k8s.io/kind@v0.31.0
@@ -288,10 +288,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
       - name: Check build prerequisites
         run: ./scripts/check-prereqs.sh
-
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Runtime image SBOM and scan
         run: ./scripts/supply-chain-smoke.sh
@@ -300,14 +300,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Check build prerequisites
-        run: ./scripts/check-prereqs.sh
-
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: 'go.mod'
+
+      - name: Check build prerequisites
+        run: ./scripts/check-prereqs.sh
 
       - name: Bounded fuzz smoke
         run: FUZZTIME=5s ./scripts/fuzz-smoke.sh
@@ -318,14 +318,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - name: Check build prerequisites
-        run: ./scripts/check-prereqs.sh
-
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: 'go.mod'
+
+      - name: Check build prerequisites
+        run: ./scripts/check-prereqs.sh
 
       - name: Download dashboard assets
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -340,9 +340,6 @@ jobs:
     needs: [build-dashboard]
     runs-on: ubuntu-latest
     steps:
-      - name: Check build prerequisites
-        run: ./scripts/check-prereqs.sh
-
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
@@ -350,6 +347,9 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: 'go.mod'
+
+      - name: Check build prerequisites
+        run: ./scripts/check-prereqs.sh
 
       - name: Download dashboard assets
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -375,8 +375,11 @@ jobs:
             go install golang.org/x/perf/cmd/benchstat@v0.0.0-20260610192853-712aea8b4705
             benchstat benchmark-base.txt benchmark-new.txt > benchstat-output.txt 2>&1 || true
             cat benchstat-output.txt
-            # Fail if any benchmark shows >=10% regression (geomean or individual)
-            if grep -qE '~\s*[1-9][0-9]*%' benchstat-output.txt; then
+            # Fail if any benchmark shows a >=10% regression. benchstat prints a
+            # "+N%" delta in the "vs base" column for a slowdown (and "~" for no
+            # significant change); match a positive delta whose integer part is
+            # two or more digits (>=10%).
+            if grep -qE '\+[1-9][0-9]+(\.[0-9]+)?%' benchstat-output.txt; then
               echo "::error::Benchmark regression detected (>=10% slowdown)"
               exit 1
             fi
@@ -387,26 +390,28 @@ jobs:
   govulncheck:
     runs-on: ubuntu-latest
     steps:
-    - name: Check build prerequisites
-      run: ./scripts/check-prereqs.sh
-
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
     - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
       with:
         go-version-file: 'go.mod'
+
+    - name: Check build prerequisites
+      run: ./scripts/check-prereqs.sh
+
     - name: Run govulncheck
       run: go install golang.org/x/vuln/cmd/govulncheck@v1.3.0 && govulncheck ./...
 
   gosec:
     runs-on: ubuntu-latest
     steps:
-    - name: Check build prerequisites
-      run: ./scripts/check-prereqs.sh
-
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
     - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
       with:
         go-version-file: 'go.mod'
+
+    - name: Check build prerequisites
+      run: ./scripts/check-prereqs.sh
+
     - name: Run gosec
       run: |
         go install github.com/securego/gosec/v2/cmd/gosec@v2.27.1
@@ -445,9 +450,6 @@ jobs:
   release-evidence:
     runs-on: ubuntu-latest
     steps:
-      - name: Check build prerequisites
-        run: ./scripts/check-prereqs.sh
-
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
@@ -455,6 +457,9 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: 'go.mod'
+
+      - name: Check build prerequisites
+        run: ./scripts/check-prereqs.sh
 
       - name: Build GuardianWAF binary
         run: go build -o guardianwaf ./cmd/guardianwaf
@@ -472,12 +477,13 @@ jobs:
   trufflehog:
     runs-on: ubuntu-latest
     steps:
-    - name: Check build prerequisites
-      run: ./scripts/check-prereqs.sh
-
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       with:
         fetch-depth: 0
+
+    - name: Check build prerequisites
+      run: ./scripts/check-prereqs.sh
+
     - name: Scan for secrets
       uses: trufflesecurity/trufflehog@d03d0879a3d03548a000f6eb2640307f0815c3b3 # main, pinned 2026-06-11
       with:
@@ -486,10 +492,11 @@ jobs:
   trivy-docker:
     runs-on: ubuntu-latest
     steps:
+    - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
     - name: Check build prerequisites
       run: ./scripts/check-prereqs.sh
 
-    - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
     - name: Run Trivy vulnerability scanner on base image
       run: |
         docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
@@ -508,15 +515,16 @@ jobs:
     needs: [build-dashboard]
     runs-on: ubuntu-latest
     steps:
-    - name: Check build prerequisites
-      run: ./scripts/check-prereqs.sh
-
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
     - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
       with:
         node-version: '22'
         cache: 'npm'
         cache-dependency-path: internal/dashboard/ui/package-lock.json
+
+    - name: Check build prerequisites
+      run: ./scripts/check-prereqs.sh
+
     - name: Build embedded dashboard
       run: ./scripts/build-dashboard.sh
     - name: Build Go binary

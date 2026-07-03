@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-GuardianWAF is a zero-dependency Web Application Firewall written in Go (1.26+; `go.mod` pins 1.26.4).
+GuardianWAF is a zero-dependency Web Application Firewall written in Go (`go.mod` declares `go 1.25` with `toolchain go1.26.4`).
 Module: `github.com/guardianwaf/guardianwaf`
 
 The codebase uses the Go standard library **only** — `go.mod` has zero `require` entries and `go.sum` is empty (verified 2026-06-04, after the dead `internal/http3` package and its sole dependency `quic-go` were removed).

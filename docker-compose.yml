@@ -42,7 +42,7 @@ services:
 
   # Example backend services for testing
   backend:
-    image: golang:1.26.3-alpine
+    image: golang:1.26.4-alpine
     container_name: backend-primary
     working_dir: /app
     volumes:
@@ -68,7 +68,7 @@ services:
     restart: unless-stopped
 
   backend2:
-    image: golang:1.26.3-alpine
+    image: golang:1.26.4-alpine
     container_name: backend-secondary
     working_dir: /app
     volumes:

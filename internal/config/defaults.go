@@ -166,7 +166,7 @@ func DefaultConfig() *Config {
 				AllowEndpoints:     []string{"/graphql", "/api/graphql"},
 			},
 			GRPC: GRPCConfig{
-				Enabled:              true,
+				Enabled:              false, // layer removed; kept parsed-but-inert for old configs
 				GRPCWebEnabled:       true,
 				ReflectionEnabled:    false,
 				ValidateProto:        false,           // Enable for strict validation
@@ -263,7 +263,7 @@ func DefaultConfig() *Config {
 				Metadata:         make(map[string]string),
 			},
 			Analytics: AnalyticsConfig{
-				Enabled:          true,
+				Enabled:          false, // layer removed; kept parsed-but-inert for old configs
 				StoragePath:      "data/analytics",
 				RetentionDays:    30,
 				FlushInterval:    60 * time.Second,
@@ -297,7 +297,7 @@ func DefaultConfig() *Config {
 				StoragePath:         "data/remediation",
 			},
 			WebSocket: WebSocketConfig{
-				Enabled:             true,
+				Enabled:             false, // layer removed; kept parsed-but-inert for old configs
 				MaxMessageSize:      10 * 1024 * 1024,
 				MaxFrameSize:        1 * 1024 * 1024,
 				RateLimitPerSecond:  100,

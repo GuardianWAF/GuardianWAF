@@ -82,9 +82,6 @@ jobs:
       id-token: write
     runs-on: ubuntu-latest
     steps:
-      - name: Check build prerequisites
-        run: ./scripts/check-prereqs.sh
-
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -92,6 +89,9 @@ jobs:
           node-version: '22'
           cache: 'npm'
           cache-dependency-path: internal/dashboard/ui/package-lock.json
+
+      - name: Check build prerequisites
+        run: ./scripts/check-prereqs.sh
 
       - name: Build embedded dashboard
         run: ./scripts/build-dashboard.sh

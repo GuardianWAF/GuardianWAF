@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -30,26 +29,70 @@ func init() {
 
 // --- cmdHealthcheck tests ---
 
-func TestCmdHealthcheck_Subprocess(t *testing.T) {
-	// cmdHealthcheck calls os.Exit(0) directly — test via subprocess
-	if os.Getenv("GUARDIANWAF_TEST_HEALTHCHECK") == "1" {
-		cmdHealthcheck()
-		return
-	}
-	// Build and run a subprocess that calls healthcheck
-	cmd := exec.Command(os.Args[0], "-test.run=TestCmdHealthcheck_Subprocess")
-	cmd.Env = append(os.Environ(), "GUARDIANWAF_TEST_HEALTHCHECK=1")
-	output, err := cmd.CombinedOutput()
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		if exitErr.ExitCode() != 0 {
-			t.Fatalf("expected exit code 0, got %d: %s", exitErr.ExitCode(), output)
+func TestCmdHealthcheck_ServerUp(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/livez" {
+			http.NotFound(w, r)
+			return
 		}
-	} else if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintln(w, `{"status":"ok"}`)
+	}))
+	defer srv.Close()
+
+	if code := cmdHealthcheck([]string{"-url", srv.URL + "/livez"}); code != 0 {
+		t.Fatalf("expected exit code 0 for healthy server, got %d", code)
 	}
-	if !strings.Contains(string(output), "OK") {
-		t.Errorf("expected OK in output, got: %s", output)
+}
+
+func TestCmdHealthcheck_ServerDown(t *testing.T) {
+	// Reserve a port and close it so nothing is listening there.
+	srv := httptest.NewServer(http.NotFoundHandler())
+	url := srv.URL
+	srv.Close()
+
+	if code := cmdHealthcheck([]string{"-url", url + "/livez", "-timeout", "500ms"}); code != 1 {
+		t.Fatalf("expected exit code 1 for unreachable server, got %d", code)
+	}
+}
+
+func TestCmdHealthcheck_ErrorStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	if code := cmdHealthcheck([]string{"-url", srv.URL + "/livez"}); code != 1 {
+		t.Fatalf("expected exit code 1 for 500 response, got %d", code)
+	}
+}
+
+func TestCmdHealthcheck_RedirectIsHealthy(t *testing.T) {
+	// TLS http_redirect answers /livez on the HTTP port with a 301 —
+	// the server responding at all proves liveness.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "https://example.com/livez", http.StatusMovedPermanently)
+	}))
+	defer srv.Close()
+
+	if code := cmdHealthcheck([]string{"-url", srv.URL + "/livez"}); code != 0 {
+		t.Fatalf("expected exit code 0 for redirect response, got %d", code)
+	}
+}
+
+func TestProbeHostPort(t *testing.T) {
+	cases := map[string]string{
+		":8088":           "127.0.0.1:8088",
+		"0.0.0.0:9000":    "127.0.0.1:9000",
+		"[::]:9000":       "127.0.0.1:9000",
+		"10.0.0.5:8088":   "10.0.0.5:8088",
+		"localhost:8088":  "localhost:8088",
+		"invalid-no-port": "127.0.0.1:8088",
+	}
+	for in, want := range cases {
+		if got := probeHostPort(in); got != want {
+			t.Errorf("probeHostPort(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
 

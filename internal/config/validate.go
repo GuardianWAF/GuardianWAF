@@ -1231,6 +1231,37 @@ func validateWAF(waf *WAFConfig, ve *ValidationError) {
 	validateSanitizer(&waf.Sanitizer, ve)
 	validateGeoIP(&waf.GeoIP, ve)
 	validateAIAnalysis(&waf.AIAnalysis, ve)
+	validateRemovedLayers(waf, ve)
+}
+
+// validateRemovedLayers fails validation when a config enables a WAF layer that
+// was removed from the binary. These config blocks are still parsed (so old
+// configs don't error on an unknown key) but the layer no longer runs — a
+// silent security gap if an operator believes the control is active. Erroring
+// on `enabled: true` makes the removal loud instead.
+func validateRemovedLayers(waf *WAFConfig, ve *ValidationError) {
+	removed := []struct {
+		path    string
+		enabled bool
+	}{
+		{"waf.ml_anomaly", waf.MLAnomaly.Enabled},
+		{"waf.api_discovery", waf.APIDiscovery.Enabled},
+		{"waf.graphql", waf.GraphQL.Enabled},
+		{"waf.grpc", waf.GRPC.Enabled},
+		{"waf.zero_trust", waf.ZeroTrust.Enabled},
+		{"waf.siem", waf.SIEM.Enabled},
+		{"waf.cache", waf.Cache.Enabled},
+		{"waf.replay", waf.Replay.Enabled},
+		{"waf.canary", waf.Canary.Enabled},
+		{"waf.analytics", waf.Analytics.Enabled},
+		{"waf.cluster", waf.Cluster.Enabled},
+		{"waf.websocket", waf.WebSocket.Enabled},
+	}
+	for _, r := range removed {
+		if r.enabled {
+			ve.addError(r.path+".enabled", "this WAF layer was removed and no longer runs; remove this block from your config (it provides no protection)")
+		}
+	}
 }
 
 func validateGeoIP(geo *GeoIPConfig, ve *ValidationError) {

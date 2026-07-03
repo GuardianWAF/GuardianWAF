@@ -411,12 +411,42 @@ func extractMarkedMarkdownConfigs(data string) ([]string, error) {
 		if i >= len(lines) {
 			return nil, os.ErrInvalid
 		}
-		configs = append(configs, strings.TrimSpace(strings.Join(block, "\n"))+"\n")
+		configs = append(configs, dedentBlock(block)+"\n")
 	}
 	if len(configs) == 0 {
 		return nil, os.ErrNotExist
 	}
 	return configs, nil
+}
+
+// dedentBlock removes the common leading-whitespace prefix shared by all
+// non-blank lines, so a snippet indented for markdown layout parses as the
+// flush-left YAML a reader would actually use. (A naive first-line-only trim
+// would misparse a multi-root snippet — e.g. sibling `mode:`/`waf:` keys both
+// indented two spaces — as if the second key were nested under the first.)
+func dedentBlock(block []string) string {
+	minIndent := -1
+	for _, line := range block {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		indent := len(line) - len(strings.TrimLeft(line, " \t"))
+		if minIndent == -1 || indent < minIndent {
+			minIndent = indent
+		}
+	}
+	if minIndent <= 0 {
+		return strings.TrimRight(strings.Join(block, "\n"), "\n")
+	}
+	out := make([]string, len(block))
+	for i, line := range block {
+		if len(line) >= minIndent {
+			out[i] = line[minIndent:]
+		} else {
+			out[i] = strings.TrimLeft(line, " \t")
+		}
+	}
+	return strings.TrimRight(strings.Join(out, "\n"), "\n")
 }
 
 type markdownYAMLBlock struct {

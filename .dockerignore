@@ -8,6 +8,11 @@ website/dist
 *.exe
 *.test
 coverage.*
+# Prebuilt local binaries and scratch/report dirs — never part of the image build context
+/guardianwaf
+/guardianwaf-http3
+tmp/
+security-report/
 *.md
 !README.md
 docs/
