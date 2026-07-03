@@ -181,6 +181,9 @@ func (ms *MemoryStore) matchesFilter(ev engine.Event, f EventFilter) bool {
 	if f.CountryCode != "" && ev.CountryCode != f.CountryCode {
 		return false
 	}
+	if f.TenantID != "" && ev.TenantID != f.TenantID {
+		return false
+	}
 	return true
 }
 

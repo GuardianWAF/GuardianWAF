@@ -17,6 +17,19 @@ import (
 // cwvReport stores the latest Core Web Vitals metrics.
 var cwvMetrics sync.Map
 
+// knownCWVMetrics is the fixed set of Core Web Vitals metric names. The CWV
+// beacon endpoint is unauthenticated, so the map key must be constrained to
+// this allowlist — otherwise an attacker could store unbounded unique keys and
+// exhaust memory.
+var knownCWVMetrics = map[string]struct{}{
+	"CLS":  {},
+	"FCP":  {},
+	"FID":  {},
+	"INP":  {},
+	"LCP":  {},
+	"TTFB": {},
+}
+
 // handleCWVReport accepts Core Web Vitals beacon reports from the dashboard.
 func (d *Dashboard) handleCWVReport(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -30,6 +43,11 @@ func (d *Dashboard) handleCWVReport(w http.ResponseWriter, r *http.Request) {
 		Delta  float64 `json:"delta"`
 	}
 	if !limitedDecodeJSON(w, r, &report) {
+		return
+	}
+	if _, ok := knownCWVMetrics[report.Name]; !ok {
+		// Unknown metric names are dropped to bound map cardinality.
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	cwvMetrics.Store(report.Name, report)

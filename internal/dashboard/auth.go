@@ -416,6 +416,20 @@ func getAuthType(r *http.Request) string {
 	return ""
 }
 
+// tenantScope returns the tenant ID a request is restricted to, or "" for
+// unrestricted (global key / session) access. Data-listing handlers must apply
+// this to their query filters so a tenant-scoped API key only ever sees its own
+// tenant's events/stats/logs, never other tenants' data.
+func tenantScope(r *http.Request) string {
+	if getAuthType(r) != authTenant {
+		return ""
+	}
+	if v, ok := r.Context().Value(authTenantCtxKey{}).(string); ok {
+		return v
+	}
+	return ""
+}
+
 func (d *Dashboard) isAuthenticated(r *http.Request) (*http.Request, bool) {
 	if d.apiKey == "" {
 		authLog.Error("Dashboard API key is not configured — refusing request. Set apiKey before starting the dashboard.")

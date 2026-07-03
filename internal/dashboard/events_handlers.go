@@ -57,6 +57,7 @@ func (d *Dashboard) handleGetEvents(w http.ResponseWriter, r *http.Request) {
 		Path:      q.Get("path"),
 		SortBy:    q.Get("sort_by"),
 		SortOrder: q.Get("sort_order"),
+		TenantID:  tenantScope(r), // tenant-scoped keys see only their own events
 	}
 
 	if v := q.Get("min_score"); v != "" {
@@ -149,6 +150,7 @@ func (d *Dashboard) handleExportEvents(w http.ResponseWriter, r *http.Request) {
 		Path:      q.Get("path"),
 		SortBy:    q.Get("sort_by"),
 		SortOrder: q.Get("sort_order"),
+		TenantID:  tenantScope(r), // tenant-scoped keys export only their own events
 	}
 
 	// Export limit: default 10000, max 50000

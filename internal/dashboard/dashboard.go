@@ -281,6 +281,21 @@ func (d *Dashboard) getClientIP(r *http.Request) string {
 	return r.RemoteAddr
 }
 
+// adminAuthWrap requires the system admin API key. It is used for
+// cross-tenant provisioning operations (tenant create/update/delete, config
+// changes, API-key regeneration) so they cannot be performed with the ordinary
+// dashboard key — preserving the admin/dashboard key separation regardless of
+// which route (/api/admin/* or the /api/v1/* compat routes) reaches them.
+func (d *Dashboard) adminAuthWrap(handler http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !d.isAdminAuthenticated(r) {
+			writeError(w, http.StatusUnauthorized, "admin API key required")
+			return
+		}
+		handler(w, r)
+	}
+}
+
 func (d *Dashboard) authWrap(handler http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		r, ok := d.isAuthenticated(r)
@@ -1356,9 +1371,12 @@ func (d *Dashboard) handleSSE(w http.ResponseWriter, r *http.Request) {
 // --- SSE Broadcaster ---
 
 // SSEBroadcaster manages Server-Sent Events client connections.
+// Each client is registered with a tenant scope: an empty scope receives all
+// events; a non-empty scope (a tenant-scoped API key) receives only that
+// tenant's events, preventing live cross-tenant event disclosure.
 type SSEBroadcaster struct {
 	mu         sync.RWMutex
-	clients    map[chan string]struct{}
+	clients    map[chan string]string // channel -> tenant scope ("" = all)
 	maxClients int
 }
 
@@ -1367,7 +1385,7 @@ const defaultMaxSSEClients = 1000
 // NewSSEBroadcaster creates a new SSEBroadcaster.
 func NewSSEBroadcaster() *SSEBroadcaster {
 	return &SSEBroadcaster{
-		clients:    make(map[chan string]struct{}),
+		clients:    make(map[chan string]string),
 		maxClients: defaultMaxSSEClients,
 	}
 }
@@ -1384,7 +1402,16 @@ func (b *SSEBroadcaster) HandleSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	// Check client cap and register atomically
+	// SSE is a long-lived stream; the server's WriteTimeout would otherwise
+	// abort it after ~30s. Clear the per-request write deadline so the stream
+	// stays open until the client disconnects.
+	if rc := http.NewResponseController(w); rc != nil {
+		_ = rc.SetWriteDeadline(time.Time{}) //nolint:errcheck // best-effort; falls back to WriteTimeout if unsupported
+	}
+
+	// Check client cap and register atomically. Tenant-scoped keys only
+	// receive their own tenant's events.
+	scope := tenantScope(r)
 	ch := make(chan string, 64)
 	b.mu.Lock()
 	if len(b.clients) >= b.maxClients {
@@ -1392,7 +1419,7 @@ func (b *SSEBroadcaster) HandleSSE(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "too many SSE connections", http.StatusServiceUnavailable)
 		return
 	}
-	b.clients[ch] = struct{}{}
+	b.clients[ch] = scope
 	b.mu.Unlock()
 	defer b.removeClient(ch)
 
@@ -1425,7 +1452,11 @@ func (b *SSEBroadcaster) BroadcastEvent(event engine.Event) {
 
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	for ch := range b.clients {
+	for ch, scope := range b.clients {
+		// A tenant-scoped client only receives its own tenant's events.
+		if scope != "" && scope != event.TenantID {
+			continue
+		}
 		select {
 		case ch <- string(data):
 		default:
@@ -1443,7 +1474,7 @@ func (b *SSEBroadcaster) ClientCount() int {
 func (b *SSEBroadcaster) addClient(ch chan string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.clients[ch] = struct{}{}
+	b.clients[ch] = ""
 }
 
 func (b *SSEBroadcaster) removeClient(ch chan string) {

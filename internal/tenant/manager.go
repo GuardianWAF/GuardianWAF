@@ -99,6 +99,16 @@ type Manager struct {
 	// Alerts
 	alertManager *AlertManager
 
+	// apiKeyCache memoizes API-key → tenant-ID resolution keyed by a fast
+	// SHA-256 of the presented key. Without it, every request runs the
+	// deliberately-expensive PBKDF2 verification against every tenant, which an
+	// unauthenticated attacker can turn into a CPU-exhaustion DoS. A cached
+	// negative result (empty tenant ID) blunts repeated invalid keys. The cache
+	// is fully cleared whenever any key changes, so it never returns a stale
+	// mapping.
+	apiKeyCacheMu sync.Mutex
+	apiKeyCache   map[string]string
+
 	// Persistence
 	store *Store
 
@@ -268,6 +278,7 @@ func (m *Manager) CreateTenant(name, description string, domains []string, quota
 	}
 
 	m.tenants[id] = tenant
+	m.invalidateAPIKeyCache()
 
 	// Register domains
 	for _, domain := range domains {
@@ -343,15 +354,46 @@ func (m *Manager) GetTenantByDomain(domain string) *Tenant {
 	return nil
 }
 
+// apiKeyCacheMax bounds the verification cache so it cannot itself grow
+// unbounded under a spray of unique invalid keys.
+const apiKeyCacheMax = 4096
+
+// fastKeyHash returns a fast, non-reversible cache key for an API key.
+func fastKeyHash(apiKey string) string {
+	sum := sha256.Sum256([]byte(apiKey))
+	return string(sum[:])
+}
+
 // GetTenantByAPIKey returns the tenant for a given API key.
 func (m *Manager) GetTenantByAPIKey(apiKey string) *Tenant {
 	if apiKey == "" {
 		return nil
 	}
 
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	cacheKey := fastKeyHash(apiKey)
 
+	// Fast path: consult the memoized result and skip PBKDF2 entirely.
+	m.apiKeyCacheMu.Lock()
+	if m.apiKeyCache != nil {
+		if tenantID, ok := m.apiKeyCache[cacheKey]; ok {
+			m.apiKeyCacheMu.Unlock()
+			if tenantID == "" {
+				return nil // cached negative result
+			}
+			m.mu.RLock()
+			tenant := m.tenants[tenantID]
+			m.mu.RUnlock()
+			if tenant != nil {
+				return tenant
+			}
+			// Tenant vanished (deleted without a cache clear); fall through.
+		}
+	}
+	m.apiKeyCacheMu.Unlock()
+
+	// Slow path: verify against each tenant (expensive PBKDF2).
+	m.mu.RLock()
+	var found *Tenant
 	for _, tenant := range m.tenants {
 		if matched, legacy := verifyAPIKey(tenant.APIKeyHash, apiKey); matched {
 			if legacy {
@@ -366,11 +408,42 @@ func (m *Manager) GetTenantByAPIKey(apiKey string) *Tenant {
 					m.log.Info("upgraded legacy unsalted API key hash", "tenantID", tenant.ID)
 				}
 			}
-			return tenant
+			found = tenant
+			break
 		}
 	}
+	m.mu.RUnlock()
 
-	return nil
+	m.cacheAPIKeyResult(cacheKey, found)
+	return found
+}
+
+// cacheAPIKeyResult memoizes an API-key verification outcome (found may be nil
+// for a negative result).
+func (m *Manager) cacheAPIKeyResult(cacheKey string, found *Tenant) {
+	m.apiKeyCacheMu.Lock()
+	defer m.apiKeyCacheMu.Unlock()
+	if m.apiKeyCache == nil {
+		m.apiKeyCache = make(map[string]string)
+	}
+	// Simple bound: drop the whole cache if it grows too large. Cheap and safe
+	// since entries are pure memoization rebuilt on demand.
+	if len(m.apiKeyCache) >= apiKeyCacheMax {
+		m.apiKeyCache = make(map[string]string)
+	}
+	if found == nil {
+		m.apiKeyCache[cacheKey] = ""
+	} else {
+		m.apiKeyCache[cacheKey] = found.ID
+	}
+}
+
+// invalidateAPIKeyCache clears the verification cache. Called whenever any key
+// changes so a stale mapping can never be returned.
+func (m *Manager) invalidateAPIKeyCache() {
+	m.apiKeyCacheMu.Lock()
+	m.apiKeyCache = nil
+	m.apiKeyCacheMu.Unlock()
 }
 
 // ResolveTenant determines the tenant for an incoming request.
@@ -490,6 +563,7 @@ func (m *Manager) DeleteTenant(id string) error {
 	}
 
 	delete(m.tenants, id)
+	m.invalidateAPIKeyCache()
 
 	// Update default tenant if needed
 	if m.defaultTenantID == id {
@@ -536,6 +610,8 @@ func (m *Manager) RegenerateAPIKey(id string) (string, error) {
 	}
 	tenant.APIKeyHash = newHash
 	tenant.UpdatedAt = time.Now()
+	// The old key must stop resolving and the new one must resolve.
+	m.invalidateAPIKeyCache()
 
 	// Persist updated tenant
 	if err := m.SaveTenant(tenant); err != nil {

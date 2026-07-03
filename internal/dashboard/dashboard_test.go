@@ -543,6 +543,9 @@ func TestAlertCompatibilityEndpoints(t *testing.T) {
 
 func TestTenantCompatibilityEndpointsDisabled(t *testing.T) {
 	d := newTestDashboard(t, "k")
+	// Cross-tenant provisioning routes are admin-gated; supply an admin key so
+	// requests reach the "tenant manager disabled" handler instead of 401.
+	d.SetAdminKey("admin-key")
 
 	w := httptest.NewRecorder()
 	req := authenticatedRequest("GET", "/api/v1/tenants", "", "k")
@@ -559,16 +562,17 @@ func TestTenantCompatibilityEndpointsDisabled(t *testing.T) {
 		method string
 		path   string
 		body   string
+		apiKey string
 	}{
-		{"POST", "/api/v1/tenants", `{"name":"t","domain":"example.com"}`},
-		{"GET", "/api/v1/tenants/t/config", ""},
-		{"PUT", "/api/v1/tenants/t/config", `{"block_threshold":60}`},
-		{"GET", "/api/v1/tenants/t/stats", ""},
-		{"DELETE", "/api/v1/tenants/t", ""},
+		{"POST", "/api/v1/tenants", `{"name":"t","domain":"example.com"}`, "admin-key"},
+		{"GET", "/api/v1/tenants/t/config", "", "k"},
+		{"PUT", "/api/v1/tenants/t/config", `{"block_threshold":60}`, "admin-key"},
+		{"GET", "/api/v1/tenants/t/stats", "", "k"},
+		{"DELETE", "/api/v1/tenants/t", "", "admin-key"},
 	} {
 		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
 			w := httptest.NewRecorder()
-			req := authenticatedRequest(tt.method, tt.path, tt.body, "k")
+			req := authenticatedRequest(tt.method, tt.path, tt.body, tt.apiKey)
 			d.Handler().ServeHTTP(w, req)
 			if w.Code != http.StatusServiceUnavailable {
 				t.Fatalf("expected 503, got %d body %s", w.Code, w.Body.String())
@@ -576,6 +580,30 @@ func TestTenantCompatibilityEndpointsDisabled(t *testing.T) {
 			body := decodeJSON(t, w)
 			if body["enabled"] != false {
 				t.Fatalf("expected disabled response, got %#v", body)
+			}
+		})
+	}
+}
+
+func TestTenantCompatMutatingRoutesRequireAdminKey(t *testing.T) {
+	d := newTestDashboard(t, "k")
+	d.SetAdminKey("admin-key")
+
+	// The ordinary dashboard key must not be able to provision tenants via the
+	// compat routes — that would bypass the admin/dashboard key separation.
+	for _, tt := range []struct{ method, path, body string }{
+		{"POST", "/api/v1/tenants", `{"name":"t","domain":"example.com"}`},
+		{"PUT", "/api/v1/tenants/t", `{"name":"t2"}`},
+		{"DELETE", "/api/v1/tenants/t", ""},
+		{"PUT", "/api/v1/tenants/t/config", `{"block_threshold":60}`},
+		{"POST", "/api/v1/tenants/t/apikey", ""},
+	} {
+		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			req := authenticatedRequest(tt.method, tt.path, tt.body, "k")
+			d.Handler().ServeHTTP(w, req)
+			if w.Code != http.StatusUnauthorized {
+				t.Fatalf("expected 401 for dashboard-key provisioning, got %d body %s", w.Code, w.Body.String())
 			}
 		})
 	}

@@ -810,6 +810,47 @@ func TestSSEBroadcaster_Broadcast(t *testing.T) {
 	}
 }
 
+func TestSSEBroadcaster_TenantScopedClientIsolation(t *testing.T) {
+	b := NewSSEBroadcaster()
+
+	// Register a client scoped to tenant-a and a global (unscoped) client.
+	scoped := make(chan string, 64)
+	global := make(chan string, 64)
+	b.mu.Lock()
+	b.clients[scoped] = "tenant-a"
+	b.clients[global] = ""
+	b.mu.Unlock()
+
+	// An event belonging to tenant-b must not reach the tenant-a client, but
+	// must reach the global client.
+	b.BroadcastEvent(engine.Event{ID: "evt-b", TenantID: "tenant-b", Action: engine.ActionBlock})
+
+	select {
+	case msg := <-scoped:
+		t.Fatalf("tenant-a client received a tenant-b event: %s", msg)
+	default:
+	}
+	select {
+	case msg := <-global:
+		if !strings.Contains(msg, "evt-b") {
+			t.Fatalf("global client got unexpected message: %s", msg)
+		}
+	default:
+		t.Fatal("global client did not receive the event")
+	}
+
+	// An event for tenant-a must reach the tenant-a client.
+	b.BroadcastEvent(engine.Event{ID: "evt-a", TenantID: "tenant-a", Action: engine.ActionBlock})
+	select {
+	case msg := <-scoped:
+		if !strings.Contains(msg, "evt-a") {
+			t.Fatalf("tenant-a client got unexpected message: %s", msg)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("tenant-a client did not receive its own event")
+	}
+}
+
 func TestSSEBroadcaster_BroadcastNoClients(t *testing.T) {
 	b := NewSSEBroadcaster()
 

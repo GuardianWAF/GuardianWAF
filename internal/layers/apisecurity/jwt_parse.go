@@ -84,8 +84,19 @@ func parsePublicKey(pemData []byte) (crypto.PublicKey, error) {
 	if end == -1 || end <= start {
 		return nil, fmt.Errorf("invalid PEM format")
 	}
-	blockStart := strings.Index(s[start:], "\n") + start + 1
+	// The base64 body sits between the first newline after "-----BEGIN" and
+	// "-----END". A single-line PEM (no newline before END) has no body here;
+	// guard the slice bounds so a malformed key errors cleanly instead of
+	// panicking.
+	nl := strings.Index(s[start:end], "\n")
+	if nl == -1 {
+		return nil, fmt.Errorf("invalid PEM format: missing header newline")
+	}
+	blockStart := start + nl + 1
 	blockEnd := end
+	if blockStart > blockEnd {
+		return nil, fmt.Errorf("invalid PEM format")
+	}
 	b64 := strings.ReplaceAll(s[blockStart:blockEnd], "\n", "")
 	b64 = strings.ReplaceAll(b64, "\r", "")
 	der, err := base64.StdEncoding.DecodeString(b64)
@@ -453,7 +464,10 @@ func (p *asn1Parser) parseValue(out any) error {
 		return fmt.Errorf("signature SEQUENCE too short")
 	}
 	seq = seq[1:]
-	l1, _ := parseLengthFrom(&seq)
+	l1, err := parseLengthFrom(&seq)
+	if err != nil {
+		return err
+	}
 	if l1 > len(seq) {
 		return fmt.Errorf("invalid R length")
 	}
@@ -463,7 +477,10 @@ func (p *asn1Parser) parseValue(out any) error {
 		return fmt.Errorf("signature SEQUENCE too short for S")
 	}
 	seq = seq[1:]
-	l2, _ := parseLengthFrom(&seq)
+	l2, err := parseLengthFrom(&seq)
+	if err != nil {
+		return err
+	}
 	if l2 > len(seq) {
 		return fmt.Errorf("invalid S length")
 	}
@@ -484,9 +501,19 @@ func (p *asn1Parser) parseLength() (int, error) {
 	if n > len(p.data) {
 		return 0, fmt.Errorf("length overflow")
 	}
+	// A DER length fits in a positive int32; more than 4 length-bytes (or a
+	// value that would set the sign bit) can overflow int to a negative
+	// number, which then passes `length > len(data)` bounds checks and panics
+	// on the subsequent slice. Reject before accumulating.
+	if n > 4 {
+		return 0, fmt.Errorf("length too large: %d bytes", n)
+	}
 	var length int
 	for i := 0; i < n; i++ {
 		length = length<<8 | int(p.data[i])
+	}
+	if length < 0 {
+		return 0, fmt.Errorf("negative length")
 	}
 	p.data = p.data[n:]
 	return length, nil
@@ -505,9 +532,17 @@ func parseLengthFrom(data *[]byte) (int, error) {
 	if n > len(*data) {
 		return 0, fmt.Errorf("length overflow")
 	}
+	// Cap length-bytes to avoid int overflow to a negative value (see
+	// parseLength); a negative length passes bounds checks and panics.
+	if n > 4 {
+		return 0, fmt.Errorf("length too large: %d bytes", n)
+	}
 	var length int
 	for i := 0; i < n; i++ {
 		length = length<<8 | int((*data)[i])
+	}
+	if length < 0 {
+		return 0, fmt.Errorf("negative length")
 	}
 	*data = (*data)[n:]
 	return length, nil

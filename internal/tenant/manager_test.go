@@ -164,6 +164,62 @@ func TestManager_GetTenantByAPIKey(t *testing.T) {
 	}
 }
 
+func TestManager_GetTenantByAPIKey_CacheAndInvalidation(t *testing.T) {
+	m := NewManager(10)
+	created, err := m.CreateTenant("Test", "", []string{"test.com"}, nil)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	apiKey, err := m.RegenerateAPIKey(created.ID)
+	if err != nil {
+		t.Fatalf("regen: %v", err)
+	}
+
+	// First lookup populates the cache; second must resolve from it.
+	if got := m.GetTenantByAPIKey(apiKey); got == nil || got.ID != created.ID {
+		t.Fatalf("first lookup failed: %v", got)
+	}
+	m.apiKeyCacheMu.Lock()
+	cacheKey := fastKeyHash(apiKey)
+	tid, cached := m.apiKeyCache[cacheKey]
+	m.apiKeyCacheMu.Unlock()
+	if !cached || tid != created.ID {
+		t.Fatalf("expected positive cache entry, got cached=%v tid=%q", cached, tid)
+	}
+
+	// A negative result must also be cached.
+	if got := m.GetTenantByAPIKey("gwaf_bogus"); got != nil {
+		t.Fatalf("expected nil for bad key, got %v", got)
+	}
+	m.apiKeyCacheMu.Lock()
+	negTid, negCached := m.apiKeyCache[fastKeyHash("gwaf_bogus")]
+	m.apiKeyCacheMu.Unlock()
+	if !negCached || negTid != "" {
+		t.Fatalf("expected cached negative result, got cached=%v tid=%q", negCached, negTid)
+	}
+
+	// Regenerating the key must invalidate the cache: old key stops resolving,
+	// new key resolves.
+	newKey, err := m.RegenerateAPIKey(created.ID)
+	if err != nil {
+		t.Fatalf("regen2: %v", err)
+	}
+	if got := m.GetTenantByAPIKey(apiKey); got != nil {
+		t.Fatal("old key must no longer resolve after regeneration")
+	}
+	if got := m.GetTenantByAPIKey(newKey); got == nil || got.ID != created.ID {
+		t.Fatalf("new key must resolve after regeneration: %v", got)
+	}
+
+	// Deleting the tenant must stop resolution.
+	if err := m.DeleteTenant(created.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if got := m.GetTenantByAPIKey(newKey); got != nil {
+		t.Fatal("deleted tenant must not resolve")
+	}
+}
+
 func TestManager_ResolveTenant(t *testing.T) {
 	m := NewManager(10)
 

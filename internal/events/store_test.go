@@ -1937,3 +1937,37 @@ func TestEventBus_DropsEventsForSlowSubscribers(t *testing.T) {
 
 	bus.Close()
 }
+
+func TestMemoryStore_QueryTenantIsolation(t *testing.T) {
+	ms := NewMemoryStore(100)
+	now := time.Now()
+	// Two tenants' events plus one global event.
+	a := makeEvent("a", engine.ActionBlock, 80, "/a", "1.1.1.1", now)
+	a.TenantID = "tenant-a"
+	b := makeEvent("b", engine.ActionBlock, 80, "/b", "2.2.2.2", now)
+	b.TenantID = "tenant-b"
+	g := makeEvent("g", engine.ActionBlock, 80, "/g", "3.3.3.3", now)
+	for _, ev := range []engine.Event{a, b, g} {
+		if err := ms.Store(ev); err != nil {
+			t.Fatalf("store: %v", err)
+		}
+	}
+
+	// A tenant-scoped query must return only that tenant's events.
+	got, _, err := ms.Query(EventFilter{TenantID: "tenant-a"})
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "a" {
+		t.Fatalf("tenant-a query returned %d events %v, want just [a]", len(got), got)
+	}
+
+	// An unscoped query still returns everything.
+	all, _, err := ms.Query(EventFilter{})
+	if err != nil {
+		t.Fatalf("query all: %v", err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("unscoped query returned %d events, want 3", len(all))
+	}
+}

@@ -36,4 +36,5 @@ type EventFilter struct {
 	SortBy      string // "timestamp", "score"
 	SortOrder   string // "asc", "desc"
 	CountryCode string // ISO country code filter
+	TenantID    string // restrict to a single tenant's events (multi-tenant isolation)
 }

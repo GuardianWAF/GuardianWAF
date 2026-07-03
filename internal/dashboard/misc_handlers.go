@@ -37,17 +37,21 @@ func (d *Dashboard) registerAlerting(mux *http.ServeMux) {
 // /api/admin/tenants; these endpoints report disabled explicitly when the
 // tenant manager is not configured instead of looking like missing routes.
 func (d *Dashboard) registerTenantCompatibility(mux *http.ServeMux) {
+	// Cross-tenant provisioning (create/update/delete/config/apikey) requires
+	// the admin key — same gate as /api/admin/tenants — so the ordinary
+	// dashboard key cannot use these compat routes to bypass key separation.
+	// Read-only listing/stats remain available with the dashboard key.
 	mux.HandleFunc("GET /api/v1/tenants", d.authWrap(d.handleTenantListCompat))
-	mux.HandleFunc("POST /api/v1/tenants", d.authWrap(d.handleTenantCreateCompat))
+	mux.HandleFunc("POST /api/v1/tenants", d.adminAuthWrap(d.handleTenantCreateCompat))
 	mux.HandleFunc("GET /api/v1/tenants/usage", d.authWrap(d.handleTenantAllUsageCompat))
 	mux.HandleFunc("GET /api/v1/tenants/{id}", d.authWrap(d.handleTenantGetCompat))
-	mux.HandleFunc("PUT /api/v1/tenants/{id}", d.authWrap(d.handleTenantUpdateCompat))
-	mux.HandleFunc("DELETE /api/v1/tenants/{id}", d.authWrap(d.handleTenantDeleteCompat))
+	mux.HandleFunc("PUT /api/v1/tenants/{id}", d.adminAuthWrap(d.handleTenantUpdateCompat))
+	mux.HandleFunc("DELETE /api/v1/tenants/{id}", d.adminAuthWrap(d.handleTenantDeleteCompat))
 	mux.HandleFunc("GET /api/v1/tenants/{id}/config", d.authWrap(d.handleTenantConfigCompat))
-	mux.HandleFunc("PUT /api/v1/tenants/{id}/config", d.authWrap(d.handleTenantConfigUpdateCompat))
+	mux.HandleFunc("PUT /api/v1/tenants/{id}/config", d.adminAuthWrap(d.handleTenantConfigUpdateCompat))
 	mux.HandleFunc("GET /api/v1/tenants/{id}/stats", d.authWrap(d.handleTenantStatsCompat))
 	mux.HandleFunc("GET /api/v1/tenants/{id}/usage", d.authWrap(d.handleTenantUsageCompat))
-	mux.HandleFunc("POST /api/v1/tenants/{id}/apikey", d.authWrap(d.handleTenantAPIKeyCompat))
+	mux.HandleFunc("POST /api/v1/tenants/{id}/apikey", d.adminAuthWrap(d.handleTenantAPIKeyCompat))
 }
 
 // registerDocker registers Docker auto-discovery routes.
