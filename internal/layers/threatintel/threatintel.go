@@ -9,6 +9,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
@@ -44,10 +45,14 @@ type Layer struct {
 	config      Config
 	ipCache     *Cache
 	domainCache *Cache
-	cidrTree    *ipacl.RadixTree // O(128) CIDR lookup instead of linear scan
-	feeds       []*FeedManager
-	mu          sync.RWMutex
-	started     bool
+	// cidrTree is read on every request and swapped wholesale on feed refresh.
+	// An atomic pointer keeps request-path reads lock-free and guarantees they
+	// never observe a half-rebuilt tree (the new tree is fully built, then
+	// published in one store).
+	cidrTree atomic.Pointer[ipacl.RadixTree]
+	feeds    []*FeedManager
+	mu       sync.RWMutex
+	started  bool
 }
 
 // NewLayer creates a new Threat Intelligence layer.
@@ -66,8 +71,8 @@ func NewLayer(cfg *Config) (*Layer, error) {
 		config:      *cfg,
 		ipCache:     NewCache(cacheSize, cacheTTL),
 		domainCache: NewCache(cacheSize/10, cacheTTL),
-		cidrTree:    ipacl.NewRadixTree(),
 	}
+	l.cidrTree.Store(ipacl.NewRadixTree())
 
 	// Initialize feed managers
 	for i := range cfg.Feeds {
@@ -232,7 +237,7 @@ func (l *Layer) checkIP(ip net.IP) (*ThreatInfo, bool) {
 	}
 
 	// Check CIDR ranges via radix tree — O(128) regardless of entry count
-	if val, ok := l.cidrTree.Lookup(ip); ok {
+	if val, ok := l.cidrTree.Load().Lookup(ip); ok {
 		if info, ok := val.(*ThreatInfo); ok {
 			l.ipCache.Set(ipStr, info)
 			return info, true
@@ -272,8 +277,9 @@ func (l *Layer) updateEntries(entries []ThreatEntry) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	// Rebuild CIDR tree from scratch to evict stale entries
-	l.cidrTree = ipacl.NewRadixTree()
+	// Build the replacement CIDR tree fully before publishing it, so
+	// concurrent request-path readers never observe a half-populated tree.
+	newTree := ipacl.NewRadixTree()
 
 	for _, e := range entries {
 		if e.Info == nil {
@@ -284,12 +290,14 @@ func (l *Layer) updateEntries(entries []ThreatEntry) {
 			l.ipCache.Set(e.IP, e.Info)
 		}
 		if e.CIDR != "" {
-			_ = l.cidrTree.Insert(e.CIDR, e.Info) //nolint:errcheck // #nosec G104 -- in-memory tree insert; cannot fail
+			_ = newTree.Insert(e.CIDR, e.Info) //nolint:errcheck // #nosec G104 -- in-memory tree insert; cannot fail
 		}
 		if e.Domain != "" {
 			l.domainCache.Set(strings.ToLower(e.Domain), e.Info)
 		}
 	}
+
+	l.cidrTree.Store(newTree)
 }
 
 // AddIP manually adds an IP to the threat cache.
@@ -318,7 +326,7 @@ func (l *Layer) Stats() map[string]int {
 	return map[string]int{
 		"ip_cache_size":     l.ipCache.Len(),
 		"domain_cache_size": l.domainCache.Len(),
-		"cidr_entries":      l.cidrTree.Len(),
+		"cidr_entries":      l.cidrTree.Load().Len(),
 	}
 }
 

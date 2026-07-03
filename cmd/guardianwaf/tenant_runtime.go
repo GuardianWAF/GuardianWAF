@@ -19,6 +19,7 @@ func setupTenantRuntime(
 	eng *engine.Engine,
 	dash *dashboard.Dashboard,
 	upstreamHandler *atomic.Value,
+	tenantMWPtr *atomic.Pointer[tenant.Middleware],
 ) (*tenant.Manager, *tenant.Middleware) {
 	if cfg == nil || eng == nil || !cfg.Tenant.Enabled {
 		return nil, nil
@@ -45,6 +46,11 @@ func setupTenantRuntime(
 	tenantMiddleware := tenant.NewMiddleware(tenantManager)
 	if originalHandler := loadHTTPHandler(upstreamHandler); originalHandler != nil {
 		upstreamHandler.Store(tenantMiddleware.Handler(originalHandler))
+	}
+	// Publish the middleware so proxy-rebuild paths (dashboard/Docker) can
+	// re-apply the tenant wrap instead of dropping tenant isolation.
+	if tenantMWPtr != nil {
+		tenantMWPtr.Store(tenantMiddleware)
 	}
 
 	eng.Logs.Infof("Multi-tenant mode enabled (%d tenants configured)", len(cfg.Tenant.Tenants))

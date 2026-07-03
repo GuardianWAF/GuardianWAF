@@ -668,15 +668,13 @@ func TestParse_MappingNonKVBreak(t *testing.T) {
 }
 
 func TestParse_MappingIndentedBreak(t *testing.T) {
-	node, err := Parse([]byte("key: value\n    over: 1\nnext: 2"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if node.Get("key") == nil {
-		t.Error("expected key key")
-	}
-	if node.Get("next") != nil {
-		t.Error("expected mapping to stop before next")
+	// An over-indented key (`over` at indent 4 under a root mapping at 0) is
+	// malformed. The parser must error rather than silently truncate the rest
+	// of the document (which would drop `next` and fall back to defaults — a
+	// fail-open config hazard).
+	_, err := Parse([]byte("key: value\n    over: 1\nnext: 2"))
+	if err == nil {
+		t.Fatal("expected error for unexpected over-indentation")
 	}
 }
 
@@ -772,16 +770,12 @@ func TestParse_BlockSequenceEmptyDashMappingDepthError(t *testing.T) {
 }
 
 func TestParse_LiteralBlockIndentDrop(t *testing.T) {
-	node, err := Parse([]byte("key: |\n  line1\n not_enough"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	v := node.Get("key").String()
-	if !strings.Contains(v, "line1") {
-		t.Errorf("expected line1 in output, got %q", v)
-	}
-	if strings.Contains(v, "not_enough") {
-		t.Error("did not expect not_enough")
+	// After a literal block ends, a trailing line at indent 1 aligns to no
+	// mapping level (root is 0) and is malformed — the parser must error
+	// rather than silently drop it.
+	_, err := Parse([]byte("key: |\n  line1\n not_enough"))
+	if err == nil {
+		t.Fatal("expected error for misaligned line after literal block")
 	}
 }
 
@@ -797,16 +791,11 @@ func TestParse_LiteralBlockKeepSingleLine(t *testing.T) {
 }
 
 func TestParse_FoldedBlockIndentDrop(t *testing.T) {
-	node, err := Parse([]byte("key: >\n  line1\n not_enough"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	v := node.Get("key").String()
-	if !strings.Contains(v, "line1") {
-		t.Errorf("expected line1, got %q", v)
-	}
-	if strings.Contains(v, "not_enough") {
-		t.Error("did not expect not_enough")
+	// As with the literal block, a trailing line at indent 1 after a folded
+	// block aligns to no mapping level and must error, not be dropped.
+	_, err := Parse([]byte("key: >\n  line1\n not_enough"))
+	if err == nil {
+		t.Fatal("expected error for misaligned line after folded block")
 	}
 }
 

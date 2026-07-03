@@ -832,7 +832,7 @@ func TestLayer_WithFeed(t *testing.T) {
 // Cover checkIP with CIDR cache entries.
 func TestCheckIP_CIDRCache(t *testing.T) {
 	layer, _ := NewLayer(&Config{Enabled: true})
-	layer.cidrTree.Insert("10.0.0.0/8", &ThreatInfo{Score: 50, Type: "test"})
+	layer.cidrTree.Load().Insert("10.0.0.0/8", &ThreatInfo{Score: 50, Type: "test"})
 
 	info, ok := layer.checkIP(net.ParseIP("10.1.2.3"))
 	if !ok || info.Score != 50 {

@@ -266,7 +266,7 @@ func TestCheckIP_NonThreatInfoValue_Cov(t *testing.T) {
 
 	// Insert a non-ThreatInfo value into the CIDR tree
 	layer.mu.Lock()
-	layer.cidrTree.Insert("10.0.0.0/8", "not-a-threat-info")
+	layer.cidrTree.Load().Insert("10.0.0.0/8", "not-a-threat-info")
 	layer.mu.Unlock()
 
 	// Should return false since the value is not *ThreatInfo
@@ -451,7 +451,7 @@ func TestLayer_CIDRLookup_Cov(t *testing.T) {
 	layer.mu.Lock()
 	tree := ipacl.NewRadixTree()
 	tree.Insert("172.16.0.0/12", &ThreatInfo{Score: 75, Type: "internal"})
-	layer.cidrTree = tree
+	layer.cidrTree.Store(tree)
 	layer.mu.Unlock()
 
 	info, ok := layer.checkIP(net.ParseIP("172.16.5.5"))

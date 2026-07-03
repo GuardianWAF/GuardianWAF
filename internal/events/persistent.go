@@ -17,14 +17,22 @@ import (
 // PersistentMemoryStore wraps a MemoryStore and replays events from a JSONL
 // file on startup so that recent history survives process restarts.
 // New events are appended to the file so that a subsequent restart can replay them.
+// defaultMaxEventFileBytes bounds the JSONL persistence file. When appends push
+// it past this size the file is compacted down to the in-memory ring buffer
+// (which is itself capped at `capacity`), so attack traffic cannot grow the
+// file without limit and blow up disk / the next-boot replay.
+const defaultMaxEventFileBytes = 100 << 20 // 100 MiB
+
 type PersistentMemoryStore struct {
 	*MemoryStore
-	path    string
-	file    *os.File
-	fileMu  sync.Mutex
-	dropped atomic.Int64
-	closed  bool
-	log     *slog.Logger
+	path         string
+	file         *os.File
+	fileMu       sync.Mutex
+	dropped      atomic.Int64
+	closed       bool
+	fileBytes    int64
+	maxFileBytes int64
+	log          *slog.Logger
 }
 
 // NewPersistentMemoryStore creates a MemoryStore preloaded from path and
@@ -44,9 +52,10 @@ func NewPersistentMemoryStore(capacity int, path string) (*PersistentMemoryStore
 	}
 
 	ps := &PersistentMemoryStore{
-		MemoryStore: ms,
-		path:        path,
-		log:         logging.NewLogger("events"),
+		MemoryStore:  ms,
+		path:         path,
+		maxFileBytes: defaultMaxEventFileBytes,
+		log:          logging.NewLogger("events"),
 	}
 
 	// Replay existing events from file
@@ -61,6 +70,9 @@ func NewPersistentMemoryStore(capacity int, path string) (*PersistentMemoryStore
 		return nil, err
 	}
 	ps.file = f
+	if info, statErr := f.Stat(); statErr == nil {
+		ps.fileBytes = info.Size()
+	}
 
 	return ps, nil
 }
@@ -94,8 +106,53 @@ func (ps *PersistentMemoryStore) Store(event engine.Event) error {
 		ps.log.Warn("failed to write newline to JSONL", "error", werr)
 		return fmt.Errorf("persisting event newline: %w", werr)
 	}
+	ps.fileBytes += int64(len(data)) + 1
 
-	return ps.MemoryStore.Store(event)
+	// Store in the ring buffer before compacting, so compaction sees this event.
+	storeErr := ps.MemoryStore.Store(event)
+
+	if ps.maxFileBytes > 0 && ps.fileBytes > ps.maxFileBytes {
+		if cErr := ps.compactLocked(); cErr != nil {
+			ps.log.Warn("failed to compact event persistence file", "error", cErr)
+		}
+	}
+	return storeErr
+}
+
+// compactLocked rewrites the JSONL file to contain only the events currently in
+// the ring buffer, bounding on-disk size. Caller must hold fileMu and the file
+// must be open.
+func (ps *PersistentMemoryStore) compactLocked() error {
+	// Ring buffer, newest-first; reverse to chronological order for the file.
+	recent, err := ps.MemoryStore.Recent(ps.capacity)
+	if err != nil {
+		return err
+	}
+	for i, j := 0, len(recent)-1; i < j; i, j = i+1, j-1 {
+		recent[i], recent[j] = recent[j], recent[i]
+	}
+
+	// Close the append handle, rewrite atomically, then reopen for append.
+	if err := ps.file.Close(); err != nil {
+		ps.file = nil
+		return err
+	}
+	ps.file = nil
+	if err := ps.rewriteFile(recent); err != nil {
+		return err
+	}
+	// #nosec G304 -- event persistence path is operator-selected, NUL-rejected, and cleaned before use.
+	f, err := os.OpenFile(ps.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return err
+	}
+	ps.file = f
+	if info, statErr := f.Stat(); statErr == nil {
+		ps.fileBytes = info.Size()
+	} else {
+		ps.fileBytes = 0
+	}
+	return nil
 }
 
 // DroppedEvents returns the number of events that could not be appended to the

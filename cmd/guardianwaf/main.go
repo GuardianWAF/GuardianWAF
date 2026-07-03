@@ -28,6 +28,7 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/layers/botdetect"
 	"github.com/guardianwaf/guardianwaf/internal/mcp"
 	"github.com/guardianwaf/guardianwaf/internal/proxy"
+	"github.com/guardianwaf/guardianwaf/internal/tenant"
 )
 
 // Build-time variables set by goreleaser or -ldflags.
@@ -74,8 +75,7 @@ func runMain(args []string) int {
 	case "test-alert":
 		cmdTestAlert(args[2:])
 	case "healthcheck":
-		cmdHealthcheck()
-		return 0
+		return cmdHealthcheck(args[2:])
 	case "setup":
 		cmdSetup(args[2:])
 	case "version":
@@ -112,12 +112,6 @@ Run 'guardianwaf <command> --help' for command-specific options.`)
 // cmdVersion prints version information.
 func cmdVersion() {
 	fmt.Printf("guardianwaf %s (commit: %s, built: %s)\n", version, commit, date)
-}
-
-// cmdHealthcheck performs a health check and prints status.
-func cmdHealthcheck() {
-	// Simple health check - just verify the binary runs
-	fmt.Println("OK")
 }
 
 // cmdSetup provides interactive first-time setup.
@@ -245,6 +239,7 @@ func cmdServe(args []string) {
 	var proxyRuntimeMu sync.RWMutex
 	var alertMgrPtr atomic.Pointer[alerting.Manager]
 	var dockerWatcherPtr atomic.Pointer[dkr.Watcher]
+	var tenantMWPtr atomic.Pointer[tenant.Middleware]
 	var aiAnalyzerPtr atomic.Pointer[ai.Analyzer]
 	upstream, proxyRouter, proxyHealthCheckers := buildProxyRuntime(cfg, standaloneNoUpstreamHandler())
 	registerMetricsHandlerWithDeps(serveMux, eng, metricsDependencies{
@@ -306,7 +301,7 @@ func cmdServe(args []string) {
 			return
 		}
 		dashboardReady.Store(dashSrv != nil && dash != nil)
-		wireDashboardProxyControls(dash, cfg, eng, *configPath, &proxyRouter, &proxyHealthCheckers, &proxyRuntimeMu, &upstreamHandler, diskStore)
+		wireDashboardProxyControls(dash, cfg, eng, *configPath, &proxyRouter, &proxyHealthCheckers, &proxyRuntimeMu, &upstreamHandler, &tenantMWPtr, diskStore)
 		wireDashboardRules(dash, cfg, eng, layerResources)
 	}
 
@@ -319,7 +314,7 @@ func cmdServe(args []string) {
 		eng.Logs.Info("MCP SSE endpoints registered: GET /mcp/sse, POST /mcp/message")
 	}
 
-	tenantManager, tenantMiddleware := setupTenantRuntime(cfg, eng, dash, &upstreamHandler)
+	tenantManager, tenantMiddleware := setupTenantRuntime(cfg, eng, dash, &upstreamHandler, &tenantMWPtr)
 	aiAnalyzer := setupAIRuntime(cfg, eng, eventBus, dash)
 	if aiAnalyzer != nil {
 		aiAnalyzerPtr.Store(aiAnalyzer)

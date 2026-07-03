@@ -12,6 +12,32 @@ import (
 	"testing"
 )
 
+// TestHeaderFloodKeepsPriorityHeaders guards against a detector-evasion where
+// an attacker pads the request with junk headers to push an attack-bearing
+// header (e.g. Referer) out of the capped, previously map-order-dependent
+// header copy. The priority header must always be inspected.
+func TestHeaderFloodKeepsPriorityHeaders(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "10.0.0.1:1234"
+	r.Header.Set("Referer", "' OR 1=1--")
+	for i := range 500 {
+		r.Header.Set("X-Junk-"+strings.Repeat("a", 1)+string(rune('A'+i%26))+string(rune('0'+i%10))+string(rune('0'+(i/10)%10)), "x")
+	}
+
+	for range 20 { // repeat: previously the kept subset varied with map order
+		ctx := AcquireContext(r, 1, 1024)
+		if got := ctx.Headers["Referer"]; len(got) == 0 || got[0] != "' OR 1=1--" {
+			ReleaseContext(ctx)
+			t.Fatalf("Referer header dropped under header flood; got %v", got)
+		}
+		if len(ctx.Headers) > maxInspectedHeaders {
+			ReleaseContext(ctx)
+			t.Fatalf("header count %d exceeds cap %d", len(ctx.Headers), maxInspectedHeaders)
+		}
+		ReleaseContext(ctx)
+	}
+}
+
 // TestSemicolonQueryParamsRecovered guards against a query-parsing evasion:
 // net/url.Query() (Go 1.17+) silently drops every key/value pair when the raw
 // query contains a ';'. AcquireContext must recover those pairs so detectors

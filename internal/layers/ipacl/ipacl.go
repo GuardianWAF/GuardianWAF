@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -348,12 +349,42 @@ func (l *Layer) SaveBans(path string) {
 	if err != nil {
 		return
 	}
-	if dir := filepath.Dir(cleanPath); dir != "" && dir != "." {
+	dir := filepath.Dir(cleanPath)
+	if dir != "" && dir != "." {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
+			slog.Warn("ipacl: failed to create auto-ban persist dir", "path", dir, "error", err)
 			return
 		}
 	}
-	_ = os.WriteFile(cleanPath, data, 0600) //nolint:errcheck // #nosec G104 -- best-effort persistence; error already handled above via json.Marshal check
+	// Atomic write (temp + rename): a crash mid-write must not corrupt the ban
+	// file, since LoadBans silently discards an unparseable file (losing all
+	// bans on restart).
+	tmp, err := os.CreateTemp(dir, ".autoban-*.tmp")
+	if err != nil {
+		slog.Warn("ipacl: failed to create auto-ban temp file", "error", err)
+		return
+	}
+	tmpName := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+		slog.Warn("ipacl: failed to write auto-ban state", "error", err)
+		return
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		slog.Warn("ipacl: failed to close auto-ban temp file", "error", err)
+		return
+	}
+	if err := os.Chmod(tmpName, 0o600); err != nil {
+		_ = os.Remove(tmpName)
+		slog.Warn("ipacl: failed to chmod auto-ban temp file", "error", err)
+		return
+	}
+	if err := os.Rename(tmpName, cleanPath); err != nil {
+		_ = os.Remove(tmpName)
+		slog.Warn("ipacl: failed to persist auto-ban state", "path", cleanPath, "error", err)
+	}
 }
 
 // LoadBans loads persisted bans from a JSON file.

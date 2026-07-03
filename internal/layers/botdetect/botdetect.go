@@ -101,6 +101,15 @@ func (l *Layer) Name() string {
 // Order returns the execution order.
 func (l *Layer) Order() int { return engine.OrderBotDetect }
 
+// Cleanup evicts stale behavioral trackers so the tracker map does not grow
+// without bound over long uptimes. Safe to call when behavioral analysis is
+// disabled (the manager is nil).
+func (l *Layer) Cleanup() {
+	if l.behavior != nil {
+		l.behavior.Cleanup()
+	}
+}
+
 // snapshotConfig returns a copy of the current config under RLock.
 func (l *Layer) snapshotConfig() Config {
 	l.mu.RLock()

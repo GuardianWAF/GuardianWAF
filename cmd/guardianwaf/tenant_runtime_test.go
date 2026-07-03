@@ -59,7 +59,7 @@ func TestSetupTenantRuntimeDisabled(t *testing.T) {
 	})
 	upstream.Store(baseHandler)
 
-	tenantManager, tenantMiddleware := setupTenantRuntime(cfg, nil, nil, &upstream)
+	tenantManager, tenantMiddleware := setupTenantRuntime(cfg, nil, nil, &upstream, nil)
 	if tenantManager != nil || tenantMiddleware != nil {
 		t.Fatalf("disabled tenant runtime returned manager=%v middleware=%v", tenantManager, tenantMiddleware)
 	}
@@ -100,7 +100,7 @@ func TestSetupTenantRuntimeCreatesManagerAndWrapsHandler(t *testing.T) {
 		w.WriteHeader(http.StatusAccepted)
 	}))
 
-	tenantManager, tenantMiddleware := setupTenantRuntime(cfg, eng, nil, &upstream)
+	tenantManager, tenantMiddleware := setupTenantRuntime(cfg, eng, nil, &upstream, nil)
 	if tenantManager == nil {
 		t.Fatal("expected tenant manager")
 	}

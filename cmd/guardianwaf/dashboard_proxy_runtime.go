@@ -11,6 +11,7 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/layers/rules"
 	"github.com/guardianwaf/guardianwaf/internal/proxy"
+	"github.com/guardianwaf/guardianwaf/internal/tenant"
 )
 
 type certStatusProvider interface {
@@ -26,6 +27,7 @@ func wireDashboardProxyControls(
 	proxyHealthCheckers *[]*proxy.HealthChecker,
 	proxyRuntimeMu *sync.RWMutex,
 	upstreamHandler *atomic.Value,
+	tenantMW *atomic.Pointer[tenant.Middleware],
 	diskStore certStatusProvider,
 ) {
 	if dash == nil {
@@ -55,7 +57,16 @@ func wireDashboardProxyControls(
 			proxyRuntimeMu.Unlock()
 
 			wireDashboardUpstreamStatus(dash, newRouter)
-			upstreamHandler.Store(eng.Middleware(newHandler))
+			// Re-apply the tenant middleware wrap so a dashboard-triggered
+			// rebuild does not silently drop tenant resolution/isolation
+			// (matching the startup and Docker rebuild paths).
+			wrapped := eng.Middleware(newHandler)
+			if tenantMW != nil {
+				if mw := tenantMW.Load(); mw != nil {
+					wrapped = mw.Handler(wrapped)
+				}
+			}
+			upstreamHandler.Store(wrapped)
 			stopHealthCheckers(oldHealthCheckers)
 			closeProxyRouter(oldRouter)
 			return nil

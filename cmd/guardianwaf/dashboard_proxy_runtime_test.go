@@ -149,6 +149,7 @@ func TestDashboardRoutingRebuildUsesReloadedConfigAndDrainsActiveTraffic(t *test
 		&proxyRuntimeMu,
 		&upstreamHandler,
 		nil,
+		nil,
 	)
 
 	oldRespCh := make(chan string, 1)

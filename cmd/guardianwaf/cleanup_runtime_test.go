@@ -77,12 +77,14 @@ func TestRunPeriodicCleanupCallsSupportedCleaners(t *testing.T) {
 
 	rateLimitLayer := &staleCleanupLayer{cleanupTestLayer: cleanupTestLayer{name: "ratelimit"}}
 	ipaclLayer := &expiryCleanupLayer{cleanupTestLayer: cleanupTestLayer{name: "ipacl"}}
-	atoLayer := &simpleCleanupLayer{cleanupTestLayer: cleanupTestLayer{name: "ato"}}
+	atoLayer := &simpleCleanupLayer{cleanupTestLayer: cleanupTestLayer{name: "ato_protection"}}
+	botLayer := &simpleCleanupLayer{cleanupTestLayer: cleanupTestLayer{name: "botdetect"}}
 	tenantCleaner := &tenantCleanupRecorder{}
 
 	eng.AddLayer(engine.OrderedLayer{Layer: rateLimitLayer, Order: engine.OrderRateLimit})
 	eng.AddLayer(engine.OrderedLayer{Layer: ipaclLayer, Order: engine.OrderIPACL})
 	eng.AddLayer(engine.OrderedLayer{Layer: atoLayer, Order: engine.OrderATO})
+	eng.AddLayer(engine.OrderedLayer{Layer: botLayer, Order: engine.OrderBotDetect})
 
 	runPeriodicCleanup(eng, tenantCleaner)
 
@@ -94,6 +96,9 @@ func TestRunPeriodicCleanupCallsSupportedCleaners(t *testing.T) {
 	}
 	if atoLayer.called.Load() != 1 {
 		t.Fatalf("ato cleanup called=%d", atoLayer.called.Load())
+	}
+	if botLayer.called.Load() != 1 {
+		t.Fatalf("botdetect cleanup called=%d", botLayer.called.Load())
 	}
 	if tenantCleaner.called.Load() != 1 || tenantCleaner.age != cleanupMaxAge {
 		t.Fatalf("tenant cleanup called=%d age=%s", tenantCleaner.called.Load(), tenantCleaner.age)

@@ -348,11 +348,22 @@ func (e *Engine) storeAndPublish(event Event) {
 // Check processes an HTTP request through the WAF pipeline.
 // Returns an Event describing the outcome. Check is a dry-run scorer: unlike
 // Middleware it does not apply per-tenant config overrides or write a response.
-func (e *Engine) Check(r *http.Request) *Event {
+func (e *Engine) Check(r *http.Request) (ev *Event) {
 	// Acquire context from pool
 	ctx := AcquireContext(r, int(e.paranoiaLevel.Load()), e.maxBodySize.Load())
 	ctx.ClientIP = e.extractClientIP(r)
 	defer ReleaseContext(ctx)
+
+	// Panic recovery — mirror Middleware so crafted input cannot crash a
+	// library caller or the `check` CLI. A panicking pipeline fails closed to
+	// a block verdict.
+	defer func() {
+		if rv := recover(); rv != nil {
+			e.Logs.ErrorWithStack(fmt.Sprintf("PANIC recovered in WAF Check: %v", rv))
+			blocked := Event{Action: ActionBlock, Score: int(e.blockThreshold.Load())}
+			ev = &blocked
+		}
+	}()
 
 	if span := e.startRootSpan(ctx, r); span != nil {
 		defer span.End()

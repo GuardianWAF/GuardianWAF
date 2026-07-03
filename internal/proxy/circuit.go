@@ -109,9 +109,20 @@ func (cb *CircuitBreaker) RecordSuccess() {
 
 // RecordFailure records a failed request. May open the circuit if threshold is reached.
 func (cb *CircuitBreaker) RecordFailure() {
-	failures := cb.failures.Add(1)
 	cb.lastFailure.Store(time.Now())
 
+	// A failed probe while half-open means the target is still unhealthy. Reopen
+	// immediately (rather than requiring another `threshold` failures, which the
+	// half-open state can never accumulate because it admits only one probe) so
+	// the reset-timeout half-open cycle can retry later instead of wedging in
+	// half-open and rejecting every request forever.
+	if CircuitState(cb.state.Load()) == CircuitHalfOpen {
+		cb.failures.Store(cb.threshold)
+		cb.state.Store(int32(CircuitOpen))
+		return
+	}
+
+	failures := cb.failures.Add(1)
 	if failures >= cb.threshold {
 		cb.state.Store(int32(CircuitOpen))
 	}

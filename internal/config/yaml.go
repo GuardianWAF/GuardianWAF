@@ -290,8 +290,15 @@ func (p *parser) parseMapping(indent, depth int) (*Node, error) {
 			node.MapItems[key] = child
 
 		} else if lineIndent > indent {
-			// Indented beyond our level — stop, parent handles this
-			break
+			// A line indented beyond the current mapping level that was not
+			// consumed as a key's nested value is a malformed indent. Erroring
+			// here (rather than breaking) prevents silently truncating the rest
+			// of the document — a single over-indented key must not cause every
+			// following key to be dropped and replaced by defaults.
+			return nil, &ParseError{
+				Line:    p.lineNum(),
+				Message: fmt.Sprintf("unexpected indentation: line is indented %d spaces, deeper than the enclosing mapping at %d", lineIndent, indent),
+			}
 		}
 	}
 

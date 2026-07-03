@@ -431,9 +431,18 @@ func downloadDB(downloadURL, path string) error {
 		}
 	}
 
-	f, err := os.Create(cleanPath) // #nosec G304 -- target is operator-provided GeoIP cache state, rejected on empty/NUL and cleaned before write.
+	// Download to a temp file and rename into place, so a mid-stream failure
+	// cannot truncate the existing DB. A truncated file with a fresh mtime
+	// would otherwise be loaded as "current" on the next restart, silently
+	// collapsing GeoIP coverage.
+	f, err := os.CreateTemp(filepath.Dir(cleanPath), "."+filepath.Base(cleanPath)+".tmp-*") // #nosec G304 -- temp file in the operator-provided GeoIP cache dir.
 	if err != nil {
 		return err
+	}
+	tmpName := f.Name()
+	cleanupTmp := func() {
+		_ = f.Close()
+		_ = os.Remove(tmpName)
 	}
 
 	// Limit download to prevent disk exhaustion.
@@ -443,19 +452,30 @@ func downloadDB(downloadURL, path string) error {
 	if strings.HasSuffix(downloadURL, ".gz") || strings.Contains(resp.Header.Get("Content-Type"), "gzip") {
 		gz, gzErr := gzip.NewReader(reader)
 		if gzErr != nil {
-			f.Close() // #nosec G104 -- best-effort close; gzip decode error is the primary failure
+			cleanupTmp()
 			return fmt.Errorf("gzip decode: %w", gzErr)
 		}
 		defer gz.Close() // #nosec G104 -- best-effort gzip close; error not actionable
 		reader = limitGeoIPDownloadReader(gz, maxGeoIPDownloadSize)
 	}
 
-	_, copyErr := io.Copy(f, reader)
-	closeErr := f.Close()
-	if copyErr != nil {
+	if _, copyErr := io.Copy(f, reader); copyErr != nil {
+		cleanupTmp()
 		return copyErr
 	}
-	return closeErr
+	if err := f.Chmod(0o600); err != nil {
+		cleanupTmp()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	if err := os.Rename(tmpName, cleanPath); err != nil {
+		_ = os.Remove(tmpName)
+		return err
+	}
+	return nil
 }
 
 type geoIPDownloadLimitReader struct {

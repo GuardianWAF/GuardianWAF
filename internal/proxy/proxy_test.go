@@ -2,8 +2,10 @@ package proxy
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -638,6 +640,86 @@ func TestCircuitBreakerHalfOpenFailure(t *testing.T) {
 	cb.RecordFailure()
 	if cb.State() != CircuitOpen {
 		t.Errorf("expected open after failures in half-open, got %s", cb.State())
+	}
+}
+
+func TestRouterFailoverReplaysRequestBody(t *testing.T) {
+	// A live backend that echoes the request body it received.
+	var gotBody string
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	// A dead backend (closed listener) that the first attempt will fail on.
+	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	deadURL := dead.URL
+	dead.Close()
+
+	deadTarget, err := NewTarget(deadURL, 1)
+	if err != nil {
+		t.Fatalf("dead target: %v", err)
+	}
+	liveTarget, err := NewTarget(backend.URL, 1)
+	if err != nil {
+		t.Fatalf("live target: %v", err)
+	}
+
+	// Round-robin balancer: dead target is first, live target second.
+	bal := NewBalancer([]*Target{deadTarget, liveTarget}, "round_robin")
+	rt := NewRouter([]Route{{PathPrefix: "/", Balancer: bal}})
+
+	const payload = "user=admin&cmd=whoami"
+	req := httptest.NewRequest("POST", "/submit", strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	rt.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 after failover, got %d", w.Code)
+	}
+	if gotBody != payload {
+		t.Fatalf("failover backend received body %q, want %q (body not replayed)", gotBody, payload)
+	}
+}
+
+func TestCircuitBreakerHalfOpenFailureReopensAndRecovers(t *testing.T) {
+	cb := NewCircuitBreaker(CircuitConfig{Threshold: 5, ResetTimeout: 20 * time.Millisecond})
+
+	// Open the circuit.
+	for range 5 {
+		cb.RecordFailure()
+	}
+	if cb.State() != CircuitOpen {
+		t.Fatalf("expected open, got %s", cb.State())
+	}
+
+	// After the reset timeout, one probe is admitted (half-open).
+	time.Sleep(30 * time.Millisecond)
+	if !cb.Allow() {
+		t.Fatal("expected probe to be admitted after reset timeout")
+	}
+	if cb.State() != CircuitHalfOpen {
+		t.Fatalf("expected half-open, got %s", cb.State())
+	}
+
+	// A single failed probe must reopen the circuit (not wedge in half-open).
+	cb.RecordFailure()
+	if cb.State() != CircuitOpen {
+		t.Fatalf("expected reopen after failed probe, got %s", cb.State())
+	}
+
+	// The reset cycle must resume: after the timeout, another probe is admitted
+	// and a success closes the circuit.
+	time.Sleep(30 * time.Millisecond)
+	if !cb.Allow() {
+		t.Fatal("expected a new probe to be admitted after reopen (circuit wedged)")
+	}
+	cb.RecordSuccess()
+	if cb.State() != CircuitClosed {
+		t.Fatalf("expected closed after successful probe, got %s", cb.State())
 	}
 }
 

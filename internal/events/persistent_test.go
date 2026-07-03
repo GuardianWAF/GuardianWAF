@@ -77,6 +77,54 @@ func TestPersistentMemoryStore_Truncation(t *testing.T) {
 	}
 }
 
+func TestPersistentMemoryStore_RuntimeCompaction(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "events.jsonl")
+
+	ps, err := NewPersistentMemoryStore(5, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Force compaction after a tiny amount of data.
+	ps.fileMu.Lock()
+	ps.maxFileBytes = 256
+	ps.fileMu.Unlock()
+
+	for i := range 200 {
+		if err := ps.Store(engine.Event{ID: string(rune('A' + i%26)), Score: i}); err != nil {
+			t.Fatalf("store: %v", err)
+		}
+	}
+
+	// The file must have been compacted well below what 200 appends would
+	// produce, and bounded near the ring-buffer contents (capacity 5).
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() > 4096 {
+		t.Fatalf("expected compacted file, got %d bytes", info.Size())
+	}
+	ps.Close()
+
+	// Reload: only the last `capacity` events survive, in order.
+	ps2, err := NewPersistentMemoryStore(5, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ps2.Close()
+	recent, err := ps2.Recent(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recent) != 5 {
+		t.Fatalf("expected 5 events after compaction+reload, got %d", len(recent))
+	}
+	if recent[0].Score != 199 {
+		t.Fatalf("most recent Score = %d, want 199", recent[0].Score)
+	}
+}
+
 func TestPersistentMemoryStore_RewriteFileReturnsCommitError(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "events-dir")

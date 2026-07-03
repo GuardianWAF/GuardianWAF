@@ -78,8 +78,13 @@ func runPeriodicCleanup(eng *engine.Engine, tenantManager any) {
 			c.CleanupExpired()
 		}
 	}
-	if atoL := eng.FindLayer("ato"); atoL != nil {
+	if atoL := eng.FindLayer("ato_protection"); atoL != nil {
 		if c, ok := atoL.(simpleCleaner); ok {
+			c.Cleanup()
+		}
+	}
+	if bot := eng.FindLayer("botdetect"); bot != nil {
+		if c, ok := bot.(simpleCleaner); ok {
 			c.Cleanup()
 		}
 	}

@@ -228,16 +228,12 @@ func AcquireContext(r *http.Request, paranoiaLevel int, maxBodySize int64) *Requ
 		recoverDroppedQueryParams(ctx.QueryParams, r.URL.RawQuery)
 	}
 
-	// Headers — limit to prevent memory exhaustion from excessive header injection
-	ctx.Headers = make(map[string][]string, min(len(r.Header), 100))
-	for k, v := range r.Header {
-		if len(ctx.Headers) >= 100 {
-			break // Excessive headers — stop processing to prevent resource exhaustion
-		}
-		cp := make([]string, len(v))
-		copy(cp, v)
-		ctx.Headers[k] = cp
-	}
+	// Headers — cap the count to prevent memory exhaustion from header flooding.
+	// The selection is deterministic (not dependent on Go's randomized map
+	// iteration order) and always keeps security-relevant headers first, so an
+	// attacker cannot push an attack-bearing header (e.g. Referer, User-Agent)
+	// out of inspection by padding the request with junk headers.
+	copyHeaders(ctx, r.Header)
 
 	// Cookies
 	cookies := r.Cookies()
@@ -316,6 +312,79 @@ func AcquireContext(r *http.Request, paranoiaLevel int, maxBodySize int64) *Requ
 	ctx.Metadata = make(map[string]any)
 
 	return ctx
+}
+
+// maxInspectedHeaders bounds how many headers are copied for inspection. Most
+// legitimate requests carry far fewer; the cap defends against header-flood
+// memory exhaustion.
+const maxInspectedHeaders = 150
+
+// priorityHeaders are always inspected first (in canonical form), so a
+// header-flood cannot evict a header that commonly carries attack payloads.
+var priorityHeaders = []string{
+	"User-Agent",
+	"Referer",
+	"Cookie",
+	"Authorization",
+	"Content-Type",
+	"Content-Disposition",
+	"Origin",
+	"Host",
+	"X-Forwarded-For",
+	"X-Forwarded-Host",
+	"X-Real-Ip",
+	"X-Api-Key",
+	"X-Requested-With",
+	"Accept",
+	"Accept-Language",
+	"Accept-Encoding",
+	"Range",
+	"X-Csrf-Token",
+}
+
+// copyHeaders copies request headers into ctx.Headers with a deterministic,
+// security-prioritized selection bounded by maxInspectedHeaders.
+func copyHeaders(ctx *RequestContext, h http.Header) {
+	ctx.Headers = make(map[string][]string, min(len(h), maxInspectedHeaders))
+
+	add := func(k string, v []string) {
+		if _, exists := ctx.Headers[k]; exists {
+			return
+		}
+		cp := make([]string, len(v))
+		copy(cp, v)
+		ctx.Headers[k] = cp
+	}
+
+	// 1. Always inspect priority headers when present.
+	for _, k := range priorityHeaders {
+		if len(ctx.Headers) >= maxInspectedHeaders {
+			return
+		}
+		if v, ok := h[k]; ok {
+			add(k, v)
+		}
+	}
+
+	// 2. Fill the remaining budget deterministically (sorted key order) so the
+	// selection never depends on Go's randomized map iteration.
+	if len(ctx.Headers) >= maxInspectedHeaders {
+		return
+	}
+	keys := make([]string, 0, len(h))
+	for k := range h {
+		if _, exists := ctx.Headers[k]; exists {
+			continue
+		}
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	for _, k := range keys {
+		if len(ctx.Headers) >= maxInspectedHeaders {
+			return
+		}
+		add(k, h[k])
+	}
 }
 
 // ReleaseContext resets all fields on the RequestContext and returns it to the pool.

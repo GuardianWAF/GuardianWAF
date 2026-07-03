@@ -1,6 +1,8 @@
 package proxy
 
 import (
+	"bytes"
+	"io"
 	"net/http"
 	"path"
 	"sort"
@@ -11,6 +13,11 @@ import (
 )
 
 const maxRetries = 2
+
+// maxRetryBodyBytes bounds how large a request body may be to buffer it for
+// cross-target failover retries. Bodies larger than this are proxied once
+// (streamed) without retry, so a large upload cannot be buffered into memory.
+const maxRetryBodyBytes = 1 << 20 // 1 MiB
 
 // Route maps a path prefix to a load balancer with optional prefix stripping.
 type Route struct {
@@ -105,6 +112,27 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			stripPrefix = route.PathPrefix
 		}
 
+		// Buffer a bounded request body so a cross-target retry can replay it —
+		// the first attempt drains r.Body, so without this a failover would send
+		// an empty body upstream. Oversized/unknown-length bodies are streamed
+		// once without retry rather than buffered into memory.
+		var replayBody []byte
+		canReplayBody := false
+		if route.Balancer.Len() > 1 && r.Body != nil && r.Body != http.NoBody &&
+			r.ContentLength >= 0 && r.ContentLength <= maxRetryBodyBytes {
+			buf, err := io.ReadAll(io.LimitReader(r.Body, maxRetryBodyBytes))
+			_ = r.Body.Close()
+			if err == nil {
+				replayBody = buf
+				canReplayBody = true
+				r.Body = io.NopCloser(bytes.NewReader(replayBody))
+			} else {
+				// Reading failed; give downstream an empty body rather than a
+				// half-consumed stream.
+				r.Body = io.NopCloser(bytes.NewReader(nil))
+			}
+		}
+
 		// Send to first target; retry on proxy error (502) if more targets exist.
 		proxyErr := target.ServeHTTP(w, r, stripPrefix)
 		if proxyErr == nil || route.Balancer.Len() <= 1 {
@@ -123,6 +151,11 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				continue // skip already-tried target
 			}
 			tried[nextURL] = true
+			// Replay the buffered body for this attempt (the previous attempt
+			// consumed the reader).
+			if canReplayBody {
+				r.Body = io.NopCloser(bytes.NewReader(replayBody))
+			}
 			if next.ServeHTTP(w, r, stripPrefix) == nil {
 				return
 			}
