@@ -1,8 +1,13 @@
 package ipacl
 
 import (
+	"os"
+	"path/filepath"
 	"net"
 	"testing"
+	"time"
+
+	"github.com/guardianwaf/guardianwaf/internal/engine"
 )
 
 // TestWalk_NilNode covers the node==nil guard in walk.
@@ -81,5 +86,77 @@ func TestRadixTree_Lookup_IPv6Bare(t *testing.T) {
 	val, ok := rt.Lookup(ip)
 	if !ok || val != "block" {
 		t.Errorf("expected IPv6 lookup to succeed")
+	}
+}
+
+func TestIPACL_Order(t *testing.T) {
+	layer, err := NewLayer(&Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if layer.Order() != engine.OrderIPACL {
+		t.Fatalf("expected order %d, got %d", engine.OrderIPACL, layer.Order())
+	}
+}
+
+func TestPersistLoop_FlushesOnTicker(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bans.json")
+
+	layer, err := NewLayer(&Config{
+		Enabled: true,
+		AutoBan: AutoBanConfig{
+			Enabled:         true,
+			PersistPath:     path,
+			PersistInterval: 10 * time.Millisecond,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer layer.Stop()
+
+	layer.AddAutoBan("7.7.7.7", "ticker", time.Hour)
+
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		data, err := os.ReadFile(path)
+		if err == nil && len(data) > 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatalf("expected persist loop to flush %s", path)
+}
+
+func TestSaveBans_InvalidPersistPathIsIgnored(t *testing.T) {
+	layer, err := NewLayer(&Config{Enabled: true, AutoBan: AutoBanConfig{Enabled: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	layer.AddAutoBan("1.2.3.4", "test", time.Hour)
+
+	layer.SaveBans("bad\x00path.json")
+}
+
+func TestSaveBans_MkdirAllFailureLeavesNoFile(t *testing.T) {
+	base := t.TempDir()
+	blocker := filepath.Join(base, "blocker")
+	if err := os.WriteFile(blocker, []byte("file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(blocker, "nested", "bans.json")
+
+	layer, err := NewLayer(&Config{Enabled: true, AutoBan: AutoBanConfig{Enabled: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	layer.AddAutoBan("1.2.3.4", "test", time.Hour)
+
+	layer.SaveBans(path)
+
+	if _, err := os.Stat(path); err == nil {
+		t.Fatalf("expected no persisted file when mkdir fails")
 	}
 }
