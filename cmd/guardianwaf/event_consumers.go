@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log/slog"
 	"sync"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
@@ -18,7 +19,7 @@ func startEventConsumer(eventBus *events.EventBus, wg *sync.WaitGroup, buffer in
 		defer wg.Done()
 		defer func() {
 			if r := recover(); r != nil {
-				_ = r // nolint:errcheck // panic value intentionally discarded; recoverable goroutine
+				slog.Default().Error("event consumer panic recovered", "panic", r)
 			}
 		}()
 		for event := range ch {

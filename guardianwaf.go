@@ -27,6 +27,7 @@ package guardianwaf
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -329,7 +330,7 @@ func (e *Engine) OnEvent(fn func(Event)) {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				_ = r // nolint:errcheck // panic value intentionally discarded; recoverable goroutine
+				slog.Default().Error("GuardianWAF event callback panic recovered", "panic", r)
 			}
 		}()
 		for event := range ch {
