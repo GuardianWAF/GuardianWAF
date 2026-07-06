@@ -2,6 +2,7 @@ package sanitizer
 
 import (
 	"testing"
+	"unicode/utf8"
 )
 
 func TestDecodeURLRecursive_SingleEncoding(t *testing.T) {
@@ -663,5 +664,11 @@ func TestDecodeHTMLEntities_NumericEntityLargeValue(t *testing.T) {
 	got := DecodeHTMLEntities("&#8364;")
 	if got != "\u20AC" {
 		t.Errorf("DecodeHTMLEntities(%q) = %q, want %q", "&#8364;", got, "\u20AC")
+	}
+}
+
+func TestEntityRune_OutOfRange(t *testing.T) {
+	if got := entityRune(utf8.MaxRune + 1); got != utf8.RuneError {
+		t.Errorf("entityRune(out of range) = %q, want %q", got, utf8.RuneError)
 	}
 }
