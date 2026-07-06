@@ -351,8 +351,8 @@ func (l *Layer) SaveBans(path string) {
 	}
 	dir := filepath.Dir(cleanPath)
 	if dir != "" && dir != "." {
-		if err := os.MkdirAll(dir, 0o700); err != nil {
-			slog.Warn("ipacl: failed to create auto-ban persist dir", "path", dir, "error", err)
+		if mkdirErr := os.MkdirAll(dir, 0o700); mkdirErr != nil {
+			slog.Warn("ipacl: failed to create auto-ban persist dir", "path", dir, "error", mkdirErr)
 			return
 		}
 	}

@@ -50,8 +50,9 @@ LABEL org.opencontainers.image.title="GuardianWAF" \
       org.opencontainers.image.vendor="GuardianWAF" \
       org.opencontainers.image.version="${IMAGE_VERSION}"
 
-# Install runtime dependencies
-RUN apk add --no-cache ca-certificates tzdata && \
+# Install runtime dependencies and apply security updates from the Alpine repository.
+RUN apk upgrade --no-cache && \
+    apk add --no-cache ca-certificates tzdata && \
     adduser -D -H -s /sbin/nologin guardianwaf && \
     mkdir -p /var/lib/guardianwaf/ai /var/log/guardianwaf /etc/guardianwaf && \
     chown -R guardianwaf:guardianwaf /var/lib/guardianwaf /var/log/guardianwaf

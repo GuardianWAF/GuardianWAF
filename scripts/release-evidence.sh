@@ -25,8 +25,16 @@ run_step() {
         echo "timestamp_utc=$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
         echo "command=$*"
         echo
-        "$@"
-    } >"${log}" 2>&1
+    } >"${log}"
+
+    set +e
+    "$@" 2>&1 | tee -a "${log}"
+    local status=${PIPESTATUS[0]}
+    set -e
+    if [ "${status}" -ne 0 ]; then
+        echo "::error::release evidence step '${name}' failed; see ${log}" >&2
+        return "${status}"
+    fi
 }
 
 record_pending() {

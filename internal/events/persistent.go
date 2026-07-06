@@ -133,13 +133,13 @@ func (ps *PersistentMemoryStore) compactLocked() error {
 	}
 
 	// Close the append handle, rewrite atomically, then reopen for append.
-	if err := ps.file.Close(); err != nil {
+	if closeErr := ps.file.Close(); closeErr != nil {
 		ps.file = nil
-		return err
+		return closeErr
 	}
 	ps.file = nil
-	if err := ps.rewriteFile(recent); err != nil {
-		return err
+	if rewriteErr := ps.rewriteFile(recent); rewriteErr != nil {
+		return rewriteErr
 	}
 	// #nosec G304 -- event persistence path is operator-selected, NUL-rejected, and cleaned before use.
 	f, err := os.OpenFile(ps.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
