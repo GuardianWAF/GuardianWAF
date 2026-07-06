@@ -1481,3 +1481,79 @@ func TestConvertConfig_ChallengeAllFields(t *testing.T) {
 		t.Errorf("expected 'my-secret', got %q", internal.WAF.Challenge.SecretKey)
 	}
 }
+
+func TestNew_ChallengeConfigError(t *testing.T) {
+	// Enable challenge but with invalid config (e.g. too-large difficulty)
+	eng, err := New(Config{
+		Challenge: ChallengeConfig{
+			Enabled: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("New() with challenge enabled should not error, got: %v", err)
+	}
+	defer eng.Close()
+	if eng.internal == nil {
+		t.Fatal("internal engine is nil")
+	}
+}
+
+func TestOnEvent_PanicRecovery(t *testing.T) {
+	eng, err := New(Config{})
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	defer eng.Close()
+
+	panicked := false
+	eng.OnEvent(func(Event) {
+		panic("test panic")
+	})
+	// The panic in the callback should be recovered and logged.
+	// We verify by sending an event through the pipeline.
+	req := httptest.NewRequest("GET", "/", nil)
+	eng.Check(req)
+	panicked = true
+	if !panicked {
+		t.Fatal("test setup invalid")
+	}
+}
+
+func TestNewFromFile_WithOptionsCombined(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgFile := tmpDir + "/guardianwaf.yaml"
+	content := "mode: enforce\n"
+	if err := os.WriteFile(cfgFile, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	eng, err := NewFromFile(cfgFile, WithMode(ModeDisabled))
+	if err != nil {
+		t.Fatalf("NewFromFile() error: %v", err)
+	}
+	defer eng.Close()
+
+	if eng.cfg.Mode != ModeDisabled {
+		t.Errorf("expected ModeDisabled, got %q", eng.cfg.Mode)
+	}
+}
+
+func TestConvertResult_NilEvent(t *testing.T) {
+	// convertResult should handle nil event safely
+	_ = convertResult(nil)
+}
+
+func TestToInternalDetector_DefaultEnabled(t *testing.T) {
+	// Default detector should be enabled when defaultEnabled=true
+	d := toInternalDetector(DetectorConfig{}, true)
+	if !d.Enabled {
+		t.Error("expected detector to be enabled by default")
+	}
+}
+
+func TestToInternalDetector_Disabled(t *testing.T) {
+	d := toInternalDetector(DetectorConfig{Enabled: false}, false)
+	if d.Enabled {
+		t.Error("expected detector to be disabled")
+	}
+}

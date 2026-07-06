@@ -472,8 +472,9 @@ func TestAnalyticsEndpoints(t *testing.T) {
 	d := newTestDashboard(t, "k")
 	now := time.Now()
 	for _, evt := range []engine.Event{
-		{ID: "evt-1", Timestamp: now, ClientIP: "192.0.2.10", Path: "/login", Action: engine.ActionBlock, Score: 90},
-		{ID: "evt-2", Timestamp: now, ClientIP: "192.0.2.11", Path: "/api", Action: engine.ActionPass, Score: 0},
+		{ID: "evt-1", Timestamp: now, ClientIP: "192.0.2.10", Path: "/login", Action: engine.ActionBlock, Score: 90, CountryCode: "US"},
+		{ID: "evt-2", Timestamp: now.Add(-2 * time.Hour), ClientIP: "192.0.2.11", Path: "/api", Action: engine.ActionPass, Score: 0, CountryName: "Canada"},
+		{ID: "evt-3", Timestamp: now.Add(-26 * time.Hour), ClientIP: "192.0.2.12", Path: "/reports", Action: engine.ActionLog, Score: 60},
 	} {
 		if err := d.eventStore.Store(evt); err != nil {
 			t.Fatalf("store event: %v", err)
@@ -488,6 +489,13 @@ func TestAnalyticsEndpoints(t *testing.T) {
 		{"/api/v1/analytics/attacks?period=1h", []string{"blocks", "attacks", "top_rules"}},
 		{"/api/v1/analytics/top?limit=5", []string{"top_ips", "top_paths", "top_rules", "targets"}},
 		{"/api/v1/analytics/dashboard?period=1h", []string{"traffic", "attacks", "top", "metrics"}},
+		{"/api/v1/analytics/metrics", []string{"total_requests", "blocked_requests", "avg_latency_us"}},
+		{"/api/v1/analytics/trends?metric=blocked&interval=day", []string{"metric", "interval", "timeseries"}},
+		{"/api/v1/analytics/geo?limit=25", []string{"countries"}},
+		{"/api/v1/analytics/comparison?previous_from=0&previous_to=4102444800000", []string{"current", "previous"}},
+		{"/api/v1/analytics/timeseries?name=hits&interval=day", []string{"name", "points"}},
+		{"/api/v1/analytics/traffic?from=0&to=4102444800000&limit=5001", []string{"requests", "total", "actions"}},
+		{"/api/v1/analytics/traffic?start=0&end=4102444800000&limit=abc", []string{"requests", "total", "actions"}},
 	}
 
 	for _, tt := range tests {
@@ -506,6 +514,27 @@ func TestAnalyticsEndpoints(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("error query path", func(t *testing.T) {
+		d.eventStore = errorEventStore{}
+		for _, path := range []string{
+			"/api/v1/analytics/traffic",
+			"/api/v1/analytics/attacks",
+			"/api/v1/analytics/top",
+			"/api/v1/analytics/dashboard",
+			"/api/v1/analytics/trends",
+			"/api/v1/analytics/geo",
+			"/api/v1/analytics/comparison",
+			"/api/v1/analytics/timeseries",
+		} {
+			w := httptest.NewRecorder()
+			req := authenticatedRequest("GET", path, "", "k")
+			d.Handler().ServeHTTP(w, req)
+			if w.Code != http.StatusInternalServerError {
+				t.Fatalf("%s: expected 500, got %d body %s", path, w.Code, w.Body.String())
+			}
+		}
+	})
 }
 
 func TestAlertCompatibilityEndpoints(t *testing.T) {
