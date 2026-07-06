@@ -279,6 +279,30 @@ func TestBuildLayer_UnknownLayer(t *testing.T) {
 	}
 }
 
+func TestBuildLayerWithContext_NilConfig(t *testing.T) {
+	layer, ok, err := BuildLayerWithContext("ip_acl", nil, &BuildContext{})
+	if ok || err != nil {
+		t.Fatalf("expected ok=false, err=nil with nil config; got ok=%v, err=%v", ok, err)
+	}
+	if layer.Layer != nil {
+		t.Error("expected nil layer")
+	}
+}
+
+func TestRunStartHooks_NilReceiver(t *testing.T) {
+	var ctx *BuildContext
+	ctx.RunStartHooks() // should not panic
+}
+
+func TestRunStartHooks_NilRun(t *testing.T) {
+	ctx := &BuildContext{
+		StartHooks: []StartHook{
+			{Name: "nil-run", Run: nil},
+		},
+	}
+	ctx.RunStartHooks() // should not panic
+}
+
 func assertPipelineContains(t *testing.T, entries []PipelineEntry, name string, order int) {
 	t.Helper()
 	for _, entry := range entries {

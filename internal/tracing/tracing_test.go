@@ -160,6 +160,48 @@ func TestSetExporter(t *testing.T) {
 	span.End()
 }
 
+func TestInit_SelectsStdoutExporter(t *testing.T) {
+	Init(Config{Enabled: true, ExporterType: "stdout"})
+	if !Enabled() {
+		t.Error("should be enabled")
+	}
+	Shutdown()
+}
+
+func TestInit_SelectsNoopByDefault(t *testing.T) {
+	Init(Config{Enabled: true})
+	if !Enabled() {
+		t.Error("should be enabled")
+	}
+	Shutdown()
+}
+
+func TestShouldSample_FractionalEnabled(t *testing.T) {
+	Init(Config{Enabled: true, SamplingRate: 0.5})
+	// With 0.5 sampling rate and deterministic counter, some should sample
+	sampled := false
+	for i := 0; i < 500; i++ {
+		if ShouldSample() {
+			sampled = true
+			break
+		}
+	}
+	if !sampled {
+		t.Error("expected at least one sample in 500 tries with 0.5 rate")
+	}
+	Shutdown()
+}
+
+func TestSpanEnd_Idempotent(t *testing.T) {
+	span := StartSpan("test.idempotent", SpanKindInternal)
+	span.End()
+	endTime1 := span.EndTime
+	span.End() // second call should be a no-op
+	if span.EndTime != endTime1 {
+		t.Error("EndTime should not change on second End() call")
+	}
+}
+
 func TestAttributeConstants(t *testing.T) {
 	attrs := []string{
 		AttrHTTPMethod, AttrHTTPURL, AttrHTTPHost, AttrHTTPCode, AttrHTTPUserAgent,
