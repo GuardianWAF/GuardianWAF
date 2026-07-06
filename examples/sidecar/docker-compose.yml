@@ -2,7 +2,7 @@ services:
   # GuardianWAF sidecar proxy
   # Full-featured sidecar with WAF protection, TLS, and health checks
   guardianwaf:
-    image: ghcr.io/guardianwaf/guardianwaf:latest
+    image: ghcr.io/guardianwaf/guardianwaf:0.3.0
     container_name: guardianwaf-sidecar
     ports:
       - "8080:8080"    # HTTP (WAF proxy)

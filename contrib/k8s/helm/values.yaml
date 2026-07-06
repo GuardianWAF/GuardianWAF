@@ -5,7 +5,9 @@ replicaCount: 2
 image:
   repository: ghcr.io/guardianwaf/guardianwaf
   pullPolicy: IfNotPresent
-  tag: "latest"
+  # Defaults to Chart.appVersion when empty. Pin deployments to an immutable
+  # semver tag or digest instead of the mutable "latest" tag.
+  tag: ""
 
 # WAF configuration
 config:

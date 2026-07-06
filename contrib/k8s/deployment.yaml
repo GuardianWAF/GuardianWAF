@@ -21,7 +21,7 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: guardianwaf
-          image: ghcr.io/guardianwaf/guardianwaf:latest
+          image: ghcr.io/guardianwaf/guardianwaf:0.3.0
           imagePullPolicy: IfNotPresent
           args:
             - serve
