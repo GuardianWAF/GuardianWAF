@@ -316,6 +316,19 @@ func TestTruncate(t *testing.T) {
 	}
 }
 
+func TestAnalyzer_PendingEvents(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(dir)
+	analyzer := NewAnalyzer(AnalyzerConfig{
+		Enabled:       true,
+		BatchSize:     10,
+		BatchInterval: time.Hour, // never flush
+	}, store, "")
+	if n := analyzer.PendingEvents(); n != 0 {
+		t.Errorf("expected 0 pending events, got %d", n)
+	}
+}
+
 func TestMain(m *testing.M) {
 	testAllowPrivate = true // allow httptest servers in tests
 	os.Exit(m.Run())

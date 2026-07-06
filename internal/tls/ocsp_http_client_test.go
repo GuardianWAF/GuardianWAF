@@ -82,6 +82,23 @@ func TestNewOCSPHTTPClientHasTransportTimeouts(t *testing.T) {
 	}
 }
 
+func TestOCSP_newOCSPHTTPClient_Timeout(t *testing.T) {
+	client := newOCSPHTTPClient()
+	transport, ok := client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("transport type = %T, want *http.Transport", client.Transport)
+	}
+	if client.Timeout != 10*time.Second {
+		t.Fatalf("client timeout = %v, want 10s", client.Timeout)
+	}
+	if transport.IdleConnTimeout != 30*time.Second {
+		t.Fatalf("idle conn timeout = %v, want 30s", transport.IdleConnTimeout)
+	}
+	if transport.ExpectContinueTimeout != time.Second {
+		t.Fatalf("expect continue timeout = %v, want 1s", transport.ExpectContinueTimeout)
+	}
+}
+
 func TestNewOCSPHTTPClientRejectsPrivateResolvedIPs(t *testing.T) {
 	client := newOCSPHTTPClient()
 	transport, ok := client.Transport.(*http.Transport)

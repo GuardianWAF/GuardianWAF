@@ -36,6 +36,58 @@ func TestEventBus_DoubleClose(t *testing.T) {
 	bus.Close()
 }
 
+func TestEventBus_Stats(t *testing.T) {
+	bus := NewEventBusWithMaxSubscribers(2)
+	fastCh := make(chan engine.Event, 1)
+	slowCh := make(chan engine.Event)
+	ignoredCh := make(chan engine.Event, 1)
+
+	bus.Subscribe(fastCh)
+	bus.Subscribe(slowCh)
+	bus.Subscribe(ignoredCh)
+
+	bus.Publish(engine.Event{ID: "stats", Timestamp: time.Now(), Action: engine.ActionPass})
+
+	stats := bus.Stats()
+	if stats.Subscribers != 2 {
+		t.Fatalf("Subscribers = %d, want 2", stats.Subscribers)
+	}
+	if stats.MaxSubscribers != 2 {
+		t.Fatalf("MaxSubscribers = %d, want 2", stats.MaxSubscribers)
+	}
+	if stats.PublishedEvents != 1 {
+		t.Fatalf("PublishedEvents = %d, want 1", stats.PublishedEvents)
+	}
+	if stats.DroppedEvents != 1 {
+		t.Fatalf("DroppedEvents = %d, want 1", stats.DroppedEvents)
+	}
+	if stats.RejectedSubscriptions != 1 {
+		t.Fatalf("RejectedSubscriptions = %d, want 1", stats.RejectedSubscriptions)
+	}
+	bus.Close()
+}
+
+func TestEventBus_NewWithMaxSubscribers(t *testing.T) {
+	tests := []struct {
+		name string
+		max  int
+		want int
+	}{
+		{name: "positive", max: 7, want: 7},
+		{name: "zero defaults", max: 0, want: defaultMaxEventBusSubscribers},
+		{name: "negative defaults", max: -1, want: defaultMaxEventBusSubscribers},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bus := NewEventBusWithMaxSubscribers(tt.max)
+			if got := bus.Stats().MaxSubscribers; got != tt.want {
+				t.Fatalf("MaxSubscribers = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
 // --- drainRemaining loop body ---
 
 func TestDrainRemaining_WithBufferedEvents(t *testing.T) {
@@ -213,6 +265,28 @@ func TestFileStore_CloseSyncError(t *testing.T) {
 	}
 }
 
+func TestFileStore_Close(t *testing.T) {
+	path := t.TempDir() + "/events.jsonl"
+	fs, err := NewFileStore(path, defaultMaxSize)
+	if err != nil {
+		t.Fatalf("NewFileStore failed: %v", err)
+	}
+
+	ev := engine.Event{ID: "close-ok", Timestamp: time.Now(), Action: engine.ActionPass}
+	if err := fs.Store(ev); err != nil {
+		t.Fatalf("Store failed: %v", err)
+	}
+	if err := fs.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+	if err := fs.Close(); err != nil {
+		t.Fatalf("second Close failed: %v", err)
+	}
+	if err := fs.Store(ev); err == nil {
+		t.Fatal("expected Store after Close to fail")
+	}
+}
+
 func TestFileStore_FlushRecordsSyncErrorAsDropped(t *testing.T) {
 	path := t.TempDir() + "/events.jsonl"
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
@@ -308,6 +382,34 @@ func TestCheckRotation_RenameError(t *testing.T) {
 	}
 	if fs.file != nil {
 		fs.file.Close()
+	}
+}
+
+func TestCheckRotation_NoRotationBelowThreshold(t *testing.T) {
+	path := t.TempDir() + "/events.jsonl"
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	fs := &FileStore{
+		file:     f,
+		writer:   bufio.NewWriterSize(f, 32*1024),
+		filePath: path,
+		maxSize:  1024,
+	}
+	if _, err := fs.writer.WriteString("small"); err != nil {
+		t.Fatal(err)
+	}
+
+	fs.checkRotation()
+
+	if got := fs.DroppedEvents(); got != 0 {
+		t.Fatalf("DroppedEvents = %d, want 0", got)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("original file missing after below-threshold checkRotation: %v", err)
 	}
 }
 
