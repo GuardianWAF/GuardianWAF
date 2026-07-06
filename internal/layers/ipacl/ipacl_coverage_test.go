@@ -81,6 +81,35 @@ func TestSaveBans_CreatesNestedPersistDirectory(t *testing.T) {
 	}
 }
 
+func TestSaveBans_BareFilenameSkipsDirectoryCreation(t *testing.T) {
+	dir := t.TempDir()
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := os.Chdir(oldWD); err != nil {
+			t.Fatalf("restore working directory: %v", err)
+		}
+	}()
+
+	cfg := Config{Enabled: true, AutoBan: AutoBanConfig{Enabled: true}}
+	layer, err := NewLayer(&cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	layer.AddAutoBan("1.2.3.4", "attack", time.Hour)
+	layer.SaveBans("bans.json")
+
+	if _, err := os.Stat(filepath.Join(dir, "bans.json")); err != nil {
+		t.Fatalf("expected persist file in cwd: %v", err)
+	}
+}
+
 func TestCleanAutoBanPersistPath(t *testing.T) {
 	t.Parallel()
 

@@ -226,6 +226,18 @@ func TestValidateFeedURL_ResolvedPublicHostname(t *testing.T) {
 	}
 }
 
+func TestValidateFeedURL_IgnoresNonIPDNSAnswers(t *testing.T) {
+	oldLookupHost := lookupHost
+	lookupHost = func(string) ([]string, error) {
+		return []string{"not-an-ip", "8.8.8.8"}, nil
+	}
+	t.Cleanup(func() { lookupHost = oldLookupHost })
+
+	if err := validateFeedURL("https://example.com/feed"); err != nil {
+		t.Fatalf("expected hostname with non-IP DNS answer and public IP to be allowed, got %v", err)
+	}
+}
+
 func TestLayerOrder(t *testing.T) {
 	layer, err := NewLayer(&Config{Enabled: true})
 	if err != nil {

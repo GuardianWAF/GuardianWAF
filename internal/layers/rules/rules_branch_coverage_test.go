@@ -36,6 +36,21 @@ func TestCoverage_RegexMatch_CacheEvictionWithUniquePatterns(t *testing.T) {
 	}
 }
 
+func TestCoverage_RegexMatch_RejectsUnsafePattern(t *testing.T) {
+	layer := NewLayer(&Config{Enabled: true}, nil)
+
+	if matched := layer.regexMatch("(((((((a)))))))", "a"); matched {
+		t.Fatal("expected false for unsafe regex pattern")
+	}
+
+	layer.mu.RLock()
+	cacheLen := len(layer.regexCache)
+	layer.mu.RUnlock()
+	if cacheLen != 0 {
+		t.Fatalf("expected unsafe regex to avoid cache insert, got cache len %d", cacheLen)
+	}
+}
+
 func TestCoverage_RegexMatchWithTimeout_ConcurrencyLimit(t *testing.T) {
 	old := activeRegexCount
 	activeRegexCount = maxConcurrentRegex

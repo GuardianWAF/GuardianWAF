@@ -145,10 +145,12 @@ func TestSaveBans_ErrorBranches(t *testing.T) {
 		f := &stubTempFile{name: tmpName}
 		var removed string
 		createTemp = func(dir, pattern string) (tempFile, error) { return f, nil }
+		chmodFile = func(name string, mode os.FileMode) error { return nil }
 		renameFile = func(oldpath, newpath string) error { return errors.New("rename boom") }
 		removeFile = func(name string) error { removed = name; return nil }
 		defer func() {
 			createTemp = origCreateTemp
+			chmodFile = origChmod
 			renameFile = origRename
 			removeFile = origRemove
 		}()

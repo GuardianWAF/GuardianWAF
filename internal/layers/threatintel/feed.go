@@ -33,6 +33,8 @@ type FeedConfig struct {
 const maxFeedEntries = 500000
 const maxFeedResponseBytes int64 = 100 * 1024 * 1024
 
+var lookupHost = net.LookupHost
+
 // FeedManager manages a single threat feed source.
 type FeedManager struct {
 	log      *slog.Logger
@@ -530,7 +532,7 @@ func validateFeedURL(rawURL string) error {
 		return nil
 	}
 	// Hostname — resolve DNS and check all resulting IPs (prevents DNS rebinding)
-	addrs, err := net.LookupHost(host) // #nosec G704 -- preflight DNS check is paired with feed client's SSRF-safe DialContext and redirect validation.
+	addrs, err := lookupHost(host) // #nosec G704 -- preflight DNS check is paired with feed client's SSRF-safe DialContext and redirect validation.
 	if err != nil {
 		return nil
 	}

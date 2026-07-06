@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -238,3 +239,21 @@ func TestHandleMessage_BroadcastUnmarshalFailureStillAccepted(t *testing.T) {
 		t.Fatalf("expected 202, got %d", w.Code)
 	}
 }
+
+func TestHandleSSE_HeartbeatWriteFailure(t *testing.T) {
+	handler, _ := helperSSEServer("test-api-key")
+	rec := &failAfterFirstWriteRecorder{writeCalls: math.MinInt}
+	req := helperAuthReq(http.MethodGet, "http://example.test/mcp/sse", nil)
+	done := make(chan struct{})
+	go func() {
+		handler.handleSSE(rec, req)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(35 * time.Second):
+		t.Fatal("timed out waiting for SSE handler to exit after heartbeat write failure")
+	}
+}
+
