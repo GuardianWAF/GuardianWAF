@@ -195,3 +195,42 @@ func TestAttemptTrackerRecordAttempt_DropsNewIPWhenCapReached(t *testing.T) {
 		t.Fatalf("expected second IP to be dropped when cap reached, got %d", got)
 	}
 }
+
+func TestAttemptTrackerRecordAttempt_TrimsIPAndEmailAttemptSlices(t *testing.T) {
+	tracker := NewAttemptTracker()
+	ip := net.ParseIP("192.0.2.55")
+	email := "trim@example.com"
+	now := time.Now()
+
+	for i := 0; i < 1001; i++ {
+		tracker.RecordAttempt(&LoginAttempt{IP: ip, Email: email, Time: now.Add(time.Duration(i) * time.Second)})
+	}
+
+	if got := len(tracker.ipAttempts[ip.String()].Attempts); got != 500 {
+		t.Fatalf("expected IP attempt slice to trim to 500, got %d", got)
+	}
+	if got := len(tracker.emailAttempts[email].Attempts); got != 500 {
+		t.Fatalf("expected email attempt slice to trim to 500, got %d", got)
+	}
+}
+
+func TestAttemptTrackerRecordAttempt_EvictsStaleIPToEmailsMapWhenCapped(t *testing.T) {
+	tracker := NewAttemptTracker()
+	tracker.maxEntries = 1
+	ip := net.ParseIP("192.0.2.77")
+
+	tracker.ipAttempts[ip.String()] = &AttemptRecord{Attempts: []time.Time{}}
+	tracker.ipToEmails["198.51.100.1"] = map[string]bool{"other@example.com": true}
+
+	tracker.RecordAttempt(&LoginAttempt{IP: ip, Email: "target@example.com", Time: time.Now()})
+
+	if _, ok := tracker.ipToEmails[ip.String()]; !ok {
+		t.Fatal("expected target IP email map to be created after eviction")
+	}
+	if tracker.ipToEmails[ip.String()]["target@example.com"] != true {
+		t.Fatal("expected target email to be recorded for target IP")
+	}
+	if len(tracker.ipToEmails) != 1 {
+		t.Fatalf("expected capped ipToEmails map size of 1 after eviction, got %d", len(tracker.ipToEmails))
+	}
+}
