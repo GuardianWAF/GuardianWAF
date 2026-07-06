@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 )
@@ -123,6 +124,11 @@ func TestHCaptcha_VerifyToken_NoRemoteIP(t *testing.T) {
 		if bodyStr == "" {
 			t.Error("Expected non-empty body")
 		}
+		if values, err := url.ParseQuery(bodyStr); err == nil {
+			if _, ok := values["remoteip"]; ok {
+				t.Error("Expected remoteip to be omitted when remote IP is empty")
+			}
+		}
 
 		resp := hCaptchaResponse{Success: true}
 		w.Header().Set("Content-Type", "application/json")
@@ -135,6 +141,43 @@ func TestHCaptcha_VerifyToken_NoRemoteIP(t *testing.T) {
 		siteKey:   "test-site",
 		client:    srv.Client(),
 	}
+
+	result, err := p.verifyTokenWithURL("valid-token", "", srv.URL)
+	if err != nil {
+		t.Fatalf("VerifyToken failed: %v", err)
+	}
+	if !result.Success {
+		t.Error("Expected success")
+	}
+}
+
+func TestHCaptcha_VerifyToken_EmptySecretStillPostsRequest(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("ReadAll failed: %v", err)
+		}
+		values, err := url.ParseQuery(string(body))
+		if err != nil {
+			t.Fatalf("ParseQuery failed: %v", err)
+		}
+		if got := values.Get("secret"); got != "" {
+			t.Errorf("Expected empty secret, got %q", got)
+		}
+		if _, ok := values["secret"]; !ok {
+			t.Error("Expected secret field to be present even when empty")
+		}
+		if got := values.Get("response"); got != "valid-token" {
+			t.Errorf("Expected response token, got %q", got)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(hCaptchaResponse{Success: true})
+	}))
+	defer srv.Close()
+
+	p := NewHCaptcha(HCaptchaConfig{})
+	p.client = srv.Client()
 
 	result, err := p.verifyTokenWithURL("valid-token", "", srv.URL)
 	if err != nil {
@@ -185,6 +228,26 @@ func TestHCaptcha_VerifyToken_ServerError(t *testing.T) {
 	}
 	// If it somehow parsed, result should not be successful
 	_ = result
+}
+
+func TestHCaptcha_VerifyToken_OversizedResponse(t *testing.T) {
+	overflow := strings.Repeat("a", captchaVerificationMaxResponseBytes)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"padding":"` + overflow + `"}`))
+	}))
+	defer srv.Close()
+
+	p := &HCaptchaProvider{
+		secretKey: "test-secret",
+		siteKey:   "test-site",
+		client:    srv.Client(),
+	}
+
+	_, err := p.verifyTokenWithURL("valid-token", "", srv.URL)
+	if err == nil {
+		t.Fatal("Expected error for oversized response")
+	}
 }
 
 func TestHCaptcha_VerifyToken_ConnectionError(t *testing.T) {
@@ -428,6 +491,25 @@ func TestNewHCaptcha_DefaultTimeout(t *testing.T) {
 		SiteKey:   "site",
 	}
 	p := NewHCaptcha(cfg)
+	if p.client.Timeout != 30*time.Second {
+		t.Errorf("Expected 30s default timeout, got %v", p.client.Timeout)
+	}
+}
+
+func TestNewHCaptcha_ZeroValueConfig(t *testing.T) {
+	p := NewHCaptcha(HCaptchaConfig{})
+	if p == nil {
+		t.Fatal("expected provider instance")
+	}
+	if p.secretKey != "" {
+		t.Errorf("Expected empty secretKey, got %q", p.secretKey)
+	}
+	if p.siteKey != "" {
+		t.Errorf("Expected empty siteKey, got %q", p.siteKey)
+	}
+	if p.client == nil {
+		t.Fatal("expected http client to be initialized")
+	}
 	if p.client.Timeout != 30*time.Second {
 		t.Errorf("Expected 30s default timeout, got %v", p.client.Timeout)
 	}

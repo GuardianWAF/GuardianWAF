@@ -1177,3 +1177,61 @@ func TestCoverage_ParseASN1Elements_ElementExceedsData(t *testing.T) {
 		t.Error("parseASN1Elements should reject element exceeding data")
 	}
 }
+
+func TestJWT_ValidateToken_MissingAuthorization(t *testing.T) {
+	cfg := Config{
+		Enabled: true,
+		JWT: JWTConfig{
+			Enabled: true,
+		},
+	}
+	layer, err := NewLayer(&cfg)
+	if err != nil {
+		t.Fatalf("NewLayer failed: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+	ctx := engine.AcquireContext(req, 1, 1024*1024)
+	defer engine.ReleaseContext(ctx)
+
+	result := layer.Process(ctx)
+	if result.Action != engine.ActionBlock {
+		t.Fatalf("expected block when Authorization header is missing, got %v", result.Action)
+	}
+	if len(result.Findings) == 0 {
+		t.Fatal("expected authentication finding when Authorization header is missing")
+	}
+	if got := result.Findings[0].Description; got != "No valid API authentication provided" {
+		t.Fatalf("expected missing-auth finding, got %q", got)
+	}
+}
+
+func TestJWT_ValidateRequest_InvalidToken(t *testing.T) {
+	cfg := Config{
+		Enabled: true,
+		JWT: JWTConfig{
+			Enabled: true,
+		},
+	}
+	layer, err := NewLayer(&cfg)
+	if err != nil {
+		t.Fatalf("NewLayer failed: %v", err)
+	}
+	layer.jwtValidator.publicKey = []byte("secret")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+	req.Header.Set("Authorization", "Bearer malformed.token")
+	ctx := engine.AcquireContext(req, 1, 1024*1024)
+	defer engine.ReleaseContext(ctx)
+
+	result := layer.Process(ctx)
+	if result.Action != engine.ActionBlock {
+		t.Fatalf("expected block for malformed JWT, got %v", result.Action)
+	}
+	if len(result.Findings) == 0 {
+		t.Fatal("expected JWT validation finding for malformed token")
+	}
+	if !strings.Contains(result.Findings[0].Description, "JWT validation failed: invalid token format") {
+		t.Fatalf("unexpected finding description: %q", result.Findings[0].Description)
+	}
+}

@@ -170,9 +170,44 @@ func TestMiddleware_ResponseHookAppliedOnBlock(t *testing.T) {
 		t.Errorf("expected 403, got %d", rec.Code)
 	}
 
-	// Security headers should be applied because response layer ran before block
+	// Security headers should be applied because response layer ran before block.
 	if rec.Header().Get("X-Content-Type-Options") != "nosniff" {
 		t.Error("expected X-Content-Type-Options on blocked response")
+	}
+	if rec.Header().Get("X-Frame-Options") != "SAMEORIGIN" {
+		t.Error("expected X-Frame-Options on blocked response")
+	}
+}
+
+func TestCheck_NilPipeline(t *testing.T) {
+	e := &Engine{
+		eventStore: newMockEventStore(),
+		eventBus:   newMockEventBus(),
+		Logs:       NewLogBuffer(16),
+	}
+	e.blockThreshold.Store(50)
+
+	event := e.Check(testRequest("GET", "/nil-pipeline"))
+	if event == nil {
+		t.Fatal("expected non-nil event")
+	}
+	if event.Action != ActionBlock {
+		t.Fatalf("expected ActionBlock after nil pipeline panic recovery, got %v", event.Action)
+	}
+	if event.Score != 50 {
+		t.Fatalf("expected block threshold score 50 after nil pipeline panic recovery, got %d", event.Score)
+	}
+
+	entries := e.Logs.Recent(10)
+	found := false
+	for _, entry := range entries {
+		if strings.Contains(entry.Message, "PANIC recovered in WAF Check") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected panic recovery log entry for nil pipeline")
 	}
 }
 
