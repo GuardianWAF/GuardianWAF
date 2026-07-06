@@ -464,6 +464,9 @@ jobs:
       - name: Build GuardianWAF binary
         run: go build -o guardianwaf ./cmd/guardianwaf
 
+      - name: Install kubeconform
+        run: go install github.com/yannh/kubeconform/cmd/kubeconform@v0.8.0
+
       - name: Collect hosted-CI release evidence
         run: RELEASE_EVIDENCE_DIR=dist/release-evidence/ci ./scripts/release-evidence.sh ci
 

@@ -9,7 +9,7 @@ if command -v kubeconform >/dev/null 2>&1; then
 elif command -v go >/dev/null 2>&1 && [ -x "$(go env GOPATH)/bin/kubeconform" ]; then
     KUBECONFORM_BIN="$(go env GOPATH)/bin/kubeconform"
 else
-    echo "kubeconform is required. Install with: go install github.com/yannh/kubeconform/cmd/kubeconform@latest" >&2
+    echo "kubeconform is required. Install with: go install github.com/yannh/kubeconform/cmd/kubeconform@v0.8.0" >&2
     exit 1
 fi
 
