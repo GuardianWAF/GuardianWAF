@@ -144,11 +144,12 @@ func TestFingerprinter_Analyze(t *testing.T) {
 	f := New()
 
 	tests := []struct {
-		name     string
-		data     *Data
-		isBot    bool
-		minScore int
-		maxScore int
+		name           string
+		data           *Data
+		isBot          bool
+		minScore       int
+		maxScore       int
+		wantIndicators []string
 	}{
 		{
 			name: "normal browser",
@@ -159,9 +160,10 @@ func TestFingerprinter_Analyze(t *testing.T) {
 				Screen:    ScreenInfo{Width: 1920, Height: 1080},
 				Plugins:   []string{"plugin1", "plugin2"},
 			},
-			isBot:    false,
-			minScore: 0,
-			maxScore: 100,
+			isBot:          false,
+			minScore:       0,
+			maxScore:       100,
+			wantIndicators: []string{},
 		},
 		{
 			name: "headless browser",
@@ -171,9 +173,10 @@ func TestFingerprinter_Analyze(t *testing.T) {
 				Screen:    ScreenInfo{Width: 1920, Height: 1080},
 				Plugins:   []string{"plugin1"},
 			},
-			isBot:    true,
-			minScore: 0,
-			maxScore: 100,
+			isBot:          true,
+			minScore:       0,
+			maxScore:       100,
+			wantIndicators: []string{"headless_browser"},
 		},
 		{
 			name: "missing fingerprint data",
@@ -184,9 +187,10 @@ func TestFingerprinter_Analyze(t *testing.T) {
 				Screen:    ScreenInfo{Width: 0, Height: 0},
 				Plugins:   []string{},
 			},
-			isBot:    true,
-			minScore: 0,
-			maxScore: 50,
+			isBot:          true,
+			minScore:       0,
+			maxScore:       50,
+			wantIndicators: []string{"missing_fingerprint_data", "automation_detected", "missing_screen_info"},
 		},
 		{
 			name: "automation detected",
@@ -197,9 +201,10 @@ func TestFingerprinter_Analyze(t *testing.T) {
 				Screen:    ScreenInfo{Width: 1920, Height: 1080},
 				Plugins:   []string{},
 			},
-			isBot:    true,
-			minScore: 0,
-			maxScore: 50,
+			isBot:          true,
+			minScore:       0,
+			maxScore:       50,
+			wantIndicators: []string{"automation_detected"},
 		},
 	}
 
@@ -224,6 +229,15 @@ func TestFingerprinter_Analyze(t *testing.T) {
 			}
 			if analysis.Score > 100 {
 				t.Error("Score should not exceed 100")
+			}
+
+			if len(analysis.Indicators) != len(tt.wantIndicators) {
+				t.Fatalf("Indicators length = %d, want %d (%v)", len(analysis.Indicators), len(tt.wantIndicators), tt.wantIndicators)
+			}
+			for i, want := range tt.wantIndicators {
+				if analysis.Indicators[i] != want {
+					t.Fatalf("Indicators[%d] = %q, want %q (all=%v)", i, analysis.Indicators[i], want, analysis.Indicators)
+				}
 			}
 		})
 	}
