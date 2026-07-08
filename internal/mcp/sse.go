@@ -151,7 +151,9 @@ func (h *SSEHandler) handleSSE(w http.ResponseWriter, r *http.Request) {
 	// All writes to w happen in this single goroutine (endpoint event, queued
 	// broadcasts, heartbeats), so no per-write lock is needed and w is never
 	// touched after this handler returns.
-	fmt.Fprintf(w, "event: endpoint\ndata: %s\n\n", messageURL) // #nosec G705 -- messageURL uses a fixed path and a Host value sanitized against SSE/control injection.
+	if _, err := fmt.Fprintf(w, "event: endpoint\ndata: %s\n\n", messageURL); err != nil { // #nosec G705 -- messageURL uses a fixed path and a Host value sanitized against SSE/control injection.
+		return
+	}
 	flusher.Flush()
 
 	// Keep connection alive until client disconnects
