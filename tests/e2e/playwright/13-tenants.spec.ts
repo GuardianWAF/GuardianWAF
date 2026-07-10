@@ -66,9 +66,11 @@ test.describe('Multi-Tenant Management', () => {
   })
 
   test('can create tenant via API', async ({ request }) => {
+    // POST /api/v1/tenants is admin-gated (adminAuthWrap); use the admin key when
+    // configured, otherwise 401 is the correct rejection for a non-admin key.
     const resp = await request.post(`${BASE_URL}/api/v1/tenants`, {
       headers: {
-        'X-API-Key': API_KEY,
+        'X-API-Key': ADMIN_KEY || API_KEY,
         'Content-Type': 'application/json',
       },
       data: {
@@ -77,7 +79,7 @@ test.describe('Multi-Tenant Management', () => {
         plan: 'basic',
       },
     })
-    expect([201, 400, 409, 503]).toContain(resp.status())
+    expect([201, 400, 401, 409, 503]).toContain(resp.status())
   })
 
   test('can get tenant config via API', async ({ request }) => {
@@ -90,16 +92,17 @@ test.describe('Multi-Tenant Management', () => {
   })
 
   test('can update tenant config via API', async ({ request }) => {
+    // PUT /api/v1/tenants/{id}/config is admin-gated (adminAuthWrap).
     const resp = await request.put(`${BASE_URL}/api/v1/tenants/e2e-test-tenant/config`, {
       headers: {
-        'X-API-Key': API_KEY,
+        'X-API-Key': ADMIN_KEY || API_KEY,
         'Content-Type': 'application/json',
       },
       data: {
         block_threshold: 60,
       },
     })
-    expect([200, 404, 429, 503]).toContain(resp.status())
+    expect([200, 401, 404, 429, 503]).toContain(resp.status())
   })
 
   test('tenant stats API returns metrics', async ({ request }) => {
@@ -116,12 +119,13 @@ test.describe('Multi-Tenant Management', () => {
   })
 
   test('can delete tenant via API', async ({ request }) => {
+    // DELETE /api/v1/tenants/{id} is admin-gated (adminAuthWrap).
     const resp = await request.delete(`${BASE_URL}/api/v1/tenants/e2e-test-tenant`, {
       headers: {
-        'X-API-Key': API_KEY,
+        'X-API-Key': ADMIN_KEY || API_KEY,
       },
     })
-    expect([204, 404, 429, 503]).toContain(resp.status())
+    expect([204, 401, 404, 429, 503]).toContain(resp.status())
   })
 
   test('tenants page loads', async ({ page }) => {

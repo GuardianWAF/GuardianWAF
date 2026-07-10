@@ -1098,7 +1098,15 @@ func (m *Manager) GetTenantRule(tenantID, ruleID string) any {
 	if m.rulesManager == nil {
 		return nil
 	}
-	return m.rulesManager.GetTenantRule(tenantID, ruleID)
+	// rulesManager.GetTenantRule returns a *rules.Rule; a missing rule yields a
+	// nil pointer. Return an untyped nil so callers' `rule == nil` checks succeed
+	// (otherwise the typed nil wrapped in `any` is non-nil and a missing rule
+	// would 200-with-null instead of 404).
+	rule := m.rulesManager.GetTenantRule(tenantID, ruleID)
+	if rule == nil {
+		return nil
+	}
+	return rule
 }
 
 // UpdateTenantRule updates a rule for a tenant.
