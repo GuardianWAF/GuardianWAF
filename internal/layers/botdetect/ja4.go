@@ -96,14 +96,8 @@ func alpnCode(alpn string) string {
 		return string(firstByte) + string(lastByte)
 	}
 
-	// Otherwise, use hex representation of the entire ALPN
+	// Otherwise, use the endpoints of the non-empty, even-length hex encoding.
 	hexStr := hex.EncodeToString([]byte(alpn))
-	if hexStr == "" {
-		return "00"
-	}
-	if len(hexStr) == 1 {
-		return hexStr + hexStr
-	}
 	return string(hexStr[0]) + string(hexStr[len(hexStr)-1])
 }
 

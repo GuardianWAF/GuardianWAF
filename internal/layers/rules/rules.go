@@ -4,7 +4,6 @@
 package rules
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"net"
@@ -329,6 +328,8 @@ const regexMatchTimeout = 5 * time.Second
 // maxConcurrentRegex limits the number of simultaneous regex goroutines.
 var activeRegexCount int64
 
+var regexTimeoutAfter = time.After
+
 const maxConcurrentRegex = 500
 
 // isRegexSafe performs basic static analysis to reject pathological regex patterns.
@@ -398,23 +399,14 @@ func regexMatchWithTimeout(re *regexp.Regexp, s string) bool {
 	}
 	defer atomic.AddInt64(&activeRegexCount, -1)
 
-	type result struct {
-		matched bool
-	}
-	done := make(chan result, 1)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	done := make(chan bool, 1)
 	go func() {
-		matched := re.MatchString(s)
-		select {
-		case <-ctx.Done():
-		case done <- result{matched: matched}:
-		}
+		done <- re.MatchString(s)
 	}()
 	select {
-	case r := <-done:
-		return r.matched
-	case <-time.After(regexMatchTimeout):
+	case matched := <-done:
+		return matched
+	case <-regexTimeoutAfter(regexMatchTimeout):
 		return false
 	}
 }
@@ -519,11 +511,6 @@ func toString(v any) string {
 
 func toFloat(s string) float64 {
 	var f float64
-	_, err := fmt.Sscanf(s, "%f", &f)
-	if err != nil {
-		if n, err := strconv.ParseFloat(s, 64); err == nil {
-			return n
-		}
-	}
+	_, _ = fmt.Sscanf(s, "%f", &f)
 	return f
 }

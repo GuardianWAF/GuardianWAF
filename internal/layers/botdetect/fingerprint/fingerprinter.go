@@ -100,9 +100,6 @@ func (f *Fingerprinter) Analyze(data *Data) *Analysis {
 	if analysis.Score < 0 {
 		analysis.Score = 0
 	}
-	if analysis.Score > 100 {
-		analysis.Score = 100
-	}
 
 	// Determine if this is a bot based on score
 	analysis.IsBot = analysis.Score < 50
