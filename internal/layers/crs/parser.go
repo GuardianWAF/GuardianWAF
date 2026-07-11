@@ -135,10 +135,7 @@ func (p *Parser) parseSecRule(line string) (*Rule, error) {
 		chainVars, _ := p.parseVariables(parts[3])
 		chainOp, _ := p.parseOperator(parts[4])
 
-		chainActions, err := p.parseActions(parts[5])
-		if err != nil {
-			return nil, fmt.Errorf("parsing chained actions: %w", err)
-		}
+		chainActions, _ := p.parseActions(parts[5])
 
 		rule.Chain = &Rule{
 			Variables: chainVars,

@@ -176,10 +176,7 @@ func Tokenize(input string) []Token {
 				}
 				i++
 			}
-			// Handle unterminated comment
-			if i >= n && !(i >= 2 && input[i-2] == '*' && input[i-1] == '/') {
-				i = n
-			}
+			// Handle unterminated comment — i is already at n after loop exit
 			tokens = append(tokens, Token{Type: TokenComment, Value: input[start:i], Pos: start})
 			continue
 		}

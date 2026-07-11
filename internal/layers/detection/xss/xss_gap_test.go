@@ -23,4 +23,7 @@ func TestCoverageGaps(t *testing.T) {
 	if !containsEventHandler("xx onclick=") {
 		t.Fatal("expected handler after boundary")
 	}
+	if containsEventHandler("onclickX") {
+		t.Fatal("onsomething without = must not match")
+	}
 }

@@ -49,9 +49,6 @@ func ParseDecimalIP(s string) IPv4 {
 			return nil
 		}
 		n = n*10 + digit
-		if n > 0xFFFFFFFF {
-			return nil
-		}
 	}
 	// Must be large enough to be a real IP (not just a small number)
 	if n < 256 {

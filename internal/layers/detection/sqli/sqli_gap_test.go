@@ -14,6 +14,10 @@ func TestCoverageGaps(t *testing.T) {
 	if len(tokens) == 0 {
 		t.Fatalf("unterminated comment produced no tokens")
 	}
+	tokens = Tokenize("/*")
+	if len(tokens) == 0 {
+		t.Fatalf("bare open comment produced no tokens")
+	}
 	if !containsSQLContent("safe 1=1") {
 		t.Fatal("expected tautology to count as SQL content")
 	}
