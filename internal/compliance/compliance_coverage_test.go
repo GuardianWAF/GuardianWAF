@@ -3,8 +3,11 @@ package compliance
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -83,6 +86,72 @@ func TestAppendChainWithErrorReturnsPersistenceError(t *testing.T) {
 		t.Fatalf("chain length = %d, want 0 after failed durable append", got)
 	}
 	e.file = nil
+}
+
+func TestAppendChainWithErrorReturnsNewlineWriteError(t *testing.T) {
+	data := map[string]string{"k": strings.Repeat("x", 1024)}
+	probe := NewEngine(config.ComplianceConfig{Enabled: true})
+	probeEntry, err := probe.AppendChainWithError("event", data)
+	if err != nil {
+		t.Fatalf("probe AppendChainWithError: %v", err)
+	}
+	probeJSON, err := json.Marshal(probeEntry)
+	if err != nil {
+		t.Fatalf("probe Marshal: %v", err)
+	}
+
+	for _, delta := range []int{-8, -4, -2, -1, 0, 1, 2, 4, 8, 16} {
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("os.Pipe: %v", err)
+		}
+
+		pipeSize, _, errno := syscall.Syscall(syscall.SYS_FCNTL, w.Fd(), syscall.F_GETPIPE_SZ, 0)
+		if errno != 0 {
+			_ = r.Close()
+			_ = w.Close()
+			t.Fatalf("fcntl F_GETPIPE_SZ: %v", errno)
+		}
+
+		remaining := len(probeJSON) + delta
+		if remaining <= 0 || remaining >= int(pipeSize) {
+			_ = r.Close()
+			_ = w.Close()
+			continue
+		}
+		prefill := make([]byte, int(pipeSize)-remaining)
+		if n, err := w.Write(prefill); err != nil || n != len(prefill) {
+			_ = r.Close()
+			_ = w.Close()
+			t.Fatalf("prefill write = (%d, %v), want (%d, nil)", n, err, len(prefill))
+		}
+
+		e := NewEngine(config.ComplianceConfig{Enabled: true})
+		e.file = w
+
+		closeDone := make(chan struct{})
+		go func() {
+			time.Sleep(10 * time.Millisecond)
+			_ = r.Close()
+			close(closeDone)
+		}()
+
+		entry, err := e.AppendChainWithError("event", data)
+		<-closeDone
+		_ = w.Close()
+		e.file = nil
+		if errors.Is(err, syscall.EPIPE) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, os.ErrClosed) {
+			if entry.Hash == "" {
+				t.Fatal("expected computed entry hash")
+			}
+			if got := e.ChainLen(); got != 0 {
+				t.Fatalf("chain length = %d, want 0 after newline write failure", got)
+			}
+			return
+		}
+	}
+
+	t.Fatal("expected newline write failure")
 }
 
 func TestGenerateReportWithErrorReturnsAuditPersistenceError(t *testing.T) {
@@ -200,6 +269,27 @@ func TestNewEngineWithErrorReturnsPersistenceError(t *testing.T) {
 	}
 	if e != nil {
 		t.Fatal("expected nil engine on persistence error")
+	}
+}
+
+func TestNewEngineWithErrorReturnsOpenFileErrorForDirectoryPath(t *testing.T) {
+	persistPath := t.TempDir()
+
+	e, err := NewEngineWithError(config.ComplianceConfig{
+		Enabled: true,
+		AuditTrail: config.AuditTrailConfig{
+			Enabled:     true,
+			PersistPath: persistPath,
+		},
+	})
+	if err == nil {
+		if e != nil {
+			_ = e.Close()
+		}
+		t.Fatal("expected open file error for directory persist path")
+	}
+	if e != nil {
+		t.Fatal("expected nil engine on open file error")
 	}
 }
 
@@ -620,5 +710,117 @@ func TestNewEngine_Disabled_Cov(t *testing.T) {
 	fw := e.ActiveFrameworks()
 	if len(fw) != 4 {
 		t.Error("expected 4 default frameworks")
+	}
+}
+
+type shortWriter struct{}
+
+func (shortWriter) Write(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	return len(p) - 1, nil
+}
+
+type errWriter struct{}
+
+func (errWriter) Write([]byte) (int, error) {
+	return 0, os.ErrPermission
+}
+
+func TestWriteFull_ErrorAndShortWrite(t *testing.T) {
+	if err := writeFull(errWriter{}, []byte("abc")); !errors.Is(err, os.ErrPermission) {
+		t.Fatalf("writeFull error = %v, want %v", err, os.ErrPermission)
+	}
+	if err := writeFull(shortWriter{}, []byte("abc")); !errors.Is(err, io.ErrShortWrite) {
+		t.Fatalf("writeFull short write = %v, want %v", err, io.ErrShortWrite)
+	}
+}
+
+func TestAppendChainWithError_MarshalFailure(t *testing.T) {
+	e := NewEngine(config.ComplianceConfig{Enabled: true})
+	e.file = &os.File{}
+
+	entry, err := e.AppendChainWithError("event", make(chan int))
+	if err == nil {
+		t.Fatal("expected marshal error")
+	}
+	if entry.Hash == "" {
+		t.Fatal("expected hash to still be computed")
+	}
+	if got := e.ChainLen(); got != 0 {
+		t.Fatalf("chain length = %d, want 0 after marshal error", got)
+	}
+
+	e.file = nil
+}
+
+func TestGenerateReportWithError_NotApplicableSummary(t *testing.T) {
+	e := NewEngine(config.ComplianceConfig{Enabled: true})
+	e.controls = []Control{{
+		ID:         "na_1",
+		Name:       "Not applicable control",
+		Frameworks: []string{FrameworkPCI},
+	}}
+
+	now := time.Now().UTC()
+	report, err := e.GenerateReportWithError(FrameworkPCI, "tenant", Period{From: now, To: now}, goodMetrics())
+	if err != nil {
+		t.Fatalf("GenerateReportWithError: %v", err)
+	}
+	if report.Summary.ControlsNotApplicable != 1 {
+		t.Fatalf("ControlsNotApplicable = %d, want 1", report.Summary.ControlsNotApplicable)
+	}
+	if report.Summary.OverallStatus != "failing" {
+		t.Fatalf("OverallStatus = %q, want failing", report.Summary.OverallStatus)
+	}
+	if len(report.Controls) != 1 || report.Controls[0].Status != StatusNotApplicable {
+		t.Fatalf("unexpected controls: %+v", report.Controls)
+	}
+}
+
+func TestMetricValue_RemainingBranches(t *testing.T) {
+	m := Metrics{
+		WAFUptimePct:       98.5,
+		LogCompletenessPct: 97.5,
+		DLPBlocksInPeriod:  7,
+		AlertResponseP95Min: 12,
+		BlockedRequests:    55,
+	}
+
+	cases := map[string]float64{
+		"waf_uptime_pct":                 98.5,
+		"log_completeness_pct":           97.5,
+		"dlp_blocks_in_period":           7,
+		"alert_response_time_p95_minutes": 12,
+		"blocked_requests":               55,
+		"unknown_metric":                 0,
+	}
+	for name, want := range cases {
+		if got := metricValue(name, m); got != want {
+			t.Fatalf("metricValue(%q) = %v, want %v", name, got, want)
+		}
+	}
+}
+
+func TestNewEngine_NonStrictOpenFailureFallsBackToMemory(t *testing.T) {
+	parentFile := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(parentFile, []byte("x"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	persistPath := filepath.Join(parentFile, "audit.jsonl")
+
+	e := NewEngine(config.ComplianceConfig{
+		Enabled: true,
+		AuditTrail: config.AuditTrailConfig{
+			Enabled:     true,
+			PersistPath: persistPath,
+		},
+	})
+	if e == nil {
+		t.Fatal("expected engine")
+	}
+	if e.file != nil {
+		t.Fatal("expected memory-only fallback when non-strict open fails")
 	}
 }

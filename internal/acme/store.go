@@ -16,6 +16,11 @@ import (
 )
 
 // CertDiskStore manages cached certificates on disk with automatic renewal.
+var (
+	loadX509KeyPair = tls.LoadX509KeyPair
+	parseCertificate = x509.ParseCertificate
+)
+
 type CertDiskStore struct {
 	cacheDir string
 	client   *Client
@@ -62,11 +67,11 @@ func (s *CertDiskStore) LoadOrObtain(domains []string) (*tls.Certificate, error)
 	keyFile := s.keyPath(primary)
 
 	if fileExists(certFile) && fileExists(keyFile) {
-		cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+		cert, err := loadX509KeyPair(certFile, keyFile)
 		if err == nil {
 			// Parse leaf for expiry check
 			if cert.Leaf == nil && len(cert.Certificate) > 0 {
-				cert.Leaf, _ = x509.ParseCertificate(cert.Certificate[0])
+				cert.Leaf, _ = parseCertificate(cert.Certificate[0])
 				if cert.Leaf == nil {
 					return nil, fmt.Errorf("failed to parse certificate leaf for %s", primary)
 				}
@@ -97,7 +102,7 @@ func (s *CertDiskStore) LoadOrObtain(domains []string) (*tls.Certificate, error)
 		return nil, fmt.Errorf("writing key: %w", writeErr)
 	}
 
-	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+	cert, err := loadX509KeyPair(certFile, keyFile)
 	if err != nil {
 		return nil, fmt.Errorf("loading new cert: %w", err)
 	}
@@ -133,7 +138,7 @@ func (s *CertDiskStore) CertStatus() map[string]any {
 			issuer = cert.Leaf.Issuer.String()
 			dnsNames = cert.Leaf.DNSNames
 		} else if len(cert.Certificate) > 0 {
-			if leaf, err := x509.ParseCertificate(cert.Certificate[0]); err == nil {
+			if leaf, err := parseCertificate(cert.Certificate[0]); err == nil {
 				notAfter = leaf.NotAfter
 				issuer = leaf.Issuer.String()
 				dnsNames = leaf.DNSNames
@@ -186,10 +191,6 @@ func (s *CertDiskStore) StartRenewal(checkInterval time.Duration) {
 				s.log.Error("ACME cert renewal panic recovered", "panic", r)
 			}
 		}()
-		checkInterval := checkInterval
-		if checkInterval <= 0 {
-			checkInterval = 24 * time.Hour
-		}
 		ticker := time.NewTicker(checkInterval)
 		defer ticker.Stop()
 
@@ -259,14 +260,14 @@ func (s *CertDiskStore) renewIfNeeded() {
 			continue
 		}
 
-		cert, err := tls.LoadX509KeyPair(certFile, s.keyPath(primary))
+		cert, err := loadX509KeyPair(certFile, s.keyPath(primary))
 		if err != nil {
 			continue
 		}
 
 		// Parse leaf to check expiry
 		if cert.Leaf == nil && len(cert.Certificate) > 0 {
-			leaf, err := x509.ParseCertificate(cert.Certificate[0])
+			leaf, err := parseCertificate(cert.Certificate[0])
 			if err != nil {
 				continue
 			}

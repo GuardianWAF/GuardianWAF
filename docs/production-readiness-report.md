@@ -340,6 +340,17 @@ Impact:
 
 These are the only known verification gaps from this pass.
 
+## Coverage scope note
+
+The repository's local `make cover` target is aligned to the CI coverage scope for tracked production Go packages.
+
+Explicit coverage exclusions:
+
+- `examples/`
+- `scripts/attack-simulation/`
+
+These paths are executable demos/operator tooling rather than production library/runtime code, and CI already excluded them from the coverage upload command. The checked-in `Makefile` now matches that scope so local and CI coverage numbers are consistent.
+
 ## Current issue list
 
 No issues were reproduced by the checks that were run.

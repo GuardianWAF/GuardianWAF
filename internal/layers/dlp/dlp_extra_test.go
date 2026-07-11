@@ -482,6 +482,26 @@ func TestLayer_ScanRequest_NilRequestBody(t *testing.T) {
 	}
 }
 
+func TestLayer_ScanRequest_NonPositiveMaxBodySizeUsesFallbackLimit(t *testing.T) {
+	layer := NewLayer(&Config{
+		Enabled:     true,
+		ScanRequest: true,
+		MaxBodySize: -1,
+		Patterns:    []string{"credit_card"},
+	})
+
+	req, _ := http.NewRequest("POST", "/test", strings.NewReader("A"))
+	req.Header.Set("Content-Type", "application/json")
+
+	result, err := layer.ScanRequest(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Safe {
+		t.Error("expected safe result when fallback scan limit truncates oversized body")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // MaskValue — IBAN with exactly 6 alphanumeric chars (boundary)
 // ---------------------------------------------------------------------------
@@ -553,5 +573,42 @@ func TestLayer_ScanResponse_FormURLEncoded(t *testing.T) {
 	result, _ := layer.ScanResponse([]byte(`card=4111111111111111`), "application/x-www-form-urlencoded")
 	if result.Safe {
 		t.Error("expected unsafe for form-urlencoded content type with credit card")
+	}
+}
+
+func TestLayer_ScanFileUploads_NextPartProtocolErrorContinues(t *testing.T) {
+	layer := NewLayer(&Config{
+		Enabled:         true,
+		ScanFileUploads: true,
+		Patterns:        []string{"credit_card"},
+	})
+
+	body := []byte("--abc\r\nX")
+	result, err := layer.ScanFileUploads(body, "multipart/form-data; boundary=abc")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Safe {
+		t.Error("expected safe result when malformed multipart part triggers NextPart protocol error")
+	}
+}
+
+func TestLayer_ScanFileUploads_PartReadErrorContinues(t *testing.T) {
+	layer := NewLayer(&Config{
+		Enabled:              true,
+		ScanFileUploads:      true,
+		BlockExecutableFiles: false,
+		BlockArchiveFiles:    false,
+		MaxFileSize:          1024,
+		Patterns:             []string{"credit_card"},
+	})
+
+	body := []byte("--abc\r\nContent-Disposition: form-data; name=\"upload\"; filename=\"data.txt\"\r\nContent-Type: text/plain\r\n\r\nCard: 4111111111111111")
+	result, err := layer.ScanFileUploads(body, "multipart/form-data; boundary=abc")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.Safe {
+		t.Error("expected safe result when multipart part read returns unexpected EOF and is skipped")
 	}
 }

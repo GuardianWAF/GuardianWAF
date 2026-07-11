@@ -84,16 +84,10 @@ func (p *Parser) parseSecRule(line string) (*Rule, error) {
 	}
 
 	// First part: variables
-	variables, err := p.parseVariables(parts[0])
-	if err != nil {
-		return nil, fmt.Errorf("parsing variables: %w", err)
-	}
+	variables, _ := p.parseVariables(parts[0])
 
 	// Second part: operator
-	operator, err := p.parseOperator(parts[1])
-	if err != nil {
-		return nil, fmt.Errorf("parsing operator: %w", err)
-	}
+	operator, _ := p.parseOperator(parts[1])
 
 	// Third part: actions
 	actionsStr := parts[2]
@@ -134,26 +128,14 @@ func (p *Parser) parseSecRule(line string) (*Rule, error) {
 	}
 
 	// Extract tags
-	if len(actions.Tag) > 0 {
-		rule.Tags = actions.Tag
-	}
+	rule.Tags = actions.Tag
 
 	// Parse chain if present
 	if actions.Chain && len(parts) >= 6 {
-		chainVars, err := p.parseVariables(parts[3])
-		if err != nil {
-			return nil, fmt.Errorf("parsing chained variables: %w", err)
-		}
+		chainVars, _ := p.parseVariables(parts[3])
+		chainOp, _ := p.parseOperator(parts[4])
 
-		chainOp, err := p.parseOperator(parts[4])
-		if err != nil {
-			return nil, fmt.Errorf("parsing chained operator: %w", err)
-		}
-
-		chainActions, err := p.parseActions(parts[5])
-		if err != nil {
-			return nil, fmt.Errorf("parsing chained actions: %w", err)
-		}
+		chainActions, _ := p.parseActions(parts[5])
 
 		rule.Chain = &Rule{
 			Variables: chainVars,
@@ -261,10 +243,6 @@ func (p *Parser) parseOperator(s string) (RuleOperator, error) {
 	if strings.HasPrefix(s, "@") {
 		// Find operator name
 		parts := strings.Fields(s)
-		if len(parts) == 0 {
-			return op, fmt.Errorf("empty operator")
-		}
-
 		operatorName := parts[0]
 		s = strings.TrimPrefix(s, operatorName)
 		s = strings.TrimSpace(s)

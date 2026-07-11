@@ -113,11 +113,16 @@ type Dashboard struct {
 	apiStopCh  chan struct{}
 
 	// Layer references for dashboard handlers
-	crsLayer           *crs.Layer
-	virtualPatchLayer  *virtualpatch.Layer
-	clientSideLayer    *clientside.Layer
-	apiValidationLayer *apivalidation.Layer
-	dlpLayer           *dlp.Layer
+	crsLayer              *crs.Layer
+	virtualPatchLayer     *virtualpatch.Layer
+	clientSideLayer       *clientside.Layer
+	apiValidationLayer    *apivalidation.Layer
+	dlpLayer              *dlp.Layer
+	crsLayerOverride      CRSLayerInterface
+	virtualPatchOverride  VirtualPatchLayerInterface
+	clientSideOverride    ClientSideLayerInterface
+	apiValidationOverride APIValidationLayerInterface
+	dlpLayerOverride      DLPLayerInterface
 	tenantAdminHandler *TenantAdminHandler
 }
 

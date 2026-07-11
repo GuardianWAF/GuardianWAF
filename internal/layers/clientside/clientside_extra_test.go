@@ -2,11 +2,14 @@ package clientside
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 )
 
@@ -913,6 +916,39 @@ func TestLayer_Name(t *testing.T) {
 	}
 }
 
+func TestLayer_Order(t *testing.T) {
+	layer := NewLayer(nil)
+	if got := layer.Order(); got != engine.OrderClientSide {
+		t.Errorf("Order() = %d, want %d", got, engine.OrderClientSide)
+	}
+}
+
+func TestLayer_Process_TenantClientSideDisabled(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Enabled = true
+	cfg.CSP.Enabled = true
+	cfg.MagecartDetection.Enabled = true
+	cfg.AgentInjection.Enabled = true
+	layer := NewLayer(cfg)
+
+	ctx := &engine.RequestContext{
+		Method: "GET",
+		Path:   "/page",
+		TenantWAFConfig: &config.WAFConfig{
+			ClientSide: config.ClientSideConfig{Enabled: false},
+		},
+		Metadata: map[string]any{},
+	}
+
+	result := layer.Process(ctx)
+	if result.Action != engine.ActionPass {
+		t.Errorf("expected pass, got %v", result.Action)
+	}
+	if len(ctx.Metadata) != 0 {
+		t.Errorf("tenant-disabled clientside should not register hooks, metadata=%v", ctx.Metadata)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // shouldInject — path matching
 // ---------------------------------------------------------------------------
@@ -1088,6 +1124,37 @@ func TestReportHandler_CSPReport_MethodNotAllowed(t *testing.T) {
 	}
 }
 
+func TestReportHandler_CSPReport_MaxReportsEviction(t *testing.T) {
+	handler := NewReportHandler()
+
+	for i := 0; i < maxReports; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/_guardian/csp-report", strings.NewReader(`{"n":1}`))
+		if i == 0 {
+			req.Header.Set("Referer", "https://example.com/first")
+		} else {
+			req.Header.Set("Referer", "https://example.com/mid")
+		}
+		w := httptest.NewRecorder()
+		handler.ServeCSPReport(w, req)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/_guardian/csp-report", strings.NewReader(`{"n":2}`))
+	req.Header.Set("Referer", "https://example.com/last")
+	w := httptest.NewRecorder()
+	handler.ServeCSPReport(w, req)
+
+	reports := handler.Reports()
+	if len(reports) != maxReports {
+		t.Fatalf("expected %d reports, got %d", maxReports, len(reports))
+	}
+	if reports[0].URL == "https://example.com/first" {
+		t.Fatal("oldest CSP report should have been evicted")
+	}
+	if reports[len(reports)-1].URL != "https://example.com/last" {
+		t.Fatalf("last report URL = %q, want https://example.com/last", reports[len(reports)-1].URL)
+	}
+}
+
 func TestReportHandlerRejectsOversizedCSPReport(t *testing.T) {
 	handler := NewReportHandler()
 
@@ -1101,6 +1168,47 @@ func TestReportHandlerRejectsOversizedCSPReport(t *testing.T) {
 	if got := len(handler.Reports()); got != 0 {
 		t.Fatalf("oversized CSP report was stored; got %d reports", got)
 	}
+}
+
+func TestReportHandler_ReadBodyFailure(t *testing.T) {
+	handler := NewReportHandler()
+
+	req := httptest.NewRequest(http.MethodPost, "/_guardian/report", nil)
+	req.Body = io.NopCloser(errReader{err: errors.New("boom")})
+	w := httptest.NewRecorder()
+
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestReportHandler_CSPReadBodyFailure(t *testing.T) {
+	handler := NewReportHandler()
+
+	req := httptest.NewRequest(http.MethodPost, "/_guardian/csp-report", nil)
+	req.Body = io.NopCloser(errReader{err: errors.New("boom")})
+	w := httptest.NewRecorder()
+
+	handler.ServeCSPReport(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", w.Code)
+	}
+}
+
+func TestReadReportBody_ReadError(t *testing.T) {
+	_, err := readReportBody(errReader{err: errors.New("boom")})
+	if err == nil {
+		t.Fatal("expected read error")
+	}
+}
+
+type errReader struct{ err error }
+
+func (r errReader) Read(_ []byte) (int, error) {
+	return 0, r.err
 }
 
 // ---------------------------------------------------------------------------

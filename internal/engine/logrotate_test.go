@@ -228,3 +228,47 @@ func findSub(s, sub string) bool {
 	}
 	return false
 }
+
+func TestRotatingFileWriter_OpenFileError(t *testing.T) {
+	_, err := NewRotatingFileWriter("/nonexistent/deep/dir/log.log", 1, 3, 0)
+	if err == nil {
+		t.Fatal("expected error for unwritable path")
+	}
+}
+
+func TestRotatingFileWriter_CloseWithoutOpen(t *testing.T) {
+	w := &RotatingFileWriter{}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close on zero writer: %v", err)
+	}
+}
+
+func TestRotatingFileWriter_RotateWithNonexistentBackups(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "rotate.log")
+	w, err := NewRotatingFileWriter(path, 100, 3, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Write enough to trigger rotation
+	big := make([]byte, 100)
+	_, err = w.Write(big)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+}
+
+func TestCleanRotatingLogPath_EmptyPath(t *testing.T) {
+	_, err := cleanRotatingLogPath("")
+	if err == nil {
+		t.Fatal("expected error for empty path")
+	}
+}
+
+func TestCleanRotatingLogPath_NULPath(t *testing.T) {
+	_, err := cleanRotatingLogPath("access\x00.log")
+	if err == nil {
+		t.Fatal("expected error for NUL path")
+	}
+}

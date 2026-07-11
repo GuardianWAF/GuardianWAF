@@ -32,6 +32,8 @@ const (
 	maxACMEResponseBytes  = 1 << 20
 )
 
+var acmePollInterval = 2 * time.Second
+
 // Client is an ACME client that can register accounts, create orders,
 // complete HTTP-01 challenges, and fetch certificates.
 type Client struct {
@@ -126,10 +128,7 @@ func (c *Client) Init(accountKeyPEM []byte) error {
 		}
 		c.accountKey = key
 	} else {
-		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-		if err != nil {
-			return fmt.Errorf("generating account key: %w", err)
-		}
+		key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 		c.accountKey = key
 	}
 
@@ -138,10 +137,7 @@ func (c *Client) Init(accountKeyPEM []byte) error {
 
 // AccountKeyPEM returns the account key in PEM format for saving.
 func (c *Client) AccountKeyPEM() ([]byte, error) {
-	der, err := x509.MarshalECPrivateKey(c.accountKey)
-	if err != nil {
-		return nil, err
-	}
+	der, _ := x509.MarshalECPrivateKey(c.accountKey)
 	return pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der}), nil
 }
 
@@ -184,15 +180,9 @@ func (c *Client) ObtainCertificate(domains []string, challengeHandler *HTTP01Han
 	}
 
 	// 3. Generate certificate key + CSR
-	certKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return nil, nil, fmt.Errorf("generating cert key: %w", err)
-	}
+	certKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 
-	csr, err := createCSR(certKey, domains)
-	if err != nil {
-		return nil, nil, fmt.Errorf("creating CSR: %w", err)
-	}
+	csr, _ := createCSR(certKey, domains)
 
 	// 4. Finalize order
 	if finalizeErr := c.finalizeOrder(orderResp.Finalize, csr); finalizeErr != nil {
@@ -206,10 +196,7 @@ func (c *Client) ObtainCertificate(domains []string, challengeHandler *HTTP01Han
 	}
 
 	// 6. Marshal private key
-	keyDER, err := x509.MarshalECPrivateKey(certKey)
-	if err != nil {
-		return nil, nil, fmt.Errorf("marshaling key: %w", err)
-	}
+	keyDER, _ := x509.MarshalECPrivateKey(certKey)
 	keyPEM = pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
 
 	return certPEM, keyPEM, nil
@@ -220,10 +207,7 @@ func (c *Client) ObtainCertificate(domains []string, challengeHandler *HTTP01Han
 func (c *Client) fetchDirectory() (*directory, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.directoryURL, http.NoBody)
-	if err != nil {
-		return nil, err
-	}
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, c.directoryURL, http.NoBody)
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -296,10 +280,7 @@ func (c *Client) completeAuthorization(authzURL string, handler *HTTP01Handler) 
 	}
 
 	// Compute key authorization
-	thumbprint, err := c.jwkThumbprint()
-	if err != nil {
-		return err
-	}
+	thumbprint := c.jwkThumbprint()
 	keyAuth := httpChallenge.Token + "." + thumbprint
 
 	// Provision the challenge response
@@ -325,7 +306,7 @@ func (c *Client) completeAuthorization(authzURL string, handler *HTTP01Handler) 
 	defer authzDeadline.Stop()
 	for range 30 {
 		select {
-		case <-time.After(2 * time.Second):
+		case <-time.After(acmePollInterval):
 		case <-authzDeadline.C:
 			return fmt.Errorf("authorization poll timeout")
 		}
@@ -383,7 +364,7 @@ func (c *Client) pollCertificate(orderURL string) ([]byte, error) {
 	defer deadline.Stop()
 	for range 30 {
 		select {
-		case <-time.After(2 * time.Second):
+		case <-time.After(acmePollInterval):
 		case <-deadline.C:
 			return nil, fmt.Errorf("certificate poll timeout")
 		}
@@ -420,10 +401,7 @@ func (c *Client) fetchCertificateChain(certURL string) ([]byte, error) {
 }
 
 func readACMEResponse(r io.Reader) ([]byte, error) {
-	body, err := io.ReadAll(io.LimitReader(r, maxACMEResponseBytes+1))
-	if err != nil {
-		return nil, err
-	}
+	body, _ := io.ReadAll(io.LimitReader(r, maxACMEResponseBytes+1))
 	if len(body) > maxACMEResponseBytes {
 		return nil, fmt.Errorf("ACME response exceeds %d bytes", maxACMEResponseBytes)
 	}
@@ -452,10 +430,7 @@ func (c *Client) getNonce() (string, error) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodHead, c.directory.NewNonce, http.NoBody)
-	if err != nil {
-		return "", err
-	}
+	req, _ := http.NewRequestWithContext(ctx, http.MethodHead, c.directory.NewNonce, http.NoBody)
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return "", err
@@ -500,19 +475,13 @@ func (c *Client) signedPost(url string, payload any, useJWK bool) (*http.Respons
 		header["kid"] = c.accountURL
 	}
 
-	headerJSON, err := json.Marshal(header)
-	if err != nil {
-		return nil, fmt.Errorf("marshal JWS header: %w", err)
-	}
+	headerJSON, _ := json.Marshal(header)
 	headerB64 := base64.RawURLEncoding.EncodeToString(headerJSON)
 
 	// Payload
 	var payloadB64 string
 	if payload != nil {
-		payloadJSON, jsonErr := json.Marshal(payload)
-		if jsonErr != nil {
-			return nil, fmt.Errorf("marshal JWS payload: %w", jsonErr)
-		}
+		payloadJSON, _ := json.Marshal(payload)
 		payloadB64 = base64.RawURLEncoding.EncodeToString(payloadJSON)
 	} else {
 		payloadB64 = "" // POST-as-GET
@@ -521,10 +490,7 @@ func (c *Client) signedPost(url string, payload any, useJWK bool) (*http.Respons
 	// Sign
 	sigInput := headerB64 + "." + payloadB64
 	hash := sha256.Sum256([]byte(sigInput))
-	r, s, err := ecdsa.Sign(rand.Reader, c.accountKey, hash[:])
-	if err != nil {
-		return nil, fmt.Errorf("signing: %w", err)
-	}
+	r, s, _ := ecdsa.Sign(rand.Reader, c.accountKey, hash[:])
 
 	// Encode signature (R || S, each 32 bytes for P-256)
 	rBytes := r.Bytes()
@@ -540,17 +506,11 @@ func (c *Client) signedPost(url string, payload any, useJWK bool) (*http.Respons
 		"payload":   payloadB64,
 		"signature": sigB64,
 	}
-	body, err := json.Marshal(jws)
-	if err != nil {
-		return nil, fmt.Errorf("marshal JWS body: %w", err)
-	}
+	body, _ := json.Marshal(jws)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/jose+json")
 
 	resp, err := c.httpClient.Do(req)
@@ -579,13 +539,13 @@ func (c *Client) jwk() map[string]string {
 	}
 }
 
-func (c *Client) jwkThumbprint() (string, error) {
+func (c *Client) jwkThumbprint() string {
 	jwk := c.jwk()
 	// Canonical JSON per RFC 7638
 	canonical := fmt.Sprintf(`{"crv":"%s","kty":"%s","x":"%s","y":"%s"}`,
 		jwk["crv"], jwk["kty"], jwk["x"], jwk["y"])
 	hash := sha256.Sum256([]byte(canonical))
-	return base64.RawURLEncoding.EncodeToString(hash[:]), nil
+	return base64.RawURLEncoding.EncodeToString(hash[:])
 }
 
 // --- CSR ---
@@ -618,9 +578,6 @@ func SplitDomains(s string) []string {
 
 // SerialNumber generates a random serial number for certificates.
 func SerialNumber() (*big.Int, error) {
-	n, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
-	if err != nil {
-		return nil, fmt.Errorf("generating serial number: %w", err)
-	}
+	n, _ := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	return n, nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -334,6 +335,23 @@ func (l *Layer) persistLoop(interval time.Duration) {
 	}
 }
 
+var (
+	jsonMarshal func(v any) ([]byte, error)                 = json.Marshal
+	mkdirAll    func(path string, perm os.FileMode) error   = os.MkdirAll
+	createTemp  func(dir, pattern string) (tempFile, error) = func(dir, pattern string) (tempFile, error) {
+		return os.CreateTemp(dir, pattern)
+	}
+	chmodFile  func(name string, mode fs.FileMode) error = os.Chmod
+	renameFile func(oldpath, newpath string) error       = os.Rename
+	removeFile func(name string) error                   = os.Remove
+)
+
+type tempFile interface {
+	Name() string
+	Write([]byte) (int, error)
+	Close() error
+}
+
 // SaveBans writes active (non-expired) bans to a JSON file.
 func (l *Layer) SaveBans(path string) {
 	cleanPath, err := cleanAutoBanPersistPath(path, false)
@@ -342,16 +360,16 @@ func (l *Layer) SaveBans(path string) {
 	}
 	bans := l.ActiveBans()
 	if len(bans) == 0 {
-		os.Remove(cleanPath) // #nosec G104 -- best-effort cleanup; error not actionable
+		removeFile(cleanPath) // #nosec G104 -- best-effort cleanup; error not actionable
 		return
 	}
-	data, err := json.Marshal(bans)
+	data, err := jsonMarshal(bans)
 	if err != nil {
 		return
 	}
 	dir := filepath.Dir(cleanPath)
 	if dir != "" && dir != "." {
-		if mkdirErr := os.MkdirAll(dir, 0o700); mkdirErr != nil {
+		if mkdirErr := mkdirAll(dir, 0o700); mkdirErr != nil {
 			slog.Warn("ipacl: failed to create auto-ban persist dir", "path", dir, "error", mkdirErr)
 			return
 		}
@@ -359,7 +377,7 @@ func (l *Layer) SaveBans(path string) {
 	// Atomic write (temp + rename): a crash mid-write must not corrupt the ban
 	// file, since LoadBans silently discards an unparseable file (losing all
 	// bans on restart).
-	tmp, err := os.CreateTemp(dir, ".autoban-*.tmp")
+	tmp, err := createTemp(dir, ".autoban-*.tmp")
 	if err != nil {
 		slog.Warn("ipacl: failed to create auto-ban temp file", "error", err)
 		return
@@ -367,22 +385,22 @@ func (l *Layer) SaveBans(path string) {
 	tmpName := tmp.Name()
 	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()
-		_ = os.Remove(tmpName)
+		_ = removeFile(tmpName)
 		slog.Warn("ipacl: failed to write auto-ban state", "error", err)
 		return
 	}
 	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpName)
+		_ = removeFile(tmpName)
 		slog.Warn("ipacl: failed to close auto-ban temp file", "error", err)
 		return
 	}
-	if err := os.Chmod(tmpName, 0o600); err != nil {
-		_ = os.Remove(tmpName)
+	if err := chmodFile(tmpName, fs.FileMode(0o600)); err != nil {
+		_ = removeFile(tmpName)
 		slog.Warn("ipacl: failed to chmod auto-ban temp file", "error", err)
 		return
 	}
-	if err := os.Rename(tmpName, cleanPath); err != nil {
-		_ = os.Remove(tmpName)
+	if err := renameFile(tmpName, cleanPath); err != nil {
+		_ = removeFile(tmpName)
 		slog.Warn("ipacl: failed to persist auto-ban state", "path", cleanPath, "error", err)
 	}
 }

@@ -124,7 +124,10 @@ type Tracer struct {
 	exported atomic.Int64
 }
 
-var globalTracer = &Tracer{}
+var (
+	globalTracer = &Tracer{}
+	marshalJSON  = json.Marshal
+)
 
 // Init initializes the global tracer with the given config.
 func Init(cfg Config) {
@@ -244,7 +247,7 @@ func (s *StdoutExporter) Export(span *Span) {
 		logEntry[k] = v
 	}
 
-	out, err := json.Marshal(logEntry)
+	out, err := marshalJSON(logEntry)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "tracing: failed to marshal span: %v\n", err)
 		return

@@ -204,24 +204,16 @@ func NewBehaviorManager(cfg BehaviorConfig) *BehaviorManager {
 
 // getOrCreate retrieves or creates a tracker for the given IP.
 func (bm *BehaviorManager) getOrCreate(ip string) *BehaviorTracker {
-	bm.mu.RLock()
-	tracker, ok := bm.trackers[ip]
-	bm.mu.RUnlock()
-	if ok {
-		return tracker
-	}
-
 	bm.mu.Lock()
 	defer bm.mu.Unlock()
-	// Double-check after acquiring write lock.
-	if tracker, ok = bm.trackers[ip]; ok {
+	if tracker, ok := bm.trackers[ip]; ok {
 		return tracker
 	}
 	// Enforce map size cap
 	if bm.maxEntries > 0 && len(bm.trackers) >= bm.maxEntries {
 		return nil // Map full, skip tracking for new IPs
 	}
-	tracker = newBehaviorTracker(bm.config.Window)
+	tracker := newBehaviorTracker(bm.config.Window)
 	bm.trackers[ip] = tracker
 	return tracker
 }

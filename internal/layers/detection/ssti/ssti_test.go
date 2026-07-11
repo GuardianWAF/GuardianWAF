@@ -101,3 +101,34 @@ func TestDetector_Multiplier(t *testing.T) {
 		t.Errorf("multiplier not applied: base=%d doubled=%d", base, doubled)
 	}
 }
+
+func TestDetector_RefererAndCookieScanning(t *testing.T) {
+	det := NewDetector(true, 1.0)
+	ctx := &engine.RequestContext{
+		Path:            "/test",
+		NormalizedPath:  "/test",
+		Headers:         map[string][]string{"Referer": {"{{7*7}}"}},
+		NormalizedHeaders: map[string][]string{"Referer": {"{{7*7}}"}},
+		Cookies:         map[string]string{"session": "{{config}}"},
+	}
+	r := det.Process(ctx)
+	if r.Score == 0 {
+		t.Error("expected score > 0 for SSTI in Referer and cookies")
+	}
+}
+
+func TestDetector_SeenDedup(t *testing.T) {
+	det := NewDetector(true, 1.0)
+	ctx := &engine.RequestContext{
+		Path:            "{{7*7}}",
+		NormalizedPath:  "{{7*7}}",
+		QueryParams:     map[string][]string{"q": {"{{7*7}}"}},
+		NormalizedQuery: map[string][]string{"q": {"{{7*7}}"}},
+		Headers:         map[string][]string{},
+		Cookies:         map[string]string{},
+	}
+	r := det.Process(ctx)
+	if r.Score == 0 {
+		t.Error("expected score > 0 even with dedup")
+	}
+}

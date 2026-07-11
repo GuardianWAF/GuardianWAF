@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 )
 
@@ -353,6 +354,35 @@ func TestSanitizerLayer_ImplementsInterface(t *testing.T) {
 
 	if layer.Name() != "sanitizer" {
 		t.Errorf("Name() = %q, want %q", layer.Name(), "sanitizer")
+	}
+	if layer.Order() != engine.OrderSanitizer {
+		t.Errorf("Order() = %d, want %d", layer.Order(), engine.OrderSanitizer)
+	}
+}
+
+func TestSanitizerLayer_TenantConfigDisablesLayer(t *testing.T) {
+	cfg := Config{
+		MaxURLLength:   10,
+		AllowedMethods: []string{"GET"},
+	}
+	layer := NewLayer(&cfg)
+
+	longURL := "/" + strings.Repeat("a", 100)
+	ctx := newTestContext("GET", longURL, longURL, "")
+	ctx.TenantWAFConfig = &config.WAFConfig{
+		Sanitizer: config.SanitizerConfig{Enabled: false},
+	}
+
+	result := layer.Process(ctx)
+
+	if result.Action != engine.ActionPass {
+		t.Errorf("Tenant-disabled layer should return ActionPass, got %v", result.Action)
+	}
+	if len(result.Findings) != 0 {
+		t.Errorf("Tenant-disabled layer should have no findings, got %d", len(result.Findings))
+	}
+	if ctx.NormalizedPath != "" {
+		t.Error("Tenant-disabled layer should not populate NormalizedPath")
 	}
 }
 

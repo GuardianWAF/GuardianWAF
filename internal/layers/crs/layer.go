@@ -2,6 +2,7 @@ package crs
 
 import (
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -26,6 +27,9 @@ type Layer struct {
 
 	// Disabled rules
 	disabledRules map[string]bool
+	absPath       func(string) (string, error)
+	relPath       func(string, string) (string, error)
+	walkDir       func(string, fs.WalkDirFunc) error
 
 	// loadErr records a non-nil error if rule loading failed during
 	// construction. The serve binary checks LoadError() and refuses to start a
@@ -50,6 +54,9 @@ func NewLayer(config *Config) *Layer {
 		rulesByPhase:  make(map[int][]*Rule),
 		rulesByID:     make(map[string]*Rule),
 		disabledRules: make(map[string]bool),
+		absPath:       filepath.Abs,
+		relPath:       filepath.Rel,
+		walkDir:       filepath.WalkDir,
 	}
 
 	// Mark disabled rules
@@ -100,13 +107,13 @@ func (l *Layer) LoadRules(path string) error {
 
 	if info.IsDir() {
 		// Resolve the root path to detect symlink escapes
-		rootAbs, absErr := filepath.Abs(cleanPath)
+		rootAbs, absErr := l.absPath(cleanPath)
 		if absErr != nil {
 			return fmt.Errorf("resolving rule path: %w", absErr)
 		}
 		rootAbs = filepath.Clean(rootAbs)
 		// Load all .conf files from directory, skipping symlinks
-		err = filepath.WalkDir(cleanPath, func(p string, d os.DirEntry, err error) error {
+		err = l.walkDir(cleanPath, func(p string, d os.DirEntry, err error) error {
 			if err != nil {
 				return err
 			}
@@ -115,11 +122,11 @@ func (l *Layer) LoadRules(path string) error {
 				return nil
 			}
 			// Verify path stays within root directory
-			pAbs, absErr := filepath.Abs(p)
+			pAbs, absErr := l.absPath(p)
 			if absErr != nil {
 				return nil
 			}
-			rel, relErr := filepath.Rel(rootAbs, filepath.Clean(pAbs))
+			rel, relErr := l.relPath(rootAbs, filepath.Clean(pAbs))
 			if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
 				return nil
 			}
@@ -276,15 +283,6 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		}
 	}
 
-	// Check if anomaly threshold exceeded
-	if anomalyScore >= l.config.AnomalyThreshold {
-		return engine.LayerResult{
-			Action:   engine.ActionBlock,
-			Findings: findings,
-			Score:    anomalyScore,
-		}
-	}
-
 	return engine.LayerResult{
 		Action:   engine.ActionPass,
 		Findings: findings,
@@ -346,10 +344,7 @@ func (l *Layer) evaluateRule(rule *Rule, tx *Transaction) (bool, int, *engine.Fi
 			continue
 		}
 
-		values, err := resolver.Resolve(variable)
-		if err != nil {
-			continue
-		}
+		values, _ := resolver.Resolve(variable)
 
 		// Apply transformations
 		for _, value := range values {

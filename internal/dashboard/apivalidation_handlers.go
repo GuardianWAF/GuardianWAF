@@ -2,6 +2,8 @@ package dashboard
 
 import (
 	"net/http"
+	"os"
+	"strings"
 
 	"github.com/guardianwaf/guardianwaf/internal/layers/apivalidation"
 )
@@ -264,6 +266,9 @@ func (h *APIValidationHandler) handleTestValidation(w http.ResponseWriter, r *ht
 
 // getAPIValidationLayer returns the API validation layer from the engine if available
 func (h *APIValidationHandler) getAPIValidationLayer() APIValidationLayerInterface {
+	if h.dashboard.apiValidationOverride != nil {
+		return h.dashboard.apiValidationOverride
+	}
 	if h.dashboard.apiValidationLayer == nil {
 		// Try to get from engine via FindLayer
 		if h.dashboard.engine != nil {
@@ -299,9 +304,29 @@ func (a *apiValidationAdapter) LoadSchema(schema *APISchemaInfo) error {
 	if a.layer == nil {
 		return nil
 	}
+
+	format := strings.ToLower(schema.Format)
+	if format == "" || format == "json" {
+		format = "jsonschema"
+	}
+
+	tmpFile, err := os.CreateTemp(".", "guardianwaf-apivalidation-*.json")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmpFile.Name())
+
+	if _, err := tmpFile.WriteString(schema.Content); err != nil {
+		_ = tmpFile.Close()
+		return err
+	}
+	if err := tmpFile.Close(); err != nil {
+		return err
+	}
+
 	return a.layer.LoadSchema(apivalidation.SchemaSource{
-		Type: schema.Format,
-		Path: schema.Name,
+		Type: format,
+		Path: tmpFile.Name(),
 	})
 }
 

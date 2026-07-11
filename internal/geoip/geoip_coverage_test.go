@@ -40,6 +40,30 @@ func TestReady_WithData(t *testing.T) {
 	}
 }
 
+func TestGeoIP_ipv4HostBits(t *testing.T) {
+	tests := []struct {
+		name string
+		ones int
+		want uint32
+		ok   bool
+	}{
+		{name: "0.0.0.0 mask", ones: 0, want: 32, ok: true},
+		{name: "255.255.255.255 mask", ones: 32, want: 0, ok: true},
+		{name: "10.0.0.0 slash8", ones: 8, want: 24, ok: true},
+		{name: "negative", ones: -1, want: 0, ok: false},
+		{name: "too large", ones: 33, want: 0, ok: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := ipv4HostBits(tt.ones)
+			if got != tt.want || ok != tt.ok {
+				t.Fatalf("ipv4HostBits(%d) = (%d, %v), want (%d, %v)", tt.ones, got, ok, tt.want, tt.ok)
+			}
+		})
+	}
+}
+
 // --- validateURLNotPrivate ---
 
 func TestValidateURLNotPrivate_LoopbackIP(t *testing.T) {

@@ -51,7 +51,7 @@ docker-build:
 	docker build -t guardianwaf:$(VERSION) .
 
 cover:
-	go test -race -coverprofile=coverage.txt -covermode=atomic ./...
+	go test -race -coverprofile=coverage.txt -covermode=atomic $(shell go list ./... | grep -v '/examples/' | grep -v '/scripts/attack-simulation')
 	go tool cover -html=coverage.txt -o coverage.html
 
 vet:

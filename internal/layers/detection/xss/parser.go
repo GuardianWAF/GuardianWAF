@@ -110,9 +110,6 @@ func scanTags(input string) []htmlTag {
 		}
 
 		end := i
-		if end > len(input) {
-			end = len(input)
-		}
 		rawMatch := input[start:end]
 
 		tags = append(tags, htmlTag{

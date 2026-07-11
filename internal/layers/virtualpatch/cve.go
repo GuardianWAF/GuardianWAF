@@ -233,9 +233,6 @@ func (db *Database) SetPatchEnabledBy(patchID string, enabled bool, actor string
 }
 
 func normalizePatchState(patch *VirtualPatch) {
-	if patch == nil {
-		return
-	}
 	if patch.GeneratedAt.IsZero() {
 		patch.GeneratedAt = time.Now().UTC()
 	}

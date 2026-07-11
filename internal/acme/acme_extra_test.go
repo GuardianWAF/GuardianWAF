@@ -185,9 +185,9 @@ func TestClientJWKThumbprint(t *testing.T) {
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	c := &Client{accountKey: key}
 
-	tp, err := c.jwkThumbprint()
-	if err != nil {
-		t.Fatalf("jwkThumbprint: %v", err)
+	tp := c.jwkThumbprint()
+	if tp == "" {
+		t.Fatal("jwkThumbprint returned empty")
 	}
 	if tp == "" {
 		t.Error("expected non-empty thumbprint")

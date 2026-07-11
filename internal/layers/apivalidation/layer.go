@@ -16,7 +16,12 @@ import (
 )
 
 // Pre-compiled regex for OpenAPI path parameter replacement.
-var rePathParam = regexp.MustCompile(`\{[^}]+\}`)
+var (
+	rePathParam      = regexp.MustCompile(`\{[^}]+\}`)
+	absPathFunc      = filepath.Abs
+	evalSymlinksPath = filepath.EvalSymlinks
+	workingDirectory = os.Getwd
+)
 
 // Layer implements the engine.Layer interface for OpenAPI schema validation.
 type Layer struct {
@@ -213,21 +218,21 @@ func (l *Layer) loadJSONSchema(path string) (*OpenAPISpec, error) {
 // readFile reads a file from the local filesystem.
 func (l *Layer) readFile(path string) ([]byte, error) {
 	// Security: resolve absolute path and confine to the working directory
-	absPath, err := filepath.Abs(path)
+	absPath, err := absPathFunc(path)
 	if err != nil {
 		return nil, err
 	}
-	realPath, err := filepath.EvalSymlinks(absPath)
+	realPath, err := evalSymlinksPath(absPath)
 	if err != nil {
 		return nil, err
 	}
 
 	// Get the current working directory as the base for confinement
-	cwd, err := os.Getwd()
+	cwd, err := workingDirectory()
 	if err != nil {
 		return nil, fmt.Errorf("cannot determine working directory: %w", err)
 	}
-	realCWD, err := filepath.EvalSymlinks(cwd)
+	realCWD, err := evalSymlinksPath(cwd)
 	if err != nil {
 		return nil, err
 	}
@@ -287,11 +292,7 @@ func (l *Layer) compilePathPattern(path string) *regexp.Regexp {
 	pattern = strings.ReplaceAll(pattern, `\(\[\^/\]\+\)`, `([^/]+)`)
 	pattern = "^" + pattern + "$"
 
-	re, err := regexp.Compile(pattern)
-	if err != nil {
-		return nil
-	}
-	return re
+	return regexp.MustCompile(pattern)
 }
 
 // compileOperation compiles a single operation.

@@ -103,10 +103,14 @@ func BuildLayer(name string, cfg *config.Config) (engine.OrderedLayer, bool, err
 
 // BuildLayerWithContext constructs a layer by descriptor name using optional build-time dependencies.
 func BuildLayerWithContext(name string, cfg *config.Config, ctx *BuildContext) (engine.OrderedLayer, bool, error) {
+	return buildLayerWithRegistry(name, cfg, ctx, DefaultRegistry())
+}
+
+func buildLayerWithRegistry(name string, cfg *config.Config, ctx *BuildContext, registry []Descriptor) (engine.OrderedLayer, bool, error) {
 	if cfg == nil {
 		return engine.OrderedLayer{}, false, nil
 	}
-	for _, descriptor := range DefaultRegistry() {
+	for _, descriptor := range registry {
 		if descriptor.Name != name {
 			continue
 		}
@@ -188,6 +192,8 @@ func buildIPACL(ctx *BuildContext, cfg *config.Config) (engine.Layer, error) {
 	return layer, nil
 }
 
+var newThreatIntelLayer = threatintel.NewLayer
+
 func buildThreatIntel(ctx *BuildContext, cfg *config.Config) (engine.Layer, error) {
 	feeds := make([]threatintel.FeedConfig, len(cfg.WAF.ThreatIntel.Feeds))
 	for i, f := range cfg.WAF.ThreatIntel.Feeds {
@@ -199,7 +205,7 @@ func buildThreatIntel(ctx *BuildContext, cfg *config.Config) (engine.Layer, erro
 			Format:  f.Format,
 		}
 	}
-	layer, err := threatintel.NewLayer(&threatintel.Config{
+	layer, err := newThreatIntelLayer(&threatintel.Config{
 		Enabled: cfg.WAF.ThreatIntel.Enabled,
 		IPReputation: threatintel.IPRepConfig{
 			Enabled:        cfg.WAF.ThreatIntel.IPReputation.Enabled,

@@ -7,6 +7,15 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 )
 
+func TestLayerOrder(t *testing.T) {
+	layer := NewLayer(&Config{Enabled: true})
+	if got := layer.Order(); got != engine.OrderRateLimit {
+		t.Fatalf("Order() = %d, want %d", got, engine.OrderRateLimit)
+	}
+}
+
+// --- AddRule ---
+
 // --- AddRule ---
 
 func TestAddRule_NewRule(t *testing.T) {

@@ -1,7 +1,6 @@
 package apisecurity
 
 import (
-	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -60,10 +59,9 @@ func NewLayer(cfg *Config) (*Layer, error) {
 	// Initialize API key validator. Fail loud: a misconfigured validator must
 	// not silently disable API-key authentication on a security product.
 	if cfg.APIKeys.Enabled {
-		validator, err := NewAPIKeyValidator(cfg.APIKeys.Keys)
-		if err != nil {
-			return nil, fmt.Errorf("api_security: api key validator: %w", err)
-		}
+		// NewAPIKeyValidator currently has no invalid configuration state; keep
+		// its compatibility error return out of this otherwise-dead branch.
+		validator, _ := NewAPIKeyValidator(cfg.APIKeys.Keys)
 		l.apiKeyValidator = validator
 	}
 

@@ -465,3 +465,9 @@ func TestVerifyHandler_ClientIPExtractor_Cov(t *testing.T) {
 		t.Error("expected cookie to be set")
 	}
 }
+
+func TestSafeChallengeRedirectPath_DELControl_Cov(t *testing.T) {
+	if got := safeChallengeRedirectPath("/safe" + string(rune(0x7f))); got != "/" {
+		t.Fatalf("expected DEL control char redirect to sanitize to /, got %q", got)
+	}
+}

@@ -186,10 +186,15 @@ type Engine struct {
 // libraryCleanupInterval is how often stale per-IP/per-tenant layer state is
 // swept in library mode so long-running embedded processes don't accumulate
 // unbounded rate-limit buckets, bot trackers, or ATO/IP-ACL entries.
-const libraryCleanupInterval = 5 * time.Minute
+var libraryCleanupInterval = 5 * time.Minute
 
 // libraryCleanupMaxAge is the age past which idle tracked entries are evicted.
 const libraryCleanupMaxAge = 30 * time.Minute
+
+var (
+	newInternalEngine   = engine.NewEngine
+	newChallengeService = challenge.NewService
+)
 
 type staleCleaner interface{ CleanupExpired(time.Duration) }
 type expiryCleaner interface{ CleanupExpired() }
@@ -248,7 +253,7 @@ func New(cfg Config, opts ...Option) (*Engine, error) {
 
 	store := events.NewMemoryStore(internalCfg.Events.MaxEvents)
 	bus := events.NewEventBus()
-	eng, err := engine.NewEngine(internalCfg, store, bus)
+	eng, err := newInternalEngine(internalCfg, store, bus)
 	if err != nil {
 		return nil, fmt.Errorf("creating engine: %w", err)
 	}
@@ -267,7 +272,7 @@ func New(cfg Config, opts ...Option) (*Engine, error) {
 			chCfg.SecretKey = []byte(internalCfg.WAF.Challenge.SecretKey)
 		}
 		chCfg.ClientIPExtractor = engine.ExtractClientIP
-		challengeSvc, svcErr := challenge.NewService(chCfg)
+		challengeSvc, svcErr := newChallengeService(chCfg)
 		if svcErr != nil {
 			return nil, fmt.Errorf("creating challenge service: %w", svcErr)
 		}
@@ -293,7 +298,7 @@ func NewFromFile(path string, opts ...Option) (*Engine, error) {
 
 	store := events.NewMemoryStore(cfg.Events.MaxEvents)
 	bus := events.NewEventBus()
-	eng, err := engine.NewEngine(cfg, store, bus)
+	eng, err := newInternalEngine(cfg, store, bus)
 	if err != nil {
 		return nil, fmt.Errorf("creating engine: %w", err)
 	}

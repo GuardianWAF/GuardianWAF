@@ -17,6 +17,8 @@ import (
 	"time"
 )
 
+var lookupIP = net.LookupIP
+
 // hmacKey is a symmetric HMAC key.
 type hmacKey []byte
 
@@ -39,7 +41,7 @@ func (v *JWTValidator) newJWKSHTTPClient() *http.Client {
 			host = addr
 			port = ""
 		}
-		ips, err := net.LookupIP(host)
+		ips, err := lookupIP(host)
 		if err != nil {
 			return nil, fmt.Errorf("JWKS SSRF dial: DNS lookup failed for %q: %w", host, err)
 		}

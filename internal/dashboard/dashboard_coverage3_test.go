@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/guardianwaf/guardianwaf/internal/layers/apivalidation"
 	"github.com/guardianwaf/guardianwaf/internal/proxy"
 )
 
@@ -1313,5 +1314,57 @@ func TestAlertManagerInterface_Nil(t *testing.T) {
 	var am AlertManagerInterface
 	if am != nil {
 		t.Error("expected nil")
+	}
+}
+
+func TestAPIValidationHandler_UploadSchema_MissingFormatDefaultsToJson(t *testing.T) {
+	d := newTestDashboard(t, "test-key")
+	d.apiValidationLayer = apivalidation.NewLayer(apivalidation.DefaultConfig())
+	h := NewAPIValidationHandler(d)
+
+	rr := httptest.NewRecorder()
+	req := authenticatedRequest("POST", "/api/apivalidation/schemas", `{"name":"test","content":"{}"}`, "test-key")
+	h.handleUploadSchema(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestAPIValidationHandler_SchemaDetail_Found(t *testing.T) {
+	d := newTestDashboard(t, "test-key")
+	d.apiValidationLayer = apivalidation.NewLayer(apivalidation.DefaultConfig())
+	h := NewAPIValidationHandler(d)
+
+	rr := httptest.NewRecorder()
+	req := authenticatedRequest("GET", "/api/apivalidation/schemas/test-schema", "", "test-key")
+	h.handleSchemaDetail(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d, body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestAPIValidationHandler_TestValidation_Success(t *testing.T) {
+	d := newTestDashboard(t, "test-key")
+	d.apiValidationLayer = apivalidation.NewLayer(apivalidation.DefaultConfig())
+	h := NewAPIValidationHandler(d)
+
+	rr := httptest.NewRecorder()
+	req := authenticatedRequest("POST", "/api/apivalidation/test", `{"method":"GET","path":"/test","body":""}`, "test-key")
+	h.handleTestValidation(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestAPIValidationHandler_ValidationConfig_Get(t *testing.T) {
+	d := newTestDashboard(t, "test-key")
+	d.apiValidationLayer = apivalidation.NewLayer(apivalidation.DefaultConfig())
+	h := NewAPIValidationHandler(d)
+
+	rr := httptest.NewRecorder()
+	req := authenticatedRequest("GET", "/api/apivalidation/config", "", "test-key")
+	h.handleValidationConfig(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body: %s", rr.Code, rr.Body.String())
 	}
 }

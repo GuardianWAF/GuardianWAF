@@ -1784,3 +1784,38 @@ func TestPipeline_TenantAwareLayer_ConfigFromContext(t *testing.T) {
 		t.Errorf("expected block threshold 40, got %d", layer.sawTenantConfig.Detection.Threshold.Block)
 	}
 }
+
+func TestCheck_ProducesEvent(t *testing.T) {
+	e, _, _ := testEngine(t)
+	defer e.Close()
+	req := httptest.NewRequest("GET", "/", nil)
+	ev := e.Check(req)
+	if ev == nil {
+		t.Fatal("expected event, got nil")
+	}
+	if ev.ID == "" {
+		t.Error("expected non-empty event ID")
+	}
+}
+
+func TestStats_TracksRequests(t *testing.T) {
+	e, _, _ := testEngine(t)
+	defer e.Close()
+	req := httptest.NewRequest("GET", "/", nil)
+	e.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})).ServeHTTP(httptest.NewRecorder(), req)
+
+	s := e.Stats()
+	if s.TotalRequests == 0 {
+		t.Error("expected TotalRequests > 0")
+	}
+}
+
+func TestFindLayer_ReturnsNilForUnknown(t *testing.T) {
+	e, _, _ := testEngine(t)
+	defer e.Close()
+	if l := e.FindLayer("nonexistent"); l != nil {
+		t.Error("expected nil for unknown layer name")
+	}
+}

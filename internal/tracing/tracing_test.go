@@ -1,6 +1,7 @@
 package tracing
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -135,11 +136,25 @@ func TestStdoutExporter(t *testing.T) {
 	span.SetAttribute("attr1", "val1")
 	span.Status = SpanStatusOK
 	e.Export(span)
+
+	errorSpan := StartSpan("test.error", SpanKindInternal)
+	errorSpan.Status = SpanStatusError
+	e.Export(errorSpan)
 	e.Shutdown()
 
 	// Export after shutdown should be safe
 	span2 := StartSpan("test.span2", SpanKindInternal)
 	e.Export(span2) // should not panic
+}
+
+func TestStdoutExporterMarshalError(t *testing.T) {
+	originalMarshal := marshalJSON
+	marshalJSON = func(any) ([]byte, error) {
+		return nil, errors.New("marshal failed")
+	}
+	t.Cleanup(func() { marshalJSON = originalMarshal })
+
+	NewStdoutExporter().Export(StartSpan("test.marshal-error", SpanKindInternal))
 }
 
 func TestStats(t *testing.T) {
@@ -158,6 +173,48 @@ func TestSetExporter(t *testing.T) {
 	// Should not panic — just verify it works
 	span := StartSpan("test", SpanKindInternal)
 	span.End()
+}
+
+func TestInit_SelectsStdoutExporter(t *testing.T) {
+	Init(Config{Enabled: true, ExporterType: "stdout"})
+	if !Enabled() {
+		t.Error("should be enabled")
+	}
+	Shutdown()
+}
+
+func TestInit_SelectsNoopByDefault(t *testing.T) {
+	Init(Config{Enabled: true})
+	if !Enabled() {
+		t.Error("should be enabled")
+	}
+	Shutdown()
+}
+
+func TestShouldSample_FractionalEnabled(t *testing.T) {
+	Init(Config{Enabled: true, SamplingRate: 0.5})
+	// With 0.5 sampling rate and deterministic counter, some should sample
+	sampled := false
+	for i := 0; i < 500; i++ {
+		if ShouldSample() {
+			sampled = true
+			break
+		}
+	}
+	if !sampled {
+		t.Error("expected at least one sample in 500 tries with 0.5 rate")
+	}
+	Shutdown()
+}
+
+func TestSpanEnd_Idempotent(t *testing.T) {
+	span := StartSpan("test.idempotent", SpanKindInternal)
+	span.End()
+	endTime1 := span.EndTime
+	span.End() // second call should be a no-op
+	if span.EndTime != endTime1 {
+		t.Error("EndTime should not change on second End() call")
+	}
 }
 
 func TestAttributeConstants(t *testing.T) {

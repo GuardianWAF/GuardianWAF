@@ -513,11 +513,7 @@ func (s *Server) HandleRequestJSONWithAuditContext(reqData []byte, auditCtx *Aud
 	}
 
 	resp := s.processRequestWithAuditContext(req, auditCtx)
-	data, err := json.Marshal(resp)
-	if err != nil {
-		return nil, err
-	}
-	return data, nil
+	return json.Marshal(resp)
 }
 
 // processRequest handles a JSON-RPC request and returns the response directly.

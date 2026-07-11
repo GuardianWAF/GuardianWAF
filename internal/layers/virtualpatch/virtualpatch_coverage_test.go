@@ -2410,3 +2410,173 @@ func TestRegexMatchWithTimeout_NoMatch(t *testing.T) {
 		t.Error("expected no match")
 	}
 }
+
+func TestLayer_Order(t *testing.T) {
+	layer := NewLayer(&Config{Enabled: true, AutoUpdate: false})
+	if got := layer.Order(); got != engine.OrderVirtualPatch {
+		t.Fatalf("Order() = %d, want %d", got, engine.OrderVirtualPatch)
+	}
+}
+
+func TestLayer_Process_TenantDisabled(t *testing.T) {
+	layer := NewLayer(&Config{Enabled: true, AutoUpdate: false, BlockSeverity: []string{"HIGH", "CRITICAL"}})
+	ctx := &engine.RequestContext{
+		Method: "GET",
+		Path:   "/wp-json/wp/v2/users",
+		TenantWAFConfig: &config.WAFConfig{
+			VirtualPatch: config.VirtualPatchConfig{Enabled: false},
+		},
+	}
+
+	result := layer.Process(ctx)
+	if result.Action != engine.ActionPass {
+		t.Fatalf("tenant-disabled virtual patch should pass, got %v", result.Action)
+	}
+}
+
+func TestLayer_Process_LogActionAndScoreThresholdBlock(t *testing.T) {
+	layer := NewLayer(&Config{Enabled: true, AutoUpdate: false, BlockSeverity: []string{"HIGH"}})
+	layer.AddPatch(&VirtualPatch{
+		ID:         "VP-SCORE-1",
+		CVEID:      "CVE-TEST-1",
+		Name:       "Threshold One",
+		Severity:   "HIGH",
+		Action:     "log",
+		Score:      25,
+		Enabled:    true,
+		Patterns:   []PatchPattern{{Type: "path", Pattern: "/threshold", MatchType: "exact"}},
+		MatchLogic: "or",
+	})
+	layer.AddPatch(&VirtualPatch{
+		ID:         "VP-SCORE-2",
+		CVEID:      "CVE-TEST-2",
+		Name:       "Threshold Two",
+		Severity:   "HIGH",
+		Action:     "log",
+		Score:      25,
+		Enabled:    true,
+		Patterns:   []PatchPattern{{Type: "path", Pattern: "/threshold", MatchType: "exact"}},
+		MatchLogic: "or",
+	})
+	layer.AddPatch(&VirtualPatch{
+		ID:         "VP-LOG-ONLY",
+		CVEID:      "CVE-TEST-3",
+		Name:       "Log Only",
+		Severity:   "HIGH",
+		Action:     "log",
+		Score:      30,
+		Enabled:    true,
+		Patterns:   []PatchPattern{{Type: "path", Pattern: "/log-only", MatchType: "exact"}},
+		MatchLogic: "or",
+	})
+
+	thresholdResult := layer.Process(&engine.RequestContext{Method: "GET", Path: "/threshold"})
+	if thresholdResult.Action != engine.ActionBlock {
+		t.Fatalf("expected score threshold block, got %v", thresholdResult.Action)
+	}
+	if thresholdResult.Score != 50 {
+		t.Fatalf("threshold score = %d, want 50", thresholdResult.Score)
+	}
+	if len(thresholdResult.Findings) != 2 {
+		t.Fatalf("expected 2 findings at threshold, got %d", len(thresholdResult.Findings))
+	}
+
+	logResult := layer.Process(&engine.RequestContext{Method: "GET", Path: "/log-only"})
+	if logResult.Action != engine.ActionLog {
+		t.Fatalf("expected log action below threshold, got %v", logResult.Action)
+	}
+	if logResult.Score != 30 {
+		t.Fatalf("log-only score = %d, want 30", logResult.Score)
+	}
+}
+
+func TestDatabase_AddPatchNilAndGetMissing(t *testing.T) {
+	db := NewDatabase()
+	db.AddPatch(nil)
+	if got := db.GetPatch("missing"); got != nil {
+		t.Fatalf("expected nil missing patch, got %+v", got)
+	}
+}
+
+func TestDatabase_SetPatchEnabledWrapperAndRecordMiss(t *testing.T) {
+	db := NewDatabase()
+	patch := &VirtualPatch{ID: "VP-WRAP", Enabled: false}
+	db.AddPatch(patch)
+
+	if !db.SetPatchEnabled("VP-WRAP", true) {
+		t.Fatal("SetPatchEnabled should enable existing patch")
+	}
+	stored := db.GetPatch("VP-WRAP")
+	if stored == nil || !stored.Enabled || stored.AppliedBy != "system" {
+		t.Fatalf("unexpected stored patch after enable: %+v", stored)
+	}
+	if db.RecordPatchHit("missing", time.Now()) {
+		t.Fatal("RecordPatchHit should fail for missing patch")
+	}
+}
+
+func TestGenerator_IsWebAttack_CWEOnlyAndDetermineSeverityExplicit(t *testing.T) {
+	gen := NewGenerator()
+	cve := &CVEEntry{Description: "local parser issue", CWEs: []string{"CWE-79"}}
+	if !gen.isWebAttack(cve) {
+		t.Fatal("expected CWE-only web attack to be detected")
+	}
+	if sev := gen.determineSeverity(&CVEEntry{Severity: "HIGH", CVSSScore: 1}); sev != "HIGH" {
+		t.Fatalf("determineSeverity should prefer explicit severity, got %q", sev)
+	}
+}
+
+func TestNVDHelpers_DecodeLimitAndConvertFallbacks(t *testing.T) {
+	tooLarge := strings.NewReader(strings.Repeat("x", maxNVDResponseBytes+1))
+	var out NVDResponse
+	if err := decodeNVDResponse(tooLarge, &out); err == nil {
+		t.Fatal("expected oversized response error")
+	}
+
+	entry := convertToCVEEntry(NVDCVE{
+		ID:           "CVE-CONVERT-1",
+		Published:    time.Now().UTC().Format(time.RFC3339),
+		LastModified: time.Now().UTC().Format(time.RFC3339),
+		VulnStatus:   "Analyzed",
+		Descriptions: []NVDDescription{{Lang: "fr", Value: "bonjour"}},
+		Metrics:      NVDMetrics{CVSSMetricV30: []NVDCVSSMetricV30{{CVSSData: NVDCVSSData{BaseScore: 8.1, BaseSeverity: "HIGH"}}}},
+	})
+	if entry.Description != "" {
+		t.Fatalf("expected empty description when no English text exists, got %q", entry.Description)
+	}
+	if entry.Severity != "HIGH" || entry.CVSSScore != 8.1 {
+		t.Fatalf("unexpected converted severity/score: %s %.1f", entry.Severity, entry.CVSSScore)
+	}
+}
+
+func TestNVDClient_GetCVENotFound(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(NVDResponse{Vulnerabilities: []NVDCVEItem{}})
+	}))
+	defer ts.Close()
+
+	client := NewNVDClient("")
+	client.allowPrivate = true
+	client.httpClient = ts.Client()
+	client.baseURL = ts.URL
+
+	if _, err := client.GetCVE("CVE-404"); err == nil || !strings.Contains(err.Error(), "CVE not found") {
+		t.Fatalf("expected CVE not found error, got %v", err)
+	}
+}
+
+func TestLayer_GetUpdateStatsWithError(t *testing.T) {
+	layer := NewLayer(&Config{Enabled: true, AutoUpdate: false})
+	layer.lastError.Store(fmt.Errorf("boom"))
+	layer.mu.Lock()
+	layer.lastUpdate = time.Now().UTC()
+	layer.mu.Unlock()
+
+	stats := layer.GetUpdateStats()
+	if stats.LastError != "boom" {
+		t.Fatalf("LastError = %q, want boom", stats.LastError)
+	}
+	if stats.LastUpdate.IsZero() {
+		t.Fatal("expected non-zero LastUpdate")
+	}
+}

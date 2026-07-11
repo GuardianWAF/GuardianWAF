@@ -13,6 +13,10 @@ import (
 var Logger *slog.Logger
 
 func init() {
+	initLogger()
+}
+
+func initLogger() {
 	// Default to text handler in dev, JSON in production (when $JSON_LOG=1).
 	opts := &slog.HandlerOptions{
 		Level: slog.LevelInfo,

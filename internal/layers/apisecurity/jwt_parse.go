@@ -94,9 +94,6 @@ func parsePublicKey(pemData []byte) (crypto.PublicKey, error) {
 	}
 	blockStart := start + nl + 1
 	blockEnd := end
-	if blockStart > blockEnd {
-		return nil, fmt.Errorf("invalid PEM format")
-	}
 	b64 := strings.ReplaceAll(s[blockStart:blockEnd], "\n", "")
 	b64 = strings.ReplaceAll(b64, "\r", "")
 	der, err := base64.StdEncoding.DecodeString(b64)
@@ -512,9 +509,6 @@ func (p *asn1Parser) parseLength() (int, error) {
 	for i := 0; i < n; i++ {
 		length = length<<8 | int(p.data[i])
 	}
-	if length < 0 {
-		return 0, fmt.Errorf("negative length")
-	}
 	p.data = p.data[n:]
 	return length, nil
 }
@@ -540,9 +534,6 @@ func parseLengthFrom(data *[]byte) (int, error) {
 	var length int
 	for i := 0; i < n; i++ {
 		length = length<<8 | int((*data)[i])
-	}
-	if length < 0 {
-		return 0, fmt.Errorf("negative length")
 	}
 	*data = (*data)[n:]
 	return length, nil

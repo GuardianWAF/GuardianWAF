@@ -407,6 +407,26 @@ func TestStartAutoRefreshWithContextStopsAndIsIdempotent(t *testing.T) {
 	handle.Stop()
 }
 
+func TestGeoIP_StartAutoRefreshWithContext(t *testing.T) {
+	dir := t.TempDir()
+	csv := filepath.Join(dir, "geo.csv")
+	if err := os.WriteFile(csv, []byte("1.0.0.0,1.0.0.255,AU\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	db := New()
+	handle := db.StartAutoRefreshWithContext(csv, "", 0)
+	if handle == nil {
+		t.Fatal("expected non-nil auto-refresh handle")
+	}
+	if handle.stop == nil || handle.done == nil {
+		t.Fatal("expected initialized auto-refresh channels")
+	}
+	if err := handle.StopWithContext(context.Background()); err != nil {
+		t.Fatalf("StopWithContext = %v", err)
+	}
+}
+
 func TestAutoRefreshHandleStopWithContextDeadline(t *testing.T) {
 	handle := &AutoRefreshHandle{
 		stop: make(chan struct{}),
@@ -421,6 +441,22 @@ func TestAutoRefreshHandleStopWithContextDeadline(t *testing.T) {
 	close(handle.done)
 	if err := handle.StopWithContext(context.Background()); err != nil {
 		t.Fatalf("final StopWithContext: %v", err)
+	}
+}
+
+func TestGeoIP_StopWithContext(t *testing.T) {
+	var handle *AutoRefreshHandle
+	if err := handle.StopWithContext(context.Background()); err != nil {
+		t.Fatalf("nil StopWithContext = %v, want nil", err)
+	}
+
+	handle = &AutoRefreshHandle{
+		stop: make(chan struct{}),
+		done: make(chan struct{}),
+	}
+	close(handle.done)
+	if err := handle.StopWithContext(context.Background()); err != nil {
+		t.Fatalf("closed handle StopWithContext = %v, want nil", err)
 	}
 }
 

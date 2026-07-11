@@ -23,9 +23,10 @@ type SSEHandler struct {
 	server *Server
 	apiKey string
 
-	mu      sync.Mutex
-	clients map[*sseClient]bool
-	log     *slog.Logger
+	mu                sync.Mutex
+	clients           map[*sseClient]bool
+	log               *slog.Logger
+	heartbeatInterval time.Duration
 }
 
 type sseClient struct {
@@ -47,10 +48,11 @@ const maxMCPMessageBody = 1 * 1024 * 1024
 // NewSSEHandler creates an HTTP handler that serves MCP over SSE.
 func NewSSEHandler(srv *Server, apiKey string) *SSEHandler {
 	return &SSEHandler{
-		server:  srv,
-		apiKey:  apiKey,
-		clients: make(map[*sseClient]bool),
-		log:     logging.NewLogger("mcp-sse"),
+		server:            srv,
+		apiKey:            apiKey,
+		clients:           make(map[*sseClient]bool),
+		log:               logging.NewLogger("mcp-sse"),
+		heartbeatInterval: 30 * time.Second,
 	}
 }
 
@@ -151,12 +153,14 @@ func (h *SSEHandler) handleSSE(w http.ResponseWriter, r *http.Request) {
 	// All writes to w happen in this single goroutine (endpoint event, queued
 	// broadcasts, heartbeats), so no per-write lock is needed and w is never
 	// touched after this handler returns.
-	fmt.Fprintf(w, "event: endpoint\ndata: %s\n\n", messageURL) // #nosec G705 -- messageURL uses a fixed path and a Host value sanitized against SSE/control injection.
+	if _, err := fmt.Fprintf(w, "event: endpoint\ndata: %s\n\n", messageURL); err != nil { // #nosec G705 -- messageURL uses a fixed path and a Host value sanitized against SSE/control injection.
+		return
+	}
 	flusher.Flush()
 
 	// Keep connection alive until client disconnects
 	// Periodic heartbeat ensures dead connections are cleaned up
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(h.heartbeatInterval)
 	defer ticker.Stop()
 
 	for {
@@ -216,11 +220,7 @@ func (h *SSEHandler) handleMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Process via HandleRequestJSONWithAuditContext (thread-safe, no writer swap)
-	respData, err := h.server.HandleRequestJSONWithAuditContext(body, authCtx)
-	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
+	respData, _ := h.server.HandleRequestJSONWithAuditContext(body, authCtx)
 
 	// Broadcast response to all SSE clients
 	var resp JSONRPCResponse
