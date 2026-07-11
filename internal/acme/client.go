@@ -32,6 +32,8 @@ const (
 	maxACMEResponseBytes  = 1 << 20
 )
 
+var acmePollInterval = 2 * time.Second
+
 // Client is an ACME client that can register accounts, create orders,
 // complete HTTP-01 challenges, and fetch certificates.
 type Client struct {
@@ -304,7 +306,7 @@ func (c *Client) completeAuthorization(authzURL string, handler *HTTP01Handler) 
 	defer authzDeadline.Stop()
 	for range 30 {
 		select {
-		case <-time.After(2 * time.Second):
+		case <-time.After(acmePollInterval):
 		case <-authzDeadline.C:
 			return fmt.Errorf("authorization poll timeout")
 		}
@@ -362,7 +364,7 @@ func (c *Client) pollCertificate(orderURL string) ([]byte, error) {
 	defer deadline.Stop()
 	for range 30 {
 		select {
-		case <-time.After(2 * time.Second):
+		case <-time.After(acmePollInterval):
 		case <-deadline.C:
 			return nil, fmt.Errorf("certificate poll timeout")
 		}
