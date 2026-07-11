@@ -3,6 +3,7 @@ package apivalidation
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 
 	"github.com/guardianwaf/guardianwaf/internal/config"
@@ -103,5 +104,54 @@ func TestFinalSchemaAndYAMLBranches(t *testing.T) {
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	if _, err := NewLayer(nil).readFile(dir); err == nil {
 		t.Fatal("expected directory read error")
+	}
+}
+
+// TestPathRouter_MethodExistsPathNoMatch covers the Match() line-95 branch:
+// method exists but no route matches the specific path.
+func TestPathRouter_MethodExistsPathNoMatch(t *testing.T) {
+	router := NewPathRouter()
+	router.AddRoute("GET", "/api/users", &RouteInfo{Path: "/api/users", Method: "GET"})
+	router.AddRoute("GET", "/api/users/{id}", &RouteInfo{
+		Path:    "/api/users/{id}",
+		Method:  "GET",
+		Pattern: regexp.MustCompile(`^/api/users/([^/]+)$`),
+	})
+
+	// GET method exists but this path does not match any route (neither exact nor pattern)
+	if route := router.Match("GET", "/api/products"); route != nil {
+		t.Fatal("expected nil for non-matching path on an existing-method router")
+	}
+}
+
+// TestReadFileErrorPaths covers the three error branches in readFile.
+func TestReadFileErrorPaths(t *testing.T) {
+	l := NewLayer(nil)
+
+	// 1) absPathFunc error
+	origAbs := absPathFunc
+	absPathFunc = func(string) (string, error) { return "", os.ErrNotExist }
+	_, err := l.readFile("x")
+	absPathFunc = origAbs
+	if err == nil {
+		t.Fatal("expected absPathFunc error")
+	}
+
+	// 2) evalSymlinksPath error (abs must succeed first, so use a real-looking path)
+	origEval := evalSymlinksPath
+	evalSymlinksPath = func(string) (string, error) { return "", os.ErrPermission }
+	_, err = l.readFile(".")
+	evalSymlinksPath = origEval
+	if err == nil {
+		t.Fatal("expected evalSymlinksPath error")
+	}
+
+	// 3) workingDirectory error (abs and eval must succeed first)
+	origWd := workingDirectory
+	workingDirectory = func() (string, error) { return "", os.ErrPermission }
+	_, err = l.readFile(".")
+	workingDirectory = origWd
+	if err == nil {
+		t.Fatal("expected workingDirectory error")
 	}
 }
