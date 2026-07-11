@@ -30,6 +30,8 @@ import (
 
 const maxJWKSResponseBytes = 1 << 20
 
+var lookupHost = net.LookupHost
+
 // NewJWTValidator creates a new JWT validator.
 func NewJWTValidator(cfg JWTConfig) (*JWTValidator, error) {
 	v := &JWTValidator{
@@ -475,7 +477,7 @@ func validateJWKSURL(rawURL string) error {
 		return nil
 	}
 	// Resolve DNS and check all resulting IPs
-	addrs, err := net.LookupHost(host) // #nosec G704 -- preflight DNS check is paired with JWKS client's SSRF-safe DialContext and redirect validation.
+	addrs, err := lookupHost(host) // #nosec G704 -- preflight DNS check is paired with JWKS client's SSRF-safe DialContext and redirect validation.
 	if err != nil {
 		// Allow through if DNS fails — will fail at connection time
 		return nil
