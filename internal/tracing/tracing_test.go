@@ -1,6 +1,7 @@
 package tracing
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -135,11 +136,25 @@ func TestStdoutExporter(t *testing.T) {
 	span.SetAttribute("attr1", "val1")
 	span.Status = SpanStatusOK
 	e.Export(span)
+
+	errorSpan := StartSpan("test.error", SpanKindInternal)
+	errorSpan.Status = SpanStatusError
+	e.Export(errorSpan)
 	e.Shutdown()
 
 	// Export after shutdown should be safe
 	span2 := StartSpan("test.span2", SpanKindInternal)
 	e.Export(span2) // should not panic
+}
+
+func TestStdoutExporterMarshalError(t *testing.T) {
+	originalMarshal := marshalJSON
+	marshalJSON = func(any) ([]byte, error) {
+		return nil, errors.New("marshal failed")
+	}
+	t.Cleanup(func() { marshalJSON = originalMarshal })
+
+	NewStdoutExporter().Export(StartSpan("test.marshal-error", SpanKindInternal))
 }
 
 func TestStats(t *testing.T) {
