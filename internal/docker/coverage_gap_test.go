@@ -261,3 +261,16 @@ func TestStopWithContextAlreadyStopped(t *testing.T) {
 		t.Fatalf("StopWithContext on already stopped watcher: %v", err)
 	}
 }
+
+func TestDockerCmdNonExitError(t *testing.T) {
+	c := &Client{}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	// Setting PATH to empty makes exec.Command fail with a non-exit error
+	t.Setenv("PATH", "")
+	_, err := c.dockerCmd(ctx, "ps")
+	if err == nil {
+		t.Fatal("expected error when docker is not in PATH")
+	}
+}
