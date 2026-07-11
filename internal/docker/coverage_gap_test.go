@@ -75,7 +75,7 @@ func TestNewHTTPClientCheckRedirect(t *testing.T) {
 }
 
 func TestIsSafeContainerRef(t *testing.T) {
-	valid := []string{"abc123def456", "my-container_1.2"}
+	valid := []string{"abc123def456", "my-container_1.2", "ABC-123", "UPPER_lower-42"}
 	for _, ref := range valid {
 		if !isSafeContainerRef(ref) {
 			t.Fatalf("expected %q to be safe", ref)
@@ -205,5 +205,59 @@ func TestClientStreamEventsReceivesEvent(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for StreamEvents to return")
+	}
+}
+
+func TestClientListContainersSkipsEmptyLines(t *testing.T) {
+	c := NewClient("")
+	c.cmdFunc = func(_ context.Context, args ...string) (string, error) {
+		if len(args) > 0 && args[0] == "ps" {
+			return "{\"ID\":\"abc123\"}\n{\"ID\":\"def456\"}\n", nil
+		}
+		if len(args) > 0 && args[0] == "inspect" {
+			return `[{"Id":"abc123","Config":{"ExposedPorts":{"80/tcp":{}},"Env":[],"Labels":{"gwaf.enable":"true","gwaf.host":"a.example.com"}},"NetworkSettings":{"Networks":{"bridge":{"IPAddress":"10.0.0.1"}}}}]`, nil
+		}
+		return "", nil
+	}
+
+	containers, err := c.ListContainers("gwaf")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(containers) != 1 {
+		t.Fatalf("expected 1 discovered container, got %d", len(containers))
+	}
+}
+
+func TestClientListContainersSkipsMalformedPort(t *testing.T) {
+	c := NewClient("")
+	c.cmdFunc = func(_ context.Context, args ...string) (string, error) {
+		if len(args) > 0 && args[0] == "ps" {
+			return "{\"ID\":\"abc123\"}\n", nil
+		}
+		if len(args) > 0 && args[0] == "inspect" {
+			return `[{"Id":"abc123","Config":{"ExposedPorts":{"abc/tcp":{}},"Env":[],"Labels":{"gwaf.enable":"true","gwaf.host":"a.example.com"}},"NetworkSettings":{"Networks":{"bridge":{"IPAddress":"10.0.0.1"}}}}]`, nil
+		}
+		return "", nil
+	}
+
+	containers, err := c.ListContainers("gwaf")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(containers) != 1 {
+		t.Fatalf("expected 1 container with malformed port skipped, got %d", len(containers))
+	}
+	if len(containers[0].Ports) != 0 {
+		t.Fatalf("expected 0 ports after skipping malformed port, got %d", len(containers[0].Ports))
+	}
+}
+
+func TestStopWithContextAlreadyStopped(t *testing.T) {
+	w := NewWatcher(NewClient(""), "gwaf", "bridge", time.Second)
+	w.Stop()
+	// Second stop should return nil without hanging
+	if err := w.StopWithContext(context.Background()); err != nil {
+		t.Fatalf("StopWithContext on already stopped watcher: %v", err)
 	}
 }
