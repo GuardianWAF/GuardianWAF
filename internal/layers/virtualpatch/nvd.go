@@ -18,6 +18,11 @@ import (
 
 const maxNVDResponseBytes = 50 << 20
 
+var (
+	lookupIP   = net.LookupIP
+	lookupHost = net.LookupHost
+)
+
 // NVDClient is a client for the National Vulnerability Database API.
 type NVDClient struct {
 	log        *slog.Logger
@@ -42,11 +47,7 @@ func NewNVDClient(apiKey string) *NVDClient {
 }
 
 func (c *NVDClient) newHTTPClient() *http.Client {
-	transport, ok := http.DefaultTransport.(*http.Transport)
-	if !ok {
-		transport = &http.Transport{}
-	}
-	transport = transport.Clone()
+	transport := http.DefaultTransport.(*http.Transport).Clone()
 	dialer := &net.Dialer{Timeout: 10 * time.Second}
 	transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
 		if c.privateAllowed() {
@@ -57,7 +58,7 @@ func (c *NVDClient) newHTTPClient() *http.Client {
 		if err != nil {
 			host = addr
 		}
-		ips, err := net.LookupIP(host)
+		ips, err := lookupIP(host)
 		if err != nil {
 			return nil, fmt.Errorf("NVD SSRF dial: DNS lookup failed for %q: %w", host, err)
 		}
@@ -138,7 +139,7 @@ func validateURLNotPrivate(rawURL string) error {
 		return nil
 	}
 	// Hostname — resolve DNS and check all resulting IPs (prevents DNS rebinding)
-	addrs, err := net.LookupHost(host) // #nosec G704 -- preflight DNS check is paired with NVD client's SSRF-safe DialContext and redirect validation.
+	addrs, err := lookupHost(host) // #nosec G704 -- preflight DNS check is paired with NVD client's SSRF-safe DialContext and redirect validation.
 	if err != nil {
 		return nil // DNS failure — will fail at connection time
 	}

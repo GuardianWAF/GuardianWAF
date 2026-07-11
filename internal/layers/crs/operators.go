@@ -1,7 +1,6 @@
 package crs
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"regexp"
@@ -29,25 +28,19 @@ const regexExecutionTimeout = 5 * time.Second
 // This prevents any single regex from monopolizing CPU, even though RE2
 // guarantees O(n) matching — large inputs can still take significant wall time.
 func matchWithTimeout(re *regexp.Regexp, s string) []string {
-	type result struct {
-		submatches []string
-	}
-	done := make(chan result, 1)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	return matchWithDeadline(re, s, regexExecutionTimeout)
+}
+
+func matchWithDeadline(re *regexp.Regexp, s string, timeout time.Duration) []string {
+	done := make(chan []string, 1)
 	go func() {
-		matches := re.FindStringSubmatch(s)
-		select {
-		case <-ctx.Done():
-			return
-		case done <- result{submatches: matches}:
-		}
+		done <- re.FindStringSubmatch(s)
 	}()
 	select {
-	case r := <-done:
-		return r.submatches
-	case <-time.After(regexExecutionTimeout):
-		return nil // cancel() ensures goroutine can exit via ctx.Done()
+	case matches := <-done:
+		return matches
+	case <-time.After(timeout):
+		return nil
 	}
 }
 

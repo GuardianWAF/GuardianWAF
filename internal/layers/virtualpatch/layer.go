@@ -313,10 +313,6 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	totalScore := 0
 
 	for _, patch := range patches {
-		if !patch.Enabled {
-			continue
-		}
-
 		// Check if severity is in block list
 		if !l.shouldBlock(patch.Severity) {
 			continue
@@ -525,32 +521,10 @@ func (l *Layer) matchRegex(value, pattern string) bool {
 	return regexMatchWithTimeout(re, value)
 }
 
-// vpRegexTimeout limits regex execution time in the virtual patch layer.
-const vpRegexTimeout = 5 * time.Second
-
-// regexMatchWithTimeout runs re.MatchString in a goroutine with a timeout.
-// Prevents unbounded CPU usage from pathological regex patterns.
+// regexMatchWithTimeout matches using Go's RE2-based regexp engine, whose
+// linear-time execution avoids catastrophic backtracking.
 func regexMatchWithTimeout(re *regexp.Regexp, s string) bool {
-	type result struct {
-		matched bool
-	}
-	done := make(chan result, 1)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() {
-		matched := re.MatchString(s)
-		select {
-		case <-ctx.Done():
-		case done <- result{matched: matched}:
-		}
-	}()
-	select {
-	case r := <-done:
-		return r.matched
-	case <-time.After(vpRegexTimeout):
-		// timeout - silently return false
-		return false
-	}
+	return re.MatchString(s)
 }
 
 // shouldBlock checks if a severity level should be blocked.

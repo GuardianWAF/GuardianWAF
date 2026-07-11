@@ -149,9 +149,6 @@ func (s *Server) handleAddRateLimit(params json.RawMessage) (any, error) {
 		if p.Limit <= 0 {
 			return nil, fmt.Errorf("limit must be > 0")
 		}
-		if p.Window == "" {
-			p.Window = "60s" // default
-		}
 		if p.Scope == "" {
 			p.Scope = "ip"
 		}

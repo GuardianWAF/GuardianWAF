@@ -389,11 +389,9 @@ func (e *Engine) AppendChainWithError(entryType string, data any) (ChainEntry, e
 	// Append to JSONL file
 	if e.file != nil {
 		if data, err := json.Marshal(entry); err == nil {
+			data = append(data, '\n')
 			if writeErr := writeFull(e.file, data); writeErr != nil {
 				return entry, fmt.Errorf("writing compliance audit entry: %w", writeErr)
-			}
-			if writeErr := writeFull(e.file, []byte("\n")); writeErr != nil {
-				return entry, fmt.Errorf("writing compliance audit entry newline: %w", writeErr)
 			}
 		} else {
 			return entry, fmt.Errorf("marshaling compliance audit entry: %w", err)

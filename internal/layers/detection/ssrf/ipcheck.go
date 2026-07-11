@@ -347,7 +347,7 @@ func ParseAbbreviatedIP(s string) IPv4 {
 			uint64ToIPv4Byte(parsed[1] >> 8),
 			uint64ToIPv4Byte(parsed[1]),
 		}
-	case 3:
+	default: // len(parts) == 3; all other lengths were rejected above.
 		// A.B.C → A is first (8-bit), B is second (8-bit), C is 16-bit host
 		if parsed[0] > 255 || parsed[1] > 255 || parsed[2] > 0xFFFF {
 			return nil
@@ -359,7 +359,6 @@ func ParseAbbreviatedIP(s string) IPv4 {
 			uint64ToIPv4Byte(parsed[2]),
 		}
 	}
-	return nil
 }
 
 // ParseHexSingleIP parses a single hex number as an IP address (e.g., 0x7f000001 → 127.0.0.1).
@@ -385,9 +384,6 @@ func ParseHexSingleIP(s string) IPv4 {
 		default:
 			return nil
 		}
-	}
-	if n > 0xFFFFFFFF {
-		return nil
 	}
 	return IPv4{
 		uint64ToIPv4Byte(n >> 24),

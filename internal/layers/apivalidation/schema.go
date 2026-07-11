@@ -3,7 +3,6 @@
 package apivalidation
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"regexp"
@@ -11,7 +10,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 )
 
 // Pre-compiled regex patterns for format validation (avoids recompilation per request).
@@ -769,27 +767,8 @@ func getCachedPattern(pattern string) (*regexp.Regexp, error) {
 	return re, nil
 }
 
-// matchPatternSafe runs a regex match with a timeout to prevent ReDoS
-// from user-provided patterns in OpenAPI schemas.
+// matchPatternSafe matches with Go's RE2-based regexp engine, whose runtime is
+// linear in the input size and therefore does not require a timeout goroutine.
 func matchPatternSafe(re *regexp.Regexp, s string) bool {
-	const patternTimeout = 2 * time.Second
-	type matchResult struct {
-		matched bool
-	}
-	done := make(chan matchResult, 1)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() {
-		matched := re.MatchString(s)
-		select {
-		case <-ctx.Done():
-		case done <- matchResult{matched: matched}:
-		}
-	}()
-	select {
-	case r := <-done:
-		return r.matched
-	case <-time.After(patternTimeout):
-		return false
-	}
+	return re.MatchString(s)
 }

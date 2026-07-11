@@ -20,6 +20,11 @@ import (
 )
 
 // Config holds the JS challenge configuration.
+var (
+	randomRead             = rand.Read
+	randomReader io.Reader = rand.Reader
+)
+
 type Config struct {
 	Enabled    bool
 	Difficulty int           // number of leading zero bits required (default: 20 ≈ ~1M hashes)
@@ -43,7 +48,7 @@ func DefaultConfig() Config {
 // DefaultConfigE returns a production-safe default configuration with error reporting.
 func DefaultConfigE() (Config, error) {
 	key := make([]byte, 32)
-	if _, err := rand.Read(key); err != nil {
+	if _, err := randomRead(key); err != nil {
 		return Config{}, fmt.Errorf("crypto/rand.Read failed — cannot generate secure challenge key: %w", err)
 	}
 
@@ -66,7 +71,7 @@ type Service struct {
 func NewService(cfg Config) (*Service, error) {
 	if len(cfg.SecretKey) == 0 {
 		key := make([]byte, 32)
-		if _, err := rand.Read(key); err != nil {
+		if _, err := randomRead(key); err != nil {
 			return nil, fmt.Errorf("crypto/rand.Read failed — cannot generate secure challenge key: %w", err)
 		}
 		cfg.SecretKey = key
@@ -262,9 +267,9 @@ func (s *Service) computeHMAC(data string) string {
 // generateChallenge creates a random challenge string for proof-of-work.
 func (s *Service) generateChallenge() (string, error) {
 	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
+	if _, err := randomRead(b); err != nil {
 		// Fallback: read from crypto/rand reader directly
-		if _, err := io.ReadFull(rand.Reader, b); err != nil {
+		if _, err := io.ReadFull(randomReader, b); err != nil {
 			return "", fmt.Errorf("crypto/rand unavailable — cannot generate secure nonce: %w", err)
 		}
 	}
