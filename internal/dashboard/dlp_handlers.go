@@ -244,6 +244,9 @@ func (h *DLPHandler) handleTestPattern(w http.ResponseWriter, r *http.Request) {
 
 // getDLPLayer returns the DLP layer from the engine if available
 func (h *DLPHandler) getDLPLayer() DLPLayerInterface {
+	if h.dashboard.dlpLayerOverride != nil {
+		return h.dashboard.dlpLayerOverride
+	}
 	if h.dashboard.dlpLayer == nil {
 		// Try to get from engine via FindLayer
 		if h.dashboard.engine != nil {

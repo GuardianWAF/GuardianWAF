@@ -20,9 +20,9 @@ func TestJWKThumbprint_CanonicalRFC7638Value(t *testing.T) {
 	}
 	c := &Client{accountKey: key}
 
-	got, err := c.jwkThumbprint()
-	if err != nil {
-		t.Fatalf("jwkThumbprint: %v", err)
+	got := c.jwkThumbprint()
+	if got == "" {
+		t.Fatalf("jwkThumbprint returned empty")
 	}
 
 	jwk := c.jwk()

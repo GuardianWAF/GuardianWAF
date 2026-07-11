@@ -266,6 +266,9 @@ func (h *APIValidationHandler) handleTestValidation(w http.ResponseWriter, r *ht
 
 // getAPIValidationLayer returns the API validation layer from the engine if available
 func (h *APIValidationHandler) getAPIValidationLayer() APIValidationLayerInterface {
+	if h.dashboard.apiValidationOverride != nil {
+		return h.dashboard.apiValidationOverride
+	}
 	if h.dashboard.apiValidationLayer == nil {
 		// Try to get from engine via FindLayer
 		if h.dashboard.engine != nil {

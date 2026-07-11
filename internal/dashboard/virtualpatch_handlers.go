@@ -275,6 +275,9 @@ func (h *VirtualPatchHandler) handleUpdateCVE(w http.ResponseWriter, r *http.Req
 
 // getVirtualPatchLayer returns the virtual patch layer from the engine if available
 func (h *VirtualPatchHandler) getVirtualPatchLayer() VirtualPatchLayerInterface {
+	if h.dashboard.virtualPatchOverride != nil {
+		return h.dashboard.virtualPatchOverride
+	}
 	var layer *virtualpatch.Layer
 	if h.dashboard.virtualPatchLayer != nil {
 		layer = h.dashboard.virtualPatchLayer

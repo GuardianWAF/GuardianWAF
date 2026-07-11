@@ -186,6 +186,9 @@ func (h *ClientSideHandler) handleCSPReports(w http.ResponseWriter, r *http.Requ
 
 // getClientSideLayer returns the client-side protection layer from the engine if available
 func (h *ClientSideHandler) getClientSideLayer() ClientSideLayerInterface {
+	if h.dashboard.clientSideOverride != nil {
+		return h.dashboard.clientSideOverride
+	}
 	if h.dashboard.clientSideLayer == nil {
 		// Try to get from engine via FindLayer
 		if h.dashboard.engine != nil {

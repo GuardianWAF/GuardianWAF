@@ -275,6 +275,9 @@ func (h *CRSHandler) handleTest(w http.ResponseWriter, r *http.Request) {
 
 // getCRSLayer returns the CRS layer from the engine if available
 func (h *CRSHandler) getCRSLayer() CRSLayerInterface {
+	if h.dashboard.crsLayerOverride != nil {
+		return h.dashboard.crsLayerOverride
+	}
 	var layer *crs.Layer
 	if h.dashboard.crsLayer != nil {
 		layer = h.dashboard.crsLayer
