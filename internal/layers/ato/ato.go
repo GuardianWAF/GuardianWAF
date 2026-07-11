@@ -80,12 +80,9 @@ func NewLayer(cfg *Config) (*Layer, error) {
 		lastTime:  make(map[string]time.Time),
 	}
 
-	// Compile login path regexes
+	// Compile login path regexes. QuoteMeta guarantees each path produces a valid pattern.
 	for _, path := range cfg.LoginPaths {
-		re, err := regexp.Compile("^" + regexp.QuoteMeta(path) + "$")
-		if err != nil {
-			continue
-		}
+		re := regexp.MustCompile("^" + regexp.QuoteMeta(path) + "$")
 		l.loginPathRe = append(l.loginPathRe, re)
 	}
 
