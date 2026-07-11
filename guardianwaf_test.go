@@ -1608,3 +1608,19 @@ func TestLibraryCleanupTickerFires(t *testing.T) {
 	// Wait long enough for the ticker to fire at least once
 	time.Sleep(5 * time.Millisecond)
 }
+
+func TestNewFromFile_EngineCreationError(t *testing.T) {
+	origNewEngine := newInternalEngine
+	newInternalEngine = func(cfg *config.Config, _ engine.EventStorer, _ engine.EventPublisher) (*engine.Engine, error) {
+		return nil, fmt.Errorf("simulated engine error")
+	}
+	defer func() { newInternalEngine = origNewEngine }()
+
+	_, err := NewFromFile("testdata/configs/minimal.yml")
+	if err == nil {
+		t.Fatal("expected engine creation error")
+	}
+	if !strings.Contains(err.Error(), "creating engine") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
