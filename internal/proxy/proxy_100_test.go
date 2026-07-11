@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"sync"
 	"testing"
 	"time"
 )
@@ -257,36 +256,29 @@ func TestCircuitBreaker_AllowInvalidState(t *testing.T) {
 // =============================================================================
 
 func TestCircuitBreaker_CASFailureOnOpenTransition(t *testing.T) {
-	cb := NewCircuitBreaker(CircuitConfig{Threshold: 1, ResetTimeout: time.Millisecond})
+	cb := NewCircuitBreaker(CircuitConfig{Threshold: 1, ResetTimeout: time.Nanosecond})
 	cb.RecordFailure()
-	cb.RecordFailure() // forces circuit open
 
-	time.Sleep(5 * time.Millisecond) // wait for reset timeout
+	time.Sleep(time.Microsecond)
 
-	// Use a channel to synchronize both goroutines so they race at the same time
-	start := make(chan struct{})
-	var wg sync.WaitGroup
-	wg.Add(2)
-	results := make([]bool, 2)
-	for i := 0; i < 2; i++ {
-		go func(idx int) {
-			defer wg.Done()
-			<-start // wait for signal
-			results[idx] = cb.Allow()
-		}(i)
-	}
-	close(start) // release both goroutines simultaneously
-	wg.Wait()
-
-	successCount := 0
-	for _, r := range results {
-		if r {
-			successCount++
+	// A background goroutine continuously CAS-es from Open→HalfOpen
+	stop := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				cb.state.CompareAndSwap(int32(CircuitOpen), int32(CircuitHalfOpen))
+			}
 		}
-	}
-	if successCount != 1 {
-		t.Logf("CAS race: %d succeeded (expected exactly 1)", successCount)
-	}
+	}()
+	time.Sleep(time.Microsecond)
+
+	// Allow may read Open at the switch, but the goroutine may transition
+	// the state before the CAS succeeds, causing a CAS failure at line 89
+	_ = cb.Allow()
+	close(stop)
 }
 
 // =============================================================================
