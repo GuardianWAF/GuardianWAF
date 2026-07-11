@@ -1609,6 +1609,38 @@ func TestLibraryCleanupTickerFires(t *testing.T) {
 	time.Sleep(5 * time.Millisecond)
 }
 
+type mockCleanLayer struct {
+	cleaned bool
+	name    string
+}
+
+func (m *mockCleanLayer) Name() string              { return m.name }
+func (m *mockCleanLayer) Order() int                 { return 1 }
+func (m *mockCleanLayer) Process(_ *engine.RequestContext) engine.LayerResult { return engine.LayerResult{} }
+func (m *mockCleanLayer) Cleanup()                    { m.cleaned = true }
+
+func TestRunCleanup_CoversATOBotLayers(t *testing.T) {
+	eng, err := New(Config{})
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	defer eng.Close()
+
+	// Add mock ato_protection layer
+	eng.internal.AddLayer(engine.OrderedLayer{
+		Layer: &mockCleanLayer{name: "ato_protection"},
+		Order: 1,
+	})
+	// Add mock botdetect layer
+	eng.internal.AddLayer(engine.OrderedLayer{
+		Layer: &mockCleanLayer{name: "botdetect"},
+		Order: 2,
+	})
+
+	// runCleanup should find and clean both layers
+	eng.runCleanup()
+}
+
 func TestNewFromFile_EngineCreationError(t *testing.T) {
 	origNewEngine := newInternalEngine
 	newInternalEngine = func(cfg *config.Config, _ engine.EventStorer, _ engine.EventPublisher) (*engine.Engine, error) {
