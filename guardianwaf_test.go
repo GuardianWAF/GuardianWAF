@@ -9,6 +9,10 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/guardianwaf/guardianwaf/internal/config"
+	"github.com/guardianwaf/guardianwaf/internal/engine"
+	"github.com/guardianwaf/guardianwaf/internal/layers/challenge"
 )
 
 func TestNew_DefaultConfig(t *testing.T) {
@@ -1556,4 +1560,51 @@ func TestToInternalDetector_Disabled(t *testing.T) {
 	if d.Enabled {
 		t.Error("expected detector to be disabled")
 	}
+}
+
+func TestNew_ChallengeServiceError(t *testing.T) {
+	origSvc := newChallengeService
+	newChallengeService = func(cfg challenge.Config) (*challenge.Service, error) {
+		return nil, fmt.Errorf("simulated challenge error")
+	}
+	defer func() { newChallengeService = origSvc }()
+
+	_, err := New(Config{Challenge: ChallengeConfig{Enabled: true, SecretKey: "test"}})
+	if err == nil {
+		t.Fatal("expected challenge service error")
+	}
+	if !strings.Contains(err.Error(), "creating challenge service") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestNew_EngineCreationError(t *testing.T) {
+	origNewEngine := newInternalEngine
+	newInternalEngine = func(cfg *config.Config, _ engine.EventStorer, _ engine.EventPublisher) (*engine.Engine, error) {
+		return nil, fmt.Errorf("simulated engine error")
+	}
+	defer func() { newInternalEngine = origNewEngine }()
+
+	_, err := New(Config{})
+	if err == nil {
+		t.Fatal("expected engine creation error")
+	}
+	if !strings.Contains(err.Error(), "creating engine") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLibraryCleanupTickerFires(t *testing.T) {
+	oldInterval := libraryCleanupInterval
+	libraryCleanupInterval = time.Millisecond
+	defer func() { libraryCleanupInterval = oldInterval }()
+
+	eng, err := New(Config{})
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	defer eng.Close()
+
+	// Wait long enough for the ticker to fire at least once
+	time.Sleep(5 * time.Millisecond)
 }
