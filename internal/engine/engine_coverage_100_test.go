@@ -158,13 +158,13 @@ func (f *flushRecorder) Flush() {
 
 func TestApplyCORSHook_PreflightHeaders(t *testing.T) {
 	w := httptest.NewRecorder()
-	metadata := map[string]any{
-		"cors_preflight_headers": map[string]string{
-			"Access-Control-Allow-Methods": "GET, POST",
-			"Access-Control-Allow-Origin":  "*",
-		},
+	ctx := AcquireContext(httptest.NewRequest("GET", "/", nil), 2, 4096)
+	defer ReleaseContext(ctx)
+	ctx.CORSPreflightHeaders = map[string]string{
+		"Access-Control-Allow-Methods": "GET, POST",
+		"Access-Control-Allow-Origin":  "*",
 	}
-	applyCORSHook(w, metadata)
+	applyCORSHook(w, ctx)
 	if w.Header().Get("Access-Control-Allow-Methods") != "GET, POST" {
 		t.Errorf("expected Allow-Methods header, got %q", w.Header().Get("Access-Control-Allow-Methods"))
 	}
@@ -175,13 +175,13 @@ func TestApplyCORSHook_PreflightHeaders(t *testing.T) {
 
 func TestApplyCORSHook_RegularHeaders(t *testing.T) {
 	w := httptest.NewRecorder()
-	metadata := map[string]any{
-		"cors_headers": map[string]string{
-			"Access-Control-Allow-Origin": "https://example.com",
-		},
-		"cors_expose_headers": "X-Custom",
+	ctx := AcquireContext(httptest.NewRequest("GET", "/", nil), 2, 4096)
+	defer ReleaseContext(ctx)
+	ctx.CORSHeaders = map[string]string{
+		"Access-Control-Allow-Origin": "https://example.com",
 	}
-	applyCORSHook(w, metadata)
+	ctx.CORSExposeHeaders = "X-Custom"
+	applyCORSHook(w, ctx)
 	if w.Header().Get("Access-Control-Allow-Origin") != "https://example.com" {
 		t.Errorf("expected Allow-Origin header, got %q", w.Header().Get("Access-Control-Allow-Origin"))
 	}
@@ -192,13 +192,13 @@ func TestApplyCORSHook_RegularHeaders(t *testing.T) {
 
 func TestApplyCORSHook_EmptyExpose(t *testing.T) {
 	w := httptest.NewRecorder()
-	metadata := map[string]any{
-		"cors_headers": map[string]string{
-			"Access-Control-Allow-Origin": "*",
-		},
-		"cors_expose_headers": "",
+	ctx := AcquireContext(httptest.NewRequest("GET", "/", nil), 2, 4096)
+	defer ReleaseContext(ctx)
+	ctx.CORSHeaders = map[string]string{
+		"Access-Control-Allow-Origin": "*",
 	}
-	applyCORSHook(w, metadata)
+	ctx.CORSExposeHeaders = ""
+	applyCORSHook(w, ctx)
 	if w.Header().Get("Access-Control-Expose-Headers") != "" {
 		t.Errorf("expected empty Expose-Headers, got %q", w.Header().Get("Access-Control-Expose-Headers"))
 	}
@@ -206,20 +206,21 @@ func TestApplyCORSHook_EmptyExpose(t *testing.T) {
 
 func TestApplyCORSHook_NoHeaders(t *testing.T) {
 	w := httptest.NewRecorder()
-	applyCORSHook(w, map[string]any{})
+	ctx := AcquireContext(httptest.NewRequest("GET", "/", nil), 2, 4096)
+	defer ReleaseContext(ctx)
+	applyCORSHook(w, ctx)
 	// Should not set Vary or any CORS headers
 	if w.Header().Get("Vary") != "" {
 		t.Errorf("expected no Vary header, got %q", w.Header().Get("Vary"))
 	}
 }
 
-func TestApplyCORSHook_InvalidType(t *testing.T) {
+func TestApplyCORSHook_NilHeaders(t *testing.T) {
 	w := httptest.NewRecorder()
-	metadata := map[string]any{
-		"cors_headers": "not-a-map",
-	}
-	applyCORSHook(w, metadata)
-	// Should not panic
+	ctx := AcquireContext(httptest.NewRequest("GET", "/", nil), 2, 4096)
+	defer ReleaseContext(ctx)
+	// ctx.CORSHeaders is nil by default — should not panic
+	applyCORSHook(w, ctx)
 }
 
 // ---------------------------------------------------------------------------

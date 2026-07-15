@@ -51,14 +51,14 @@ func TestLayer_Process_MaskFunction(t *testing.T) {
 		t.Fatalf("expected ActionPass, got %v", result.Action)
 	}
 
-	maskFn, ok := ctx.Metadata["response_mask_fn"].(func(string) string)
-	if !ok {
-		t.Fatalf("expected response_mask_fn metadata to contain func(string) string")
+	maskFn := ctx.ResponseMaskFn
+	if maskFn == nil {
+		t.Fatalf("expected ResponseMaskFn to be set on context")
 	}
 
 	masked := maskFn("Card: 4111111111111111")
 	if masked == "Card: 4111111111111111" {
-		t.Fatal("expected response_mask_fn to mask the response body")
+		t.Fatal("expected ResponseMaskFn to mask the response body")
 	}
 }
 
@@ -98,10 +98,10 @@ func TestLayer_Process_TenantDisablesFeatures(t *testing.T) {
 	if stored.DataMaskingEnabled {
 		t.Fatal("expected tenant config to disable data masking")
 	}
-	if _, ok := ctx.Metadata["response_hook"]; ok {
-		t.Fatal("expected no response_hook when tenant disables security headers")
+	if ctx.ResponseHook != nil {
+		t.Fatal("expected no ResponseHook when tenant disables security headers")
 	}
-	if _, ok := ctx.Metadata["response_mask_fn"]; ok {
-		t.Fatal("expected no response_mask_fn when tenant disables data masking")
+	if ctx.ResponseMaskFn != nil {
+		t.Fatal("expected no ResponseMaskFn when tenant disables data masking")
 	}
 }

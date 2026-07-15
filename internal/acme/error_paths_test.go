@@ -32,8 +32,9 @@ func testErrorClient(t *testing.T, rt http.RoundTripper) *Client {
 		t.Fatal(err)
 	}
 	return &Client{
-		accountKey: key,
-		accountURL: "https://ca.test/account/1",
+		accountKey:   key,
+		accountURL:   "https://ca.test/account/1",
+		directoryURL: "https://ca.test/directory",
 		directory: &directory{
 			NewNonce:   "https://ca.test/nonce",
 			NewAccount: "https://ca.test/account",

@@ -14,10 +14,10 @@ type responseHookLayer struct{ name string }
 func (l *responseHookLayer) Name() string { return l.name }
 func (l *responseHookLayer) Order() int   { return 0 }
 func (l *responseHookLayer) Process(ctx *RequestContext) LayerResult {
-	ctx.Metadata["response_mask_fn"] = func(body string) string {
+	ctx.ResponseMaskFn = func(body string) string {
 		return "masked:" + body
 	}
-	ctx.Metadata["clientside_response_hook"] = func(body []byte, contentType string) ([]byte, bool) {
+	ctx.ClientsideBodyXform = func(body []byte, contentType string) ([]byte, bool) {
 		if contentType == "text/plain; charset=utf-8" {
 			return append([]byte("xform:"), body...), true
 		}
