@@ -432,14 +432,21 @@ func tenantScope(r *http.Request) string {
 }
 
 func (d *Dashboard) isAuthenticated(r *http.Request) (*http.Request, bool) {
-	if d.apiKey == "" {
+	currentKey, previousKey := d.loadActiveAPIKeys()
+	if currentKey == "" {
 		authLog.Error("Dashboard API key is not configured — refusing request. Set apiKey before starting the dashboard.")
 		return r, false
 	}
 
 	// Check global API key header (for programmatic access)
-	if key := r.Header.Get("X-API-Key"); key != "" && subtle.ConstantTimeCompare([]byte(key), []byte(d.apiKey)) == 1 {
-		return setAuthInfo(r, authGlobalKey, ""), true
+	if key := r.Header.Get("X-API-Key"); key != "" {
+		if subtle.ConstantTimeCompare([]byte(key), []byte(currentKey)) == 1 {
+			return setAuthInfo(r, authGlobalKey, ""), true
+		}
+		// Also check the previous key during rotation grace period
+		if previousKey != "" && subtle.ConstantTimeCompare([]byte(key), []byte(previousKey)) == 1 {
+			return setAuthInfo(r, authGlobalKey, ""), true
+		}
 	}
 	// Reject API keys in query parameters
 	if r.URL.Query().Get("api_key") != "" {

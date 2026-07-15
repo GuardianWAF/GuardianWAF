@@ -1505,3 +1505,95 @@ func TestFormatFindings(t *testing.T) {
 		t.Errorf("expected 'test', got %v", result[0]["detector"])
 	}
 }
+
+// --- API key rotation tests ---
+
+func TestRotateKey_Success(t *testing.T) {
+	d := newTestDashboard(t, "original-key")
+	server := httptest.NewServer(d.Handler())
+	defer server.Close()
+
+	body := `{"current_key":"original-key","new_key":"rotated-key-12345"}`
+	req := authenticatedRequest("POST", "/api/v1/rotate-key", body, "original-key")
+	w := httptest.NewRecorder()
+	d.mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp["status"] != "ok" {
+		t.Errorf("expected status ok, got %v", resp["status"])
+	}
+
+	// Verify the new key authenticates
+	req2 := httptest.NewRequest("GET", "/api/v1/stats", nil)
+	req2.Header.Set("X-API-Key", "rotated-key-12345")
+	if _, ok := d.isAuthenticated(req2); !ok {
+		t.Error("new key should authenticate after rotation")
+	}
+
+	// Verify the old key still works during grace period
+	req3 := httptest.NewRequest("GET", "/api/v1/stats", nil)
+	req3.Header.Set("X-API-Key", "original-key")
+	if _, ok := d.isAuthenticated(req3); !ok {
+		t.Error("old key should still work within grace period")
+	}
+}
+
+func TestRotateKey_WrongCurrentKey(t *testing.T) {
+	d := newTestDashboard(t, "original-key")
+
+	body := `{"current_key":"wrong-key","new_key":"rotated-key-12345"}`
+	req := authenticatedRequest("POST", "/api/v1/rotate-key", body, "original-key")
+	w := httptest.NewRecorder()
+	d.mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestRotateKey_ShortNewKey(t *testing.T) {
+	d := newTestDashboard(t, "original-key")
+
+	body := `{"current_key":"original-key","new_key":"short"}`
+	req := authenticatedRequest("POST", "/api/v1/rotate-key", body, "original-key")
+	w := httptest.NewRecorder()
+	d.mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestRotateKey_RequiresAuth(t *testing.T) {
+	d := newTestDashboard(t, "original-key")
+
+	body := `{"current_key":"original-key","new_key":"rotated-key-12345"}`
+	req := httptest.NewRequest("POST", "/api/v1/rotate-key", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	// No X-API-Key header
+	w := httptest.NewRecorder()
+	d.mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestRotateKey_EmptyBody(t *testing.T) {
+	d := newTestDashboard(t, "original-key")
+
+	req := authenticatedRequest("POST", "/api/v1/rotate-key", `{}`, "original-key")
+	w := httptest.NewRecorder()
+	d.mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}

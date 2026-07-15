@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"crypto/subtle"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"math"
@@ -71,7 +72,8 @@ func newAPIBucket() *apiBucket {
 }
 
 func (d *Dashboard) handleLoginPage(w http.ResponseWriter, r *http.Request) {
-	if d.apiKey == "" {
+	currentKey, _ := d.loadActiveAPIKeys()
+	if currentKey == "" {
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
@@ -90,7 +92,8 @@ func (d *Dashboard) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if d.apiKey == "" {
+	currentKey, previousKey := d.loadActiveAPIKeys()
+	if currentKey == "" {
 		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
@@ -120,7 +123,11 @@ func (d *Dashboard) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	key := r.PostForm.Get("key")
-	if subtle.ConstantTimeCompare([]byte(key), []byte(d.apiKey)) != 1 {
+	valid := subtle.ConstantTimeCompare([]byte(key), []byte(currentKey)) == 1
+	if !valid && previousKey != "" {
+		valid = subtle.ConstantTimeCompare([]byte(key), []byte(previousKey)) == 1
+	}
+	if !valid {
 		d.recordLoginFailure(clientIP)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusUnauthorized)
@@ -316,4 +323,57 @@ func (d *Dashboard) handleLogout(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteStrictMode,
 	})
 	http.Redirect(w, r, "/login", http.StatusFound)
+}
+
+// rotateKeyRequest is the JSON body for the POST /api/v1/rotate-key endpoint.
+type rotateKeyRequest struct {
+	CurrentKey string `json:"current_key"`
+	NewKey     string `json:"new_key"`
+}
+
+// handleRotateKey accepts a POST with the current and new API key. On success
+// it atomically swaps the active key and keeps the old key valid for the grace
+// period. The request must be authenticated with the current dashboard API key
+// (session cookie or X-API-Key header).
+func (d *Dashboard) handleRotateKey(w http.ResponseWriter, r *http.Request) {
+	var req rotateKeyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.NewKey == "" {
+		writeError(w, http.StatusBadRequest, "new_key is required")
+		return
+	}
+	if len(req.NewKey) < 16 {
+		writeError(w, http.StatusBadRequest, "new_key must be at least 16 characters")
+		return
+	}
+
+	// Verify the current key matches
+	currentKey, previousKey := d.loadActiveAPIKeys()
+	currentMatch := subtle.ConstantTimeCompare([]byte(req.CurrentKey), []byte(currentKey)) == 1
+	previousMatch := previousKey != "" && subtle.ConstantTimeCompare([]byte(req.CurrentKey), []byte(previousKey)) == 1
+	if !currentMatch && !previousMatch {
+		writeError(w, http.StatusForbidden, "current_key does not match the active API key")
+		return
+	}
+
+	// Atomically swap: the old key (whichever matched) becomes Previous
+	d.apiKey.Store(&apiKeyHolder{
+		Current:   req.NewKey,
+		Previous:  currentKey,
+		ExpiresAt: time.Now().Add(keyRotationGracePeriod),
+	})
+
+	loginLog.Info("dashboard API key rotated",
+		"current_key_previous", currentMatch,
+		"previous_key_used", previousMatch,
+		"grace_period_seconds", int(keyRotationGracePeriod.Seconds()))
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":               "ok",
+		"message":              "API key rotated. The previous key remains valid for the grace period.",
+		"grace_period_seconds": int(keyRotationGracePeriod.Seconds()),
+	})
 }

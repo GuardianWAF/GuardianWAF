@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/alerting"
@@ -83,7 +84,7 @@ type Dashboard struct {
 	eventStore       events.EventStore
 	sse              *SSEBroadcaster
 	mux              *http.ServeMux
-	apiKey           string
+	apiKey           atomic.Value // stores *apiKeyHolder
 	buildInfo        map[string]string
 	adminKey         string            // Separate key for system admin operations (tenant management, billing, stats)
 	pprofKey         string            // Separate key for pprof debug endpoints (more restrictive than apiKey)
@@ -136,7 +137,35 @@ const (
 	apiRateWindow      = time.Minute     // sliding window
 	apiRateBurst       = 20              // max burst
 	apiRateCleanupTick = 5 * time.Minute // cleanup interval for stale buckets
+
+	// keyRotationGracePeriod is the duration the previous API key remains valid
+	// after a rotation, allowing in-flight requests and cached clients to transition.
+	keyRotationGracePeriod = 60 * time.Second
 )
+
+// apiKeyHolder holds the current dashboard API key and optionally the previous
+// key during the rotation grace period. Stored in an atomic.Value so the hot
+// authentication path never blocks on a mutex.
+type apiKeyHolder struct {
+	Current   string    // active API key
+	Previous  string    // previous API key (valid until ExpiresAt)
+	ExpiresAt time.Time // when Previous ceases to be valid
+}
+
+// loadActiveAPIKeys returns (current, previous) where previous is only populated
+// if it exists and the grace period has not expired.
+func (d *Dashboard) loadActiveAPIKeys() (current string, previous string) {
+	v := d.apiKey.Load()
+	if v == nil {
+		return "", ""
+	}
+	kh := v.(*apiKeyHolder)
+	current = kh.Current
+	if time.Now().Before(kh.ExpiresAt) {
+		previous = kh.Previous
+	}
+	return current, previous
+}
 
 // SetAdminKey sets the system administrator API key.
 // This key grants exclusive access to /api/admin/* endpoints for cross-tenant
@@ -195,10 +224,10 @@ func New(eng *engine.Engine, store events.EventStore, apiKey string) *Dashboard 
 		eventStore:  store,
 		sse:         NewSSEBroadcaster(),
 		mux:         http.NewServeMux(),
-		apiKey:      apiKey,
 		loginStopCh: make(chan struct{}),
 		apiStopCh:   make(chan struct{}),
 	}
+	d.apiKey.Store(&apiKeyHolder{Current: apiKey})
 
 	d.cleanupWG.Add(3)
 	go d.cleanupLoginBuckets()
@@ -209,6 +238,7 @@ func New(eng *engine.Engine, store events.EventStore, apiKey string) *Dashboard 
 	d.mux.HandleFunc("GET /login", d.handleLoginPage)
 	d.mux.HandleFunc("POST /login", d.handleLoginSubmit)
 	d.mux.HandleFunc("POST /logout", d.handleLogout)
+	d.mux.HandleFunc("POST /api/v1/rotate-key", d.authWrap(d.handleRotateKey))
 
 	// Health check (always accessible, no sensitive data)
 	d.mux.HandleFunc("GET /health", d.handleHealth)
