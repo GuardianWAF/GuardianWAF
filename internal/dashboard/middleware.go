@@ -1,78 +1,128 @@
 package dashboard
 
 import (
-	"fmt"
-	"log/slog"
+	"crypto/subtle"
+	"net"
 	"net/http"
 	"net/url"
-	"runtime/debug"
-	"time"
+	"strings"
 )
 
-var mwLog = slog.Default().With(slog.String("component", "dashboard/middleware"))
+// --- Auth middleware ---
 
-// RecoveryMiddleware wraps an HTTP handler with panic recovery
-func RecoveryMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		defer func() {
-			if rv := recover(); rv != nil {
-				// Log the panic with stack trace
-				mwLog.Error("panic recovered", "panic", rv, "stack", string(debug.Stack()))
+// getClientIP extracts the client IP from the request, never using X-Forwarded-For.
+func (d *Dashboard) getClientIP(r *http.Request) string {
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
+	}
+	return r.RemoteAddr
+}
 
-				// Return 500 error - safe to do for non-SSE endpoints
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusInternalServerError)
-				fmt.Fprintf(w, `{"error": "Internal Server Error", "message": "An unexpected error occurred"}`)
+// adminAuthWrap requires the system admin API key. It is used for
+// cross-tenant provisioning operations (tenant create/update/delete, config
+// changes, API-key regeneration) so they cannot be performed with the ordinary
+// dashboard key — preserving the admin/dashboard key separation regardless of
+// which route (/api/admin/* or the /api/v1/* compat routes) reaches them.
+func (d *Dashboard) adminAuthWrap(handler http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !d.isAdminAuthenticated(r) {
+			writeError(w, http.StatusUnauthorized, "admin API key required")
+			return
+		}
+		handler(w, r)
+	}
+}
+
+// authWrap wraps a handler with authentication and authorization checks.
+// It authenticates via session cookie or X-API-Key header, enforces tenant
+// API key scoping (fail-closed allowlist), and applies CSRF protection for
+// cookie-authenticated state-changing requests. Authenticated /api/v1/
+// requests are subject to per-IP rate limiting.
+func (d *Dashboard) authWrap(handler http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		r, ok := d.isAuthenticated(r)
+		if !ok {
+			// API requests get 401 JSON, browser requests get redirected to login
+			if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/mcp") {
+				writeError(w, http.StatusUnauthorized, "unauthorized")
+			} else {
+				http.Redirect(w, r, "/login", http.StatusFound)
 			}
-		}()
-
-		next.ServeHTTP(w, r)
-	})
-}
-
-// LoggingMiddleware logs all HTTP requests
-func LoggingMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-
-		// Create a response wrapper to capture status code
-		wrapper := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
-
-		next.ServeHTTP(wrapper, r)
-
-		duration := time.Since(start)
-
-		// Log request details
-		mwLog.Info("request",
-			"method", r.Method,
-			"path", r.URL.Path,
-			"addr", r.RemoteAddr,
-			"status", wrapper.statusCode,
-			"duration", duration.String(),
-		)
-	})
-}
-
-// SecurityHeadersMiddleware adds security headers to all responses
-func SecurityHeadersMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Skip security headers for SSE endpoint
-		if r.URL.Path == "/api/v1/sse" || r.URL.Path == "/mcp/sse" {
-			next.ServeHTTP(w, r)
 			return
 		}
 
-		// Add security headers
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("X-XSS-Protection", "1; mode=block")
-		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
-		w.Header().Set("Permissions-Policy", "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
-		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		// Check API rate limit for /api/v1/* endpoints (authenticated only)
+		if strings.HasPrefix(r.URL.Path, "/api/v1/") && getAuthType(r) != authSession {
+			if !d.apiBucketAllow(d.getClientIP(r)) {
+				writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
+				return
+			}
+		}
 
-		next.ServeHTTP(w, r)
-	})
+		// Enforce tenant API key scoping (fail-closed): a tenant-scoped key may
+		// only reach explicitly allow-listed read-only API endpoints. Any other
+		// /api/ path — including admin endpoints and any newly added route — is
+		// denied by default.
+		if getAuthType(r) == authTenant && strings.HasPrefix(r.URL.Path, "/api/") {
+			if !tenantKeyAllows(r.URL.Path) {
+				writeError(w, http.StatusForbidden, "tenant-scoped API key cannot access this endpoint")
+				return
+			}
+		}
+
+		// Refresh session cookie on each request (sliding idle timeout)
+		if cookie, err := r.Cookie(sessionCookieName); err == nil && cookie.Value != "" {
+			setSessionCookie(w, r, d.trustedProxyNets)
+		}
+
+		// CSRF protection for state-changing requests authenticated via cookie
+		// (API key header auth is inherently CSRF-safe since browsers can't set custom headers cross-origin)
+		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
+			if r.Header.Get("X-API-Key") == "" && !verifySameOrigin(r) {
+				writeError(w, http.StatusForbidden, "CSRF validation failed")
+				return
+			}
+		}
+
+		handler(w, r)
+	}
+}
+
+// pprofWrap restricts pprof endpoints to localhost connections and requires
+// pprofKey (or adminKey when pprofKey is not set) for authentication.
+func (d *Dashboard) pprofWrap(handler http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Use RemoteAddr directly - never trust X-Forwarded-For for pprof access.
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			http.Error(w, "connection error", http.StatusBadRequest)
+			return
+		}
+		ip := net.ParseIP(host)
+		if ip == nil || !ip.IsLoopback() {
+			http.Error(w, "pprof endpoints are localhost-only", http.StatusForbidden)
+			return
+		}
+		// Require pprofKey when set; when adminKey is set and pprofKey is not,
+		// accept adminKey as a fallback (admin has debug access). If neither
+		// key is configured, keep pprof disabled even for localhost.
+		if d.pprofKey != "" {
+			_, authorized := d.checkPprofKey(r)
+			if !authorized {
+				http.Error(w, "pprof access denied", http.StatusForbidden)
+				return
+			}
+		} else if d.adminKey != "" {
+			if key := r.Header.Get("X-API-Key"); key == "" || subtle.ConstantTimeCompare([]byte(key), []byte(d.adminKey)) != 1 {
+				http.Error(w, "pprof access denied", http.StatusForbidden)
+				return
+			}
+		} else {
+			http.Error(w, "pprof access denied", http.StatusForbidden)
+			return
+		}
+		handler.ServeHTTP(w, r)
+	}
 }
 
 // verifySameOrigin checks that a state-changing request (POST, PUT, DELETE)
@@ -126,24 +176,4 @@ func CORSMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
-}
-
-// responseWriter wraps http.ResponseWriter to capture status code
-type responseWriter struct {
-	http.ResponseWriter
-	statusCode int
-}
-
-func (rw *responseWriter) WriteHeader(code int) {
-	rw.statusCode = code
-	rw.ResponseWriter.WriteHeader(code)
-}
-
-// ApplyMiddleware chains all middleware to a handler
-func ApplyMiddleware(handler http.Handler, middleware ...func(http.Handler) http.Handler) http.Handler {
-	// Apply in reverse order so first middleware is outermost
-	for i := len(middleware) - 1; i >= 0; i-- {
-		handler = middleware[i](handler)
-	}
-	return handler
 }
