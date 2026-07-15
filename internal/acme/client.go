@@ -20,6 +20,7 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -218,6 +219,9 @@ func (c *Client) ObtainCertificate(domains []string, challengeHandler *HTTP01Han
 // --- Internal methods ---
 
 func (c *Client) fetchDirectory() (*directory, error) {
+	if _, err := parseACMEURL(c.directoryURL); err != nil {
+		return nil, fmt.Errorf("invalid directory URL: %w", err)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.directoryURL, http.NoBody)
@@ -449,6 +453,9 @@ func (c *Client) getNonce() (string, error) {
 		return n, nil
 	}
 	c.mu.Unlock()
+	if err := c.validateEndpoint(c.directory.NewNonce); err != nil {
+		return "", fmt.Errorf("invalid nonce endpoint: %w", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -483,6 +490,9 @@ func (c *Client) saveNonce(resp *http.Response) {
 }
 
 func (c *Client) signedPost(url string, payload any, useJWK bool) (*http.Response, error) {
+	if err := c.validateEndpoint(url); err != nil {
+		return nil, fmt.Errorf("invalid ACME endpoint: %w", err)
+	}
 	nonce, err := c.getNonce()
 	if err != nil {
 		return nil, fmt.Errorf("getting nonce: %w", err)
@@ -559,6 +569,58 @@ func (c *Client) signedPost(url string, payload any, useJWK bool) (*http.Respons
 	}
 	c.saveNonce(resp)
 	return resp, nil
+}
+
+// validateEndpoint confines every server-provided ACME URL to the origin of
+// the configured directory. ACME responses contain absolute URLs for nonce,
+// account, order, authorization, challenge, finalize, and certificate
+// operations; accepting a different origin would turn a compromised or
+// malicious directory response into an SSRF primitive.
+func (c *Client) validateEndpoint(rawURL string) error {
+	directoryURL, err := parseACMEURL(c.directoryURL)
+	if err != nil {
+		return fmt.Errorf("invalid directory URL: %w", err)
+	}
+	endpointURL, err := parseACMEURL(rawURL)
+	if err != nil {
+		return err
+	}
+	if !strings.EqualFold(directoryURL.Scheme, endpointURL.Scheme) ||
+		!strings.EqualFold(directoryURL.Hostname(), endpointURL.Hostname()) ||
+		effectiveACMEPort(directoryURL) != effectiveACMEPort(endpointURL) {
+		return fmt.Errorf("endpoint origin %q does not match directory origin %q", endpointURL.Scheme+"://"+endpointURL.Host, directoryURL.Scheme+"://"+directoryURL.Host)
+	}
+	return nil
+}
+
+func parseACMEURL(rawURL string) (*url.URL, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse URL: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return nil, fmt.Errorf("URL scheme must be http or https")
+	}
+	if u.Hostname() == "" {
+		return nil, fmt.Errorf("URL host is required")
+	}
+	if u.User != nil {
+		return nil, fmt.Errorf("URL credentials are not allowed")
+	}
+	if u.Fragment != "" {
+		return nil, fmt.Errorf("URL fragments are not allowed")
+	}
+	return u, nil
+}
+
+func effectiveACMEPort(u *url.URL) string {
+	if port := u.Port(); port != "" {
+		return port
+	}
+	if strings.EqualFold(u.Scheme, "https") {
+		return "443"
+	}
+	return "80"
 }
 
 func (c *Client) jwk() map[string]string {

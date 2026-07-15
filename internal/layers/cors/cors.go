@@ -244,16 +244,15 @@ func (l *Layer) setCORSHeaders(ctx *engine.RequestContext, origin string, cfg *C
 		allowCreds = "true"
 	}
 
-	// CORS headers stored in metadata for applyResponseHook to apply.
-	// applyCORSHook in engine.go reads cors_headers map directly.
-	ctx.Metadata["cors_headers"] = map[string]string{
+	// CORS headers stored on RequestContext for applyResponseHook to apply.
+	ctx.CORSHeaders = map[string]string{
 		"Access-Control-Allow-Origin":      origin,
 		"Access-Control-Allow-Credentials": allowCreds,
 	}
 
 	// Set expose headers
 	if len(cfg.ExposeHeaders) > 0 {
-		ctx.Metadata["cors_expose_headers"] = strings.Join(cfg.ExposeHeaders, ", ")
+		ctx.CORSExposeHeaders = strings.Join(cfg.ExposeHeaders, ", ")
 	}
 }
 
@@ -281,7 +280,7 @@ func (l *Layer) setPreflightHeaders(ctx *engine.RequestContext, origin string, c
 		headers["Access-Control-Max-Age"] = intToStr(cfg.MaxAgeSeconds)
 	}
 
-	ctx.Metadata["cors_preflight_headers"] = headers
+	ctx.CORSPreflightHeaders = headers
 }
 
 // Helper functions

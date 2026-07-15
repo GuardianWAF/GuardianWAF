@@ -10,7 +10,7 @@ GuardianWAF supports targeted runtime updates, but not every configuration field
 | Detection thresholds | `PUT /api/v1/config` under `waf.detection.threshold` | Updates block/log thresholds atomically in the engine. |
 | Sanitizer max body size | `PUT /api/v1/config` under `waf.sanitizer.max_body_size` | Updates the engine's atomic max body size for subsequent request reads. |
 | Trusted proxy CIDRs | `PUT /api/v1/config` with `trusted_proxies` when exposed by the caller, or engine reload from an updated config snapshot | Updates client-IP extraction trust rules in the engine. |
-| Upstreams, routes, and virtual hosts | `PUT /api/v1/routing` or `POST /api/v1/config/reload` after an in-memory routing change | Rebuilds the proxy router, starts new health checkers, stops old health checkers, and closes old target idle transports after the handler swap. In-flight requests continue on the previous handler. |
+| Upstreams, routes, and virtual hosts | `PUT /api/v1/routing` or `POST /api/v1/config/reload` after an in-memory routing change | Prepares a complete candidate router, reloads and atomically persists the config, then swaps the router and request handler together. New health checkers start on the candidate; old health checkers/transports close after commit. In-flight requests continue on the previous handler. |
 | Custom rules | Dashboard rules API | Reloads the engine config and persists the rule set through the dashboard save callback. |
 | IP ACL and auto-bans | Dashboard/API IP ACL and ban endpoints | Mutates the active IP ACL layer state directly; configured persistence flushes on its normal interval and shutdown. |
 | Alert webhook/email definitions | Dashboard alerting APIs | Updates and persists config, but currently running alert manager instances are created at startup; restart after changing alert delivery topology if immediate delivery behavior must change. |
@@ -34,9 +34,11 @@ Restart GuardianWAF for changes that affect listeners, process-level background 
 
 `POST /api/v1/config/reload` re-applies the current in-memory engine configuration and, when the serve runtime has a routing controller, rebuilds proxy routing from that engine snapshot. It does not reread the YAML file from disk.
 
-`PUT /api/v1/config` accepts a JSON patch for supported top-level and WAF fields, reloads the engine snapshot, and persists through the dashboard save callback when configured. It does not recreate startup-owned services. If the patch would change WAF layer topology or layer-instance configuration, the dashboard returns `409 Conflict` and leaves the active config unchanged.
+`PUT /api/v1/config` accepts a JSON patch for supported top-level and WAF fields, reloads the engine snapshot, and persists through the dashboard save callback when configured. It does not recreate startup-owned services. If the patch would change WAF layer topology or layer-instance configuration, the dashboard returns `409 Conflict` and leaves the active config unchanged. If persistence fails, the endpoint returns `500`, restores the previous runtime snapshot, and never reports a non-durable success.
 
-`PUT /api/v1/routing` is the supported live path for upstream, route, and virtual-host changes because it validates routing references and performs the proxy rebuild.
+`PUT /api/v1/routing` is the supported live path for upstream, route, and virtual-host changes because it validates routing references and performs an all-or-nothing candidate build. A target/DNS validation, engine reload, or atomic config write failure returns `500`, closes candidate resources, and leaves the previous proxy and engine routing active. The request handler and router pointer commit in the same critical section only after persistence succeeds.
+
+Dashboard persistence uses the resolved explicit or platform-default config path. A read-only mount, directory-based composite config, missing parent directory, or disk failure therefore rejects and rolls back the mutation instead of leaving runtime and restart state divergent.
 
 GuardianWAF does not currently install a SIGHUP config reload handler in serve or sidecar mode. Use the REST/dashboard API for supported runtime updates, or restart the process after updating the config file.
 

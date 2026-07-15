@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"reflect"
 	"sync"
@@ -41,40 +43,77 @@ func wireDashboardProxyControls(
 		})
 	}
 
-	dash.SetRoutingController(dashboard.RoutingControllerFuncs{
-		RebuildFn: func() error {
-			currentCfg := eng.Config()
-			newHandler, newHealthCheckers := buildReverseProxy(currentCfg)
-			newRouter, _ := newHandler.(*proxy.Router)
-			var oldRouter *proxy.Router
-			var oldHealthCheckers []*proxy.HealthChecker
-
-			proxyRuntimeMu.Lock()
-			oldRouter = *proxyRouter
-			oldHealthCheckers = *proxyHealthCheckers
-			*proxyRouter = newRouter
-			*proxyHealthCheckers = newHealthCheckers
-			proxyRuntimeMu.Unlock()
-
-			wireDashboardUpstreamStatus(dash, newRouter)
-			// Re-apply the tenant middleware wrap so a dashboard-triggered
-			// rebuild does not silently drop tenant resolution/isolation
-			// (matching the startup and Docker rebuild paths).
-			wrapped := eng.Middleware(newHandler)
-			if tenantMW != nil {
-				if mw := tenantMW.Load(); mw != nil {
-					wrapped = mw.Handler(wrapped)
-				}
+	installProxyRuntime := func(newHandler http.Handler, newHealthCheckers []*proxy.HealthChecker) {
+		newRouter, _ := newHandler.(*proxy.Router)
+		// Re-apply the tenant middleware wrap so a dashboard-triggered
+		// rebuild does not silently drop tenant resolution/isolation
+		// (matching the startup and Docker rebuild paths).
+		wrapped := eng.Middleware(newHandler)
+		if tenantMW != nil {
+			if mw := tenantMW.Load(); mw != nil {
+				wrapped = mw.Handler(wrapped)
 			}
-			upstreamHandler.Store(wrapped)
-			stopHealthCheckers(oldHealthCheckers)
-			closeProxyRouter(oldRouter)
-			return nil
+		}
+		var oldRouter *proxy.Router
+		var oldHealthCheckers []*proxy.HealthChecker
+
+		proxyRuntimeMu.Lock()
+		oldRouter = *proxyRouter
+		oldHealthCheckers = *proxyHealthCheckers
+		*proxyRouter = newRouter
+		*proxyHealthCheckers = newHealthCheckers
+		upstreamHandler.Store(wrapped)
+		proxyRuntimeMu.Unlock()
+
+		wireDashboardUpstreamStatus(dash, newRouter)
+		stopHealthCheckers(oldHealthCheckers)
+		closeProxyRouter(oldRouter)
+	}
+	cleanupCandidate := func(handler http.Handler, healthCheckers []*proxy.HealthChecker) {
+		stopHealthCheckers(healthCheckers)
+		if router, ok := handler.(*proxy.Router); ok {
+			closeProxyRouter(router)
+		}
+	}
+
+	dash.SetRoutingController(dashboard.AtomicRoutingControllerFuncs{
+		RoutingControllerFuncs: dashboard.RoutingControllerFuncs{
+			RebuildFn: func() error {
+				currentCfg := eng.Config()
+				newHandler, newHealthCheckers, err := buildReverseProxyStrict(currentCfg)
+				if err != nil {
+					return err
+				}
+				installProxyRuntime(newHandler, newHealthCheckers)
+				return nil
+			},
+			SaveFn: func() error {
+				c := eng.Config()
+				syncCustomRulesToConfig(eng, c)
+				return config.SaveFile(cfgPath, c)
+			},
 		},
-		SaveFn: func() error {
-			c := eng.Config()
-			syncCustomRulesToConfig(eng, c)
-			return config.SaveFile(cfgPath, c)
+		ApplyFn: func(oldCfg, newCfg *config.Config) error {
+			newHandler, newHealthCheckers, err := buildReverseProxyStrict(newCfg)
+			if err != nil {
+				return fmt.Errorf("prepare proxy runtime: %w", err)
+			}
+
+			if err := eng.Reload(newCfg); err != nil {
+				cleanupCandidate(newHandler, newHealthCheckers)
+				return fmt.Errorf("reload engine routing config: %w", err)
+			}
+			syncCustomRulesToConfig(eng, newCfg)
+			if err := config.SaveFile(cfgPath, newCfg); err != nil {
+				cleanupCandidate(newHandler, newHealthCheckers)
+				if rollbackErr := eng.Reload(oldCfg); rollbackErr != nil {
+					return errors.Join(fmt.Errorf("persist routing config: %w", err), fmt.Errorf("rollback engine routing config: %w", rollbackErr))
+				}
+				return fmt.Errorf("persist routing config: %w", err)
+			}
+
+			installProxyRuntime(newHandler, newHealthCheckers)
+			return nil
 		},
 	})
 }

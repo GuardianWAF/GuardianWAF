@@ -35,6 +35,9 @@ type Stats struct {
 	LayerTiming        []LayerTimingStats
 	GeoIPReady         bool
 	GeoIPRanges        int64
+	TracingEnabled     bool
+	TracingSpans       int64
+	TracingExported    int64
 }
 
 // LatencyBucket describes one cumulative request latency histogram bucket.

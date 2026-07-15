@@ -216,6 +216,86 @@ func TestDashboardRoutingRebuildUsesReloadedConfigAndDrainsActiveTraffic(t *test
 	}
 }
 
+func TestDashboardAtomicRoutingUpdateKeepsOldRuntimeWhenPersistenceFails(t *testing.T) {
+	oldBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("old-route"))
+	}))
+	defer oldBackend.Close()
+	newBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("new-route"))
+	}))
+	defer newBackend.Close()
+
+	allowPrivate := true
+	cfg := config.DefaultConfig()
+	cfg.AllowPrivateUpstreams = &allowPrivate
+	cfg.Dashboard.Enabled = true
+	cfg.Dashboard.APIKey = "routing-test-key"
+	cfg.Upstreams = []config.UpstreamConfig{{
+		Name:    "default",
+		Targets: []config.TargetConfig{{URL: oldBackend.URL, Weight: 1}},
+	}}
+	cfg.Routes = []config.RouteConfig{{Path: "/", Upstream: "default"}}
+	eng, err := engine.NewEngine(cfg, events.NewMemoryStore(10), events.NewEventBus())
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+	defer eng.Close()
+
+	dash := dashboard.New(eng, events.NewMemoryStore(10), "routing-test-key")
+	oldTarget, err := proxy.NewTargetWithPolicy(oldBackend.URL, 1, proxy.TargetPolicy{AllowPrivateTargets: true})
+	if err != nil {
+		t.Fatalf("NewTargetWithPolicy: %v", err)
+	}
+	proxyRouter := proxy.NewRouter([]proxy.Route{{
+		PathPrefix: "/",
+		Balancer:   proxy.NewBalancer([]*proxy.Target{oldTarget}, proxy.StrategyRoundRobin),
+	}})
+	defer closeProxyRouter(proxyRouter)
+	var proxyHealthCheckers []*proxy.HealthChecker
+	var proxyRuntimeMu sync.RWMutex
+	var upstreamHandler atomic.Value
+	upstreamHandler.Store(eng.Middleware(proxyRouter))
+
+	missingParentConfig := filepath.Join(t.TempDir(), "missing", "guardianwaf.yaml")
+	wireDashboardProxyControls(
+		dash,
+		cfg,
+		eng,
+		missingParentConfig,
+		&proxyRouter,
+		&proxyHealthCheckers,
+		&proxyRuntimeMu,
+		&upstreamHandler,
+		nil,
+		nil,
+	)
+
+	body := `{"upstreams":[{"name":"default","targets":[{"url":"` + newBackend.URL + `","weight":1}]}],"routes":[{"path":"/","upstream":"default"}]}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/routing", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Key", "routing-test-key")
+	rec := httptest.NewRecorder()
+	dash.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("routing update status = %d, want 500; body = %s", rec.Code, rec.Body.String())
+	}
+	if oldTarget.Closed() {
+		t.Fatal("old proxy target was closed even though the atomic update failed")
+	}
+	if got := eng.Config().Upstreams[0].Targets[0].URL; got != oldBackend.URL {
+		t.Fatalf("engine target = %q, want previous target %q", got, oldBackend.URL)
+	}
+
+	proxyReq := httptest.NewRequest(http.MethodGet, "/still-old", nil)
+	proxyReq.Header.Set("User-Agent", "Mozilla/5.0 Chrome/120.0")
+	proxyRec := httptest.NewRecorder()
+	loadHTTPHandler(&upstreamHandler).ServeHTTP(proxyRec, proxyReq)
+	if proxyRec.Code != http.StatusOK || proxyRec.Body.String() != "old-route" {
+		t.Fatalf("old runtime not preserved: status=%d body=%q", proxyRec.Code, proxyRec.Body.String())
+	}
+}
+
 type errStatus int
 
 func (e errStatus) Error() string {

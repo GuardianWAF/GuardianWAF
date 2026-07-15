@@ -73,7 +73,7 @@ services:
         read_only: false
     
     environment:
-      - GWAF_LOG_LEVEL=info
+      - GWAF_LOGGING_LEVEL=info
       - GWAF_CONFIG_PATH=/etc/guardianwaf/config.yaml
     
     ports:

@@ -1,133 +1,36 @@
-# GuardianWAF Security Architecture Report
+# GuardianWAF Security Architecture
 
-## 1. Architecture Overview
+**Revalidated:** 2026-07-10
 
-### Project Identity
-GuardianWAF is a production-grade Web Application Firewall (WAF) written in pure Go (zero external dependencies). It operates as a reverse proxy.
+## Runtime Shape
 
-### Core Function
-GuardianWAF sits between clients and backend servers. All traffic to protected backends flows through the WAF, which applies security checks at each layer.
+- `cmd/guardianwaf`: CLI entrypoints for serve, sidecar, check, validate, setup, and local healthcheck.
+- `internal/engine`: request context, ordered WAF pipeline, decisions, event creation, logging, and reload boundaries.
+- `internal/layers`: active request protections including IP ACL, threat intelligence, CORS, rules, rate limiting, ATO, API security/validation, sanitizer, CRS/detection, virtual patching, DLP, bot detection, client-side protection, and response hardening.
+- `internal/proxy`: reverse proxy, routing, load balancing, health checking, circuit breaking, and upstream SSRF policy.
+- `internal/dashboard`: authenticated dashboard APIs, sessions, SSE, persistence integrations, and embedded React SPA.
+- `internal/tenant`: tenant resolution, admin lifecycle, quotas, persistence, and tenant-scoped policy.
+- `internal/ai`, `internal/alerting`, `internal/acme`, `internal/geoip`, `internal/docker`: optional outbound or environment integrations with explicit lifecycle and network policies.
 
-### Deployment Modes
-1. Standalone reverse proxy (guardianwaf serve)
-2. Sidecar proxy (guardianwaf sidecar)
-3. Go library middleware (guardianwaf.Middleware)
+## Trust Boundaries
 
-### Request Flow
-HTTP Request -> IP ACL (100) -> Threat Intel (125) -> CORS (150) -> Rate Limit (200) -> ATO (250) -> API Security (275) -> Sanitizer (300) -> Detection (400) -> Bot Detect (500) -> Response (600) -> JS Challenge -> Upstream Load Balancer
+1. Untrusted inbound HTTP traffic enters the WAF pipeline before reaching configured upstreams.
+2. Dashboard operators cross API-key/session authentication; tenant administration uses a separate admin key.
+3. Upstream and integration destinations cross SSRF policy, redirect, timeout, and response-size controls.
+4. Persisted events, tenant data, AI configuration, certificates, and audit chains cross local filesystem permission and durability boundaries.
+5. Docker discovery crosses a privileged daemon boundary and is production-disabled unless explicitly configured with the documented transport controls.
 
-## 2. Tech Stack
+## Primary Security Controls
 
-### Go Version
-Go 1.25.0
+- Default-deny private/reserved upstream SSRF filtering with explicit instance-scoped allow policy.
+- Trusted-proxy CIDR validation and right-to-left forwarded-address selection.
+- Constant-time authentication comparisons, signed sessions, CSRF origin checks, strict cookies, and bounded login/session state.
+- Request/body/decompression limits, detector scoring, panic recovery, and security response headers.
+- Secret redaction before event, dashboard, access-log, and trace exposure.
+- Explicit outbound clients with URL validation, dial-time address enforcement where required, redirect policy, deadlines, and response-size bounds.
+- Non-root, read-only-root container and restricted Kubernetes deployment profiles.
+- File-backed state paths with restrictive creation modes, shutdown flushing, and documented backup/restore order.
 
-### Dependencies
-Only github.com/quic-go/quic-go v0.59.0 for HTTP/3 (optional build tag). Without http3 tag, zero external dependencies.
+## Assurance Boundaries
 
-### Custom YAML Parser
-internal/config/yaml.go - zero-dependency parser. No anchors, aliases, tags, or multi-document.
-
-### Environment Variable Expansion
-expandEnvVars supports dollar-curly syntax for env var substitution.
-
-## 3. Key Entry Points
-
-### CLI
-cmd/guardianwaf/main.go or main_default.go
-
-Commands: serve, sidecar, check, validate, test-alert, setup, version
-
-### Library Mode
-guardianwaf.go, options.go
-- guardianwaf.New, NewFromFile, NewWithDefaults
-- Engine.Middleware, Check, OnEvent, Stats, Close
-
-### HTTP Handlers
-/healthz, /metrics, /_guardian/report, challenge verify, dashboard
-
-## 4. Core Components
-
-### internal/engine/
-engine.go, pipeline.go, context.go, finding.go, event.go, layer.go, blockpage.go, response_writer.go, logbuffer.go
-
-### internal/layers/
-ipacl(100), threatintel(125), cors(150), ratelimit(200), ato(250), apisecurity(275), sanitizer(300), detection(400), botdetect(500), response(600)
-
-### internal/proxy/
-proxy.go, router.go, balancer.go, target.go, health.go, circuit.go
-
-### internal/config/
-config.go, defaults.go, yaml.go, serialize.go, validate.go
-
-### internal/dashboard/
-dashboard.go, auth.go, middleware.go
-
-### internal/tls/
-certstore.go
-
-## 5. Security Boundaries
-
-### HTTP Request Fields
-All treated as untrusted: path, query params, headers, body, cookies, TLS info (JA3/JA4)
-
-### Configuration
-YAML parser with expandEnvVars. Security fields: trusted_proxies, dashboard.api_key, tls paths, challenge.secret_key, alerting passwords
-
-### Docker Socket
-Reads gwaf.* labels when enabled (privileged)
-
-### Dashboard Auth
-X-API-Key header only, HMAC-SHA256 IP-bound session cookies (24h sliding, 7d max), per-tenant API keys, 5 concurrent sessions per IP max
-
-## 6. Trust Boundaries
-
-### Client IP Extraction
-RemoteAddr fallback, X-Forwarded-For only from trusted_proxies CIDRs (default: empty)
-
-### Configuration Precedence
-DefaultConfig -> YAML file -> Environment (GWAF_) -> CLI flags
-
-### Multi-Tenancy
-Tenant isolation via /t/{tenant-id}/ or X-Tenant-ID header
-
-## 7. Security Controls
-
-### TLS
-SNI cert selection, hot-reload, ACME/Let's Encrypt, HTTP/3 optional
-
-### Auth
-HMAC session tokens, constant-time API key comparison, crypto/rand
-
-### Input Validation
-MaxURLLength 8192, MaxHeaderSize 8192, MaxHeaderCount 100, MaxBodySize 10MB, MaxCookieSize 4096, BlockNullBytes, NormalizeEncoding, StripHopByHop, AllowedMethods
-
-### Attack Detection
-sqli, xss, lfi, cmdi, xxe, ssrf - tokenizer-based. Default thresholds: Block=50, Log=25
-
-### Rate Limiting
-Token bucket O(1), 1000 req/min per IP default, auto-ban
-
-### IP ACL
-Radix tree O(k), whitelist, blacklist, auto-ban (100K entries max)
-
-### PoW Challenge
-SHA-256, 20 leading zero bits default, HMAC-signed cookie (1h)
-
-### Response Protection
-HSTS, X-Content-Type-Options, X-Frame-Options, data masking (cards, SSN, API keys), stack trace stripping
-
-### Alerting
-Webhook/email with TLS, per-event filtering, score thresholds, cooldowns
-
-## Summary
-
-| Category | Status |
-|----------|--------|
-| Transport security | TLS + ACME, HTTP/3 optional |
-| Authentication | HMAC session tokens, API keys, per-tenant scoping |
-| Input validation | Size limits, null byte stripping, encoding normalization |
-| Attack detection | 6 tokenizer-based detectors, configurable thresholds |
-| Bot mitigation | TLS fingerprinting, UA analysis, PoW challenge |
-| Rate limiting | Token bucket, per-IP/path, auto-ban |
-| IP ACL | Radix tree, auto-ban |
-| Dependencies | Zero external (HTTP/3 optional) |
+The current repository contains no concrete QUIC/HTTP/3 listener implementation, cluster-sync runtime, SIEM exporter, replay target, or canary runtime. Build-tag compatibility or historical design documents must not be treated as evidence that those absent runtimes are production supported.

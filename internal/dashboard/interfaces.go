@@ -1,10 +1,30 @@
 package dashboard
 
+import "github.com/guardianwaf/guardianwaf/internal/config"
+
 // RoutingControllerFuncs is a struct-of-funcs that implements RoutingController.
 // This is the preferred wiring method for cmd/guardianwaf code.
 type RoutingControllerFuncs struct {
 	RebuildFn func() error
 	SaveFn    func() error
+}
+
+// AtomicRoutingController prepares and commits a complete routing update. The
+// implementation must leave the old engine config and proxy active on error.
+type AtomicRoutingController interface {
+	RoutingController
+	Apply(oldCfg, newCfg *config.Config) error
+}
+
+// AtomicRoutingControllerFuncs wires an atomic apply function while retaining
+// the rebuild/save operations used by the general config endpoints.
+type AtomicRoutingControllerFuncs struct {
+	RoutingControllerFuncs
+	ApplyFn func(oldCfg, newCfg *config.Config) error
+}
+
+func (r AtomicRoutingControllerFuncs) Apply(oldCfg, newCfg *config.Config) error {
+	return r.ApplyFn(oldCfg, newCfg)
 }
 
 func (r RoutingControllerFuncs) Rebuild() error { return r.RebuildFn() }

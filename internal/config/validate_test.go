@@ -1418,30 +1418,34 @@ func TestLoadEnv_DashboardEnabled(t *testing.T) {
 	}
 }
 
-func TestLoadEnv_InvalidIntIgnored(t *testing.T) {
+func TestLoadEnv_InvalidIntRejected(t *testing.T) {
 	cfg := DefaultConfig()
 	originalBlock := cfg.WAF.Detection.Threshold.Block
 
 	os.Setenv("GWAF_WAF_DETECTION_THRESHOLD_BLOCK", "not_a_number")
 	defer os.Unsetenv("GWAF_WAF_DETECTION_THRESHOLD_BLOCK")
 
-	LoadEnv(cfg)
+	if err := LoadEnv(cfg); err == nil {
+		t.Fatal("LoadEnv() accepted an invalid integer")
+	}
 
-	// Should remain unchanged since parsing fails
+	// The rejected overlay must leave the config unchanged.
 	if cfg.WAF.Detection.Threshold.Block != originalBlock {
 		t.Fatalf("expected threshold unchanged, got %d", cfg.WAF.Detection.Threshold.Block)
 	}
 }
 
-func TestLoadEnv_InvalidBoolIgnored(t *testing.T) {
+func TestLoadEnv_InvalidBoolRejected(t *testing.T) {
 	cfg := DefaultConfig()
 
 	os.Setenv("GWAF_TLS_ENABLED", "not_a_bool")
 	defer os.Unsetenv("GWAF_TLS_ENABLED")
 
-	LoadEnv(cfg)
+	if err := LoadEnv(cfg); err == nil {
+		t.Fatal("LoadEnv() accepted an invalid boolean")
+	}
 
-	// Should remain unchanged
+	// The rejected overlay must leave the config unchanged.
 	if cfg.TLS.Enabled {
 		t.Fatal("expected TLS still disabled (invalid bool ignored)")
 	}

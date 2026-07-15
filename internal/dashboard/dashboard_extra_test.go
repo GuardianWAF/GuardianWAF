@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -531,6 +532,7 @@ func TestUpdateRouting_WithRebuildFn(t *testing.T) {
 
 func TestUpdateRouting_RebuildFnError(t *testing.T) {
 	d := newTestDashboard(t, "k")
+	oldCfg := d.engine.Config()
 	d.SetRebuildFn(func() error {
 		return fmt.Errorf("rebuild failed")
 	})
@@ -547,6 +549,9 @@ func TestUpdateRouting_RebuildFnError(t *testing.T) {
 	d.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", w.Code)
+	}
+	if got := d.engine.Config(); !reflect.DeepEqual(got.Upstreams, oldCfg.Upstreams) || !reflect.DeepEqual(got.Routes, oldCfg.Routes) {
+		t.Fatal("engine routing config was not rolled back after rebuild failure")
 	}
 }
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -40,6 +41,13 @@ type fakeTenantManager struct {
 type fakeGeoIPRefreshStopper struct {
 	stopped atomic.Int32
 }
+
+type shutdownFailingEventStore struct {
+	err error
+}
+
+func (s shutdownFailingEventStore) Store(engine.Event) error { return nil }
+func (s shutdownFailingEventStore) Close() error             { return s.err }
 
 func (f *fakeACMERenewal) StopRenewal() {
 	f.stopped.Add(1)
@@ -323,6 +331,42 @@ func TestShutdownSidecarRuntimeStopsGeoIPRefreshWithContext(t *testing.T) {
 
 	if got := refresh.stopped.Load(); got != 1 {
 		t.Fatalf("GeoIP StopWithContext calls = %d, want 1", got)
+	}
+}
+
+func TestShutdownRuntimesReturnEventStoreDurabilityErrors(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		shutdown func(context.Context, *engine.Engine) error
+	}{
+		{
+			name: "serve",
+			shutdown: func(ctx context.Context, eng *engine.Engine) error {
+				return shutdownServeRuntime(ctx, serveShutdownResources{engine: eng})
+			},
+		},
+		{
+			name: "sidecar",
+			shutdown: func(ctx context.Context, eng *engine.Engine) error {
+				return shutdownSidecarRuntime(ctx, sidecarShutdownResources{engine: eng})
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			wantErr := errors.New("event store sync failed")
+			eng, err := engine.NewEngine(config.DefaultConfig(), shutdownFailingEventStore{err: wantErr}, events.NewEventBus())
+			if err != nil {
+				t.Fatalf("NewEngine error: %v", err)
+			}
+
+			err = test.shutdown(context.Background(), eng)
+			if !errors.Is(err, wantErr) {
+				t.Fatalf("shutdown error = %v, want wrapped %v", err, wantErr)
+			}
+			if err == wantErr {
+				t.Fatal("shutdown error should identify the failing lifecycle component")
+			}
+		})
 	}
 }
 

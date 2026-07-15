@@ -188,10 +188,18 @@ func cmdServe(args []string) {
 
 	// 1. Load config
 	explicitPath := *configPath != ""
-	cfg := loadConfig(*configPath, explicitPath)
+	loadedConfigPath := *configPath
+	if loadedConfigPath == "" {
+		loadedConfigPath = DefaultConfigPath()
+	}
+	cfg := loadConfig(loadedConfigPath, explicitPath)
 
 	// 2. Apply environment variable overrides, then CLI overrides
-	config.LoadEnv(cfg)
+	if err := config.LoadEnv(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "Configuration environment error: %v\n", err)
+		osExit(1)
+		return
+	}
 	if *listenAddr != "" {
 		cfg.Listen = *listenAddr
 	}
@@ -209,6 +217,7 @@ func cmdServe(args []string) {
 	if err := config.Validate(cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "Configuration error: %v\n", err)
 		osExit(1)
+		return
 	}
 
 	// 4. Create runtime engine
@@ -301,7 +310,7 @@ func cmdServe(args []string) {
 			return
 		}
 		dashboardReady.Store(dashSrv != nil && dash != nil)
-		wireDashboardProxyControls(dash, cfg, eng, *configPath, &proxyRouter, &proxyHealthCheckers, &proxyRuntimeMu, &upstreamHandler, &tenantMWPtr, diskStore)
+		wireDashboardProxyControls(dash, cfg, eng, loadedConfigPath, &proxyRouter, &proxyHealthCheckers, &proxyRuntimeMu, &upstreamHandler, &tenantMWPtr, diskStore)
 		wireDashboardRules(dash, cfg, eng, layerResources)
 	}
 
@@ -359,7 +368,7 @@ func cmdServe(args []string) {
 	<-shutdown
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	shutdownServeRuntime(ctx, serveShutdownResources{
+	if err := shutdownServeRuntime(ctx, serveShutdownResources{
 		server:              srv,
 		tlsServer:           tlsSrv,
 		dashboardServer:     dashSrv,
@@ -378,7 +387,10 @@ func cmdServe(args []string) {
 		tenantManager:       tenantManager,
 		eventConsumerWG:     &eventConsumerWG,
 		layerResources:      layerResources,
-	})
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "GuardianWAF shutdown failed: %v\n", err)
+		osExit(1)
+	}
 }
 
 // --------------------------------------------------------------------------
@@ -402,10 +414,13 @@ func cmdSidecar(args []string) {
 	var cfg *config.Config
 	if *configPath != "" {
 		cfg = loadConfig(*configPath, true)
-		config.LoadEnv(cfg)
 	} else {
 		cfg = config.DefaultConfig()
-		config.LoadEnv(cfg)
+	}
+	if err := config.LoadEnv(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "Configuration environment error: %v\n", err)
+		osExit(1)
+		return
 	}
 
 	// Sidecar overrides: no dashboard, no MCP
@@ -438,12 +453,14 @@ func cmdSidecar(args []string) {
 	if len(cfg.Upstreams) == 0 {
 		fmt.Fprintf(os.Stderr, "Error: --upstream is required when no config file is provided\n")
 		osExit(1)
+		return
 	}
 
 	// Validate
 	if err := config.Validate(cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "Configuration error: %v\n", err)
 		osExit(1)
+		return
 	}
 	if *logLevel != "" {
 		cfg.Logging.Level = *logLevel
@@ -496,7 +513,7 @@ func cmdSidecar(args []string) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	shutdownSidecarRuntime(ctx, sidecarShutdownResources{
+	if err := shutdownSidecarRuntime(ctx, sidecarShutdownResources{
 		server:              srv,
 		engine:              eng,
 		proxyRouter:         &sidecarRouter,
@@ -504,7 +521,10 @@ func cmdSidecar(args []string) {
 		cleanupStop:         cleanupStop,
 		cleanupWG:           cleanupWG,
 		layerResources:      layerResources,
-	})
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "GuardianWAF sidecar shutdown failed: %v\n", err)
+		osExit(1)
+	}
 }
 
 // --------------------------------------------------------------------------
@@ -548,7 +568,12 @@ func runCheck(opts *CheckOptions) (*CheckResult, error) {
 	// Load config
 	explicitPath := opts.ConfigPath != ""
 	cfg := loadConfig(opts.ConfigPath, explicitPath)
-	config.LoadEnv(cfg)
+	if err := config.LoadEnv(cfg); err != nil {
+		return nil, fmt.Errorf("invalid environment configuration: %w", err)
+	}
+	if err := config.Validate(cfg); err != nil {
+		return nil, fmt.Errorf("invalid configuration: %w", err)
+	}
 
 	// Create engine
 	eventStore := events.NewMemoryStore(1000)
@@ -633,6 +658,7 @@ func cmdCheck(args []string) {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		fs.Usage()
 		osExit(1)
+		return
 	}
 
 	// Print results
@@ -702,6 +728,7 @@ func cmdValidate(args []string) {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		osExit(1)
+		return
 	}
 
 	cfg := result.Config
@@ -734,10 +761,21 @@ func cmdTestAlert(args []string) {
 		osExit(1)
 		return
 	}
+	if err := config.LoadEnv(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "Configuration environment error: %v\n", err)
+		osExit(1)
+		return
+	}
+	if err := config.Validate(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "Configuration error: %v\n", err)
+		osExit(1)
+		return
+	}
 
 	if !cfg.Alerting.Enabled {
 		fmt.Fprintf(os.Stderr, "Alerting is not enabled in configuration\n")
 		osExit(1)
+		return
 	}
 
 	// Create alerting manager
@@ -759,10 +797,17 @@ func cmdTestAlert(args []string) {
 	// Test specific target or all
 	if *all {
 		fmt.Println("Testing all configured alert targets...")
+		if len(cfg.Alerting.Webhooks)+len(cfg.Alerting.Emails) == 0 {
+			fmt.Fprintln(os.Stderr, "No alert targets are configured")
+			osExit(1)
+			return
+		}
+		failed := false
 		for _, w := range cfg.Alerting.Webhooks {
 			fmt.Printf("  Testing webhook: %s... ", w.Name)
 			if err := mgr.TestAlert(w.Name); err != nil {
 				fmt.Printf("FAILED: %v\n", err)
+				failed = true
 			} else {
 				fmt.Println("OK")
 			}
@@ -771,15 +816,21 @@ func cmdTestAlert(args []string) {
 			fmt.Printf("  Testing email: %s... ", e.Name)
 			if err := mgr.TestAlert(e.Name); err != nil {
 				fmt.Printf("FAILED: %v\n", err)
+				failed = true
 			} else {
 				fmt.Println("OK")
 			}
+		}
+		if failed {
+			osExit(1)
+			return
 		}
 	} else if *target != "" {
 		fmt.Printf("Testing alert target: %s... ", *target)
 		if err := mgr.TestAlert(*target); err != nil {
 			fmt.Printf("FAILED: %v\n", err)
 			osExit(1)
+			return
 		}
 		fmt.Println("OK")
 	} else {
@@ -792,6 +843,7 @@ func cmdTestAlert(args []string) {
 			fmt.Fprintf(os.Stderr, "  Email: %s (%s)\n", e.Name, e.SMTPHost)
 		}
 		osExit(1)
+		return
 	}
 }
 
@@ -810,7 +862,9 @@ func validateConfigFile(path string) (*config.Config, *ConfigSummary, error) {
 		return nil, nil, fmt.Errorf("loading config: %w", err)
 	}
 
-	config.LoadEnv(cfg)
+	if err := config.LoadEnv(cfg); err != nil {
+		return nil, nil, fmt.Errorf("environment configuration: %w", err)
+	}
 
 	if err := config.Validate(cfg); err != nil {
 		return nil, nil, fmt.Errorf("validation: %w", err)
@@ -880,6 +934,7 @@ func loadConfig(path string, explicitPath bool) *config.Config {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
 		osExit(1)
+		return nil
 	}
 	return cfg
 }

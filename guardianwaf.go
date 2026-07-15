@@ -245,6 +245,9 @@ func New(cfg Config, opts ...Option) (*Engine, error) {
 	for _, opt := range opts {
 		opt(internalCfg)
 	}
+	if err := config.Validate(internalCfg); err != nil {
+		return nil, fmt.Errorf("validating configuration: %w", err)
+	}
 
 	store := events.NewMemoryStore(internalCfg.Events.MaxEvents)
 	bus := events.NewEventBus()
@@ -285,10 +288,15 @@ func NewFromFile(path string, opts ...Option) (*Engine, error) {
 	if err != nil {
 		return nil, fmt.Errorf("loading config file %q: %w", path, err)
 	}
-	config.LoadEnv(cfg)
+	if err := config.LoadEnv(cfg); err != nil {
+		return nil, fmt.Errorf("loading environment configuration: %w", err)
+	}
 
 	for _, opt := range opts {
 		opt(cfg)
+	}
+	if err := config.Validate(cfg); err != nil {
+		return nil, fmt.Errorf("validating configuration: %w", err)
 	}
 
 	store := events.NewMemoryStore(cfg.Events.MaxEvents)

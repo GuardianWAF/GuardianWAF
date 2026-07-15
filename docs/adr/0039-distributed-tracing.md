@@ -8,7 +8,7 @@
 
 ## Context
 
-Production WAF deployments require visibility into request flow across the 29-layer pipeline. Without tracing:
+Production WAF deployments require visibility into request flow across the active WAF pipeline. Without tracing:
 
 - Diagnosing false positives requires manually correlating logs with detector scores
 - Performance regression in a specific layer is hard to pinpoint from aggregate metrics
@@ -22,12 +22,19 @@ Implement a minimal, zero-dependency tracing package (`internal/tracing/`) with 
 
 1. **Span model** — TraceID (128-bit hex), SpanID (64-bit hex), parent-child links, attributes, events
 2. **Exporter interface** — `Exporter` interface with `Export(Span)` and `Shutdown()`. Built-in exporters: `NoopExporter`, `StdoutExporter`. Pluggable for OTel bridge or custom backends.
-3. **Configurable sampling** — `SamplingRate` (0.0–1.0) determines which traces are kept; `ShouldSample()` uses TraceID for deterministic sampling
+3. **Configurable sampling** — `SamplingRate` (0.0–1.0) determines which traces are kept; each engine uses an isolated deterministic sampling counter
 4. **Pipeline integration** — Root span created per request in `engine.Check()` and `engine.Middleware()`; `ctx.TraceSpan` on `RequestContext` carries the span through the pipeline
 5. **Layer spans** — Each layer can create child spans with WAF-specific attributes (action, score, detector name)
 6. **Configuration** — `tracing.enabled`, `tracing.service_name`, `tracing.sampling_rate`, `tracing.exporter_type` in config or `GWAF_TRACING_*` env vars
 
 ### Key design choices
+
+- **Engine-local ownership** — Every engine owns its tracer and exporter. Reload
+  reconfigures that tracer, and engine shutdown closes it; engines in the same
+  process cannot overwrite each other's tracing configuration.
+- **Validated IDs and config** — Root trace IDs are 128-bit random hex values,
+  span IDs are 64-bit random hex values, and non-finite/out-of-range sampling
+  rates or unsupported exporter names fail validation.
 
 - **No wire format** — Spans are exported in-process, not serialized over gRPC/HTTP. A bridge exporter can translate to OTLP if needed.
 - **No baggage propagation** — Only `X-Correlation-ID` (not full W3C Trace Context) is propagated to upstream backends and cluster nodes. Full trace context propagation would require a wire format.
@@ -45,6 +52,10 @@ Implement a minimal, zero-dependency tracing package (`internal/tracing/`) with 
 - Not wire-compatible with W3C Trace Context out of the box (requires bridge exporter)
 - No automatic context propagation across HTTP boundaries (only correlation ID header)
 - Sync export model may add latency if exporter is slow (mitigated by sampling)
+
+Operational counters are exposed as `guardianwaf_tracing_enabled`,
+`guardianwaf_tracing_spans_created_total`, and
+`guardianwaf_tracing_spans_exported_total`.
 
 ## References
 

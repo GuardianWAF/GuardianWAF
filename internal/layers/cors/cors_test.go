@@ -121,9 +121,9 @@ func TestProcess_AllowedOrigin(t *testing.T) {
 	}
 
 	// Check CORS headers were set
-	headers, ok := ctx.Metadata["cors_headers"].(map[string]string)
-	if !ok {
-		t.Fatal("Expected cors_headers in metadata")
+	headers := ctx.CORSHeaders
+	if headers == nil {
+		t.Fatal("expected CORS headers to be set")
 	}
 	if headers["Access-Control-Allow-Origin"] != "https://example.com" {
 		t.Errorf("Unexpected Allow-Origin header: %v", headers["Access-Control-Allow-Origin"])
@@ -198,9 +198,9 @@ func TestProcess_Preflight_Allowed(t *testing.T) {
 		t.Errorf("Expected pass for valid preflight, got %v", result.Action)
 	}
 
-	headers, ok := ctx.Metadata["cors_preflight_headers"].(map[string]string)
-	if !ok {
-		t.Fatal("Expected cors_preflight_headers in metadata")
+	headers := ctx.CORSPreflightHeaders
+	if headers == nil {
+		t.Fatal("expected CORS preflight headers to be set")
 	}
 	if headers["Access-Control-Allow-Methods"] != "GET, POST, PUT" {
 		t.Errorf("Unexpected Allow-Methods: %v", headers["Access-Control-Allow-Methods"])

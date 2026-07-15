@@ -623,7 +623,7 @@ main();
       "command": "guardianwaf",
       "args": ["mcp"],
       "env": {
-        "GWAF_MCP_API_KEY": "set-from-secret-manager"
+        "GWAF_DASHBOARD_API_KEY": "set-from-secret-manager"
       }
     }
   }

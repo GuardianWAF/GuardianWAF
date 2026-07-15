@@ -16,8 +16,14 @@ func TestStartSpan(t *testing.T) {
 	if span.TraceID == "" {
 		t.Error("TraceID is empty")
 	}
+	if len(span.TraceID) != 32 {
+		t.Errorf("TraceID length = %d, want 32 hex characters", len(span.TraceID))
+	}
 	if span.SpanID == "" {
 		t.Error("SpanID is empty")
+	}
+	if len(span.SpanID) != 16 {
+		t.Errorf("SpanID length = %d, want 16 hex characters", len(span.SpanID))
 	}
 	if span.StartTime.IsZero() {
 		t.Error("StartTime is zero")

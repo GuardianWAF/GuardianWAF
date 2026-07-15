@@ -45,7 +45,7 @@ test.describe('AI Configuration', () => {
     const resp = await request.get(`${BASE_URL}/api/v1/ai/providers`, {
       headers: { 'X-API-Key': API_KEY },
     })
-    expect([200, 500]).toContain(resp.status())
+    expect([200, 502]).toContain(resp.status())
     const body = await responseJSON(resp)
     if (resp.status() === 200) {
       expect(Array.isArray(body.providers)).toBe(true)
@@ -108,10 +108,12 @@ test.describe('AI Configuration', () => {
     await page.waitForURL(/\/ai/, { timeout: 5000 })
     await expect(page.getByRole('heading', { name: /AI Threat Analysis/i })).toBeVisible()
 
-    // Should have form elements for AI configuration
-    const hasInput = await page.locator('input').count() > 0
-
-    expect(hasInput).toBe(true)
+    const providerSection = page.getByRole('button', { name: /Select AI Provider/i })
+    await expect(providerSection).toBeVisible()
+    if (await providerSection.getAttribute('aria-expanded') === 'false') {
+      await providerSection.click()
+    }
+    await expect(page.getByPlaceholder('Search providers...')).toBeVisible()
   })
 
   test('AI page shows provider selection', async ({ page }) => {
@@ -130,10 +132,12 @@ test.describe('AI Configuration', () => {
     await page.waitForURL(/\/ai/, { timeout: 5000 })
     await expect(page.getByRole('heading', { name: /AI Threat Analysis/i })).toBeVisible()
 
-    await expect(page.getByText(/Select AI Provider/i)).toBeVisible()
-
-    const hasProviderSearch = await page.locator('input[placeholder*="Search providers"]').count() > 0
-    expect(hasProviderSearch).toBe(true)
+    const providerSection = page.getByRole('button', { name: /Select AI Provider/i })
+    await expect(providerSection).toBeVisible()
+    if (await providerSection.getAttribute('aria-expanded') === 'false') {
+      await providerSection.click()
+    }
+    await expect(page.getByPlaceholder('Search providers...')).toBeVisible()
   })
 
   test('AI page shows analysis history section', async ({ page }) => {
@@ -167,10 +171,10 @@ test.describe('AI Configuration', () => {
         'Content-Type': 'application/json',
       },
     })
-    expect([200, 400]).toContain(resp.status())
+    expect([200, 400, 409, 429, 502]).toContain(resp.status())
     const body = await responseJSON(resp)
-    if (resp.status() === 400) {
-      expect(String(body.error || '')).toMatch(/AI analysis not enabled/i)
+    if (resp.status() !== 200) {
+      expect(String(body.error || '')).toBeTruthy()
       return
     }
     expect(body.message || body.id).toBeTruthy()

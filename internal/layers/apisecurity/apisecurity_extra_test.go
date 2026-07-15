@@ -137,10 +137,7 @@ func TestMatchPath_SingleSegmentWildcard(t *testing.T) {
 	if matchPath("/api/*/users", "/api/v1/items") {
 		t.Error("expected no match for different suffix")
 	}
-	if matchPath("/api/*/users/extra", "/api/v1/users/extra") {
-		// pattern has two "/*/" segments? No, only one "/*/" and extra text after.
-		// strings.Split("/api/*/users/extra", "/*/") produces ["/api", "/users/extra"]
-		// len(parts) == 2, so it WILL match.
-		// That's fine, the code says it matches.
+	if !matchPath("/api/*/users/extra", "/api/v1/users/extra") {
+		t.Error("expected match for /api/v1/users/extra with wildcard")
 	}
 }

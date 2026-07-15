@@ -2,7 +2,7 @@
 # Validate local build prerequisites for the production build path.
 set -euo pipefail
 
-MIN_GO="1.26.4"
+MIN_GO="1.26.5"
 MIN_NODE="20.19.0"
 MIN_NPM_MAJOR=10
 

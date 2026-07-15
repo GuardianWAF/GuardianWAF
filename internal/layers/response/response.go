@@ -77,7 +77,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	// Register a masking function for the engine to apply to response bodies.
 	// Uses func(string) string to avoid circular imports between engine and response.
 	if cfg.DataMaskingEnabled {
-		ctx.Metadata["response_mask_fn"] = func(body string) string {
+		ctx.ResponseMaskFn = func(body string) string {
 			return l.applyMasking(body)
 		}
 	}
@@ -87,7 +87,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	// without importing the response package.
 	if cfg.SecurityHeadersEnabled {
 		headers := cfg.Headers
-		ctx.Metadata["response_hook"] = func(w http.ResponseWriter) {
+		ctx.ResponseHook = func(w http.ResponseWriter) {
 			headers.Apply(w)
 		}
 	}

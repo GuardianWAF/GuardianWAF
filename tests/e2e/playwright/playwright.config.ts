@@ -1,6 +1,7 @@
 import { defineConfig, devices } from '@playwright/test'
 
 const chromiumExecutablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
+const firefoxExecutablePath = process.env.PLAYWRIGHT_FIREFOX_EXECUTABLE_PATH
 
 export default defineConfig({
   testDir: '.',
@@ -30,7 +31,10 @@ export default defineConfig({
     },
     {
       name: 'firefox',
-      use: { ...devices['Desktop Firefox'] },
+      use: {
+        ...devices['Desktop Firefox'],
+        launchOptions: firefoxExecutablePath ? { executablePath: firefoxExecutablePath } : undefined,
+      },
     },
     {
       name: 'webkit',

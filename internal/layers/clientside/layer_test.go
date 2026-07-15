@@ -93,7 +93,7 @@ func TestLayer_Process_CSP(t *testing.T) {
 		t.Error("Expected CSP header name to be set")
 	}
 
-	if ctx.Metadata["clientside_csp_hook"] == nil {
+	if ctx.ClientsideCSPHook == nil {
 		t.Error("Expected CSP hook to be registered")
 	}
 }

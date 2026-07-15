@@ -15,11 +15,27 @@ import (
 // based on the configured routes. It uses the proxy package for load balancing
 // and health checking across multiple targets per upstream.
 func buildReverseProxy(cfg *config.Config) (http.Handler, []*proxy.HealthChecker) {
+	handler, healthCheckers, _ := buildReverseProxyWithMode(cfg, false)
+	return handler, healthCheckers
+}
+
+// buildReverseProxyStrict builds a complete candidate router or returns an
+// error without leaving health checkers or target transports running. Runtime
+// reload paths use this before swapping the active handler so an invalid or
+// newly-private DNS result cannot silently produce a partial router.
+func buildReverseProxyStrict(cfg *config.Config) (http.Handler, []*proxy.HealthChecker, error) {
+	return buildReverseProxyWithMode(cfg, true)
+}
+
+func buildReverseProxyWithMode(cfg *config.Config, strict bool) (http.Handler, []*proxy.HealthChecker, error) {
 	targetPolicy := proxy.TargetPolicy{
 		AllowPrivateTargets: cfg.AllowPrivateUpstreams != nil && *cfg.AllowPrivateUpstreams,
 	}
 	allowedCIDRs, err := proxy.ParseAllowedUpstreamCIDRs(cfg.AllowedUpstreamCIDRs)
 	if err != nil {
+		if strict {
+			return nil, nil, fmt.Errorf("invalid upstream CIDR allowlist: %w", err)
+		}
 		slog.Warn("invalid upstream CIDR allowlist", "error", err)
 	} else {
 		targetPolicy.AllowedCIDRs = allowedCIDRs
@@ -28,16 +44,28 @@ func buildReverseProxy(cfg *config.Config) (http.Handler, []*proxy.HealthChecker
 	// Build balancers: name -> *Balancer
 	balancerMap := make(map[string]*proxy.Balancer)
 	var healthCheckers []*proxy.HealthChecker
+	var builtTargets []*proxy.Target
+	cleanupCandidate := func() {
+		stopHealthCheckers(healthCheckers)
+		for _, target := range builtTargets {
+			target.Close()
+		}
+	}
 
 	for _, u := range cfg.Upstreams {
 		var targets []*proxy.Target
 		for _, t := range u.Targets {
 			target, err := proxy.NewTargetWithPolicy(t.URL, t.Weight, targetPolicy)
 			if err != nil {
+				if strict {
+					cleanupCandidate()
+					return nil, nil, fmt.Errorf("upstream %q target %q: %w", u.Name, t.URL, err)
+				}
 				slog.Warn("invalid upstream URL", "url", t.URL, "error", err)
 				continue
 			}
 			targets = append(targets, target)
+			builtTargets = append(builtTargets, target)
 		}
 		if len(targets) == 0 {
 			continue
@@ -98,10 +126,10 @@ func buildReverseProxy(cfg *config.Config) (http.Handler, []*proxy.HealthChecker
 				Routes:  vhRoutes,
 			})
 		}
-		return proxy.NewRouterWithVHosts(vhosts, defaultRoutes), healthCheckers
+		return proxy.NewRouterWithVHosts(vhosts, defaultRoutes), healthCheckers, nil
 	}
 
-	return proxy.NewRouter(defaultRoutes), healthCheckers
+	return proxy.NewRouter(defaultRoutes), healthCheckers, nil
 }
 
 func buildProxyRuntime(cfg *config.Config, fallback http.Handler) (http.Handler, *proxy.Router, []*proxy.HealthChecker) {

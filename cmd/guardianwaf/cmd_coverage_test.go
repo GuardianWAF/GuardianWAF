@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -93,6 +94,38 @@ func TestProbeHostPort(t *testing.T) {
 		if got := probeHostPort(in); got != want {
 			t.Errorf("probeHostPort(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestValidateHealthcheckTarget(t *testing.T) {
+	tests := []struct {
+		name    string
+		target  string
+		wantErr bool
+	}{
+		{name: "IPv4 loopback", target: "http://127.0.0.1:8088/livez"},
+		{name: "IPv6 loopback", target: "http://[::1]:8088/livez"},
+		{name: "localhost", target: "https://localhost:8443/livez"},
+		{name: "non HTTP scheme", target: "file:///livez", wantErr: true},
+		{name: "credentials", target: "http://user:pass@127.0.0.1:8088/livez", wantErr: true},
+		{name: "non local target", target: "http://192.0.2.1:8088/livez", wantErr: true},
+		{name: "wrong path", target: "http://127.0.0.1:8088/readyz", wantErr: true},
+		{name: "query", target: "http://127.0.0.1:8088/livez?target=admin", wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := validateHealthcheckTarget(context.Background(), test.target)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("validateHealthcheckTarget(%q) error = %v, wantErr %v", test.target, err, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestLocalHealthcheckDialContextRejectsNonLocalAddress(t *testing.T) {
+	dial := localHealthcheckDialContext(100 * time.Millisecond)
+	if _, err := dial(context.Background(), "tcp", "192.0.2.1:80"); err == nil || !strings.Contains(err.Error(), "non-local") {
+		t.Fatalf("expected non-local address rejection, got %v", err)
 	}
 }
 
@@ -869,9 +902,9 @@ alerting:
 
 	cmdTestAlert([]string{"-config", tmpFile.Name(), "-target", "test-webhook"})
 
-	// Should succeed (200 from webhook)
-	if exitCode == 1 {
-		t.Log("test-alert target test exited with code 1 (webhook may have failed)")
+	// Plain HTTP/private webhook targets are rejected by the production SSRF/TLS policy.
+	if exitCode != 1 {
+		t.Fatalf("expected unsafe webhook test to exit 1, got %d", exitCode)
 	}
 }
 
@@ -902,12 +935,15 @@ alerting:
 	tmpFile.Close()
 
 	oldExit := osExit
-	osExit = func(code int) {} // no-op
+	exitCode := -1
+	osExit = func(code int) { exitCode = code }
 	defer func() { osExit = oldExit }()
 
 	// Test -all flag
 	cmdTestAlert([]string{"-config", tmpFile.Name(), "-all"})
-	// Webhooks will fail (port 1), but coverage is gained
+	if exitCode != 1 {
+		t.Fatalf("expected failed all-target test to exit 1, got %d", exitCode)
+	}
 }
 
 // --- Additional readLine tests via subprocess ---

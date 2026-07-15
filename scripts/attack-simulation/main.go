@@ -41,119 +41,96 @@ type Stats struct {
 }
 
 var (
-	stats    Stats
-	payloads []AttackPayload
-	client   *http.Client
+	stats         Stats
+	payloads      []AttackPayload
+	client        *http.Client
+	randInt                 = rand.Int
+	randRead                = rand.Read
+	now                     = time.Now
+	exitProcess             = os.Exit
+	reporterEvery           = 2 * time.Second
+	sleep                   = time.Sleep
+	stdout        io.Writer = os.Stdout
+	stderr        io.Writer = os.Stderr
 )
 
 func secureIntn(n int) int {
 	if n <= 0 {
 		return 0
 	}
-	value, err := rand.Int(rand.Reader, big.NewInt(int64(n)))
+	value, err := randInt(rand.Reader, big.NewInt(int64(n)))
 	if err != nil {
-		return int(time.Now().UnixNano() % int64(n))
+		return int(now().UnixNano() % int64(n))
 	}
 	return int(value.Int64())
 }
 
 func secureSessionID() string {
 	var buf [16]byte
-	if _, err := rand.Read(buf[:]); err != nil {
-		return fmt.Sprintf("sess_%d", time.Now().UnixNano())
+	if _, err := randRead(buf[:]); err != nil {
+		return fmt.Sprintf("sess_%d", now().UnixNano())
 	}
 	return fmt.Sprintf("sess_%x", buf[:])
 }
 
 func main() {
-	target := flag.String("target", "http://localhost:8088", "Target WAF URL")
-	duration := flag.Duration("duration", 30*time.Second, "Test duration")
-	workers := flag.Int("workers", 10, "Number of concurrent workers")
-	rate := flag.Int("rate", 50, "Requests per second per worker")
-	attackFile := flag.String("attacks", "attacks.json", "Attack payloads JSON file")
-	legitRatio := flag.Int("legit-ratio", 5, "1 in N requests is legitimate")
-	mode := flag.String("mode", "mixed", "Test mode: mixed, attacks-only, legitimate-only, brute-force, credential-stuffing")
-	flag.Parse()
+	if code := run(os.Args[1:]); code != 0 {
+		exitProcess(code)
+	}
+}
 
-	// Load attack payloads
+func run(args []string) int {
+	flags := flag.NewFlagSet("attack-simulation", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	target := flags.String("target", "http://localhost:8088", "Target WAF URL")
+	duration := flags.Duration("duration", 30*time.Second, "Test duration")
+	workers := flags.Int("workers", 10, "Number of concurrent workers")
+	rate := flags.Int("rate", 50, "Requests per second per worker")
+	attackFile := flags.String("attacks", "attacks.json", "Attack payloads JSON file")
+	legitRatio := flags.Int("legit-ratio", 5, "1 in N requests is legitimate")
+	mode := flags.String("mode", "mixed", "Test mode: mixed, attacks-only, legitimate-only, brute-force, credential-stuffing")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
 	if err := loadPayloads(*attackFile); err != nil {
-		fmt.Fprintf(os.Stderr, "Error loading payloads: %v\n", err)
-		os.Exit(1)
+		fmt.Fprintf(stderr, "Error loading payloads: %v\n", err)
+		return 1
 	}
-
-	// Configure HTTP client
-	client = &http.Client{
-		Timeout: 10 * time.Second,
-		Transport: &http.Transport{
-			MaxIdleConns:        100,
-			MaxIdleConnsPerHost: 100,
-			IdleConnTimeout:     30 * time.Second,
-		},
-	}
-
-	fmt.Printf(`
-╔══════════════════════════════════════════════════════════════╗
-║           GuardianWAF Load Test & Attack Simulation          ║
-╠══════════════════════════════════════════════════════════════╣
-║  Target:        %-45s║
-║  Duration:      %-45s║
-║  Workers:       %-45d║
-║  Rate:          %-45s║
-║  Mode:          %-45s║
-║  Legit Ratio:   %-45s║
-║  Payloads:      %-45d║
-╚══════════════════════════════════════════════════════════════╝
-
-`, *target, *duration, *workers, fmt.Sprintf("%d req/s per worker", *rate), *mode, fmt.Sprintf("1 in %d", *legitRatio), len(payloads))
-
-	// Initialize stats
+	client = &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{MaxIdleConns: 100, MaxIdleConnsPerHost: 100, IdleConnTimeout: 30 * time.Second}}
+	fmt.Fprintf(stdout, "GuardianWAF Load Test & Attack Simulation\nTarget: %s Duration: %s Workers: %d Rate: %d Mode: %s Legit Ratio: 1 in %d Payloads: %d\n", *target, *duration, *workers, *rate, *mode, *legitRatio, len(payloads))
 	stats.MinLatency.Store(int64(^uint64(0) >> 1))
-
-	// Start workers
 	var wg sync.WaitGroup
 	stopCh := make(chan struct{})
-
-	startTime := time.Now()
-
+	startTime := now()
 	for i := 0; i < *workers; i++ {
 		wg.Add(1)
-		go func(workerID int) {
-			defer wg.Done()
-			runWorker(workerID, *target, *rate, *legitRatio, *mode, stopCh)
-		}(i)
+		go func(id int) { defer wg.Done(); runWorker(id, *target, *rate, *legitRatio, *mode, stopCh) }(i)
 	}
-
-	// Progress reporter
-	go func() {
-		ticker := time.NewTicker(2 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				elapsed := time.Since(startTime)
-				total := stats.TotalRequests.Load()
-				blocked := stats.BlockedRequests.Load()
-				passed := stats.PassedRequests.Load()
-				avgLatency := float64(0)
-				if total > 0 {
-					avgLatency = float64(stats.TotalLatency.Load()) / float64(total) / 1000
-				}
-				rps := float64(total) / elapsed.Seconds()
-				fmt.Printf("\r[%6.1fs] Total: %d | Blocked: %d | Passed: %d | Errors: %d | RPS: %.0f | Avg: %.2fms   ",
-					elapsed.Seconds(), total, blocked, passed, stats.Errors.Load(), rps, avgLatency)
-			case <-stopCh:
-				return
-			}
-		}
-	}()
-
-	// Wait for duration
-	time.Sleep(*duration)
+	go reportProgress(startTime, stopCh)
+	sleep(*duration)
 	close(stopCh)
 	wg.Wait()
+	printResults(now().Sub(startTime))
+	return 0
+}
 
-	// Print final results
-	printResults(time.Since(startTime))
+func reportProgress(startTime time.Time, stopCh <-chan struct{}) {
+	ticker := time.NewTicker(reporterEvery)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			elapsed := now().Sub(startTime)
+			total := stats.TotalRequests.Load()
+			avg := float64(0)
+			if total > 0 {
+				avg = float64(stats.TotalLatency.Load()) / float64(total) / 1000
+			}
+			fmt.Fprintf(stdout, "\r[%6.1fs] Total: %d | Blocked: %d | Passed: %d | Errors: %d | RPS: %.0f | Avg: %.2fms   ", elapsed.Seconds(), total, stats.BlockedRequests.Load(), stats.PassedRequests.Load(), stats.Errors.Load(), float64(total)/elapsed.Seconds(), avg)
+		case <-stopCh:
+			return
+		}
+	}
 }
 
 func loadPayloads(filename string) error {

@@ -48,6 +48,9 @@ GuardianWAF exposes Prometheus-compatible text metrics at `GET /metrics` on the 
 | `guardianwaf_ai_verdicts_total` | counter | `action` | Total AI verdict actions by fixed action: `block` or `monitor`. |
 | `guardianwaf_geoip_ready` | gauge | none | `1` when GeoIP data is loaded and ready, otherwise `0`. |
 | `guardianwaf_geoip_ranges` | gauge | none | Number of GeoIP ranges loaded. |
+| `guardianwaf_tracing_enabled` | gauge | none | `1` when the engine-local tracing runtime is enabled, otherwise `0`. |
+| `guardianwaf_tracing_spans_created_total` | counter | none | Tracing spans created by the engine. |
+| `guardianwaf_tracing_spans_exported_total` | counter | none | Tracing spans handed to the configured exporter. |
 
 The baseline exporter avoids unbounded labels. The request-duration and layer-duration histograms use the fixed Prometheus `le` bucket label with these bucket boundaries: `0.0001`, `0.0005`, `0.001`, `0.005`, `0.01`, `0.05`, `0.1`, `0.5`, `1`, `5`, and `+Inf` seconds. Layer-duration metrics also use the active pipeline layer name as `layer`; this value is bounded by configured built-in layer names. Upstream metrics use the configured route path as the `upstream` label and the fixed circuit `state` values `closed`, `open`, `half-open`, and `unknown`. Alert target metrics use only the fixed `type` values `webhook` and `email`. AI window metrics use only the fixed `window` values `hour` and `day`; AI verdict metrics use only the fixed `action` values `block` and `monitor`. Future metrics that add labels must document the allowed label values before release.
 
@@ -137,6 +140,10 @@ guardianwaf_ai_pending_events
 
 # GeoIP readiness
 guardianwaf_geoip_ready == 1
+
+# Tracing configured but no spans exported in the last five minutes
+guardianwaf_tracing_enabled == 1
+  and increase(guardianwaf_tracing_spans_exported_total[5m]) == 0
 ```
 
 ## Planned Metrics

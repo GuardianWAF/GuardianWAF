@@ -20,6 +20,7 @@ const ClustersPage = lazy(() => import('@/pages/clusters'))
 const ClusterDetailPage = lazy(() => import('@/pages/cluster-detail'))
 const SSLPage = lazy(() => import('@/pages/ssl'))
 const CompliancePage = lazy(() => import('@/pages/compliance'))
+const NotFoundPage = lazy(() => import('@/pages/not-found'))
 
 function PageLoader() {
   return (
@@ -52,6 +53,7 @@ export function App() {
             <Route path="/tenants/:id/analytics" element={<Suspense fallback={<PageLoader />}><TenantAnalyticsPage /></Suspense>} />
             <Route path="/clusters" element={<Suspense fallback={<PageLoader />}><ClustersPage /></Suspense>} />
             <Route path="/clusters/:id" element={<Suspense fallback={<PageLoader />}><ClusterDetailPage /></Suspense>} />
+            <Route path="*" element={<Suspense fallback={<PageLoader />}><NotFoundPage /></Suspense>} />
           </Route>
         </Routes>
       </BrowserRouter>

@@ -11,7 +11,7 @@
 
 **Health:** `go build ./...` ✅ · `go vet ./...` ✅ · `go test ./...` ✅ (exit 0) · 62 files uncommitted (all improvements).
 
-**Repo metrics:** 510 Go files · ~80k LOC production · ~154k LOC test (test:prod ≈ 1.9:1) · Go pinned to `1.26.3`.
+**Repo metrics:** 510 Go files · ~80k LOC production · ~154k LOC test (test:prod ≈ 1.9:1) · Go pinned to `1.26.5`.
 
 ---
 
@@ -77,10 +77,10 @@ The suspicion was "~40% coverage padding." **The reality is different:** asserti
 | Claim | Reality | Verdict |
 |-------|---------|---------|
 | "44 MCP tools" (CLAUDE.md, refactor.md) | ~~42~~ **44** — re-verified with `len(AllTools())` == 44. The original audit pass mis-counted; the docs are **correct**. (Lesson: verify before "fixing".) | ✅ TRUE |
-| "Go (1.25+)" | `go.mod` pins `go 1.26.3` — won't build on 1.25 | **FALSE** → fixed in CLAUDE.md (now "1.26+") |
+| "Go (1.25+)" | `go.mod` pins a Go 1.26 toolchain — won't build on 1.25 | **FALSE** → fixed in CLAUDE.md (now "1.26+") |
 | refactor.md §4.2 "dashboard.go 1642→1582" | File is still 1642 lines; the 2553/1642/1582 figures are internally contradictory (refactor was done, metrics fabricated) | **STALE** |
 | ADR 0012 GraphQL "Implemented" | GraphQL is absent from the serve binary (CLAUDE.md marks ❌), so "Implemented" overstated it → added a "package only, not wired" note to ADR 0012. (Re-check: ADR 0016 ML is actually "Proposed", not "Implemented" — the original audit pass was wrong about 0016; 0007 and 0016 are both ML-anomaly ADRs but not a status conflict.) | **partly FALSE → fixed** |
-| "ZERO dependencies (except quic-go)" | `go.mod` confirms | ✅ TRUE |
+| "ZERO external Go dependencies" | `go.mod` has no `require` entries; the former `quic-go`/HTTP-3 package was removed | ✅ TRUE |
 | "16 layers serve / 6 library mode / 43 ADRs" | All verified | ✅ TRUE |
 
 Most of refactor.md's ✅ engineering claims (engine/jwt split, Order() interface, slog migration, writeJSON ordering, dashboard register* split) are **genuinely done.** Far more honest than the historical "29 layers" incident; the remaining lies concentrate in tool count, Go version, fabricated line metrics, and "Implemented" status for unwired features.
@@ -151,7 +151,7 @@ The rest of the silent type-conversion drops are now fail-loud too, so the confi
 - **Ints** (`validate.go`): upstream target `weight`, per-domain detection `threshold.block`/`.log`, custom-rule `priority`/`score`, and rate-limit-rule `window` now error on a malformed value. Out-of-range values (negative) still keep the default as before — only *parse* failures are rejected, so existing configs are unaffected.
 
 - Files: `internal/config/defaults.go`, `internal/config/validate.go`
-- **Truly remaining (low severity):** `impossible_travel` float drops (`max_distance_km`/`max_time_hours` → typo keeps default) and `LoadEnv` `GWAF_*` parse swallows (`validate.go`). Both keep a sane default and disable nothing; left for a future batch.
+- The former `impossible_travel` float-drop tail is now covered by `fieldErrs.floatField`, and typed `GWAF_*` overrides are validated atomically before application. CLI serve/sidecar/check/validate/healthcheck and the public `NewFromFile` API propagate malformed environment values instead of silently retaining defaults.
 
 **Net:** §3's "silent config drop" class is closed for all bool/int/duration fields across the load path. The config loader now fails loud on any malformed scalar, consistent with the C1/C2 fail-closed philosophy.
 
@@ -203,7 +203,7 @@ The corresponding `WAF.GraphQL` / `WAF.MLAnomaly` / `WAF.APIDiscovery` config st
 
 `internal/http3` (Round 7) was the only user of `quic-go`. Ran `go mod tidy`: `go.mod` now has **no `require` block** and `go.sum` is **empty** — GuardianWAF is genuinely Go-stdlib-only. Verified `go build ./...`, `go build -tags http3 ./...`, `go vet`, and full `go test ./...` all still pass. CLAUDE.md dependency notes updated to reflect the achieved zero-dep state.
 
-**Truly remaining (low severity / decision-gated):** `LoadEnv` `GWAF_*` parse swallows (runtime env; left deliberately); M1 cmdi `checkEncodedNewline` (detector-FP risk); remove the inert `WAF.GraphQL/MLAnomaly/APIDiscovery` config structs (config-schema refactor); §3.2 commit a real DeepCopy generator (now guarded by the Round-6 reflection test). Everything in the config *file* load path is fail-loud.
+**Truly remaining (low severity / decision-gated):** M1 cmdi `checkEncodedNewline` (detector-FP risk); remove the inert `WAF.GraphQL/MLAnomaly/APIDiscovery` config structs (config-schema refactor). Config files and typed runtime environment overrides are fail-loud, and the generated DeepCopy implementation is guarded by the Round-6 reflection test.
 
 ---
 

@@ -381,6 +381,10 @@ paths:
                 $ref: '#/components/schemas/ApiResult'
         '400':
           description: Invalid configuration
+        '409':
+          description: Requested change requires a process restart
+        '500':
+          description: Runtime reload or durable persistence failed; previous runtime configuration was restored
 
   /api/v1/config/reload:
     post:
@@ -473,6 +477,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiResult'
+        '400':
+          description: Invalid routing configuration or disallowed upstream target
+        '500':
+          description: Proxy preparation, runtime reload, or durable persistence failed; previous routing remains active
 
   /api/v1/upstreams:
     get:
@@ -832,6 +840,14 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/AIProviderSummary'
+                  count:
+                    type: integer
+        '502':
+          description: Provider catalog service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResult'
 
   /api/v1/ai/config:
     get:
@@ -922,6 +938,30 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AIAnalysisResult'
+        '400':
+          description: AI analysis is disabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResult'
+        '409':
+          description: No AI provider is configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResult'
+        '429':
+          description: AI usage limit reached
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResult'
+        '502':
+          description: Configured AI provider request failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResult'
 
   /api/v1/ai/test:
     post:

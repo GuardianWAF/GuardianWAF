@@ -213,6 +213,9 @@ func TestHandleAddWebhook_SaveError(t *testing.T) {
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", w.Code)
 	}
+	if len(d.engine.Config().Alerting.Webhooks) != 0 {
+		t.Fatal("failed webhook persistence left the runtime mutation active")
+	}
 }
 
 // TestHandleDeleteWebhook_Success covers successful webhook deletion.
@@ -252,6 +255,9 @@ func TestHandleDeleteWebhook_SaveError(t *testing.T) {
 
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", w.Code)
+	}
+	if got := len(d.engine.Config().Alerting.Webhooks); got != 1 {
+		t.Fatalf("failed webhook deletion persistence was not rolled back; count=%d", got)
 	}
 }
 
@@ -296,6 +302,9 @@ func TestHandleAddEmail_SaveError(t *testing.T) {
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", w.Code)
 	}
+	if len(d.engine.Config().Alerting.Emails) != 0 {
+		t.Fatal("failed email persistence left the runtime mutation active")
+	}
 }
 
 // TestHandleDeleteEmail_Success covers successful email target deletion.
@@ -338,6 +347,9 @@ func TestHandleDeleteEmail_SaveError(t *testing.T) {
 
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("expected 500, got %d", w.Code)
+	}
+	if got := len(d.engine.Config().Alerting.Emails); got != 1 {
+		t.Fatalf("failed email deletion persistence was not rolled back; count=%d", got)
 	}
 }
 
@@ -458,6 +470,7 @@ func TestHandleGetEvent_MissingID2(t *testing.T) {
 // TestHandleUpdateConfig_SaveError covers config update when save fails.
 func TestHandleUpdateConfig_SaveError(t *testing.T) {
 	d := newTestDashboard(t, "test-key")
+	oldMode := d.engine.Config().Mode
 	d.SetSaveFn(func() error { return http.ErrAbortHandler })
 
 	body := `{"mode":"monitor"}`
@@ -465,8 +478,11 @@ func TestHandleUpdateConfig_SaveError(t *testing.T) {
 	w := httptest.NewRecorder()
 	d.mux.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200 (ok with save pending), got %d", w.Code)
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 for non-durable config update, got %d", w.Code)
+	}
+	if got := d.engine.Config().Mode; got != oldMode {
+		t.Fatalf("failed config persistence left runtime mode %q, want %q", got, oldMode)
 	}
 }
 
@@ -480,8 +496,8 @@ func TestHandleUpdateRouting_SaveError2(t *testing.T) {
 	w := httptest.NewRecorder()
 	d.mux.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200 (ok with save pending), got %d", w.Code)
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 for non-durable routing update, got %d", w.Code)
 	}
 }
 

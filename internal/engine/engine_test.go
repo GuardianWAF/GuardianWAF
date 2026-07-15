@@ -235,6 +235,20 @@ func TestNewEngine(t *testing.T) {
 	}
 }
 
+func TestNewEngineRejectsNilConfig(t *testing.T) {
+	if _, err := NewEngine(nil, newMockEventStore(), newMockEventBus()); err == nil {
+		t.Fatal("NewEngine(nil, ...) returned no error")
+	}
+}
+
+func TestEngineReloadRejectsNilConfig(t *testing.T) {
+	eng, _, _ := testEngine(t)
+	defer eng.Close()
+	if err := eng.Reload(nil); err == nil {
+		t.Fatal("Reload(nil) returned no error")
+	}
+}
+
 func TestEngine_Config_ReturnsDefensiveCopy(t *testing.T) {
 	e, _, _ := testEngine(t)
 	defer e.Close()
@@ -1307,12 +1321,12 @@ func TestEngine_Check_ScoreExactlyAtLogThreshold(t *testing.T) {
 
 func TestApplyResponseHook_WithHook(t *testing.T) {
 	w := httptest.NewRecorder()
-	metadata := map[string]any{
-		"response_hook": func(w http.ResponseWriter) {
-			w.Header().Set("X-Test-Header", "applied")
-		},
+	ctx := AcquireContext(httptest.NewRequest("GET", "/", nil), 1, 1<<20)
+	defer ReleaseContext(ctx)
+	ctx.ResponseHook = func(w http.ResponseWriter) {
+		w.Header().Set("X-Test-Header", "applied")
 	}
-	applyResponseHook(w, metadata)
+	applyResponseHook(w, ctx)
 	if w.Header().Get("X-Test-Header") != "applied" {
 		t.Error("expected response hook to set X-Test-Header")
 	}
@@ -1320,15 +1334,15 @@ func TestApplyResponseHook_WithHook(t *testing.T) {
 
 func TestApplyResponseHook_ClientSideCSPHook(t *testing.T) {
 	w := httptest.NewRecorder()
-	metadata := map[string]any{
-		"clientside_csp_hook": func(w http.ResponseWriter) {
-			w.Header().Set("Content-Security-Policy", "default-src 'self'")
-		},
-		"response_hook": func(w http.ResponseWriter) {
-			w.Header().Set("X-Frame-Options", "DENY")
-		},
+	ctx := AcquireContext(httptest.NewRequest("GET", "/", nil), 1, 1<<20)
+	defer ReleaseContext(ctx)
+	ctx.ClientsideCSPHook = func(w http.ResponseWriter) {
+		w.Header().Set("Content-Security-Policy", "default-src 'self'")
 	}
-	applyResponseHook(w, metadata)
+	ctx.ResponseHook = func(w http.ResponseWriter) {
+		w.Header().Set("X-Frame-Options", "DENY")
+	}
+	applyResponseHook(w, ctx)
 	if w.Header().Get("Content-Security-Policy") != "default-src 'self'" {
 		t.Error("expected clientside CSP hook to set Content-Security-Policy")
 	}
@@ -1339,8 +1353,9 @@ func TestApplyResponseHook_ClientSideCSPHook(t *testing.T) {
 
 func TestApplyResponseHook_NoHook(t *testing.T) {
 	w := httptest.NewRecorder()
-	metadata := map[string]any{}
-	applyResponseHook(w, metadata)
+	ctx := AcquireContext(httptest.NewRequest("GET", "/", nil), 1, 1<<20)
+	defer ReleaseContext(ctx)
+	applyResponseHook(w, ctx)
 	// Should not panic, no headers added
 	if len(w.Header()) != 0 {
 		t.Error("expected no headers when no hook is set")
@@ -1349,10 +1364,12 @@ func TestApplyResponseHook_NoHook(t *testing.T) {
 
 func TestApplyResponseHook_WrongType(t *testing.T) {
 	w := httptest.NewRecorder()
-	metadata := map[string]any{
-		"response_hook": "not-a-function",
-	}
-	applyResponseHook(w, metadata)
+	ctx := AcquireContext(httptest.NewRequest("GET", "/", nil), 1, 1<<20)
+	defer ReleaseContext(ctx)
+	// Nil hooks — the typed fields are nil by default, which is equivalent
+	// to the old "wrong type" (not-a-function) test: no type assertion,
+	// no panic, no headers.
+	applyResponseHook(w, ctx)
 	// Should not panic
 	if len(w.Header()) != 0 {
 		t.Error("expected no headers for wrong type")
@@ -1444,7 +1461,7 @@ func (l *mockResponseLayer) Order() int { return 0 }
 func (l *mockResponseLayer) Process(ctx *RequestContext) LayerResult {
 	ctx.Metadata["response_config"] = "test"
 	if l.securityHeaders {
-		ctx.Metadata["response_hook"] = func(w http.ResponseWriter) {
+		ctx.ResponseHook = func(w http.ResponseWriter) {
 			w.Header().Set("X-Content-Type-Options", "nosniff")
 			w.Header().Set("X-Frame-Options", "SAMEORIGIN")
 		}

@@ -9,7 +9,8 @@ services:
       - guardianwaf-data:/var/lib/guardianwaf
       - guardianwaf-logs:/var/log/guardianwaf
       # Socket removed — use TLS-based Docker client for production.
-      # Enable via GWAF_DOCKER_TLS=true with a client certificate volume.
+      # Enable with docker.socket_path=tcp://..., docker.tls_verify=true,
+      # and the docker.tls_{ca_cert,cert,key} config fields.
       # For development only (unsafe for multi-tenant/multi-user envs):
       # Uncomment the next line and use docker-compose.dev.yml instead.
       # - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -19,8 +20,5 @@ services:
       - GWAF_MODE=enforce
       - GWAF_LOGGING_LEVEL=info
       - GWAF_LOGGING_FORMAT=json
-      # Enable TLS-based Docker client (requires docker-cert volume)
-      # GWAF_DOCKER_TLS=true
-      # DOCKER_TLS_CA=/certs/client/ca.pem
-      # DOCKER_TLS_CERT=/certs/client/cert.pem
-      # DOCKER_TLS_KEY=/certs/client/key.pem
+      # Remote Docker TLS is configured in guardianwaf.yaml; certificate paths
+      # must point into the optional docker-cert volume mounted above.

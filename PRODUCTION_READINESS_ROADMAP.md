@@ -18,7 +18,8 @@ The following checks now pass locally after the fixes in this pass:
 | Default CLI build | Pass |
 | `go test ./...` | Pass |
 | `go vet ./...` | Pass |
-| Dashboard UI unit tests | Pass, 13 files / 97 tests |
+| Dashboard UI unit tests | Pass, 14 files / 100 tests |
+| Full production-binary browser/API E2E | Pass, 531/531 tests: 177 each on Chromium, Firefox, and WebKit via `make e2e-full-all` |
 | Dashboard npm audit | Pass, 0 vulnerabilities at `--audit-level=moderate` |
 | Zero Trust config/default tests | Pass |
 | Targeted race tests | Pass for `internal/engine`, `internal/proxy`, `internal/config`, `internal/dashboard`, and `cmd/guardianwaf` |
@@ -39,7 +40,7 @@ The following checks now pass locally after the fixes in this pass:
 | KinD deployment smoke | Pass locally via `scripts/kind-smoke.sh`; CI job deploys local image into KinD and verifies proxy/dashboard health |
 | Explicit private-upstream policy | Pass for config parsing and proxy wiring |
 | Dashboard explicit secret validation | Pass for weak configured `api_key`/`admin_key` rejection, strong startup generation for empty `api_key`, and disabled tenant-admin APIs when `admin_key` is empty |
-| Go vulnerability scan | Pass via `govulncheck ./...` after moving build/toolchain references to Go 1.26.3 |
+| Go vulnerability scan | Pass after moving build/toolchain references to Go 1.26.5; Go 1.26.4 was rejected after `govulncheck` found reachable GO-2026-5856 in `crypto/tls` |
 | Runtime image SBOM and vulnerability scan | Pass via `scripts/supply-chain-smoke.sh`; CI job builds the runtime image, generates SPDX SBOM, and fails on HIGH/CRITICAL Trivy findings |
 | HTTP/3 tagged command build | Pass via `go test -tags http3 ./cmd/guardianwaf` |
 | Event secret redaction | Pass for engine event creation and dashboard list/detail API responses |
@@ -82,7 +83,8 @@ The following checks now pass locally after the fixes in this pass:
 | Kubernetes examples | Added validation coverage for static ConfigMap-embedded GuardianWAF configs and aligned Helm-generated config keys with the current schema. | Reduces the chance that Kubernetes examples deploy stale or ignored config. |
 | Helm deployment wiring | Made the Helm deployment start with the mounted config file and corrected supported `GWAF_*` environment variable names. | Prevents chart installs from silently running defaults instead of the rendered config. |
 | Docker packaging | Fixed OCI label metadata, made runtime image version labeling effective, removed invalid Compose override keys, and verified Docker image build/healthcheck. | Improves image metadata correctness and avoids production Compose parse failures. |
-| Go toolchain security | Moved `go.mod`, Docker builders, CI, Compose examples, and Trivy base-image scan target to Go 1.26.3 after `govulncheck` found reachable standard-library vulnerabilities in Go 1.26.0. | Removes known reachable stdlib CVEs from the local production build path and aligns CI/container builds with the patched toolchain. |
+| Go toolchain security | Moved `go.mod`, Docker builders, CI, Compose examples, and Trivy base-image scan target to Go 1.26.5 after `govulncheck` found reachable GO-2026-5856 in Go 1.26.4 `crypto/tls`. | Removes the known reachable stdlib CVE from production build paths and aligns CI/container builds with the patched toolchain. |
+| CLI healthcheck SSRF hardening | Restricted healthcheck overrides to local `/livez` endpoints, added preflight and dial-time local-address validation with direct validated-IP dialing, and fail-gated G704 for `cmd/guardianwaf`. | Prevents the container healthcheck command from becoming a general outbound fetcher or DNS-rebinding path while preserving local liveness probes. |
 | Docker integration smoke | Expanded Compose smoke coverage to assert `/livez` and `/readyz`, and switched the Compose healthcheck to `/livez`. | Verifies the runtime image, backend connectivity, WAF blocking, security headers, request IDs, and operational probes in one local deployment path. |
 | CLI dashboard smoke | Extended `scripts/smoke-test.sh` to start the dashboard on an unprivileged local port, verify `/api/v1/health`, verify `/api/v1/stats` rejects missing API keys, and verify the configured API key succeeds. | Covers the dashboard startup/auth/health path in the minimal binary smoke test without Docker, ACME, external providers, or privileged ports. |
 | CLI sidecar smoke | Extended `scripts/smoke-test.sh` to start a temporary local backend, run `guardianwaf sidecar` against it with explicit private-upstream opt-in, verify sidecar probes, verify clean request proxying, verify SQLi blocking, and shut both processes down. | Covers the sidecar runtime path in the minimal binary smoke test without Docker, ACME, external providers, or privileged ports. |
@@ -209,6 +211,12 @@ The following checks now pass locally after the fixes in this pass:
 | Layer registry baseline | Added `internal/runtime/layerregistry` with descriptors for active WAF layer names, runtime layer names, orders, enablement checks, construction hooks for IP ACL, threat intelligence, CORS, custom rules, rate limiting, ATO protection, API security, API validation, sanitizer, CRS, detection, virtual patching, DLP, bot detection, client-side protection, and response, plus startup effective-pipeline and active-pipeline logging. | Starts moving layer ownership out of CLI wiring, makes the active pipeline debuggable at startup, and gives tests a bridge between registry metadata and actual engine layers. |
 | Layer registry descriptor guard | Added registry inventory and pipeline-summary shape regression tests. | Forces any new runtime layer descriptor to update the intentional registry inventory and keeps startup/debug pipeline output stable. |
 | Dashboard OpenAPI contract gate | Expanded the dashboard UI/OpenAPI regression tests from path presence to UI-used HTTP methods, mutating JSON request bodies, typed JSON 2xx response schemas, `ApiResult` response schemas, and core response-shape tokens, with minimum extraction thresholds so parser drift cannot silently empty coverage. | Reduces operator-facing API/UI contract drift risk and turns the former path-only assurance into an executable contract gate. |
+| Full cross-browser/API E2E gate | Added a self-contained production-binary runner for 177 tests on each of Chromium, Firefox, and WebKit (531 total), including backend startup, isolated mutable config, MCP coverage, digest-pinned official browser runtime, 320/375/768 px navigation and overflow checks, and CI wiring. | Expands the browser gate from a six-test Chromium shell smoke to cross-engine authentication, mutations, routing, rules, AI, tenants, analytics, SSE, MCP, security validation, responsive layout, and console-error coverage. |
+| Atomic dashboard mutation persistence | Routing updates now prepare a complete candidate proxy, reload and atomically persist config before swapping handlers, and preserve the old engine/proxy on failure; general config and alert-target mutations roll back runtime snapshots on persistence failure. | Prevents 200 responses for non-durable changes and eliminates mixed old-proxy/new-config runtime states. |
+| ACME response-origin confinement | ACME directory and server-provided nonce/order/authz/challenge/finalize/certificate URLs must be valid HTTP(S), credential/fragment-free, and same-origin with the configured directory. | Prevents a CA response from turning the ACME client into a cross-origin or internal-network request primitive. |
+| Shutdown error propagation | Serve and sidecar aggregate HTTP/TLS/background-component and event-store close errors and exit unsuccessfully when graceful shutdown cannot complete durably. | Makes event-store sync/close failures and bounded-drain timeouts visible to supervisors instead of reporting a clean stop. |
+| Atomic fail-loud environment and entrypoint validation | Typed `GWAF_*` boolean/integer/number overrides are validated before any overlay is applied; serve, sidecar, check, validate, test-alert, healthcheck, and public `New`/`NewFromFile` callers propagate parse and semantic validation errors. The documented override table is regression-checked against the runtime map, and trusted-proxy/alerting overrides now match operator docs. | Prevents misspelled TLS, dashboard, Docker, alerting, tracing, threshold, retention, or compliance values from silently retaining defaults, stops invalid library/CLI configs before engine construction, and keeps environment documentation aligned with executable behavior. |
+| Engine-local tracing runtime | Wired parsed tracing config into every engine, replaced process-global runtime use with isolated per-engine tracers, added reload/shutdown lifecycle handling, 128-bit trace IDs and 64-bit span IDs, service tagging, root/layer span regression coverage, finite sampling/exporter validation, and Prometheus tracing counters. | Turns a previously parsed-but-inert operator feature into executable behavior without cross-engine configuration races, while documenting that built-in noop/stdout exporters are not an OTLP network integration. |
 | Architecture docs | Added root `ARCHITECTURE.md`. | Gives maintainers a detailed source-of-truth for runtime shape and extension points. |
 
 ### 1.3 Known Baseline Caveats
@@ -263,7 +271,7 @@ Problem:
 - A make-free build path is now available and the CI/release workflows call it.
 - `scripts/check-prereqs.sh` now validates the local production-build toolchain before dashboard/release builds.
 - `scripts/build.sh` now runs the prereq gate before dashboard generation, avoids duplicate prereq checks when delegating to `scripts/build-dashboard.sh`, and passed locally for `dev-readiness`, producing Linux, macOS, Windows, amd64/arm64 binaries plus checksums.
-- Regression coverage now keeps the prereq script's Go 1.26.4, Node.js 20.19.0, and npm 10.x minimums aligned with README, getting-started, production-deployment, and release-checklist build instructions.
+- Regression coverage now keeps the prereq script's Go 1.26.5, Node.js 20.19.0, and npm 10.x minimums aligned with README, getting-started, production-deployment, and release-checklist build instructions.
 
 Required work:
 
@@ -275,7 +283,7 @@ Required work:
   - Go test,
   - config fixture validation,
   - CLI smoke test.
-- Keep exact local prerequisites documented: Go 1.26.4+, Node.js 20.19.0+, npm 10.x+, `git`, and script fallback when `make` is unavailable.
+- Keep exact local prerequisites documented: Go 1.26.5+, Node.js 20.19.0+, npm 10.x+, `git`, and script fallback when `make` is unavailable.
 
 Acceptance criteria:
 
@@ -350,7 +358,7 @@ Required release gates:
 - dashboard `npm test`
 - dashboard `npm run build`
 - website `npm run build`
-- Playwright E2E tests
+- full production-binary Playwright/API E2E suite (`./scripts/full-e2e.sh`)
 - Docker Compose integration tests
 - fuzz smoke suite with bounded runtime
 - `go vet ./...`
@@ -471,7 +479,7 @@ Acceptance criteria:
 
 ### 5.5 Outbound Network SSRF
 
-Status: Partial
+Status: Pass for the current implemented runtime scope
 
 Outbound integrations include:
 
@@ -490,7 +498,7 @@ Outbound integrations include:
 - planned SIEM exporter endpoints, proxy upstream health checks, and Docker Unix-socket polling.
 - API security JWKS endpoints and planned legacy cluster coordination endpoints.
 
-Required work:
+Future integration requirements:
 
 - Standardize outbound URL validation and dialers.
 - Define which integrations may contact private networks and how that is configured.
@@ -509,6 +517,7 @@ Progress:
 - OCSP responder lookups now use an explicit transport with dial-time private/loopback/link-local address rejection, dial/TLS/response-header timeouts, oversized response rejection before parsing/stapling/caching, and no redirects from certificate-provided responder URLs.
 - hCaptcha and Turnstile verification clients now use explicit dial/TLS/response-header timeouts, do not follow redirects away from the fixed public verification endpoints, and reject oversized verification responses before JSON parsing.
 - ACME directory, nonce, order, authorization, challenge, finalize, and certificate-fetch calls now use an explicit transport with dial/TLS/response-header timeouts, do not follow redirects away from the configured CA endpoints, and reject oversized responses before parsing or certificate caching.
+- ACME server-provided endpoints are confined to the configured directory's exact scheme/host/effective-port origin and reject credentials, fragments, relative URLs, scheme downgrades, and cross-origin pivots before any request is sent.
 - Proxy upstream health checks now use explicit dial/TLS/response-header timeouts and do not follow redirects away from the configured health endpoint.
 - Docker Unix-socket HTTP polling now uses explicit response-header, expect-continue, idle, and whole-request timeouts.
 - `go test ./internal/layers/virtualpatch` and `go test -race ./internal/layers/virtualpatch` pass with new NVD SSRF regression coverage.
@@ -521,6 +530,7 @@ Progress:
 - `go test ./internal/alerting` and `go test -race ./internal/alerting` pass with webhook redirect/transport regression coverage.
 - Added `docs/outbound-network-policy.md` with an integration-by-integration private-network, redirect, timeout, and response-size policy matrix, linked it from README, and added a static regression guard that prevents production code from reintroducing `http.Get`, `http.Post`, `http.Head`, or `http.DefaultClient` convenience clients.
 - Added an AST-based static regression guard that requires every production `http.Client` literal to declare `Timeout`, `Transport`, and `CheckRedirect`; Docker Unix-socket polling now refuses redirects explicitly with `http.ErrUseLastResponse`.
+- Blocking CI G704 scope now covers ACME, AI, alerting, GeoIP, proxy, TLS/OCSP, API security, CAPTCHA verification, threat intelligence, virtual patching, and the CLI; the current 64-file targeted scan reports zero findings.
 - Current-tree accuracy note: `internal/cluster`, `internal/clustersync`, `internal/layers/siem`, `internal/layers/replay`, `internal/layers/canary`, `internal/layers/cache`, and `internal/http3` runtime packages are not present. Their outbound policies are future implementation requirements, not completed runtime evidence.
 
 Acceptance criteria:
@@ -532,9 +542,9 @@ Acceptance criteria:
 
 ### 6.1 Graceful Shutdown
 
-Status: Partial, improved
+Status: Pass for the current implemented runtime scope
 
-Required work:
+Implemented shutdown contract:
 
 - Ensure shutdown drains:
   - HTTP server,
@@ -573,6 +583,7 @@ Progress:
 - Sidecar shutdown now uses the shared lifecycle helper to stop health checkers, close proxy target transports, stop periodic cleanup, and close the engine in order, with direct regression coverage.
 - Serve-mode shutdown now stops the ACME certificate renewal loop and TLS certificate hot-reload watcher with the shared shutdown context, with default and HTTP/3 build-tag regression coverage.
 - Serve and sidecar command-level tests now hold active proxied requests open, send SIGTERM, verify the in-flight requests complete successfully, and verify the commands return.
+- Serve and sidecar shutdown now aggregate listener, watcher, analyzer, alerting, dashboard, tenant, GeoIP, cleanup, event-consumer, and engine/event-store errors; durable close failures produce a non-zero process exit and are covered in both default and HTTP/3-tagged builds.
 - `go test ./internal/proxy ./cmd/guardianwaf`, `go test -race ./internal/proxy ./cmd/guardianwaf`, `go test -tags http3 ./cmd/guardianwaf`, and `go test ./cmd/guardianwaf` pass with the lifecycle changes.
 - Current-tree accuracy note: the `http3` build tag currently proves mirrored CLI build/test compatibility only; no QUIC/HTTP/3 listener package exists to drain. SIEM exporter and cluster sync shutdown remain future requirements because those runtime packages are not present.
 
@@ -583,9 +594,9 @@ Acceptance criteria:
 
 ### 6.2 Runtime Reload Safety
 
-Status: Partial
+Status: Pass for the current supported hot-reload scope
 
-Required work:
+Implemented reload contract:
 
 - Define exactly what is hot-reloadable.
 - Rebuild pipeline atomically when layer-affecting config changes.
@@ -601,6 +612,9 @@ Progress:
 - `internal/engine` now has a reload-during-concurrent-traffic regression test that exercises repeated `Reload()` calls while requests are in flight.
 - `Engine.Config()` now returns defensive snapshots, preventing dashboard or runtime callers from mutating the live engine config without going through `Reload()`.
 - Dashboard routing rebuilds now read `eng.Config()` after `engine.Reload()` and have command-package regression coverage showing old in-flight requests complete while new requests use the rebuilt route.
+- Dashboard routing updates now build a strict all-or-nothing candidate router, reload the engine, atomically persist the exact config, and only then swap the handler; prepare/reload/persist failures close candidate resources and leave the old runtime active.
+- Legacy routing controllers, general config updates, and webhook/email config mutations roll back the engine snapshot on rebuild or persistence failure and return 5xx instead of claiming a non-durable success.
+- The resolved default/explicit config path is passed to dashboard persistence, so starting without `-config` no longer loses the actual default path.
 
 Acceptance criteria:
 
@@ -1203,4 +1217,4 @@ Current state after this pass:
 
 - The project can pass the main local Go test baseline from a checkout that includes `internal/dashboard/dist/placeholder.txt`; production binaries and UI/E2E flows still require dashboard assets generated by `./scripts/build-dashboard.sh` or `./scripts/build.sh`.
 - There were real correctness and build hygiene issues, and the immediate safe ones were fixed.
-- The project should not yet be marketed as fully production ready until P0 items are complete, especially hosted CI proof, reload/shutdown reliability, remaining outbound-integration SSRF hardening, hosted-runner confirmation for release supply-chain attestations, and QUIC/HTTP/3 E2E coverage.
+- The project should not yet be marketed as fully production ready until the remaining release evidence is complete, especially hosted CI proof for the exact commit, an independent external review or explicit risk acceptance, hosted-runner confirmation for release supply-chain attestations, target-environment load evidence, and QUIC/HTTP/3 E2E coverage if that feature is claimed as production-supported.

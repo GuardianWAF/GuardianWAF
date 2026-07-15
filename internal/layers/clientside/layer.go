@@ -90,7 +90,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		ctx.Metadata["csp_header_value"] = headerValue
 
 		// Register hook for applying CSP headers
-		ctx.Metadata["clientside_csp_hook"] = func(w http.ResponseWriter) {
+		ctx.ClientsideCSPHook = func(w http.ResponseWriter) {
 			if headerName != "" && headerValue != "" {
 				w.Header().Set(headerName, headerValue)
 				l.mu.Lock()
@@ -105,7 +105,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	// released to the pool, so the closure must not reference ctx fields.
 	if l.config.MagecartDetection.Enabled || l.config.AgentInjection.Enabled {
 		path := ctx.Path
-		ctx.Metadata["clientside_response_hook"] = func(body []byte, contentType string) ([]byte, bool) {
+		ctx.ClientsideBodyXform = func(body []byte, contentType string) ([]byte, bool) {
 			return l.processResponse(body, contentType, path)
 		}
 	}

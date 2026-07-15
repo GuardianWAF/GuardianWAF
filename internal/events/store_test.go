@@ -1144,7 +1144,7 @@ func TestFileStore_WriteJSONSpecialChars(t *testing.T) {
 		t.Error("tabs should be escaped")
 	}
 	if strings.Contains(content, "\n\n") {
-		// Allow the trailing newline, but not unescaped newlines in the JSON
+		t.Error("unescaped newlines in event JSON content")
 	}
 	if !strings.Contains(content, `\t`) {
 		t.Error("expected \\t escape sequence")

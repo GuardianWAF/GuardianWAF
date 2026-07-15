@@ -393,8 +393,16 @@ func TestCmdCheck_Verbose(t *testing.T) {
 func TestCmdCheck_WithHeaders(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cfg.yaml")
-	cfg := `mode: enforce\nwaf:\n  detection:\n    enabled: false\n  bot_detection:\n    enabled: false\n`
-	os.WriteFile(path, []byte(cfg), 0o644)
+	cfg := `mode: enforce
+waf:
+  detection:
+    enabled: false
+  bot_detection:
+    enabled: false
+`
+	if err := os.WriteFile(path, []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	code, called := captureOptionalExit(t, func() {
 		cmdCheck([]string{"--config", path, "--url", "/test", "-H", "User-Agent: test", "-H", "X-Test: value"})
 	})

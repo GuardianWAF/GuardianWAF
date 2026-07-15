@@ -66,6 +66,13 @@ func handleWithParams[T any, R any](
 	if err := json.Unmarshal(params, &p); err != nil {
 		return zero, fmt.Errorf("invalid params: %w", err)
 	}
+	// Validate JSON types against the struct's expected types before
+	// checking required fields. This catches type mismatches that
+	// json.Unmarshal silently skips (e.g. {"ip": 123} when ip is a string),
+	// producing more actionable error messages than "IP is required".
+	if err := validateJSONTypes[T](params); err != nil {
+		return zero, err
+	}
 	v := reflect.ValueOf(p)
 	for _, field := range required {
 		f := v.FieldByName(field)
@@ -78,6 +85,89 @@ func handleWithParams[T any, R any](
 		}
 	}
 	return call(eng, p)
+}
+
+// validateJSONTypes inspects the raw JSON params against the Go struct T's
+// field types and reports mismatches. This prevents confusing "field is
+// required" errors when the real problem is a type mismatch that
+// json.Unmarshal silently tolerates.
+func validateJSONTypes[T any](params json.RawMessage) error {
+	var raw map[string]any
+	if err := json.Unmarshal(params, &raw); err != nil {
+		return nil // let json.Unmarshal handle general parse errors
+	}
+	if len(raw) == 0 {
+		return nil
+	}
+
+	t := reflect.TypeOf((*T)(nil)).Elem()
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	if t.Kind() != reflect.Struct {
+		return nil
+	}
+
+	for i := range t.NumField() {
+		field := t.Field(i)
+		if !field.IsExported() {
+			continue
+		}
+		jsonName := field.Tag.Get("json")
+		if jsonName == "" || jsonName == "-" {
+			continue
+		}
+		// Handle comma-separated options like "ip,omitempty"
+		if idx := strings.IndexByte(jsonName, ','); idx >= 0 {
+			jsonName = jsonName[:idx]
+		}
+		rawVal, ok := raw[jsonName]
+		if !ok {
+			continue // field not in JSON, skip
+		}
+
+		expected := jsonTypeName(field.Type)
+		got := jsonTypeName(reflect.TypeOf(rawVal))
+		if expected != got {
+			// Special case: JSON numbers are always float64 in map[string]any,
+			// but our struct may expect integer. Accept whole numbers.
+			if expected == "integer" && got == "number" {
+				if f, ok := rawVal.(float64); ok && f == float64(int64(f)) {
+					continue
+				}
+			}
+			return fmt.Errorf("%s: expected %s, got %s", jsonName, expected, got)
+		}
+	}
+	return nil
+}
+
+// jsonTypeName returns a human-readable JSON type name for a Go type used in
+// MCP tool parameter validation. For Go struct fields we report what the JSON
+// encoding/json package expects at the wire level.
+func jsonTypeName(t reflect.Type) string {
+	if t == nil {
+		return "null"
+	}
+	switch t.Kind() {
+	case reflect.String:
+		return "string"
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return "integer"
+	case reflect.Float32, reflect.Float64:
+		return "number"
+	case reflect.Bool:
+		return "boolean"
+	case reflect.Slice, reflect.Array:
+		return "array"
+	case reflect.Map:
+		return "object"
+	case reflect.Ptr:
+		return jsonTypeName(t.Elem())
+	default:
+		return "string"
+	}
 }
 
 func (s *Server) handleGetStats(params json.RawMessage) (any, error) {

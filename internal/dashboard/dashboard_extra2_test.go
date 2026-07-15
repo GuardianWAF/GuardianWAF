@@ -233,8 +233,8 @@ func TestAIProviders_WithAnalyzerError(t *testing.T) {
 	req := authenticatedRequest("GET", "/api/v1/ai/providers", "", "k")
 	d.Handler().ServeHTTP(w, req)
 
-	if w.Code != http.StatusInternalServerError {
-		t.Errorf("expected 500, got %d", w.Code)
+	if w.Code != http.StatusBadGateway {
+		t.Errorf("expected 502, got %d", w.Code)
 	}
 }
 
@@ -636,8 +636,8 @@ func TestAIAnalyze_AnalyzeError(t *testing.T) {
 	req := authenticatedRequest("POST", "/api/v1/ai/analyze", "", "k")
 	d.Handler().ServeHTTP(w, req)
 
-	if w.Code != http.StatusInternalServerError {
-		t.Errorf("expected 500, got %d", w.Code)
+	if w.Code != http.StatusBadGateway {
+		t.Errorf("expected 502, got %d", w.Code)
 	}
 }
 
@@ -828,6 +828,7 @@ func TestSetSaveFn(t *testing.T) {
 
 func TestSetSaveFn_Error(t *testing.T) {
 	d := newTestDashboard(t, "k")
+	oldMode := d.engine.Config().Mode
 	d.SetSaveFn(func() error {
 		return fmt.Errorf("disk full")
 	})
@@ -837,14 +838,11 @@ func TestSetSaveFn_Error(t *testing.T) {
 		`{"mode":"proxy"}`, "k")
 	d.Handler().ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200 (graceful degradation), got %d", w.Code)
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 for non-durable config update, got %d", w.Code)
 	}
-	var result map[string]any
-	_ = json.Unmarshal(w.Body.Bytes(), &result)
-	msg, _ := result["message"].(string)
-	if !strings.Contains(msg, "disk sync pending") {
-		t.Errorf("expected disk sync message, got %s", msg)
+	if got := d.engine.Config().Mode; got != oldMode {
+		t.Fatalf("failed config persistence left runtime mode %q, want %q", got, oldMode)
 	}
 }
 

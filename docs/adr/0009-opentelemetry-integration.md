@@ -1,20 +1,25 @@
 # ADR 0009: OpenTelemetry Integration
 
 **Date:** 2026-04-15
-**Status:** Proposed
+**Status:** Superseded by ADR 0039 for the built-in runtime; external OTLP integration remains proposed
 **Deciders:** GuardianWAF Team
 
 ---
 
 ## Context
 
-GuardianWAF currently lacks distributed tracing support. While it has:
+GuardianWAF has an engine-local, zero-dependency tracing runtime described by
+ADR 0039. It intentionally does not bundle the OpenTelemetry SDK or an OTLP
+network exporter. This ADR now describes only a possible future external OTLP
+bridge and W3C trace-context integration.
+
+GuardianWAF also has:
 - Request IDs via `X-GuardianWAF-RequestID` header
 - Prometheus metrics (`/metrics`)
 - Structured JSON logging
 - pprof endpoints
 
-It does not have OpenTelemetry integration, which would enable:
+It does not have wire-compatible OpenTelemetry integration, which would enable:
 - End-to-end request tracing across all WAF layers
 - Correlation between logs, metrics, and traces
 - Integration with external tracing systems (Jaeger, Zipkin, Tempo)
@@ -22,7 +27,7 @@ It does not have OpenTelemetry integration, which would enable:
 
 ## Decision
 
-Add OpenTelemetry tracing support to GuardianWAF with the following principles:
+If an external OpenTelemetry bridge is added, use the following principles:
 
 1. **Zero new dependencies** — Use only the OpenTelemetry SDK, no external trace exporters bundled
 2. **Opt-in** — Tracing disabled by default, enabled via config
@@ -93,15 +98,17 @@ Support multiple exporters (build tags):
 
 ### Implementation Locations
 
-**Note**: This ADR describes a proposed feature. `internal/tracing/` does not yet exist in the codebase — the files below represent the intended implementation structure.
+**Note**: `internal/tracing/tracing.go` now implements engine-local root/layer
+spans, sampling, lifecycle handling, and noop/stdout exporters. The OTLP,
+Jaeger, W3C propagation, endpoint, and export-interval elements below remain
+proposals and are not accepted production configuration.
 
 | File | Purpose |
 |------|---------|
-| `internal/tracing/tracer.go` | Tracer singleton, config, shutdown |
-| `internal/tracing/spans.go` | Span helpers, attribute constants |
-| `internal/tracing/exporter.go` | Exporter factory |
-| `internal/engine/pipeline.go` | Add root span around pipeline |
-| `internal/engine/layer.go` | Add child span per layer |
+| `internal/tracing/tracing.go` | Current engine-local tracer, spans, lifecycle, noop/stdout exporters |
+| `internal/engine/engine.go` | Current per-engine tracer ownership and request root spans |
+| `internal/engine/pipeline.go` | Current child span creation per active layer |
+| Future bridge package | Proposed OTLP/W3C integration, not currently implemented |
 
 ## Consequences
 

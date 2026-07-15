@@ -107,8 +107,7 @@ func (p *Pipeline) Execute(ctx *RequestContext) (result PipelineResult) {
 		// Create a tracing span for this layer if tracing is active
 		var span *tracing.Span
 		if ctx.TraceSpan != nil {
-			span = tracing.StartSpanWithParent(layer.Name(), tracing.SpanKindInternal, ctx.TraceSpan.TraceID)
-			span.ParentID = ctx.TraceSpan.SpanID
+			span = ctx.TraceSpan.StartChild(layer.Name(), tracing.SpanKindInternal)
 		}
 
 		lr := layer.Process(ctx)

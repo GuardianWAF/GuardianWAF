@@ -51,7 +51,7 @@ services:
 
   # Your application
   app:
-    image: golang:1.26.3-alpine
+    image: golang:1.26.5-alpine
     container_name: backend-app
     working_dir: /app
     volumes:
