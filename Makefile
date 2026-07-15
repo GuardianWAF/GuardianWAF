@@ -1,4 +1,4 @@
-.PHONY: build test lint bench fuzz clean run docker-build smoke docker-test ui ui-dev dev help fmt fmt-check tidy e2e e2e-headed e2e-list
+.PHONY: build test lint bench fuzz clean run docker-build smoke docker-test ui ui-dev dev help fmt fmt-check tidy e2e e2e-full e2e-full-all e2e-headed e2e-list
 
 BINARY=guardianwaf
 VERSION?=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -78,6 +78,16 @@ fmt-check:
 	fi
 	@echo "gofmt check passed."
 
+# Regenerate DeepCopy methods for config structs.
+# NOTE: tools/deepcopy/main.go is currently broken with Go 1.26+ (go/parser
+# directory restriction). Until fixed, add DeepCopy fields by hand following
+# the pattern in internal/config/deepcopy_generated.go.
+.PHONY: generate-deepcopy
+generate-deepcopy:
+	@echo "WARNING: deepcopy tool is broken with Go 1.26 — see internal/config/deepcopy_generated.go header"
+	cd tools/deepcopy && go run main.go ../../internal/config/config.go > ../../internal/config/deepcopy_generated.go
+	go fmt ./internal/config/
+
 tidy:
 	go mod tidy
 
@@ -90,6 +100,12 @@ e2e:
 	cd tests/e2e/playwright && npm install --silent 2>/dev/null; \
 	E2E_BASE_URL=$(E2E_BASE_URL) E2E_API_KEY=$(E2E_API_KEY) \
 	npx playwright test --project=chromium
+
+e2e-full:
+	./scripts/full-e2e.sh
+
+e2e-full-all:
+	E2E_PROJECTS=chromium,firefox,webkit E2E_PLAYWRIGHT_DOCKER=true ./scripts/full-e2e.sh
 
 e2e-headed:
 	@echo "Running E2E tests (headed) against $(E2E_BASE_URL)..."
@@ -118,6 +134,8 @@ help:
 	@echo "  bench        Run benchmarks with memory stats"
 	@echo "  fuzz         Run fuzz tests (30s each)"
 	@echo "  e2e          Run Playwright E2E tests (requires running server)"
+	@echo "  e2e-full     Build local runtime and run the complete Chromium E2E suite"
+	@echo "  e2e-full-all Build local runtime and run Chromium, Firefox, and WebKit E2E suites"
 	@echo "  e2e-headed   Run E2E tests in headed mode"
 	@echo "  e2e-list     List all E2E tests"
 	@echo "  cover        Generate coverage report (HTML)"
