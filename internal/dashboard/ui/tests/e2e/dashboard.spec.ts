@@ -54,3 +54,72 @@ test('tenant admin UI requires the separate dashboard admin key', async ({ page,
   await page.getByRole('button', { name: 'Unlock' }).click()
   await expect(page.getByRole('button', { name: 'Clear admin key' })).toBeVisible()
 })
+
+const dashboardRoutes = [
+  ['/', 'GuardianWAF Dashboard'],
+  ['/routing', 'Routing Management'],
+  ['/rules', 'Custom Rules'],
+  ['/ssl', 'SSL / TLS'],
+  ['/config', 'WAF Configuration'],
+  ['/alerting', 'Alerting'],
+  ['/ai', 'AI Threat Analysis'],
+  ['/logs', 'Application Logs'],
+  ['/analytics', 'Analytics'],
+  ['/docker', 'Docker Discovery'],
+  ['/compliance', 'Compliance'],
+  ['/tenants', 'Tenant Management'],
+  ['/clusters', 'Cluster Sync'],
+] as const
+
+test('every primary dashboard route renders without browser errors', async ({ page }) => {
+  const browserErrors: string[] = []
+  page.on('pageerror', (error) => browserErrors.push(`pageerror: ${error.message}`))
+  page.on('console', (message) => {
+    if (message.type() === 'error') browserErrors.push(`console: ${message.text()}`)
+  })
+
+  await page.goto('/login')
+  await page.getByLabel('API Key').fill(apiKey)
+  await page.getByRole('button', { name: 'Sign In' }).click()
+
+  for (const [path, heading] of dashboardRoutes) {
+    await page.goto(path)
+    await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible()
+    await expect(page.locator('body')).not.toContainText('Something went wrong')
+  }
+
+  expect(browserErrors).toEqual([])
+})
+
+test('mobile navigation is usable and pages do not overflow the viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 })
+  await page.goto('/login')
+  await page.getByLabel('API Key').fill(apiKey)
+  await page.getByRole('button', { name: 'Sign In' }).click()
+
+  const openNavigation = page.getByRole('button', { name: 'Open navigation' })
+  await expect(openNavigation).toBeVisible()
+  await expect(page.locator('aside[aria-label="Primary navigation"]')).toHaveAttribute('aria-hidden', 'true')
+  await openNavigation.click()
+  const navigation = page.getByRole('complementary', { name: 'Primary navigation' })
+  await expect(navigation).toBeVisible()
+  await expect(navigation).toHaveAttribute('aria-hidden', 'false')
+  await navigation.getByRole('link', { name: 'Routing' }).click()
+  await expect(page).toHaveURL(/\/routing$/)
+  await expect(page.getByRole('heading', { name: 'Routing Management' })).toBeVisible()
+  await expect(navigation).not.toBeInViewport()
+
+  const documentWidth = await page.evaluate(() => document.documentElement.scrollWidth)
+  expect(documentWidth).toBeLessThanOrEqual(375)
+})
+
+test('unknown dashboard routes show a recoverable not-found page', async ({ page }) => {
+  await page.goto('/login')
+  await page.getByLabel('API Key').fill(apiKey)
+  await page.getByRole('button', { name: 'Sign In' }).click()
+  await page.goto('/this-page-does-not-exist')
+
+  await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible()
+  await page.getByRole('link', { name: 'Back to dashboard' }).click()
+  await expect(page).toHaveURL(/\/$/)
+})

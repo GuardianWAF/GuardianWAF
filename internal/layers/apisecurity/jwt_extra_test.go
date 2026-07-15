@@ -605,7 +605,7 @@ func TestSetFileOps(t *testing.T) {
 		func(any, []byte) (int, error) { return 0, nil },
 	)
 	if !openCalled {
-		// Just verify it doesn't panic — the function is a setter
+		t.Log("Open not called after SetFileOps (expected — function is a setter)")
 	}
 	// Reset
 	SetFileOps(nil, nil, nil)

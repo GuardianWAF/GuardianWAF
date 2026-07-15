@@ -723,11 +723,15 @@ func (fe *fieldErrs) intField(n *Node, key, parentKey string, field *int, minVal
 	}
 }
 
-func (fe *fieldErrs) durationField(n *Node, key string, field *time.Duration) {
+func (fe *fieldErrs) durationField(n *Node, key, parentKey string, field *time.Duration) {
 	if v := n.Get(key); v != nil && !v.IsNull {
 		d, err := parseDuration(v.String())
 		if err != nil {
-			fe.errs = append(fe.errs, fmt.Errorf("%s: %w", key, err))
+			prefix := key
+			if parentKey != "" {
+				prefix = parentKey + "." + key
+			}
+			fe.errs = append(fe.errs, fmt.Errorf("%s: %w", prefix, err))
 			return
 		}
 		*field = d
@@ -755,52 +759,32 @@ func populateTLS(tls *TLSConfig, n *Node) error {
 	if n.Kind != MapNode {
 		return nil
 	}
-	if err := nodeBoolField(n, "enabled", "", &tls.Enabled); err != nil {
-		return err
-	}
+	var fe fieldErrs
+	fe.boolField(n, "enabled", "", &tls.Enabled)
 	nodeStringField(n, "listen", &tls.Listen)
-	if v := n.Get("cert_file"); v != nil && !v.IsNull {
-		tls.CertFile = v.String()
-	}
-	if v := n.Get("key_file"); v != nil && !v.IsNull {
-		tls.KeyFile = v.String()
-	}
-	if v := n.Get("http_redirect"); v != nil {
-		b, err := nodeBool(v)
-		if err != nil {
-			return fmt.Errorf("http_redirect: %w", err)
-		}
-		tls.HTTPRedirect = b
-	}
+	nodeStringField(n, "cert_file", &tls.CertFile)
+	nodeStringField(n, "key_file", &tls.KeyFile)
+	fe.boolField(n, "http_redirect", "", &tls.HTTPRedirect)
 	if a := n.Get("acme"); a != nil {
 		if err := populateACME(&tls.ACME, a); err != nil {
 			return fmt.Errorf("acme: %w", err)
 		}
 	}
-	return nil
+	return fe.err()
 }
 
 func populateACME(acme *ACMEConfig, n *Node) error {
 	if n.Kind != MapNode {
 		return nil
 	}
-	if v := n.Get("enabled"); v != nil {
-		b, err := nodeBool(v)
-		if err != nil {
-			return fmt.Errorf("enabled: %w", err)
-		}
-		acme.Enabled = b
-	}
-	if v := n.Get("email"); v != nil && !v.IsNull {
-		acme.Email = v.String()
-	}
+	var fe fieldErrs
+	fe.boolField(n, "enabled", "", &acme.Enabled)
+	nodeStringField(n, "email", &acme.Email)
 	if v := n.Get("domains"); v != nil {
 		acme.Domains = nodeStringSlice(v)
 	}
-	if v := n.Get("cache_dir"); v != nil && !v.IsNull {
-		acme.CacheDir = v.String()
-	}
-	return nil
+	nodeStringField(n, "cache_dir", &acme.CacheDir)
+	return fe.err()
 }
 
 // --- Upstreams ---
@@ -1064,7 +1048,7 @@ func populateThreatIntel(ti *ThreatIntelConfig, n *Node) error {
 	var fe fieldErrs
 	fe.boolField(n, "enabled", "", &ti.Enabled)
 	fe.intField(n, "cache_size", "", &ti.CacheSize, 0)
-	fe.durationField(n, "cache_ttl", &ti.CacheTTL)
+	fe.durationField(n, "cache_ttl", "", &ti.CacheTTL)
 	if sub := n.Get("ip_reputation"); sub != nil && sub.Kind == MapNode {
 		fe.boolField(sub, "enabled", "ip_reputation", &ti.IPReputation.Enabled)
 		fe.boolField(sub, "block_malicious", "ip_reputation", &ti.IPReputation.BlockMalicious)
@@ -1137,28 +1121,28 @@ func populateATOProtection(ato *ATOProtectionConfig, n *Node) error {
 	}
 	if sub := n.Get("brute_force"); sub != nil && sub.Kind == MapNode {
 		fe.boolField(sub, "enabled", "brute_force", &ato.BruteForce.Enabled)
-		fe.durationField(sub, "window", &ato.BruteForce.Window)
+		fe.durationField(sub, "window", "", &ato.BruteForce.Window)
 		fe.intField(sub, "max_attempts_per_ip", "brute_force", &ato.BruteForce.MaxAttemptsPerIP, 0)
 		fe.intField(sub, "max_attempts_per_email", "brute_force", &ato.BruteForce.MaxAttemptsPerEmail, 0)
-		fe.durationField(sub, "block_duration", &ato.BruteForce.BlockDuration)
+		fe.durationField(sub, "block_duration", "", &ato.BruteForce.BlockDuration)
 	}
 	if sub := n.Get("credential_stuffing"); sub != nil && sub.Kind == MapNode {
 		fe.boolField(sub, "enabled", "credential_stuffing", &ato.CredStuffing.Enabled)
 		fe.intField(sub, "distributed_threshold", "credential_stuffing", &ato.CredStuffing.DistributedThreshold, 0)
-		fe.durationField(sub, "window", &ato.CredStuffing.Window)
-		fe.durationField(sub, "block_duration", &ato.CredStuffing.BlockDuration)
+		fe.durationField(sub, "window", "", &ato.CredStuffing.Window)
+		fe.durationField(sub, "block_duration", "", &ato.CredStuffing.BlockDuration)
 	}
 	if sub := n.Get("password_spray"); sub != nil && sub.Kind == MapNode {
 		fe.boolField(sub, "enabled", "password_spray", &ato.PasswordSpray.Enabled)
 		fe.intField(sub, "threshold", "password_spray", &ato.PasswordSpray.Threshold, 0)
-		fe.durationField(sub, "window", &ato.PasswordSpray.Window)
-		fe.durationField(sub, "block_duration", &ato.PasswordSpray.BlockDuration)
+		fe.durationField(sub, "window", "", &ato.PasswordSpray.Window)
+		fe.durationField(sub, "block_duration", "", &ato.PasswordSpray.BlockDuration)
 	}
 	if sub := n.Get("impossible_travel"); sub != nil && sub.Kind == MapNode {
 		fe.boolField(sub, "enabled", "impossible_travel", &ato.Travel.Enabled)
 		fe.floatField(sub, "max_distance_km", &ato.Travel.MaxDistanceKm, 0)
 		fe.floatField(sub, "max_time_hours", &ato.Travel.MaxTimeHours, 0)
-		fe.durationField(sub, "block_duration", &ato.Travel.BlockDuration)
+		fe.durationField(sub, "block_duration", "", &ato.Travel.BlockDuration)
 	}
 	return fe.err()
 }
@@ -1531,22 +1515,13 @@ func populateChallenge(ch *ChallengeConfig, n *Node) error {
 	if n.Kind != MapNode {
 		return nil
 	}
-	if err := nodeBoolField(n, "enabled", "", &ch.Enabled); err != nil {
-		return err
-	}
-	if err := nodeIntField(n, "difficulty", "", &ch.Difficulty, 1); err != nil {
-		return err
-	}
-	if v := n.Get("cookie_ttl"); v != nil && !v.IsNull {
-		d, err := parseDuration(v.String())
-		if err != nil {
-			return fmt.Errorf("cookie_ttl: %w", err)
-		}
-		ch.CookieTTL = d
-	}
+	var fe fieldErrs
+	fe.boolField(n, "enabled", "", &ch.Enabled)
+	fe.intField(n, "difficulty", "", &ch.Difficulty, 1)
+	fe.durationField(n, "cookie_ttl", "", &ch.CookieTTL)
 	nodeStringField(n, "cookie_name", &ch.CookieName)
 	nodeStringField(n, "secret_key", &ch.SecretKey)
-	return nil
+	return fe.err()
 }
 
 func populateIPACL(acl *IPACLConfig, n *Node) error {
@@ -1776,54 +1751,34 @@ func populateBotDetection(bd *BotDetectionConfig, n *Node) error {
 	if n.Kind != MapNode {
 		return nil
 	}
-	if err := nodeBoolField(n, "enabled", "", &bd.Enabled); err != nil {
-		return err
-	}
+	var fe fieldErrs
+	fe.boolField(n, "enabled", "", &bd.Enabled)
 	nodeStringField(n, "mode", &bd.Mode)
 	if sub := n.Get("tls_fingerprint"); sub != nil && sub.Kind == MapNode {
-		if err := nodeBoolField(sub, "enabled", "tls_fingerprint", &bd.TLSFingerprint.Enabled); err != nil {
-			return err
-		}
+		fe.boolField(sub, "enabled", "tls_fingerprint", &bd.TLSFingerprint.Enabled)
 		nodeStringField(sub, "known_bots_action", &bd.TLSFingerprint.KnownBotsAction)
 		nodeStringField(sub, "unknown_action", &bd.TLSFingerprint.UnknownAction)
 		nodeStringField(sub, "mismatch_action", &bd.TLSFingerprint.MismatchAction)
 	}
 	if sub := n.Get("user_agent"); sub != nil && sub.Kind == MapNode {
-		if err := nodeBoolField(sub, "enabled", "user_agent", &bd.UserAgent.Enabled); err != nil {
-			return err
-		}
-		if err := nodeBoolField(sub, "block_empty", "user_agent", &bd.UserAgent.BlockEmpty); err != nil {
-			return err
-		}
-		if err := nodeBoolField(sub, "block_known_scanners", "user_agent", &bd.UserAgent.BlockKnownScanners); err != nil {
-			return err
-		}
+		fe.boolField(sub, "enabled", "user_agent", &bd.UserAgent.Enabled)
+		fe.boolField(sub, "block_empty", "user_agent", &bd.UserAgent.BlockEmpty)
+		fe.boolField(sub, "block_known_scanners", "user_agent", &bd.UserAgent.BlockKnownScanners)
 	}
 	if sub := n.Get("behavior"); sub != nil && sub.Kind == MapNode {
-		if err := nodeBoolField(sub, "enabled", "behavior", &bd.Behavior.Enabled); err != nil {
-			return err
-		}
-		if v := sub.Get("window"); v != nil && !v.IsNull {
-			d, err := parseDuration(v.String())
-			if err != nil {
-				return fmt.Errorf("behavior.window: %w", err)
-			}
-			bd.Behavior.Window = d
-		}
-		if err := nodeIntField(sub, "rps_threshold", "behavior", &bd.Behavior.RPSThreshold, 0); err != nil {
-			return err
-		}
-		if err := nodeIntField(sub, "error_rate_threshold", "behavior", &bd.Behavior.ErrorRateThreshold, 0); err != nil {
-			return err
-		}
+		fe.boolField(sub, "enabled", "behavior", &bd.Behavior.Enabled)
+		fe.durationField(sub, "window", "behavior", &bd.Behavior.Window)
+		fe.intField(sub, "rps_threshold", "behavior", &bd.Behavior.RPSThreshold, 0)
+		fe.intField(sub, "error_rate_threshold", "behavior", &bd.Behavior.ErrorRateThreshold, 0)
 	}
-	return nil
+	return fe.err()
 }
 
 func populateResponse(resp *ResponseConfig, n *Node) error {
 	if n.Kind != MapNode {
 		return nil
 	}
+	var fe fieldErrs
 	if sub := n.Get("security_headers"); sub != nil {
 		if err := populateSecurityHeaders(&resp.SecurityHeaders, sub); err != nil {
 			return fmt.Errorf("security_headers: %w", err)
@@ -1835,61 +1790,41 @@ func populateResponse(resp *ResponseConfig, n *Node) error {
 		}
 	}
 	if sub := n.Get("error_pages"); sub != nil && sub.Kind == MapNode {
-		if err := nodeBoolField(sub, "enabled", "error_pages", &resp.ErrorPages.Enabled); err != nil {
-			return err
-		}
+		fe.boolField(sub, "enabled", "error_pages", &resp.ErrorPages.Enabled)
 		nodeStringField(sub, "mode", &resp.ErrorPages.Mode)
 	}
-	return nil
+	return fe.err()
 }
 
 func populateSecurityHeaders(sh *SecurityHeadersConfig, n *Node) error {
 	if n.Kind != MapNode {
 		return nil
 	}
-	if err := nodeBoolField(n, "enabled", "", &sh.Enabled); err != nil {
-		return err
-	}
+	var fe fieldErrs
+	fe.boolField(n, "enabled", "", &sh.Enabled)
 	if sub := n.Get("hsts"); sub != nil && sub.Kind == MapNode {
-		if err := nodeBoolField(sub, "enabled", "hsts", &sh.HSTS.Enabled); err != nil {
-			return err
-		}
-		if err := nodeIntField(sub, "max_age", "hsts", &sh.HSTS.MaxAge, 0); err != nil {
-			return err
-		}
-		if err := nodeBoolField(sub, "include_subdomains", "hsts", &sh.HSTS.IncludeSubDomains); err != nil {
-			return err
-		}
+		fe.boolField(sub, "enabled", "hsts", &sh.HSTS.Enabled)
+		fe.intField(sub, "max_age", "hsts", &sh.HSTS.MaxAge, 0)
+		fe.boolField(sub, "include_subdomains", "hsts", &sh.HSTS.IncludeSubDomains)
 	}
-	if err := nodeBoolField(n, "x_content_type_options", "", &sh.XContentTypeOptions); err != nil {
-		return err
-	}
+	fe.boolField(n, "x_content_type_options", "", &sh.XContentTypeOptions)
 	nodeStringField(n, "x_frame_options", &sh.XFrameOptions)
 	nodeStringField(n, "referrer_policy", &sh.ReferrerPolicy)
 	nodeStringField(n, "permissions_policy", &sh.PermissionsPolicy)
-	return nil
+	return fe.err()
 }
 
 func populateDataMasking(dm *DataMaskingConfig, n *Node) error {
 	if n.Kind != MapNode {
 		return nil
 	}
-	if err := nodeBoolField(n, "enabled", "", &dm.Enabled); err != nil {
-		return err
-	}
-	if err := nodeBoolField(n, "mask_credit_cards", "", &dm.MaskCreditCards); err != nil {
-		return err
-	}
-	if err := nodeBoolField(n, "mask_ssn", "", &dm.MaskSSN); err != nil {
-		return err
-	}
-	if err := nodeBoolField(n, "mask_api_keys", "", &dm.MaskAPIKeys); err != nil {
-		return err
-	}
-	if err := nodeBoolField(n, "strip_stack_traces", "", &dm.StripStackTraces); err != nil {
-		return err
-	}
-	return nil
+	var fe fieldErrs
+	fe.boolField(n, "enabled", "", &dm.Enabled)
+	fe.boolField(n, "mask_credit_cards", "", &dm.MaskCreditCards)
+	fe.boolField(n, "mask_ssn", "", &dm.MaskSSN)
+	fe.boolField(n, "mask_api_keys", "", &dm.MaskAPIKeys)
+	fe.boolField(n, "strip_stack_traces", "", &dm.StripStackTraces)
+	return fe.err()
 }
 
 // --- Dashboard ---
@@ -1898,16 +1833,13 @@ func populateDashboard(dash *DashboardConfig, n *Node) error {
 	if n.Kind != MapNode {
 		return nil
 	}
-	if err := nodeBoolField(n, "enabled", "", &dash.Enabled); err != nil {
-		return err
-	}
+	var fe fieldErrs
+	fe.boolField(n, "enabled", "", &dash.Enabled)
 	nodeStringField(n, "listen", &dash.Listen)
 	nodeStringField(n, "api_key", &dash.APIKey)
 	nodeStringField(n, "admin_key", &dash.AdminKey)
-	if err := nodeBoolField(n, "tls", "", &dash.TLS); err != nil {
-		return err
-	}
-	return nil
+	fe.boolField(n, "tls", "", &dash.TLS)
+	return fe.err()
 }
 
 // --- MCP ---
@@ -1916,60 +1848,41 @@ func populateMCP(mcp *MCPConfig, n *Node) error {
 	if n.Kind != MapNode {
 		return nil
 	}
-	if err := nodeBoolField(n, "enabled", "", &mcp.Enabled); err != nil {
-		return err
-	}
+	var fe fieldErrs
+	fe.boolField(n, "enabled", "", &mcp.Enabled)
 	nodeStringField(n, "transport", &mcp.Transport)
-	return nil
+	return fe.err()
 }
-
-// --- Docker ---
 
 func populateDocker(dock *DockerConfig, n *Node) error {
 	if n.Kind != MapNode {
 		return nil
 	}
-	if err := nodeBoolField(n, "enabled", "", &dock.Enabled); err != nil {
-		return err
-	}
+	var fe fieldErrs
+	fe.boolField(n, "enabled", "", &dock.Enabled)
 	nodeStringField(n, "socket_path", &dock.SocketPath)
-	if err := nodeBoolField(n, "tls_verify", "", &dock.TLSVerify); err != nil {
-		return err
-	}
+	fe.boolField(n, "tls_verify", "", &dock.TLSVerify)
 	nodeStringField(n, "tls_ca_cert", &dock.TLSCACert)
 	nodeStringField(n, "tls_cert", &dock.TLSCert)
 	nodeStringField(n, "tls_key", &dock.TLSKey)
 	nodeStringField(n, "label_prefix", &dock.LabelPrefix)
-	if v := n.Get("poll_interval"); v != nil && !v.IsNull {
-		d, err := parseDuration(v.String())
-		if err != nil {
-			return fmt.Errorf("poll_interval: %w", err)
-		}
-		dock.PollInterval = d
-	}
+	fe.durationField(n, "poll_interval", "", &dock.PollInterval)
 	nodeStringField(n, "network", &dock.Network)
-	return nil
+	return fe.err()
 }
-
-// --- Logging ---
 
 func populateLogging(log *LogConfig, n *Node) error {
 	if n.Kind != MapNode {
 		return nil
 	}
+	var fe fieldErrs
 	nodeStringField(n, "level", &log.Level)
 	nodeStringField(n, "format", &log.Format)
 	nodeStringField(n, "output", &log.Output)
-	if err := nodeBoolField(n, "log_allowed", "", &log.LogAllowed); err != nil {
-		return err
-	}
-	if err := nodeBoolField(n, "log_blocked", "", &log.LogBlocked); err != nil {
-		return err
-	}
-	if err := nodeBoolField(n, "log_body", "", &log.LogBody); err != nil {
-		return err
-	}
-	return nil
+	fe.boolField(n, "log_allowed", "", &log.LogAllowed)
+	fe.boolField(n, "log_blocked", "", &log.LogBlocked)
+	fe.boolField(n, "log_body", "", &log.LogBody)
+	return fe.err()
 }
 
 // --- Events ---
@@ -1978,12 +1891,11 @@ func populateEvents(ev *EventsConfig, n *Node) error {
 	if n.Kind != MapNode {
 		return nil
 	}
+	var fe fieldErrs
 	nodeStringField(n, "storage", &ev.Storage)
-	if err := nodeIntField(n, "max_events", "", &ev.MaxEvents, 0); err != nil {
-		return err
-	}
+	fe.intField(n, "max_events", "", &ev.MaxEvents, 0)
 	nodeStringField(n, "file_path", &ev.FilePath)
-	return nil
+	return fe.err()
 }
 
 // --- Alerting ---

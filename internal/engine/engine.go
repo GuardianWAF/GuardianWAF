@@ -73,6 +73,7 @@ type Engine struct {
 	pipeline   atomic.Value // stores *Pipeline
 	eventStore EventStorer
 	eventBus   EventPublisher
+	tracer     *tracing.Tracer
 	closeOnce  sync.Once
 	closeErr   error
 	closed     atomic.Bool
@@ -123,6 +124,9 @@ type layerTimingCounters struct {
 // eventStore and eventBus are injected to avoid circular imports between engine and events packages.
 // Both must be non-nil.
 func NewEngine(cfg *config.Config, eventStore EventStorer, eventBus EventPublisher) (*Engine, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("config must not be nil")
+	}
 	if eventStore == nil {
 		return nil, fmt.Errorf("eventStore must not be nil")
 	}
@@ -138,11 +142,16 @@ func NewEngine(cfg *config.Config, eventStore EventStorer, eventBus EventPublish
 	if err != nil {
 		return nil, err
 	}
+	engineTracer, err := tracing.NewTracer(tracingConfig(cfg))
+	if err != nil {
+		return nil, fmt.Errorf("configure tracing: %w", err)
+	}
 
 	e := &Engine{
 		cfg:         cfg,
 		eventStore:  eventStore,
 		eventBus:    eventBus,
+		tracer:      engineTracer,
 		Logs:        NewLogBuffer(2000),
 		layerTiming: make(map[string]*layerTimingCounters),
 	}
@@ -243,18 +252,35 @@ func statusForAction(a Action) int {
 // and the request is sampled, assigning it to ctx.TraceSpan. It returns the span
 // (or nil) so the caller controls when to End it.
 func (e *Engine) startRootSpan(ctx *RequestContext, r *http.Request) *tracing.Span {
-	if !tracing.Enabled() || !tracing.ShouldSample() {
+	if e.tracer == nil || !e.tracer.Enabled() || !e.tracer.ShouldSample() {
 		return nil
 	}
-	span := tracing.StartSpan("waf.request", tracing.SpanKindServer)
+	span := e.tracer.StartSpan("waf.request", tracing.SpanKindServer)
 	span.SetAttribute(tracing.AttrHTTPMethod, r.Method)
 	span.SetAttribute(tracing.AttrHTTPURL, redactSensitiveURL(r.URL.String()))
 	span.SetAttribute(tracing.AttrHTTPHost, r.Host)
+	if ctx.ClientIP != nil {
+		span.SetAttribute(tracing.AttrClientIP, ctx.ClientIP.String())
+	}
 	if ua := r.UserAgent(); ua != "" {
 		span.SetAttribute(tracing.AttrHTTPUserAgent, redactSensitiveEvidence(ua))
 	}
 	ctx.TraceSpan = span
 	return span
+}
+
+func finishRootSpan(ctx *RequestContext, event Event, result PipelineResult) {
+	if ctx.TraceSpan == nil {
+		return
+	}
+	ctx.TraceSpan.SetAttribute(tracing.AttrHTTPCode, strconv.Itoa(event.StatusCode))
+	ctx.TraceSpan.SetAttribute(tracing.AttrWAFAction, event.Action.String())
+	ctx.TraceSpan.SetAttribute(tracing.AttrWAFScore, strconv.Itoa(result.TotalScore))
+	ctx.TraceSpan.SetAttribute(tracing.AttrWAFBlocked, strconv.FormatBool(event.Action == ActionBlock))
+	ctx.TraceSpan.SetAttribute(tracing.AttrWAFLatencyMs, strconv.FormatInt(result.Duration.Milliseconds(), 10))
+	if ctx.TenantID != "" {
+		ctx.TraceSpan.SetAttribute(tracing.AttrWAFTenantID, ctx.TenantID)
+	}
 }
 
 // buildEvent constructs the Event describing a processed request.
@@ -374,6 +400,7 @@ func (e *Engine) Check(r *http.Request) (ev *Event) {
 	finalAction := determineAction(result, int(e.blockThreshold.Load()), int(e.logThreshold.Load()))
 
 	event := e.buildEvent(ctx, result, finalAction)
+	finishRootSpan(ctx, event, result)
 	e.recordStats(finalAction, result.Duration)
 	e.recordLayerTimings(result.LayerTiming)
 	e.storeAndPublish(event)
@@ -440,23 +467,19 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 		statusCode := event.StatusCode
 
 		// Apply security headers from response layer hook
-		applyResponseHook(w, ctx.Metadata)
+		applyResponseHook(w, ctx)
 
 		// Extract masking function before releasing context
 		var maskFn func(string) string
-		if fn, ok := ctx.Metadata["response_mask_fn"]; ok {
-			if f, ok := fn.(func(string) string); ok {
-				maskFn = f
-			}
+		if ctx.ResponseMaskFn != nil {
+			maskFn = ctx.ResponseMaskFn
 		}
 
 		// Extract client-side response body transform (Magecart/agent-injection)
 		// before releasing context. The closure captures only value copies.
 		var bodyXform func([]byte, string) ([]byte, bool)
-		if fn, ok := ctx.Metadata["clientside_response_hook"]; ok {
-			if f, ok := fn.(func([]byte, string) ([]byte, bool)); ok {
-				bodyXform = f
-			}
+		if ctx.ClientsideBodyXform != nil {
+			bodyXform = ctx.ClientsideBodyXform
 		}
 
 		// Capture tenant ID before releasing context (pool resets all fields)
@@ -464,8 +487,7 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 
 		// End trace span before releasing context
 		if ctx.TraceSpan != nil {
-			ctx.TraceSpan.SetAttribute(tracing.AttrWAFAction, finalAction.String())
-			ctx.TraceSpan.SetAttribute(tracing.AttrWAFScore, strconv.Itoa(result.TotalScore))
+			finishRootSpan(ctx, event, result)
 			ctx.TraceSpan.End()
 		}
 
@@ -532,6 +554,9 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 // Updates thresholds and config atomically.
 // The config is deep-copied to prevent caller mutations from affecting the engine.
 func (e *Engine) Reload(cfg *config.Config) error {
+	if cfg == nil {
+		return fmt.Errorf("config must not be nil")
+	}
 	// Deep copy via Config.DeepCopy() to avoid GC pressure from JSON marshal/unmarshal
 	cfgCopy := cfg.DeepCopy()
 	if cfgCopy == nil {
@@ -549,6 +574,9 @@ func (e *Engine) Reload(cfg *config.Config) error {
 	if err != nil {
 		return err
 	}
+	if err := tracing.ValidateConfig(tracingConfig(cfgCopy)); err != nil {
+		return fmt.Errorf("configure tracing: %w", err)
+	}
 
 	e.cfg = cfgCopy
 	e.blockThreshold.Store(blockThreshold)
@@ -557,6 +585,9 @@ func (e *Engine) Reload(cfg *config.Config) error {
 	proxyCIDRs := parseTrustedProxyCIDRs(e.cfg.TrustedProxies)
 	e.trustedProxyCIDRs.Store(proxyCIDRs)
 	SetTrustedProxies(e.cfg.TrustedProxies)
+	if err := e.tracer.Reconfigure(tracingConfig(e.cfg)); err != nil {
+		return fmt.Errorf("configure tracing: %w", err)
+	}
 
 	// Note: layers are re-added by the caller after reload
 	// This just updates thresholds and config
@@ -596,6 +627,11 @@ func (e *Engine) Stats() Stats {
 		}
 	}
 	layerTiming := e.layerTimingStats()
+	var tracingEnabled bool
+	var tracingSpans, tracingExported int64
+	if e.tracer != nil {
+		tracingEnabled, tracingSpans, tracingExported = e.tracer.Stats()
+	}
 	return Stats{
 		TotalRequests:      total,
 		BlockedRequests:    e.blockedRequests.Load(),
@@ -609,6 +645,9 @@ func (e *Engine) Stats() Stats {
 		LayerTiming:        layerTiming,
 		GeoIPReady:         e.geoipReady.Load(),
 		GeoIPRanges:        e.geoipCount.Load(),
+		TracingEnabled:     tracingEnabled,
+		TracingSpans:       tracingSpans,
+		TracingExported:    tracingExported,
 	}
 }
 
@@ -671,10 +710,22 @@ func (e *Engine) Config() *config.Config {
 func (e *Engine) Close() error {
 	e.closeOnce.Do(func() {
 		e.closed.Store(true)
+		if e.tracer != nil {
+			e.tracer.Shutdown()
+		}
 		e.closeErr = e.eventStore.Close()
 		e.eventBus.Close()
 	})
 	return e.closeErr
+}
+
+func tracingConfig(cfg *config.Config) tracing.Config {
+	return tracing.Config{
+		Enabled:      cfg.Tracing.Enabled,
+		ServiceName:  cfg.Tracing.ServiceName,
+		SamplingRate: cfg.Tracing.SamplingRate,
+		ExporterType: cfg.Tracing.ExporterType,
+	}
 }
 
 // determineAction computes the final action from a pipeline result and score thresholds.

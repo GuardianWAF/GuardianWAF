@@ -151,7 +151,7 @@ func TestHandlePreflight_MissingRequestMethod(t *testing.T) {
 		t.Errorf("expected pass for OPTIONS without Request-Method, got %v", result.Action)
 	}
 	// Should still set regular CORS headers, not preflight headers
-	if _, ok := ctx.Metadata["cors_headers"]; !ok {
+	if ctx.CORSHeaders == nil {
 		t.Error("expected cors_headers to be set for non-preflight CORS request")
 	}
 }
@@ -337,7 +337,7 @@ func TestSetCORSHeaders_CredentialsEnabled(t *testing.T) {
 	if result.Action != engine.ActionPass {
 		t.Fatalf("expected pass, got %v", result.Action)
 	}
-	headers := ctx.Metadata["cors_headers"].(map[string]string)
+	headers := ctx.CORSHeaders
 	if headers["Access-Control-Allow-Credentials"] != "true" {
 		t.Errorf("expected 'true', got %q", headers["Access-Control-Allow-Credentials"])
 	}
@@ -360,7 +360,7 @@ func TestSetCORSHeaders_CredentialsDisabled(t *testing.T) {
 	if result.Action != engine.ActionPass {
 		t.Fatalf("expected pass, got %v", result.Action)
 	}
-	headers := ctx.Metadata["cors_headers"].(map[string]string)
+	headers := ctx.CORSHeaders
 	if headers["Access-Control-Allow-Credentials"] != "false" {
 		t.Errorf("expected 'false', got %q", headers["Access-Control-Allow-Credentials"])
 	}
@@ -381,13 +381,12 @@ func TestSetCORSHeaders_ExposeHeaders(t *testing.T) {
 	}
 	layer.Process(ctx)
 
-	exposed := ctx.Metadata["cors_expose_headers"]
-	if exposed == nil {
+	exposed := ctx.CORSExposeHeaders
+	if exposed == "" {
 		t.Fatal("expected cors_expose_headers to be set")
 	}
-	exposedStr := exposed.(string)
-	if exposedStr != "X-Custom-Header, X-Request-Id" {
-		t.Errorf("expected 'X-Custom-Header, X-Request-Id', got %q", exposedStr)
+	if exposed != "X-Custom-Header, X-Request-Id" {
+		t.Errorf("expected 'X-Custom-Header, X-Request-Id', got %q", exposed)
 	}
 }
 
@@ -406,7 +405,7 @@ func TestSetCORSHeaders_NoExposeHeaders(t *testing.T) {
 	}
 	layer.Process(ctx)
 
-	if _, ok := ctx.Metadata["cors_expose_headers"]; ok {
+	if ctx.CORSExposeHeaders != "" {
 		t.Error("expected cors_expose_headers to NOT be set when empty")
 	}
 }
@@ -429,8 +428,8 @@ func TestSetCORSHeaders_CorsHeadersSet(t *testing.T) {
 	layer.Process(ctx)
 
 	// Verify cors_headers map is set (engine.applyCORSHook reads this directly)
-	headers, ok := ctx.Metadata["cors_headers"].(map[string]string)
-	if !ok {
+	headers := ctx.CORSHeaders
+	if headers == nil {
 		t.Fatal("expected cors_headers map to be set")
 	}
 	if headers["Access-Control-Allow-Origin"] != "https://example.com" {
@@ -452,7 +451,7 @@ func TestSetCORSHeaders_OriginReflected(t *testing.T) {
 			Metadata: make(map[string]any),
 		}
 		layer.Process(ctx)
-		headers := ctx.Metadata["cors_headers"].(map[string]string)
+		headers := ctx.CORSHeaders
 		if headers["Access-Control-Allow-Origin"] != origin {
 			t.Errorf("expected Allow-Origin to be %q, got %q", origin, headers["Access-Control-Allow-Origin"])
 		}
@@ -480,7 +479,7 @@ func TestSetPreflightHeaders_MaxAge(t *testing.T) {
 	}
 	layer.Process(ctx)
 
-	headers := ctx.Metadata["cors_preflight_headers"].(map[string]string)
+	headers := ctx.CORSPreflightHeaders
 	if headers["Access-Control-Max-Age"] != "7200" {
 		t.Errorf("expected Max-Age '7200', got %q", headers["Access-Control-Max-Age"])
 	}
@@ -505,7 +504,7 @@ func TestSetPreflightHeaders_ZeroMaxAge(t *testing.T) {
 	}
 	layer.Process(ctx)
 
-	headers := ctx.Metadata["cors_preflight_headers"].(map[string]string)
+	headers := ctx.CORSPreflightHeaders
 	if _, ok := headers["Access-Control-Max-Age"]; ok {
 		t.Error("expected no Max-Age header when MaxAgeSeconds is 0")
 	}
@@ -530,7 +529,7 @@ func TestSetPreflightHeaders_MethodsAndHeaders(t *testing.T) {
 	}
 	layer.Process(ctx)
 
-	headers := ctx.Metadata["cors_preflight_headers"].(map[string]string)
+	headers := ctx.CORSPreflightHeaders
 	if headers["Access-Control-Allow-Methods"] != "GET, POST, PUT" {
 		t.Errorf("expected 'GET, POST, PUT', got %q", headers["Access-Control-Allow-Methods"])
 	}
@@ -556,7 +555,7 @@ func TestSetPreflightHeaders_NoMethodsNoHeaders(t *testing.T) {
 	}
 	layer.Process(ctx)
 
-	headers := ctx.Metadata["cors_preflight_headers"].(map[string]string)
+	headers := ctx.CORSPreflightHeaders
 	if _, ok := headers["Access-Control-Allow-Methods"]; ok {
 		t.Error("expected no Allow-Methods when AllowMethods is empty")
 	}
@@ -584,7 +583,7 @@ func TestSetPreflightHeaders_CredentialsInPreflight(t *testing.T) {
 	}
 	layer.Process(ctx)
 
-	headers := ctx.Metadata["cors_preflight_headers"].(map[string]string)
+	headers := ctx.CORSPreflightHeaders
 	if headers["Access-Control-Allow-Credentials"] != "true" {
 		t.Errorf("expected 'true', got %q", headers["Access-Control-Allow-Credentials"])
 	}

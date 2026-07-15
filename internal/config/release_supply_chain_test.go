@@ -98,6 +98,9 @@ func TestCIWorkflowPinsActionsToolsAndReleaseGates(t *testing.T) {
 		"build-dashboard:",
 		"run: ./scripts/check-prereqs.sh",
 		"run: ./scripts/build-dashboard.sh",
+		"E2E_PROJECTS: chromium,firefox,webkit",
+		"E2E_PLAYWRIGHT_DOCKER: 'true'",
+		"run: ./scripts/full-e2e.sh",
 		"go test -race -count=1 -coverprofile=coverage.txt -covermode=atomic",
 		"go test -tags http3 ./cmd/guardianwaf",
 		"./scripts/smoke-test.sh ./guardianwaf",
@@ -137,7 +140,8 @@ func TestCIWorkflowPinsActionsToolsAndReleaseGates(t *testing.T) {
 		"gosec -include=G304,G703 -severity=medium -confidence=medium ./internal/layers/crs",
 		"gosec -include=G304,G703 -severity=medium -confidence=medium ./scripts/attack-simulation ./tests/reliability",
 		"gosec -include=G304,G703 -severity=medium -confidence=medium ./...",
-		"gosec -include=G704 -severity=medium -confidence=medium ./internal/alerting ./internal/geoip ./internal/layers/apisecurity ./internal/layers/threatintel ./internal/layers/virtualpatch",
+		"gosec -include=G704 -severity=medium -confidence=medium ./internal/acme ./internal/ai ./internal/alerting ./internal/geoip ./internal/proxy ./internal/tls ./internal/layers/apisecurity ./internal/layers/botdetect/challenge ./internal/layers/threatintel ./internal/layers/virtualpatch",
+		"gosec -include=G704 -severity=medium -confidence=medium ./cmd/guardianwaf",
 		"gosec -include=G710 -severity=medium -confidence=medium ./cmd/guardianwaf ./internal/layers/challenge",
 		"gosec -include=G705 -severity=medium -confidence=medium ./internal/mcp ./internal/dashboard ./examples/backend",
 		"gosec -include=G204 -severity=medium -confidence=medium ./internal/docker",
@@ -189,6 +193,70 @@ func TestCIWorkflowPinsActionsToolsAndReleaseGates(t *testing.T) {
 				t.Fatalf("%s:%d action is not pinned to a commit SHA: %s", name, lineNo+1, strings.TrimSpace(line))
 			}
 		}
+	}
+}
+
+func TestPatchedGoToolchainIsAlignedAcrossBuildPaths(t *testing.T) {
+	root := filepath.Join("..", "..")
+	files := map[string][]string{
+		"go.mod":                              {"toolchain go1.26.5"},
+		"tools/deepcopy/go.mod":               {"go 1.26.5"},
+		"Dockerfile":                          {"golang:1.26.5-alpine AS builder"},
+		"docker-compose.yml":                  {"golang:1.26.5-alpine"},
+		"docker-compose.test.yml":             {"golang:1.26.5-alpine"},
+		"examples/sidecar/Dockerfile":         {"golang:1.26.5-alpine AS builder"},
+		"examples/sidecar/docker-compose.yml": {"golang:1.26.5-alpine"},
+		"scripts/check-prereqs.sh":            {`MIN_GO="1.26.5"`},
+		".github/workflows/ci.yml":            {"go-version: ['1.26.5']", "golang:1.26.5-alpine"},
+	}
+
+	for name, required := range files {
+		contents := readTextFixture(t, filepath.Join(root, name))
+		for _, want := range required {
+			if !strings.Contains(contents, want) {
+				t.Errorf("%s is not aligned to the patched Go toolchain: missing %q", name, want)
+			}
+		}
+		for _, vulnerable := range []string{"go1.26.4", "golang:1.26.4", "go-version: ['1.26.4']"} {
+			if strings.Contains(contents, vulnerable) {
+				t.Errorf("%s still references vulnerable toolchain %q", name, vulnerable)
+			}
+		}
+	}
+}
+
+func TestFullE2ERunnerUsesIsolatedProductionRuntime(t *testing.T) {
+	root := filepath.Join("..", "..")
+	script := readTextFixture(t, filepath.Join(root, "scripts/full-e2e.sh"))
+	checklist := readTextFixture(t, filepath.Join(root, "docs/release-checklist.md"))
+
+	for _, want := range []string{
+		`TMPDIR="$(mktemp -d)"`,
+		`trap cleanup EXIT`,
+		`go build -o "${BIN}" "${ROOT_DIR}/cmd/guardianwaf"`,
+		`go build -o "${BACKEND_BIN}" "${ROOT_DIR}/examples/backend"`,
+		`cp "${ROOT_DIR}/testdata/realtest.yaml" "${CONFIG}"`,
+		`GWAF_MCP_ENABLED=true`,
+		`GWAF_DOCKER_ENABLED=false`,
+		`GWAF_WAF_AI_ANALYSIS_ENABLED=false`,
+		`kill -0 "${WAF_PID}"`,
+		`npm ci --no-audit --no-fund`,
+		`E2E_PROJECTS="${E2E_PROJECTS:-chromium}"`,
+		`E2E_PLAYWRIGHT_DOCKER="${E2E_PLAYWRIGHT_DOCKER:-false}"`,
+		`mcr.microsoft.com/playwright:v1.60.0-noble@sha256:9bd26ad900bb5e0f4dee75839e957a89ae89c2b7ab1e76050e559790e946b948`,
+		`PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH`,
+		`project_args+=("--project=${project}")`,
+		`--volume "${ROOT_DIR}/tests/e2e/playwright:/work:ro"`,
+		`npx playwright test "${project_args[@]}"`,
+		`tail -n 200 "${WAF_LOG}"`,
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("full E2E runner lost production isolation or diagnostics contract: missing %q", want)
+		}
+	}
+
+	if !strings.Contains(checklist, "Full production-binary Chromium, Firefox, and WebKit dashboard/API E2E suite passes (`make e2e-full-all`)") {
+		t.Fatal("release checklist does not require the full cross-browser production-binary E2E gate")
 	}
 }
 
@@ -1551,7 +1619,7 @@ func TestCleanCheckoutDashboardEmbedContract(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		`MIN_GO="1.26.4"`,
+		`MIN_GO="1.26.5"`,
 		`MIN_NODE="20.19.0"`,
 		"MIN_NPM_MAJOR=10",
 		"Go $MIN_GO or newer is required",
@@ -1568,7 +1636,7 @@ func TestCleanCheckoutDashboardEmbedContract(t *testing.T) {
 		"docs/production-deployment.md": productionDeployment,
 	} {
 		for _, want := range []string{
-			"Go 1.26.4 or newer",
+			"Go 1.26.5 or newer",
 			"Node.js 20.19.0 or newer",
 			"npm 10.x or newer",
 			"./scripts/check-prereqs.sh",

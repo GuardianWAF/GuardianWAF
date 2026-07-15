@@ -3,12 +3,22 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
+)
+
+var (
+	// ErrNoProviderConfigured indicates that analysis was requested before an
+	// operator configured an AI provider.
+	ErrNoProviderConfigured = errors.New("no AI provider configured")
+	// ErrUsageLimitReached indicates that the configured AI request/token
+	// budget has been exhausted.
+	ErrUsageLimitReached = errors.New("AI usage limit reached")
 )
 
 const systemPrompt = `You are a WAF (Web Application Firewall) security analyst AI. Analyze the following batch of HTTP request events that were flagged by the rule-based WAF engine.
@@ -377,11 +387,11 @@ func (a *Analyzer) ManualAnalyze(events []engine.Event) (*AnalysisResult, error)
 	a.mu.RUnlock()
 
 	if client == nil {
-		return nil, fmt.Errorf("no AI provider configured")
+		return nil, ErrNoProviderConfigured
 	}
 
 	if !a.store.WithinLimits(a.config.MaxTokensHour, a.config.MaxTokensDay, a.config.MaxRequestsHour) {
-		return nil, fmt.Errorf("usage limit reached")
+		return nil, ErrUsageLimitReached
 	}
 
 	batch := make([]eventSummary, 0, len(events))

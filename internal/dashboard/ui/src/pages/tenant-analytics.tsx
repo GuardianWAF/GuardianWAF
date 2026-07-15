@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { useToast } from '@/components/ui/toast'
+import { AdminKeyGate } from '@/components/admin-key-gate'
 import { api, AdminTenantDetail, TenantUsage as TenantUsageType } from '@/lib/api'
 import {
   ArrowLeft,
@@ -88,10 +89,15 @@ export default function TenantAnalyticsPage() {
   const [usage, setUsage] = useState<TenantUsageType | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [timeRange, setTimeRange] = useState<'24h' | '7d' | '30d'>('24h')
+  const [adminReady, setAdminReady] = useState(api.hasAdminKey())
   const { toast } = useToast()
 
   const loadData = useCallback(async () => {
     if (!id) return
+    if (!adminReady) {
+      setLoading(false)
+      return
+    }
     try {
       const list = await api.adminGetTenants()
       if (list.enabled === false || !list.tenants.some((tenant) => tenant.id === id)) {
@@ -108,7 +114,11 @@ export default function TenantAnalyticsPage() {
       }
       setTenant(tenantData)
       setUsage(usageData)
-    } catch {
+    } catch (error: unknown) {
+      if (error instanceof Error && error.message.toLowerCase().includes('unauthorized')) {
+        api.clearAdminKey()
+        setAdminReady(false)
+      }
       toast({
         title: 'Error',
         description: 'Failed to load tenant analytics',
@@ -117,7 +127,7 @@ export default function TenantAnalyticsPage() {
     } finally {
       setLoading(false)
     }
-  }, [id, toast])
+  }, [id, adminReady, toast])
 
   const refreshData = async () => {
     setRefreshing(true)
@@ -201,6 +211,17 @@ export default function TenantAnalyticsPage() {
     const interval = setInterval(loadData, 30000) // Refresh every 30s
     return () => clearInterval(interval)
   }, [loadData])
+
+  if (!adminReady) {
+    return (
+      <AdminKeyGate locked={!adminReady} onLocked={() => setAdminReady(false)} onUnlocked={() => {
+        setAdminReady(true)
+        setLoading(true)
+      }}>
+        <></>
+      </AdminKeyGate>
+    )
+  }
 
   if (loading) {
     return (

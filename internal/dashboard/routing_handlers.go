@@ -1,10 +1,13 @@
 package dashboard
 
 import (
-	"github.com/guardianwaf/guardianwaf/internal/config"
-	"github.com/guardianwaf/guardianwaf/internal/proxy"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
+
+	"github.com/guardianwaf/guardianwaf/internal/config"
+	"github.com/guardianwaf/guardianwaf/internal/proxy"
 )
 
 // routingControllerAdapter wraps rebuild/save closures into a RoutingController.
@@ -162,7 +165,8 @@ func (d *Dashboard) handleUpdateRouting(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	cfg := deepCopyConfig(d.engine.Config())
+	oldCfg := d.engine.Config()
+	cfg := deepCopyConfig(oldCfg)
 
 	// Parse upstreams from raw JSON maps
 	if body.Upstreams != nil {
@@ -286,8 +290,19 @@ func (d *Dashboard) handleUpdateRouting(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, sanitizeErr(ve))
 		return
 	}
+	if atomicController, ok := d.routingCtrl.(AtomicRoutingController); ok {
+		if err := atomicController.Apply(oldCfg, cfg); err != nil {
+			dashboardLog.Error("atomic routing update failed", "error", err)
+			writeError(w, http.StatusInternalServerError, "routing update failed; previous routing remains active")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "message": "Routing updated and saved"})
+		return
+	}
 
-	// Reload config
+	// Legacy controllers are retained for embedders and tests. Roll back the
+	// engine and proxy if either rebuild or persistence fails so callers never
+	// observe a successful response for a partially applied routing update.
 	if err := d.engine.Reload(cfg); err != nil {
 		writeError(w, http.StatusInternalServerError, sanitizeErr(err))
 		return
@@ -296,6 +311,8 @@ func (d *Dashboard) handleUpdateRouting(w http.ResponseWriter, r *http.Request) 
 	// Rebuild proxy
 	if d.routingCtrl != nil {
 		if err := d.routingCtrl.Rebuild(); err != nil {
+			rollbackErr := d.rollbackRoutingUpdate(oldCfg, false)
+			dashboardLog.Error("proxy rebuild failed during routing update", "error", err, "rollback_error", rollbackErr)
 			writeError(w, http.StatusInternalServerError, "proxy rebuild failed")
 			return
 		}
@@ -304,12 +321,32 @@ func (d *Dashboard) handleUpdateRouting(w http.ResponseWriter, r *http.Request) 
 	// Persist to disk
 	if d.routingCtrl != nil {
 		if err := d.routingCtrl.Save(); err != nil {
-			writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "message": "Routing updated (disk sync pending)"})
+			rollbackErr := d.rollbackRoutingUpdate(oldCfg, true)
+			dashboardLog.Error("routing persistence failed", "error", err, "rollback_error", rollbackErr)
+			writeError(w, http.StatusInternalServerError, "routing persistence failed; previous routing restored")
 			return
 		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "message": "Routing updated and saved"})
+}
+
+func (d *Dashboard) rollbackRoutingUpdate(oldCfg *config.Config, persist bool) error {
+	var rollbackErrs []error
+	if err := d.engine.Reload(oldCfg); err != nil {
+		rollbackErrs = append(rollbackErrs, fmt.Errorf("reload previous engine config: %w", err))
+	}
+	if d.routingCtrl != nil {
+		if err := d.routingCtrl.Rebuild(); err != nil {
+			rollbackErrs = append(rollbackErrs, fmt.Errorf("rebuild previous proxy: %w", err))
+		}
+		if persist {
+			if err := d.routingCtrl.Save(); err != nil {
+				rollbackErrs = append(rollbackErrs, fmt.Errorf("restore previous persisted config: %w", err))
+			}
+		}
+	}
+	return errors.Join(rollbackErrs...)
 }
 
 // registerRouting registers routing and SPA routes.

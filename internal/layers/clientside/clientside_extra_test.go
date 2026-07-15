@@ -680,18 +680,14 @@ func TestLayer_Process_CSPHookRegistered(t *testing.T) {
 	}
 
 	// Verify CSP hook is callable
-	hook, ok := ctx.Metadata["clientside_csp_hook"]
-	if !ok {
-		t.Fatal("expected clientside_csp_hook in metadata")
-	}
-	fn, ok := hook.(func(http.ResponseWriter))
-	if !ok {
-		t.Fatal("expected CSP hook to be a function")
+	hook := ctx.ClientsideCSPHook
+	if hook == nil {
+		t.Fatal("expected CSP hook to be registered")
 	}
 
 	// Call the hook with a response writer
 	w := httptest.NewRecorder()
-	fn(w)
+	hook(w)
 
 	csp := w.Header().Get("Content-Security-Policy")
 	if csp == "" {
@@ -722,17 +718,13 @@ func TestLayer_Process_ResponseHook(t *testing.T) {
 		t.Errorf("expected pass, got %v", result.Action)
 	}
 
-	hook, ok := ctx.Metadata["clientside_response_hook"]
-	if !ok {
-		t.Fatal("expected clientside_response_hook in metadata")
-	}
-	fn, ok := hook.(func([]byte, string) ([]byte, bool))
-	if !ok {
-		t.Fatal("expected response hook to be a function")
+	hook := ctx.ClientsideBodyXform
+	if hook == nil {
+		t.Fatal("expected response body transform hook to be registered")
 	}
 
 	// Call with clean HTML
-	body, modified := fn([]byte("<html><body>Hello</body></html>"), "text/html")
+	body, modified := hook([]byte("<html><body>Hello</body></html>"), "text/html")
 	if modified {
 		t.Error("clean HTML should not be modified")
 	}
@@ -757,7 +749,7 @@ func TestLayer_Process_ResponseHookBlockMode(t *testing.T) {
 
 	layer.Process(ctx)
 
-	hook := ctx.Metadata["clientside_response_hook"].(func([]byte, string) ([]byte, bool))
+	hook := ctx.ClientsideBodyXform
 	maliciousBody := []byte(`<script>eval("malicious")</script>`)
 	body, _ := hook(maliciousBody, "text/html")
 
@@ -790,7 +782,7 @@ func TestLayer_Process_ResponseHookWithInjection(t *testing.T) {
 
 	layer.Process(ctx)
 
-	hook := ctx.Metadata["clientside_response_hook"].(func([]byte, string) ([]byte, bool))
+	hook := ctx.ClientsideBodyXform
 	body := []byte(`<html><head></head><body>Checkout</body></html>`)
 	result, modified := hook(body, "text/html")
 
@@ -821,7 +813,7 @@ func TestLayer_Process_EmptyBody(t *testing.T) {
 
 	layer.Process(ctx)
 
-	hook := ctx.Metadata["clientside_response_hook"].(func([]byte, string) ([]byte, bool))
+	hook := ctx.ClientsideBodyXform
 	body, modified := hook([]byte{}, "text/html")
 	if modified {
 		t.Error("empty body should not be modified")
@@ -846,7 +838,7 @@ func TestLayer_Process_ResponseHookNonHTMLContentType(t *testing.T) {
 
 	layer.Process(ctx)
 
-	hook := ctx.Metadata["clientside_response_hook"].(func([]byte, string) ([]byte, bool))
+	hook := ctx.ClientsideBodyXform
 
 	// JSON content should not trigger HTML-specific injection
 	body := []byte(`{"key": "value"}`)
@@ -904,7 +896,7 @@ func TestLayer_SetEnabled(t *testing.T) {
 		t.Error("disabled layer should pass")
 	}
 	// With enabled=false, no hooks should be registered
-	if _, ok := ctx.Metadata["clientside_csp_hook"]; ok {
+	if ctx.ClientsideCSPHook != nil {
 		t.Error("CSP hook should not be registered when disabled")
 	}
 }
@@ -1291,13 +1283,13 @@ func TestGetStats_AfterOperations(t *testing.T) {
 	layer.Process(ctx)
 
 	// Call CSP hook
-	if hook, ok := ctx.Metadata["clientside_csp_hook"]; ok {
-		hook.(func(http.ResponseWriter))(httptest.NewRecorder())
+	if ctx.ClientsideCSPHook != nil {
+		ctx.ClientsideCSPHook(httptest.NewRecorder())
 	}
 
 	// Process response with malicious content
-	if hook, ok := ctx.Metadata["clientside_response_hook"]; ok {
-		hook.(func([]byte, string) ([]byte, bool))(
+	if ctx.ClientsideBodyXform != nil {
+		ctx.ClientsideBodyXform(
 			[]byte(`<html><head></head><body><script>eval("evil")</script></body></html>`),
 			"text/html",
 		)

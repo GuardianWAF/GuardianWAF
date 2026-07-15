@@ -499,7 +499,7 @@ docker pull ghcr.io/guardianwaf/guardianwaf:latest
 
 Prerequisites:
 
-- Go 1.26.4 or newer
+- Go 1.26.5 or newer
 - Node.js 20.19.0 or newer
 - npm 10.x or newer
 - `git`
@@ -841,7 +841,7 @@ Contributions are welcome. GuardianWAF values quality over velocity -- clean cod
 
 1. Fork the repository.
 2. Create a feature branch.
-3. Run `make test` and `make vet` to verify all tests pass.
+3. Run `make test`, `make vet`, and `make e2e-full-all` to verify the backend and complete Chromium/Firefox/WebKit production-binary browser/API suite.
 4. New features should include tests.
 5. No external dependencies -- everything is implemented from scratch.
 6. Submit a pull request with a clear description of changes.

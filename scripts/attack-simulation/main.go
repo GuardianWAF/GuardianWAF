@@ -92,58 +92,24 @@ func run(args []string) int {
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
-
 	if err := loadPayloads(*attackFile); err != nil {
 		fmt.Fprintf(stderr, "Error loading payloads: %v\n", err)
 		return 1
 	}
-
-	client = &http.Client{
-		Timeout: 10 * time.Second,
-		Transport: &http.Transport{
-			MaxIdleConns:        100,
-			MaxIdleConnsPerHost: 100,
-			IdleConnTimeout:     30 * time.Second,
-		},
-	}
-
-	fmt.Fprintf(stdout, `
-╔══════════════════════════════════════════════════════════════╗
-║           GuardianWAF Load Test & Attack Simulation          ║
-╠══════════════════════════════════════════════════════════════╣
-║  Target:        %-45s║
-║  Duration:      %-45s║
-║  Workers:       %-45d║
-║  Rate:          %-45s║
-║  Mode:          %-45s║
-║  Legit Ratio:   %-45s║
-║  Payloads:      %-45d║
-╚══════════════════════════════════════════════════════════════╝
-
-`, *target, *duration, *workers, fmt.Sprintf("%d req/s per worker", *rate), *mode, fmt.Sprintf("1 in %d", *legitRatio), len(payloads))
-
+	client = &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{MaxIdleConns: 100, MaxIdleConnsPerHost: 100, IdleConnTimeout: 30 * time.Second}}
+	fmt.Fprintf(stdout, "GuardianWAF Load Test & Attack Simulation\nTarget: %s Duration: %s Workers: %d Rate: %d Mode: %s Legit Ratio: 1 in %d Payloads: %d\n", *target, *duration, *workers, *rate, *mode, *legitRatio, len(payloads))
 	stats.MinLatency.Store(int64(^uint64(0) >> 1))
 	var wg sync.WaitGroup
 	stopCh := make(chan struct{})
 	startTime := now()
-
 	for i := 0; i < *workers; i++ {
 		wg.Add(1)
-		go func(workerID int) {
-			defer wg.Done()
-			runWorker(workerID, *target, *rate, *legitRatio, *mode, stopCh)
-		}(i)
+		go func(id int) { defer wg.Done(); runWorker(id, *target, *rate, *legitRatio, *mode, stopCh) }(i)
 	}
-
-	reporterDone := make(chan struct{})
-	go func() {
-		reportProgress(startTime, stopCh)
-		close(reporterDone)
-	}()
+	go reportProgress(startTime, stopCh)
 	sleep(*duration)
 	close(stopCh)
 	wg.Wait()
-	<-reporterDone
 	printResults(now().Sub(startTime))
 	return 0
 }
@@ -156,15 +122,11 @@ func reportProgress(startTime time.Time, stopCh <-chan struct{}) {
 		case <-ticker.C:
 			elapsed := now().Sub(startTime)
 			total := stats.TotalRequests.Load()
-			blocked := stats.BlockedRequests.Load()
-			passed := stats.PassedRequests.Load()
-			avgLatency := float64(0)
+			avg := float64(0)
 			if total > 0 {
-				avgLatency = float64(stats.TotalLatency.Load()) / float64(total) / 1000
+				avg = float64(stats.TotalLatency.Load()) / float64(total) / 1000
 			}
-			rps := float64(total) / elapsed.Seconds()
-			fmt.Fprintf(stdout, "\r[%6.1fs] Total: %d | Blocked: %d | Passed: %d | Errors: %d | RPS: %.0f | Avg: %.2fms   ",
-				elapsed.Seconds(), total, blocked, passed, stats.Errors.Load(), rps, avgLatency)
+			fmt.Fprintf(stdout, "\r[%6.1fs] Total: %d | Blocked: %d | Passed: %d | Errors: %d | RPS: %.0f | Avg: %.2fms   ", elapsed.Seconds(), total, stats.BlockedRequests.Load(), stats.PassedRequests.Load(), stats.Errors.Load(), float64(total)/elapsed.Seconds(), avg)
 		case <-stopCh:
 			return
 		}

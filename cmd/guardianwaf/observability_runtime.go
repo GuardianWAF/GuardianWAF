@@ -77,6 +77,29 @@ var prometheusMetricsContract = []prometheusMetric{
 		Type:  "gauge",
 		Value: func(s engine.Stats) int64 { return s.GeoIPRanges },
 	},
+	{
+		Name: "guardianwaf_tracing_enabled",
+		Help: "Tracing runtime status, 1 when enabled and 0 when disabled.",
+		Type: "gauge",
+		Value: func(s engine.Stats) int64 {
+			if s.TracingEnabled {
+				return 1
+			}
+			return 0
+		},
+	},
+	{
+		Name:  "guardianwaf_tracing_spans_created_total",
+		Help:  "Total number of tracing spans created.",
+		Type:  "counter",
+		Value: func(s engine.Stats) int64 { return s.TracingSpans },
+	},
+	{
+		Name:  "guardianwaf_tracing_spans_exported_total",
+		Help:  "Total number of tracing spans handed to the configured exporter.",
+		Type:  "counter",
+		Value: func(s engine.Stats) int64 { return s.TracingExported },
+	},
 }
 
 type metricsDependencies struct {

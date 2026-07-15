@@ -1,3 +1,4 @@
+import { useCallback, useState } from 'react'
 import { Outlet } from 'react-router'
 import { Sidebar } from './sidebar'
 import { Header } from './header'
@@ -8,13 +9,16 @@ import { ToastProvider } from '@/components/ui/toast'
 function LayoutInner() {
   const { addEvent } = useEventsContext()
   const { connected } = useSSE(addEvent)
+  const [mobileOpen, setMobileOpen] = useState(false)
+  const closeMobileSidebar = useCallback(() => setMobileOpen(false), [])
+  const openMobileSidebar = useCallback(() => setMobileOpen(true), [])
 
   return (
     <div className="flex h-screen overflow-hidden">
-      <Sidebar />
+      <Sidebar mobileOpen={mobileOpen} onMobileClose={closeMobileSidebar} />
       <div className="flex flex-col flex-1 min-w-0">
-        <Header connected={connected} />
-        <main className="flex-1 overflow-y-auto p-6">
+        <Header connected={connected} onOpenSidebar={openMobileSidebar} />
+        <main className="flex-1 overflow-y-auto p-3 sm:p-6">
           <Outlet />
         </main>
       </div>

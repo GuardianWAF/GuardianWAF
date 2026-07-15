@@ -2346,3 +2346,103 @@ func TestHandleAddRateLimit_EmptyID(t *testing.T) {
 		t.Fatal("expected error for empty ID")
 	}
 }
+
+// --- validateJSONTypes tests ---
+
+func TestValidateJSONTypes_StringField_AcceptsString(t *testing.T) {
+	err := validateJSONTypes[ipParam](json.RawMessage(`{"ip":"10.0.0.1"}`))
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+}
+
+func TestValidateJSONTypes_StringField_RejectsNumber(t *testing.T) {
+	err := validateJSONTypes[ipParam](json.RawMessage(`{"ip":123}`))
+	if err == nil {
+		t.Fatal("expected error for number instead of string")
+	}
+	if !strings.Contains(err.Error(), "expected string, got number") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateJSONTypes_IntField_AcceptsInteger(t *testing.T) {
+	err := validateJSONTypes[topIPsParam](json.RawMessage(`{"count":5}`))
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+}
+
+func TestValidateJSONTypes_IntField_RejectsString(t *testing.T) {
+	err := validateJSONTypes[topIPsParam](json.RawMessage(`{"count":"five"}`))
+	if err == nil {
+		t.Fatal("expected error for string instead of integer")
+	}
+	if !strings.Contains(err.Error(), "expected integer, got string") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateJSONTypes_EmptyParams_ReturnsNil(t *testing.T) {
+	err := validateJSONTypes[ipParam](json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("expected no error for empty params, got: %v", err)
+	}
+}
+
+func TestValidateJSONTypes_InvalidJSON_ReturnsNil(t *testing.T) {
+	err := validateJSONTypes[ipParam](json.RawMessage(`{invalid}`))
+	if err != nil {
+		t.Fatalf("expected no error for invalid JSON (delegates to json.Unmarshal), got: %v", err)
+	}
+}
+
+func TestValidateJSONTypes_BoolField_RejectsString(t *testing.T) {
+	err := validateJSONTypes[struct {
+		Enabled bool `json:"enabled"`
+	}](json.RawMessage(`{"enabled":"yes"}`))
+	if err == nil {
+		t.Fatal("expected error for string instead of boolean")
+	}
+	if !strings.Contains(err.Error(), "expected boolean, got string") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// Test that the handleWithParams generic adapter properly returns type-mismatch
+// errors instead of misleading "required" errors.
+func TestHandleWithParams_TypeMismatch_ReturnsClearError(t *testing.T) {
+	// ipParam expects "ip" as a string, but we send a number.
+	// json.Unmarshal catches this and returns a clear message.
+	input := sendRequest(1, "tools/call", map[string]any{
+		"name":      "guardianwaf_add_whitelist",
+		"arguments": map[string]any{"ip": 123},
+	})
+	var out bytes.Buffer
+	srv := NewServer(strings.NewReader(input), &out)
+	srv.SetEngine(newMockEngine())
+	srv.RegisterAllTools()
+	_ = srv.Run()
+	resp := readResponse(t, out.String())
+	// MCP returns business-logic errors as result.isError, not JSON-RPC error
+	if resp.Error != nil {
+		t.Fatalf("unexpected JSON-RPC error: %v", resp.Error)
+	}
+	result, ok := resp.Result.(map[string]any)
+	if !ok {
+		t.Fatal("result is not a map")
+	}
+	isError, _ := result["isError"].(bool)
+	if !isError {
+		t.Fatal("expected isError=true for type mismatch")
+	}
+	content, ok := result["content"].([]any)
+	if !ok || len(content) == 0 {
+		t.Fatal("expected content array")
+	}
+	first := content[0].(map[string]any)
+	text, _ := first["text"].(string)
+	if !strings.Contains(text, "cannot unmarshal") && !strings.Contains(text, "expected string") {
+		t.Errorf("expected type-mismatch error in content, got: %s", text)
+	}
+}

@@ -4,52 +4,45 @@ import (
 	"net/http"
 )
 
-// applyResponseHook calls the response hook function stored in context metadata.
-// The response layer registers this hook during Process() so that security
-// headers are applied without circular imports between engine and response packages.
-// It also applies CORS headers stored by the CORS layer (Order 150) since the
-// CORS layer runs before the response layer (Order 600) and stores headers in
-// metadata rather than registering its own hook to avoid overwriting the response hook.
-func applyResponseHook(w http.ResponseWriter, metadata map[string]any) {
-	// Apply CORS headers from the CORS layer (runs before response layer).
-	// The CORS layer stores headers in cors_headers/cors_preflight_headers metadata.
-	applyCORSHook(w, metadata)
+// applyResponseHook calls the response hook functions stored on the
+// RequestContext. The response/clientside/CORS layers register these hooks
+// during Process() so that security headers, CSP headers, and CORS headers
+// are applied without circular imports between engine and those packages.
+func applyResponseHook(w http.ResponseWriter, ctx *RequestContext) {
+	// Apply CORS headers from the CORS layer (runs at Order 150).
+	applyCORSHook(w, ctx)
 
 	// Apply the client-side CSP hook (clientside layer, Order 590) before the
 	// response layer's hook (Order 600) so response-layer headers take final
 	// precedence, matching pipeline order.
-	if hook, ok := metadata["clientside_csp_hook"]; ok {
-		if fn, ok := hook.(func(http.ResponseWriter)); ok {
-			fn(w)
-		}
+	if ctx.ClientsideCSPHook != nil {
+		ctx.ClientsideCSPHook(w)
 	}
 
 	// Apply the main response hook (security headers from response layer).
-	if hook, ok := metadata["response_hook"]; ok {
-		if fn, ok := hook.(func(http.ResponseWriter)); ok {
-			fn(w)
-		}
+	if ctx.ResponseHook != nil {
+		ctx.ResponseHook(w)
 	}
 }
 
-// applyCORSHook applies CORS headers stored in context metadata by the CORS layer.
-func applyCORSHook(w http.ResponseWriter, metadata map[string]any) {
+// applyCORSHook applies CORS headers stored on the RequestContext by the CORS layer.
+func applyCORSHook(w http.ResponseWriter, ctx *RequestContext) {
 	// Preflight headers take precedence if set (handled by CORS layer directly)
-	if headers, ok := metadata["cors_preflight_headers"].(map[string]string); ok {
+	if ctx.CORSPreflightHeaders != nil {
 		w.Header().Set("Vary", "Origin")
-		for k, v := range headers {
+		for k, v := range ctx.CORSPreflightHeaders {
 			w.Header().Set(k, v)
 		}
 		return
 	}
 	// Regular CORS headers from the CORS layer's Process()
-	if headers, ok := metadata["cors_headers"].(map[string]string); ok {
+	if ctx.CORSHeaders != nil {
 		w.Header().Set("Vary", "Origin")
-		for k, v := range headers {
+		for k, v := range ctx.CORSHeaders {
 			w.Header().Set(k, v)
 		}
-		if expose, ok := metadata["cors_expose_headers"].(string); ok && expose != "" {
-			w.Header().Set("Access-Control-Expose-Headers", expose)
+		if ctx.CORSExposeHeaders != "" {
+			w.Header().Set("Access-Control-Expose-Headers", ctx.CORSExposeHeaders)
 		}
 	}
 }

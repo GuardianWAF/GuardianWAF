@@ -222,9 +222,8 @@ SecRule ARGS "@rx test" "id:222222,phase:1,pass,msg:'Should skip'"`
 		{ID: "high-pl", Phase: 1, ParanoiaLevel: 5, Variables: []RuleVariable{{Name: "ARGS"}}, Operator: RuleOperator{Type: "@rx", Argument: "test"}, Actions: RuleActions{Action: "pass"}},
 	}
 	layer2.buildRuleMaps()
-	if layer2.GetRule("high-pl") != nil {
-		// It's already loaded, so it should be there. The filter only applies in loadRuleFile.
-		// This just verifies the buildRuleMaps works correctly.
+	if layer2.GetRule("high-pl") == nil {
+		t.Error("expected high-pl rule to exist in child layer")
 	}
 }
 

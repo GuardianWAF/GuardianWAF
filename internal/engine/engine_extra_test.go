@@ -250,7 +250,7 @@ func (l *metadataLayer) Name() string { return l.name }
 func (l *metadataLayer) Order() int { return 0 }
 func (l *metadataLayer) Process(ctx *RequestContext) LayerResult {
 	ctx.Metadata["test_key"] = "test_value"
-	ctx.Metadata["response_hook"] = func(w http.ResponseWriter) {
+	ctx.ResponseHook = func(w http.ResponseWriter) {
 		w.Header().Set("X-Meta-Test", "propagated")
 	}
 	return LayerResult{Action: ActionPass}

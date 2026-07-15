@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"net"
 	"net/url"
 	"os"
@@ -860,7 +861,10 @@ func parseNodeValue(n *Node) any {
 	return n.String()
 }
 
-// LoadEnv overlays environment variables onto the config.
+// LoadEnv atomically overlays environment variables onto the config.
+// Invalid typed values are returned as validation errors and no overrides are
+// applied, preventing a misspelled production setting from silently falling
+// back to a potentially unsafe default.
 // Env var format: GWAF_<SECTION>_<KEY>=<value>
 // Examples:
 //
@@ -868,7 +872,54 @@ func parseNodeValue(n *Node) any {
 //	GWAF_LISTEN=:9090
 //	GWAF_WAF_DETECTION_THRESHOLD_BLOCK=60
 //	GWAF_LOGGING_LEVEL=debug
-func LoadEnv(cfg *Config) {
+func LoadEnv(cfg *Config) error {
+	if cfg == nil {
+		return fmt.Errorf("load environment overrides: config is nil")
+	}
+
+	ve := &ValidationError{}
+	for _, key := range []string{
+		"GWAF_ALLOW_PRIVATE_UPSTREAMS",
+		"GWAF_DASHBOARD_ENABLED",
+		"GWAF_MCP_ENABLED",
+		"GWAF_DOCKER_ENABLED",
+		"GWAF_ALERTING_ENABLED",
+		"GWAF_WAF_AI_ANALYSIS_ENABLED",
+		"GWAF_TLS_ENABLED",
+		"GWAF_TRACING_ENABLED",
+		"GWAF_COMPLIANCE_ENABLED",
+		"GWAF_COMPLIANCE_AUDIT_TRAIL_ENABLED",
+	} {
+		if value := os.Getenv(key); value != "" {
+			if _, err := strconv.ParseBool(value); err != nil {
+				ve.addError(key, "must be a valid boolean")
+			}
+		}
+	}
+	for _, key := range []string{
+		"GWAF_WAF_DETECTION_THRESHOLD_BLOCK",
+		"GWAF_WAF_DETECTION_THRESHOLD_LOG",
+		"GWAF_EVENTS_MAX_EVENTS",
+		"GWAF_LOGGING_MAX_SIZE_MB",
+		"GWAF_LOGGING_MAX_BACKUPS",
+		"GWAF_LOGGING_MAX_AGE_DAYS",
+	} {
+		if value := os.Getenv(key); value != "" {
+			if _, err := strconv.Atoi(value); err != nil {
+				ve.addError(key, "must be a valid integer")
+			}
+		}
+	}
+	if value := os.Getenv("GWAF_TRACING_SAMPLING_RATE"); value != "" {
+		parsed, err := strconv.ParseFloat(value, 64)
+		if err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) {
+			ve.addError("GWAF_TRACING_SAMPLING_RATE", "must be a valid number")
+		}
+	}
+	if ve.HasErrors() {
+		return ve
+	}
+
 	envMap := map[string]func(string){
 		"GWAF_MODE":   func(v string) { cfg.Mode = v },
 		"GWAF_LISTEN": func(v string) { cfg.Listen = v },
@@ -879,6 +930,9 @@ func LoadEnv(cfg *Config) {
 		},
 		"GWAF_ALLOWED_UPSTREAM_CIDRS": func(v string) {
 			cfg.AllowedUpstreamCIDRs = splitCommaList(v)
+		},
+		"GWAF_TRUSTED_PROXIES": func(v string) {
+			cfg.TrustedProxies = splitCommaList(v)
 		},
 
 		"GWAF_LOGGING_LEVEL":  func(v string) { cfg.Logging.Level = v },
@@ -904,6 +958,27 @@ func LoadEnv(cfg *Config) {
 		"GWAF_DASHBOARD_ENABLED": func(v string) {
 			if b, err := strconv.ParseBool(v); err == nil {
 				cfg.Dashboard.Enabled = b
+			}
+		},
+		"GWAF_MCP_ENABLED": func(v string) {
+			if b, err := strconv.ParseBool(v); err == nil {
+				cfg.MCP.Enabled = b
+			}
+		},
+		"GWAF_MCP_TRANSPORT": func(v string) { cfg.MCP.Transport = v },
+		"GWAF_DOCKER_ENABLED": func(v string) {
+			if b, err := strconv.ParseBool(v); err == nil {
+				cfg.Docker.Enabled = b
+			}
+		},
+		"GWAF_ALERTING_ENABLED": func(v string) {
+			if b, err := strconv.ParseBool(v); err == nil {
+				cfg.Alerting.Enabled = b
+			}
+		},
+		"GWAF_WAF_AI_ANALYSIS_ENABLED": func(v string) {
+			if b, err := strconv.ParseBool(v); err == nil {
+				cfg.WAF.AIAnalysis.Enabled = b
 			}
 		},
 
@@ -976,11 +1051,15 @@ func LoadEnv(cfg *Config) {
 			setter(val)
 		}
 	}
+	return nil
 }
 
 // Validate checks the config for errors and returns all errors at once.
 // Errors are collected rather than failing on the first issue.
 func Validate(cfg *Config) error {
+	if cfg == nil {
+		return fmt.Errorf("config validation failed: config is nil")
+	}
 	ve := &ValidationError{}
 
 	// Mode validation
@@ -1016,6 +1095,9 @@ func Validate(cfg *Config) error {
 
 	// Docker discovery validation
 	validateDocker(&cfg.Docker, ve)
+
+	// Distributed tracing validation
+	validateTracing(&cfg.Tracing, ve)
 
 	// Virtual hosts validation
 	validateVirtualHosts(cfg.VirtualHosts, cfg.Upstreams, ve)
@@ -1339,6 +1421,18 @@ func validateDocker(dock *DockerConfig, ve *ValidationError) {
 
 	if dock.TLSVerify || dock.TLSCACert != "" || dock.TLSCert != "" || dock.TLSKey != "" {
 		ve.addError("docker.tls_verify", "remote Docker TLS fields are only supported with tcp:// Docker endpoints")
+	}
+}
+
+func validateTracing(trace *TracingConfig, ve *ValidationError) {
+	if math.IsNaN(trace.SamplingRate) || math.IsInf(trace.SamplingRate, 0) || trace.SamplingRate < 0 || trace.SamplingRate > 1 {
+		ve.addError("tracing.sampling_rate", "must be a finite number between 0 and 1")
+	}
+	switch trace.ExporterType {
+	case "", "noop", "stdout":
+		// Empty is the disabled/default no-op exporter.
+	default:
+		ve.addError("tracing.exporter_type", "must be one of: noop, stdout")
 	}
 }
 

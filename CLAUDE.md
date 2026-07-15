@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-GuardianWAF is a zero-dependency Web Application Firewall written in Go (`go.mod` declares `go 1.25` with `toolchain go1.26.4`).
+GuardianWAF is a zero-dependency Web Application Firewall written in Go (`go.mod` declares `go 1.25` with `toolchain go1.26.5`).
 Module: `github.com/guardianwaf/guardianwaf`
 
 The codebase uses the Go standard library **only** — `go.mod` has zero `require` entries and `go.sum` is empty (verified 2026-06-04, after the dead `internal/http3` package and its sole dependency `quic-go` were removed).
@@ -39,6 +39,8 @@ make docker-test    # Full Docker Compose integration test
 
 # E2E tests (requires running server — defaults to http://localhost:9443)
 make e2e            # Run Playwright tests (Chromium)
+make e2e-full       # Build local runtime + run all dashboard/API Chromium tests
+make e2e-full-all   # Digest-pinned Chromium + Firefox + WebKit production-binary suite
 make e2e-headed     # Run with browser visible
 make e2e-all        # Run all browsers
 make e2e-list       # List available E2E tests

@@ -33,7 +33,7 @@ This guide covers production deployment best practices for GuardianWAF v0.4.0.
 - [ ] SMTP server for alerts (optional)
 - [ ] Webhook endpoints for notifications (optional)
 - [ ] Reverse proxy (nginx/traefik/caddy) - **recommended**
-- [ ] Source builds only: Go 1.26.4 or newer, Node.js 20.19.0 or newer, npm 10.x or newer, and `git`
+- [ ] Source builds only: Go 1.26.5 or newer, Node.js 20.19.0 or newer, npm 10.x or newer, and `git`
 
 For source builds, validate the local toolchain before building:
 
@@ -81,7 +81,7 @@ services:
       - ./data:/var/lib/guardianwaf
       - ./logs:/var/log/guardianwaf
     environment:
-      - GWAF_LOG_LEVEL=info
+      - GWAF_LOGGING_LEVEL=info
     cap_drop:
       - ALL
     cap_add:
@@ -357,7 +357,7 @@ routes:
 
 ```bash
 # .env file (don't commit this!)
-GWAF_LOG_LEVEL=info
+GWAF_LOGGING_LEVEL=info
 GWAF_ALLOWED_UPSTREAM_CIDRS=10.0.1.0/24
 SMTP_PASSWORD=your-secret-password
 ACME_ACCEPT_TOS=true

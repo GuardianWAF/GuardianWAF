@@ -1,6 +1,6 @@
 # GuardianWAF Sidecar — lightweight proxy mode (no dashboard/MCP)
 # Build from repo root: docker build -f examples/sidecar/Dockerfile -t guardianwaf-sidecar .
-FROM golang:1.26.3-alpine AS builder
+FROM golang:1.26.5-alpine AS builder
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download

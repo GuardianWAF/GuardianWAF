@@ -22,6 +22,10 @@ func TestLoadEnv_Coverage(t *testing.T) {
 		"GWAF_DASHBOARD_API_KEY":              "test-key-123",
 		"GWAF_DASHBOARD_ADMIN_KEY":            "admin-test-key-123",
 		"GWAF_DASHBOARD_ENABLED":              "true",
+		"GWAF_MCP_ENABLED":                    "false",
+		"GWAF_MCP_TRANSPORT":                  "stdio",
+		"GWAF_DOCKER_ENABLED":                 "true",
+		"GWAF_WAF_AI_ANALYSIS_ENABLED":        "false",
 		"GWAF_EVENTS_STORAGE":                 "file",
 		"GWAF_EVENTS_FILE_PATH":               "/tmp/events.jsonl",
 		"GWAF_EVENTS_MAX_EVENTS":              "50000",
@@ -80,6 +84,15 @@ func TestLoadEnv_Coverage(t *testing.T) {
 	if !cfg.Dashboard.Enabled {
 		t.Error("Dashboard.Enabled: got false, want true")
 	}
+	if cfg.MCP.Enabled || cfg.MCP.Transport != "stdio" {
+		t.Errorf("MCP: got enabled=%v transport=%q, want false/stdio", cfg.MCP.Enabled, cfg.MCP.Transport)
+	}
+	if !cfg.Docker.Enabled {
+		t.Error("Docker.Enabled: got false, want true")
+	}
+	if cfg.WAF.AIAnalysis.Enabled {
+		t.Error("AIAnalysis.Enabled: got true, want false")
+	}
 	if cfg.Events.Storage != "file" {
 		t.Errorf("Events.Storage: got %q, want file", cfg.Events.Storage)
 	}
@@ -136,7 +149,7 @@ func TestLoadEnv_Coverage(t *testing.T) {
 	}
 }
 
-// TestLoadEnv_InvalidValues tests that LoadEnv ignores invalid values.
+// TestLoadEnv_InvalidValues tests that LoadEnv rejects invalid values atomically.
 func TestLoadEnv_InvalidValues(t *testing.T) {
 	cfg := DefaultConfig()
 	origBlock := cfg.WAF.Detection.Threshold.Block
@@ -150,7 +163,9 @@ func TestLoadEnv_InvalidValues(t *testing.T) {
 	os.Setenv("GWAF_LOGGING_MAX_SIZE_MB", "notanumber")
 	defer os.Unsetenv("GWAF_LOGGING_MAX_SIZE_MB")
 
-	LoadEnv(cfg)
+	if err := LoadEnv(cfg); err == nil {
+		t.Fatal("LoadEnv() accepted invalid typed overrides")
+	}
 
 	// Should keep original values
 	if cfg.WAF.Detection.Threshold.Block != origBlock {

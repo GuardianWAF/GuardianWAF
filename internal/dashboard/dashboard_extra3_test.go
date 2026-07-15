@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -89,8 +90,8 @@ func TestAIProviders_StandaloneCacheError(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := authenticatedRequest("GET", "/api/v1/ai/providers", "", "k")
 	d.Handler().ServeHTTP(w, req)
-	if w.Code != http.StatusInternalServerError {
-		t.Errorf("expected 500, got %d", w.Code)
+	if w.Code != http.StatusBadGateway {
+		t.Errorf("expected 502, got %d", w.Code)
 	}
 }
 
@@ -198,20 +199,18 @@ func TestUpdateRouting_StripPrefix(t *testing.T) {
 
 func TestUpdateRouting_SaveFnError(t *testing.T) {
 	d := newTestDashboard(t, "k")
+	oldCfg := d.engine.Config()
 	d.SetSaveFn(func() error { return fmt.Errorf("disk full") })
 
 	body := `{"upstreams":[{"name":"be","targets":[{"url":"http://localhost:8080"}]}],"routes":[{"path":"/","upstream":"be"}]}`
 	w := httptest.NewRecorder()
 	req := authenticatedRequest("PUT", "/api/v1/routing", body, "k")
 	d.Handler().ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200 (graceful degradation), got %d", w.Code)
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 for non-durable routing update, got %d", w.Code)
 	}
-	var result map[string]any
-	_ = json.Unmarshal(w.Body.Bytes(), &result)
-	msg, _ := result["message"].(string)
-	if !strings.Contains(msg, "disk sync pending") {
-		t.Errorf("expected save failure message, got %s", msg)
+	if got := d.engine.Config(); !reflect.DeepEqual(got.Upstreams, oldCfg.Upstreams) || !reflect.DeepEqual(got.Routes, oldCfg.Routes) {
+		t.Fatal("engine routing config was not rolled back after persistence failure")
 	}
 }
 

@@ -2897,11 +2897,10 @@ func TestCompleteAuthorization_PollSignedPostError(t *testing.T) {
 					{"type": "http-01", "url": srv.URL + "/challenge/1", "token": "tok"},
 				},
 			})
-		} else {
-			// Don't return nonce on poll, causing signedPost to eventually fail
-			// Actually we can't easily fail just the poll without affecting other calls.
-			// Instead, empty the pool and make nonce endpoint unreachable.
 		}
+		// Don't return nonce on poll, causing signedPost to eventually fail
+		// Actually we can't easily fail just the poll without affecting other calls.
+		// Instead, empty the pool and make nonce endpoint unreachable.
 	})
 	mux.HandleFunc("/challenge/1", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Replay-Nonce", "n-ch")

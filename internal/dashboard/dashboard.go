@@ -564,8 +564,10 @@ func (d *Dashboard) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Copy config to avoid mutating shared state without a lock.
-	cfg := deepCopyConfig(d.engine.Config())
+	// Copy config to avoid mutating shared state without a lock and retain a
+	// rollback snapshot if durable persistence fails.
+	oldCfg := d.engine.Config()
+	cfg := deepCopyConfig(oldCfg)
 
 	// Apply top-level mode
 	if v, ok := patch["mode"].(string); ok {
@@ -647,9 +649,9 @@ func (d *Dashboard) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Audit log for security-critical config changes
-	d.logSecurityConfigChanges(d.engine.Config(), cfg, r)
+	d.logSecurityConfigChanges(oldCfg, cfg, r)
 
-	if err := validateRuntimeReloadableConfig(d.engine.Config(), cfg); err != nil {
+	if err := validateRuntimeReloadableConfig(oldCfg, cfg); err != nil {
 		writeError(w, http.StatusConflict, sanitizeErr(err))
 		return
 	}
@@ -662,7 +664,12 @@ func (d *Dashboard) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	// Persist to disk
 	if d.routingCtrl != nil {
 		if err := d.routingCtrl.Save(); err != nil {
-			writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "message": "Configuration updated (disk sync pending)"})
+			if rollbackErr := d.engine.Reload(oldCfg); rollbackErr != nil {
+				dashboardLog.Error("configuration persistence and rollback failed", "save_error", err, "rollback_error", rollbackErr)
+			} else {
+				dashboardLog.Error("configuration persistence failed; runtime rolled back", "error", err)
+			}
+			writeError(w, http.StatusInternalServerError, "configuration persistence failed; previous runtime configuration restored")
 			return
 		}
 	}
@@ -1942,7 +1949,8 @@ func deepCopyConfig(cfg *config.Config) *config.Config {
 // to disk. Returns true on success, false on failure (error already written to w).
 // The caller must provide a function that mutates the deep-copied config.
 func (d *Dashboard) reloadAndPersist(w http.ResponseWriter, mutate func(cfg *config.Config)) bool {
-	cfg := deepCopyConfig(d.engine.Config())
+	oldCfg := d.engine.Config()
+	cfg := deepCopyConfig(oldCfg)
 	mutate(cfg)
 
 	if err := d.engine.Reload(cfg); err != nil {
@@ -1952,7 +1960,12 @@ func (d *Dashboard) reloadAndPersist(w http.ResponseWriter, mutate func(cfg *con
 
 	if d.routingCtrl != nil {
 		if err := d.routingCtrl.Save(); err != nil {
-			writeError(w, http.StatusInternalServerError, sanitizeErr(err))
+			if rollbackErr := d.engine.Reload(oldCfg); rollbackErr != nil {
+				dashboardLog.Error("configuration mutation persistence and rollback failed", "save_error", err, "rollback_error", rollbackErr)
+			} else {
+				dashboardLog.Error("configuration mutation persistence failed; runtime rolled back", "error", err)
+			}
+			writeError(w, http.StatusInternalServerError, "configuration persistence failed; previous runtime configuration restored")
 			return false
 		}
 	}

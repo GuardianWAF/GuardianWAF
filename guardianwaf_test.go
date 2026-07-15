@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -424,6 +425,45 @@ func TestNewFromFile_InvalidYAML(t *testing.T) {
 	_, err := NewFromFile(cfgFile)
 	if err == nil {
 		t.Error("expected error for invalid YAML")
+	}
+}
+
+func TestNewFromFileRejectsInvalidEnvironmentOverride(t *testing.T) {
+	cfgFile := filepath.Join(t.TempDir(), "guardianwaf.yaml")
+	if err := os.WriteFile(cfgFile, []byte("mode: enforce\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GWAF_TLS_ENABLED", "tru")
+
+	_, err := NewFromFile(cfgFile)
+	if err == nil {
+		t.Fatal("NewFromFile() accepted an invalid environment override")
+	}
+	if !strings.Contains(err.Error(), "GWAF_TLS_ENABLED") {
+		t.Fatalf("NewFromFile() error = %q, want GWAF_TLS_ENABLED context", err)
+	}
+}
+
+func TestNewFromFileRejectsSemanticallyInvalidConfiguration(t *testing.T) {
+	cfgFile := filepath.Join(t.TempDir(), "guardianwaf.yaml")
+	content := "mode: enforce\ntls:\n  enabled: true\n"
+	if err := os.WriteFile(cfgFile, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := NewFromFile(cfgFile)
+	if err == nil {
+		t.Fatal("NewFromFile() accepted TLS without a certificate and key")
+	}
+	if !strings.Contains(err.Error(), "tls.cert_file") || !strings.Contains(err.Error(), "tls.key_file") {
+		t.Fatalf("NewFromFile() error = %q, want TLS validation context", err)
+	}
+}
+
+func TestNewRejectsInvalidOptionResult(t *testing.T) {
+	_, err := New(Config{}, WithMode("typo"))
+	if err == nil || !strings.Contains(err.Error(), "mode") {
+		t.Fatalf("New() error = %v, want invalid mode error", err)
 	}
 }
 

@@ -44,7 +44,6 @@ linters:
           - errcheck
           - govet
           - revive
-          - staticcheck
         path: _test\.go
       - linters:
           - unparam

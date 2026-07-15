@@ -484,12 +484,12 @@ func TestLayer_Process(t *testing.T) {
 	}
 
 	// Hook should be registered since SecurityHeadersEnabled is true
-	if _, ok := ctx.Metadata["response_hook"]; !ok {
-		t.Error("expected response_hook in metadata when security headers enabled")
+	if ctx.ResponseHook == nil {
+		t.Error("expected response hook when security headers enabled")
 	}
 
 	// Call the hook and verify it applies headers
-	hook := ctx.Metadata["response_hook"].(func(http.ResponseWriter))
+	hook := ctx.ResponseHook
 	w := httptest.NewRecorder()
 	hook(w)
 	if w.Header().Get("X-Content-Type-Options") != "nosniff" {
@@ -522,8 +522,8 @@ func TestLayer_Process_NoSecurityHeaders(t *testing.T) {
 	layer.Process(ctx)
 
 	// No hook should be set when security headers disabled
-	if _, ok := ctx.Metadata["response_hook"]; ok {
-		t.Error("expected no response_hook when security headers disabled")
+	if ctx.ResponseHook != nil {
+		t.Error("expected no response hook when security headers disabled")
 	}
 }
 

@@ -211,6 +211,29 @@ func TestBuildReverseProxy_DoesNotMutateGlobalPrivateTargetAllowance(t *testing.
 	}
 }
 
+func TestBuildReverseProxyStrictRejectsPartialRouter(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Upstreams = []config.UpstreamConfig{{
+		Name: "default",
+		Targets: []config.TargetConfig{
+			{URL: "http://192.0.2.1", Weight: 1},
+			{URL: "http://127.0.0.1:8080", Weight: 1},
+		},
+	}}
+	cfg.Routes = []config.RouteConfig{{Path: "/", Upstream: "default"}}
+
+	handler, checkers, err := buildReverseProxyStrict(cfg)
+	if err == nil {
+		t.Fatal("expected strict proxy build to reject the private target")
+	}
+	if handler != nil {
+		t.Fatalf("strict proxy build returned partial handler %T", handler)
+	}
+	if len(checkers) != 0 {
+		t.Fatalf("strict proxy build leaked %d health checkers", len(checkers))
+	}
+}
+
 func TestBuildReverseProxy_UsesAllowedUpstreamCIDRs(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.AllowedUpstreamCIDRs = []string{"127.0.0.1/32"}

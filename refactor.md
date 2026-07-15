@@ -200,7 +200,7 @@ Applied & verified (build + vet + full test suite green; touched pkgs `-race`):
 ### 7.4 🟡 LOW — Misc
 - Integration tests are an optional CI job → promote `tests/integration` to required.
 - Fuzz smoke `FUZZTIME=5s` → add a nightly 60s+ job, plus fuzz targets for path normalization / header parsing / cookie decoding.
-- `go.mod` says `go 1.26.3` while CLAUDE.md references 1.25+ → confirm the pin is intentional and matches CI.
+- `go.mod` pins the patched `go1.26.5` toolchain and CI/build images must remain aligned with it.
 
 ---
 

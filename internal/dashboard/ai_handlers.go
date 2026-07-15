@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -44,7 +45,7 @@ func (d *Dashboard) handleAIProviders(w http.ResponseWriter, r *http.Request) {
 		// Get from analyzer (shares cache)
 		providers, err := d.aiAnalyzer.GetCatalog()
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to fetch providers")
+			writeError(w, http.StatusBadGateway, "failed to fetch providers")
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"providers": providers, "count": len(providers)})
@@ -54,7 +55,7 @@ func (d *Dashboard) handleAIProviders(w http.ResponseWriter, r *http.Request) {
 	// Standalone fetch — AI not enabled but we still show providers
 	providers, err := catalogCache.Summaries()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to fetch catalog")
+		writeError(w, http.StatusBadGateway, "failed to fetch catalog")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"providers": providers, "count": len(providers)})
@@ -223,7 +224,14 @@ func (d *Dashboard) handleAIAnalyze(w http.ResponseWriter, r *http.Request) {
 
 	result, err := d.aiAnalyzer.ManualAnalyze(evts)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, sanitizeErr(err))
+		status := http.StatusBadGateway
+		switch {
+		case errors.Is(err, ai.ErrNoProviderConfigured):
+			status = http.StatusConflict
+		case errors.Is(err, ai.ErrUsageLimitReached):
+			status = http.StatusTooManyRequests
+		}
+		writeError(w, status, sanitizeErr(err))
 		return
 	}
 

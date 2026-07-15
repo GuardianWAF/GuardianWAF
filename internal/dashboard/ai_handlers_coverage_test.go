@@ -39,8 +39,37 @@ func TestHandleAIProviders_WithAnalyzerError(t *testing.T) {
 	req := httptest.NewRequest("GET", "/api/ai/providers", nil)
 	d.handleAIProviders(rr, req)
 
-	if rr.Code != http.StatusInternalServerError {
-		t.Errorf("expected 500, got %d", rr.Code)
+	if rr.Code != http.StatusBadGateway {
+		t.Errorf("expected 502, got %d", rr.Code)
+	}
+}
+
+func TestHandleAIAnalyze_ClassifiesStateErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{name: "provider not configured", err: ai.ErrNoProviderConfigured, want: http.StatusConflict},
+		{name: "usage limit reached", err: ai.ErrUsageLimitReached, want: http.StatusTooManyRequests},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := ai.NewStore(t.TempDir())
+			d := &Dashboard{
+				aiAnalyzer: &mockAIAnalyzerForCoverage{
+					storeFn:  func() *ai.Store { return store },
+					manualFn: func([]engine.Event) (*ai.AnalysisResult, error) { return nil, test.err },
+				},
+				eventStore: newMockEventStoreForAI([]engine.Event{{ID: "evt-1", Score: 50}}, nil),
+			}
+
+			rr := httptest.NewRecorder()
+			d.handleAIAnalyze(rr, httptest.NewRequest(http.MethodPost, "/api/v1/ai/analyze", nil))
+			if rr.Code != test.want {
+				t.Fatalf("status = %d, want %d", rr.Code, test.want)
+			}
+		})
 	}
 }
 
@@ -627,8 +656,8 @@ func TestHandleAIAnalyze_ManualAnalyzeError(t *testing.T) {
 	req := httptest.NewRequest("GET", "/api/ai/analyze", nil)
 	d.handleAIAnalyze(rr, req)
 
-	if rr.Code != http.StatusInternalServerError {
-		t.Errorf("expected 500, got %d", rr.Code)
+	if rr.Code != http.StatusBadGateway {
+		t.Errorf("expected 502, got %d", rr.Code)
 	}
 }
 

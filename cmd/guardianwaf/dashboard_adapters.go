@@ -23,7 +23,15 @@ func (a *tenantManagerAdapter) ListTenants() []any {
 }
 
 func (a *tenantManagerAdapter) GetTenant(id string) any {
-	return a.mgr.GetTenant(id)
+	// Return an untyped nil when the tenant is missing. a.mgr.GetTenant returns a
+	// nil *tenant.Tenant for unknown IDs; returning it directly would wrap a typed
+	// nil in the `any` result, so the handler's `tenant == nil` check would be
+	// false and a missing tenant would 200-with-null instead of 404.
+	t := a.mgr.GetTenant(id)
+	if t == nil {
+		return nil
+	}
+	return t
 }
 
 func (a *tenantManagerAdapter) CreateTenant(name, description string, domains []string, quota any) (any, error) {
@@ -160,7 +168,13 @@ func (a *tenantManagerAdapter) GetAllUsage() []any {
 }
 
 func (a *tenantManagerAdapter) GetTenantUsage(tenantID string) any {
-	return a.mgr.GetTenantUsage(tenantID)
+	// Normalize a missing tenant's nil *UsageStats to an untyped nil so handlers'
+	// `usage == nil` checks succeed (avoids 200-with-null instead of 404).
+	u := a.mgr.GetTenantUsage(tenantID)
+	if u == nil {
+		return nil
+	}
+	return u
 }
 
 func (a *tenantManagerAdapter) GetTenantRules(tenantID string) []any {

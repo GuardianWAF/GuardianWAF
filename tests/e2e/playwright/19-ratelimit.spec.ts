@@ -50,7 +50,11 @@ test.describe('Rate Limiting', () => {
         window: '1m',
       },
     })
-    expect([200, 204, 429]).toContain(resp.status())
+    // A value change to a rate-limit rule alters WAF pipeline topology, which the
+    // runtime reload guard rejects with 409 (see validateRuntimeReloadableConfig);
+    // such changes require a config-file edit + restart. 200/204 apply when the
+    // submitted values match the running config (a no-op reload).
+    expect([200, 204, 409, 429]).toContain(resp.status())
   })
 
   test('rate limit returns 429 when exceeded', async ({ request }) => {

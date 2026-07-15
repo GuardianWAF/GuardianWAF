@@ -9,6 +9,7 @@ Pre-release verification steps for GuardianWAF.
 - [ ] Source prerequisites pass (`./scripts/check-prereqs.sh`)
 - [ ] Frontend tests pass (`cd internal/dashboard/ui && npm test`)
 - [ ] Frontend lint clean (`cd internal/dashboard/ui && npm run lint`)
+- [ ] Full production-binary Chromium, Firefox, and WebKit dashboard/API E2E suite passes (`make e2e-full-all`)
 - [ ] Go tests pass (`go test ./...`)
 - [ ] Go tests pass with race detector (`go test -race -count=1 ./...`)
 - [ ] Go vet clean (`go vet ./...`)

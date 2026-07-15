@@ -335,14 +335,44 @@ alerting:
 
 ---
 
+## Built-in Tracing
+
+The optional tracing runtime creates one root span per sampled request and a
+child span for each active WAF layer. Tracers are engine-local, survive config
+reload through atomic reconfiguration, and close with their owning engine.
+
+```yaml
+tracing:
+  enabled: true
+  service_name: guardianwaf
+  sampling_rate: 0.1
+  exporter_type: stdout
+```
+
+`sampling_rate` must be a finite value from `0` to `1`. The built-in exporter
+types are `noop` and `stdout`; unsupported values fail config validation.
+`stdout` emits one JSON line synchronously per completed span and is intended
+for controlled diagnostics with sampling. GuardianWAF does not currently ship
+an OTLP/Jaeger network exporter or W3C trace-context propagation; do not use
+design-era OTLP fields such as `endpoint` or `export_interval` in production
+config.
+
+---
+
 ## Environment Variable Overrides
 
 All environment variables use the `GWAF_` prefix. These override values from the YAML file.
+Boolean, integer, and numeric overrides are validated before any environment
+overrides are applied. An invalid typed value fails startup/validation instead
+of silently retaining a default.
 
 | Variable | Config Path | Example |
 |---|---|---|
 | `GWAF_MODE` | `mode` | `monitor` |
 | `GWAF_LISTEN` | `listen` | `:9090` |
+| `GWAF_TRUSTED_PROXIES` | `trusted_proxies` | `10.0.0.0/8,192.0.2.10` |
+| `GWAF_ALLOW_PRIVATE_UPSTREAMS` | `allow_private_upstreams` | `false` |
+| `GWAF_ALLOWED_UPSTREAM_CIDRS` | `allowed_upstream_cidrs` | `10.0.1.0/24` |
 | `GWAF_LOGGING_LEVEL` | `logging.level` | `debug` |
 | `GWAF_LOGGING_FORMAT` | `logging.format` | `text` |
 | `GWAF_LOGGING_OUTPUT` | `logging.output` | `/var/log/guardianwaf.log` |
@@ -352,6 +382,10 @@ All environment variables use the `GWAF_` prefix. These override values from the
 | `GWAF_DASHBOARD_LISTEN` | `dashboard.listen` | `:8443` |
 | `GWAF_DASHBOARD_API_KEY` | `dashboard.api_key` | `my-secret-key` |
 | `GWAF_DASHBOARD_ADMIN_KEY` | `dashboard.admin_key` | `my-admin-secret-key` |
+| `GWAF_MCP_ENABLED` | `mcp.enabled` | `false` |
+| `GWAF_MCP_TRANSPORT` | `mcp.transport` | `stdio` |
+| `GWAF_DOCKER_ENABLED` | `docker.enabled` | `false` |
+| `GWAF_WAF_AI_ANALYSIS_ENABLED` | `waf.ai_analysis.enabled` | `false` |
 | `GWAF_EVENTS_STORAGE` | `events.storage` | `file` |
 | `GWAF_EVENTS_FILE_PATH` | `events.file_path` | `/var/log/guardianwaf/events.jsonl` |
 | `GWAF_EVENTS_MAX_EVENTS` | `events.max_events` | `50000` |
@@ -360,6 +394,17 @@ All environment variables use the `GWAF_` prefix. These override values from the
 | `GWAF_TLS_CERT_FILE` | `tls.cert_file` | `/etc/ssl/cert.pem` |
 | `GWAF_TLS_KEY_FILE` | `tls.key_file` | `/etc/ssl/key.pem` |
 | `GWAF_ALERTING_ENABLED` | `alerting.enabled` | `true` |
+| `GWAF_TRACING_ENABLED` | `tracing.enabled` | `true` |
+| `GWAF_TRACING_SERVICE_NAME` | `tracing.service_name` | `guardianwaf` |
+| `GWAF_TRACING_SAMPLING_RATE` | `tracing.sampling_rate` | `0.1` |
+| `GWAF_TRACING_EXPORTER_TYPE` | `tracing.exporter_type` | `stdout` |
+| `GWAF_LOGGING_MAX_SIZE_MB` | `logging.max_size_mb` | `100` |
+| `GWAF_LOGGING_MAX_BACKUPS` | `logging.max_backups` | `5` |
+| `GWAF_LOGGING_MAX_AGE_DAYS` | `logging.max_age_days` | `30` |
+| `GWAF_COMPLIANCE_ENABLED` | `compliance.enabled` | `true` |
+| `GWAF_COMPLIANCE_FRAMEWORKS` | `compliance.frameworks` | `pci_dss,gdpr` |
+| `GWAF_COMPLIANCE_REPORT_DIR` | `compliance.report_dir` | `/var/lib/guardianwaf/reports` |
+| `GWAF_COMPLIANCE_AUDIT_TRAIL_ENABLED` | `compliance.audit_trail.enabled` | `true` |
 
 Example:
 

@@ -3,6 +3,7 @@ package acme
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -83,5 +84,47 @@ func TestNewClientUsesHardenedHTTPClient(t *testing.T) {
 	}
 	if client.httpClient.CheckRedirect == nil {
 		t.Fatal("CheckRedirect is nil")
+	}
+}
+
+func TestACMEEndpointMustStayOnDirectoryOrigin(t *testing.T) {
+	t.Parallel()
+
+	client := NewClient("https://acme.example/directory")
+	for _, test := range []struct {
+		name    string
+		url     string
+		wantErr bool
+	}{
+		{name: "same origin", url: "https://acme.example/new-order"},
+		{name: "explicit default port", url: "https://acme.example:443/new-order"},
+		{name: "different host", url: "https://127.0.0.1/new-order", wantErr: true},
+		{name: "scheme downgrade", url: "http://acme.example/new-order", wantErr: true},
+		{name: "different port", url: "https://acme.example:8443/new-order", wantErr: true},
+		{name: "credentials", url: "https://user:pass@acme.example/new-order", wantErr: true},
+		{name: "fragment", url: "https://acme.example/new-order#internal", wantErr: true},
+		{name: "non HTTP scheme", url: "file:///etc/passwd", wantErr: true},
+		{name: "relative", url: "/new-order", wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := client.validateEndpoint(test.url)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("validateEndpoint(%q) error = %v, wantErr %v", test.url, err, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestACMEServerProvidedNonceCannotChangeOrigin(t *testing.T) {
+	t.Parallel()
+
+	client := NewClient("https://acme.example/directory")
+	client.directory = &directory{NewNonce: "http://127.0.0.1/latest/meta-data"}
+	_, err := client.getNonce()
+	if err == nil {
+		t.Fatal("expected cross-origin nonce endpoint to be rejected")
+	}
+	if got := err.Error(); !strings.Contains(got, "does not match directory origin") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
