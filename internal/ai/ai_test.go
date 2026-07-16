@@ -3,14 +3,36 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 )
+
+// errorReader always fails
+type errorReader struct{}
+
+func (errorReader) Read([]byte) (int, error) { return 0, errors.New("read error") }
+func (errorReader) Close() error             { return nil }
+
+// errorBodyTransport returns 200 with a body that errors on read
+type errorBodyTransport struct{}
+
+func (errorBodyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(errorReader{}),
+		Header:     make(http.Header),
+		Request:    req,
+	}, nil
+}
 
 func TestNewCatalogCache(t *testing.T) {
 	cc := NewCatalogCache("")
@@ -332,4 +354,134 @@ func TestAnalyzer_PendingEvents(t *testing.T) {
 func TestMain(m *testing.M) {
 	testAllowPrivate = true // allow httptest servers in tests
 	os.Exit(m.Run())
+}
+
+// Merged from ai_extra3_test.go
+func TestAnalyze_ReadBodyError(t *testing.T) {
+	c := NewClient(ClientConfig{BaseURL: "https://example.com", APIKey: "test"})
+	c.httpClient = &http.Client{Transport: errorBodyTransport{}}
+
+	_, _, err := c.Analyze(context.Background(), "system", "user")
+	if err == nil {
+		t.Error("expected error when response body read fails")
+	}
+}
+
+func TestFetchCatalog_ReadBodyError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			t.Fatal("cannot hijack")
+		}
+		conn, _, _ := hj.Hijack()
+		_, _ = conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n"))
+		_, _ = conn.Write([]byte("short"))
+		_ = conn.Close()
+	}))
+	defer srv.Close()
+
+	_, err := FetchCatalog(srv.URL + "/catalog.json")
+	if err == nil {
+		t.Error("expected error for incomplete response body")
+	}
+}
+
+// Merged from coverage_gap_test.go
+func TestNewClient_DefaultsAndSSRFTransport(t *testing.T) {
+	origAllow := testAllowPrivate
+	testAllowPrivate = false
+	defer func() { testAllowPrivate = origAllow }()
+
+	client := NewClient(ClientConfig{BaseURL: "https://api.example.com/v1"})
+	if client.httpClient.Timeout != 60*time.Second {
+		t.Fatalf("timeout = %v, want 60s", client.httpClient.Timeout)
+	}
+	if client.maxTokens != 2048 {
+		t.Fatalf("maxTokens = %d, want 2048", client.maxTokens)
+	}
+
+	transport := client.httpClient.Transport.(*http.Transport)
+	if transport.DialContext == nil {
+		t.Fatal("expected SSRF-safe DialContext when private endpoints are not allowed")
+	}
+}
+
+func TestNewClient_AllowsPrivateRedirectWhenOptedIn(t *testing.T) {
+	client := NewClient(ClientConfig{AllowPrivateEndpoint: true})
+	req := httptest.NewRequest("GET", "http://127.0.0.1/v1/chat/completions", nil)
+	if err := client.httpClient.CheckRedirect(req, nil); err != nil {
+		t.Fatalf("CheckRedirect returned error with AllowPrivateEndpoint=true: %v", err)
+	}
+}
+
+func TestAiSSRFDialContext_DNSFailure(t *testing.T) {
+	dialFn := aiSSRFDialContext()
+	_, err := dialFn(context.Background(), "tcp", "nonexistent.invalid:443")
+	if err == nil {
+		t.Fatal("expected DNS lookup failure")
+	}
+	if !strings.Contains(err.Error(), "DNS lookup failed") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCatalogHTTPClient_AllowsPrivateDialAndRedirectInTests(t *testing.T) {
+	origAllow := testAllowPrivate
+	testAllowPrivate = true
+	defer func() { testAllowPrivate = origAllow }()
+
+	ts := httptest.NewServer(nil)
+	defer ts.Close()
+
+	client := newCatalogHTTPClient()
+	transport := client.Transport.(*http.Transport)
+	conn, err := transport.DialContext(context.Background(), "tcp", ts.Listener.Addr().String())
+	if err != nil {
+		t.Fatalf("DialContext: %v", err)
+	}
+	_ = conn.Close()
+
+	req := httptest.NewRequest("GET", "http://127.0.0.1/catalog.json", nil)
+	if err := client.CheckRedirect(req, nil); err != nil {
+		t.Fatalf("CheckRedirect returned error with testAllowPrivate=true: %v", err)
+	}
+}
+
+func TestCatalogHTTPClient_DNSFailure(t *testing.T) {
+	origAllow := testAllowPrivate
+	testAllowPrivate = false
+	defer func() { testAllowPrivate = origAllow }()
+
+	client := newCatalogHTTPClient()
+	transport := client.Transport.(*http.Transport)
+	_, err := transport.DialContext(context.Background(), "tcp", "nonexistent.invalid:443")
+	if err == nil {
+		t.Fatal("expected DNS lookup failure")
+	}
+	if !strings.Contains(err.Error(), "DNS lookup failed") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateURLNotPrivate_AllowsUnresolvedHostname(t *testing.T) {
+	if err := validateURLNotPrivate("https://nonexistent.invalid/api"); err != nil {
+		t.Fatalf("expected unresolved hostname to pass preflight validation, got %v", err)
+	}
+}
+
+func TestEncryptDecryptValue_InvalidKeyLength(t *testing.T) {
+	if _, err := encryptValue("secret", []byte("short")); err == nil {
+		t.Fatal("expected encryptValue to reject short key")
+	}
+	if _, err := decryptValue("AQ", []byte("short")); err == nil {
+		t.Fatal("expected decryptValue to reject short key")
+	}
+}
+
+func TestLoadOrCreateEncKey_InvalidPathDisablesEncryption(t *testing.T) {
+	store := &Store{path: "bad\x00path", log: slog.Default()}
+	store.loadOrCreateEncKey()
+	if store.encKey != nil {
+		t.Fatal("expected no encryption key for invalid store path")
+	}
 }

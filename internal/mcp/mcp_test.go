@@ -2,15 +2,48 @@ package mcp
 
 import (
 	"bytes"
+	"context"
+	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
+
+type heartbeatResponseWriter struct {
+	header http.Header
+	writes int
+	fail   bool
+}
+
+func (w *heartbeatResponseWriter) Header() http.Header {
+	if w.header == nil {
+		w.header = make(http.Header)
+	}
+	return w.header
+}
+
+func (w *heartbeatResponseWriter) WriteHeader(int) {}
+
+func (w *heartbeatResponseWriter) Write(p []byte) (int, error) {
+	w.writes++
+	if w.fail && w.writes > 1 {
+		return 0, errors.New("heartbeat write failed")
+	}
+	return len(p), nil
+}
+
+func (w *heartbeatResponseWriter) Flush() {}
 
 // mockEngine implements EngineInterface for testing.
 type mockEngine struct {
@@ -2444,5 +2477,395 @@ func TestHandleWithParams_TypeMismatch_ReturnsClearError(t *testing.T) {
 	text, _ := first["text"].(string)
 	if !strings.Contains(text, "cannot unmarshal") && !strings.Contains(text, "expected string") {
 		t.Errorf("expected type-mismatch error in content, got: %s", text)
+	}
+}
+
+// Merged from mcp_extra_test.go
+func TestHandleGetTopIPs_InvalidJSON(t *testing.T) {
+	srv := NewServer(nil, nil)
+	srv.SetEngine(newMockEngine())
+	_, err := srv.handleGetTopIPs(json.RawMessage("not-json"))
+	if err == nil {
+		t.Fatal("expected error for invalid JSON params")
+	}
+}
+
+func TestWriteResponse_MarshalError(t *testing.T) {
+	var buf bytes.Buffer
+	srv := NewServer(nil, &buf)
+	srv.writeResponse(JSONRPCResponse{
+		JSONRPC: "2.0",
+		ID:      1,
+		Result:  make(chan int),
+	})
+	if buf.Len() != 0 {
+		t.Error("expected no output when marshal fails")
+	}
+}
+
+func TestHandleSSE_NonFlusher(t *testing.T) {
+	handler, _ := helperSSEServer("test-api-key")
+	rec := httptest.NewRecorder()
+	nf := &struct {
+		http.ResponseWriter
+	}{ResponseWriter: rec}
+	req := helperAuthReq(http.MethodGet, "/mcp/sse", nil)
+	handler.handleSSE(nf, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", rec.Code)
+	}
+}
+
+func TestHandleSSE_HTTPS(t *testing.T) {
+	handler, _ := helperSSEServer("test-api-key")
+
+	// Use a thread-safe wrapper around ResponseRecorder
+	rec := httptest.NewRecorder()
+	safeRec := &safeResponseRecorder{rec: rec}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	req := helperAuthReq(http.MethodGet, "/mcp/sse", nil).WithContext(ctx)
+	req.TLS = &tls.ConnectionState{}
+
+	done := make(chan struct{})
+	go func() {
+		handler.handleSSE(safeRec, req)
+		close(done)
+	}()
+
+	// Wait for SSE data with timeout
+	var body string
+	for i := 0; i < 200; i++ {
+		time.Sleep(10 * time.Millisecond)
+		body = safeRec.bodyString()
+		if len(body) > 0 {
+			break
+		}
+	}
+	if len(body) == 0 {
+		t.Fatal("timed out waiting for SSE data")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for handleSSE to return")
+	}
+
+	if safeRec.code() != http.StatusOK {
+		t.Fatalf("expected 200, got %d", safeRec.code())
+	}
+	if !strings.Contains(body, "https://") {
+		t.Fatalf("expected https scheme in endpoint, got %s", body)
+	}
+}
+
+// safeResponseRecorder wraps httptest.ResponseRecorder with mutex for thread safety
+type safeResponseRecorder struct {
+	rec *httptest.ResponseRecorder
+	mu  sync.RWMutex
+}
+
+func (s *safeResponseRecorder) Header() http.Header {
+	return s.rec.Header()
+}
+
+func (s *safeResponseRecorder) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.rec.Write(p)
+}
+
+func (s *safeResponseRecorder) WriteHeader(code int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.rec.WriteHeader(code)
+}
+
+func (s *safeResponseRecorder) Flush() {
+	s.rec.Flush()
+}
+
+func (s *safeResponseRecorder) bodyString() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.rec.Body.String()
+}
+
+func (s *safeResponseRecorder) code() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.rec.Code
+}
+
+func TestBroadcastResponse_MarshalError(t *testing.T) {
+	handler, _ := helperSSEServer("test-api-key")
+	handler.broadcastResponse(JSONRPCResponse{
+		JSONRPC: "2.0",
+		ID:      1,
+		Result:  math.NaN(),
+	})
+}
+
+// Merged from mcp_final_coverage_test.go
+func TestSSEHeartbeatWritePaths(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		handler, _ := helperSSEServer("test-api-key")
+		handler.heartbeatInterval = time.Millisecond
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+		req := helperAuthReq(http.MethodGet, "/mcp/sse", nil).WithContext(ctx)
+		writer := &heartbeatResponseWriter{fail: fail}
+
+		handler.handleSSE(writer, req)
+		cancel()
+		if writer.writes < 2 {
+			t.Fatalf("fail=%v: endpoint and heartbeat writes = %d, want at least 2", fail, writer.writes)
+		}
+	}
+}
+
+// Merged from mcp_gap_test.go
+func TestHandleWithParams_IgnoresUnknownRequiredField(t *testing.T) {
+	srv := NewServer(nil, nil)
+	srv.SetEngine(newMockEngine())
+
+	type params struct {
+		Name string `json:"name"`
+	}
+
+	got, err := handleWithParams[params, string](
+		srv,
+		json.RawMessage(`{"name":"ok"}`),
+		[]string{"DoesNotExist", "Name"},
+		func(eng EngineInterface, p params) (string, error) {
+			if p.Name != "ok" {
+				return "", fmt.Errorf("unexpected name %q", p.Name)
+			}
+			return "ok", nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "ok" {
+		t.Fatalf("expected ok result, got %q", got)
+	}
+}
+
+func TestHandleAddRateLimit_NegativeLimit(t *testing.T) {
+	srv := NewServer(nil, nil)
+	srv.SetEngine(newMockEngine())
+
+	_, err := srv.handleAddRateLimit(json.RawMessage(`{"id":"rl-neg","limit":-1,"window":"60s"}`))
+	if err == nil || !strings.Contains(err.Error(), "limit must be > 0") {
+		t.Fatalf("expected limit validation error, got %v", err)
+	}
+}
+
+func TestAlertingHandlers_EngineErrors(t *testing.T) {
+	tests := []struct {
+		name   string
+		call   func(*Server) (any, error)
+		field  string
+	}{
+		{
+			name:  "add webhook",
+			call:  func(s *Server) (any, error) { return s.handleAddWebhook(json.RawMessage(`{"name":"ops","url":"https://hooks.example.test","type":"generic"}`)) },
+			field: "fail",
+		},
+		{
+			name:  "remove webhook",
+			call:  func(s *Server) (any, error) { return s.handleRemoveWebhook(json.RawMessage(`{"name":"ops"}`)) },
+			field: "fail",
+		},
+		{
+			name:  "add email target",
+			call:  func(s *Server) (any, error) { return s.handleAddEmailTarget(json.RawMessage(`{"name":"ops","smtp_host":"smtp.example.test","from":"from@example.test","to":["to@example.test"]}`)) },
+			field: "fail",
+		},
+		{
+			name:  "remove email target",
+			call:  func(s *Server) (any, error) { return s.handleRemoveEmailTarget(json.RawMessage(`{"name":"ops"}`)) },
+			field: "fail",
+		},
+		{
+			name:  "test alert",
+			call:  func(s *Server) (any, error) { return s.handleTestAlert(json.RawMessage(`{"target":"ops"}`)) },
+			field: "fail",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := NewServer(nil, nil)
+			srv.SetEngine(newFailEngine())
+			if _, err := tt.call(srv); err == nil || !strings.Contains(err.Error(), tt.field) {
+				t.Fatalf("expected engine error containing %q, got %v", tt.field, err)
+			}
+		})
+	}
+}
+
+func TestValidateTools_DetectsDrift(t *testing.T) {
+	t.Run("missing handler", func(t *testing.T) {
+		s := NewServer(nil, nil)
+		s.RegisterTool("guardianwaf_only_extra", func(params json.RawMessage) (any, error) { return nil, nil })
+		err := s.ValidateTools()
+		if err == nil {
+			t.Fatal("expected drift error")
+		}
+		msg := err.Error()
+		if !strings.Contains(msg, "defined-but-not-registered") || !strings.Contains(msg, "registered-but-not-defined") {
+			t.Fatalf("unexpected drift error: %v", err)
+		}
+		if !strings.Contains(msg, "guardianwaf_only_extra") {
+			t.Fatalf("expected extra tool listed in drift error: %v", err)
+		}
+	})
+
+	t.Run("missing definition only", func(t *testing.T) {
+		var first ToolDefinition
+		for _, tool := range AllTools() {
+			first = tool
+			break
+		}
+		s := NewServer(nil, nil)
+		s.RegisterAllTools()
+		s.mu.Lock()
+		delete(s.tools, first.Name)
+		s.mu.Unlock()
+		err := s.ValidateTools()
+		if err == nil {
+			t.Fatal("expected drift error")
+		}
+		if !strings.Contains(err.Error(), first.Name) {
+			t.Fatalf("expected missing tool name %q in error: %v", first.Name, err)
+		}
+	})
+}
+
+func TestHandleSSE_InvalidHost(t *testing.T) {
+	handler, _ := helperSSEServer("test-api-key")
+	rec := httptest.NewRecorder()
+	req := helperAuthReq(http.MethodGet, "http://example.test/mcp/sse", nil)
+	req.Host = "bad/host"
+	handler.handleSSE(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid host, got %d", rec.Code)
+	}
+}
+
+type failAfterFirstWriteRecorder struct {
+	header          http.Header
+	writeCalls      int
+	firstWriteDone  chan struct{}
+	firstWriteFired bool
+}
+
+func (r *failAfterFirstWriteRecorder) Header() http.Header {
+	if r.header == nil {
+		r.header = make(http.Header)
+	}
+	return r.header
+}
+
+func (r *failAfterFirstWriteRecorder) Write(p []byte) (int, error) {
+	r.writeCalls++
+	if r.writeCalls == 1 {
+		if r.firstWriteDone != nil && !r.firstWriteFired {
+			close(r.firstWriteDone)
+			r.firstWriteFired = true
+		}
+		return len(p), nil
+	}
+	return 0, fmt.Errorf("forced write failure")
+}
+
+func (r *failAfterFirstWriteRecorder) WriteHeader(statusCode int) {}
+func (r *failAfterFirstWriteRecorder) Flush()                        {}
+
+func TestHandleSSE_MessageWriteFailure(t *testing.T) {
+	handler, _ := helperSSEServer("test-api-key")
+	rec := &failAfterFirstWriteRecorder{firstWriteDone: make(chan struct{})}
+	req := helperAuthReq(http.MethodGet, "http://example.test/mcp/sse", nil)
+	done := make(chan struct{})
+	go func() {
+		handler.handleSSE(rec, req)
+		close(done)
+	}()
+
+	select {
+	case <-rec.firstWriteDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for initial SSE endpoint write")
+	}
+
+	var client *sseClient
+	handler.mu.Lock()
+	for c := range handler.clients {
+		client = c
+		break
+	}
+	handler.mu.Unlock()
+	if client == nil {
+		t.Fatal("expected SSE client to register")
+	}
+
+	client.ch <- []byte(`{"ok":true}`)
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for SSE handler to exit after write failure")
+	}
+}
+
+func TestHandleRequestJSONWithAuditContext_ParseErrorStillMarshals(t *testing.T) {
+	srv := NewServer(nil, nil)
+	respData, err := srv.HandleRequestJSONWithAuditContext([]byte("not-json"), &AuditContext{Transport: "sse"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var resp JSONRPCResponse
+	if err := json.Unmarshal(respData, &resp); err != nil {
+		t.Fatalf("response not valid JSON: %v", err)
+	}
+	if resp.Error == nil || resp.Error.Code != ErrCodeParseError {
+		t.Fatalf("expected parse error response, got %+v", resp)
+	}
+}
+
+func TestHandleMessage_BroadcastUnmarshalFailureStillAccepted(t *testing.T) {
+	handler, _ := helperSSEServer("test-api-key")
+	client := &sseClient{done: make(chan struct{}), ch: make(chan []byte, 1)}
+	handler.mu.Lock()
+	handler.clients[client] = true
+	handler.mu.Unlock()
+
+	body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"guardianwaf_get_stats","arguments":{}}}`
+	req := helperAuthReq(http.MethodPost, "/mcp/message", bytes.NewBufferString(body))
+	w := httptest.NewRecorder()
+	handler.handleMessage(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d", w.Code)
+	}
+}
+
+func TestHandleSSE_HeartbeatWriteFailure(t *testing.T) {
+	handler, _ := helperSSEServer("test-api-key")
+	rec := &failAfterFirstWriteRecorder{writeCalls: math.MinInt}
+	req := helperAuthReq(http.MethodGet, "http://example.test/mcp/sse", nil)
+	done := make(chan struct{})
+	go func() {
+		handler.handleSSE(rec, req)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(35 * time.Second):
+		t.Fatal("timed out waiting for SSE handler to exit after heartbeat write failure")
 	}
 }

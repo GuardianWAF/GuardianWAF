@@ -1401,3 +1401,41 @@ func TestDetect_UnclosedTag(t *testing.T) {
 		t.Errorf("expected score >= 70 for unclosed tag with event handler, got %d", totalScore)
 	}
 }
+
+// Merged from xss_extra_test.go
+func TestScanTags_EmptyAttributeName(t *testing.T) {
+	tags := scanTags("<div =value>")
+	if len(tags) == 0 {
+		t.Fatal("expected at least one tag")
+	}
+	if tags[0].Name != "div" {
+		t.Errorf("expected tag name 'div', got %q", tags[0].Name)
+	}
+}
+
+// Merged from xss_gap_test.go
+func TestCoverageGaps(t *testing.T) {
+	if got := NewDetector(true, 1).Order(); got != 0 {
+		t.Fatalf("Order() = %d, want 0", got)
+	}
+	for _, input := range []string{"1*2", "1 *2", "1* '2", `1* "2`} {
+		if !hasTemplateArithmeticProbe(input) {
+			t.Errorf("hasTemplateArithmeticProbe(%q) = false", input)
+		}
+	}
+	if hasTemplateArithmeticProbe("x*2") {
+		t.Fatal("non-numeric left operand must not match")
+	}
+	if hasTemplateArithmeticProbe("*1") {
+		t.Fatal("missing left operand must not match")
+	}
+	if got := codePointRune(0); got != '\uFFFD' {
+		t.Fatalf("codePointRune(0) = %U", got)
+	}
+	if !containsEventHandler("xx onclick=") {
+		t.Fatal("expected handler after boundary")
+	}
+	if containsEventHandler("onclickX") {
+		t.Fatal("onsomething without = must not match")
+	}
+}

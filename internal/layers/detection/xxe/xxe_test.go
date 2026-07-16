@@ -1,6 +1,7 @@
 package xxe
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
@@ -694,5 +695,29 @@ func BenchmarkDetect(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		Detect(input, "body")
+	}
+}
+
+// Merged from xxe_gap_test.go and xxe_extra2_test.go
+
+func TestDetectorOrder(t *testing.T) {
+	if got := NewDetector(true, 1).Order(); got != 0 {
+		t.Fatalf("Order() = %d, want 0", got)
+	}
+}
+
+func TestExtractContext_LongResultTruncated(t *testing.T) {
+	// Use a very long pattern so the context window exceeds 200 chars
+	prefix := ""
+	pattern := strings.Repeat("b", 200)
+	suffix := strings.Repeat("c", 100)
+	input := prefix + pattern + suffix
+
+	ctx := extractContext(input, pattern)
+	if len(ctx) != 200 {
+		t.Errorf("expected context length 200, got %d", len(ctx))
+	}
+	if !strings.HasSuffix(ctx, "...") {
+		t.Error("expected truncated context to end with ...")
 	}
 }

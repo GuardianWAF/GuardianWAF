@@ -1,6 +1,7 @@
 package ssrf
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
@@ -991,5 +992,294 @@ func BenchmarkDetect(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		Detect(input, "query")
+	}
+}
+
+// Merged from ssrf_extra2_test.go
+func TestExtractContext_LongResultTruncated(t *testing.T) {
+	prefix := strings.Repeat("a", 50)
+	pattern := strings.Repeat("b", 200)
+	suffix := strings.Repeat("c", 50)
+	input := prefix + pattern + suffix
+
+	ctx := extractContext(input, pattern)
+	if len(ctx) != 200 {
+		t.Errorf("expected context length 200, got %d", len(ctx))
+	}
+	if !strings.HasSuffix(ctx, "...") {
+		t.Error("expected truncated context to end with ...")
+	}
+}
+
+// --- Abbreviated IP tests ---
+
+func TestDetect_AbbreviatedIP_Loopback(t *testing.T) {
+	findings := Detect("http://127.1/admin", "query")
+	totalScore := 0
+	for _, f := range findings {
+		totalScore += f.Score
+	}
+	if totalScore < 80 {
+		t.Errorf("expected score >= 80 for abbreviated loopback 127.1, got %d", totalScore)
+	}
+}
+
+func TestDetect_AbbreviatedIP_Private(t *testing.T) {
+	findings := Detect("http://10.1/secret", "query")
+	totalScore := 0
+	for _, f := range findings {
+		totalScore += f.Score
+	}
+	if totalScore < 80 {
+		t.Errorf("expected score >= 80 for abbreviated private IP 10.1, got %d", totalScore)
+	}
+}
+
+func TestDetect_AbbreviatedIP_Private192(t *testing.T) {
+	// 192.168.1 → 192.168.0.1
+	findings := Detect("http://192.168.1/router", "query")
+	totalScore := 0
+	for _, f := range findings {
+		totalScore += f.Score
+	}
+	if totalScore < 80 {
+		t.Errorf("expected score >= 80 for abbreviated private 192.168.1, got %d", totalScore)
+	}
+}
+
+// --- Hex single number IP tests ---
+
+func TestDetect_HexSingleIP_Loopback(t *testing.T) {
+	findings := Detect("http://0x7f000001/admin", "query")
+	totalScore := 0
+	for _, f := range findings {
+		totalScore += f.Score
+	}
+	if totalScore < 85 {
+		t.Errorf("expected score >= 85 for hex single loopback 0x7f000001, got %d", totalScore)
+	}
+}
+
+func TestDetect_HexSingleIP_Private(t *testing.T) {
+	// 0x0a000001 = 10.0.0.1
+	findings := Detect("http://0x0a000001/internal", "query")
+	totalScore := 0
+	for _, f := range findings {
+		totalScore += f.Score
+	}
+	if totalScore < 85 {
+		t.Errorf("expected score >= 85 for hex single private IP 0x0a000001, got %d", totalScore)
+	}
+}
+
+// --- ParseAbbreviatedIP tests ---
+
+func TestParseAbbreviatedIP_TwoParts(t *testing.T) {
+	ip := ParseAbbreviatedIP("127.1")
+	if ip == nil {
+		t.Fatal("expected valid abbreviated IP")
+	}
+	if ip[0] != 127 || ip[1] != 0 || ip[2] != 0 || ip[3] != 1 {
+		t.Errorf("expected 127.0.0.1, got %d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3])
+	}
+}
+
+func TestParseAbbreviatedIP_ThreeParts(t *testing.T) {
+	ip := ParseAbbreviatedIP("192.168.1")
+	if ip == nil {
+		t.Fatal("expected valid abbreviated IP")
+	}
+	if ip[0] != 192 || ip[1] != 168 || ip[2] != 0 || ip[3] != 1 {
+		t.Errorf("expected 192.168.0.1, got %d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3])
+	}
+}
+
+func TestParseAbbreviatedIP_FourParts(t *testing.T) {
+	// Standard 4-part should return nil (handled by ParseIPv4)
+	ip := ParseAbbreviatedIP("127.0.0.1")
+	if ip != nil {
+		t.Error("4-part IP should not be abbreviated")
+	}
+}
+
+func TestParseAbbreviatedIP_EmptyPart(t *testing.T) {
+	ip := ParseAbbreviatedIP("127.")
+	if ip != nil {
+		t.Error("expected nil for trailing dot")
+	}
+}
+
+func TestParseAbbreviatedIP_InvalidChar(t *testing.T) {
+	ip := ParseAbbreviatedIP("127.abc")
+	if ip != nil {
+		t.Error("expected nil for invalid chars")
+	}
+}
+
+// --- ParseHexSingleIP tests ---
+
+func TestParseHexSingleIP_Loopback(t *testing.T) {
+	ip := ParseHexSingleIP("0x7f000001")
+	if ip == nil {
+		t.Fatal("expected valid hex single IP")
+	}
+	if ip[0] != 127 || ip[1] != 0 || ip[2] != 0 || ip[3] != 1 {
+		t.Errorf("expected 127.0.0.1, got %d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3])
+	}
+}
+
+func TestParseHexSingleIP_Private(t *testing.T) {
+	// 0x0a000001 = 10.0.0.1
+	ip := ParseHexSingleIP("0x0a000001")
+	if ip == nil {
+		t.Fatal("expected valid hex single IP")
+	}
+	if ip[0] != 10 || ip[1] != 0 || ip[2] != 0 || ip[3] != 1 {
+		t.Errorf("expected 10.0.0.1, got %d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3])
+	}
+}
+
+func TestParseHexSingleIP_NoPrefix(t *testing.T) {
+	ip := ParseHexSingleIP("7f000001")
+	if ip != nil {
+		t.Error("expected nil without 0x prefix")
+	}
+}
+
+func TestParseHexSingleIP_TooLong(t *testing.T) {
+	ip := ParseHexSingleIP("0x7f00000100")
+	if ip != nil {
+		t.Error("expected nil for too-long hex")
+	}
+}
+
+func TestParseHexSingleIP_Empty(t *testing.T) {
+	ip := ParseHexSingleIP("0x")
+	if ip != nil {
+		t.Error("expected nil for empty hex value")
+	}
+}
+
+func TestParseHexSingleIP_Uppercase(t *testing.T) {
+	ip := ParseHexSingleIP("0X7F000001")
+	if ip == nil {
+		t.Fatal("expected valid hex single IP")
+	}
+	if ip[0] != 127 || ip[3] != 1 {
+		t.Errorf("expected 127.0.0.1, got %d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3])
+	}
+}
+
+func TestParseHexSingleIP_Metadata(t *testing.T) {
+	// 0xa9fea9fe = 169.254.169.254
+	ip := ParseHexSingleIP("0xa9fea9fe")
+	if ip == nil {
+		t.Fatal("expected valid hex single IP")
+	}
+	if !IsMetadataEndpoint(ip) {
+		t.Errorf("expected metadata endpoint, got %d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3])
+	}
+}
+
+// --- IPv6 private IP detection tests ---
+
+func TestDetect_IPv6PrivateIP(t *testing.T) {
+	findings := Detect("http://[fc00::1]/secret", "query")
+	totalScore := 0
+	for _, f := range findings {
+		totalScore += f.Score
+	}
+	if totalScore < 60 {
+		t.Errorf("expected score >= 60 for IPv6 private fc00::1, got %d", totalScore)
+	}
+}
+
+func TestDetect_IPv6LinkLocal(t *testing.T) {
+	findings := Detect("http://[fe80::1]/internal", "query")
+	totalScore := 0
+	for _, f := range findings {
+		totalScore += f.Score
+	}
+	if totalScore < 60 {
+		t.Errorf("expected score >= 60 for IPv6 link-local fe80::1, got %d", totalScore)
+	}
+}
+
+func TestDetect_IPv6Loopback(t *testing.T) {
+	findings := Detect("http://[::1]/admin", "query")
+	totalScore := 0
+	for _, f := range findings {
+		totalScore += f.Score
+	}
+	if totalScore < 80 {
+		t.Errorf("expected score >= 80 for IPv6 loopback [::1], got %d", totalScore)
+	}
+}
+
+func TestDetect_IPv6Public_NoDetection(t *testing.T) {
+	findings := Detect("http://[2001:db8::1]/path", "query")
+	for _, f := range findings {
+		if f.Description != "" && (containsStr(f.Description, "private") || containsStr(f.Description, "link-local")) {
+			t.Errorf("should not flag public IPv6 as private: %s", f.Description)
+		}
+	}
+}
+
+func containsStr(s, sub string) bool {
+	return len(s) >= len(sub) && (s == sub || len(s) > 0 && containsStr(s[1:], sub))
+}
+
+// Merged from ssrf_extra_test.go
+func TestCheckPrivateIPs_PrefixAtEnd(t *testing.T) {
+	findings := checkPrivateIPs("visit http://", "query")
+	if len(findings) != 0 {
+		t.Error("expected no findings when URL prefix is at end of input")
+	}
+}
+
+// TestCheckEncodedIPs_PrefixAtEnd covers the hostStart >= len(lower) continue
+// inside checkEncodedIPs when a URL prefix is at the end of the string.
+func TestCheckEncodedIPs_PrefixAtEnd(t *testing.T) {
+	findings := checkEncodedIPs("redirect to https://", "query")
+	if len(findings) != 0 {
+		t.Error("expected no findings when URL prefix is at end of input")
+	}
+}
+
+// Merged from ssrf_gap_test.go
+func TestCoverageGaps(t *testing.T) {
+	d := NewDetector(true, 0.1)
+	if d.Order() != 0 {
+		t.Fatalf("Order() = %d, want 0", d.Order())
+	}
+	result := d.Process(&engine.RequestContext{Headers: map[string][]string{
+		"User-Agent":       {"http://localhost"},
+		"X-Original-URL":   {"http://localhost"},
+		"X-Forwarded-Host": {"safe"},
+	}})
+	if result.Action != engine.ActionLog {
+		t.Fatalf("low-score action = %v, want log (score %d)", result.Action, result.Score)
+	}
+
+	if ParseDecimalIP("4294967296") != nil {
+		t.Fatal("decimal uint32 overflow must fail")
+	}
+	cases := []string{"", "0x", "0xg", "0xabcdefabcdefabcdef", "08", strings.Repeat("9", 21), "-1"}
+	for _, input := range cases {
+		if _, ok := parseFlexibleUint(input); ok {
+			t.Errorf("parseFlexibleUint(%q) unexpectedly succeeded", input)
+		}
+	}
+	if got, ok := parseFlexibleUint("0xA"); !ok || got != 10 {
+		t.Fatalf("uppercase hex = %d, %v", got, ok)
+	}
+	if got, ok := parseFlexibleUint("0Xf"); !ok || got != 15 {
+		t.Fatalf("lowercase hex = %d, %v", got, ok)
+	}
+	if ParseHexSingleIP("0xg") != nil {
+		t.Fatal("invalid single hex IP must fail")
+	}
+	if !isHostBoundary("host", 4) || isHostBoundary("hostx", 4) {
+		t.Fatal("host boundary classification failed")
 	}
 }

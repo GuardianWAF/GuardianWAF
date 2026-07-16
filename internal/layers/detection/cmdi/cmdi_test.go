@@ -749,3 +749,29 @@ func TestDetect_VeryLongPayloadTruncation(t *testing.T) {
 		}
 	}
 }
+
+// Merged from cmdi_extra2_test.go
+func TestExtractContext_LongPattern(t *testing.T) {
+	pattern := strings.Repeat("b", 200)
+	prefix := strings.Repeat("a", 50)
+	suffix := strings.Repeat("c", 50)
+	input := prefix + pattern + suffix
+	ctx := extractContext(input, pattern)
+	if !strings.HasSuffix(ctx, "...") {
+		t.Error("expected truncated context")
+	}
+}
+
+// Merged from cmdi_gap_test.go
+func TestCoverageGaps(t *testing.T) {
+	d := NewDetector(true, 1)
+	if d.Order() != 0 {
+		t.Fatalf("Order() = %d, want 0", d.Order())
+	}
+	result := d.Process(&engine.RequestContext{
+		NormalizedHeaders: map[string][]string{"Referer": {"safe", ";id"}},
+	})
+	if result.Action != engine.ActionLog {
+		t.Fatalf("normalized Referer action = %v, want log", result.Action)
+	}
+}

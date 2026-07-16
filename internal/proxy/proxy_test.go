@@ -1,10 +1,15 @@
 package proxy
 
 import (
+	"bufio"
+	"context"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -13,6 +18,17 @@ import (
 
 func init() {
 	allowPrivateTargets.Store(true)
+}
+
+type hijackableRecorder struct {
+	*httptest.ResponseRecorder
+	conn net.Conn
+	rw   *bufio.ReadWriter
+	err  error
+}
+
+func (h *hijackableRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	return h.conn, h.rw, h.err
 }
 
 // --- Target ---
@@ -887,5 +903,483 @@ func BenchmarkBalancerLeastConn(b *testing.B) {
 	b.ResetTimer()
 	for range b.N {
 		lb.Next(req)
+	}
+}
+
+// Merged from proxy_extra3_test.go
+func TestWeightedRoundRobin_ZeroTotalWeight(t *testing.T) {
+	t1, _ := NewTarget("http://a:3000", 1)
+	t2, _ := NewTarget("http://b:3000", 1)
+	t1.Weight = 0
+	t2.Weight = 0
+	lb := NewBalancer([]*Target{t1, t2}, StrategyWeighted)
+	req := httptest.NewRequest("GET", "/", nil)
+	got := lb.Next(req)
+	if got != t1 {
+		t.Errorf("expected first target when total weight is zero")
+	}
+}
+
+func TestWeightedRoundRobin_Fallthrough(t *testing.T) {
+	t1, _ := NewTarget("http://a:3000", 1)
+	t2, _ := NewTarget("http://b:3000", 1)
+	t1.Weight = -1
+	t2.Weight = -1
+	lb := NewBalancer([]*Target{t1, t2}, StrategyWeighted)
+	req := httptest.NewRequest("GET", "/", nil)
+	got := lb.Next(req)
+	if got == nil {
+		t.Fatal("expected non-nil target")
+	}
+}
+
+func TestCircuitAllow_InvalidState(t *testing.T) {
+	cb := NewCircuitBreaker(CircuitConfig{Threshold: 3})
+	cb.state.Store(int32(99))
+	if cb.Allow() {
+		t.Error("expected false for invalid state")
+	}
+}
+
+func TestHealthCheck_NewRequestError(t *testing.T) {
+	target, _ := NewTarget("http://localhost:3000", 1)
+	lb := NewBalancer([]*Target{target}, StrategyRoundRobin)
+	hc := NewHealthChecker(lb, HealthConfig{})
+	target.URL = &url.URL{Scheme: "", Host: "localhost", Path: "/"}
+	if hc.check(context.Background(), target) {
+		t.Error("expected false when request cannot be created")
+	}
+}
+
+func TestRouter_AllUpstreamStatus_VHosts(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer backend.Close()
+	target, _ := NewTarget(backend.URL, 1)
+	balancer := NewBalancer([]*Target{target}, StrategyRoundRobin)
+	router := NewRouterWithVHosts([]VirtualHost{
+		{Domains: []string{"api.example.com"}, Routes: []Route{{PathPrefix: "/", Balancer: balancer}}},
+		{Domains: []string{"*.example.com"}, Routes: []Route{{PathPrefix: "/", Balancer: balancer}}},
+	}, nil)
+	statuses := router.AllUpstreamStatus()
+	if len(statuses) != 1 {
+		t.Fatalf("expected 1 status, got %d", len(statuses))
+	}
+}
+
+func TestRouterCloseClosesUniqueTargetsAcrossRoutes(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer backend.Close()
+
+	shared, err := NewTarget(backend.URL, 1)
+	if err != nil {
+		t.Fatalf("NewTarget shared: %v", err)
+	}
+	vhostOnly, err := NewTarget(backend.URL, 1)
+	if err != nil {
+		t.Fatalf("NewTarget vhostOnly: %v", err)
+	}
+
+	sharedBalancer := NewBalancer([]*Target{shared}, StrategyRoundRobin)
+	vhostBalancer := NewBalancer([]*Target{shared, vhostOnly}, StrategyRoundRobin)
+	nilTargetBalancer := NewBalancer([]*Target{nil}, StrategyRoundRobin)
+	router := NewRouterWithVHosts(
+		[]VirtualHost{
+			{Domains: []string{"api.example.com"}, Routes: []Route{{PathPrefix: "/", Balancer: vhostBalancer}}},
+			{Domains: []string{"*.example.com"}, Routes: []Route{{PathPrefix: "/wild", Balancer: sharedBalancer}}},
+			{Domains: []string{"nil.example.com"}, Routes: []Route{{PathPrefix: "/nil", Balancer: nilTargetBalancer}}},
+		},
+		[]Route{
+			{PathPrefix: "/", Balancer: sharedBalancer},
+			{PathPrefix: "/nil", Balancer: nil},
+		},
+	)
+
+	router.Close()
+
+	if !shared.Closed() {
+		t.Fatal("expected shared target to be closed")
+	}
+	if !vhostOnly.Closed() {
+		t.Fatal("expected vhost-only target to be closed")
+	}
+}
+
+func TestStripPort_IPv6NoPort(t *testing.T) {
+	if got := stripPort("[::1]"); got != "[::1]" {
+		t.Errorf("expected [::1], got %s", got)
+	}
+}
+
+func TestTargetServeHTTP_EmptyStripPrefix(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "path=%s", r.URL.Path)
+	}))
+	defer backend.Close()
+	target, _ := NewTarget(backend.URL, 1)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/api", nil)
+	target.ServeHTTP(w, req, "/api")
+	if w.Body.String() != "path=/" {
+		t.Errorf("expected path=/, got %s", w.Body.String())
+	}
+}
+
+func TestTargetErrorHandler(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer backend.Close()
+	target, _ := NewTarget(backend.URL, 1)
+	backend.Close()
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/", nil)
+	err := target.ServeHTTP(w, req, "")
+	if err == nil {
+		t.Error("expected error when backend is down")
+	}
+	if target.circuit.Failures() == 0 {
+		t.Error("expected circuit failure to be recorded")
+	}
+}
+
+func TestRouterSortWildcards(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer backend.Close()
+	target, _ := NewTarget(backend.URL, 1)
+	balancer := NewBalancer([]*Target{target}, StrategyRoundRobin)
+	router := NewRouterWithVHosts([]VirtualHost{
+		{Domains: []string{"*.example.com"}, Routes: []Route{{PathPrefix: "/", Balancer: balancer}}},
+		{Domains: []string{"*.sub.example.com"}, Routes: []Route{{PathPrefix: "/", Balancer: balancer}}},
+	}, nil)
+	_ = router.AllUpstreamStatus()
+}
+
+// Merged from proxy_extra_test.go
+func TestCircuitState_String(t *testing.T) {
+	tests := []struct {
+		state    CircuitState
+		expected string
+	}{
+		{CircuitClosed, "closed"},
+		{CircuitOpen, "open"},
+		{CircuitHalfOpen, "half-open"},
+		{CircuitState(99), "unknown"},
+	}
+	for _, tt := range tests {
+		if got := tt.state.String(); got != tt.expected {
+			t.Errorf("CircuitState(%d).String() = %q, want %q", tt.state, got, tt.expected)
+		}
+	}
+}
+
+func TestTarget_CircuitState(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer backend.Close()
+
+	target, err := NewTarget(backend.URL, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	state := target.CircuitState()
+	if state != CircuitClosed {
+		t.Errorf("expected closed, got %s", state.String())
+	}
+}
+
+func TestTarget_ActiveConns(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer backend.Close()
+
+	target, err := NewTarget(backend.URL, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if conns := target.ActiveConns(); conns != 0 {
+		t.Errorf("expected 0 active conns, got %d", conns)
+	}
+}
+
+func TestRouter_AllUpstreamStatus(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer backend.Close()
+
+	target, _ := NewTarget(backend.URL, 1)
+	balancer := NewBalancer([]*Target{target}, "round_robin")
+
+	routes := []Route{
+		{PathPrefix: "/", Balancer: balancer},
+	}
+	router := NewRouter(routes)
+
+	statuses := router.AllUpstreamStatus()
+	if len(statuses) != 1 {
+		t.Fatalf("expected 1 upstream status, got %d", len(statuses))
+	}
+	if len(statuses[0].Targets) != 1 {
+		t.Fatalf("expected 1 target, got %d", len(statuses[0].Targets))
+	}
+
+	ts := statuses[0].Targets[0]
+	if !ts.Healthy {
+		t.Error("expected healthy target")
+	}
+	if ts.CircuitState != "closed" {
+		t.Errorf("expected 'closed', got %q", ts.CircuitState)
+	}
+}
+
+func TestRouter_AllUpstreamStatus_DeduplicatesBalancers(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer backend.Close()
+
+	target, _ := NewTarget(backend.URL, 1)
+	balancer := NewBalancer([]*Target{target}, "round_robin")
+
+	routes := []Route{
+		{PathPrefix: "/api", Balancer: balancer},
+		{PathPrefix: "/web", Balancer: balancer},
+	}
+	router := NewRouter(routes)
+
+	statuses := router.AllUpstreamStatus()
+	if len(statuses) != 1 {
+		t.Errorf("expected 1 (deduplicated), got %d", len(statuses))
+	}
+}
+
+func TestRouter_AllUpstreamStatus_NilBalancer(t *testing.T) {
+	routes := []Route{
+		{PathPrefix: "/", Balancer: nil},
+	}
+	router := NewRouter(routes)
+	statuses := router.AllUpstreamStatus()
+	if len(statuses) != 0 {
+		t.Errorf("expected 0 for nil balancer, got %d", len(statuses))
+	}
+}
+
+func TestExtractClientIPForHash_WithPort(t *testing.T) {
+	req := httptest.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "192.168.1.100:54321"
+	ip := extractClientIPForHash(req)
+	if ip != "192.168.1.100" {
+		t.Errorf("expected '192.168.1.100', got %q", ip)
+	}
+}
+
+func TestExtractClientIPForHash_NoPort(t *testing.T) {
+	req := httptest.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "10.0.0.1"
+	ip := extractClientIPForHash(req)
+	if ip != "10.0.0.1" {
+		t.Errorf("expected '10.0.0.1', got %q", ip)
+	}
+}
+
+func TestExtractClientIPForHash_XForwardedFor(t *testing.T) {
+	// XFF is no longer trusted — uses RemoteAddr only
+	req := httptest.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "10.0.0.1:1234"
+	req.Header.Set("X-Forwarded-For", "203.0.113.50, 70.41.3.18")
+	ip := extractClientIPForHash(req)
+	if ip != "10.0.0.1" {
+		t.Errorf("expected RemoteAddr '10.0.0.1', got %q", ip)
+	}
+}
+
+// Merged from proxy_gap_targeted_test.go
+func TestProxyErrorHijack_Unsupported(t *testing.T) {
+	pe := &proxyError{ResponseWriter: httptest.NewRecorder()}
+	conn, rw, err := pe.Hijack()
+	if err == nil {
+		t.Fatal("expected hijack error")
+	}
+	if conn != nil || rw != nil {
+		t.Fatal("expected nil hijack results")
+	}
+}
+
+func TestProxyErrorHijack_Delegates(t *testing.T) {
+	serverConn, clientConn := net.Pipe()
+	defer serverConn.Close()
+	defer clientConn.Close()
+
+	rw := bufio.NewReadWriter(bufio.NewReader(clientConn), bufio.NewWriter(clientConn))
+	wantErr := errors.New("sentinel hijack error")
+	pe := &proxyError{ResponseWriter: &hijackableRecorder{ResponseRecorder: httptest.NewRecorder(), conn: serverConn, rw: rw, err: wantErr}}
+
+	gotConn, gotRW, err := pe.Hijack()
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("Hijack() error = %v, want %v", err, wantErr)
+	}
+	if gotConn != serverConn || gotRW != rw {
+		t.Fatal("Hijack() did not delegate to underlying ResponseWriter")
+	}
+}
+
+func TestTargetServeHTTP_TargetClosed(t *testing.T) {
+	target, err := NewTarget("http://localhost:3000", 1)
+	if err != nil {
+		t.Fatalf("NewTarget() error = %v", err)
+	}
+	target.Close()
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	if err := target.ServeHTTP(w, req, ""); err != nil {
+		t.Fatalf("ServeHTTP() error = %v, want nil", err)
+	}
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("ServeHTTP() code = %d, want %d", w.Code, http.StatusServiceUnavailable)
+	}
+	if !strings.Contains(w.Body.String(), "Target closed") {
+		t.Fatalf("ServeHTTP() body = %q, want target closed message", w.Body.String())
+	}
+}
+
+func TestIsPrivateOrReservedIP_DNSFailureReturnsNil(t *testing.T) {
+	if err := IsPrivateOrReservedIP("nonexistent.invalid"); err != nil {
+		t.Fatalf("IsPrivateOrReservedIP() error = %v, want nil on lookup failure", err)
+	}
+}
+
+func TestIsPrivateOrReservedIPWithPolicy_AllowPrivateShortCircuits(t *testing.T) {
+	if err := IsPrivateOrReservedIPWithPolicy("127.0.0.1:8080", TargetPolicy{AllowPrivateTargets: true}); err != nil {
+		t.Fatalf("IsPrivateOrReservedIPWithPolicy() error = %v, want nil", err)
+	}
+}
+
+func TestIsPrivateOrReservedIPWithPolicy_HostnameBranches(t *testing.T) {
+	cidrs, err := ParseAllowedUpstreamCIDRs([]string{"127.0.0.1/32"})
+	if err != nil {
+		t.Fatalf("ParseAllowedUpstreamCIDRs() error = %v", err)
+	}
+	if err := IsPrivateOrReservedIPWithPolicy("localhost", TargetPolicy{AllowedCIDRs: cidrs}); err != nil {
+		t.Fatalf("IsPrivateOrReservedIPWithPolicy(localhost) error = %v, want nil", err)
+	}
+	if err := IsPrivateOrReservedIPWithPolicy("nonexistent.invalid", TargetPolicy{}); err != nil {
+		t.Fatalf("IsPrivateOrReservedIPWithPolicy(lookup fail) error = %v, want nil", err)
+	}
+}
+
+func TestClassifyIPWithAllowedCIDRs_InterfaceLocalMulticast(t *testing.T) {
+	ip := net.ParseIP("ff01::1")
+	if ip == nil {
+		t.Fatal("expected multicast IP to parse")
+	}
+	if err := classifyIPWithAllowedCIDRs(ip, "ff01::1", nil); err == nil {
+		t.Fatal("expected interface-local multicast to be blocked")
+	}
+}
+
+func TestParseAllowedUpstreamCIDRs_AdditionalBranches(t *testing.T) {
+	parsed, err := ParseAllowedUpstreamCIDRs([]string{"  ", "2001:db8::1", "224.0.0.1"})
+	if err == nil {
+		t.Fatal("expected multicast IP error")
+	}
+	if parsed != nil {
+		t.Fatal("expected parsed result to be nil on error")
+	}
+
+	parsed, err = ParseAllowedUpstreamCIDRs([]string{"  ", "2001:db8::1"})
+	if err != nil {
+		t.Fatalf("ParseAllowedUpstreamCIDRs() error = %v", err)
+	}
+	if len(parsed) != 1 {
+		t.Fatalf("len(parsed) = %d, want 1", len(parsed))
+	}
+	ones, bits := parsed[0].Mask.Size()
+	if ones != 128 || bits != 128 {
+		t.Fatalf("IPv6 host mask = %d/%d, want 128/128", ones, bits)
+	}
+
+	if _, err := ParseAllowedUpstreamCIDRs([]string{"1.2.3.4/0"}); err == nil {
+		t.Fatal("expected all-address CIDR to be rejected")
+	}
+}
+
+func TestSSRFDialContextWithPolicy_NoPortAndDNSFailure(t *testing.T) {
+	dial := SSRFDialContextWithPolicy(TargetPolicy{})
+	if _, err := dial(context.Background(), "tcp", "nonexistent.invalid"); err == nil {
+		t.Fatal("expected DNS lookup failure")
+	}
+}
+
+func TestRouterServeHTTP_RetryExhaustedAfterNoHealthyTargets(t *testing.T) {
+	failServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	failURL := failServer.URL
+	failServer.Close()
+
+	failTarget, err := NewTarget(failURL, 1)
+	if err != nil {
+		t.Fatalf("NewTarget(fail) error = %v", err)
+	}
+	failTarget.circuit.threshold = 1
+
+	spareTarget, err := NewTarget("http://spare.invalid:8080", 1)
+	if err != nil {
+		t.Fatalf("NewTarget(spare) error = %v", err)
+	}
+	spareTarget.SetHealthy(false)
+
+	router := NewRouter([]Route{{PathPrefix: "/", Balancer: NewBalancer([]*Target{failTarget, spareTarget}, StrategyRoundRobin)}})
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", strings.NewReader("body"))
+	req.ContentLength = int64(len("body"))
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("ServeHTTP() code = %d, want %d", w.Code, http.StatusBadGateway)
+	}
+}
+
+func TestRouterClose_NilReceiver(t *testing.T) {
+	var rt *Router
+	rt.Close()
+}
+
+func TestHealthCheckPolicy_DefaultBranches(t *testing.T) {
+	assertZeroPolicy := func(name string, got TargetPolicy) {
+		t.Helper()
+		if got.AllowPrivateTargets {
+			t.Fatalf("%s AllowPrivateTargets = true, want false", name)
+		}
+		if got.AllowedCIDRs != nil {
+			t.Fatalf("%s AllowedCIDRs = %v, want nil", name, got.AllowedCIDRs)
+		}
+	}
+
+	assertZeroPolicy("nil", healthCheckPolicy(nil))
+	assertZeroPolicy("empty", healthCheckPolicy(NewBalancer(nil, StrategyRoundRobin)))
+	assertZeroPolicy("nil target", healthCheckPolicy(NewBalancer([]*Target{nil}, StrategyRoundRobin)))
+}
+
+func TestMinHealthCheckDuration_Branches(t *testing.T) {
+	if got := minHealthCheckDuration(0, time.Second); got != time.Second {
+		t.Fatalf("minHealthCheckDuration(0, 1s) = %v, want 1s", got)
+	}
+	if got := minHealthCheckDuration(2*time.Second, time.Second); got != time.Second {
+		t.Fatalf("minHealthCheckDuration(2s, 1s) = %v, want 1s", got)
+	}
+	if got := minHealthCheckDuration(500*time.Millisecond, time.Second); got != 500*time.Millisecond {
+		t.Fatalf("minHealthCheckDuration(500ms, 1s) = %v, want 500ms", got)
 	}
 }
