@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 )
 
@@ -174,4 +175,14 @@ func redactFilePaths(msg string) string {
 
 func isASCIILetter(b byte) bool {
 	return (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z')
+}
+
+// deepCopyConfig creates a deep copy of the config using the generated
+// DeepCopy method. This prevents shared mutable state between the dashboard
+// and engine without the allocation overhead of JSON round-trip.
+func deepCopyConfig(cfg *config.Config) *config.Config {
+	if cfg == nil {
+		return nil
+	}
+	return cfg.DeepCopy()
 }

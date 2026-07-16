@@ -92,6 +92,9 @@ func logServeRuntimeStatus(cfg *config.Config, eng *engine.Engine) {
 	if len(cfg.VirtualHosts) > 0 {
 		eng.Logs.Infof("Virtual hosts: %d configured", len(cfg.VirtualHosts))
 	}
+	if cfg.AllowPrivateUpstreams != nil && *cfg.AllowPrivateUpstreams && cfg.Mode == "enforce" {
+		eng.Logs.Warn("allow_private_upstreams is true in enforce mode — the WAF can proxy requests to private IP ranges. Set to false in production unless required.")
+	}
 }
 
 func shutdownServeRuntime(ctx context.Context, resources serveShutdownResources) error {
