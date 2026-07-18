@@ -196,6 +196,92 @@ func TestCIWorkflowPinsActionsToolsAndReleaseGates(t *testing.T) {
 	}
 }
 
+func TestWorkflowPrerequisiteChecksRunAfterToolchainSetup(t *testing.T) {
+	root := filepath.Join("..", "..")
+	for _, workflowPath := range []string{
+		".github/workflows/ci.yml",
+		".github/workflows/release.yml",
+	} {
+		workflow := readTextFixture(t, filepath.Join(root, workflowPath))
+		for _, job := range workflowJobBlocks(workflow) {
+			if !strings.Contains(job, "Check build prerequisites") {
+				continue
+			}
+			checkIdx := strings.Index(job, "Check build prerequisites")
+			beforeCheck := job[:checkIdx]
+			if !strings.Contains(beforeCheck, "actions/setup-go@") {
+				t.Fatalf("%s job runs scripts/check-prereqs.sh before actions/setup-go; validate the configured Go version, not the runner default:\n%s", workflowPath, firstLine(job))
+			}
+			if !strings.Contains(beforeCheck, "actions/setup-node@") {
+				t.Fatalf("%s job runs scripts/check-prereqs.sh before actions/setup-node; validate the configured Node/npm version, not the runner default:\n%s", workflowPath, firstLine(job))
+			}
+		}
+	}
+}
+
+func workflowJobBlocks(workflow string) []string {
+	jobsStart := strings.Index(workflow, "\njobs:\n")
+	if jobsStart == -1 {
+		return nil
+	}
+	jobsText := workflow[jobsStart+len("\njobs:\n"):]
+	var blocks []string
+	var current []string
+	for _, line := range strings.Split(jobsText, "\n") {
+		isJobHeader := strings.HasPrefix(line, "  ") && !strings.HasPrefix(line, "    ") && strings.HasSuffix(strings.TrimSpace(line), ":")
+		if isJobHeader {
+			if len(current) > 0 {
+				blocks = append(blocks, strings.Join(current, "\n"))
+			}
+			current = []string{line}
+			continue
+		}
+		if len(current) > 0 {
+			current = append(current, line)
+		}
+	}
+	if len(current) > 0 {
+		blocks = append(blocks, strings.Join(current, "\n"))
+	}
+	return blocks
+}
+
+func firstLine(s string) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(s), "\n")
+	return line
+}
+
+func TestSetupNodeCacheOnlyOnNPMHeavyWorkflowJobs(t *testing.T) {
+	root := filepath.Join("..", "..")
+	allowedCacheJobs := map[string]map[string]bool{
+		".github/workflows/ci.yml": {
+			"build-dashboard": true,
+			"dashboard-e2e":   true,
+			"lighthouse":      true,
+		},
+		".github/workflows/release.yml": {
+			"goreleaser": true,
+			"docker":     true,
+		},
+	}
+	for workflowPath, allowedJobs := range allowedCacheJobs {
+		workflow := readTextFixture(t, filepath.Join(root, workflowPath))
+		for _, job := range workflowJobBlocks(workflow) {
+			jobName := firstLine(job)
+			jobName = strings.TrimSuffix(strings.TrimSpace(jobName), ":")
+			if !strings.Contains(job, "actions/setup-node@") || !strings.Contains(job, "cache: 'npm'") {
+				continue
+			}
+			if !allowedJobs[jobName] {
+				t.Fatalf("%s job %q configures npm cache but does not run npm-heavy dashboard/release work", workflowPath, jobName)
+			}
+			if !strings.Contains(job, "cache-dependency-path: internal/dashboard/ui/package-lock.json") {
+				t.Fatalf("%s job %q configures npm cache without the dashboard lockfile path", workflowPath, jobName)
+			}
+		}
+	}
+}
+
 func TestPatchedGoToolchainIsAlignedAcrossBuildPaths(t *testing.T) {
 	root := filepath.Join("..", "..")
 	files := map[string][]string{

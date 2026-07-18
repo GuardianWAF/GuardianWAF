@@ -1,4 +1,4 @@
-.PHONY: build test lint bench fuzz clean run docker-build smoke docker-test ui ui-dev dev help fmt fmt-check tidy e2e e2e-full e2e-full-all e2e-headed e2e-list
+.PHONY: build test test-packages lint bench fuzz clean run docker-build smoke docker-test ui ui-dev dev help fmt fmt-check tidy e2e e2e-full e2e-full-all e2e-headed e2e-list
 
 BINARY=guardianwaf
 VERSION?=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -24,6 +24,13 @@ dev:
 
 test:
 	go test -race -count=1 ./...
+
+# Run Go tests one package at a time with a per-package timeout to isolate slow
+# or hanging packages. Override with GO_TEST_PACKAGE_TIMEOUT=300s and/or
+# GO_TEST_ARGS='-count=1 -run TestName'. Optional package args can be passed as
+# PACKAGES='./internal/config ./cmd/guardianwaf'.
+test-packages:
+	./scripts/go-test-packages.sh $(PACKAGES)
 
 lint:
 	golangci-lint run ./...
@@ -130,6 +137,7 @@ help:
 	@echo "  ui-dev       Dashboard dev mode (hot reload :5173)"
 	@echo "  dev          Go-only build (skips dashboard rebuild)"
 	@echo "  test         Run all tests with race detector"
+	@echo "  test-packages Run Go tests package-by-package with per-package timeout"
 	@echo "  lint         Run golangci-lint"
 	@echo "  bench        Run benchmarks with memory stats"
 	@echo "  fuzz         Run fuzz tests (30s each)"
