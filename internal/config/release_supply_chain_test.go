@@ -9,10 +9,14 @@ import (
 	"testing"
 )
 
-func TestReleaseWorkflowPublishesVerifiableSupplyChainArtifacts(t *testing.T) {
+func TestReleaseWorkflowStagesVerifiesAndPromotesTransactionally(t *testing.T) {
 	root := filepath.Join("..", "..")
 	workflow := readTextFixture(t, filepath.Join(root, ".github/workflows/release.yml"))
 	topLevel := strings.Split(workflow, "\njobs:\n")[0]
+	jobs := map[string]string{}
+	for _, job := range workflowJobBlocks(workflow) {
+		jobs[strings.TrimSuffix(strings.TrimSpace(firstLine(job)), ":")] = job
+	}
 
 	for _, forbidden := range []string{
 		"contents: write",
@@ -20,66 +24,347 @@ func TestReleaseWorkflowPublishesVerifiableSupplyChainArtifacts(t *testing.T) {
 		"id-token: write",
 	} {
 		if strings.Contains(topLevel, forbidden) {
-			t.Fatalf("release workflow grants %q at top level; keep write/OIDC permissions scoped to the job that needs them", forbidden)
+			t.Fatalf("release workflow grants %q at top level; keep public release permissions scoped to promotion", forbidden)
+		}
+	}
+
+	stageBinaries := jobs["stage-binaries"]
+	stageImage := jobs["stage-image"]
+	verifyRelease := jobs["verify-release"]
+	promoteRelease := jobs["promote-release"]
+	cleanupStagedImage := jobs["cleanup-staged-image"]
+	for name, job := range map[string]string{
+		"stage-binaries":       stageBinaries,
+		"stage-image":          stageImage,
+		"verify-release":       verifyRelease,
+		"promote-release":      promoteRelease,
+		"cleanup-staged-image": cleanupStagedImage,
+	} {
+		if job == "" {
+			t.Fatalf("release workflow missing %s job", name)
+		}
+	}
+
+	for _, forbidden := range []string{"contents: write", "gh release create", "gh release edit", "./scripts/promote-release.sh"} {
+		if strings.Contains(stageBinaries, forbidden) || strings.Contains(stageImage, forbidden) || strings.Contains(verifyRelease, forbidden) {
+			t.Fatalf("pre-promotion job contains public publication capability %q", forbidden)
+		}
+	}
+	if strings.Contains(stageImage, "ghcr.io/${{ github.repository }}:${{ github.ref_name }}") {
+		t.Fatal("image staging publishes the semantic release tag before verification")
+	}
+	if !strings.Contains(stageImage, "ghcr.io/${{ github.repository }}:candidate-${{ github.sha }}") {
+		t.Fatal("image staging must use a SHA-scoped candidate tag")
+	}
+
+	for _, want := range []string{
+		"args: release --clean --skip=publish",
+		"./scripts/verify-release-evidence.sh --check-release-checksums dist/release-evidence/release",
+		"name: staged-binaries-${{ github.run_id }}",
+		"if-no-files-found: error",
+	} {
+		if !strings.Contains(stageBinaries, want) {
+			t.Fatalf("binary staging job missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		"packages: write",
+		"id-token: write",
+		"docker/build-push-action@",
+		"push: true",
+		"provenance: true",
+		"sbom: true",
+		"cosign sign --yes",
+		"mkdir -p \\\n            dist/release-evidence/release/hosted-ci",
+		"dist/release-evidence/release/supply-chain/image-digest.txt",
+		"aquasec/trivy:0.68.1 image",
+		"cosign verify-attestation \\",
+		"--type slsaprovenance",
+		"--type spdxjson",
+		"./scripts/verify-release-evidence.sh --check-supply-chain dist/release-evidence/release",
+		"name: staged-image-${{ github.run_id }}",
+	} {
+		if !strings.Contains(stageImage, want) {
+			t.Fatalf("image staging job missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		"needs: [stage-binaries, stage-image]",
+		"for field in version git_commit heavy; do",
+		"staged manifest mismatch for ${field}",
+		"./scripts/verify-release-evidence.sh --check-release-checksums dist/release-evidence/release",
+		"./scripts/verify-release-evidence.sh --check-supply-chain dist/release-evidence/release",
+		"name: release-promotion-${{ github.run_id }}",
+		"if-no-files-found: error",
+	} {
+		if !strings.Contains(verifyRelease, want) {
+			t.Fatalf("verification job missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		"needs: verify-release",
+		"contents: write",
+		"packages: write",
+		"name: release-promotion-${{ github.run_id }}",
+		"./scripts/promote-release.sh \\",
+		"promotion/release-promotion/assets",
+		"promotion/release-promotion/evidence",
+	} {
+		if !strings.Contains(promoteRelease, want) {
+			t.Fatalf("promotion job missing %q", want)
 		}
 	}
 
 	for _, want := range []string{
-		"id-token: write",
-		"# Default token scope is read-only; release jobs opt in to write/OIDC scopes.",
-		"permissions:\n  contents: read",
-		"goreleaser:\n    permissions:\n      contents: write",
-		"docker:\n    needs: goreleaser\n    permissions:\n      contents: write\n      packages: write\n      id-token: write",
-		"docker/build-push-action@",
-		"id: build",
-		"provenance: true",
-		"sbom: true",
-		"sigstore/cosign-installer@",
-		"cosign sign --yes",
-		"ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}",
-		"Record release image digest",
-		"dist/release-evidence/release/manifest.txt",
-		"dist/release-evidence/release/hosted-ci/ci-run.txt",
-		"dist/release-evidence/release/supply-chain/image-digest.txt",
-		"docker buildx imagetools inspect \"${IMAGE_REF}\"",
-		"echo \"image_ref=${IMAGE_REF}\"",
-		"certificate_identity_regexp=https://github.com/guardianwaf/guardianwaf/.github/workflows/release.yml@refs/tags/v.*",
-		"certificate_oidc_issuer=https://token.actions.githubusercontent.com",
-		"Verify signed image digest",
-		"cosign verify \\",
-		"\"${IMAGE_REF}\" 2>&1",
-		"dist/release-evidence/release/supply-chain/cosign-verify.txt",
-		"Verify provenance attestation",
-		"cosign verify-attestation \\",
-		"--type slsaprovenance",
-		"dist/release-evidence/release/supply-chain/provenance-verify.txt",
-		"Verify SBOM attestation",
-		"--type spdxjson",
-		"dist/release-evidence/release/supply-chain/sbom-attestation-verify.txt",
-		"anchore/syft:v1.38.0",
-		"-o spdx-json=/out/dist/release-evidence/release/supply-chain/sbom.spdx.json",
-		"cp dist/release-evidence/release/supply-chain/sbom.spdx.json sbom.spdx.json",
-		"aquasec/trivy:0.68.1 image",
-		"--severity HIGH,CRITICAL",
-		"tee dist/release-evidence/release/supply-chain/trivy.txt",
-		"Verify release supply-chain evidence",
-		"./scripts/verify-release-evidence.sh --check-supply-chain dist/release-evidence/release",
-		"if: always()",
-		"name: release-supply-chain-evidence",
-		"path: dist/release-evidence/release/",
-		"softprops/action-gh-release@",
-		"files: sbom.spdx.json",
-		"version: v2.16.0",
-		"Verify release binary checksum evidence",
-		"dist/release-evidence/release/release-artifacts/checksums.txt",
-		"./scripts/verify-release-evidence.sh --check-release-checksums dist/release-evidence/release",
-		"name: release-binary-checksums",
-		"path: dist/checksums.txt",
-		"if-no-files-found: error",
+		"if: always() && needs.stage-image.result != 'skipped' && needs.promote-release.result != 'success'",
+		"needs: [stage-image, verify-release, promote-release]",
+		"contents: read",
+		"packages: write",
+		"run: ./scripts/cleanup-staged-release-image.sh",
 	} {
-		if !strings.Contains(workflow, want) {
-			t.Fatalf("release workflow missing %q", want)
+		if !strings.Contains(cleanupStagedImage, want) {
+			t.Fatalf("staged image cleanup job missing %q", want)
 		}
+	}
+	if strings.Contains(cleanupStagedImage, "contents: write") {
+		t.Fatal("staged image cleanup job must not have GitHub Release write permission")
+	}
+
+	for _, forbidden := range []string{
+		"softprops/action-gh-release@",
+		"args: release --clean\n",
+		"ghcr.io/${{ github.repository }}:${{ github.ref_name }} | tee",
+	} {
+		if strings.Contains(workflow, forbidden) {
+			t.Fatalf("release workflow retains non-transactional publication path %q", forbidden)
+		}
+	}
+}
+
+func TestPromoteReleaseScriptPublishesOnlyAfterVerifiedImageTags(t *testing.T) {
+	root := filepath.Join("..", "..")
+	stateDir := t.TempDir()
+	assetsDir := filepath.Join(stateDir, "assets")
+	evidenceDir := filepath.Join(stateDir, "evidence")
+	binDir := filepath.Join(stateDir, "bin")
+	for _, dir := range []string{assetsDir, filepath.Join(evidenceDir, "supply-chain"), binDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(%q) error = %v", dir, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(assetsDir, "guardianwaf_1.2.3_linux_amd64.tar.gz"), []byte("release-binary\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(release asset) error = %v", err)
+	}
+	checksumCmd := exec.Command("sha256sum", "guardianwaf_1.2.3_linux_amd64.tar.gz")
+	checksumCmd.Dir = assetsDir
+	checksum, err := checksumCmd.Output()
+	if err != nil {
+		t.Fatalf("sha256sum release asset error = %v", err)
+	}
+	writeReleaseEvidenceTestFile(t, assetsDir, "checksums.txt", string(checksum))
+	writeReleaseEvidenceTestFile(t, evidenceDir, "manifest.txt", "version=v1.2.3\ngit_commit=1234567890abcdef1234567890abcdef12345678\nheavy=1\n")
+	writeReleaseEvidenceTestFile(t, evidenceDir, "supply-chain/image-ref.txt", "image_ref=ghcr.io/guardianwaf/guardianwaf@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n")
+	writeReleaseEvidenceTestFile(t, evidenceDir, "supply-chain/sbom.spdx.json", "{\"spdxVersion\":\"SPDX-2.3\",\"packages\":[{}]}\n")
+	verifierPath := filepath.Join(stateDir, "verify-release-evidence.sh")
+	if err := os.WriteFile(verifierPath, []byte("#!/usr/bin/env bash\nset -euo pipefail\nprintf 'verify %s\\n' \"$*\" >> \"${PROMOTION_STATE}/calls.log\"\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile(mock verifier) error = %v", err)
+	}
+
+	ghMock := `#!/usr/bin/env bash
+set -euo pipefail
+printf 'gh %s\n' "$*" >> "${PROMOTION_STATE}/calls.log"
+if [ "${1:-}" = "release" ] && [ "${2:-}" = "create" ]; then touch "${PROMOTION_STATE}/draft"; exit 0; fi
+if [ "${1:-}" = "release" ] && [ "${2:-}" = "edit" ]; then touch "${PROMOTION_STATE}/published"; rm -f "${PROMOTION_STATE}/draft"; exit 0; fi
+if [ "${1:-}" = "release" ] && [ "${2:-}" = "delete" ]; then touch "${PROMOTION_STATE}/draft-deleted"; rm -f "${PROMOTION_STATE}/draft"; exit 0; fi
+if [ "${1:-}" = "api" ] && [ "${2:-}" = "--method" ]; then touch "${PROMOTION_STATE}/image-deleted"; exit 0; fi
+if [ "${1:-}" = "api" ]; then
+  if [ "${2:-}" = "--include" ]; then printf 'HTTP/2.0 404 Not Found\n'; exit 1; fi
+  if [[ "$2" == *"?per_page=1" ]]; then printf '[]\n'; exit 0; fi
+  if [[ "$2" == *"per_page=100"* ]]; then
+    if [ "${FAIL_IMAGE_PROMOTION:-0}" = "1" ]; then
+      printf '[{"id":42,"name":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","metadata":{"container":{"tags":["candidate-1234567890abcdef1234567890abcdef12345678"]}}},{"id":41,"name":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","metadata":{"container":{"tags":["1.2","1","latest"]}}}]\n'
+    else
+      printf '[{"id":42,"name":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","metadata":{"container":{"tags":["candidate-1234567890abcdef1234567890abcdef12345678"]}}}]\n'
+    fi
+    exit 0
+  fi
+fi
+exit 1
+`
+	dockerMock := `#!/usr/bin/env bash
+set -euo pipefail
+printf 'docker %s\n' "$*" >> "${PROMOTION_STATE}/calls.log"
+if [ "${1:-}" = "buildx" ] && [ "${2:-}" = "imagetools" ] && [ "${3:-}" = "create" ]; then
+  touch "${PROMOTION_STATE}/image-promoted"
+  if [ "${FAIL_IMAGE_PROMOTION:-0}" = "1" ] && [ ! -f "${PROMOTION_STATE}/promotion-failed" ]; then
+    touch "${PROMOTION_STATE}/promotion-failed"
+    exit 1
+  fi
+  exit 0
+fi
+if [ "${1:-}" = "buildx" ] && [ "${2:-}" = "imagetools" ] && [ "${3:-}" = "inspect" ]; then
+  [ -f "${PROMOTION_STATE}/image-promoted" ] || exit 1
+  printf 'Digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n'
+  exit 0
+fi
+exit 1
+`
+	cosignMock := `#!/usr/bin/env bash
+set -euo pipefail
+printf 'cosign %s\n' "$*" >> "${PROMOTION_STATE}/calls.log"
+[ "${1:-}" = "clean" ]
+`
+	for name, content := range map[string]string{"gh": ghMock, "docker": dockerMock, "cosign": cosignMock} {
+		path := filepath.Join(binDir, name)
+		if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
+			t.Fatalf("WriteFile(%q) error = %v", path, err)
+		}
+	}
+
+	runPromotion := func(t *testing.T, fail bool) ([]byte, error) {
+		t.Helper()
+		for _, name := range []string{"calls.log", "draft", "published", "draft-deleted", "image-promoted", "image-deleted", "promotion-failed"} {
+			if err := os.Remove(filepath.Join(stateDir, name)); err != nil && !os.IsNotExist(err) {
+				t.Fatalf("Remove(%q) error = %v", name, err)
+			}
+		}
+		cmd := exec.Command("bash", filepath.Join(root, "scripts/promote-release.sh"), assetsDir, evidenceDir)
+		cmd.Env = append(os.Environ(),
+			"PATH="+binDir+":"+os.Getenv("PATH"),
+			"PROMOTION_STATE="+stateDir,
+			"GITHUB_REPOSITORY=guardianwaf/guardianwaf",
+			"GITHUB_REPOSITORY_OWNER=guardianwaf",
+			"GITHUB_REF_NAME=v1.2.3",
+			"GITHUB_SHA=1234567890abcdef1234567890abcdef12345678",
+			"GH_TOKEN=test-token",
+			"RELEASE_EVIDENCE_VERIFIER="+verifierPath,
+		)
+		if fail {
+			cmd.Env = append(cmd.Env, "FAIL_IMAGE_PROMOTION=1")
+		}
+		return cmd.CombinedOutput()
+	}
+
+	output, err := runPromotion(t, false)
+	if err != nil {
+		t.Fatalf("promote-release success path error = %v, output:\n%s", err, output)
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "published")); err != nil {
+		t.Fatalf("promotion did not publish verified draft: %v", err)
+	}
+	calls, err := os.ReadFile(filepath.Join(stateDir, "calls.log"))
+	if err != nil {
+		t.Fatalf("ReadFile(calls.log) error = %v", err)
+	}
+	callLog := string(calls)
+	verifyChecksumIndex := strings.Index(callLog, "verify --check-release-checksums")
+	verifySupplyChainIndex := strings.Index(callLog, "verify --check-supply-chain")
+	createIndex := strings.Index(callLog, "gh release create")
+	promoteIndex := strings.Index(callLog, "docker buildx imagetools create")
+	publishIndex := strings.Index(callLog, "gh release edit")
+	if verifyChecksumIndex < 0 || verifySupplyChainIndex < 0 || createIndex < 0 || promoteIndex < 0 || publishIndex < 0 ||
+		!(verifyChecksumIndex < createIndex && verifySupplyChainIndex < createIndex && createIndex < promoteIndex && promoteIndex < publishIndex) {
+		t.Fatalf("promotion order is not verify -> draft -> image -> publish:\n%s", callLog)
+	}
+
+	output, err = runPromotion(t, true)
+	if err == nil {
+		t.Fatalf("promote-release accepted failed image promotion, output:\n%s", output)
+	}
+	for _, marker := range []string{"draft-deleted", "image-deleted"} {
+		if _, statErr := os.Stat(filepath.Join(stateDir, marker)); statErr != nil {
+			t.Fatalf("failed promotion did not create rollback marker %q: %v; output:\n%s", marker, statErr, output)
+		}
+	}
+	calls, err = os.ReadFile(filepath.Join(stateDir, "calls.log"))
+	if err != nil {
+		t.Fatalf("ReadFile(failed calls.log) error = %v", err)
+	}
+	failedCallLog := string(calls)
+	priorDigest := "ghcr.io/guardianwaf/guardianwaf@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	for _, alias := range []string{"1.2", "1", "latest"} {
+		want := "docker buildx imagetools create --tag ghcr.io/guardianwaf/guardianwaf:" + alias + " " + priorDigest
+		if !strings.Contains(failedCallLog, want) {
+			t.Fatalf("failed promotion did not restore alias %q before cleanup; calls:\n%s", alias, failedCallLog)
+		}
+	}
+	if !strings.Contains(failedCallLog, "cosign clean --force --type all ghcr.io/guardianwaf/guardianwaf@sha256:aaaaaaaa") {
+		t.Fatalf("failed promotion did not clean staged OCI referrers; calls:\n%s", failedCallLog)
+	}
+	if _, statErr := os.Stat(filepath.Join(stateDir, "published")); !os.IsNotExist(statErr) {
+		t.Fatalf("failed promotion published the GitHub release")
+	}
+}
+
+func TestCleanupStagedReleaseImageDeletesCandidateOnlyVersion(t *testing.T) {
+	root := filepath.Join("..", "..")
+	stateDir := t.TempDir()
+	binDir := filepath.Join(stateDir, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(bin) error = %v", err)
+	}
+	cosignMock := `#!/usr/bin/env bash
+set -euo pipefail
+printf 'cosign %s\n' "$*" >> "${CLEANUP_STATE}/calls.log"
+[ "${1:-}" = "clean" ]
+`
+	ghMock := `#!/usr/bin/env bash
+set -euo pipefail
+printf 'gh %s\n' "$*" >> "${CLEANUP_STATE}/calls.log"
+if [ "${1:-}" = "api" ] && [ "${2:-}" = "--method" ]; then touch "${CLEANUP_STATE}/deleted"; exit 0; fi
+if [ "${1:-}" = "api" ]; then
+  if [[ "$2" == *"?per_page=1" ]]; then printf '[]\n'; exit 0; fi
+  if [ "${PROMOTED_VERSION:-0}" = "1" ]; then
+    printf '[{"id":42,"name":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","metadata":{"container":{"tags":["candidate-1234567890abcdef1234567890abcdef12345678","v1.2.3"]}}}]\n'
+  else
+    printf '[{"id":42,"name":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","metadata":{"container":{"tags":["candidate-1234567890abcdef1234567890abcdef12345678"]}}}]\n'
+  fi
+  exit 0
+fi
+exit 1
+`
+	for name, content := range map[string]string{"gh": ghMock, "cosign": cosignMock} {
+		if err := os.WriteFile(filepath.Join(binDir, name), []byte(content), 0o755); err != nil {
+			t.Fatalf("WriteFile(mock %s) error = %v", name, err)
+		}
+	}
+	runCleanup := func(promoted bool) ([]byte, error) {
+		if err := os.Remove(filepath.Join(stateDir, "deleted")); err != nil && !os.IsNotExist(err) {
+			t.Fatalf("Remove(deleted) error = %v", err)
+		}
+		cmd := exec.Command("bash", filepath.Join(root, "scripts/cleanup-staged-release-image.sh"))
+		cmd.Env = append(os.Environ(),
+			"PATH="+binDir+":"+os.Getenv("PATH"),
+			"CLEANUP_STATE="+stateDir,
+			"GITHUB_REPOSITORY=guardianwaf/guardianwaf",
+			"GITHUB_REPOSITORY_OWNER=guardianwaf",
+			"GITHUB_SHA=1234567890abcdef1234567890abcdef12345678",
+			"GH_TOKEN=test-token",
+		)
+		if promoted {
+			cmd.Env = append(cmd.Env, "PROMOTED_VERSION=1")
+		}
+		return cmd.CombinedOutput()
+	}
+
+	output, err := runCleanup(false)
+	if err != nil {
+		t.Fatalf("candidate-only cleanup error = %v, output:\n%s", err, output)
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "deleted")); err != nil {
+		t.Fatalf("candidate-only cleanup did not delete package version: %v", err)
+	}
+	calls, err := os.ReadFile(filepath.Join(stateDir, "calls.log"))
+	if err != nil || !strings.Contains(string(calls), "cosign clean --force --type all") {
+		t.Fatalf("candidate-only cleanup did not remove OCI referrers: err=%v calls=%s", err, calls)
+	}
+
+	output, err = runCleanup(true)
+	if err == nil {
+		t.Fatalf("cleanup deleted or accepted promoted package version, output:\n%s", output)
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "deleted")); !os.IsNotExist(err) {
+		t.Fatal("cleanup deleted a package version carrying semantic tags")
 	}
 }
 
@@ -156,6 +441,7 @@ func TestCIWorkflowPinsActionsToolsAndReleaseGates(t *testing.T) {
 		"version: v2.16.0",
 		"run: ./scripts/check-prereqs.sh",
 		"go test -race -count=1 ./...",
+		"args: release --clean --skip=publish",
 		"./scripts/verify-release-evidence.sh --check-release-checksums dist/release-evidence/release",
 		"provenance: true",
 		"sbom: true",
@@ -164,9 +450,12 @@ func TestCIWorkflowPinsActionsToolsAndReleaseGates(t *testing.T) {
 		"--type slsaprovenance",
 		"--type spdxjson",
 		"./scripts/verify-release-evidence.sh --check-supply-chain dist/release-evidence/release",
-		"release-supply-chain-evidence",
+		"name: release-verification-${{ github.run_id }}",
+		"name: release-promotion-${{ github.run_id }}",
+		"./scripts/promote-release.sh \\",
 		"anchore/syft:v1.38.0",
 		"aquasec/trivy:0.68.1 image",
+		"--no-progress",
 	} {
 		if !strings.Contains(release, want) {
 			t.Fatalf("release workflow missing %q", want)
@@ -260,8 +549,8 @@ func TestSetupNodeCacheOnlyOnNPMHeavyWorkflowJobs(t *testing.T) {
 			"lighthouse":      true,
 		},
 		".github/workflows/release.yml": {
-			"goreleaser": true,
-			"docker":     true,
+			"stage-binaries": true,
+			"stage-image":    true,
 		},
 	}
 	for workflowPath, allowedJobs := range allowedCacheJobs {

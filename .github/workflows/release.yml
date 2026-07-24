@@ -4,19 +4,19 @@ on:
   push:
     tags: ['v*']
 
-# Default token scope is read-only; release jobs opt in to write/OIDC scopes.
+# Default token scope is read-only. Staging may push only a SHA-scoped candidate
+# image; public release permissions are isolated to the final promotion job.
 permissions:
   contents: read
 
-# Prevent concurrent releases
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  goreleaser:
+  stage-binaries:
     permissions:
-      contents: write
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -36,15 +36,25 @@ jobs:
       - name: Check build prerequisites
         run: ./scripts/check-prereqs.sh
 
+      - name: Verify release tag matches VERSION
+        run: test "${GITHUB_REF_NAME}" = "v$(cat VERSION)"
+
       - name: Build embedded dashboard
         run: ./scripts/build-dashboard.sh
 
+      - name: Audit dashboard dependencies
+        working-directory: internal/dashboard/ui
+        run: npm audit --audit-level=high
+
+      - name: Check module files are tidy
+        run: go mod tidy -diff
+
       - name: gofmt check
         run: |
-          out="$(gofmt -s -l .)"
-          if [ -n "$out" ]; then
+          out="$(git ls-files '*.go' -z | xargs -0 gofmt -s -l)"
+          if [ -n "${out}" ]; then
             echo "::error::gofmt check failed — refusing to release unformatted code:"
-            echo "$out"
+            echo "${out}"
             exit 1
           fi
           echo "gofmt check passed."
@@ -52,83 +62,72 @@ jobs:
       - name: Run tests before release
         run: go test -race -count=1 ./...
 
-      - name: Run GoReleaser
+      - name: Stage release archives without publishing
         uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6
         with:
           distribution: goreleaser
           version: v2.16.0
-          args: release --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          args: release --clean --skip=publish
 
-      - name: Verify release binary checksum evidence
+      - name: Verify and package staged archives
         run: |
-          mkdir -p dist/release-evidence/release/release-artifacts
+          set -euo pipefail
+          mkdir -p dist/release-assets dist/release-evidence/release/release-artifacts
+          cp dist/*.tar.gz dist/*.zip dist/checksums.txt dist/release-assets/
+          (
+            cd dist/release-assets
+            sha256sum -c checksums.txt
+          )
           cp dist/checksums.txt dist/release-evidence/release/release-artifacts/checksums.txt
+          cat > dist/release-evidence/release/manifest.txt <<EOF
+          version=${GITHUB_REF_NAME}
+          git_commit=${GITHUB_SHA}
+          heavy=1
+          EOF
           ./scripts/verify-release-evidence.sh --check-release-checksums dist/release-evidence/release
+          tar -C dist -czf staged-binaries.tgz release-assets release-evidence/release
 
-      - name: Upload release binary checksum evidence
+      - name: Upload staged binary transaction
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: release-binary-checksums
-          path: dist/checksums.txt
+          name: staged-binaries-${{ github.run_id }}
+          path: staged-binaries.tgz
           if-no-files-found: error
+          retention-days: 7
 
-  docker:
-    needs: goreleaser
+  stage-image:
     permissions:
-      contents: write
+      contents: read
       packages: write
       id-token: write
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
-        with:
-          go-version-file: 'go.mod'
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: internal/dashboard/ui/package-lock.json
-
-      - name: Check build prerequisites
-        run: ./scripts/check-prereqs.sh
-
-      - name: Build embedded dashboard
-        run: ./scripts/build-dashboard.sh
-
-      - name: Docker meta
-        id: meta
-        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
-        with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Login to GHCR
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+      - name: Log in to GHCR for SHA-scoped staging
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@e77e8065d9f7ec6abdd9838668cd7b43924dd64d # v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
-      - name: Build and push
+      - name: Build and push SHA-scoped candidate image
         id: build
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ghcr.io/${{ github.repository }}:candidate-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.version=${{ github.ref_name }}
+            org.opencontainers.image.revision=${{ github.sha }}
           build-args: |
             VERSION=${{ github.ref_name }}
             COMMIT=${{ github.sha }}
@@ -142,48 +141,50 @@ jobs:
       - name: Install cosign
         uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159 # v3.9.2
 
-      - name: Sign image digest
+      - name: Sign staged image digest
         env:
           COSIGN_EXPERIMENTAL: "true"
           IMAGE_REF: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
         run: cosign sign --yes "${IMAGE_REF}"
 
-      - name: Record release image digest
+      - name: Record staged image evidence
         env:
           IMAGE_REF: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
         run: |
-          mkdir -p dist/release-evidence/release/supply-chain
+          set -euo pipefail
+          mkdir -p \
+            dist/release-evidence/release/hosted-ci \
+            dist/release-evidence/release/supply-chain
+          cat > dist/release-evidence/release/manifest.txt <<EOF
+          version=${GITHUB_REF_NAME}
+          git_commit=${GITHUB_SHA}
+          heavy=1
+          EOF
+          cat > dist/release-evidence/release/hosted-ci/ci-run.txt <<EOF
+          url: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          commit: ${GITHUB_SHA}
+          result: success
+          EOF
           {
-            echo "version=${{ github.ref_name }}"
-            echo "git_commit=${{ github.sha }}"
-            echo "heavy=1"
-          } > dist/release-evidence/release/manifest.txt
-          {
-            echo "url: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-            echo "commit: ${{ github.sha }}"
-            echo "result: success"
-          } > dist/release-evidence/release/hosted-ci/ci-run.txt
-          {
-            echo "image=ghcr.io/${{ github.repository }}:${{ github.ref_name }}"
+            echo "image=ghcr.io/${GITHUB_REPOSITORY}:${GITHUB_REF_NAME}"
             echo "image_ref=${IMAGE_REF}"
             echo "digest=${{ steps.build.outputs.digest }}"
-            echo "commit=${{ github.sha }}"
-            echo "tag=${{ github.ref_name }}"
+            echo "commit=${GITHUB_SHA}"
+            echo "tag=${GITHUB_REF_NAME}"
           } > dist/release-evidence/release/supply-chain/image-digest.txt
           docker buildx imagetools inspect "${IMAGE_REF}" > dist/release-evidence/release/supply-chain/imagetools.txt
           echo "image_ref=${IMAGE_REF}" > dist/release-evidence/release/supply-chain/image-ref.txt
 
-      - name: Generate image SBOM
+      - name: Generate staged image SBOM
         run: |
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v "$PWD:/out" \
             anchore/syft:v1.38.0 \
-            ghcr.io/${{ github.repository }}:${{ github.ref_name }} \
+            "ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}" \
             -o spdx-json=/out/dist/release-evidence/release/supply-chain/sbom.spdx.json
-          cp dist/release-evidence/release/supply-chain/sbom.spdx.json sbom.spdx.json
 
-      - name: Scan released image
+      - name: Scan staged image
         run: |
           set -o pipefail
           docker run --rm \
@@ -192,14 +193,10 @@ jobs:
             --severity HIGH,CRITICAL \
             --exit-code 1 \
             --no-progress \
-            ghcr.io/${{ github.repository }}:${{ github.ref_name }} | tee dist/release-evidence/release/supply-chain/trivy.txt
+            "ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}" \
+            | tee dist/release-evidence/release/supply-chain/trivy.txt
 
-      - name: Upload SBOM to release
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
-        with:
-          files: sbom.spdx.json
-
-      - name: Verify signed image digest
+      - name: Verify staged image signature
         env:
           IMAGE_REF: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
         run: |
@@ -214,7 +211,7 @@ jobs:
               "${IMAGE_REF}" 2>&1
           } | tee dist/release-evidence/release/supply-chain/cosign-verify.txt
 
-      - name: Verify provenance attestation
+      - name: Verify staged image provenance attestation
         env:
           IMAGE_REF: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
         run: |
@@ -230,7 +227,7 @@ jobs:
               "${IMAGE_REF}" 2>&1
           } | tee dist/release-evidence/release/supply-chain/provenance-verify.txt
 
-      - name: Verify SBOM attestation
+      - name: Verify staged image SBOM attestation
         env:
           IMAGE_REF: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
         run: |
@@ -246,13 +243,151 @@ jobs:
               "${IMAGE_REF}" 2>&1
           } | tee dist/release-evidence/release/supply-chain/sbom-attestation-verify.txt
 
-      - name: Verify release supply-chain evidence
+      - name: Verify staged image supply-chain evidence
         run: ./scripts/verify-release-evidence.sh --check-supply-chain dist/release-evidence/release
 
-      - name: Upload release-supply-chain-evidence artifact
+      - name: Package staged image transaction
+        run: tar -C dist -czf staged-image.tgz release-evidence/release
+
+      - name: Upload staged image transaction
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: release-supply-chain-evidence
+          name: staged-image-${{ github.run_id }}
+          path: staged-image.tgz
+          if-no-files-found: warn
+          retention-days: 7
+
+  verify-release:
+    needs: [stage-binaries, stage-image]
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Download staged binaries
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: staged-binaries-${{ github.run_id }}
+          path: staged/binaries
+
+      - name: Download staged image
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: staged-image-${{ github.run_id }}
+          path: staged/image
+
+      - name: Assemble and verify promotion transaction
+        run: |
+          set -euo pipefail
+          mkdir -p work/binaries work/image dist/release-evidence/release
+          tar -C work/binaries -xzf staged/binaries/staged-binaries.tgz
+          tar -C work/image -xzf staged/image/staged-image.tgz
+          for field in version git_commit heavy; do
+            binary_value="$(sed -n "s/^${field}=//p" work/binaries/release-evidence/release/manifest.txt)"
+            image_value="$(sed -n "s/^${field}=//p" work/image/release-evidence/release/manifest.txt)"
+            if [ -z "${binary_value}" ] || [ "${binary_value}" != "${image_value}" ]; then
+              echo "staged manifest mismatch for ${field}: binaries=${binary_value} image=${image_value}" >&2
+              exit 1
+            fi
+          done
+          cp -a work/binaries/release-evidence/release/. dist/release-evidence/release/
+          cp -a work/image/release-evidence/release/. dist/release-evidence/release/
+          ./scripts/verify-release-evidence.sh --check-release-checksums dist/release-evidence/release
+          ./scripts/verify-release-evidence.sh --check-supply-chain dist/release-evidence/release
+          mkdir -p dist/release-promotion/assets dist/release-promotion/evidence
+          cp -a work/binaries/release-assets/. dist/release-promotion/assets/
+          cp -a dist/release-evidence/release/. dist/release-promotion/evidence/
+          (
+            cd dist/release-promotion/assets
+            sha256sum -c checksums.txt
+          )
+          tar -C dist -czf release-promotion.tgz release-promotion
+
+      - name: Upload verification diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-verification-${{ github.run_id }}
           path: dist/release-evidence/release/
+          if-no-files-found: warn
           retention-days: 90
+
+      - name: Upload immutable promotion transaction
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-promotion-${{ github.run_id }}
+          path: release-promotion.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+  promote-release:
+    needs: verify-release
+    permissions:
+      contents: write
+      packages: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Download verified promotion transaction
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-promotion-${{ github.run_id }}
+          path: promotion
+
+      - name: Unpack and recheck verified assets
+        run: |
+          set -euo pipefail
+          tar -C promotion -xzf promotion/release-promotion.tgz
+          (
+            cd promotion/release-promotion/assets
+            sha256sum -c checksums.txt
+          )
+
+      - name: Log in to GHCR for promotion
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Install cosign for compensation
+        uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159 # v3.9.2
+
+      - name: Promote verified transaction
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ./scripts/promote-release.sh \
+            promotion/release-promotion/assets \
+            promotion/release-promotion/evidence
+
+  cleanup-staged-image:
+    if: always() && needs.stage-image.result != 'skipped' && needs.promote-release.result != 'success'
+    needs: [stage-image, verify-release, promote-release]
+    permissions:
+      contents: read
+      packages: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Log in to GHCR for compensation
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install cosign for compensation
+        uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159 # v3.9.2
+
+      - name: Delete orphaned SHA-scoped staging image
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/cleanup-staged-release-image.sh

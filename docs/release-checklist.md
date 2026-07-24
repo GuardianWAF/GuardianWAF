@@ -47,6 +47,10 @@ Pre-release verification steps for GuardianWAF.
 - [ ] Metrics endpoint responds (`/metrics`)
 - [ ] Config validation works (`./dist/guardianwaf-linux-amd64 validate -config config.yaml`)
 - [ ] Candidate binary can boot the previous release's shared event-state path, and the rollback binary can boot the same path after candidate shutdown
+- [ ] Integrity-protected backup/restore smoke passes (`make backup-restore-smoke`)
+- [ ] Target-environment restore drill restores config/state/events from an off-host archive, validates replay/readiness, and records RPO ≤ 3600s plus RTO ≤ 300s evidence
+- [ ] `promtool check rules` and `promtool test rules` pass for `contrib/prometheus/guardianwaf-rules.yaml`
+- [ ] Target Prometheus loads all GuardianWAF rules, `severity=critical` test notification reaches the real on-call pager, and every runbook link resolves
 
 ## Security Review Sign-Off
 
@@ -100,19 +104,16 @@ Use `./scripts/verify-release-evidence.sh --allow-pending ...` only for intermed
 
 1. Tag the release: `git tag -a v1.x.x -m "Release v1.x.x"`
 2. Push the tag: `git push origin v1.x.x`
-3. GitHub Actions release workflow runs automatically:
-   - GoReleaser builds binaries for all platforms
-   - GoReleaser publishes `checksums.txt` to the GitHub Release
-   - Release binary checksum evidence verified with `--check-release-checksums` and uploaded as `release-binary-checksums`
-   - SBOM/provenance attestations enabled by Docker Buildx
-   - Provenance and SBOM attestations verified with cosign and recorded in `release-supply-chain-evidence`
-   - SPDX image SBOM generated with Syft and uploaded as `sbom.spdx.json`
-   - Keyless image signature created with cosign using GitHub Actions OIDC identity
-   - Released image scanned with Trivy for HIGH/CRITICAL vulnerabilities
-   - Release supply-chain evidence uploaded as `release-supply-chain-evidence`
-   - Docker images built and pushed to GHCR (amd64 + arm64)
-4. Verify GitHub Release page has all assets
-5. Verify Docker image available: `docker pull ghcr.io/guardianwaf/guardianwaf:v1.x.x`
+3. GitHub Actions runs a staged transaction:
+   - `stage-binaries` runs prerequisites, dependency audit, format/tidy/race gates, and GoReleaser with `--skip=publish`; it verifies checksums before uploading immutable workflow artifacts.
+   - `stage-image` builds only `candidate-<commit-sha>`. SBOM/provenance attestations enabled by Docker Buildx. Keyless image signature created with cosign. The job generates the SPDX SBOM, scans the digest with Trivy, and uploads immutable workflow artifacts. Provenance and SBOM attestations verified with cosign before the transaction can advance. No semantic image tag exists yet.
+   - `verify-release` joins both staged artifacts, proves their manifests/checksums match, reruns the checksum and supply-chain evidence verifiers, and emits one promotion transaction artifact.
+   - `promote-release` is the only job with GitHub Release write permission. It re-verifies the promotion bundle, creates a private GitHub draft, attaches semantic GHCR tags to the verified digest, verifies every tag, and publishes the draft last.
+   - On a promotion failure, `scripts/promote-release.sh` deletes the unpublished draft, restores prior mutable `major`, `minor`, and `latest` aliases, and deletes the staged package version when that cleanup can be proven safe. If image staging is attempted but fails before verification or promotion completes, the always-run `cleanup-staged-image` job invokes `scripts/cleanup-staged-release-image.sh`, which deletes OCI referrers and then the package version only when its sole tag is the SHA-scoped candidate.
+4. Verify the GitHub Release page has all archives, `checksums.txt`, `sbom.spdx.json`, and the release-evidence archive.
+5. Verify the Docker image is available: `docker pull ghcr.io/guardianwaf/guardianwaf:v1.x.x`.
+
+GitHub Actions artifacts are internal staging surfaces. The SHA-scoped candidate image may be registry-visible, but it is not a supported release identifier and is removed by compensation when the transaction fails. Do not manually publish the draft or attach semantic tags when `verify-release` or `promote-release` fails; resolve the failure and create a new immutable candidate.
 
 ## Supply-Chain Verification
 
