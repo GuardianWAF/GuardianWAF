@@ -131,3 +131,6 @@ internal/ai/remediation/data/remediation/*.json
 
 .dfmt/
 .wrongstack/
+!/.wrongstack/
+/.wrongstack/*
+!/.wrongstack/project.json
