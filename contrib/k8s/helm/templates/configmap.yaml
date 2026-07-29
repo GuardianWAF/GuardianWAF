@@ -22,6 +22,7 @@ data:
       listen: {{ .Values.config.dashboardListen | quote }}
       api_key: "${GWAF_DASHBOARD_API_KEY}"
       admin_key: "${GWAF_DASHBOARD_ADMIN_KEY}"
+      audit_path: /var/lib/guardianwaf/audit/dashboard.jsonl
     {{- end }}
     logging:
       level: {{ .Values.config.logLevel | quote }}

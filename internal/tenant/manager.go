@@ -634,6 +634,22 @@ func (m *Manager) ListTenants() []*Tenant {
 	return tenants
 }
 
+// TenantAPIKeyHashes returns an immutable snapshot of tenant authentication
+// hashes. Copying under the manager lock prevents dashboard synchronization
+// from racing with tenant creation, deletion, or key regeneration.
+func (m *Manager) TenantAPIKeyHashes() map[string]string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	hashes := make(map[string]string, len(m.tenants))
+	for id, tenant := range m.tenants {
+		if tenant != nil && tenant.APIKeyHash != "" {
+			hashes[id] = tenant.APIKeyHash
+		}
+	}
+	return hashes
+}
+
 // CheckQuota checks if a tenant has exceeded their quota.
 func (m *Manager) CheckQuota(tenant *Tenant) error {
 	if tenant == nil {

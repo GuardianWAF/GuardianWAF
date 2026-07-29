@@ -88,7 +88,7 @@ test.describe('Web UI Runtime Health', () => {
     })
   }
 
-  test('responsive navigation and primary routes stay usable without viewport overflow', async ({ page }) => {
+  test('responsive navigation stays usable', async ({ page }) => {
     const navigationErrors: string[] = []
     page.on('console', (message) => {
       if (message.type() === 'error') navigationErrors.push(message.text())
@@ -111,8 +111,12 @@ test.describe('Web UI Runtime Health', () => {
     await expect(page).toHaveURL(/\/routing$/)
     await expect(navigation).not.toBeInViewport()
     expect(navigationErrors).toEqual([])
+  })
 
-    for (const viewport of responsiveViewports) {
+  for (const viewport of responsiveViewports) {
+    test(`primary routes fit the ${viewport.name} viewport without runtime errors`, async ({ page }) => {
+      await addSessionCookie(page, sessionCookie)
+
       for (const route of primaryMobileRoutes) {
         const routePage = await page.context().newPage()
         const routeErrors: string[] = []
@@ -136,6 +140,6 @@ test.describe('Web UI Runtime Health', () => {
         expect(routeErrors, `${route} emitted browser runtime errors at ${viewport.name}`).toEqual([])
         await routePage.close()
       }
-    }
-  })
+    })
+  }
 })

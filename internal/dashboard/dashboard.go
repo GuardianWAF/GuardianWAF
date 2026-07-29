@@ -6,6 +6,7 @@ package dashboard
 import (
 	"crypto/subtle"
 	"embed"
+	"encoding/json"
 	"log/slog"
 	"net"
 	"net/http"
@@ -77,10 +78,11 @@ type Dashboard struct {
 	mux              *http.ServeMux
 	apiKey           atomic.Value // stores *apiKeyHolder
 	buildInfo        map[string]string
-	adminKey         string            // Separate key for system admin operations (tenant management, billing, stats)
-	pprofKey         string            // Separate key for pprof debug endpoints (more restrictive than apiKey)
-	tenantAPIKeys    map[string]string // map[tenantID] -> SHA256 hash of per-tenant API key
-	trustedProxyNets []*net.IPNet      // Direct proxy CIDRs trusted for forwarded TLS metadata
+	adminKey         string       // Separate key for system admin operations (tenant management, billing, stats)
+	pprofKey         string       // Separate key for pprof debug endpoints (more restrictive than apiKey)
+	tenantAPIKeysMu  sync.RWMutex // protects tenantAPIKeys during authentication and admin mutations
+	tenantAPIKeys    map[string]string
+	trustedProxyNets []*net.IPNet // Direct proxy CIDRs trusted for forwarded TLS metadata
 	// Dependency interfaces (injected to avoid circular imports)
 	routingCtrl    RoutingController      // rebuild + save routing config
 	upstreamStatus UpstreamStatusProvider // returns upstream health status
@@ -115,7 +117,10 @@ type Dashboard struct {
 	clientSideOverride    ClientSideLayerInterface
 	apiValidationOverride APIValidationLayerInterface
 	dlpLayerOverride      DLPLayerInterface
-	tenantAdminHandler *TenantAdminHandler
+	tenantAdminHandler    *TenantAdminHandler
+
+	// Audit log for REST API mutations
+	auditLog *AuditLog
 }
 
 const (
@@ -158,6 +163,13 @@ func (d *Dashboard) loadActiveAPIKeys() (current string, previous string) {
 	return current, previous
 }
 
+// CurrentAPIKey returns only the active dashboard key. Grace-period keys are
+// intentionally excluded so dependent security surfaces revoke them immediately.
+func (d *Dashboard) CurrentAPIKey() string {
+	current, _ := d.loadActiveAPIKeys()
+	return current
+}
+
 // SetAdminKey sets the system administrator API key.
 // This key grants exclusive access to /api/admin/* endpoints for cross-tenant
 // management (tenant CRUD, billing, system-wide stats). It is separate from
@@ -188,12 +200,45 @@ func (d *Dashboard) checkPprofKey(r *http.Request) (string, bool) {
 
 // SetTenantAPIKey registers a per-tenant API key hash for tenant-scoped authentication.
 // This enables AUTH-003: each tenant's API key only authenticates within that tenant's context.
-// Keys are stored as SHA256 hashes (not plaintext). The same hash format as tenant Manager uses.
+// Keys are stored as hashes (not plaintext) in the same format as tenant.Manager.
 func (d *Dashboard) SetTenantAPIKey(tenantID, apiKeyHash string) {
+	if d == nil || tenantID == "" {
+		return
+	}
+	d.tenantAPIKeysMu.Lock()
+	defer d.tenantAPIKeysMu.Unlock()
 	if d.tenantAPIKeys == nil {
 		d.tenantAPIKeys = make(map[string]string)
 	}
+	if apiKeyHash == "" {
+		delete(d.tenantAPIKeys, tenantID)
+		return
+	}
 	d.tenantAPIKeys[tenantID] = apiKeyHash
+}
+
+func (d *Dashboard) tenantAPIKeyHash(tenantID string) (string, bool) {
+	d.tenantAPIKeysMu.RLock()
+	defer d.tenantAPIKeysMu.RUnlock()
+	hash, ok := d.tenantAPIKeys[tenantID]
+	return hash, ok
+}
+
+type tenantAuthRecord struct {
+	ID         string `json:"id"`
+	APIKeyHash string `json:"api_key_hash"`
+}
+
+func decodeTenantAuthRecord(tenant any) (tenantAuthRecord, bool) {
+	data, err := json.Marshal(tenant)
+	if err != nil {
+		return tenantAuthRecord{}, false
+	}
+	var record tenantAuthRecord
+	if err := json.Unmarshal(data, &record); err != nil || record.ID == "" {
+		return tenantAuthRecord{}, false
+	}
+	return record, true
 }
 
 // isAdminAuthenticated checks if the request has the system admin API key.
@@ -217,6 +262,7 @@ func New(eng *engine.Engine, store events.EventStore, apiKey string) *Dashboard 
 		mux:         http.NewServeMux(),
 		loginStopCh: make(chan struct{}),
 		apiStopCh:   make(chan struct{}),
+		auditLog:    NewAuditLog(0),
 	}
 	d.apiKey.Store(&apiKeyHolder{Current: apiKey})
 
@@ -253,10 +299,6 @@ func (d *Dashboard) SetBuildInfo(version, commit, date string) {
 	}
 }
 
-
-
-
-
 // SetAlertingStatsFn injects alerting stats via the AlertingStatsProvider interface.
 func (d *Dashboard) SetAlertingStatsFn(fn func() any) {
 	if fn == nil {
@@ -287,23 +329,44 @@ func (d *Dashboard) SetTenantManager(manager tenantManagerInterface) {
 	d.syncTenantAPIKeys(manager)
 }
 
-// syncTenantAPIKeys registers all tenant API key hashes for per-tenant authentication.
-// This enables the dashboard to validate per-tenant API keys without needing the full tenant manager.
+type tenantAPIKeySnapshotProvider interface {
+	TenantAPIKeyHashes() map[string]string
+}
+
+// syncTenantAPIKeys replaces the tenant-key snapshot used by dashboard authentication.
+// Production adapters provide an immutable snapshot copied under their manager lock;
+// JSON-tagged records remain a compatibility fallback for lightweight adapters.
 func (d *Dashboard) syncTenantAPIKeys(manager tenantManagerInterface) {
 	if manager == nil {
 		return
 	}
-	tenants := manager.ListTenants()
-	d.tenantAPIKeys = make(map[string]string, len(tenants))
-	for _, t := range tenants {
-		if m, ok := t.(map[string]any); ok {
-			if id, ok := m["id"].(string); ok {
-				if hash, ok := m["api_key_hash"].(string); ok && hash != "" {
-					d.tenantAPIKeys[id] = hash
-				}
+	var keys map[string]string
+	if provider, ok := manager.(tenantAPIKeySnapshotProvider); ok {
+		snapshot := provider.TenantAPIKeyHashes()
+		keys = make(map[string]string, len(snapshot))
+		for id, hash := range snapshot {
+			if id != "" && hash != "" {
+				keys[id] = hash
 			}
 		}
+	} else {
+		tenants := manager.ListTenants()
+		keys = make(map[string]string, len(tenants))
+		for _, tenant := range tenants {
+			record, ok := decodeTenantAuthRecord(tenant)
+			if !ok || record.APIKeyHash == "" {
+				continue
+			}
+			keys[record.ID] = record.APIKeyHash
+		}
 	}
+	if keys == nil {
+		keys = make(map[string]string)
+	}
+
+	d.tenantAPIKeysMu.Lock()
+	d.tenantAPIKeys = keys
+	d.tenantAPIKeysMu.Unlock()
 }
 
 // --- Logs ---

@@ -2089,10 +2089,10 @@ func TestPersistentMemoryStore_StoreMarshalErrorDropsEvent(t *testing.T) {
 		log:         slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 	ev := engine.Event{
-		ID:       "bad-json",
+		ID:        "bad-json",
 		Timestamp: time.Now(),
-		Action:   engine.ActionPass,
-		Findings: []engine.Finding{{Confidence: math.NaN()}},
+		Action:    engine.ActionPass,
+		Findings:  []engine.Finding{{Confidence: math.NaN()}},
 	}
 
 	if err := ps.Store(ev); err != nil {

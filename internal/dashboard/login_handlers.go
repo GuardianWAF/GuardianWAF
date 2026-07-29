@@ -282,6 +282,9 @@ func (d *Dashboard) CloseWithContext(ctx context.Context) error {
 	}()
 	select {
 	case <-done:
+		if d.auditLog != nil {
+			return d.auditLog.Close()
+		}
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -350,16 +353,16 @@ func (d *Dashboard) handleRotateKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify the current key matches
-	currentKey, previousKey := d.loadActiveAPIKeys()
+	// Rotation is a privileged revocation operation: a grace-period key may
+	// finish ordinary requests, but it must not be able to seize control again.
+	currentKey, _ := d.loadActiveAPIKeys()
 	currentMatch := subtle.ConstantTimeCompare([]byte(req.CurrentKey), []byte(currentKey)) == 1
-	previousMatch := previousKey != "" && subtle.ConstantTimeCompare([]byte(req.CurrentKey), []byte(previousKey)) == 1
-	if !currentMatch && !previousMatch {
+	if !currentMatch {
 		writeError(w, http.StatusForbidden, "current_key does not match the active API key")
 		return
 	}
 
-	// Atomically swap: the old key (whichever matched) becomes Previous
+	// Atomically swap: the active key becomes Previous.
 	d.apiKey.Store(&apiKeyHolder{
 		Current:   req.NewKey,
 		Previous:  currentKey,
@@ -368,7 +371,6 @@ func (d *Dashboard) handleRotateKey(w http.ResponseWriter, r *http.Request) {
 
 	loginLog.Info("dashboard API key rotated",
 		"current_key_previous", currentMatch,
-		"previous_key_used", previousMatch,
 		"grace_period_seconds", int(keyRotationGracePeriod.Seconds()))
 
 	writeJSON(w, http.StatusOK, map[string]any{

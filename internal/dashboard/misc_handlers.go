@@ -8,28 +8,28 @@ import (
 func (d *Dashboard) registerAI(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/ai/providers", d.authWrap(d.handleAIProviders))
 	mux.HandleFunc("GET /api/v1/ai/config", d.authWrap(d.handleAIGetConfig))
-	mux.HandleFunc("PUT /api/v1/ai/config", d.authWrap(d.handleAISetConfig))
+	mux.HandleFunc("PUT /api/v1/ai/config", d.authAuditWrap(d.handleAISetConfig))
 	mux.HandleFunc("GET /api/v1/ai/history", d.authWrap(d.handleAIHistory))
 	mux.HandleFunc("GET /api/v1/ai/stats", d.authWrap(d.handleAIStats))
-	mux.HandleFunc("POST /api/v1/ai/analyze", d.authWrap(d.handleAIAnalyze))
-	mux.HandleFunc("POST /api/v1/ai/test", d.authWrap(d.handleAITest))
+	mux.HandleFunc("POST /api/v1/ai/analyze", d.authAuditWrap(d.handleAIAnalyze))
+	mux.HandleFunc("POST /api/v1/ai/test", d.authAuditWrap(d.handleAITest))
 }
 
 // registerAlerting registers alerting routes.
 func (d *Dashboard) registerAlerting(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/alerts", d.authWrap(d.handleAlertsCompat))
-	mux.HandleFunc("POST /api/v1/alerts", d.authWrap(d.handleAddAlertCompat))
-	mux.HandleFunc("PUT /api/v1/alerts/{id}", d.authWrap(d.handleUpdateAlertCompat))
-	mux.HandleFunc("DELETE /api/v1/alerts/{id}", d.authWrap(d.handleDeleteAlertCompat))
+	mux.HandleFunc("POST /api/v1/alerts", d.authAuditWrap(d.handleAddAlertCompat))
+	mux.HandleFunc("PUT /api/v1/alerts/{id}", d.authAuditWrap(d.handleUpdateAlertCompat))
+	mux.HandleFunc("DELETE /api/v1/alerts/{id}", d.authAuditWrap(d.handleDeleteAlertCompat))
 	mux.HandleFunc("GET /api/v1/alerts/history", d.authWrap(d.handleAlertHistoryCompat))
 	mux.HandleFunc("GET /api/v1/alerting/status", d.authWrap(d.handleAlertingStatus))
 	mux.HandleFunc("GET /api/v1/alerting/webhooks", d.authWrap(d.handleGetWebhooks))
-	mux.HandleFunc("POST /api/v1/alerting/webhooks", d.authWrap(d.handleAddWebhook))
-	mux.HandleFunc("DELETE /api/v1/alerting/webhooks/{name}", d.authWrap(d.handleDeleteWebhook))
+	mux.HandleFunc("POST /api/v1/alerting/webhooks", d.authAuditWrap(d.handleAddWebhook))
+	mux.HandleFunc("DELETE /api/v1/alerting/webhooks/{name}", d.authAuditWrap(d.handleDeleteWebhook))
 	mux.HandleFunc("GET /api/v1/alerting/emails", d.authWrap(d.handleGetEmails))
-	mux.HandleFunc("POST /api/v1/alerting/emails", d.authWrap(d.handleAddEmail))
-	mux.HandleFunc("DELETE /api/v1/alerting/emails/{name}", d.authWrap(d.handleDeleteEmail))
-	mux.HandleFunc("POST /api/v1/alerting/test", d.authWrap(d.handleTestAlert))
+	mux.HandleFunc("POST /api/v1/alerting/emails", d.authAuditWrap(d.handleAddEmail))
+	mux.HandleFunc("DELETE /api/v1/alerting/emails/{name}", d.authAuditWrap(d.handleDeleteEmail))
+	mux.HandleFunc("POST /api/v1/alerting/test", d.authAuditWrap(d.handleTestAlert))
 }
 
 // registerTenantCompatibility registers legacy /api/v1 tenant routes used by
@@ -42,16 +42,16 @@ func (d *Dashboard) registerTenantCompatibility(mux *http.ServeMux) {
 	// dashboard key cannot use these compat routes to bypass key separation.
 	// Read-only listing/stats remain available with the dashboard key.
 	mux.HandleFunc("GET /api/v1/tenants", d.authWrap(d.handleTenantListCompat))
-	mux.HandleFunc("POST /api/v1/tenants", d.adminAuthWrap(d.handleTenantCreateCompat))
+	mux.HandleFunc("POST /api/v1/tenants", d.adminAuthAuditWrap(d.handleTenantCreateCompat))
 	mux.HandleFunc("GET /api/v1/tenants/usage", d.authWrap(d.handleTenantAllUsageCompat))
 	mux.HandleFunc("GET /api/v1/tenants/{id}", d.authWrap(d.handleTenantGetCompat))
-	mux.HandleFunc("PUT /api/v1/tenants/{id}", d.adminAuthWrap(d.handleTenantUpdateCompat))
-	mux.HandleFunc("DELETE /api/v1/tenants/{id}", d.adminAuthWrap(d.handleTenantDeleteCompat))
+	mux.HandleFunc("PUT /api/v1/tenants/{id}", d.adminAuthAuditWrap(d.handleTenantUpdateCompat))
+	mux.HandleFunc("DELETE /api/v1/tenants/{id}", d.adminAuthAuditWrap(d.handleTenantDeleteCompat))
 	mux.HandleFunc("GET /api/v1/tenants/{id}/config", d.authWrap(d.handleTenantConfigCompat))
-	mux.HandleFunc("PUT /api/v1/tenants/{id}/config", d.adminAuthWrap(d.handleTenantConfigUpdateCompat))
+	mux.HandleFunc("PUT /api/v1/tenants/{id}/config", d.adminAuthAuditWrap(d.handleTenantConfigUpdateCompat))
 	mux.HandleFunc("GET /api/v1/tenants/{id}/stats", d.authWrap(d.handleTenantStatsCompat))
 	mux.HandleFunc("GET /api/v1/tenants/{id}/usage", d.authWrap(d.handleTenantUsageCompat))
-	mux.HandleFunc("POST /api/v1/tenants/{id}/apikey", d.adminAuthWrap(d.handleTenantAPIKeyCompat))
+	mux.HandleFunc("POST /api/v1/tenants/{id}/apikey", d.adminAuthAuditWrap(d.handleTenantAPIKeyCompat))
 }
 
 // registerDocker registers Docker auto-discovery routes.

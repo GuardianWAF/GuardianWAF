@@ -96,6 +96,12 @@ func TestRegisterMetricsHandler_ExportsPrometheusContract(t *testing.T) {
 	if !strings.Contains(body, "guardianwaf_event_store_dropped_total 0\n") {
 		t.Fatalf("expected event store dropped counter value, got:\n%s", body)
 	}
+	if !strings.Contains(body, "# TYPE guardianwaf_dashboard_audit_persistence_failures_total counter\n") {
+		t.Fatalf("expected dashboard audit persistence counter type, got:\n%s", body)
+	}
+	if !strings.Contains(body, "guardianwaf_dashboard_audit_persistence_failures_total ") {
+		t.Fatalf("expected dashboard audit persistence counter value, got:\n%s", body)
+	}
 	for _, want := range []string{
 		"# TYPE guardianwaf_event_bus_subscribers gauge\n",
 		"guardianwaf_event_bus_subscribers 0\n",

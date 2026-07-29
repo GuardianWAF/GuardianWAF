@@ -13,7 +13,7 @@ import (
 // The write is atomic (temp file + rename) so a crash or disk-full mid-write
 // cannot leave a truncated, unparseable config that fails the next boot.
 func SaveFile(path string, cfg *Config) error {
-	data := MarshalYAML(cfg)
+	data := marshalYAMLWithPlaceholderPreservation(cfg)
 	return writeFileAtomic(path, []byte(data), 0o600)
 }
 

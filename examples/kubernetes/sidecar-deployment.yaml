@@ -34,7 +34,7 @@ spec:
               drop:
                 - ALL
         - name: guardianwaf
-          image: ghcr.io/guardianwaf/guardianwaf:0.3.0
+          image: ghcr.io/guardianwaf/guardianwaf:0.4.0
           args: ["sidecar", "--upstream", "http://localhost:3000", "--listen", ":8088"]
           ports:
             - containerPort: 8088

@@ -183,10 +183,10 @@ type RequestContext struct {
 	// Response hooks — set by response/clientside layers during Process(),
 	// consumed by engine after pipeline execution. Typed fields replace
 	// Metadata string-key lookups for compile-time safety.
-	ResponseHook        func(http.ResponseWriter)                   // security headers (response layer)
-	ResponseMaskFn      func(string) string                         // response body masking (response layer)
-	ClientsideCSPHook   func(http.ResponseWriter)                   // CSP headers (clientside layer)
-	ClientsideBodyXform func([]byte, string) ([]byte, bool)         // body transform (clientside layer)
+	ResponseHook        func(http.ResponseWriter)           // security headers (response layer)
+	ResponseMaskFn      func(string) string                 // response body masking (response layer)
+	ClientsideCSPHook   func(http.ResponseWriter)           // CSP headers (clientside layer)
+	ClientsideBodyXform func([]byte, string) ([]byte, bool) // body transform (clientside layer)
 
 	// CORS headers — set by CORS layer during Process(), consumed post-pipeline
 	CORSHeaders          map[string]string

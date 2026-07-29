@@ -318,7 +318,7 @@ func cmdServe(args []string) {
 	if cfg.MCP.Enabled && dash != nil {
 		// SSE transport is served via the dashboard port and protected by the
 		// final dashboard API key, including keys generated during startup.
-		mcpSSE = buildMCPSSEHandler(eng, cfg, eventStore, nil)
+		mcpSSE = buildMCPSSEHandler(eng, cfg, eventStore, nil, dash.CurrentAPIKey)
 		mcpSSE.RegisterRoutes(dash.Mux())
 		eng.Logs.Info("MCP SSE endpoints registered: GET /mcp/sse, POST /mcp/message")
 	}

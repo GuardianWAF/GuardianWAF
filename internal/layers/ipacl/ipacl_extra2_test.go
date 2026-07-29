@@ -1,9 +1,9 @@
 package ipacl
 
 import (
+	"net"
 	"os"
 	"path/filepath"
-	"net"
 	"testing"
 	"time"
 

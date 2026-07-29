@@ -125,6 +125,11 @@ func (d *Dashboard) handleGetEvent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "event not found")
 		return
 	}
+	if scope := tenantScope(r); scope != "" && evt.TenantID != scope {
+		// Use 404 so tenant callers cannot enumerate another tenant's event IDs.
+		writeError(w, http.StatusNotFound, "event not found")
+		return
+	}
 
 	writeJSON(w, http.StatusOK, evt)
 }

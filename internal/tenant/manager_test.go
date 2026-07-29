@@ -80,6 +80,23 @@ func TestManager_CreateTenant(t *testing.T) {
 	}
 }
 
+func TestManager_TenantAPIKeyHashesReturnsCopy(t *testing.T) {
+	m := NewManager(10)
+	created, err := m.CreateTenant("Snapshot", "", []string{"snapshot.example"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	hashes := m.TenantAPIKeyHashes()
+	if hashes[created.ID] != created.APIKeyHash {
+		t.Fatalf("snapshot hash = %q, want %q", hashes[created.ID], created.APIKeyHash)
+	}
+	delete(hashes, created.ID)
+	if m.TenantAPIKeyHashes()[created.ID] != created.APIKeyHash {
+		t.Fatal("mutating returned snapshot changed manager state")
+	}
+}
+
 func TestManager_GetTenant(t *testing.T) {
 	m := NewManager(10)
 

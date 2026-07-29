@@ -1,4 +1,4 @@
-.PHONY: build test test-packages lint bench fuzz clean run docker-build smoke docker-test ui ui-dev dev help fmt fmt-check tidy e2e e2e-full e2e-full-all e2e-headed e2e-list
+.PHONY: build test test-packages lint bench fuzz clean run docker-build smoke docker-test backup-restore-smoke ui ui-dev dev help fmt fmt-check tidy e2e e2e-full e2e-full-all e2e-headed e2e-list
 
 BINARY=guardianwaf
 VERSION?=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -71,16 +71,19 @@ docker-test:
 	docker compose -f docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from test-runner
 	@docker compose -f docker-compose.test.yml down -v
 
+backup-restore-smoke:
+	./scripts/backup-restore-smoke.sh
+
 fmt:
 	gofmt -s -w .
 
 # CI gate: verify formatting without writing. Exits non-zero if any Go file
 # would be changed by `gofmt -s`. Used by .github/workflows/ci.yml.
 fmt-check:
-	@out=$(gofmt -s -l .); \
-	if [ -n "$out" ]; then \
+	@out=$$(gofmt -s -l .); \
+	if [ -n "$$out" ]; then \
 		echo "::error::gofmt check failed — the following files need reformatting (run 'make fmt'):"; \
-		echo "$out"; \
+		echo "$$out"; \
 		exit 1; \
 	fi
 	@echo "gofmt check passed."
@@ -156,3 +159,4 @@ help:
 	@echo "  clean        Remove binaries and coverage files"
 	@echo "  docker-build Build Docker image"
 	@echo "  docker-test  Run integration tests via Docker Compose"
+	@echo "  backup-restore-smoke Verify snapshot integrity, tamper rejection, restore, and RTO"

@@ -56,6 +56,7 @@ dashboard:
   listen: ":9443"
   api_key: "${GWAF_DASHBOARD_API_KEY}"
   admin_key: ""
+  audit_path: /var/lib/guardianwaf/audit/dashboard.jsonl
   tls: false
 
 mcp:

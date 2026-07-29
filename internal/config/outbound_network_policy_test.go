@@ -83,8 +83,7 @@ func TestProductionCodeAvoidsUnboundedHTTPConvenienceClients(t *testing.T) {
 		}
 		name := d.Name()
 		if d.IsDir() {
-			switch name {
-			case ".git", ".codebase-index", "dist", "node_modules":
+			if shouldSkipProductionSourceDir(name) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -124,8 +123,7 @@ func TestProductionHTTPClientLiteralsDeclareBoundsAndRedirectPolicy(t *testing.T
 			return err
 		}
 		if d.IsDir() {
-			switch d.Name() {
-			case ".git", ".codebase-index", "dist", "node_modules":
+			if shouldSkipProductionSourceDir(d.Name()) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -190,8 +188,7 @@ func TestProxyPrivateTargetGlobalBypassIsNotUsedByProductionCode(t *testing.T) {
 			return err
 		}
 		if d.IsDir() {
-			switch d.Name() {
-			case ".git", ".codebase-index", "dist", "node_modules":
+			if shouldSkipProductionSourceDir(d.Name()) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -608,6 +605,31 @@ func TestProductionDocsDistinguishPlannedAdvancedRuntimePackages(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestShouldSkipProductionSourceDir(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		want bool
+	}{
+		{name: ".git", want: true},
+		{name: ".temp_files", want: true},
+		{name: ".coverage-pkgs", want: true},
+		{name: "dist", want: true},
+		{name: "node_modules", want: true},
+		{name: "internal", want: false},
+		{name: "scripts", want: false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldSkipProductionSourceDir(tt.name); got != tt.want {
+				t.Fatalf("shouldSkipProductionSourceDir(%q) = %v, want %v", tt.name, got, tt.want)
+			}
+		})
+	}
+}
+
+func shouldSkipProductionSourceDir(name string) bool {
+	return strings.HasPrefix(name, ".") || name == "dist" || name == "node_modules"
 }
 
 func isHTTPClientComposite(expr ast.Expr) bool {

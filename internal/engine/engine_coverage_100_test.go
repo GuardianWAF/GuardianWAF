@@ -127,10 +127,10 @@ func TestMaskingResponseWriter_Flush_Flusher(t *testing.T) {
 }
 
 type flushRecorder struct {
-	buf       *bytes.Buffer
-	code      int
-	headers   http.Header
-	flushed   bool
+	buf     *bytes.Buffer
+	code    int
+	headers http.Header
+	flushed bool
 }
 
 func (f *flushRecorder) Header() http.Header {
@@ -231,8 +231,8 @@ func TestRemoveOldBackups_NoAgeLimit(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.log")
 	w := &RotatingFileWriter{
-		path:    path,
-		maxAge:  0, // no age limit → removeOldBackups returns immediately
+		path:   path,
+		maxAge: 0, // no age limit → removeOldBackups returns immediately
 	}
 	w.removeOldBackups()
 	// Should not panic
@@ -249,8 +249,8 @@ func TestRemoveOldBackups_RemovesOldFiles(t *testing.T) {
 	os.Chtimes(old, time.Now().Add(-720*time.Hour), time.Now().Add(-720*time.Hour))
 
 	w := &RotatingFileWriter{
-		path:    path,
-		maxAge:  7 * 24 * time.Hour, // 7 days
+		path:       path,
+		maxAge:     7 * 24 * time.Hour, // 7 days
 		maxBackups: 5,
 	}
 	w.removeOldBackups()
@@ -1065,11 +1065,11 @@ type detectorStub struct {
 	name string
 }
 
-func (d *detectorStub) Name() string         { return d.name }
-func (d *detectorStub) Order() int            { return 0 }
+func (d *detectorStub) Name() string                        { return d.name }
+func (d *detectorStub) Order() int                          { return 0 }
 func (d *detectorStub) Process(*RequestContext) LayerResult { return LayerResult{Action: ActionPass} }
-func (d *detectorStub) DetectorName() string  { return d.name }
-func (d *detectorStub) Patterns() []string    { return nil }
+func (d *detectorStub) DetectorName() string                { return d.name }
+func (d *detectorStub) Patterns() []string                  { return nil }
 
 // ---------------------------------------------------------------------------
 // Pipeline Middleware with challenge service not set

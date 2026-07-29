@@ -621,6 +621,31 @@ func TestStartDashboard(t *testing.T) {
 	defer srv.Close()
 }
 
+func TestStartDashboard_PersistentAuditRejectsCorruptStore(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "dashboard.jsonl")
+	if err := os.WriteFile(path, []byte("not-json\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.DefaultConfig()
+	cfg.Dashboard.Enabled = true
+	cfg.Dashboard.Listen = "127.0.0.1:0"
+	cfg.Dashboard.APIKey = "dashboard-api-key-123456"
+	cfg.Dashboard.AuditPath = path
+
+	store := events.NewMemoryStore(1000)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer eng.Close()
+
+	srv, sse, dash := startDashboard(cfg, eng)
+	if srv != nil || sse != nil || dash != nil {
+		t.Fatalf("expected corrupt audit store to fail dashboard startup, got srv=%v sse=%v dash=%v", srv, sse, dash)
+	}
+}
+
 func TestStartDashboard_ReturnsNilWhenListenFails(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

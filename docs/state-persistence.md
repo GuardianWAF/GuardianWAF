@@ -85,6 +85,60 @@ The Helm chart mounts one state volume at `/var/lib/guardianwaf` and `/var/log/g
 
 ## Backup and Restore
 
+GuardianWAF ships an integrity-protected snapshot workflow for the standard production layout:
+
+```bash
+# 1. Stop or quiesce GuardianWAF so JSONL writers cannot change during copy.
+sudo systemctl stop guardianwaf
+
+# 2. Create the snapshot and a Prometheus textfile metric atomically.
+sudo ./scripts/backup-state.sh \
+  --config /etc/guardianwaf/guardianwaf.yaml \
+  --state-dir /var/lib/guardianwaf \
+  --event-file /var/log/guardianwaf/events.jsonl \
+  --output /backups/guardianwaf/state-$(date -u +%Y%m%dT%H%M%SZ).tar.gz \
+  --metrics-file /var/lib/node_exporter/textfile_collector/guardianwaf-backup.prom \
+  --rpo-seconds 3600 \
+  --confirm-quiesced
+```
+
+The snapshot contains schema/timestamp/RPO metadata, a SHA-256 manifest for every payload file, and an archive SHA-256 sidecar. It rejects symlinks and special files. Copy both the archive and its `.sha256` sidecar to encrypted off-host/object storage; a snapshot on the same node or volume is not disaster recovery.
+
+Verify without changing the host:
+
+```bash
+./scripts/restore-state.sh \
+  --archive /backups/guardianwaf/state-YYYYmmddTHHMMSSZ.tar.gz \
+  --guardianwaf /usr/local/bin/guardianwaf \
+  --verify-only
+```
+
+Restore only while the service is stopped:
+
+```bash
+sudo systemctl stop guardianwaf
+sudo ./scripts/restore-state.sh \
+  --archive /backups/guardianwaf/state-YYYYmmddTHHMMSSZ.tar.gz \
+  --config /etc/guardianwaf/guardianwaf.yaml \
+  --state-dir /var/lib/guardianwaf \
+  --event-file /var/log/guardianwaf/events.jsonl \
+  --guardianwaf /usr/local/bin/guardianwaf \
+  --confirm-stopped
+sudo systemctl start guardianwaf
+curl --fail http://127.0.0.1:8088/livez
+curl --fail http://127.0.0.1:8088/readyz
+```
+
+Restore verifies the sidecar, archive paths/types, per-file hashes, schema, and restored config before touching targets. It stages and replaces each target on the target filesystem and rolls back prior targets if commit fails. The three target roots can live on different filesystems; consistency still depends on stopping all writers.
+
+### RPO/RTO contract
+
+- **RPO:** 1 hour (`3600s`). Schedule a successful off-host snapshot at least hourly and alert when `time() - guardianwaf_backup_last_success_timestamp_seconds > 3600`.
+- **RTO:** 5 minutes (`300s`) from approved restore start to validated config/state plus successful liveness/readiness. Run `make backup-restore-smoke` after backup code changes and a real staging restore drill at least quarterly.
+- **Ownership:** the on-call SRE owns backup freshness and restore execution; the GuardianWAF service owner validates event, tenant, certificate, audit-chain, and dashboard-audit replay before accepting traffic.
+
+The supplied script snapshots one config file, the complete configured state root, and an optional separate event JSONL. Durable paths configured outside those roots must either be moved beneath the state root or captured by an environment-specific volume snapshot with the same quiesce and integrity requirements.
+
 Back up these paths before upgrading, replacing nodes, or migrating clusters:
 
 - `tls.acme.cache_dir`, to avoid unnecessary certificate reissuance and rate limits.

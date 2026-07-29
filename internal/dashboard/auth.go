@@ -106,11 +106,13 @@ func SetSessionSecret(key string) {
 	}
 }
 
-// signSession creates an HMAC-signed session token bound to a client IP: timestamp.signature
-// The IP is included in the HMAC to prevent session cookie theft across different clients.
+// signSession creates an HMAC-signed session token bound to a client IP.
 func signSession(clientIP string) string {
-	now := time.Now().Unix()
-	ts := fmt.Sprintf("%d.%d", now, now) // timestamp.creation_timestamp
+	return signSessionAt(clientIP, time.Now(), time.Now())
+}
+
+func signSessionAt(clientIP string, renewedAt, createdAt time.Time) string {
+	ts := fmt.Sprintf("%d.%d", renewedAt.Unix(), createdAt.Unix())
 	mac := hmac.New(sha256.New, loadSecret())
 	mac.Write([]byte(ts + ":" + clientIP))
 	sig := hex.EncodeToString(mac.Sum(nil))
@@ -213,6 +215,17 @@ func cleanupRevokedSessionsLoop(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 // MaxConcurrentSessionsPerIP by evicting the oldest sessions when the limit
 // is exceeded. This prevents unlimited concurrent sessions from the same IP.
 func registerActiveSession(token, clientIP string) {
+	updateActiveSession("", token, clientIP)
+}
+
+// replaceActiveSession swaps a renewed token into the same concurrency slot.
+// The previous token remains signature-valid until its natural idle expiry, but
+// it no longer consumes active-session capacity or creates revocation growth.
+func replaceActiveSession(previousToken, token, clientIP string) {
+	updateActiveSession(previousToken, token, clientIP)
+}
+
+func updateActiveSession(previousToken, token, clientIP string) {
 	now := time.Now()
 
 	v, _ := activeSessions.LoadOrStore(clientIP, &ipSessionMap{tokens: make(map[string]time.Time)})
@@ -220,6 +233,15 @@ func registerActiveSession(token, clientIP string) {
 
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
+
+	if previousToken != "" {
+		delete(sm.tokens, previousToken)
+	}
+	// Re-registering an existing token is bookkeeping, not a new session.
+	if _, exists := sm.tokens[token]; exists {
+		sm.tokens[token] = now
+		return
+	}
 
 	// Evict oldest sessions until under limit
 	for len(sm.tokens) >= MaxConcurrentSessionsPerIP {
@@ -235,6 +257,8 @@ func registerActiveSession(token, clientIP string) {
 			break
 		}
 		delete(sm.tokens, oldestToken)
+		// Eviction must affect verification, not just bookkeeping.
+		revokedSessions.Store(oldestToken, now)
 	}
 
 	sm.tokens[token] = now
@@ -352,9 +376,10 @@ func deriveAPIKey(password, salt []byte, iterations int) []byte {
 //
 // For multi-tenant deployments, per-tenant API keys should be used instead of the global
 // dashboard key. The global key grants system-wide access and should be rotated if compromised.
-// authTypeCtxKey and authTenantCtxKey are context keys for auth scoping.
+// Authentication and audit context keys use private types to avoid collisions.
 type authTypeCtxKey struct{}
 type authTenantCtxKey struct{}
+type auditIdentityCtxKey struct{}
 
 const (
 	authGlobalKey = "global_key"
@@ -454,10 +479,10 @@ func (d *Dashboard) isAuthenticated(r *http.Request) (*http.Request, bool) {
 		return r, false
 	}
 
-	// Check per-tenant API key (AUTH-003): scoped to a specific tenant
+	// Check per-tenant API key (AUTH-003): scoped to a specific tenant.
 	tenantID := extractTenantID(r)
-	if tenantID != "" && d.tenantAPIKeys != nil {
-		if hash, ok := d.tenantAPIKeys[tenantID]; ok {
+	if tenantID != "" {
+		if hash, ok := d.tenantAPIKeyHash(tenantID); ok {
 			if key := r.Header.Get("X-API-Key"); key != "" && verifyTenantAPIKey(hash, key) {
 				return setAuthInfo(r, authTenant, tenantID), true
 			}
@@ -539,11 +564,35 @@ func secureCookieForRequest(r *http.Request, trusted []*net.IPNet) bool {
 		strings.EqualFold(r.Header.Get("X-Forwarded-Ssl"), "on")
 }
 
-// setSessionCookie sets the session cookie on the response with proper security flags.
+// setSessionCookie sets a new session cookie on the response.
 func setSessionCookie(w http.ResponseWriter, r *http.Request, trusted []*net.IPNet) {
-	token := signSession(clientIPFromRequest(r))
-	// Enforce concurrent session limit for this IP
+	setSessionCookieWithToken(w, r, trusted, signSession(clientIPFromRequest(r)))
+}
+
+// refreshSessionCookie renews the sliding expiry while preserving the original
+// creation time, so sessionAbsMaxAge remains an actual absolute lifetime.
+func refreshSessionCookie(w http.ResponseWriter, r *http.Request, trusted []*net.IPNet, currentToken string) bool {
+	parts := strings.SplitN(currentToken, ".", 3)
+	if len(parts) != 3 {
+		return false
+	}
+	createdUnix, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil || createdUnix < 0 {
+		return false
+	}
+	clientIP := clientIPFromRequest(r)
+	newToken := signSessionAt(clientIP, time.Now(), time.Unix(createdUnix, 0))
+	replaceActiveSession(currentToken, newToken, clientIP)
+	writeSessionCookie(w, r, trusted, newToken)
+	return true
+}
+
+func setSessionCookieWithToken(w http.ResponseWriter, r *http.Request, trusted []*net.IPNet, token string) {
 	registerActiveSession(token, clientIPFromRequest(r))
+	writeSessionCookie(w, r, trusted, token)
+}
+
+func writeSessionCookie(w http.ResponseWriter, r *http.Request, trusted []*net.IPNet, token string) {
 	// #nosec G124 -- Secure is set dynamically: true for direct TLS or trusted
 	// TLS-terminating proxies, false only for plain local/dev HTTP.
 	http.SetCookie(w, &http.Cookie{

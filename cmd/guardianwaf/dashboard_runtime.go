@@ -49,12 +49,23 @@ func startDashboard(cfg *config.Config, eng *engine.Engine) (*http.Server, *dash
 	}
 
 	dash := dashboard.New(eng, eventStore, cfg.Dashboard.APIKey)
+	if cfg.Dashboard.AuditPath != "" {
+		auditLog, err := dashboard.NewPersistentAuditLog(cfg.Dashboard.AuditPath, 0)
+		if err != nil {
+			dash.Close()
+			fmt.Fprintf(os.Stderr, "Dashboard audit error: %v\n", err)
+			slog.Error("dashboard audit persistence initialization failed", "error", err)
+			return nil, nil, nil
+		}
+		dash.SetAuditLog(auditLog)
+	}
 	dash.SetTrustedProxies(cfg.TrustedProxies)
 	dash.SetBuildInfo(version, commit, date)
 
 	if cfg.Compliance.Enabled {
 		compEngine, err := compliance.NewEngineWithError(cfg.Compliance)
 		if err != nil {
+			dash.Close()
 			fmt.Fprintf(os.Stderr, "Dashboard compliance error: %v\n", err)
 			return nil, nil, nil
 		}
@@ -78,6 +89,7 @@ func startDashboard(cfg *config.Config, eng *engine.Engine) (*http.Server, *dash
 
 	ln, err := net.Listen("tcp", cfg.Dashboard.Listen)
 	if err != nil {
+		dash.Close()
 		fmt.Fprintf(os.Stderr, "Dashboard server error: listen %s: %v\n", cfg.Dashboard.Listen, err)
 		return nil, nil, nil
 	}

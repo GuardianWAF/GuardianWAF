@@ -781,20 +781,20 @@ func TestGenerateReportWithError_NotApplicableSummary(t *testing.T) {
 
 func TestMetricValue_RemainingBranches(t *testing.T) {
 	m := Metrics{
-		WAFUptimePct:       98.5,
-		LogCompletenessPct: 97.5,
-		DLPBlocksInPeriod:  7,
+		WAFUptimePct:        98.5,
+		LogCompletenessPct:  97.5,
+		DLPBlocksInPeriod:   7,
 		AlertResponseP95Min: 12,
-		BlockedRequests:    55,
+		BlockedRequests:     55,
 	}
 
 	cases := map[string]float64{
-		"waf_uptime_pct":                 98.5,
-		"log_completeness_pct":           97.5,
-		"dlp_blocks_in_period":           7,
+		"waf_uptime_pct":                  98.5,
+		"log_completeness_pct":            97.5,
+		"dlp_blocks_in_period":            7,
 		"alert_response_time_p95_minutes": 12,
-		"blocked_requests":               55,
-		"unknown_metric":                 0,
+		"blocked_requests":                55,
+		"unknown_metric":                  0,
 	}
 	for name, want := range cases {
 		if got := metricValue(name, m); got != want {

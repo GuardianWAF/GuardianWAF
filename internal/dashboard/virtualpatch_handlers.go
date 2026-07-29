@@ -19,7 +19,7 @@ func NewVirtualPatchHandler(d *Dashboard) *VirtualPatchHandler {
 
 // RegisterRoutes registers virtual patch routes with authentication.
 func (h *VirtualPatchHandler) RegisterRoutes(mux *http.ServeMux) {
-	auth := h.dashboard.authWrap
+	auth := h.dashboard.authAuditWrap
 	mux.HandleFunc("/api/virtualpatch/patches", auth(h.handlePatches))
 	mux.HandleFunc("/api/virtualpatch/patches/", auth(h.handlePatchDetail))
 	mux.HandleFunc("/api/virtualpatch/stats", auth(h.handlePatchStats))

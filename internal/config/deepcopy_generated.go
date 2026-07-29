@@ -67,6 +67,7 @@ func (in *Config) DeepCopy() *Config {
 		}
 	}
 	out.Compliance = *in.Compliance.DeepCopy()
+	out.setPlaceholderBindings(in.placeholderBindings())
 	return &out
 }
 
@@ -1264,6 +1265,7 @@ func (in *DashboardConfig) DeepCopy() *DashboardConfig {
 	out.Listen = in.Listen
 	out.APIKey = in.APIKey
 	out.AdminKey = in.AdminKey
+	out.AuditPath = in.AuditPath
 	out.TLS = in.TLS
 	return &out
 }

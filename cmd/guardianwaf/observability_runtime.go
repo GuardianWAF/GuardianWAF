@@ -10,6 +10,7 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/ai"
 	"github.com/guardianwaf/guardianwaf/internal/alerting"
 	"github.com/guardianwaf/guardianwaf/internal/config"
+	"github.com/guardianwaf/guardianwaf/internal/dashboard"
 	dkr "github.com/guardianwaf/guardianwaf/internal/docker"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/events"
@@ -181,6 +182,7 @@ func registerMetricsHandlerWithDeps(mux *http.ServeMux, eng *engine.Engine, deps
 		writeLatencyHistogram(w, s)
 		writeLayerTimingHistogram(w, s)
 		writeEventStoreMetrics(w, eng)
+		writeDashboardAuditMetrics(w)
 		writeEventBusMetrics(w, eng.EventBus())
 		if deps.Router != nil {
 			if router := deps.Router(); router != nil {
@@ -279,6 +281,12 @@ func writeEventStoreMetrics(w http.ResponseWriter, eng *engine.Engine) {
 	fmt.Fprintln(w, "# HELP guardianwaf_event_store_dropped_total Total events dropped or not persisted by the event store.")
 	fmt.Fprintln(w, "# TYPE guardianwaf_event_store_dropped_total counter")
 	fmt.Fprintf(w, "guardianwaf_event_store_dropped_total %d\n", dropped)
+}
+
+func writeDashboardAuditMetrics(w http.ResponseWriter) {
+	fmt.Fprintln(w, "# HELP guardianwaf_dashboard_audit_persistence_failures_total Total dashboard mutation audit records that could not be durably persisted.")
+	fmt.Fprintln(w, "# TYPE guardianwaf_dashboard_audit_persistence_failures_total counter")
+	fmt.Fprintf(w, "guardianwaf_dashboard_audit_persistence_failures_total %d\n", dashboard.AuditPersistenceFailures())
 }
 
 func writeEventBusMetrics(w http.ResponseWriter, bus engine.EventPublisher) {

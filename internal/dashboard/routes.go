@@ -8,8 +8,8 @@ func (d *Dashboard) registerRoutes() {
 	// Login/logout (always accessible)
 	d.mux.HandleFunc("GET /login", d.handleLoginPage)
 	d.mux.HandleFunc("POST /login", d.handleLoginSubmit)
-	d.mux.HandleFunc("POST /logout", d.handleLogout)
-	d.mux.HandleFunc("POST /api/v1/rotate-key", d.authWrap(d.handleRotateKey))
+	d.mux.HandleFunc("POST /logout", d.auditWrap(d.handleLogout))
+	d.mux.HandleFunc("POST /api/v1/rotate-key", d.authAuditWrap(d.handleRotateKey))
 
 	// Health check (always accessible, no sensitive data)
 	d.mux.HandleFunc("GET /health", d.handleHealth)
@@ -32,6 +32,9 @@ func (d *Dashboard) registerRoutes() {
 	d.registerAnalytics(d.mux)
 	d.registerCluster(d.mux)
 	d.registerTenantCompatibility(d.mux)
+
+	// Audit log (admin-only)
+	d.mux.HandleFunc("GET /api/v1/audit", d.adminAuthWrap(d.handleGetAudit))
 
 	// Tenant admin handler
 	d.tenantAdminHandler = NewTenantAdminHandler(d, nil)

@@ -1838,6 +1838,7 @@ func populateDashboard(dash *DashboardConfig, n *Node) error {
 	nodeStringField(n, "listen", &dash.Listen)
 	nodeStringField(n, "api_key", &dash.APIKey)
 	nodeStringField(n, "admin_key", &dash.AdminKey)
+	nodeStringField(n, "audit_path", &dash.AuditPath)
 	fe.boolField(n, "tls", "", &dash.TLS)
 	return fe.err()
 }

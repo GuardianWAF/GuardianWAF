@@ -65,12 +65,15 @@ validate_guardianwaf_config() {
         "${GUARDIANWAF_BIN}" validate -c "${config_file}"
         return
     fi
-    if [ -x "${ROOT_DIR}/dist/guardianwaf-linux-amd64" ]; then
-        "${ROOT_DIR}/dist/guardianwaf-linux-amd64" validate -c "${config_file}"
-        return
-    fi
+    # Prefer the current source tree over a possibly stale dist/ artifact. Release
+    # evidence validates Helm before it builds the candidate binary, so using an
+    # old binary here can reject schema fields that the current source supports.
     if command -v go >/dev/null 2>&1 && [ -d "${ROOT_DIR}/internal/dashboard/dist" ]; then
         (cd "${ROOT_DIR}" && go run ./cmd/guardianwaf validate -c "${config_file}")
+        return
+    fi
+    if [ -x "${ROOT_DIR}/dist/guardianwaf-linux-amd64" ]; then
+        "${ROOT_DIR}/dist/guardianwaf-linux-amd64" validate -c "${config_file}"
         return
     fi
     echo "guardianwaf binary, Go with dashboard assets, or GUARDIANWAF_BIN is required to validate rendered config" >&2

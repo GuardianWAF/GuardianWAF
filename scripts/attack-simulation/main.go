@@ -106,7 +106,8 @@ func run(args []string) int {
 		wg.Add(1)
 		go func(id int) { defer wg.Done(); runWorker(id, *target, *rate, *legitRatio, *mode, stopCh) }(i)
 	}
-	go reportProgress(startTime, stopCh)
+	wg.Add(1)
+	go func() { defer wg.Done(); reportProgress(startTime, stopCh) }()
 	sleep(*duration)
 	close(stopCh)
 	wg.Wait()

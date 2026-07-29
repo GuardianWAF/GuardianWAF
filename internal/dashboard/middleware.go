@@ -29,8 +29,14 @@ func (d *Dashboard) adminAuthWrap(handler http.HandlerFunc) http.HandlerFunc {
 			writeError(w, http.StatusUnauthorized, "admin API key required")
 			return
 		}
+		setRequestAuditIdentity(r, "admin_key", "admin")
 		handler(w, r)
 	}
+}
+
+// adminAuthAuditWrap records both accepted and denied administrator mutations.
+func (d *Dashboard) adminAuthAuditWrap(handler http.HandlerFunc) http.HandlerFunc {
+	return d.auditWrap(d.adminAuthWrap(handler))
 }
 
 // authWrap wraps a handler with authentication and authorization checks.
@@ -50,6 +56,7 @@ func (d *Dashboard) authWrap(handler http.HandlerFunc) http.HandlerFunc {
 			}
 			return
 		}
+		setRequestAuditIdentity(r, getAuthType(r), auditPrincipal(r))
 
 		// Check API rate limit for /api/v1/* endpoints (authenticated only)
 		if strings.HasPrefix(r.URL.Path, "/api/v1/") && getAuthType(r) != authSession {
@@ -70,9 +77,12 @@ func (d *Dashboard) authWrap(handler http.HandlerFunc) http.HandlerFunc {
 			}
 		}
 
-		// Refresh session cookie on each request (sliding idle timeout)
-		if cookie, err := r.Cookie(sessionCookieName); err == nil && cookie.Value != "" {
-			setSessionCookie(w, r, d.trustedProxyNets)
+		// Refresh only the session credential that actually authenticated this
+		// request. Header-authenticated callers must never mint browser sessions.
+		if getAuthType(r) == authSession {
+			if cookie, err := r.Cookie(sessionCookieName); err == nil && cookie.Value != "" {
+				refreshSessionCookie(w, r, d.trustedProxyNets, cookie.Value)
+			}
 		}
 
 		// CSRF protection for state-changing requests authenticated via cookie
@@ -86,6 +96,27 @@ func (d *Dashboard) authWrap(handler http.HandlerFunc) http.HandlerFunc {
 
 		handler(w, r)
 	}
+}
+
+func auditPrincipal(r *http.Request) string {
+	if getAuthType(r) == authTenant {
+		if tenantID, ok := r.Context().Value(authTenantCtxKey{}).(string); ok && tenantID != "" {
+			return tenantID
+		}
+	}
+	return "admin"
+}
+
+func setRequestAuditIdentity(r *http.Request, authType, principal string) {
+	if identity, ok := r.Context().Value(auditIdentityCtxKey{}).(*auditIdentity); ok {
+		identity.authType = authType
+		identity.principal = principal
+	}
+}
+
+// authAuditWrap records both accepted and denied authenticated mutations.
+func (d *Dashboard) authAuditWrap(handler http.HandlerFunc) http.HandlerFunc {
+	return d.auditWrap(d.authWrap(handler))
 }
 
 // pprofWrap restricts pprof endpoints to localhost connections and requires

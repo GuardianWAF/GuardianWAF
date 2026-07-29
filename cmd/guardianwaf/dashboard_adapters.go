@@ -22,6 +22,10 @@ func (a *tenantManagerAdapter) ListTenants() []any {
 	return result
 }
 
+func (a *tenantManagerAdapter) TenantAPIKeyHashes() map[string]string {
+	return a.mgr.TenantAPIKeyHashes()
+}
+
 func (a *tenantManagerAdapter) GetTenant(id string) any {
 	// Return an untyped nil when the tenant is missing. a.mgr.GetTenant returns a
 	// nil *tenant.Tenant for unknown IDs; returning it directly would wrap a typed

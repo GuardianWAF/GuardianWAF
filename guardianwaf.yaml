@@ -159,6 +159,9 @@ dashboard:
   listen: ":9443"
   api_key: ""
   admin_key: ""
+  # Append-only JSONL management audit log; the Compose deployment persists
+  # /var/lib/guardianwaf on the guardianwaf-data volume.
+  audit_path: /var/lib/guardianwaf/audit/dashboard.jsonl
   tls: false
 
 mcp:

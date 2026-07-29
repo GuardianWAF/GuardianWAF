@@ -28,11 +28,11 @@ func TestProcess_TenantDisabledOverride(t *testing.T) {
 	}
 
 	ctx := &engine.RequestContext{
-		Path:      "/login",
-		Method:    "POST",
-		ClientIP:  net.ParseIP("192.0.2.10"),
+		Path:       "/login",
+		Method:     "POST",
+		ClientIP:   net.ParseIP("192.0.2.10"),
 		BodyString: `{"email":"tenant@example.com","password":"secret"}`,
-		Headers:   map[string][]string{},
+		Headers:    map[string][]string{},
 		TenantWAFConfig: &config.WAFConfig{
 			ATOProtection: config.ATOProtectionConfig{Enabled: false},
 		},

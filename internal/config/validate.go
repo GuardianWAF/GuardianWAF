@@ -174,6 +174,7 @@ func LoadFile(path string) (*Config, error) {
 	if err := PopulateFromNode(cfg, node); err != nil {
 		return nil, fmt.Errorf("populating config: %w", err)
 	}
+	cfg.setPlaceholderBindings(capturePlaceholderBindings(data, node))
 
 	return cfg, nil
 }
@@ -1539,6 +1540,9 @@ func validateDashboard(dash *DashboardConfig, ve *ValidationError) {
 	}
 	validateDashboardSecret("dashboard.api_key", dash.APIKey, ve)
 	validateDashboardSecret("dashboard.admin_key", dash.AdminKey, ve)
+	if dash.AuditPath != "" && !strings.Contains(dash.AuditPath, "${") && !filepath.IsAbs(dash.AuditPath) {
+		ve.addError("dashboard.audit_path", "must be an absolute path so restart durability does not depend on the process working directory")
+	}
 }
 
 func validateDashboardSecret(field, value string, ve *ValidationError) {

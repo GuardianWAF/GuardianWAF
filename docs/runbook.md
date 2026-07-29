@@ -442,6 +442,73 @@ curl -s http://localhost:9443/api/v1/compliance/audit-chain \
 - Confirm `audit-chain.json` has `"integrity": true` and store its `head_hash` in the approved write-once evidence system for later truncation/tamper checks.
 - Store the export in the approved evidence repository with retention tags.
 
+### 18. Backup Stale or Restore Required
+
+**Symptoms:** `guardianwaf_backup_last_success_timestamp_seconds` is missing or older than 3600 seconds, snapshot verification fails, persistent state is lost/corrupt, or a node/PVC must be replaced.
+
+**Owners:** primary on-call SRE executes backup/restore; GuardianWAF service owner validates security state before traffic returns. Escalate failed integrity verification immediately; never bypass a failed hash/config check.
+
+```bash
+# Backup freshness (node-exporter textfile metric)
+now=$(date +%s)
+last=$(awk '$1 == "guardianwaf_backup_last_success_timestamp_seconds" {print $2}' \
+  /var/lib/node_exporter/textfile_collector/guardianwaf-backup.prom)
+test "$((now-last))" -le 3600
+
+# Verify the selected off-host snapshot without mutation.
+./scripts/restore-state.sh \
+  --archive /backups/guardianwaf/state-YYYYmmddTHHMMSSZ.tar.gz \
+  --guardianwaf /usr/local/bin/guardianwaf \
+  --verify-only
+```
+
+Restore procedure and exact paths are in [State Persistence](state-persistence.md#backup-and-restore). Start the RTO clock when the restore is approved; service must remain stopped until restore completes. After start, require `/livez`, `/readyz`, event history, tenants, ACME material, compliance chain, and dashboard mutation audit replay before accepting traffic. Record the selected snapshot time (RPO), elapsed restore time (RTO), operator, incident/ticket, and validation results. Target: **RPO ≤ 3600s; RTO ≤ 300s**.
+
+### 19. Dashboard Audit Persistence Failure
+
+**Symptoms:** `increase(guardianwaf_dashboard_audit_persistence_failures_total[5m]) > 0`, log message `dashboard audit persistence failed`, or missing management mutations in the JSONL audit store.
+
+**Owners:** primary GuardianWAF on-call pages the service owner/security incident lead because management evidence may be incomplete.
+
+```bash
+curl -s http://127.0.0.1:8088/metrics | grep guardianwaf_dashboard_audit_persistence_failures_total
+grep -n 'audit_path' /etc/guardianwaf/guardianwaf.yaml
+df -h /var/lib/guardianwaf
+namei -l /var/lib/guardianwaf/audit/dashboard.jsonl
+```
+
+Stop privileged dashboard mutations until persistence is restored. Check disk/inode pressure and directory ownership; do not truncate or replace the JSONL file while GuardianWAF is running. Restart only after fixing the storage problem, then perform a controlled mutation and confirm the counter no longer rises and the new JSONL record survives restart. Preserve logs and the last valid audit file as incident evidence; document the potentially missing time window.
+
+### 20. Service or Scrape Unavailable
+
+**Symptoms:** `up{job="guardianwaf"} == 0`, availability error-budget burn, failed `/livez` or `/readyz`, or missing metrics for an intended instance.
+
+**Owners:** primary GuardianWAF on-call; involve the platform/cluster owner when scheduling, networking, or Prometheus service discovery is responsible.
+
+```bash
+systemctl status guardianwaf --no-pager
+journalctl -u guardianwaf --since '15 minutes ago'
+curl --fail http://127.0.0.1:8088/livez
+curl --fail http://127.0.0.1:8088/readyz
+curl --fail http://127.0.0.1:8088/metrics >/dev/null
+```
+
+Distinguish process failure from scrape-path failure: if local health and metrics pass, inspect Prometheus target discovery, Service/NetworkPolicy, TLS/auth, and DNS. If the process is unhealthy, validate the active config, check disk/memory pressure and recent deployment changes, then roll back to the last known-good image/config when repair cannot fit the error budget. Confirm all intended instances are `up == 1` and burn alerts resolve before closing the incident.
+
+### 21. Alert Delivery Failure
+
+**Symptoms:** increases in `guardianwaf_alert_manager_failed_total`, `guardianwaf_alert_manager_dropped_total`, or `guardianwaf_alert_email_failed_total`; expected security notifications are absent.
+
+**Owners:** GuardianWAF on-call plus the notification-system owner. Treat the interval as degraded incident detection and use the secondary paging path.
+
+```bash
+curl -s http://127.0.0.1:8088/metrics | grep -E 'guardianwaf_alert_(manager|email)_(failed|dropped)_total'
+journalctl -u guardianwaf --since '15 minutes ago' | grep -i alert
+/usr/local/bin/guardianwaf test-alert -c /etc/guardianwaf/guardianwaf.yaml
+```
+
+Check target configuration, DNS/TLS, SMTP/webhook credentials, quotas, and queue capacity without printing secrets. Route security events manually through the approved secondary channel until a test alert reaches the real destination. Preserve failed-delivery logs and record the notification gap; confirm counters stop increasing before closing.
+
 ## Emergency Procedures
 
 ### Disable WAF (Pass-Through Mode)

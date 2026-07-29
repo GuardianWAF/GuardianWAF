@@ -17,7 +17,7 @@ import (
 
 // CertDiskStore manages cached certificates on disk with automatic renewal.
 var (
-	loadX509KeyPair = tls.LoadX509KeyPair
+	loadX509KeyPair  = tls.LoadX509KeyPair
 	parseCertificate = x509.ParseCertificate
 )
 

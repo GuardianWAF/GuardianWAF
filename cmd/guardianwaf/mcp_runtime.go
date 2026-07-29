@@ -42,10 +42,13 @@ func startMCPStdioRuntime(eng *engine.Engine, cfg *config.Config, store events.E
 	return true
 }
 
-func buildMCPSSEHandler(eng *engine.Engine, cfg *config.Config, store events.EventStore, alertMgr *alerting.Manager) *mcp.SSEHandler {
+func buildMCPSSEHandler(eng *engine.Engine, cfg *config.Config, store events.EventStore, alertMgr *alerting.Manager, apiKeyProvider ...func() string) *mcp.SSEHandler {
 	mcpSrv := mcp.NewServer(nil, nil)
 	mcpSrv.SetServerInfo("guardianwaf", version)
 	mcpSrv.SetEngine(&mcpEngineAdapter{engine: eng, cfg: cfg, eventStore: store, alertMgr: alertMgr})
 	mcpSrv.RegisterAllTools()
+	if len(apiKeyProvider) > 0 && apiKeyProvider[0] != nil {
+		return mcp.NewSSEHandlerWithAPIKeyProvider(mcpSrv, apiKeyProvider[0])
+	}
 	return mcp.NewSSEHandler(mcpSrv, cfg.Dashboard.APIKey)
 }

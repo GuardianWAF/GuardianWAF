@@ -1,0 +1,47 @@
+rule_files:
+  - guardianwaf-rules.yaml
+
+evaluation_interval: 30s
+
+tests:
+  - name: latency recording rules preserve low-traffic ratios
+    interval: 30s
+    input_series:
+      - series: 'guardianwaf_request_duration_seconds_count{job="guardianwaf",cluster="healthy",instance="gw-1"}'
+        values: '0+1x30'
+      - series: 'guardianwaf_request_duration_seconds_bucket{job="guardianwaf",cluster="healthy",instance="gw-1",le="0.1"}'
+        values: '0+1x30'
+      - series: 'guardianwaf_request_duration_seconds_count{job="guardianwaf",cluster="breach",instance="gw-2"}'
+        values: '0+10x30'
+      - series: 'guardianwaf_request_duration_seconds_bucket{job="guardianwaf",cluster="breach",instance="gw-2",le="0.1"}'
+        values: '0+5x30'
+    promql_expr_test:
+      - expr: guardianwaf:slo_latency_le_100ms:ratio_rate5m
+        eval_time: 10m
+        exp_samples:
+          - labels: 'guardianwaf:slo_latency_le_100ms:ratio_rate5m{cluster="healthy"}'
+            value: 1
+          - labels: 'guardianwaf:slo_latency_le_100ms:ratio_rate5m{cluster="breach"}'
+            value: 0.5
+
+  - name: unavailable instance pages the owned runbook
+    interval: 30s
+    input_series:
+      - series: 'up{job="guardianwaf",cluster="prod",instance="gw-1"}'
+        values: '0x10'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: GuardianWAFInstanceDown
+        exp_alerts:
+          - exp_labels:
+              cluster: prod
+              instance: gw-1
+              job: guardianwaf
+              service: guardianwaf
+              severity: critical
+              slo: availability
+              team: guardianwaf-oncall
+            exp_annotations:
+              summary: GuardianWAF instance is not scrapeable
+              description: Prometheus has been unable to scrape gw-1 for two minutes.
+              runbook_url: https://github.com/guardianwaf/guardianwaf/blob/main/docs/runbook.md#20-service-or-scrape-unavailable

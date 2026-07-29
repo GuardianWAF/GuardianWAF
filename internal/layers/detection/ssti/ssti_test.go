@@ -106,11 +106,11 @@ func TestDetector_Multiplier(t *testing.T) {
 func TestDetector_RefererAndCookieScanning(t *testing.T) {
 	det := NewDetector(true, 1.0)
 	ctx := &engine.RequestContext{
-		Path:            "/test",
-		NormalizedPath:  "/test",
-		Headers:         map[string][]string{"Referer": {"{{7*7}}"}},
+		Path:              "/test",
+		NormalizedPath:    "/test",
+		Headers:           map[string][]string{"Referer": {"{{7*7}}"}},
 		NormalizedHeaders: map[string][]string{"Referer": {"{{7*7}}"}},
-		Cookies:         map[string]string{"session": "{{config}}"},
+		Cookies:           map[string]string{"session": "{{config}}"},
 	}
 	r := det.Process(ctx)
 	if r.Score == 0 {

@@ -16,6 +16,8 @@ type Config struct {
 	Listen string    `yaml:"listen"` // Listen address (e.g., ":8088")
 	TLS    TLSConfig `yaml:"tls"`
 
+	placeholderProvenance map[string]PlaceholderBinding `yaml:"-"`
+
 	Upstreams    []UpstreamConfig    `yaml:"upstreams"`
 	Routes       []RouteConfig       `yaml:"routes"`
 	VirtualHosts []VirtualHostConfig `yaml:"virtual_hosts"`
@@ -34,6 +36,44 @@ type Config struct {
 	Tracing               TracingConfig    `yaml:"tracing"`
 	Features              map[string]bool  `yaml:"features"`
 	Compliance            ComplianceConfig `yaml:"compliance"`
+}
+
+// AlertingConfig controls webhook and email-based alert delivery.
+// PlaceholderBinding captures a source `${VAR}` expression and the resolved
+// value that was loaded into the runtime config. Save-time serialization may
+// restore Original only while the current field still equals Resolved.
+type PlaceholderBinding struct {
+	Original string
+	Resolved string
+}
+
+func (c *Config) placeholderBindings() map[string]PlaceholderBinding {
+	if c == nil {
+		return nil
+	}
+	return c.placeholderProvenance
+}
+
+func (c *Config) setPlaceholderBindings(bindings map[string]PlaceholderBinding) {
+	if c == nil {
+		return
+	}
+	if len(bindings) == 0 {
+		c.placeholderProvenance = nil
+		return
+	}
+	copied := make(map[string]PlaceholderBinding, len(bindings))
+	for path, binding := range bindings {
+		copied[path] = binding
+	}
+	c.placeholderProvenance = copied
+}
+
+// SetPlaceholderBindings replaces the config's placeholder provenance with a
+// defensive copy. This is used by config loading and tests; runtime callers
+// should treat the binding map as immutable metadata.
+func (c *Config) SetPlaceholderBindings(bindings map[string]PlaceholderBinding) {
+	c.setPlaceholderBindings(bindings)
 }
 
 // AlertingConfig controls webhook and email-based alert delivery.
@@ -737,11 +777,12 @@ type TenantDefinition struct {
 
 // DashboardConfig controls the built-in web dashboard.
 type DashboardConfig struct {
-	Enabled  bool   `yaml:"enabled"`
-	Listen   string `yaml:"listen"`
-	APIKey   string `yaml:"api_key"`
-	AdminKey string `yaml:"admin_key"` // System admin key for cross-tenant management
-	TLS      bool   `yaml:"tls"`
+	Enabled   bool   `yaml:"enabled"`
+	Listen    string `yaml:"listen"`
+	APIKey    string `yaml:"api_key"`
+	AdminKey  string `yaml:"admin_key"` // System admin key for cross-tenant management
+	AuditPath string `yaml:"audit_path"`
+	TLS       bool   `yaml:"tls"`
 }
 
 // MCPConfig controls the Model Context Protocol server.

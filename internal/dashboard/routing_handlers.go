@@ -352,7 +352,7 @@ func (d *Dashboard) rollbackRoutingUpdate(oldCfg *config.Config, persist bool) e
 // registerRouting registers routing and SPA routes.
 func (d *Dashboard) registerRouting(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/routing", d.authWrap(d.handleGetRouting))
-	mux.HandleFunc("PUT /api/v1/routing", d.authWrap(d.handleUpdateRouting))
+	mux.HandleFunc("PUT /api/v1/routing", d.authAuditWrap(d.handleUpdateRouting))
 	mux.HandleFunc("OPTIONS /api/v1/routing", handleCORS)
 
 	// SPA serving — React build output from dist/ with fallback to legacy static/

@@ -7,6 +7,69 @@ import (
 	"testing"
 )
 
+func TestDeployableGuardianWAFImagesMatchReleaseVersion(t *testing.T) {
+	root := filepath.Join("..", "..")
+	versionData, err := os.ReadFile(filepath.Join(root, "VERSION"))
+	if err != nil {
+		t.Fatalf("ReadFile(VERSION) error = %v", err)
+	}
+	version := strings.TrimSpace(string(versionData))
+	if version == "" {
+		t.Fatal("VERSION is empty")
+	}
+	wantImage := "ghcr.io/guardianwaf/guardianwaf:" + version
+
+	composeFixtures := []string{
+		"docker-compose.yml",
+		"examples/sidecar/docker-compose.yml",
+	}
+	for _, fixture := range composeFixtures {
+		t.Run(fixture, func(t *testing.T) {
+			doc := parseYAMLFixture(t, filepath.Join(root, fixture))
+			image := doc.GetPath("services", "guardianwaf", "image")
+			if image == nil {
+				t.Fatal("services.guardianwaf.image not found")
+			}
+			if got := image.String(); got != wantImage {
+				t.Fatalf("services.guardianwaf.image = %q, want %q", got, wantImage)
+			}
+		})
+	}
+
+	workloadFixtures := []string{
+		"contrib/k8s/deployment.yaml",
+		"examples/kubernetes/deployment.yaml",
+		"examples/kubernetes/sidecar-deployment.yaml",
+	}
+	for _, fixture := range workloadFixtures {
+		t.Run(fixture, func(t *testing.T) {
+			doc := parseKubernetesWorkloadHardeningFixture(t, filepath.Join(root, fixture))
+			containers := doc.GetPath("spec", "template", "spec", "containers")
+			if containers == nil || containers.Kind != SequenceNode {
+				t.Fatal("spec.template.spec.containers is not a sequence")
+			}
+			for _, container := range containers.Items {
+				if container.Get("name").String() != "guardianwaf" {
+					continue
+				}
+				if got := container.Get("image").String(); got != wantImage {
+					t.Fatalf("guardianwaf image = %q, want %q", got, wantImage)
+				}
+				return
+			}
+			t.Fatal("guardianwaf container not found")
+		})
+	}
+
+	chart := parseYAMLFixture(t, filepath.Join(root, "contrib/k8s/helm/Chart.yaml"))
+	if got := chart.Get("version").String(); got != version {
+		t.Fatalf("Helm chart version = %q, want %q", got, version)
+	}
+	if got := chart.Get("appVersion").String(); got != version {
+		t.Fatalf("Helm appVersion = %q, want %q", got, version)
+	}
+}
+
 func TestComposeGuardianWAFServiceHardenedForReadOnlyRoot(t *testing.T) {
 	root := filepath.Join("..", "..")
 	doc := parseYAMLFixture(t, filepath.Join(root, "docker-compose.yml"))

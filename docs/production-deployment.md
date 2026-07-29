@@ -480,49 +480,44 @@ curl -f http://localhost:8080/readyz || exit 1
 
 ## Backup & Recovery
 
-### Critical Files to Backup
+### Backup contract
+
+GuardianWAF's standard production contract is **RPO ≤ 1 hour** and **RTO ≤ 5 minutes**. Stop/quiesce the process before copying append-only JSONL stores, and copy the resulting archive plus `.sha256` sidecar to encrypted off-host storage.
 
 ```bash
-# Daily backup script
-#!/bin/bash
-BACKUP_DIR="/backups/guardianwaf/$(date +%Y%m%d)"
-mkdir -p "$BACKUP_DIR"
-
-cp /etc/guardianwaf/config.yaml "$BACKUP_DIR/"
-cp /var/log/guardianwaf/events.jsonl "$BACKUP_DIR/" 2>/dev/null || true
-cp -r /var/lib/guardianwaf/acme "$BACKUP_DIR/"  # TLS certs
-cp /var/lib/guardianwaf/geoip.csv "$BACKUP_DIR/" 2>/dev/null || true
-cp -r /var/lib/guardianwaf/tenants "$BACKUP_DIR/" 2>/dev/null || true
-cp -r /var/lib/guardianwaf/replay "$BACKUP_DIR/" 2>/dev/null || true
-cp -r /var/lib/guardianwaf/remediation "$BACKUP_DIR/" 2>/dev/null || true
-
-tar -czf "$BACKUP_DIR.tar.gz" "$BACKUP_DIR"
-rm -rf "$BACKUP_DIR"
-
-# Keep only last 7 days
-find /backups/guardianwaf -type f -mtime +7 -delete
-```
-
-### Recovery Procedure
-
-```bash
-# 1. Stop service
 sudo systemctl stop guardianwaf
-
-# 2. Restore from backup
-sudo tar -xzf /backups/guardianwaf/20260404.tar.gz -C /
-
-# 3. Fix permissions
-sudo chown -R guardianwaf:guardianwaf /var/lib/guardianwaf
-sudo chown -R guardianwaf:guardianwaf /var/log/guardianwaf
-
-# 4. Start service
+sudo ./scripts/backup-state.sh \
+  --config /etc/guardianwaf/guardianwaf.yaml \
+  --state-dir /var/lib/guardianwaf \
+  --event-file /var/log/guardianwaf/events.jsonl \
+  --output /backups/guardianwaf/state-$(date -u +%Y%m%dT%H%M%SZ).tar.gz \
+  --metrics-file /var/lib/node_exporter/textfile_collector/guardianwaf-backup.prom \
+  --rpo-seconds 3600 \
+  --confirm-quiesced
 sudo systemctl start guardianwaf
-
-# 5. Verify
-curl http://localhost:8080/livez
-curl http://localhost:8080/readyz
 ```
+
+Schedule this at least hourly, retain multiple generations according to the organization's incident/compliance policy, and alert on backup age. See [State Persistence](state-persistence.md#backup-and-restore) for path coverage and sensitive-state handling.
+
+### Recovery procedure
+
+```bash
+# Service must remain stopped through restore.
+sudo systemctl stop guardianwaf
+sudo ./scripts/restore-state.sh \
+  --archive /backups/guardianwaf/state-YYYYmmddTHHMMSSZ.tar.gz \
+  --config /etc/guardianwaf/guardianwaf.yaml \
+  --state-dir /var/lib/guardianwaf \
+  --event-file /var/log/guardianwaf/events.jsonl \
+  --guardianwaf /usr/local/bin/guardianwaf \
+  --confirm-stopped
+sudo chown -R guardianwaf:guardianwaf /var/lib/guardianwaf /var/log/guardianwaf
+sudo systemctl start guardianwaf
+curl --fail http://127.0.0.1:8088/livez
+curl --fail http://127.0.0.1:8088/readyz
+```
+
+Before accepting traffic, verify event history, tenants, ACME material, compliance audit-chain continuity, and dashboard mutation audit replay. Record elapsed recovery time and attach the drill evidence to the release/operations record. `make backup-restore-smoke` validates integrity, tamper rejection, config validation, restore equality, cleanup, and the 300-second RTO budget locally; it does not replace a target-environment restore drill.
 
 ---
 

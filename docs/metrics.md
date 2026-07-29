@@ -19,6 +19,7 @@ GuardianWAF exposes Prometheus-compatible text metrics at `GET /metrics` on the 
 | `guardianwaf_upstream_active_connections` | gauge | `upstream` | Active proxied connections for each upstream route. |
 | `guardianwaf_upstream_circuit_state` | gauge | `upstream`, `state` | Number of targets in each circuit-breaker state for each upstream route. |
 | `guardianwaf_event_store_errors_total` | counter | none | Event store write errors observed by the engine while processing requests. |
+| `guardianwaf_dashboard_audit_persistence_failures_total` | counter | none | Dashboard mutation audit records that could not be durably persisted. |
 | `guardianwaf_event_store_dropped_total` | counter | none | Events rejected, dropped, or not persisted by the configured event store. |
 | `guardianwaf_event_bus_subscribers` | gauge | none | Current event bus subscriber count. |
 | `guardianwaf_event_bus_max_subscribers` | gauge | none | Maximum event bus subscribers accepted before new subscribers are rejected. |
@@ -51,6 +52,8 @@ GuardianWAF exposes Prometheus-compatible text metrics at `GET /metrics` on the 
 | `guardianwaf_tracing_enabled` | gauge | none | `1` when the engine-local tracing runtime is enabled, otherwise `0`. |
 | `guardianwaf_tracing_spans_created_total` | counter | none | Tracing spans created by the engine. |
 | `guardianwaf_tracing_spans_exported_total` | counter | none | Tracing spans handed to the configured exporter. |
+
+Backup/restore automation can additionally emit `guardianwaf_backup_last_success_timestamp_seconds`, `guardianwaf_backup_archive_bytes`, `guardianwaf_backup_files`, and `guardianwaf_backup_rpo_target_seconds` to a node-exporter textfile-collector path. These host-level metrics are produced by `scripts/backup-state.sh`, not by the GuardianWAF `/metrics` endpoint.
 
 The baseline exporter avoids unbounded labels. The request-duration and layer-duration histograms use the fixed Prometheus `le` bucket label with these bucket boundaries: `0.0001`, `0.0005`, `0.001`, `0.005`, `0.01`, `0.05`, `0.1`, `0.5`, `1`, `5`, and `+Inf` seconds. Layer-duration metrics also use the active pipeline layer name as `layer`; this value is bounded by configured built-in layer names. Upstream metrics use the configured route path as the `upstream` label and the fixed circuit `state` values `closed`, `open`, `half-open`, and `unknown`. Alert target metrics use only the fixed `type` values `webhook` and `email`. AI window metrics use only the fixed `window` values `hour` and `day`; AI verdict metrics use only the fixed `action` values `block` and `monitor`. Future metrics that add labels must document the allowed label values before release.
 

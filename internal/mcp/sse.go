@@ -1,8 +1,9 @@
 package mcp
 
 import (
+	"crypto/rand"
 	"crypto/subtle"
-	"encoding/json"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -20,16 +21,19 @@ import (
 // Server→Client: GET /sse for SSE event stream
 // Auth: X-API-Key header or ?api_key query param
 type SSEHandler struct {
-	server *Server
-	apiKey string
+	server         *Server
+	apiKey         string
+	apiKeyProvider func() string
 
 	mu                sync.Mutex
 	clients           map[*sseClient]bool
+	sessions          map[string]*sseClient
 	log               *slog.Logger
 	heartbeatInterval time.Duration
 }
 
 type sseClient struct {
+	id      string
 	w       http.ResponseWriter
 	flusher http.Flusher
 	done    chan struct{}
@@ -37,8 +41,8 @@ type sseClient struct {
 	ch      chan []byte // outbound queue; only the handler goroutine writes to w
 }
 
-// sseClientQueue bounds a client's pending outbound messages. A client that
-// falls this far behind has messages dropped rather than blocking broadcasts.
+// sseClientQueue bounds a client's pending outbound responses. A client that
+// falls this far behind has messages dropped rather than blocking other sessions.
 const sseClientQueue = 64
 
 // maxMCPSSEClients limits concurrent SSE connections to prevent resource exhaustion.
@@ -51,9 +55,19 @@ func NewSSEHandler(srv *Server, apiKey string) *SSEHandler {
 		server:            srv,
 		apiKey:            apiKey,
 		clients:           make(map[*sseClient]bool),
+		sessions:          make(map[string]*sseClient),
 		log:               logging.NewLogger("mcp-sse"),
 		heartbeatInterval: 30 * time.Second,
 	}
+}
+
+// NewSSEHandlerWithAPIKeyProvider creates an SSE handler whose authentication
+// key is loaded for every request. Dashboard key rotation therefore takes
+// effect immediately instead of leaving a startup-time key copy.
+func NewSSEHandlerWithAPIKeyProvider(srv *Server, provider func() string) *SSEHandler {
+	h := NewSSEHandler(srv, "")
+	h.apiKeyProvider = provider
+	return h
 }
 
 // RegisterRoutes registers the MCP SSE endpoints on the given mux.
@@ -68,12 +82,13 @@ func (h *SSEHandler) authenticate(r *http.Request) bool {
 }
 
 func (h *SSEHandler) authenticateContext(r *http.Request) (*AuditContext, bool) {
-	if h.apiKey == "" {
+	apiKey := h.currentAPIKey()
+	if apiKey == "" {
 		h.log.Warn("SECURITY: rejecting unauthenticated request — no API key configured", "remote_addr", r.RemoteAddr)
 		return nil, false
 	}
 	if key := r.Header.Get("X-API-Key"); key != "" {
-		if subtle.ConstantTimeCompare([]byte(key), []byte(h.apiKey)) == 1 {
+		if subtle.ConstantTimeCompare([]byte(key), []byte(apiKey)) == 1 {
 			return &AuditContext{
 				Transport:  "sse",
 				AuthType:   "api_key",
@@ -88,6 +103,13 @@ func (h *SSEHandler) authenticateContext(r *http.Request) (*AuditContext, bool) 
 		return nil, false // Reject query-param-based API keys to prevent credential leakage
 	}
 	return nil, false
+}
+
+func (h *SSEHandler) currentAPIKey() string {
+	if h.apiKeyProvider != nil {
+		return h.apiKeyProvider()
+	}
+	return h.apiKey
 }
 
 // handleSSE establishes the SSE connection for server→client messages.
@@ -117,7 +139,13 @@ func (h *SSEHandler) handleSSE(w http.ResponseWriter, r *http.Request) {
 		_ = rc.SetWriteDeadline(time.Time{}) //nolint:errcheck // best-effort; falls back to WriteTimeout if unsupported
 	}
 
-	client := &sseClient{w: w, flusher: flusher, done: make(chan struct{}), ch: make(chan []byte, sseClientQueue)}
+	sessionID, err := newSSESessionID()
+	if err != nil {
+		h.log.Error("failed to generate MCP SSE session identifier", "error", err)
+		http.Error(w, "session initialization failed", http.StatusInternalServerError)
+		return
+	}
+	client := &sseClient{id: sessionID, w: w, flusher: flusher, done: make(chan struct{}), ch: make(chan []byte, sseClientQueue)}
 
 	h.mu.Lock()
 	if len(h.clients) >= maxMCPSSEClients {
@@ -126,12 +154,14 @@ func (h *SSEHandler) handleSSE(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.clients[client] = true
+	h.sessions[client.id] = client
 	h.mu.Unlock()
 
-	// Remove client on disconnect — prevents zombie client memory leak
+	// Remove client on disconnect — prevents zombie client/session leaks.
 	defer func() {
 		h.mu.Lock()
 		delete(h.clients, client)
+		delete(h.sessions, client.id)
 		if !client.closed {
 			client.closed = true
 			close(client.done)
@@ -139,7 +169,8 @@ func (h *SSEHandler) handleSSE(w http.ResponseWriter, r *http.Request) {
 		h.mu.Unlock()
 	}()
 
-	// Send endpoint event — tells the client where to POST messages
+	// Send endpoint event — tells this client where to POST messages. The opaque
+	// session ID binds each request/response exchange to this connection only.
 	scheme := "http"
 	if r.TLS != nil {
 		scheme = "https"
@@ -149,9 +180,9 @@ func (h *SSEHandler) handleSSE(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid host", http.StatusBadRequest)
 		return
 	}
-	messageURL := fmt.Sprintf("%s://%s/mcp/message", scheme, host)
+	messageURL := fmt.Sprintf("%s://%s/mcp/message?session_id=%s", scheme, host, client.id)
 	// All writes to w happen in this single goroutine (endpoint event, queued
-	// broadcasts, heartbeats), so no per-write lock is needed and w is never
+	// responses, heartbeats), so no per-write lock is needed and w is never
 	// touched after this handler returns.
 	if _, err := fmt.Fprintf(w, "event: endpoint\ndata: %s\n\n", messageURL); err != nil { // #nosec G705 -- messageURL uses a fixed path and a Host value sanitized against SSE/control injection.
 		return
@@ -195,6 +226,14 @@ func sanitizeSSEEndpointHost(host string) string {
 	return host
 }
 
+func newSSESessionID() (string, error) {
+	raw := make([]byte, 32)
+	if _, err := io.ReadFull(rand.Reader, raw); err != nil {
+		return "", fmt.Errorf("generate session id: %w", err)
+	}
+	return hex.EncodeToString(raw), nil
+}
+
 // handleMessage receives JSON-RPC requests from the client via POST.
 func (h *SSEHandler) handleMessage(w http.ResponseWriter, r *http.Request) {
 	authCtx, ok := h.authenticateContext(r)
@@ -204,6 +243,12 @@ func (h *SSEHandler) handleMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	client, status, err := h.messageClient(r.URL.Query().Get("session_id"))
+	if err != nil {
+		http.Error(w, err.Error(), status)
 		return
 	}
 
@@ -219,47 +264,46 @@ func (h *SSEHandler) handleMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Process via HandleRequestJSONWithAuditContext (thread-safe, no writer swap)
+	// Process only after the target session has been authenticated and resolved,
+	// then enqueue the response to that connection alone.
 	respData, _ := h.server.HandleRequestJSONWithAuditContext(body, authCtx)
-
-	// Broadcast response to all SSE clients
-	var resp JSONRPCResponse
-	if json.Unmarshal(respData, &resp) == nil {
-		h.broadcastResponse(resp)
+	if client != nil {
+		h.enqueueResponse(client, respData)
 	}
 
 	w.WriteHeader(http.StatusAccepted)
 }
 
-// broadcastResponse sends a JSON-RPC response to all connected SSE clients.
-// It snapshots the client set under the lock and enqueues to each client's
-// buffered channel without blocking, so one slow client cannot stall
-// broadcasts, new registrations, or POST /mcp/message. The client's own
-// goroutine performs the network write.
-func (h *SSEHandler) broadcastResponse(resp JSONRPCResponse) {
-	data, err := json.Marshal(resp)
-	if err != nil {
-		return
-	}
-
+func (h *SSEHandler) messageClient(sessionID string) (*sseClient, int, error) {
 	h.mu.Lock()
-	clients := make([]*sseClient, 0, len(h.clients))
-	for client := range h.clients {
-		clients = append(clients, client)
-	}
-	h.mu.Unlock()
+	defer h.mu.Unlock()
 
-	for _, client := range clients {
-		select {
-		case <-client.done:
-			continue
-		default:
+	if sessionID != "" {
+		client, ok := h.sessions[sessionID]
+		if !ok || client.closed {
+			return nil, http.StatusNotFound, errors.New("MCP SSE session not found")
 		}
-		select {
-		case client.ch <- data:
-		default:
-			// Slow client: drop this message rather than block the broadcast.
-		}
+		return client, 0, nil
+	}
+	if len(h.clients) == 0 {
+		// Preserve direct authenticated POST compatibility for callers that do
+		// not use SSE and therefore do not expect an asynchronous response.
+		return nil, 0, nil
+	}
+	return nil, http.StatusBadRequest, errors.New("session_id is required when an MCP SSE client is connected")
+}
+
+func (h *SSEHandler) enqueueResponse(client *sseClient, data []byte) {
+	select {
+	case <-client.done:
+		return
+	default:
+	}
+	select {
+	case client.ch <- data:
+	default:
+		// Slow clients cannot block unrelated requests or other connections.
+		h.log.Warn("dropping MCP SSE response for slow client", "session_id", client.id)
 	}
 }
 

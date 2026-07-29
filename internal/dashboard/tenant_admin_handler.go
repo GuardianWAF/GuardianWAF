@@ -27,15 +27,7 @@ func NewTenantAdminHandler(d *Dashboard, manager tenantManagerInterface) *Tenant
 // exclusive access to cross-tenant management operations (tenant CRUD, billing,
 // system stats). The admin key is set via Dashboard.SetAdminKey().
 func (h *TenantAdminHandler) RegisterRoutes(mux *http.ServeMux) {
-	auth := func(handler http.HandlerFunc) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
-			if !h.dashboard.isAdminAuthenticated(r) {
-				writeError(w, http.StatusUnauthorized, "unauthorized")
-				return
-			}
-			handler(w, r)
-		}
-	}
+	auth := h.dashboard.adminAuthAuditWrap
 
 	// Admin API routes (require the dashboard.admin_key via X-API-Key)
 	mux.HandleFunc("/api/admin/tenants", auth(h.handleTenants))
@@ -146,15 +138,20 @@ func (h *TenantAdminHandler) createTenant(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Extract tenant ID for API key regeneration
-	tenantMap, ok := tenant.(map[string]any)
+	// Extract the tenant ID through the JSON-tagged adapter boundary. Production
+	// managers return structs while tests and integrations may return maps.
+	record, ok := decodeTenantAuthRecord(tenant)
 	if !ok {
-		writeJSON(w, http.StatusCreated, map[string]any{"tenant": sanitizeTenantResponse(tenant)})
+		writeError(w, http.StatusInternalServerError, "tenant created but its identifier could not be read")
 		return
 	}
 
-	tenantID, _ := tenantMap["id"].(string)
-	apiKey, _ := h.manager.RegenerateAPIKey(tenantID)
+	apiKey, err := h.manager.RegenerateAPIKey(record.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "tenant created but API key provisioning failed")
+		return
+	}
+	h.dashboard.syncTenantAPIKeys(h.manager)
 
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"tenant":  sanitizeTenantResponse(tenant),
@@ -223,6 +220,7 @@ func (h *TenantAdminHandler) deleteTenant(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusNotFound, sanitizeErr(err))
 		return
 	}
+	h.dashboard.SetTenantAPIKey(tenantID, "")
 
 	writeJSON(w, http.StatusNoContent, nil)
 }
@@ -347,6 +345,10 @@ func (h *TenantAdminHandler) regenerateAPIKey(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusNotFound, sanitizeErr(err))
 		return
 	}
+	// Replace the complete snapshot so the old hash is removed and the new hash
+	// becomes effective immediately. Production managers expose current records
+	// through ListTenants; lightweight adapters without records remain compatible.
+	h.dashboard.syncTenantAPIKeys(h.manager)
 
 	writeJSON(w, http.StatusOK, map[string]any{"api_key": apiKey})
 }

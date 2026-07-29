@@ -19,12 +19,12 @@ func NewCRSHandler(d *Dashboard) *CRSHandler {
 
 // RegisterRoutes registers CRS routes with authentication.
 func (h *CRSHandler) RegisterRoutes(mux *http.ServeMux) {
-	auth := h.dashboard.authWrap
+	auth := h.dashboard.authAuditWrap
 	mux.HandleFunc("/api/crs/rules", auth(h.handleRules))
 	mux.HandleFunc("/api/crs/rules/", auth(h.handleRuleDetail))
 	mux.HandleFunc("/api/crs/config", auth(h.handleConfig))
 	mux.HandleFunc("/api/crs/stats", auth(h.handleStats))
-	mux.HandleFunc("/api/crs/test", auth(h.handleTest))
+	mux.HandleFunc("/api/crs/test", h.dashboard.authWrap(h.handleTest))
 }
 
 // handleRules handles GET /api/crs/rules

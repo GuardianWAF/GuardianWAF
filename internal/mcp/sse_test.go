@@ -10,8 +10,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 )
@@ -93,6 +93,28 @@ func TestAuthenticate_WrongKeyDenies(t *testing.T) {
 	req.Header.Set("X-API-Key", "wrong")
 	if handler.authenticate(req) {
 		t.Fatal("expected wrong key to deny request")
+	}
+}
+
+func TestAuthenticate_LiveKeyProviderRotatesImmediately(t *testing.T) {
+	srv := NewServer(nil, nil)
+	currentKey := "old-key"
+	handler := NewSSEHandlerWithAPIKeyProvider(srv, func() string { return currentKey })
+
+	request := func(key string) *http.Request {
+		req := httptest.NewRequest(http.MethodGet, "/mcp/sse", nil)
+		req.Header.Set("X-API-Key", key)
+		return req
+	}
+	if !handler.authenticate(request("old-key")) {
+		t.Fatal("initial provider key did not authenticate")
+	}
+	currentKey = "new-key"
+	if handler.authenticate(request("old-key")) {
+		t.Fatal("old provider key still authenticated after rotation")
+	}
+	if !handler.authenticate(request("new-key")) {
+		t.Fatal("new provider key did not authenticate immediately")
 	}
 }
 
@@ -248,6 +270,12 @@ func TestClientCount_AfterSSEConnection(t *testing.T) {
 	if count != 0 {
 		t.Fatalf("expected 0 clients after disconnect, got %d", count)
 	}
+	handler.mu.Lock()
+	sessionCount := len(handler.sessions)
+	handler.mu.Unlock()
+	if sessionCount != 0 {
+		t.Fatalf("expected 0 session routes after disconnect, got %d", sessionCount)
+	}
 }
 
 // --- handleSSE ---
@@ -347,11 +375,14 @@ func TestHandleSSE_EndpointEvent(t *testing.T) {
 	if !strings.HasPrefix(dataLine, "data: ") {
 		t.Fatalf("expected 'data: ...', got %q", dataLine)
 	}
-	// Extract the URL from data line.
-	data := strings.TrimPrefix(dataLine, "data: ")
-	data = strings.TrimSpace(data)
-	if !strings.HasSuffix(data, "/mcp/message") {
-		t.Fatalf("expected data to end with /mcp/message, got %q", data)
+	// Extract the session-scoped URL from the data line.
+	data := strings.TrimSpace(strings.TrimPrefix(dataLine, "data: "))
+	endpoint, err := url.Parse(data)
+	if err != nil {
+		t.Fatalf("invalid endpoint URL %q: %v", data, err)
+	}
+	if endpoint.Path != "/mcp/message" || endpoint.Query().Get("session_id") == "" {
+		t.Fatalf("expected session-scoped /mcp/message endpoint, got %q", data)
 	}
 }
 
@@ -550,9 +581,9 @@ func TestWriteResponse_NilWriter(t *testing.T) {
 	srv.writeResponse(resp)
 }
 
-// --- broadcastResponse ---
+// --- session-scoped response delivery ---
 
-func TestBroadcastResponse_SendsToClients(t *testing.T) {
+func TestSessionResponse_SendsToConnectedClient(t *testing.T) {
 	handler, _ := helperSSEServer("test-api-key")
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
@@ -574,12 +605,14 @@ func TestBroadcastResponse_SendsToClients(t *testing.T) {
 
 	// Read the initial endpoint event to ensure the client is fully registered.
 	reader := bufio.NewReader(resp.Body)
-	// Read event: endpoint
+	// Read the advertised, session-scoped POST endpoint.
 	_, _ = reader.ReadString('\n')
-	// Read data: http://...
+	endpointLine, _ := reader.ReadString('\n')
+	endpointURL := strings.TrimSpace(strings.TrimPrefix(endpointLine, "data: "))
 	_, _ = reader.ReadString('\n')
-	// Read blank line separator
-	_, _ = reader.ReadString('\n')
+	if !strings.Contains(endpointURL, "session_id=") {
+		t.Fatalf("expected session-scoped endpoint, got %q", endpointURL)
+	}
 
 	// Give the server a moment.
 	time.Sleep(50 * time.Millisecond)
@@ -588,9 +621,9 @@ func TestBroadcastResponse_SendsToClients(t *testing.T) {
 		t.Fatalf("expected 1 client, got %d", handler.ClientCount())
 	}
 
-	// Send a message via POST to trigger broadcastResponse.
+	// Send a message through this client's advertised endpoint.
 	initReq := `{"jsonrpc":"2.0","id":99,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`
-	postReq, err := http.NewRequest(http.MethodPost, ts.URL+"/mcp/message", strings.NewReader(initReq)) //nolint:noctx
+	postReq, err := http.NewRequest(http.MethodPost, endpointURL, strings.NewReader(initReq)) //nolint:noctx
 	if err != nil {
 		t.Fatalf("creating POST request: %v", err)
 	}
@@ -606,7 +639,7 @@ func TestBroadcastResponse_SendsToClients(t *testing.T) {
 		t.Fatalf("expected 202, got %d", postResp.StatusCode)
 	}
 
-	// Read the broadcast SSE event from the client connection.
+	// Read the routed SSE response from the client connection.
 	// The server should send: event: message\ndata: {...}\n\n
 	// Use a goroutine with a timeout to avoid blocking forever.
 	type sseResult struct {
@@ -649,116 +682,85 @@ func TestBroadcastResponse_SendsToClients(t *testing.T) {
 		// Parse the data as JSON-RPC response.
 		var rpcResp JSONRPCResponse
 		if jsonErr := json.Unmarshal([]byte(result.data), &rpcResp); jsonErr != nil {
-			t.Fatalf("failed to parse broadcast data as JSON: %v\n data: %s", jsonErr, result.data)
+			t.Fatalf("failed to parse routed data as JSON: %v\n data: %s", jsonErr, result.data)
 		}
 		if rpcResp.ID != float64(99) {
-			t.Fatalf("expected broadcast response id 99, got %v", rpcResp.ID)
+			t.Fatalf("expected response id 99, got %v", rpcResp.ID)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for broadcast event")
 	}
 }
 
-// --- Integration: multiple SSE clients receive broadcast ---
+// --- Multiple SSE clients receive only their own responses ---
 
-func TestBroadcastResponse_MultipleClients(t *testing.T) {
+func TestHandleMessage_IsolatesResponseBySession(t *testing.T) {
 	handler, _ := helperSSEServer("test-api-key")
-	mux := http.NewServeMux()
-	handler.RegisterRoutes(mux)
+	clientA := &sseClient{id: "session-a", done: make(chan struct{}), ch: make(chan []byte, 1)}
+	clientB := &sseClient{id: "session-b", done: make(chan struct{}), ch: make(chan []byte, 1)}
+	handler.mu.Lock()
+	handler.clients[clientA] = true
+	handler.clients[clientB] = true
+	handler.sessions[clientA.id] = clientA
+	handler.sessions[clientB.id] = clientB
+	handler.mu.Unlock()
 
-	ts := httptest.NewServer(mux)
-	defer ts.Close()
-
-	const numClients = 3
-	var wg sync.WaitGroup
-	results := make(chan string, numClients)
-
-	for i := 0; i < numClients; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			sseReq, err := http.NewRequest(http.MethodGet, ts.URL+"/mcp/sse", nil) //nolint:noctx
-			if err != nil {
-				results <- fmt.Sprintf("error: %v", err)
-				return
-			}
-			sseReq.Header.Set("X-API-Key", "test-api-key")
-			resp, err := http.DefaultClient.Do(sseReq)
-			if err != nil {
-				results <- fmt.Sprintf("error: %v", err)
-				return
-			}
-			defer resp.Body.Close()
-
-			reader := bufio.NewReader(resp.Body)
-			// Consume endpoint event.
-			_, _ = reader.ReadString('\n')
-			_, _ = reader.ReadString('\n')
-			_, _ = reader.ReadString('\n')
-
-			// Read the broadcast message.
-			evLine, err := reader.ReadString('\n')
-			if err != nil {
-				results <- fmt.Sprintf("read event error: %v", err)
-				return
-			}
-			results <- strings.TrimSuffix(evLine, "\n")
-		}()
+	body := `{"jsonrpc":"2.0","id":42,"method":"initialize","params":{}}`
+	req := helperAuthReq(http.MethodPost, "/mcp/message?session_id=session-a", strings.NewReader(body))
+	resp := httptest.NewRecorder()
+	handler.handleMessage(resp, req)
+	if resp.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", resp.Code, resp.Body.String())
 	}
 
-	// Wait for all clients to connect and consume the initial event.
-	// A small sleep to ensure goroutines have connected.
-	time.Sleep(200 * time.Millisecond)
-
-	if handler.ClientCount() != numClients {
-		t.Fatalf("expected %d clients, got %d", numClients, handler.ClientCount())
-	}
-
-	// Send a message to trigger broadcast.
-	initReq := `{"jsonrpc":"2.0","id":42,"method":"initialize","params":{}}`
-	postReq, err := http.NewRequest(http.MethodPost, ts.URL+"/mcp/message", strings.NewReader(initReq)) //nolint:noctx
-	if err != nil {
-		t.Fatalf("creating POST request: %v", err)
-	}
-	postReq.Header.Set("X-API-Key", "test-api-key")
-	postReq.Header.Set("Content-Type", "application/json")
-	postResp, err := http.DefaultClient.Do(postReq)
-	if err != nil {
-		t.Fatalf("POST message failed: %v", err)
-	}
-	postResp.Body.Close()
-
-	// Collect results with timeout.
-	timeout := time.After(5 * time.Second)
-	received := 0
-	for received < numClients {
-		select {
-		case r := <-results:
-			if strings.HasPrefix(r, "error") || strings.HasPrefix(r, "read") {
-				t.Errorf("client error: %s", r)
-			} else if r != "event: message" {
-				t.Errorf("expected 'event: message', got %q", r)
-			}
-			received++
-		case <-timeout:
-			t.Fatalf("timed out waiting for clients, got %d/%d", received, numClients)
+	select {
+	case data := <-clientA.ch:
+		var rpcResp JSONRPCResponse
+		if err := json.Unmarshal(data, &rpcResp); err != nil {
+			t.Fatalf("target response is invalid JSON: %v", err)
 		}
+		if rpcResp.ID != float64(42) {
+			t.Fatalf("target response ID = %v, want 42", rpcResp.ID)
+		}
+	default:
+		t.Fatal("target SSE session did not receive its response")
 	}
-
-	wg.Wait()
+	select {
+	case data := <-clientB.ch:
+		t.Fatalf("non-target SSE session received another client's response: %s", data)
+	default:
+	}
 }
 
-// --- broadcastResponse with no clients (should not panic) ---
-
-func TestBroadcastResponse_NoClients(t *testing.T) {
+func TestHandleMessage_RequiresSessionWhenSSEClientConnected(t *testing.T) {
 	handler, _ := helperSSEServer("test-api-key")
-	resp := JSONRPCResponse{
-		JSONRPC: "2.0",
-		ID:      1,
-		Result:  map[string]any{"ok": true},
+	client := &sseClient{id: "session-a", done: make(chan struct{}), ch: make(chan []byte, 1)}
+	handler.mu.Lock()
+	handler.clients[client] = true
+	handler.sessions[client.id] = client
+	handler.mu.Unlock()
+
+	req := helperAuthReq(http.MethodPost, "/mcp/message", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize"}`))
+	resp := httptest.NewRecorder()
+	handler.handleMessage(resp, req)
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 without session_id, got %d", resp.Code)
 	}
-	// Should not panic with no clients.
-	handler.broadcastResponse(resp)
+	select {
+	case data := <-client.ch:
+		t.Fatalf("session received response for unbound request: %s", data)
+	default:
+	}
+}
+
+func TestHandleMessage_RejectsUnknownSession(t *testing.T) {
+	handler, _ := helperSSEServer("test-api-key")
+	req := helperAuthReq(http.MethodPost, "/mcp/message?session_id=missing", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize"}`))
+	resp := httptest.NewRecorder()
+	handler.handleMessage(resp, req)
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for unknown session, got %d", resp.Code)
+	}
 }
 
 // --- handleMessage read error (body returns error) ---
@@ -796,9 +798,9 @@ func TestHandleMessage_MethodNotAllowed(t *testing.T) {
 	}
 }
 
-// --- handleMessage with SSE client connected (broadcast path) ---
+// --- handleMessage with a session-scoped SSE client ---
 
-func TestHandleMessage_BroadcastsToSSEClient(t *testing.T) {
+func TestHandleMessage_RoutesToSSEClient(t *testing.T) {
 	handler, _ := helperSSEServer("test-api-key")
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
@@ -819,16 +821,17 @@ func TestHandleMessage_BroadcastsToSSEClient(t *testing.T) {
 	defer sseResp.Body.Close()
 
 	reader := bufio.NewReader(sseResp.Body)
-	// Consume endpoint event (3 lines: event, data, blank).
+	// Consume endpoint event and retain this client's session-scoped POST URL.
 	_, _ = reader.ReadString('\n')
-	_, _ = reader.ReadString('\n')
+	endpointLine, _ := reader.ReadString('\n')
+	endpointURL := strings.TrimSpace(strings.TrimPrefix(endpointLine, "data: "))
 	_, _ = reader.ReadString('\n')
 
 	time.Sleep(50 * time.Millisecond)
 
-	// Send a tools/list request via POST.
+	// Send a tools/list request via this connection's endpoint.
 	toolsReq := `{"jsonrpc":"2.0","id":7,"method":"tools/list"}`
-	msgReq, err := http.NewRequest(http.MethodPost, ts.URL+"/mcp/message", strings.NewReader(toolsReq)) //nolint:noctx
+	msgReq, err := http.NewRequest(http.MethodPost, endpointURL, strings.NewReader(toolsReq)) //nolint:noctx
 	if err != nil {
 		t.Fatalf("creating POST request: %v", err)
 	}
@@ -844,7 +847,7 @@ func TestHandleMessage_BroadcastsToSSEClient(t *testing.T) {
 		t.Fatalf("expected 202, got %d", postResp.StatusCode)
 	}
 
-	// Read the broadcast event.
+	// Read this session's response event.
 	type ev struct {
 		eventType string
 		data      string
@@ -867,13 +870,13 @@ func TestHandleMessage_BroadcastsToSSEClient(t *testing.T) {
 		}
 		var rpcResp JSONRPCResponse
 		if jsonErr := json.Unmarshal([]byte(e.data), &rpcResp); jsonErr != nil {
-			t.Fatalf("failed to parse broadcast: %v", jsonErr)
+			t.Fatalf("failed to parse routed response: %v", jsonErr)
 		}
 		if rpcResp.ID != float64(7) {
-			t.Fatalf("expected broadcast id 7, got %v", rpcResp.ID)
+			t.Fatalf("expected response id 7, got %v", rpcResp.ID)
 		}
 	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for broadcast")
+		t.Fatal("timed out waiting for routed response")
 	}
 }
 
@@ -1054,37 +1057,19 @@ func TestHandleRequestJSON_PreservesOriginalWriter(t *testing.T) {
 	}
 }
 
-// --- broadcastResponse with client whose done channel is closed ---
+// --- enqueueResponse with a disconnected client ---
 
-func TestBroadcastResponse_DoneClient(t *testing.T) {
+func TestEnqueueResponse_DoneClient(t *testing.T) {
 	handler, _ := helperSSEServer("test-api-key")
-
-	// Manually create a client with done already closed to simulate a disconnected client.
 	doneCh := make(chan struct{})
 	close(doneCh)
+	client := &sseClient{id: "closed", done: doneCh, ch: make(chan []byte, 1)}
 
-	// Use a recorder that supports Flush.
-	flusher := &flushRecorder{}
-	client := &sseClient{
-		w:       flusher,
-		flusher: flusher,
-		done:    doneCh,
-	}
-	handler.mu.Lock()
-	handler.clients[client] = true
-	handler.mu.Unlock()
-
-	resp := JSONRPCResponse{
-		JSONRPC: "2.0",
-		ID:      1,
-		Result:  map[string]any{"ok": true},
-	}
-	// Should not panic, should skip the done client.
-	handler.broadcastResponse(resp)
-
-	// No data should have been written since client is done.
-	if flusher.written > 0 {
-		t.Fatalf("expected no data written to done client, got %d bytes", flusher.written)
+	handler.enqueueResponse(client, []byte(`{"jsonrpc":"2.0","id":1}`))
+	select {
+	case data := <-client.ch:
+		t.Fatalf("disconnected client received data: %s", data)
+	default:
 	}
 }
 

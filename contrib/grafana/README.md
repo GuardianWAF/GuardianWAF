@@ -131,9 +131,11 @@ This dashboard uses the stable GuardianWAF metrics documented in `docs/metrics.m
 | `datasource` | Prometheus datasource selector |
 | `instance` | GuardianWAF instance filter (multi-select) |
 
-## Alerts (Recommended)
+## Alert rules and SLOs
 
-Configure these alerts in Grafana:
+Deploy and validate the canonical Prometheus rule artefact at [`../prometheus/guardianwaf-rules.yaml`](../prometheus/guardianwaf-rules.yaml). It includes owner/severity/SLO labels, runbook links, backup and dashboard-audit durability alerts, plus multi-window burn-rate rules for the objectives in [`docs/slo.md`](../../docs/slo.md).
+
+The following snippet is illustrative only; do not use it instead of the canonical rule file:
 
 ```yaml
 # Example alert rules

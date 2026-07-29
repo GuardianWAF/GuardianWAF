@@ -17,6 +17,7 @@ data:
       listen: ":9443"
       api_key: "${GWAF_DASHBOARD_API_KEY}"
       admin_key: "${GWAF_DASHBOARD_ADMIN_KEY}"
+      audit_path: /var/lib/guardianwaf/audit/dashboard.jsonl
 
     waf:
       detection:

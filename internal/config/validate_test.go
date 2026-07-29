@@ -485,6 +485,27 @@ func TestValidate_DashboardTLSUnsupported(t *testing.T) {
 	t.Fatalf("expected dashboard.tls reverse proxy validation error, got: %v", err)
 }
 
+func TestValidate_DashboardAuditPathMustBeAbsolute(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Dashboard.Enabled = true
+	cfg.Dashboard.AuditPath = "data/dashboard-audit.jsonl"
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("expected validation error for relative dashboard audit path")
+	}
+	var ve *ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected *ValidationError, got %T", err)
+	}
+	for _, fe := range ve.Errors {
+		if fe.Field == "dashboard.audit_path" && strings.Contains(fe.Message, "absolute path") {
+			return
+		}
+	}
+	t.Fatalf("expected dashboard.audit_path validation error, got: %v", err)
+}
+
 func TestValidate_InvalidMode(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Mode = "invalid"

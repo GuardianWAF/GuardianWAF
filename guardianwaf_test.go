@@ -1654,10 +1654,12 @@ type mockCleanLayer struct {
 	name    string
 }
 
-func (m *mockCleanLayer) Name() string              { return m.name }
-func (m *mockCleanLayer) Order() int                 { return 1 }
-func (m *mockCleanLayer) Process(_ *engine.RequestContext) engine.LayerResult { return engine.LayerResult{} }
-func (m *mockCleanLayer) Cleanup()                    { m.cleaned = true }
+func (m *mockCleanLayer) Name() string { return m.name }
+func (m *mockCleanLayer) Order() int   { return 1 }
+func (m *mockCleanLayer) Process(_ *engine.RequestContext) engine.LayerResult {
+	return engine.LayerResult{}
+}
+func (m *mockCleanLayer) Cleanup() { m.cleaned = true }
 
 func TestRunCleanup_CoversATOBotLayers(t *testing.T) {
 	eng, err := New(Config{})

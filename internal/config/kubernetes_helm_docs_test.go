@@ -48,6 +48,25 @@ func TestKubernetesHelmDocsCoverProductionDeploymentExamples(t *testing.T) {
 	}
 }
 
+func TestValidateHelmPrefersCurrentSourceOverStaleDistBinary(t *testing.T) {
+	path := filepath.Join("..", "..", "scripts", "validate-helm.sh")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	content := string(data)
+	sourceCheck := `if command -v go >/dev/null 2>&1 && [ -d "${ROOT_DIR}/internal/dashboard/dist" ]; then`
+	distCheck := `if [ -x "${ROOT_DIR}/dist/guardianwaf-linux-amd64" ]; then`
+	sourceIndex := strings.Index(content, sourceCheck)
+	distIndex := strings.Index(content, distCheck)
+	if sourceIndex < 0 || distIndex < 0 {
+		t.Fatalf("%s must retain both current-source and dist validator branches", path)
+	}
+	if sourceIndex > distIndex {
+		t.Fatalf("%s must prefer current source over a possibly stale dist validator", path)
+	}
+}
+
 func TestReadmeLinksKubernetesHelmDeploymentGuide(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
 	if err != nil {

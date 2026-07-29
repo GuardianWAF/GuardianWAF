@@ -50,7 +50,7 @@ func TestLayerProcess_JWTTenantMismatch(t *testing.T) {
 
 	layer, err := NewLayer(&Config{
 		Enabled: true,
-		JWT: JWTConfig{Enabled: true, Algorithms: []string{"HS256"}},
+		JWT:     JWTConfig{Enabled: true, Algorithms: []string{"HS256"}},
 	})
 	if err != nil {
 		t.Fatal(err)

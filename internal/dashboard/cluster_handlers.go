@@ -4,10 +4,10 @@ import "net/http"
 
 func (d *Dashboard) registerCluster(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/clusters", d.authWrap(d.handleClusterList))
-	mux.HandleFunc("POST /api/clusters", d.authWrap(d.handleClusterMutationDisabled))
+	mux.HandleFunc("POST /api/clusters", d.authAuditWrap(d.handleClusterMutationDisabled))
 	mux.HandleFunc("GET /api/clusters/", d.authWrap(d.handleClusterNotFound))
-	mux.HandleFunc("DELETE /api/clusters/", d.authWrap(d.handleClusterMutationDisabled))
-	mux.HandleFunc("POST /api/clusters/", d.authWrap(d.handleClusterMutationDisabled))
+	mux.HandleFunc("DELETE /api/clusters/", d.authAuditWrap(d.handleClusterMutationDisabled))
+	mux.HandleFunc("POST /api/clusters/", d.authAuditWrap(d.handleClusterMutationDisabled))
 	mux.HandleFunc("GET /api/nodes", d.authWrap(d.handleClusterNodesLegacy))
 	mux.HandleFunc("GET /api/sync/stats", d.authWrap(d.handleSyncStats))
 	mux.HandleFunc("GET /api/sync/status", d.authWrap(d.handleSyncStatus))

@@ -1,0 +1,194 @@
+groups:
+  - name: guardianwaf-slo-recording
+    interval: 30s
+    rules:
+      - record: guardianwaf:slo_availability:ratio_rate5m
+        expr: avg by (cluster) (avg_over_time(up{job="guardianwaf"}[5m]))
+      - record: guardianwaf:slo_availability:ratio_rate30m
+        expr: avg by (cluster) (avg_over_time(up{job="guardianwaf"}[30m]))
+      - record: guardianwaf:slo_availability:ratio_rate1h
+        expr: avg by (cluster) (avg_over_time(up{job="guardianwaf"}[1h]))
+      - record: guardianwaf:slo_availability:ratio_rate6h
+        expr: avg by (cluster) (avg_over_time(up{job="guardianwaf"}[6h]))
+      - record: guardianwaf:slo_latency_le_100ms:ratio_rate5m
+        expr: |
+          sum by (cluster) (rate(guardianwaf_request_duration_seconds_bucket{job="guardianwaf",le="0.1"}[5m]))
+          /
+          clamp_min(sum by (cluster) (rate(guardianwaf_request_duration_seconds_count{job="guardianwaf"}[5m])), 1e-12)
+      - record: guardianwaf:slo_latency_le_100ms:ratio_rate30m
+        expr: |
+          sum by (cluster) (rate(guardianwaf_request_duration_seconds_bucket{job="guardianwaf",le="0.1"}[30m]))
+          /
+          clamp_min(sum by (cluster) (rate(guardianwaf_request_duration_seconds_count{job="guardianwaf"}[30m])), 1e-12)
+      - record: guardianwaf:slo_latency_le_100ms:ratio_rate1h
+        expr: |
+          sum by (cluster) (rate(guardianwaf_request_duration_seconds_bucket{job="guardianwaf",le="0.1"}[1h]))
+          /
+          clamp_min(sum by (cluster) (rate(guardianwaf_request_duration_seconds_count{job="guardianwaf"}[1h])), 1e-12)
+      - record: guardianwaf:slo_latency_le_100ms:ratio_rate6h
+        expr: |
+          sum by (cluster) (rate(guardianwaf_request_duration_seconds_bucket{job="guardianwaf",le="0.1"}[6h]))
+          /
+          clamp_min(sum by (cluster) (rate(guardianwaf_request_duration_seconds_count{job="guardianwaf"}[6h])), 1e-12)
+
+  - name: guardianwaf-paging
+    interval: 30s
+    rules:
+      - alert: GuardianWAFInstanceDown
+        expr: up{job="guardianwaf"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: guardianwaf
+          team: guardianwaf-oncall
+          slo: availability
+        annotations:
+          summary: GuardianWAF instance is not scrapeable
+          description: Prometheus has been unable to scrape {{ $labels.instance }} for two minutes.
+          runbook_url: https://github.com/guardianwaf/guardianwaf/blob/main/docs/runbook.md#20-service-or-scrape-unavailable
+
+      - alert: GuardianWAFUpstreamUnavailable
+        expr: guardianwaf_upstream_targets_total > 0 and on (job, instance, upstream) guardianwaf_upstream_targets_healthy == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: guardianwaf
+          team: guardianwaf-oncall
+          slo: availability
+        annotations:
+          summary: GuardianWAF upstream has no healthy targets
+          description: Upstream {{ $labels.upstream }} on {{ $labels.instance }} has zero healthy targets.
+          runbook_url: https://github.com/guardianwaf/guardianwaf/blob/main/docs/runbook.md#2-backend-upstream-unreachable
+
+      - alert: GuardianWAFEventPersistenceFailure
+        expr: increase(guardianwaf_event_store_errors_total[5m]) + increase(guardianwaf_event_store_dropped_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          service: guardianwaf
+          team: guardianwaf-oncall
+          slo: security-event-durability
+        annotations:
+          summary: GuardianWAF security events are not durably stored
+          description: Event persistence errors or drops occurred on {{ $labels.instance }} in the last five minutes.
+          runbook_url: https://github.com/guardianwaf/guardianwaf/blob/main/docs/runbook.md#12-event-store-full-or-dropping-events
+
+      - alert: GuardianWAFDashboardAuditPersistenceFailure
+        expr: increase(guardianwaf_dashboard_audit_persistence_failures_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          service: guardianwaf
+          team: guardianwaf-oncall
+          slo: management-audit-durability
+        annotations:
+          summary: GuardianWAF management audit persistence failed
+          description: At least one dashboard mutation audit record could not be persisted on {{ $labels.instance }}.
+          runbook_url: https://github.com/guardianwaf/guardianwaf/blob/main/docs/runbook.md#19-dashboard-audit-persistence-failure
+
+      - alert: GuardianWAFBackupMissing
+        expr: absent(guardianwaf_backup_last_success_timestamp_seconds)
+        for: 15m
+        labels:
+          severity: critical
+          service: guardianwaf
+          team: guardianwaf-oncall
+          slo: disaster-recovery
+        annotations:
+          summary: GuardianWAF backup freshness metric is missing
+          description: No successful backup timestamp is visible from the node-exporter textfile collector.
+          runbook_url: https://github.com/guardianwaf/guardianwaf/blob/main/docs/runbook.md#18-backup-stale-or-restore-required
+
+      - alert: GuardianWAFBackupStale
+        expr: time() - guardianwaf_backup_last_success_timestamp_seconds > guardianwaf_backup_rpo_target_seconds
+        for: 5m
+        labels:
+          severity: critical
+          service: guardianwaf
+          team: guardianwaf-oncall
+          slo: disaster-recovery
+        annotations:
+          summary: GuardianWAF backup is older than its RPO target
+          description: The latest verified backup is {{ $value | humanizeDuration }} older than its configured RPO.
+          runbook_url: https://github.com/guardianwaf/guardianwaf/blob/main/docs/runbook.md#18-backup-stale-or-restore-required
+
+      - alert: GuardianWAFAlertDeliveryFailure
+        expr: increase(guardianwaf_alert_manager_failed_total[5m]) + increase(guardianwaf_alert_email_failed_total[5m]) + increase(guardianwaf_alert_manager_dropped_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          service: guardianwaf
+          team: guardianwaf-oncall
+          slo: incident-detection
+        annotations:
+          summary: GuardianWAF alert delivery failed or was dropped
+          description: GuardianWAF could not deliver at least one security alert on {{ $labels.instance }}.
+          runbook_url: https://github.com/guardianwaf/guardianwaf/blob/main/docs/runbook.md#21-alert-delivery-failure
+
+      - alert: GuardianWAFAvailabilityBudgetFastBurn
+        expr: (1 - guardianwaf:slo_availability:ratio_rate1h) > (14.4 * 0.001) and (1 - guardianwaf:slo_availability:ratio_rate5m) > (14.4 * 0.001)
+        for: 2m
+        labels:
+          severity: critical
+          service: guardianwaf
+          team: guardianwaf-oncall
+          slo: availability
+        annotations:
+          summary: GuardianWAF availability error budget is burning rapidly
+          description: The 99.9% availability SLO is burning faster than 14.4x over both five-minute and one-hour windows.
+          runbook_url: https://github.com/guardianwaf/guardianwaf/blob/main/docs/runbook.md#20-service-or-scrape-unavailable
+
+      - alert: GuardianWAFLatencyBudgetFastBurn
+        expr: (1 - guardianwaf:slo_latency_le_100ms:ratio_rate1h) > (14.4 * 0.01) and (1 - guardianwaf:slo_latency_le_100ms:ratio_rate5m) > (14.4 * 0.01)
+        for: 2m
+        labels:
+          severity: critical
+          service: guardianwaf
+          team: guardianwaf-oncall
+          slo: processing-latency
+        annotations:
+          summary: GuardianWAF latency error budget is burning rapidly
+          description: The 99% under 100ms processing-latency SLO is burning faster than 14.4x.
+          runbook_url: https://github.com/guardianwaf/guardianwaf/blob/main/docs/runbook.md#8-performance-degradation
+
+  - name: guardianwaf-ticket
+    interval: 1m
+    rules:
+      - alert: GuardianWAFAvailabilityBudgetSlowBurn
+        expr: (1 - guardianwaf:slo_availability:ratio_rate6h) > (6 * 0.001) and (1 - guardianwaf:slo_availability:ratio_rate30m) > (6 * 0.001)
+        for: 15m
+        labels:
+          severity: warning
+          service: guardianwaf
+          team: guardianwaf-oncall
+          slo: availability
+        annotations:
+          summary: GuardianWAF availability error budget is burning
+          description: The 99.9% availability SLO is burning faster than 6x over both 30-minute and six-hour windows.
+          runbook_url: https://github.com/guardianwaf/guardianwaf/blob/main/docs/runbook.md#20-service-or-scrape-unavailable
+
+      - alert: GuardianWAFLatencyBudgetSlowBurn
+        expr: (1 - guardianwaf:slo_latency_le_100ms:ratio_rate6h) > (6 * 0.01) and (1 - guardianwaf:slo_latency_le_100ms:ratio_rate30m) > (6 * 0.01)
+        for: 15m
+        labels:
+          severity: warning
+          service: guardianwaf
+          team: guardianwaf-oncall
+          slo: processing-latency
+        annotations:
+          summary: GuardianWAF latency error budget is burning
+          description: The 99% under 100ms processing-latency SLO is burning faster than 6x.
+          runbook_url: https://github.com/guardianwaf/guardianwaf/blob/main/docs/runbook.md#8-performance-degradation
+
+      - alert: GuardianWAFDockerDiscoveryDegraded
+        expr: guardianwaf_docker_discovery_enabled == 1 and (guardianwaf_docker_discovery_running == 0 or guardianwaf_docker_discovery_event_stream_connected == 0 or guardianwaf_docker_discovery_last_sync_success == 0)
+        for: 5m
+        labels:
+          severity: warning
+          service: guardianwaf
+          team: guardianwaf-oncall
+          slo: discovery-freshness
+        annotations:
+          summary: GuardianWAF Docker discovery is degraded
+          description: Docker discovery is enabled but its watcher, event stream, or latest sync is unhealthy.
+          runbook_url: https://github.com/guardianwaf/guardianwaf/blob/main/docs/runbook.md#15-docker-discovery-failure

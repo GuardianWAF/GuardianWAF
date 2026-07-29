@@ -2598,13 +2598,21 @@ func (s *safeResponseRecorder) code() int {
 	return s.rec.Code
 }
 
-func TestBroadcastResponse_MarshalError(t *testing.T) {
-	handler, _ := helperSSEServer("test-api-key")
-	handler.broadcastResponse(JSONRPCResponse{
-		JSONRPC: "2.0",
-		ID:      1,
-		Result:  math.NaN(),
-	})
+func TestNewSSESessionID(t *testing.T) {
+	first, err := newSSESessionID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := newSSESessionID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) != 64 || len(second) != 64 {
+		t.Fatalf("session IDs must encode 32 random bytes: %q %q", first, second)
+	}
+	if first == second {
+		t.Fatal("independent SSE connections received the same session ID")
+	}
 }
 
 // Merged from mcp_final_coverage_test.go
@@ -2664,13 +2672,15 @@ func TestHandleAddRateLimit_NegativeLimit(t *testing.T) {
 
 func TestAlertingHandlers_EngineErrors(t *testing.T) {
 	tests := []struct {
-		name   string
-		call   func(*Server) (any, error)
-		field  string
+		name  string
+		call  func(*Server) (any, error)
+		field string
 	}{
 		{
-			name:  "add webhook",
-			call:  func(s *Server) (any, error) { return s.handleAddWebhook(json.RawMessage(`{"name":"ops","url":"https://hooks.example.test","type":"generic"}`)) },
+			name: "add webhook",
+			call: func(s *Server) (any, error) {
+				return s.handleAddWebhook(json.RawMessage(`{"name":"ops","url":"https://hooks.example.test","type":"generic"}`))
+			},
 			field: "fail",
 		},
 		{
@@ -2679,8 +2689,10 @@ func TestAlertingHandlers_EngineErrors(t *testing.T) {
 			field: "fail",
 		},
 		{
-			name:  "add email target",
-			call:  func(s *Server) (any, error) { return s.handleAddEmailTarget(json.RawMessage(`{"name":"ops","smtp_host":"smtp.example.test","from":"from@example.test","to":["to@example.test"]}`)) },
+			name: "add email target",
+			call: func(s *Server) (any, error) {
+				return s.handleAddEmailTarget(json.RawMessage(`{"name":"ops","smtp_host":"smtp.example.test","from":"from@example.test","to":["to@example.test"]}`))
+			},
 			field: "fail",
 		},
 		{
@@ -2783,7 +2795,7 @@ func (r *failAfterFirstWriteRecorder) Write(p []byte) (int, error) {
 }
 
 func (r *failAfterFirstWriteRecorder) WriteHeader(statusCode int) {}
-func (r *failAfterFirstWriteRecorder) Flush()                        {}
+func (r *failAfterFirstWriteRecorder) Flush()                     {}
 
 func TestHandleSSE_MessageWriteFailure(t *testing.T) {
 	handler, _ := helperSSEServer("test-api-key")
@@ -2836,15 +2848,16 @@ func TestHandleRequestJSONWithAuditContext_ParseErrorStillMarshals(t *testing.T)
 	}
 }
 
-func TestHandleMessage_BroadcastUnmarshalFailureStillAccepted(t *testing.T) {
+func TestHandleMessage_SessionResponseStillAccepted(t *testing.T) {
 	handler, _ := helperSSEServer("test-api-key")
-	client := &sseClient{done: make(chan struct{}), ch: make(chan []byte, 1)}
+	client := &sseClient{id: "session", done: make(chan struct{}), ch: make(chan []byte, 1)}
 	handler.mu.Lock()
 	handler.clients[client] = true
+	handler.sessions[client.id] = client
 	handler.mu.Unlock()
 
 	body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"guardianwaf_get_stats","arguments":{}}}`
-	req := helperAuthReq(http.MethodPost, "/mcp/message", bytes.NewBufferString(body))
+	req := helperAuthReq(http.MethodPost, "/mcp/message?session_id=session", bytes.NewBufferString(body))
 	w := httptest.NewRecorder()
 	handler.handleMessage(w, req)
 

@@ -21,11 +21,11 @@ func NewDLPHandler(d *Dashboard) *DLPHandler {
 
 // RegisterRoutes registers DLP management routes with authentication.
 func (h *DLPHandler) RegisterRoutes(mux *http.ServeMux) {
-	auth := h.dashboard.authWrap
+	auth := h.dashboard.authAuditWrap
 	mux.HandleFunc("/api/dlp/alerts", auth(h.handleAlerts))
 	mux.HandleFunc("/api/dlp/patterns", auth(h.handlePatterns))
 	mux.HandleFunc("/api/dlp/patterns/", auth(h.handlePatternDetail))
-	mux.HandleFunc("/api/dlp/test", auth(h.handleTestPattern))
+	mux.HandleFunc("/api/dlp/test", h.dashboard.authWrap(h.handleTestPattern))
 }
 
 // handleAlerts handles GET /api/dlp/alerts
