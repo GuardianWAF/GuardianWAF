@@ -242,6 +242,7 @@ func (l *Layer) readFile(path string) ([]byte, error) {
 		return nil, fmt.Errorf("path outside allowed directory")
 	}
 
+	// #nosec G304 -- realPath is already confined to realCWD by the HasPrefix check above
 	return os.ReadFile(realPath)
 }
 
