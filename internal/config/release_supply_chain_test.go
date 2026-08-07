@@ -574,7 +574,7 @@ func TestSetupNodeCacheOnlyOnNPMHeavyWorkflowJobs(t *testing.T) {
 func TestPatchedGoToolchainIsAlignedAcrossBuildPaths(t *testing.T) {
 	root := filepath.Join("..", "..")
 	files := map[string][]string{
-		"go.mod":                              {"toolchain go1.26.5"},
+		"go.mod":                              {"go 1.26.5"},
 		"tools/deepcopy/go.mod":               {"go 1.26.5"},
 		"Dockerfile":                          {"golang:1.26.5-alpine AS builder"},
 		"docker-compose.yml":                  {"golang:1.26.5-alpine"},
