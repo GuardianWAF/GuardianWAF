@@ -81,7 +81,11 @@ run_step check-prereqs ./scripts/check-prereqs.sh
 # does not pick up `.temp_files/*` scratch directories, vendored copies,
 # or `examples/*` modules that are not part of the production codebase.
 GO_TEST_PACKAGES="$(go list ./... 2>/dev/null | grep -v '/examples/' | grep -v '/scripts/attack-simulation' || true)"
-run_step go-test go test ${GO_TEST_PACKAGES}
+# `-count=1` forces a fresh test run; without it `go test` happily replays
+# cached results from a previous workflow run on the same runner image,
+# which masks real failures. The main `test` job already uses `-count=1`
+# (see .github/workflows/ci.yml:95).
+run_step go-test go test -count=1 ${GO_TEST_PACKAGES}
 run_step go-vet go vet ${GO_TEST_PACKAGES}
 run_step http3-build-tag go test -tags http3 ./cmd/guardianwaf -count=1
 run_step detection-quality go test ./internal/layers/detection -run TestDetectionLayer_CorpusQualityBaseline -count=1 -v
