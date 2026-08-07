@@ -77,15 +77,19 @@ for doc in \
 done
 
 run_step check-prereqs ./scripts/check-prereqs.sh
-run_step go-test go test ./...
-run_step go-vet go vet ./...
+# Use the same package set as .github/workflows/ci.yml:95 so the runner
+# does not pick up `.temp_files/*` scratch directories, vendored copies,
+# or `examples/*` modules that are not part of the production codebase.
+GO_TEST_PACKAGES="$(go list ./... 2>/dev/null | grep -v '/examples/' | grep -v '/scripts/attack-simulation' || true)"
+run_step go-test go test ${GO_TEST_PACKAGES}
+run_step go-vet go vet ${GO_TEST_PACKAGES}
 run_step http3-build-tag go test -tags http3 ./cmd/guardianwaf -count=1
 run_step detection-quality go test ./internal/layers/detection -run TestDetectionLayer_CorpusQualityBaseline -count=1 -v
 run_step validate-k8s ./scripts/validate-k8s.sh
 run_step validate-helm ./scripts/validate-helm.sh
 
 if [ "${HEAVY}" = "1" ]; then
-    run_step go-race go test -race -count=1 ./...
+    run_step go-race go test -race -count=1 ${GO_TEST_PACKAGES}
     run_step build-dashboard ./scripts/build-dashboard.sh
     run_step release-build ./scripts/build.sh "${VERSION}"
     if [ -x "${ROOT_DIR}/dist/guardianwaf-linux-amd64" ]; then
