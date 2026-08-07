@@ -114,8 +114,9 @@ waf:
     enabled: false               # Default: false
     db_path: ""                  # CSV database path
     auto_download: false         # Download DB when missing
-    download_url: ""             # Optional custom GeoIP download URL
+    download_url: ""             # Optional custom GeoIP download URL (must be https://)
     require_ready: false         # If true, /readyz fails until GeoIP is loaded
+    allow_insecure_url: false    # Permit a cleartext http:// download_url (see below)
 
   # ── Rate Limiting ───────────────────────────────────────────────────────
   rate_limit:
@@ -332,6 +333,45 @@ alerting:
         Score: {{Score}}
         Path: {{Method}} {{Path}}
 ```
+
+---
+
+## Cleartext Fetch URLs
+
+Two settings pull data from a remote source that then steers WAF decisions:
+
+| Setting | What it fetches | What tampering changes |
+|---|---|---|
+| `waf.threat_intel.feeds[].url` | IP/domain reputation entries | Which clients get blocked — an attacker on the path can both clear their own address and blocklist legitimate traffic |
+| `waf.geoip.download_url` | The GeoIP database | Which country a client resolves to, and therefore how geo rules apply |
+
+Both are validated at startup and **must use `https://`**. Configuring an
+`http://` URL fails config validation with a message naming the field, so the
+process refuses to start rather than silently fetching security-relevant data
+over a channel anyone on the path can rewrite.
+
+If you genuinely need cleartext — a mirror on a trusted, isolated network, for
+example — opt in explicitly:
+
+<!-- guardianwaf-config:validate -->
+```yaml
+waf:
+  geoip:
+    download_url: "http://mirror.internal/dbip-lite.csv"
+    allow_insecure_url: true          # acknowledges the tamper risk
+
+  threat_intel:
+    feeds:
+      - type: url
+        url: "http://mirror.internal/bad-ips.txt"
+        format: jsonl
+        allow_insecure_url: true      # per-feed, not global
+```
+
+`allow_insecure_url` is scoped per feed, so one internal mirror does not weaken
+the rest. Values written as `${PLACEHOLDER}` are resolved after validation and
+are therefore not checked at startup — the scheme of whatever they expand to is
+your responsibility.
 
 ---
 
