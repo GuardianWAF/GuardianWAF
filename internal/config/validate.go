@@ -1313,6 +1313,7 @@ func validateWAF(waf *WAFConfig, ve *ValidationError) {
 	validateIPACL(&waf.IPACL, ve)
 	validateSanitizer(&waf.Sanitizer, ve)
 	validateGeoIP(&waf.GeoIP, ve)
+	validateThreatIntelFeeds(&waf.ThreatIntel, ve)
 	validateAIAnalysis(&waf.AIAnalysis, ve)
 	validateRemovedLayers(waf, ve)
 }
@@ -1350,6 +1351,28 @@ func validateRemovedLayers(waf *WAFConfig, ve *ValidationError) {
 func validateGeoIP(geo *GeoIPConfig, ve *ValidationError) {
 	if geo.RequireReady && !geo.Enabled {
 		ve.addError("waf.geoip.require_ready", "requires waf.geoip.enabled to be true")
+	}
+	if isCleartextHTTPURL(geo.DownloadURL) && !geo.AllowInsecureURL {
+		ve.addError("waf.geoip.download_url",
+			"must use https:// — GeoIP data drives geo rules and is tamperable in transit over http://; set waf.geoip.allow_insecure_url: true to override")
+	}
+}
+
+// isCleartextHTTPURL reports whether raw is an http:// URL. Placeholders such as
+// ${GEOIP_URL} are resolved after validation, so they are not judged here.
+func isCleartextHTTPURL(raw string) bool {
+	if raw == "" || strings.Contains(raw, "${") {
+		return false
+	}
+	return strings.HasPrefix(strings.ToLower(raw), "http://")
+}
+
+func validateThreatIntelFeeds(ti *ThreatIntelConfig, ve *ValidationError) {
+	for i, feed := range ti.Feeds {
+		if isCleartextHTTPURL(feed.URL) && !feed.AllowInsecureURL {
+			ve.addError(fmt.Sprintf("waf.threat_intel.feeds[%d].url", i),
+				"must use https:// — feed contents decide which clients are blocked and are tamperable in transit over http://; set allow_insecure_url: true on this feed to override")
+		}
 	}
 }
 

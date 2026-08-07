@@ -3,6 +3,19 @@
 # Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 services:
+  # The example backends in docker-compose.yml exist only for local testing and
+  # run a full Go toolchain image. Scaling them to zero here keeps the
+  # documented production command from starting them.
+  backend:
+    deploy:
+      replicas: 0
+    profiles: ["dev-only"]
+
+  backend2:
+    deploy:
+      replicas: 0
+    profiles: ["dev-only"]
+
   guardianwaf:
     volumes:
       - ./guardianwaf.yaml:/etc/guardianwaf/guardianwaf.yaml:ro

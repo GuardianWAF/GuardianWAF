@@ -1,6 +1,6 @@
 apiVersion: v2
 name: guardianwaf
-description: Zero-dependency Web Application Firewall with 29-layer detection pipeline
+description: Zero-dependency Web Application Firewall with a 16-layer detection pipeline
 version: 0.4.0
 appVersion: "0.4.0"
 home: https://github.com/guardianwaf/guardianwaf

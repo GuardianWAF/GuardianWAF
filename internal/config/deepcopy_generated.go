@@ -352,6 +352,7 @@ func (in *GeoIPConfig) DeepCopy() *GeoIPConfig {
 	out.AutoDownload = in.AutoDownload
 	out.DownloadURL = in.DownloadURL
 	out.RequireReady = in.RequireReady
+	out.AllowInsecureURL = in.AllowInsecureURL
 	return &out
 }
 
@@ -1359,6 +1360,7 @@ func (in *ThreatFeedConfig) DeepCopy() *ThreatFeedConfig {
 	out.URL = in.URL
 	out.Refresh = in.Refresh
 	out.Format = in.Format
+	out.AllowInsecureURL = in.AllowInsecureURL
 	return &out
 }
 

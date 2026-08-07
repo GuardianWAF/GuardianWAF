@@ -1,0 +1,36 @@
+{{- /*
+Prometheus Operator ServiceMonitor.
+
+values.yaml documented prometheus.serviceMonitor.* but the chart shipped no
+template for it, so those settings did nothing. /metrics is served by the
+dashboard listener, so this targets the dashboard Service and therefore
+requires dashboard.enabled.
+*/}}
+{{- if and .Values.prometheus.enabled .Values.prometheus.serviceMonitor.enabled }}
+{{- if not .Values.dashboard.enabled }}
+{{- fail "prometheus.serviceMonitor.enabled requires dashboard.enabled: /metrics is served on the dashboard listener" }}
+{{- end }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "guardianwaf.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "guardianwaf.labels" . | nindent 4 }}
+    {{- with .Values.prometheus.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  selector:
+    matchLabels:
+      {{- include "guardianwaf.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: dashboard
+  endpoints:
+    - port: dashboard
+      path: {{ .Values.prometheus.serviceMonitor.path | default "/metrics" }}
+      interval: {{ .Values.prometheus.serviceMonitor.interval | default "30s" }}
+      scheme: http
+{{- end }}

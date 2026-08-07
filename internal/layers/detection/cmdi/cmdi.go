@@ -430,17 +430,56 @@ func checkRedirection(input, lower, location string) []engine.Finding {
 			}
 		}
 
-		score := 45
 		desc := "Output redirection operator detected"
-		if i+1 < len(input) && input[i+1] == '>' {
+		rest := input[i+1:]
+		if strings.HasPrefix(rest, ">") {
 			desc = "Append redirection operator detected"
+			rest = rest[1:]
+		}
+
+		// A bare '>' is ambiguous: shell redirection and an ordinary comparison
+		// look identical at this character. Real redirection names a target —
+		// a path, a filename, or an fd duplication (2>&1) — whereas comparisons
+		// like "price>100" or "5 > 3" are followed by a plain operand. Scoring
+		// the comparison shape at 45 put it within one weak signal of the
+		// default block threshold, which blocked filter APIs.
+		score := 45
+		confidence := 0.60
+		if !redirectionTargetLooksLikeFileOrFD(rest) {
+			desc = "Redirection-like character in comparison position"
+			score = 10
+			confidence = 0.25
 		}
 		findings = append(findings, makeFinding(score, engine.SeverityMedium,
-			desc, extractContext(lower, ">"), location, 0.60))
+			desc, extractContext(lower, ">"), location, confidence))
 		break
 	}
 
 	return findings
+}
+
+// redirectionTargetLooksLikeFileOrFD reports whether what follows a '>' reads
+// as a shell redirection target rather than the right-hand side of a
+// comparison. Recognised: fd duplication (>&1), an absolute/relative/home path,
+// a filename carrying an extension, and a dangling '>' at end of input.
+func redirectionTargetLooksLikeFileOrFD(rest string) bool {
+	trimmed := strings.TrimLeft(rest, " \t")
+	if trimmed == "" {
+		// Trailing '>' with nothing after it is not a comparison.
+		return true
+	}
+	if trimmed[0] == '&' {
+		return true // 2>&1 style fd duplication
+	}
+	if trimmed[0] == '/' || trimmed[0] == '\\' || trimmed[0] == '~' || trimmed[0] == '.' {
+		return true // /tmp/x, ~/.bashrc, ./out
+	}
+	// First token: a path separator or an extension makes it a file target.
+	word := trimmed
+	if idx := strings.IndexAny(word, " \t\r\n&|;"); idx >= 0 {
+		word = word[:idx]
+	}
+	return strings.ContainsAny(word, "/\\") || strings.Contains(word, ".")
 }
 
 // extractFirstWord returns the first whitespace-delimited word from s.

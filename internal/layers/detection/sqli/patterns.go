@@ -375,24 +375,56 @@ func checkIntoOutfile(tokens []Token, location string) (engine.Finding, bool) {
 }
 
 // checkCommentAfterString checks for string literal followed by comment.
+//
+// Two shapes are distinguished, because they carry very different confidence:
+//
+//   - Tight: the comment abuts the quote, with nothing between it but closing
+//     parentheses — `admin'--`, `admin'#`, `admin')--`, `admin")--`. This is the
+//     canonical authentication-bypass primitive (close the literal, comment out
+//     the rest of the WHERE clause) and has no benign free-text equivalent, so
+//     it is scored above the block threshold on its own.
+//   - Loose: real tokens sit between the quote and the comment. English text
+//     reaches this shape through apostrophes — `it's -- great` tokenizes as
+//     StringLiteral, Other("s"), Whitespace, Comment — so it stays a low
+//     confidence, log-only signal.
 func checkCommentAfterString(tokens []Token, location string) (engine.Finding, bool) {
+	var loose *engine.Finding
 	for i := 0; i < len(tokens)-1; i++ {
-		if tokens[i].Type == TokenStringLiteral {
-			// Look for comment immediately after (possibly with other tokens in between)
-			for j := i + 1; j < len(tokens); j++ {
-				if tokens[j].Type == TokenComment {
-					matched := extractRange(tokens, i, j)
-					return makeFinding(35, engine.SeverityMedium,
-						"Comment used after string literal (possible evasion)",
-						matched, location, 0.60), true
+		if tokens[i].Type != TokenStringLiteral {
+			continue
+		}
+		tight := true
+		for j := i + 1; j < len(tokens); j++ {
+			if tokens[j].Type == TokenComment {
+				matched := extractRange(tokens, i, j)
+				if tight {
+					f := makeFinding(60, engine.SeverityHigh,
+						"String literal closed and remainder commented out (SQL injection auth bypass)",
+						matched, location, 0.90)
+					return f, true
 				}
-				// Allow certain tokens between string and comment
-				if tokens[j].Type == TokenOperator || tokens[j].Type == TokenOther {
-					continue
+				if loose == nil {
+					f := makeFinding(35, engine.SeverityMedium,
+						"Comment used after string literal (possible evasion)",
+						matched, location, 0.60)
+					loose = &f
 				}
 				break
 			}
+			// Only closing parens may sit between the quote and the comment
+			// without weakening the signal; anything else makes it loose.
+			if tokens[j].Type != TokenParenClose {
+				tight = false
+			}
+			// Allow certain tokens between string and comment
+			if tokens[j].Type == TokenOperator || tokens[j].Type == TokenOther || tokens[j].Type == TokenParenClose {
+				continue
+			}
+			break
 		}
+	}
+	if loose != nil {
+		return *loose, true
 	}
 	return engine.Finding{}, false
 }

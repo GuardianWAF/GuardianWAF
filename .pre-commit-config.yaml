@@ -1,14 +1,14 @@
 # GuardianWAF pre-commit hooks
 # Install: pip install pre-commit && pre-commit install
 repos:
-  - repo: https://github.com/golangci-lint/golangci-lint
-    rev: v1.64.8
+  - repo: https://github.com/golangci/golangci-lint
+    rev: v2.12.2
     hooks:
       - id: golangci-lint
         args: [--fix]
 
   - repo: https://github.com/editorconfig-checker/editorconfig-checker
-    rev: 2.7.2
+    rev: v3.8.0
     hooks:
       - id: editorconfig-checker
         args: [-c .editorconfig]

@@ -208,3 +208,58 @@ func TestExtractContext(t *testing.T) {
 		}
 	})
 }
+
+// TestEngineInternalAccess covers checkEngineInternals: template-context object
+// access sits between the arithmetic probe ({{7*7}}) and a full gadget chain
+// (__mro__/__subclasses__), and was previously matched by neither.
+func TestEngineInternalAccess(t *testing.T) {
+	const blockThreshold = 50
+
+	score := func(input string) int {
+		total := 0
+		for _, f := range Detect(input, "query") {
+			total += f.Score
+		}
+		return total
+	}
+
+	t.Run("context object access blocks", func(t *testing.T) {
+		for _, input := range []string{
+			"{{config.items()}}",
+			"{{config['SECRET_KEY']}}",
+			"{{self.__init__}}",
+			"{{self.__dict__}}",
+			"{{request.application}}",
+			"{{session.get('x')}}",
+			"{{url_for.__globals__}}",
+			"{{lipsum.__globals__}}",
+			"${settings.SECRET}",
+		} {
+			if got := score(input); got < blockThreshold {
+				t.Errorf("%q scored %d, want >= %d", input, got, blockThreshold)
+			}
+		}
+	})
+
+	// The context-object names are ordinary English words, so they must only
+	// count inside a template expression and only with an access on them.
+	t.Run("ordinary text and plain templates stay clean", func(t *testing.T) {
+		for _, input := range []string{
+			"how to configure nginx",
+			"my config file",
+			"self service portal",
+			"request a demo",
+			"application form",
+			"session timeout settings",
+			"/api/config",
+			"{{username}}",
+			"{{ user.name }}",
+			"{{ title }}",
+			"{{price * qty}}",
+		} {
+			if got := score(input); got >= blockThreshold {
+				t.Errorf("benign %q scored %d, want < %d", input, got, blockThreshold)
+			}
+		}
+	})
+}

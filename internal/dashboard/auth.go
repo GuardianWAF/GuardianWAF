@@ -398,20 +398,22 @@ const (
 // asserts the admin/mutating endpoints stay denied and a hypothetical new
 // endpoint is denied by default.
 var tenantReadablePrefixes = []string{
-	"/api/v1/stats",
+	"/api/v1/stats",  // global aggregate counters: numbers only, no per-tenant payload
 	"/api/v1/events", // tenant-filtered in the handler
 	"/api/v1/sse",    // tenant-filtered in the broadcaster
-	"/api/v1/ssl",
-	"/api/v1/upstreams",
-	"/api/v1/docker/services",
 	"/api/v1/geoip/lookup",
 	"/api/v1/cwv",
-	"/api/v1/alerting/status",
-	"/api/v1/ai/providers",
-	"/api/v1/ai/stats",
-	// NOT allow-listed for tenant keys (would disclose cross-tenant data that
-	// is not tenant-partitioned): /api/v1/logs (raw application log buffer) and
-	// /api/v1/ai/history (AI threat analysis spanning all tenants' events).
+	"/api/v1/ai/providers", // public models.dev catalog
+	"/api/v1/ai/stats",     // global token-usage counters, no payload
+	// NOT allow-listed for tenant keys, because none of these are
+	// tenant-partitioned and each discloses another tenant's or the operator's
+	// infrastructure:
+	//   /api/v1/logs             raw application log buffer
+	//   /api/v1/ai/history       AI analysis spanning all tenants' events
+	//   /api/v1/ssl              every certificate domain and SAN in the deployment
+	//   /api/v1/upstreams        every backend target URL and health state
+	//   /api/v1/docker/services  every discovered container service
+	//   /api/v1/alerting/status  operator webhook and SMTP destinations
 }
 
 // tenantKeyAllows reports whether a tenant-scoped API key may access the given

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useCallback } from 'react'
 import { Mail, Webhook, Plus, Trash2, TestTube, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -7,6 +7,7 @@ import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
 import { api, AlertingStatusResponse, WebhookConfig, EmailConfig } from '@/lib/api'
 import { useToast } from '@/components/ui/toast'
+import { useMountLoad } from '@/hooks/use-mount-load'
 import { cn } from '@/lib/utils'
 
 export default function AlertingPage() {
@@ -34,22 +35,23 @@ export default function AlertingPage() {
     to: [],
   })
 
-  useEffect(() => {
-    fetchStatus()
-  }, [])
-
-  const fetchStatus = async () => {
+  // Declared before the hook that calls it: referencing it earlier relied on
+  // the effect running after the whole body had evaluated.
+  const fetchStatus = useCallback(async (isCancelled: () => boolean = () => false) => {
+    setLoading(true)
     try {
-      setLoading(true)
       const res = await api.getAlertingStatus()
+      if (isCancelled()) return
       setStatus(res)
       setError(null)
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch alerting status')
+      if (!isCancelled()) setError(err instanceof Error ? err.message : 'Failed to fetch alerting status')
     } finally {
-      setLoading(false)
+      if (!isCancelled()) setLoading(false)
     }
-  }
+  }, [])
+
+  useMountLoad(fetchStatus)
 
   const addWebhook = async () => {
     if (!newWebhook.name || !newWebhook.url) {

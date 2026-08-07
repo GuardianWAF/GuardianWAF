@@ -1436,3 +1436,53 @@ func TestCoverageGaps(t *testing.T) {
 		t.Fatal("expected tautology pattern")
 	}
 }
+
+// TestCommentAfterStringShapes pins the split between the two shapes handled by
+// checkCommentAfterString. The tight shape (quote abutting the comment, with
+// only closing parens between) is the classic auth-bypass primitive and must
+// score above the 50 block threshold on its own; the loose shape is reachable
+// from ordinary English apostrophes and must stay log-only.
+func TestCommentAfterStringShapes(t *testing.T) {
+	const blockThreshold = 50
+
+	score := func(input string) int {
+		total := 0
+		for _, f := range Detect(input, "query") {
+			total += f.Score
+		}
+		return total
+	}
+
+	t.Run("tight shape blocks", func(t *testing.T) {
+		for _, input := range []string{
+			"admin'--",
+			"admin'#",
+			"admin'/*",
+			"admin'-- -",
+			"admin')--",
+			`admin")--`,
+			"admin'))--",
+			"x'-- ",
+		} {
+			if got := score(input); got < blockThreshold {
+				t.Errorf("%q scored %d, want >= %d so enforce mode blocks it", input, got, blockThreshold)
+			}
+		}
+	})
+
+	t.Run("apostrophes in prose stay below block threshold", func(t *testing.T) {
+		for _, input := range []string{
+			"it's -- great",
+			"don't -- really",
+			"we're open -- come by",
+			"Rock 'n' roll -- classic",
+			"O'Brien",
+			"L'Oreal",
+			"that's all",
+		} {
+			if got := score(input); got >= blockThreshold {
+				t.Errorf("%q scored %d, want < %d to avoid blocking free text", input, got, blockThreshold)
+			}
+		}
+	})
+}

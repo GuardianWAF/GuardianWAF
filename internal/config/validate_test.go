@@ -1711,3 +1711,65 @@ func TestValidateDockerAcceptsTLSVerifiedRemoteEndpoint(t *testing.T) {
 		t.Fatalf("Validate() error = %v", err)
 	}
 }
+
+// TestCleartextFetchURLsRejected covers the fail-closed check on http:// fetch
+// URLs. Both feeds steer WAF decisions, so an on-path attacker who rewrites
+// them in transit can change which clients get blocked. Cleartext therefore
+// requires an explicit opt-in rather than only logging a warning.
+func TestCleartextFetchURLsRejected(t *testing.T) {
+	fieldErrors := func(cfg *Config) []string {
+		ve := &ValidationError{}
+		validateGeoIP(&cfg.WAF.GeoIP, ve)
+		validateThreatIntelFeeds(&cfg.WAF.ThreatIntel, ve)
+		out := make([]string, 0, len(ve.Errors))
+		for _, fe := range ve.Errors {
+			out = append(out, fe.Field)
+		}
+		return out
+	}
+
+	t.Run("geoip", func(t *testing.T) {
+		cfg := DefaultConfig()
+		cfg.WAF.GeoIP.DownloadURL = "http://example.com/db.csv"
+		if got := fieldErrors(cfg); len(got) != 1 || got[0] != "waf.geoip.download_url" {
+			t.Fatalf("cleartext download_url: got %v, want one waf.geoip.download_url error", got)
+		}
+
+		cfg.WAF.GeoIP.AllowInsecureURL = true
+		if got := fieldErrors(cfg); len(got) != 0 {
+			t.Errorf("allow_insecure_url should permit http://: got %v", got)
+		}
+
+		cfg = DefaultConfig()
+		cfg.WAF.GeoIP.DownloadURL = "https://example.com/db.csv"
+		if got := fieldErrors(cfg); len(got) != 0 {
+			t.Errorf("https download_url rejected: got %v", got)
+		}
+	})
+
+	t.Run("threat intel feeds", func(t *testing.T) {
+		cfg := DefaultConfig()
+		cfg.WAF.ThreatIntel.Feeds = []ThreatFeedConfig{
+			{Type: "url", URL: "https://ok.example.com/a.txt"},
+			{Type: "url", URL: "http://bad.example.com/b.txt"},
+		}
+		if got := fieldErrors(cfg); len(got) != 1 || got[0] != "waf.threat_intel.feeds[1].url" {
+			t.Fatalf("cleartext feed: got %v, want one feeds[1].url error", got)
+		}
+
+		cfg.WAF.ThreatIntel.Feeds[1].AllowInsecureURL = true
+		if got := fieldErrors(cfg); len(got) != 0 {
+			t.Errorf("per-feed allow_insecure_url should permit http://: got %v", got)
+		}
+	})
+
+	// Placeholders are substituted after validation, so they must not be judged.
+	t.Run("placeholders are not judged", func(t *testing.T) {
+		cfg := DefaultConfig()
+		cfg.WAF.GeoIP.DownloadURL = "${GEOIP_URL}"
+		cfg.WAF.ThreatIntel.Feeds = []ThreatFeedConfig{{Type: "url", URL: "${FEED_URL}"}}
+		if got := fieldErrors(cfg); len(got) != 0 {
+			t.Errorf("placeholder URLs rejected: got %v", got)
+		}
+	})
+}

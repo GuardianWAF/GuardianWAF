@@ -134,3 +134,6 @@ internal/ai/remediation/data/remediation/*.json
 !/.wrongstack/
 /.wrongstack/*
 !/.wrongstack/project.json
+
+# Local scratch worktrees (were committed as broken gitlinks with no .gitmodules)
+.temp_files/

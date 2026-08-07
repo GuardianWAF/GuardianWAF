@@ -9,7 +9,9 @@ export default defineConfig({
   base: '/',
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src'),
+      // import.meta.dirname keeps this config loadable by Vite's native config
+      // loader, which becomes the default in a future major.
+      '@': path.resolve(import.meta.dirname, './src'),
     },
   },
   build: {

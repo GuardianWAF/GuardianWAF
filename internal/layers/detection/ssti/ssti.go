@@ -113,6 +113,7 @@ func Detect(input, location string) []engine.Finding {
 	var findings []engine.Finding
 	findings = append(findings, checkExploitGadgets(lower, location)...)
 	findings = append(findings, checkTemplateDirectives(lower, location)...)
+	findings = append(findings, checkEngineInternals(lower, location)...)
 	findings = append(findings, checkProbeExpressions(lower, location)...)
 	return findings
 }
@@ -220,6 +221,116 @@ func checkProbeExpressions(lower, location string) []engine.Finding {
 		}
 	}
 	return nil
+}
+
+// engineInternals are template-engine context objects. On their own these are
+// ordinary words, so they are only meaningful inside a template expression —
+// checkEngineInternals requires both the delimiter and an attribute access or
+// call before reporting.
+var engineInternals = []string{
+	// Flask / Jinja2 context globals. {{config.items()}} alone dumps the whole
+	// Flask config including SECRET_KEY.
+	"config",
+	"self",
+	"request",
+	"session",
+	"url_for",
+	"get_flashed_messages",
+	"lipsum",
+	"cycler",
+	"joiner",
+	"namespace",
+	// Django / Tornado / Mako
+	"settings",
+	"handler",
+	"application",
+}
+
+// checkEngineInternals detects template expressions that reach into the
+// engine's own context objects — {{config.items()}}, {{self.__init__}},
+// {{request.application}} — or that touch any dunder attribute. These are the
+// standard Jinja2/Flask exploitation primitives and sit between the arithmetic
+// probe ({{7*7}}) and a full gadget chain (__mro__/__subclasses__), neither of
+// which matches them.
+func checkEngineInternals(lower, location string) []engine.Finding {
+	for _, open := range delimiters {
+		from := 0
+		for {
+			i := strings.Index(lower[from:], open)
+			if i < 0 {
+				break
+			}
+			start := from + i + len(open)
+			end := start + 128
+			if end > len(lower) {
+				end = len(lower)
+			}
+			body := lower[start:end]
+
+			// A dunder attribute inside a template expression has no benign use.
+			if hasDunderAttribute(body) {
+				return []engine.Finding{makeFinding(75, engine.SeverityHigh,
+					"SSTI dunder attribute access in template expression", open,
+					extractContext(lower, open), location, 0.85)}
+			}
+			// Otherwise require an engine context object *and* an access on it,
+			// so plain words like {{username}} or {{ request }} do not match.
+			for _, name := range engineInternals {
+				if idx := indexIdentifier(body, name); idx >= 0 {
+					rest := body[idx+len(name):]
+					if strings.HasPrefix(rest, ".") || strings.HasPrefix(rest, "[") || strings.HasPrefix(rest, "(") {
+						return []engine.Finding{makeFinding(65, engine.SeverityHigh,
+							"SSTI template-context object access detected", name,
+							extractContext(lower, open), location, 0.80)}
+					}
+				}
+			}
+			from = start
+		}
+	}
+	return nil
+}
+
+// hasDunderAttribute reports whether s contains a __name__ style attribute.
+func hasDunderAttribute(s string) bool {
+	for i := 0; i+3 < len(s); i++ {
+		if s[i] != '_' || s[i+1] != '_' {
+			continue
+		}
+		for j := i + 2; j+1 < len(s); j++ {
+			if s[j] == '_' && s[j+1] == '_' {
+				return j > i+2
+			}
+			if !isIdentChar(s[j]) {
+				break
+			}
+		}
+	}
+	return false
+}
+
+// indexIdentifier finds name in s only where it stands as a whole identifier,
+// so "config" does not match inside "reconfigure".
+func indexIdentifier(s, name string) int {
+	from := 0
+	for {
+		i := strings.Index(s[from:], name)
+		if i < 0 {
+			return -1
+		}
+		at := from + i
+		beforeOK := at == 0 || !isIdentChar(s[at-1])
+		afterIdx := at + len(name)
+		afterOK := afterIdx >= len(s) || !isIdentChar(s[afterIdx])
+		if beforeOK && afterOK {
+			return at
+		}
+		from = at + len(name)
+	}
+}
+
+func isIdentChar(c byte) bool {
+	return c == '_' || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
 }
 
 // hasLiteralMultiplication reports whether s contains a numeric literal followed

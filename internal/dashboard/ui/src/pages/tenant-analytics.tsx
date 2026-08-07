@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
+import { usePollingLoad } from '@/hooks/use-mount-load'
 import { useParams, useNavigate } from 'react-router'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -206,11 +207,7 @@ export default function TenantAnalyticsPage() {
     }
   }
 
-  useEffect(() => {
-    loadData()
-    const interval = setInterval(loadData, 30000) // Refresh every 30s
-    return () => clearInterval(interval)
-  }, [loadData])
+  usePollingLoad(loadData, 30000) // Refresh every 30s
 
   if (!adminReady) {
     return (

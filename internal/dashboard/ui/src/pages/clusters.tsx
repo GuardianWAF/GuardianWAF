@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import { useNavigate } from 'react-router'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import { usePollingLoad } from '@/hooks/use-mount-load'
 import { useToast } from '@/components/ui/toast'
 import { api, Cluster, SyncStats, SyncStatusResponse } from '@/lib/api'
 import { Plus, Search, Trash2, RefreshCw, Server, Activity, ArrowRight } from 'lucide-react'
@@ -18,7 +19,7 @@ export default function ClustersPage() {
   const [search, setSearch] = useState('')
   const { toast } = useToast()
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (isCancelled: () => boolean = () => false) => {
     try {
       const [clustersData, nodesData, statsData, statusData] = await Promise.all([
         api.getClusters(),
@@ -26,6 +27,7 @@ export default function ClustersPage() {
         api.getSyncStats(),
         api.getSyncStatus()
       ])
+      if (isCancelled()) return
       setClusters(clustersData)
       setSyncStats(statsData)
       setSyncStatus(statusData)
@@ -37,21 +39,19 @@ export default function ClustersPage() {
       })
       setNodes(nodesMap)
     } catch {
-      toast({
-        title: 'Error',
-        description: 'Failed to load cluster data',
-        variant: 'destructive'
-      })
+      if (!isCancelled()) {
+        toast({
+          title: 'Error',
+          description: 'Failed to load cluster data',
+          variant: 'destructive'
+        })
+      }
     } finally {
-      setLoading(false)
+      if (!isCancelled()) setLoading(false)
     }
   }, [toast])
 
-  useEffect(() => {
-    loadData()
-    const interval = setInterval(loadData, 10000) // Refresh every 10s
-    return () => clearInterval(interval)
-  }, [loadData])
+  usePollingLoad(loadData, 10000)
 
   const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this cluster?')) return

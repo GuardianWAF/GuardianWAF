@@ -1,4 +1,4 @@
-.PHONY: build test test-packages lint bench fuzz clean run docker-build smoke docker-test backup-restore-smoke ui ui-dev dev help fmt fmt-check tidy e2e e2e-full e2e-full-all e2e-headed e2e-list
+.PHONY: build test test-packages lint bench fuzz clean run docker-build smoke docker-test backup-restore-smoke ui ui-dev dev help fmt fmt-check tidy e2e e2e-full e2e-full-all e2e-headed e2e-list cover vet e2e-all generate-deepcopy
 
 BINARY=guardianwaf
 VERSION?=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -92,7 +92,6 @@ fmt-check:
 # NOTE: tools/deepcopy/main.go is currently broken with Go 1.26+ (go/parser
 # directory restriction). Until fixed, add DeepCopy fields by hand following
 # the pattern in internal/config/deepcopy_generated.go.
-.PHONY: generate-deepcopy
 generate-deepcopy:
 	@echo "WARNING: deepcopy tool is broken with Go 1.26 — see internal/config/deepcopy_generated.go header"
 	cd tools/deepcopy && go run main.go ../../internal/config/config.go > ../../internal/config/deepcopy_generated.go

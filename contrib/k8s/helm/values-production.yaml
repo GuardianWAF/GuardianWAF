@@ -1,0 +1,112 @@
+# GuardianWAF Helm — production overlay
+#
+# The defaults in values.yaml favour a frictionless first install: no
+# persistence, no disruption budget, no network policy, and private upstreams
+# allowed. Those are reasonable for evaluation and wrong for production.
+#
+# Usage:
+#   helm install gwaf ./contrib/k8s/helm \
+#     -f contrib/k8s/helm/values-production.yaml \
+#     --set apiKey.existingSecret=gwaf-credentials \
+#     --set adminKey.existingSecret=gwaf-credentials
+#
+# Review every value below against your cluster before using it. In particular
+# storageClass, the ingress controller namespace in networkPolicy, and the
+# image tag are environment-specific.
+
+# Pin to an immutable tag or digest. An empty tag resolves to Chart.appVersion,
+# which moves when the chart is upgraded.
+image:
+  pullPolicy: IfNotPresent
+  # tag: "0.4.0"
+
+config:
+  mode: enforce
+  logLevel: info
+  logFormat: json
+  # The binary refuses loopback/private upstream targets unless this is on.
+  # Keep it false and address upstreams by Service DNS; turn it on only if you
+  # genuinely proxy to in-cluster private IPs and accept the SSRF exposure.
+  allowPrivateUpstreams: false
+  events:
+    # File-backed events need persistence below; with an emptyDir they are lost
+    # on every pod replacement.
+    storage: file
+    filePath: /var/lib/guardianwaf/events.jsonl
+
+# Durable state: events, IP auto-bans, ACME cache, tenant stores. Without this
+# the read-only root filesystem is backed by an emptyDir and all of it is lost
+# when a pod is replaced.
+#
+# ReadWriteOnce suits a single writer. With replicaCount > 1 use a
+# ReadWriteMany class or give each pod its own volume, otherwise replicas
+# contend for the same files.
+persistence:
+  enabled: true
+  accessModes:
+    - ReadWriteOnce
+  size: 20Gi
+  # storageClass: ""
+
+# Keep at least one replica serving during voluntary disruptions such as a
+# node drain or cluster upgrade.
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+# Restrict ingress to the ingress controller. Adjust the namespace selector to
+# match your controller, and confirm the cluster runs a NetworkPolicy plugin —
+# without one this object is silently inert.
+networkPolicy:
+  enabled: true
+
+# The dashboard has no built-in TLS termination (config validation rejects
+# dashboard.tls). Terminate TLS at the ingress and keep the dashboard Service
+# cluster-internal.
+ingress:
+  enabled: true
+  # className: nginx
+  # hosts:
+  #   - host: waf.example.com
+  #     paths:
+  #       - path: /
+  #         pathType: Prefix
+  # tls:
+  #   - secretName: waf-example-tls
+  #     hosts:
+  #       - waf.example.com
+
+dashboard:
+  enabled: true
+  service:
+    type: ClusterIP
+
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "250m"
+  limits:
+    memory: "1Gi"
+    cpu: "2000m"
+
+prometheus:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+
+# Supply credentials from a Secret you manage. If both existingSecret and value
+# are left empty the chart generates its own Secret — workable, but the value
+# then lives only in the release and is harder to rotate deliberately.
+apiKey:
+  existingSecret: ""
+  existingSecretKey: "api-key"
+
+adminKey:
+  existingSecret: ""
+  existingSecretKey: "admin-key"

@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
+import { useMountLoad } from '@/hooks/use-mount-load'
 
 import { useParams, useNavigate } from 'react-router'
 
@@ -200,12 +201,7 @@ export default function TenantDetailPage() {
 
   }, [adminReady, id, toast])
 
-  useEffect(() => {
-
-    loadTenant()
-
-
-  }, [loadTenant])
+  useMountLoad(loadTenant)
   const handleSave = async () => {
 
     setSaving(true)

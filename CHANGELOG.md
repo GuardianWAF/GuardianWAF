@@ -1,7 +1,41 @@
 ## [Unreleased]
 
+### Breaking Changes
+
+- Threat intel feed URLs and the GeoIP `download_url` must now use `https://`.
+  Cleartext previously logged a warning and continued; it is now rejected at
+  config validation, so a config with an `http://` URL fails to start. Set
+  `waf.geoip.allow_insecure_url: true` or the per-feed
+  `waf.threat_intel.feeds[].allow_insecure_url: true` to keep the old behaviour.
+- Tenant-scoped API keys can no longer read `/api/v1/ssl`, `/api/v1/upstreams`,
+  `/api/v1/docker/services`, or `/api/v1/alerting/status`. None of the four are
+  tenant-partitioned, so every tenant could enumerate other tenants' certificate
+  domains, the backend topology, discovered container services, and the
+  operator's alert destinations. `/api/v1/stats` and `/api/v1/ai/stats` remain
+  available — they return global counters only, with no per-tenant payload.
+
 ### Security
 
+- SQLi: the comment-terminator auth bypass family (`admin'--`, `admin'#`,
+  `admin')--`, `admin")--`, `admin'/*`) is now blocked. It was detected but
+  scored 35, below the default block threshold of 50, so it passed in enforce
+  mode. The rule now separates the tight shape (quote abutting the comment) at
+  60 from the loose shape reachable through ordinary apostrophes, which stays
+  log-only at 35.
+- LFI: multiply URL-encoded traversal (`%252e%252e%252f`, and deeper) is now
+  detected. The raw value holds only literal `%25` runs and the
+  sanitizer-normalized value has already had `../` resolved away by
+  `CanonicalizePath`, so neither existing scan view could see it; a third
+  recursively-decoded, non-canonicalized view was added.
+- SSTI: template-context object access (`{{config.items()}}`, `{{self.__init__}}`,
+  `{{request.application}}`) is now detected. It sat between the arithmetic probe
+  and the full gadget chain and matched neither. `{{config.items()}}` alone dumps
+  a Flask config including `SECRET_KEY`.
+- Cleartext `http://` threat-intel and GeoIP fetch URLs are rejected instead of
+  warned about — see Breaking Changes.
+- Dashboard dependency advisories cleared: `react-router` upgraded to 8.3.0 for
+  the RSC CSRF bypass (fixed only in `>=8.3.0`), plus `undici`, `postcss`,
+  `js-yaml`, and `brace-expansion`. `npm audit` now reports 0 vulnerabilities.
 - CSP default now includes `frame-ancestors` directive to prevent clickjacking
 - `Vary: Origin` header only set when CORS headers are actually present
 - AI client blocks private/localhost endpoints by default (SSRF hardening)
@@ -11,12 +45,58 @@
 
 ### Bug Fixes
 
+- cmdi: a bare `>` in a comparison (`?filter=price>100`) scored 45, within one
+  weak signal of the block threshold, which blocked legitimate filter-API
+  traffic from non-browser clients. Redirection now requires a target that
+  reads as a file path or fd duplication; comparisons score 10.
+- Helm: with `replicaCount: 2` and no configured key, each pod generated its own
+  dashboard API key, and the session signing secret derives from it — so API
+  keys and session cookies issued by one pod were rejected by the others. The
+  chart now generates a single Secret for the release, preserved across
+  `helm upgrade`.
+- Helm: `prometheus.serviceMonitor.*` values were documented but no template
+  existed, so the settings did nothing. Added `templates/servicemonitor.yaml`.
+- Helm: `Chart.yaml` described a "29-layer" pipeline; serve mode wires 16.
+- `docker-compose.prod.yml` did not disable the `backend`/`backend2` example
+  services, so the documented production command started two Go toolchain
+  containers.
+- Dashboard UI: `SortTh` in the rules page was defined inside the render body,
+  creating a new component type on every render and remounting the whole table
+  header. Moved to module scope.
+- Dashboard UI: the alerting page's mount effect called `fetchStatus` before its
+  declaration and declared no dependency on it.
+- Dashboard UI: nine pages wrote state synchronously inside their mount effect
+  and could write after unmount. Consolidated into `useMountLoad` /
+  `usePollingLoad`, which add cancellation.
+- Repository: `.temp_files/*` was committed as gitlinks with no `.gitmodules`,
+  leaving unresolvable submodule references in a fresh clone. Untracked and
+  ignored.
 - Access log `TenantID` now captured before context pool release (was empty in logs)
 - Tenant directory loading from `tenants.d/` now implemented (was stub)
 
 ### Performance
 
 - File rotation I/O moved outside main mutex to reduce contention
+
+### Dependencies
+
+- Frontend toolchain taken to latest: Vite 6 → 8 (production build 3.3s → 0.3s,
+  bundle 291 KB → 242 KB), ESLint 9 → 10, react-router 7 → 8, lucide-react
+  0.500 → 1.29, jsdom 29 → 30, `@testing-library/jest-dom` 6 → 7,
+  `@vitejs/plugin-react` 4 → 6.
+- TypeScript held at 6.0.3 rather than 7.0.2: `typescript-eslint` does not
+  support TS 7 (`peerDependencies.typescript: ">=4.8.4 <6.1.0"`) and hard-fails
+  the lint gate. Revisit once upstream ships TS ≥7.1 support.
+- Dockerfile UI stage moved to `node:24.15.0-alpine`; the previous
+  `node:22.14.0` pin no longer satisfies the lockfile (`jsdom` requires
+  `^22.22.2 || ^24.15.0`, `react-router` requires `>=22.22.0`). Runtime base
+  moved to `alpine:3.24.1`, CI `node-version` to 24.
+- GitHub Actions pins refreshed across all workflows (checkout v4 → v7,
+  setup-go v5 → v7, setup-node v4 → v7, upload-artifact v4 → v7,
+  download-artifact v4 → v8, cosign v3 → v4, goreleaser v6 → v7, and others).
+- pre-commit: `golangci-lint` repository URL corrected (the configured
+  `golangci-lint/golangci-lint` does not exist) and the pin moved from v1.64.8
+  to v2.12.2, which is required to parse the `version: "2"` `.golangci.yml`.
 
 ### Frontend
 

@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef } from 'react'
+import { usePollingLoad } from '@/hooks/use-mount-load'
 import { api } from '@/lib/api'
 import type { Stats, UpstreamStatus } from '@/lib/api'
 import { StatsCards } from '@/components/dashboard/stats-cards'
@@ -39,7 +40,7 @@ export default function DashboardPage() {
     logged_requests: 0, passed_requests: 0, event_store_errors: 0, avg_latency_us: 0,
   })
   const [upstreams, setUpstreams] = useState<UpstreamStatus[]>([])
-  const [sseConnected, setSseConnected] = useState(false)
+  const [sseConnected] = useState(true)
   const [isLoading, setIsLoading] = useState(true)
   const [lastError, setLastError] = useState<string | null>(null)
   const [systemHealth, setSystemHealth] = useState<SystemHealth>({
@@ -120,19 +121,7 @@ export default function DashboardPage() {
   }, [sseConnected, toast])
 
   // Polling with adaptive interval (also handles initial load)
-  useEffect(() => {
-    checkHealth()
-    const interval = setInterval(() => {
-      checkHealth()
-    }, refreshInterval)
-    return () => clearInterval(interval)
-  }, [checkHealth, refreshInterval])
-
-  // SSE connection is managed by the layout's useSSE hook via EventsProvider.
-  // Mark connected since the layout handles reconnection.
-  useEffect(() => {
-    setSseConnected(true)
-  }, [])
+  usePollingLoad(checkHealth, refreshInterval)
 
   // Manual refresh handler
   const handleRefresh = async () => {

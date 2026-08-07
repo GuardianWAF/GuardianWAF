@@ -19,7 +19,6 @@ interface Bucket {
 
 export const TrafficChart = memo(function TrafficChart({ events, minutes = 30 }: TrafficChartProps) {
   const buckets = useMemo(() => {
-    // eslint-disable-next-line react-hooks/purity
     const now = Date.now()
     const bucketSize = 60_000 // 1 minute
     const count = minutes

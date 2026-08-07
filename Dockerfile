@@ -2,7 +2,9 @@
 # Build with: docker buildx build --platform linux/amd64,linux/arm64 -t ghcr.io/guardianwaf/guardianwaf:latest .
 
 # Stage 1: Build React dashboard
-FROM --platform=$BUILDPLATFORM node:22.14.0-alpine AS ui-builder
+# Node 24.15+ is required: jsdom needs ^22.22.2 || ^24.15.0 and react-router
+# needs >=22.22.0, so the previous 22.14.0 pin no longer satisfies the lockfile.
+FROM --platform=$BUILDPLATFORM node:24.15.0-alpine AS ui-builder
 
 WORKDIR /ui
 COPY internal/dashboard/ui/package.json internal/dashboard/ui/package-lock.json ./
@@ -38,7 +40,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -o guardianwaf ./cmd/guardianwaf
 
 # Stage 3: Runtime
-FROM alpine:3.23.4
+FROM alpine:3.24.1
 
 ARG IMAGE_VERSION=dev
 

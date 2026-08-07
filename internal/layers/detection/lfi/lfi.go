@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
+	"github.com/guardianwaf/guardianwaf/internal/layers/sanitizer"
 )
 
 // Detector implements the engine.Detector interface for path traversal / LFI detection.
@@ -49,15 +50,20 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 
 	var allFindings []engine.Finding
 
-	// Scan BOTH the raw and the sanitizer-normalized form of every input.
-	// The Normalized* fields decode evasion encodings (%2e%2e%2f, etc.), but the
-	// sanitizer's CanonicalizePath *resolves* "../" segments away — which destroys
-	// the path-traversal signal this detector relies on. Scanning the raw input as
-	// well restores "../" detection without losing the decode-evasion benefit.
+	// Scan THREE views of every input:
+	//
+	//  1. raw — carries literal "../" and single-encoded "%2e%2e%2f".
+	//  2. sanitizer-normalized — decodes evasion encodings, but its
+	//     CanonicalizePath step *resolves* "../" segments away, which destroys
+	//     the traversal signal this detector relies on.
+	//  3. recursively URL-decoded but NOT canonicalized — the only view that
+	//     exposes multiply-encoded traversal such as "%252e%252e%252f", which is
+	//     invisible in (1) as literal "%25" runs and already collapsed in (2).
+	//
 	// Identical strings are scanned once (dedup) so unchanged inputs aren't
 	// double-counted. Mirrors xss/xxe fail-open guard for a disabled Sanitizer.
 	seen := make(map[string]struct{})
-	scan := func(v, location string) {
+	scanOnly := func(v, location string) {
 		if v == "" {
 			return
 		}
@@ -67,6 +73,12 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 		}
 		seen[key] = struct{}{}
 		allFindings = append(allFindings, Detect(v, location)...)
+	}
+	scan := func(v, location string) {
+		scanOnly(v, location)
+		if decoded := sanitizer.DecodeURLRecursive(v); decoded != v {
+			scanOnly(decoded, location)
+		}
 	}
 
 	// 1. URL path (raw + normalized)

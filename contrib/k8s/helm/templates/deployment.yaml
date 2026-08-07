@@ -67,6 +67,14 @@ spec:
             {{- else if .Values.apiKey.value }}
             - name: GWAF_DASHBOARD_API_KEY
               value: {{ .Values.apiKey.value | quote }}
+            {{- else }}
+            # Falls back to the chart-generated Secret so every replica shares
+            # one key instead of each pod minting its own at startup.
+            - name: GWAF_DASHBOARD_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ printf "%s-generated" (include "guardianwaf.fullname" .) }}
+                  key: api-key
             {{- end }}
             {{- if .Values.adminKey.existingSecret }}
             - name: GWAF_DASHBOARD_ADMIN_KEY
@@ -77,6 +85,12 @@ spec:
             {{- else if .Values.adminKey.value }}
             - name: GWAF_DASHBOARD_ADMIN_KEY
               value: {{ .Values.adminKey.value | quote }}
+            {{- else }}
+            - name: GWAF_DASHBOARD_ADMIN_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ printf "%s-generated" (include "guardianwaf.fullname" .) }}
+                  key: admin-key
             {{- end }}
             {{- range $key, $value := .Values.env }}
             - name: {{ $key }}

@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import { useNavigate } from 'react-router'
 import { api } from '@/lib/api'
 import type { SSLStatus } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { useMountLoad } from '@/hooks/use-mount-load'
 import { Section } from '@/components/config/section'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -15,19 +16,20 @@ export default function SSLPage() {
   const [error, setError] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
 
-  const fetchCerts = useCallback(async () => {
+  const fetchCerts = useCallback(async (isCancelled: () => boolean = () => false) => {
     try {
       const data = await api.getSSL()
+      if (isCancelled()) return
       setCertStatus(data)
       setError(null)
     } catch {
-      setError('Failed to load SSL certificates')
+      if (!isCancelled()) setError('Failed to load SSL certificates')
     } finally {
-      setLoading(false)
+      if (!isCancelled()) setLoading(false)
     }
   }, [])
 
-  useEffect(() => { fetchCerts() }, [fetchCerts])
+  useMountLoad(fetchCerts)
 
   const handleRefresh = async () => {
     setRefreshing(true)

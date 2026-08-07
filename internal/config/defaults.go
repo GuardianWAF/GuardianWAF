@@ -1038,6 +1038,7 @@ func populateGeoIP(geo *GeoIPConfig, n *Node) error {
 	fe.boolField(n, "auto_download", "", &geo.AutoDownload)
 	nodeStringField(n, "download_url", &geo.DownloadURL)
 	fe.boolField(n, "require_ready", "", &geo.RequireReady)
+	fe.boolField(n, "allow_insecure_url", "", &geo.AllowInsecureURL)
 	return fe.err()
 }
 
@@ -1071,6 +1072,9 @@ func populateThreatIntel(ti *ThreatIntelConfig, n *Node) error {
 			nodeStringField(child, "path", &f.Path)
 			nodeStringField(child, "url", &f.URL)
 			nodeStringField(child, "format", &f.Format)
+			if err := nodeBoolField(child, "allow_insecure_url", "", &f.AllowInsecureURL); err != nil {
+				return fmt.Errorf("feeds[%d].allow_insecure_url: %w", i, err)
+			}
 			if v := child.Get("refresh"); v != nil && !v.IsNull {
 				if d, err := parseDuration(v.String()); err == nil {
 					f.Refresh = d

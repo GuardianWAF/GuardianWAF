@@ -114,6 +114,26 @@ function Tog({on, onClick}: {on: boolean; onClick: () => void}) {
   )
 }
 
+type SortKey = 'priority' | 'name' | 'action' | 'score'
+
+// Defined at module scope: declaring this inside RulesPage would create a new
+// component type on every render, remounting every header cell.
+function SortTh({ k, children, className, sortKey, sortDir, onToggle }: {
+  k: SortKey
+  children: React.ReactNode
+  className?: string
+  sortKey: SortKey
+  sortDir: 'asc' | 'desc'
+  onToggle: (key: SortKey) => void
+}) {
+  return (
+    <th scope="col" className={cn('text-left px-3 py-2 cursor-pointer select-none hover:text-foreground transition-colors', className)}
+      onClick={() => onToggle(k)}>
+      {children} {sortKey === k && <span className="text-accent">{sortDir === 'asc' ? '▲' : '▼'}</span>}
+    </th>
+  )
+}
+
 export default function RulesPage() {
   const [rules, setRules] = useState<CustomRule[]>([])
   const [editing, setEditing] = useState<CustomRule | null>(null)
@@ -216,11 +236,10 @@ export default function RulesPage() {
     return sortDir === 'desc' ? -cmp : cmp
   })
 
-  const SortTh = ({k, children, className}: {k: typeof sortKey; children: React.ReactNode; className?: string}) => (
-    <th scope="col" className={cn('text-left px-3 py-2 cursor-pointer select-none hover:text-foreground transition-colors', className)}
-      onClick={() => toggleSort(k)}>
-      {children} {sortKey === k && <span className="text-accent">{sortDir === 'asc' ? '\u25B2' : '\u25BC'}</span>}
-    </th>
+  const sortTh = (k: SortKey, children: React.ReactNode, className?: string) => (
+    <SortTh k={k} className={className} sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort}>
+      {children}
+    </SortTh>
   )
 
   return (
@@ -310,11 +329,11 @@ export default function RulesPage() {
           <caption className="sr-only">Custom WAF rules with enabled toggle, priority, name, conditions, action, score, and delete columns</caption>
           <thead><tr className="border-b border-border text-muted text-xs">
             <th scope="col" className="text-left px-3 py-2 w-12">On</th>
-            <SortTh k="priority" className="w-10">Pri</SortTh>
-            <SortTh k="name">Name</SortTh>
+            {sortTh('priority', 'Pri', 'w-10')}
+            {sortTh('name', 'Name')}
             <th scope="col" className="text-left px-3 py-2 hidden md:table-cell">Conditions</th>
-            <SortTh k="action" className="w-24">Action</SortTh>
-            <SortTh k="score" className="w-14">Score</SortTh>
+            {sortTh('action', 'Action', 'w-24')}
+            {sortTh('score', 'Score', 'w-14')}
             <th scope="col" className="w-10"></th>
           </tr></thead>
           <tbody>

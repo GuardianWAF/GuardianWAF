@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
+import { useMountLoad } from '@/hooks/use-mount-load'
 import { useNavigate } from 'react-router'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
@@ -41,9 +42,7 @@ export default function TenantsPage() {
     }
   }, [adminReady, toast])
 
-  useEffect(() => {
-    loadTenants()
-  }, [loadTenants])
+  useMountLoad(loadTenants)
 
   const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this tenant?')) return

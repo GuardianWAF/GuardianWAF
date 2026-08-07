@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Activity, Container, RefreshCw, Server, Tag, Waypoints } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { DockerEvent, DockerService } from '@/lib/api'
@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { useToast } from '@/components/ui/toast'
+import { useMountLoad } from '@/hooks/use-mount-load'
 import { cn } from '@/lib/utils'
 
 export default function DockerPage() {
@@ -16,7 +17,7 @@ export default function DockerPage() {
   const [loading, setLoading] = useState(true)
   const { toast } = useToast()
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (isCancelled: () => boolean = () => false) => {
     setLoading(true)
     try {
       const [serviceData, containerData, eventData] = await Promise.all([
@@ -24,20 +25,19 @@ export default function DockerPage() {
         api.getDockerContainers(),
         api.getDockerEvents(20),
       ])
+      if (isCancelled()) return
       setEnabled(Boolean(serviceData.enabled || containerData.enabled || eventData.enabled))
       setServices(serviceData.services ?? [])
       setContainers(containerData.containers ?? [])
       setEvents(eventData.events ?? [])
     } catch {
-      toast({ title: 'Failed to load Docker data', variant: 'destructive' })
+      if (!isCancelled()) toast({ title: 'Failed to load Docker data', variant: 'destructive' })
     } finally {
-      setLoading(false)
+      if (!isCancelled()) setLoading(false)
     }
   }, [toast])
 
-  useEffect(() => {
-    load()
-  }, [load])
+  useMountLoad(load)
 
   const running = containers.filter((container) => container.status === 'running').length
 
@@ -53,7 +53,7 @@ export default function DockerPage() {
             </p>
           </div>
         </div>
-        <Button variant="outline" onClick={load} disabled={loading}>
+        <Button variant="outline" onClick={() => void load()} disabled={loading}>
           <RefreshCw className={cn('mr-2 h-4 w-4', loading && 'animate-spin')} />
           Refresh
         </Button>

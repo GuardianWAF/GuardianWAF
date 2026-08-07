@@ -16,6 +16,32 @@ This guide covers production deployment best practices for GuardianWAF v0.4.0.
 
 ## Pre-Deployment Checklist
 
+### Constraints to plan around
+
+Two limits shape the topology and are easier to design for than to retrofit.
+
+**The dashboard does not terminate TLS.** There is no built-in HTTPS listener for
+the dashboard/API port. Setting `dashboard.tls: true` is rejected by config
+validation and the process refuses to start — deliberately, so it can never
+fall back to serving the dashboard, its API keys, and the config editor over
+plaintext. Terminate TLS in front of it:
+
+- bind the dashboard to loopback (`dashboard.listen: "127.0.0.1:9443"`) and put
+  nginx/Caddy/HAProxy in front, or
+- in Kubernetes, keep the dashboard Service `ClusterIP` and expose it through an
+  ingress that holds the certificate.
+
+Never publish the dashboard port directly to an untrusted network.
+
+**Every replica must share the dashboard API key.** When `dashboard.api_key` is
+empty, each process generates its own random key at startup, and the session
+signing secret is derived from that key. Two replicas with different keys reject
+each other's API keys and session cookies, so users are bounced back to the
+login page at random. Set `GWAF_DASHBOARD_API_KEY` (and `GWAF_DASHBOARD_ADMIN_KEY`)
+from one shared secret across all replicas. The Helm chart does this for you:
+it generates a single Secret for the release, or you can point it at your own
+with `apiKey.existingSecret`.
+
 ### System Requirements
 
 | Resource | Minimum | Recommended |

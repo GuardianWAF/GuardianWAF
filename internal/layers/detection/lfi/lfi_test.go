@@ -542,3 +542,55 @@ func TestTrieRestartCanMatchSingleByteTerminal(t *testing.T) {
 		t.Fatalf("findings = %d, want 1", len(got))
 	}
 }
+
+// TestMultiEncodedTraversal covers the third scan view added to Process: the
+// recursively URL-decoded but non-canonicalized form. Without it, multiply
+// encoded traversal slips through — the raw value holds only literal "%25"
+// runs, and the sanitizer-normalized value has already had "../" resolved away
+// by CanonicalizePath.
+func TestMultiEncodedTraversal(t *testing.T) {
+	const blockThreshold = 50
+	d := NewDetector(true, 1.0)
+
+	for _, tc := range []struct{ name, value string }{
+		{"plain", "../../../../etc/passwd"},
+		{"single encoded", "%2e%2e%2fetc%2fpasswd"},
+		{"double encoded", "%252e%252e%252fetc%252fpasswd"},
+		{"double encoded uppercase", "%252E%252E%252Fetc%252Fpasswd"},
+		{"triple encoded", "%25252e%25252e%25252fetc%25252fpasswd"},
+		{"encoded backslash", "..%255c..%255cwindows%255cwin.ini"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := &engine.RequestContext{
+				Path:        "/download",
+				QueryParams: map[string][]string{"file": {tc.value}},
+			}
+			if got := d.Process(ctx).Score; got < blockThreshold {
+				t.Errorf("%q scored %d, want >= %d", tc.value, got, blockThreshold)
+			}
+		})
+	}
+}
+
+// TestMultiEncodedTraversalNoFalsePositives guards the extra decode pass: a
+// legitimately percent-encoded filename must not be scored just because
+// decoding it changes the string.
+func TestMultiEncodedTraversalNoFalsePositives(t *testing.T) {
+	d := NewDetector(true, 1.0)
+
+	for _, value := range []string{
+		"annual_report_2024.pdf",
+		"images/logo.png",
+		"a%20b%20c.txt",
+		"100%25-complete.txt",
+		"docs/guide.html",
+	} {
+		ctx := &engine.RequestContext{
+			Path:        "/download",
+			QueryParams: map[string][]string{"file": {value}},
+		}
+		if got := d.Process(ctx); got.Score > 0 {
+			t.Errorf("benign %q scored %d, want 0 (findings %+v)", value, got.Score, got.Findings)
+		}
+	}
+}

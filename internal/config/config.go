@@ -232,6 +232,10 @@ type GeoIPConfig struct {
 	AutoDownload bool   `yaml:"auto_download"` // auto-download DB-IP Lite if missing
 	DownloadURL  string `yaml:"download_url"`  // custom download URL (default: DB-IP Lite)
 	RequireReady bool   `yaml:"require_ready"` // make /readyz fail until GeoIP data is loaded
+	// AllowInsecureURL permits a cleartext http:// download_url. Off by default:
+	// GeoIP data drives geo-based rules, so an on-path attacker who tampers with
+	// it can steer those decisions.
+	AllowInsecureURL bool `yaml:"allow_insecure_url"`
 }
 
 // WAFConfig is the top-level container for all WAF protection settings.
@@ -842,6 +846,10 @@ type ThreatFeedConfig struct {
 	URL     string        `yaml:"url"`     // URL for type="url"
 	Refresh time.Duration `yaml:"refresh"` // Refresh interval
 	Format  string        `yaml:"format"`  // "json", "jsonl", "csv"
+	// AllowInsecureURL permits a cleartext http:// feed URL. Off by default:
+	// feed contents decide which clients the WAF blocks, so tampering with them
+	// in transit can both unblock attackers and blocklist legitimate traffic.
+	AllowInsecureURL bool `yaml:"allow_insecure_url"`
 }
 
 // CORSConfig controls Cross-Origin Resource Sharing validation.

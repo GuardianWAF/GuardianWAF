@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
+import { usePollingLoad } from '@/hooks/use-mount-load'
 import { useToast } from '@/components/ui/toast'
 import { api, Cluster, ClusterNode } from '@/lib/api'
 import { ArrowLeft, Plus, Trash2, RefreshCw, Server, CheckCircle, XCircle, Activity } from 'lucide-react'
@@ -20,7 +21,7 @@ export default function ClusterDetailPage() {
   const [newNode, setNewNode] = useState({ id: '', name: '', address: '' })
   const { toast } = useToast()
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (isCancelled: () => boolean = () => false) => {
     if (!id) return
     try {
       const [clustersData, nodesData, allNodesData] = await Promise.all([
@@ -29,6 +30,7 @@ export default function ClusterDetailPage() {
         api.getNodes()
       ])
       const clusterData = clustersData.find((candidate) => candidate.id === id) ?? null
+      if (isCancelled()) return
       setCluster(clusterData)
       setAllNodes(allNodesData)
       if (!clusterData) {
@@ -41,23 +43,19 @@ export default function ClusterDetailPage() {
       const clusterNodes = nodesData.filter(n => clusterNodeIds.has(n.id))
       setNodes(clusterNodes)
     } catch {
-      toast({
-        title: 'Error',
-        description: 'Failed to load cluster details',
-        variant: 'destructive'
-      })
+      if (!isCancelled()) {
+        toast({
+          title: 'Error',
+          description: 'Failed to load cluster details',
+          variant: 'destructive'
+        })
+      }
     } finally {
-      setLoading(false)
+      if (!isCancelled()) setLoading(false)
     }
   }, [id, toast])
 
-  useEffect(() => {
-    if (id) {
-      loadData()
-      const interval = setInterval(loadData, 10000)
-      return () => clearInterval(interval)
-    }
-  }, [id, loadData])
+  usePollingLoad(loadData, 10000, Boolean(id))
 
   const handleAddNode = async () => {
     if (!newNode.id || !newNode.name || !newNode.address) {

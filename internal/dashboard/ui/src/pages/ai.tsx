@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { Section } from '@/components/config/section'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -18,6 +18,7 @@ import type {
   AIVerdict as Verdict,
 } from '@/lib/api'
 import { useToast } from '@/components/ui/toast'
+import { useMountLoad } from '@/hooks/use-mount-load'
 
 // --- Page ---
 
@@ -64,7 +65,12 @@ export default function AIPage() {
     }).catch(() => toast({ title: 'Failed to load AI providers', variant: 'warning' })).finally(() => setLoadingProviders(false))
   }, [toast])
 
-  useEffect(() => { refresh(); fetchProviders() }, [refresh, fetchProviders])
+  const loadAll = useCallback(() => {
+    refresh()
+    fetchProviders()
+  }, [refresh, fetchProviders])
+
+  useMountLoad(loadAll)
 
   // Filter providers
   const filteredProviders = useMemo(() => {
