@@ -28,6 +28,7 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/layers/botdetect"
 	"github.com/guardianwaf/guardianwaf/internal/mcp"
 	"github.com/guardianwaf/guardianwaf/internal/proxy"
+	"github.com/guardianwaf/guardianwaf/internal/siem"
 	"github.com/guardianwaf/guardianwaf/internal/tenant"
 )
 
