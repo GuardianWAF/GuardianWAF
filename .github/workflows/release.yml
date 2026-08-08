@@ -204,6 +204,50 @@ jobs:
             "ghcr.io/${{ steps.img.outputs.repo }}@${{ steps.build.outputs.digest }}" \
             | tee dist/release-evidence/release/supply-chain/trivy.txt
 
+      - name: Attest staged image SBOM
+        env:
+          COSIGN_EXPERIMENTAL: "true"
+          IMAGE_REF: ghcr.io/${{ steps.img.outputs.repo }}@${{ steps.build.outputs.digest }}
+        run: |
+          cosign attest --yes --type spdxjson \
+            --predicate dist/release-evidence/release/supply-chain/sbom.spdx.json \
+            "${IMAGE_REF}"
+
+      - name: Attest staged image provenance
+        env:
+          COSIGN_EXPERIMENTAL: "true"
+          IMAGE_REF: ghcr.io/${{ steps.img.outputs.repo }}@${{ steps.build.outputs.digest }}
+        run: |
+          digest="${{ steps.build.outputs.digest }}"
+          digest="${digest#sha256:}"
+          cat > /tmp/provenance.json <<PRED
+          {
+            "builder": {"id": "github-actions"},
+            "buildType": "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/release.yml@refs/tags/${GITHUB_REF_NAME}",
+            "invocation": {
+              "configSource": {
+                "uri": "https://github.com/${GITHUB_REPOSITORY}",
+                "digest": {"sha1": "${GITHUB_SHA}"},
+                "entryPoint": ".github/workflows/release.yml"
+              },
+              "parameters": {},
+              "environment": {"GITHUB_RUN_ID": "${GITHUB_RUN_ID}"}
+            },
+            "metadata": {
+              "buildInvocationId": "${GITHUB_RUN_ID}",
+              "completeness": {"parameters": true, "environment": true, "materials": false},
+              "reproducible": false
+            },
+            "materials": [{
+              "uri": "git+https://github.com/${GITHUB_REPOSITORY}",
+              "digest": {"sha1": "${GITHUB_SHA}"}
+            }]
+          }
+          PRED
+          cosign attest --yes --type slsaprovenance \
+            --predicate /tmp/provenance.json \
+            "${IMAGE_REF}"
+
       - name: Verify staged image signature
         env:
           IMAGE_REF: ghcr.io/${{ steps.img.outputs.repo }}@${{ steps.build.outputs.digest }}
