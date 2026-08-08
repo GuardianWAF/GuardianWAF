@@ -34,7 +34,7 @@ func (l *LogStore) AppendEntry(entry LogEntry) uint64 {
 func (l *LogStore) Get(index uint64) (LogEntry, bool) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	if index == 0 || index > uint64(len(l.entries)) {
+	if index == 0 || index > lenToUint64(len(l.entries)) {
 		return LogEntry{}, false
 	}
 	return l.entries[index-1], true
@@ -44,7 +44,7 @@ func (l *LogStore) Get(index uint64) (LogEntry, bool) {
 func (l *LogStore) LastIndex() uint64 {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	return uint64(len(l.entries))
+	return lenToUint64(len(l.entries))
 }
 
 // LastTerm returns the term of the last entry, or 0 if the log is empty.
@@ -61,7 +61,7 @@ func (l *LogStore) LastTerm() uint64 {
 func (l *LogStore) Term(index uint64) uint64 {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	if index == 0 || index > uint64(len(l.entries)) {
+	if index == 0 || index > lenToUint64(len(l.entries)) {
 		return 0
 	}
 	return l.entries[index-1].Term
@@ -79,13 +79,13 @@ func (l *LogStore) Len() int {
 func (l *LogStore) EntriesFrom(index uint64) []LogEntry {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	if index == 0 || index > uint64(len(l.entries))+1 {
+	if index == 0 || index > lenToUint64(len(l.entries))+1 {
 		return nil
 	}
-	if index > uint64(len(l.entries)) {
+	if index > lenToUint64(len(l.entries)) {
 		return []LogEntry{}
 	}
-	start := int(index - 1)
+	start := uint64ToInt(index - 1)
 	result := make([]LogEntry, len(l.entries)-start)
 	copy(result, l.entries[start:])
 	return result
@@ -96,7 +96,7 @@ func (l *LogStore) EntriesFrom(index uint64) []LogEntry {
 func (l *LogStore) TruncateFrom(index uint64) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if index == 0 || index > uint64(len(l.entries)) {
+	if index == 0 || index > lenToUint64(len(l.entries)) {
 		return false
 	}
 	l.entries = l.entries[:index-1]
@@ -111,7 +111,7 @@ func (l *LogStore) HasAt(prevIndex, prevTerm uint64) bool {
 	if prevIndex == 0 {
 		return true // empty log prefix check always passes
 	}
-	if prevIndex > uint64(len(l.entries)) {
+	if prevIndex > lenToUint64(len(l.entries)) {
 		return false
 	}
 	return l.entries[prevIndex-1].Term == prevTerm
@@ -125,8 +125,8 @@ func (l *LogStore) CheckConflict(prevIndex, prevTerm uint64) ConflictInfo {
 	defer l.mu.RUnlock()
 
 	// Case 1: follower log is too short — no entry at prevIndex.
-	if prevIndex > uint64(len(l.entries)) {
-		return ConflictInfo{ConflictTerm: 0, ConflictIndex: uint64(len(l.entries)) + 1}
+	if prevIndex > lenToUint64(len(l.entries)) {
+		return ConflictInfo{ConflictTerm: 0, ConflictIndex: lenToUint64(len(l.entries)) + 1}
 	}
 
 	// No conflict at index 0 (empty prefix).
@@ -154,15 +154,15 @@ func (l *LogStore) CheckConflict(prevIndex, prevTerm uint64) ConflictInfo {
 func (l *LogStore) Slice(start, end uint64) []LogEntry {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	n := uint64(len(l.entries))
+	n := lenToUint64(len(l.entries))
 	if start == 0 || start > end || start > n {
 		return nil
 	}
 	if end > n {
 		end = n // clamp to last available index
 	}
-	s := int(start - 1)
-	e := int(end)
+	s := uint64ToInt(start - 1)
+	e := uint64ToInt(end)
 	result := make([]LogEntry, e-s)
 	copy(result, l.entries[s:e])
 	return result

@@ -1,9 +1,7 @@
 package raft
 
 import (
-	"errors"
 	"fmt"
-	"io"
 	"net"
 	"sync"
 	"time"
@@ -81,9 +79,6 @@ func (t *TCPTransport) handleConn(conn net.Conn) {
 		}
 		msgType, payload, err := ReadFrame(conn)
 		if err != nil {
-			if !errors.Is(err, io.EOF) {
-				// log if not EOF
-			}
 			return
 		}
 
@@ -162,9 +157,9 @@ func (t *TCPTransport) SendRPC(addr string, msgType RPCType, payload []byte) (RP
 		_ = conn.SetWriteDeadline(time.Now().Add(t.timeout))
 	}
 
-	if err := EncodeRequest(conn, msgType, payload); err != nil {
+	if encodeErr := EncodeRequest(conn, msgType, payload); encodeErr != nil {
 		t.dropConn(addr)
-		return 0, nil, err
+		return 0, nil, encodeErr
 	}
 
 	// Read the response frame.

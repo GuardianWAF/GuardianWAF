@@ -104,9 +104,3 @@ func DecodeAppendEntriesResp(data []byte) (AppendEntriesResponse, error) {
 	err := json.Unmarshal(data, &resp)
 	return resp, err
 }
-
-// lenToByte converts an int to a byte for the RPC type field.
-// Caller must ensure n fits in a byte (0-255).
-func lenToByte(n int) byte {
-	return byte(n) // #nosec G115 -- RPCType values are 0-7
-}

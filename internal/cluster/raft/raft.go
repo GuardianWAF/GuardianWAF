@@ -397,8 +397,6 @@ func (r *Raft) becomeLeader() {
 }
 
 func (r *Raft) becomeFollower(term uint64) {
-	if r.role == RoleLeader {
-	}
 	r.role = RoleFollower
 	r.persist.SetCurrentTerm(term)
 	r.leaderState = nil
