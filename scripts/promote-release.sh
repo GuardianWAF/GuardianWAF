@@ -270,15 +270,55 @@ evidence_archive="${ASSETS_DIR}/release-evidence-${RELEASE_TAG}.tgz"
 tar -C "${EVIDENCE_DIR}" -czf "${evidence_archive}" .
 cp "${EVIDENCE_DIR}/supply-chain/sbom.spdx.json" "${ASSETS_DIR}/sbom.spdx.json"
 
+# Generate release notes from git log, matching goreleaser's changelog filters
+# (exclude docs/test/ci/chore commits). --generate-notes would produce only a
+# bare compare link, discarding the feat/fix/refactor history.
+generate_changelog() {
+  local prev_tag
+  prev_tag="$(git describe --tags --abbrev=0 "${RELEASE_TAG}^" 2>/dev/null || true)"
+  local range="${prev_tag:+${prev_tag}..}${RELEASE_TAG}"
+
+  git log ${range} --format='%s' 2>/dev/null \
+    | grep -vE '^(docs|test|ci|chore|merge):' \
+    | sort \
+    | awk '
+      /^feat/     { feat[++f]  = "- " $0 }
+      /^fix/      { fix[++x]   = "- " $0 }
+      /^refactor/ { ref[++r]   = "- " $0 }
+      END {
+        if (f) { print "### Features";     for (i=1;i<=f;i++) print feat[i]; print "" }
+        if (x) { print "### Fixes";        for (i=1;i<=x;i++) print fix[i];  print "" }
+        if (r) { print "### Refactoring";  for (i=1;i<=r;i++) print ref[i];  print "" }
+      }
+    '
+}
+
+CHANGELOG_FILE="$(mktemp)"
+generate_changelog > "${CHANGELOG_FILE}"
+if [ ! -s "${CHANGELOG_FILE}" ]; then
+  echo "warning: changelog is empty, falling back to GitHub auto-generated notes" >&2
+  rm -f "${CHANGELOG_FILE}"
+  CHANGELOG_FILE=""
+fi
+
 # Set rollback state before the API call because the server can create the draft
 # even when the client later observes a transport failure.
 DRAFT_CREATED=1
-gh release create "${RELEASE_TAG}" \
-  "${ASSETS_DIR}"/* \
-  --verify-tag \
-  --draft \
-  --generate-notes \
-  --title "GuardianWAF ${RELEASE_TAG}"
+if [ -n "${CHANGELOG_FILE}" ]; then
+  gh release create "${RELEASE_TAG}" \
+    "${ASSETS_DIR}"/* \
+    --verify-tag \
+    --draft \
+    --notes-file "${CHANGELOG_FILE}" \
+    --title "GuardianWAF ${RELEASE_TAG}"
+else
+  gh release create "${RELEASE_TAG}" \
+    "${ASSETS_DIR}"/* \
+    --verify-tag \
+    --draft \
+    --generate-notes \
+    --title "GuardianWAF ${RELEASE_TAG}"
+fi
 
 promotion_args=()
 for tag in "${release_tags[@]}"; do
