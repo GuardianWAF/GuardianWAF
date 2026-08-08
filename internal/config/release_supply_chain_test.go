@@ -1912,7 +1912,7 @@ func TestDetectionQualityDocsDescribeCorpusGate(t *testing.T) {
 		"testdata/attacks/xxe.txt",
 		"testdata/benign/application_logs.txt",
 		"Combined benign corpus",
-		"4/211 at or above block threshold, 1.9%; weighted FP avg 0.40",
+		"9/211 at or above block threshold, 4.3%; weighted FP avg 0.56",
 		"go test ./internal/layers/detection -run TestDetectionLayer_CorpusQualityBaseline -count=1 -v",
 		"at least 20 application-log benign samples",
 	} {

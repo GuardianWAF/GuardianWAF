@@ -93,7 +93,7 @@ func TestExternalRedirectBlocked(t *testing.T) {
 
 func TestProtocolRelativeBlocked(t *testing.T) {
 	d := NewDetector(true, 1.0)
-	ctx := makeCtx("app.example.com", "url=//evil.com/steal", nil)
+	ctx := makeCtx("app.example.com", "redirect=//evil.com/steal", nil)
 	result := d.Process(ctx)
 	if len(result.Findings) == 0 {
 		t.Fatal("protocol-relative URL should trigger")

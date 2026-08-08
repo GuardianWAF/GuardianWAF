@@ -136,14 +136,20 @@ func extractQueries(ctx *engine.RequestContext) []string {
 
 	ct := strings.ToLower(ctx.ContentType)
 
-	// 2. application/graphql — raw query in body.
+	// 2. application/graphql — raw query in body. Some clients send the
+	// query wrapped in a JSON object even with this content-type, so if
+	// the body parses as JSON with a "query" field, extract that instead.
 	if strings.Contains(ct, "application/graphql") {
 		body := strings.TrimSpace(ctx.BodyString)
 		if body == "" {
 			body = strings.TrimSpace(ctx.NormalizedBody)
 		}
 		if body != "" {
-			queries = append(queries, body)
+			if q := tryExtractJSONQuery(body); q != "" {
+				queries = append(queries, q)
+			} else {
+				queries = append(queries, body)
+			}
 		}
 		return queries
 	}
@@ -186,8 +192,33 @@ func extractQueries(ctx *engine.RequestContext) []string {
 	return queries
 }
 
+// tryExtractJSONQuery attempts to parse body as a JSON object and extract the
+// "query" field. Returns empty string if body is not valid JSON or has no
+// "query" field.
+func tryExtractJSONQuery(body string) string {
+	body = strings.TrimSpace(body)
+	if body == "" || (body[0] != '{' && body[0] != '[') {
+		return ""
+	}
+	// Single operation.
+	var op map[string]any
+	if json.Unmarshal([]byte(body), &op) == nil {
+		if q, ok := op["query"].(string); ok {
+			return q
+		}
+	}
+	// Batch operation.
+	var batch []map[string]any
+	if json.Unmarshal([]byte(body), &batch) == nil && len(batch) > 0 {
+		if q, ok := batch[0]["query"].(string); ok {
+			return q
+		}
+	}
+	return ""
+}
+
 // analyzeQuery measures a single GraphQL query string for depth, complexity,
-// and introspection.
+// aliasing abuse, fragment cycles, and introspection.
 func (d *Detector) analyzeQuery(query string) []engine.Finding {
 	cleaned := stripCommentsAndStrings(query)
 	depth, complexity := measureDepthComplexity(cleaned)
@@ -216,6 +247,36 @@ func (d *Detector) analyzeQuery(query string) []engine.Finding {
 			Severity:     engine.SeverityHigh,
 			Score:        75,
 			Description:  "GraphQL query field complexity exceeds maximum",
+			MatchedValue: "",
+			Location:     "body",
+			Confidence:   0.9,
+		})
+	}
+
+	// Aliasing abuse: the same field referenced via >10 aliases forces the
+	// backend to resolve the field N times in a single request.
+	if aliases := countAliases(cleaned); aliases > 10 {
+		findings = append(findings, engine.Finding{
+			DetectorName: "graphql",
+			Category:     "graphql-aliasing-abuse",
+			Severity:     engine.SeverityMedium,
+			Score:        55,
+			Description:  "GraphQL query uses excessive field aliasing",
+			MatchedValue: "",
+			Location:     "body",
+			Confidence:   0.85,
+		})
+	}
+
+	// Fragment cycle: a fragment that references itself (directly or
+	// transitively) causes infinite recursion in the backend resolver.
+	if detectFragmentCycle(cleaned) {
+		findings = append(findings, engine.Finding{
+			DetectorName: "graphql",
+			Category:     "graphql-fragment-cycle",
+			Severity:     engine.SeverityHigh,
+			Score:        85,
+			Description:  "GraphQL fragment cycle detected",
 			MatchedValue: "",
 			Location:     "body",
 			Confidence:   0.9,
@@ -294,6 +355,7 @@ func stripCommentsAndStrings(s string) string {
 // (not a directive, argument, or type reference).
 func measureDepthComplexity(s string) (int, int) {
 	depth := 0
+	parenDepth := 0
 	maxDepth := 0
 	complexity := 0
 
@@ -305,8 +367,8 @@ func measureDepthComplexity(s string) (int, int) {
 		switch ch {
 		case '{':
 			depth++
-			if depth > maxDepth {
-				maxDepth = depth
+			if depth+parenDepth > maxDepth {
+				maxDepth = depth + parenDepth
 			}
 			i++
 		case '}':
@@ -314,17 +376,21 @@ func measureDepthComplexity(s string) (int, int) {
 				depth--
 			}
 			i++
-		case '(', '@':
-			// Skip argument lists and directives: advance to matching close.
-			depth2 := 1
+		case '(':
+			parenDepth++
+			if depth+parenDepth > maxDepth {
+				maxDepth = depth + parenDepth
+			}
 			i++
-			for i < len(runes) && depth2 > 0 {
-				if runes[i] == '(' || (ch == '@' && runes[i] == '@') {
-					depth2++
-				}
-				if runes[i] == ')' {
-					depth2--
-				}
+		case ')':
+			if parenDepth > 0 {
+				parenDepth--
+			}
+			i++
+		case '@':
+			// Skip directives: advance to end of identifier.
+			i++
+			for i < len(runes) && isIdentPart(runes[i]) {
 				i++
 			}
 		default:
@@ -338,8 +404,9 @@ func measureDepthComplexity(s string) (int, int) {
 				ident := string(runes[start:i])
 
 				// Skip GraphQL keywords that aren't field selections.
-				if !isGraphQLKeyword(ident) && depth > 0 {
-					// We're inside a selection set; this is a field.
+				// Only count fields inside {...} selection sets, not arguments
+				// inside (...) — arguments are metadata, not resolvable fields.
+				if !isGraphQLKeyword(ident) && depth > 0 && parenDepth == 0 {
 					complexity++
 				}
 			} else {
@@ -378,4 +445,88 @@ func isIdentStart(ch rune) bool {
 
 func isIdentPart(ch rune) bool {
 	return ch == '_' || unicode.IsLetter(ch) || unicode.IsDigit(ch)
+}
+
+// countAliases returns the number of alias definitions (pattern `alias:field`).
+// GraphQL aliasing lets a client request the same field multiple times under
+// different names, forcing the backend to resolve it N times.
+func countAliases(s string) int {
+	count := 0
+	runes := []rune(s)
+	i := 0
+	for i < len(runes) {
+		// Look for ident:ident pattern (alias syntax).
+		if isIdentStart(runes[i]) {
+			i++
+			for i < len(runes) && isIdentPart(runes[i]) {
+				i++
+			}
+			if i < len(runes)-1 && runes[i] == ':' && runes[i+1] != ':' {
+				// Skip whitespace after colon.
+				j := i + 1
+				for j < len(runes) && (runes[j] == ' ' || runes[j] == '\t') {
+					j++
+				}
+				if j < len(runes) && isIdentStart(runes[j]) {
+					count++
+				}
+			}
+		} else {
+			i++
+		}
+	}
+	return count
+}
+
+// detectFragmentCycle returns true if the query contains fragment definitions
+// that reference each other circularly (e.g. fragment A {...B} fragment B {...A}).
+func detectFragmentCycle(s string) bool {
+	fragments := make(map[string][]string)
+	lines := strings.Split(s, "}")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		// Match: fragment Name on Type {
+		if !strings.HasPrefix(line, "fragment ") {
+			continue
+		}
+		rest := strings.TrimPrefix(line, "fragment ")
+		parts := strings.SplitN(rest, " ", 3)
+		if len(parts) < 2 {
+			continue
+		}
+		fragName := parts[0]
+		// Find ...Spread references in the fragment body.
+		var refs []string
+		for i := 0; i < len(line)-3; i++ {
+			if line[i] == '.' && line[i+1] == '.' && line[i+2] == '.' {
+				// Extract identifier after ...
+				j := i + 3
+				for j < len(line) && isIdentPart(rune(line[j])) {
+					j++
+				}
+				if j > i+3 {
+					ref := line[i+3 : j]
+					if ref != "on" && ref != fragName {
+						refs = append(refs, ref)
+					}
+				}
+			}
+		}
+		fragments[fragName] = refs
+	}
+	// Check for cycles using DFS.
+	for start := range fragments {
+		visited := make(map[string]bool)
+		stack := []string{start}
+		for len(stack) > 0 {
+			node := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			if visited[node] {
+				return true
+			}
+			visited[node] = true
+			stack = append(stack, fragments[node]...)
+		}
+	}
+	return false
 }

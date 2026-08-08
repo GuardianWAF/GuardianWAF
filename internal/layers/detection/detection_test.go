@@ -27,7 +27,13 @@ func defaultConfig() *Config {
 				Enabled:    true,
 				Multiplier: 1.0,
 			},
+			"smuggling":    {Enabled: true, Multiplier: 1.0},
+			"openredirect": {Enabled: true, Multiplier: 1.0},
+			"graphql":      {Enabled: true, Multiplier: 1.0},
 		},
+		GraphQLMaxDepth:           10,
+		GraphQLMaxComplexity:      1000,
+		GraphQLBlockIntrospection: true,
 	}
 }
 
@@ -269,14 +275,16 @@ func TestDetectionLayer_CorpusQualityBaseline(t *testing.T) {
 	layer := NewLayer(defaultConfig())
 	root := filepath.Join("..", "..", "..", "testdata")
 	attackFiles := map[string]string{
-		"cmdi":   filepath.Join(root, "attacks", "cmdi.txt"),
-		"lfi":    filepath.Join(root, "attacks", "lfi.txt"),
-		"nosqli": filepath.Join(root, "attacks", "nosqli.txt"),
-		"sqli":   filepath.Join(root, "attacks", "sqli.txt"),
-		"ssrf":   filepath.Join(root, "attacks", "ssrf.txt"),
-		"ssti":   filepath.Join(root, "attacks", "ssti.txt"),
-		"xss":    filepath.Join(root, "attacks", "xss.txt"),
-		"xxe":    filepath.Join(root, "attacks", "xxe.txt"),
+		"cmdi":         filepath.Join(root, "attacks", "cmdi.txt"),
+		"lfi":          filepath.Join(root, "attacks", "lfi.txt"),
+		"nosqli":       filepath.Join(root, "attacks", "nosqli.txt"),
+		"sqli":         filepath.Join(root, "attacks", "sqli.txt"),
+		"ssrf":         filepath.Join(root, "attacks", "ssrf.txt"),
+		"ssti":         filepath.Join(root, "attacks", "ssti.txt"),
+		"xss":          filepath.Join(root, "attacks", "xss.txt"),
+		"xxe":          filepath.Join(root, "attacks", "xxe.txt"),
+		"openredirect": filepath.Join(root, "attacks", "openredirect.txt"),
+		"graphql":      filepath.Join(root, "attacks", "graphql.txt"),
 	}
 
 	for detector, path := range attackFiles {
@@ -422,6 +430,14 @@ func processCorpusSample(layer *Layer, detector, sample string) engine.LayerResu
 		query = ""
 		body = sample
 		contentType = "text/plain"
+	case "openredirect":
+		path = "/redirect"
+		query = "redirect=" + url.QueryEscape(sample)
+	case "graphql":
+		path = "/graphql"
+		query = ""
+		body = sample
+		contentType = "application/graphql"
 	}
 
 	ctx := makeContext(path, query, body, contentType)
@@ -614,19 +630,22 @@ func TestDetectionLayer_Multiplier(t *testing.T) {
 func TestDetectionLayer_AllDetectorsPresent(t *testing.T) {
 	layer := NewLayer(defaultConfig())
 
-	if len(layer.detectors) != 8 {
-		t.Errorf("expected 8 detectors, got %d", len(layer.detectors))
+	if len(layer.detectors) != 11 {
+		t.Errorf("expected 11 detectors, got %d", len(layer.detectors))
 	}
 
 	expected := map[string]bool{
-		"sqli":   false,
-		"xss":    false,
-		"lfi":    false,
-		"cmdi":   false,
-		"xxe":    false,
-		"ssrf":   false,
-		"ssti":   false,
-		"nosqli": false,
+		"sqli":         false,
+		"xss":          false,
+		"lfi":          false,
+		"cmdi":         false,
+		"xxe":          false,
+		"ssrf":         false,
+		"ssti":         false,
+		"nosqli":       false,
+		"smuggling":    false,
+		"openredirect": false,
+		"graphql":      false,
 	}
 
 	for _, det := range layer.detectors {

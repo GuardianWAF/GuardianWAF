@@ -1,0 +1,31 @@
+# Open redirect attack samples — URLs in redirect parameters pointing to
+# external hosts, protocol-relative URLs, javascript:/data: schemes, and
+# CRLF/header-injection payloads.
+http://evil.com/
+//evil.com/
+https://evil.com/path
+https://evil.com/steal?token=
+\\evil.com
+\/\/evil.com
+javascript:alert(1)
+javascript://%0aalert(1)
+data:text/html,<script>alert(1)</script>
+data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==
+//evil.com%2f
+//evil.com%00
+https:evil.com
+http:/evil.com
+http:evil.com
+///evil.com
+////evil.com
+https://evil.com.evil.com/
+http://evil.com\@good.com/
+//%65vil.com/
+//%2f%65vil.com
+http://evil.com:80@evil.com/
+https://evil.com#@good.com/
+//evil.com\x00
+http://evil.com/\t
+http://evil.com\r\n
+https://evil.com\r\nX-Injected:1
+//evil.com\r\nSet-Cookie:x=1

@@ -40,7 +40,6 @@ var redirectParamNames = map[string]bool{
 	"return_to":      true,
 	"next":           true,
 	"nexturl":        true,
-	"url":            true,
 	"target":         true,
 	"destination":    true,
 	"dest":           true,
@@ -173,6 +172,71 @@ func (d *Detector) checkValue(rawVal, location, reqHost string) *engine.Finding 
 			MatchedValue: truncate(val, 200),
 			Location:     location,
 			Confidence:   0.95,
+		}
+	}
+
+	// Detect backslash confusion. Browsers treat \ as / in many contexts,
+	// so \\evil.com or \/\/evil.com become //evil.com (protocol-relative
+	// redirect to an external host). Normalize and re-check.
+	if strings.Contains(val, `\`) {
+		normalized := strings.ReplaceAll(val, `\`, "/")
+		if strings.HasPrefix(normalized, "//") || strings.HasPrefix(normalized, "https://") || strings.HasPrefix(normalized, "http://") || (strings.HasPrefix(normalized, "/") && !strings.HasPrefix(normalized, "//")) {
+			host := normalized
+			if strings.HasPrefix(host, "//") {
+				host = host[2:]
+			} else if strings.HasPrefix(host, "https://") {
+				host = host[8:]
+			} else if strings.HasPrefix(host, "http://") {
+				host = host[7:]
+			} else {
+				host = strings.TrimLeft(host, "/")
+			}
+			host = strings.TrimLeft(host, "/")
+			// Strip scheme if present after normalization.
+			if idx := strings.Index(host, "://"); idx >= 0 {
+				host = host[idx+3:]
+			}
+			if idx := strings.IndexAny(host, "/?#"); idx >= 0 {
+				host = host[:idx]
+			}
+			if host != "" && hostname(host) != "" {
+				return &engine.Finding{
+					DetectorName: "openredirect",
+					Category:     "open-redirect",
+					Severity:     engine.SeverityHigh,
+					Score:        65,
+					Description:  "backslash confusion in redirect URL resolves to external host: " + host,
+					MatchedValue: truncate(val, 200),
+					Location:     location,
+					Confidence:   0.88,
+				}
+			}
+		}
+	}
+
+	// Detect scheme-without-slash (e.g., "https:evil.com"). Browsers
+	// resolve this to https://evil.com, bypassing checks that look for
+	// "://". url.Parse sets scheme but leaves host empty (opaque).
+	if idx := strings.Index(val, ":"); idx > 0 && idx < 15 {
+		prefix := strings.ToLower(val[:idx])
+		if (prefix == "http" || prefix == "https") && idx+1 < len(val) && val[idx+1] != '/' {
+			rest := strings.TrimLeft(val[idx+1:], "/")
+			restHost := rest
+			if idx2 := strings.IndexAny(rest, "/?#"); idx2 >= 0 {
+				restHost = rest[:idx2]
+			}
+			if restHost != "" {
+				return &engine.Finding{
+					DetectorName: "openredirect",
+					Category:     "open-redirect",
+					Severity:     engine.SeverityHigh,
+					Score:        65,
+					Description:  "scheme-without-slash redirect to external host: " + truncate(restHost, 100),
+					MatchedValue: truncate(val, 200),
+					Location:     location,
+					Confidence:   0.85,
+				}
+			}
 		}
 	}
 
