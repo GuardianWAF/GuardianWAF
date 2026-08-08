@@ -179,23 +179,25 @@ jobs:
           docker buildx imagetools inspect "${IMAGE_REF}" > dist/release-evidence/release/supply-chain/imagetools.txt
           echo "image_ref=${IMAGE_REF}" > dist/release-evidence/release/supply-chain/image-ref.txt
 
+      - name: Install syft
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
+            | sh -s -- -b /usr/local/bin v1.38.0
+
       - name: Generate staged image SBOM
         run: |
-          docker run --rm \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -v "$HOME/.docker/config.json:/root/.docker/config.json:ro" \
-            -v "$PWD:/out" \
-            anchore/syft:v1.38.0 \
-            "ghcr.io/${{ steps.img.outputs.repo }}@${{ steps.build.outputs.digest }}" \
-            -o spdx-json=/out/dist/release-evidence/release/supply-chain/sbom.spdx.json
+          syft "ghcr.io/${{ steps.img.outputs.repo }}@${{ steps.build.outputs.digest }}" \
+            -o spdx-json=dist/release-evidence/release/supply-chain/sbom.spdx.json
+
+      - name: Install trivy
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sh -s -- -b /usr/local/bin v0.68.1
 
       - name: Scan staged image
         run: |
           set -o pipefail
-          docker run --rm \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -v "$HOME/.docker/config.json:/root/.docker/config.json:ro" \
-            aquasec/trivy:0.68.1 image \
+          trivy image \
             --severity HIGH,CRITICAL \
             --exit-code 1 \
             --no-progress \
