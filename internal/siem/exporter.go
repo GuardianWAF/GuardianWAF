@@ -1,7 +1,6 @@
 package siem
 
 import (
-	"bufio"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -347,10 +346,4 @@ func SetVersion(v string) {
 	version = v
 }
 
-// EncodeLine writes a single CEF line to the given writer (used by the
-// evidence-collection script, not the live exporter).
-func EncodeLine(w *bufio.Writer, ev engine.Event) error {
-	line := EncodeCEF(ev, "GuardianWAF", version)
-	_, err := w.WriteString(line + "\n")
-	return err
-}
+

@@ -28,6 +28,7 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/layers/botdetect"
 	"github.com/guardianwaf/guardianwaf/internal/mcp"
 	"github.com/guardianwaf/guardianwaf/internal/proxy"
+	"github.com/guardianwaf/guardianwaf/internal/siem"
 	"github.com/guardianwaf/guardianwaf/internal/tenant"
 )
 
@@ -341,6 +342,7 @@ func cmdServe(args []string) {
 	}
 
 	// 10c.2 Start SIEM export if enabled
+	siem.SetVersion(version)
 	siemExp := setupSIEMRuntime(cfg, eng, eventBus, &eventConsumerWG, dash)
 
 	// 10d. Start Docker auto-discovery if enabled
