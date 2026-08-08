@@ -10,7 +10,7 @@ import { Select, SelectOption } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { Save, Plus, X, Loader2 } from 'lucide-react'
 
-const DETECTORS = ['sqli', 'xss', 'lfi', 'cmdi', 'xxe', 'ssrf'] as const
+const DETECTORS = ['sqli', 'xss', 'lfi', 'cmdi', 'xxe', 'ssrf', 'ssti', 'nosqli', 'smuggling', 'openredirect', 'graphql'] as const
 type DetectorKey = (typeof DETECTORS)[number]
 
 const DETECTOR_LABELS: Record<DetectorKey, string> = {
@@ -20,6 +20,11 @@ const DETECTOR_LABELS: Record<DetectorKey, string> = {
   cmdi: 'Command Injection',
   xxe: 'XML External Entity',
   ssrf: 'Server-Side Request Forgery',
+  ssti: 'Server-Side Template Injection',
+  nosqli: 'NoSQL Injection',
+  smuggling: 'HTTP Request Smuggling',
+  openredirect: 'Open Redirect',
+  graphql: 'GraphQL Abuse',
 }
 
 // Deep clone helper

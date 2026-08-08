@@ -40,7 +40,6 @@ export default function DashboardPage() {
     logged_requests: 0, passed_requests: 0, event_store_errors: 0, avg_latency_us: 0,
   })
   const [upstreams, setUpstreams] = useState<UpstreamStatus[]>([])
-  const [sseConnected] = useState(true)
   const [isLoading, setIsLoading] = useState(true)
   const [lastError, setLastError] = useState<string | null>(null)
   const [systemHealth, setSystemHealth] = useState<SystemHealth>({
@@ -52,7 +51,7 @@ export default function DashboardPage() {
   const [refreshInterval] = useState(5000)
   const consecutiveErrors = useRef(0)
   const { toast } = useToast()
-  const { events, filter, setFilter, search, setSearch } = useEventsContext()
+  const { events, filter, setFilter, search, setSearch, sseConnected, paused, togglePause } = useEventsContext()
 
   // Health check function
   const checkHealth = useCallback(async () => {
@@ -283,6 +282,8 @@ export default function DashboardPage() {
         search={search}
         setSearch={setSearch}
         isLoading={isLoading}
+        paused={paused}
+        onPause={togglePause}
       />
 
       {/* Footer */}

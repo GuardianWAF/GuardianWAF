@@ -36,7 +36,9 @@
         activeFilter: 'all',
         searchQuery: '',
         sseRetryDelay: 1000,
-        sseMaxRetryDelay: 30000
+        sseMaxRetryDelay: 30000,
+        paused: false,
+        pausedEvents: []
     };
 
     // --- DOM References ---

@@ -109,6 +109,39 @@ describe('useEvents', () => {
     expect(result.current.filteredEvents[0].client_ip).toBe('10.0.0.1')
   })
 
+  it('pauses and resumes the feed', () => {
+    const { result } = renderHook(() => useEvents())
+
+    // Add an event before pausing
+    act(() => {
+      result.current.addEvent(makeEvent({ id: 'pre-pause' }))
+    })
+    expect(result.current.events).toHaveLength(1)
+
+    // Pause the feed
+    act(() => {
+      result.current.togglePause()
+    })
+    expect(result.current.paused).toBe(true)
+
+    // Add events while paused — should be buffered, not in the main list
+    act(() => {
+      result.current.addEvent(makeEvent({ id: 'buffered-1' }))
+      result.current.addEvent(makeEvent({ id: 'buffered-2' }))
+    })
+    expect(result.current.pausedCount).toBe(2)
+    expect(result.current.events).toHaveLength(1) // still only the pre-pause event
+
+    // Resume — buffered events should be flushed into the main list
+    act(() => {
+      result.current.togglePause()
+    })
+    expect(result.current.paused).toBe(false)
+    expect(result.current.pausedCount).toBe(0)
+    expect(result.current.events).toHaveLength(3)
+    expect(result.current.events[0].id).toBe('buffered-2') // newest first
+  })
+
   it('resets filter to all', () => {
     const { result } = renderHook(() => useEvents())
 

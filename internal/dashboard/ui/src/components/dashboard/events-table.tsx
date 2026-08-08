@@ -2,6 +2,7 @@ import { useState, memo } from 'react'
 import { cn, timeAgo } from '@/lib/utils'
 import type { WafEvent } from '@/lib/api'
 import { EventDetail } from './event-detail'
+import { Pause, Play } from 'lucide-react'
 
 interface EventsTableProps {
   events: WafEvent[]
@@ -10,6 +11,10 @@ interface EventsTableProps {
   search: string
   setSearch: (s: string) => void
   isLoading?: boolean
+  paused?: boolean
+  onPause?: () => void
+  onResume?: () => void
+  pausedCount?: number
 }
 
 const filters = [
@@ -27,7 +32,7 @@ const actionStyles: Record<string, string> = {
   pass: 'bg-success/15 text-success',
 }
 
-export const EventsTable = memo(function EventsTable({ events, filter, setFilter, search, setSearch }: EventsTableProps) {
+export const EventsTable = memo(function EventsTable({ events, filter, setFilter, search, setSearch, paused, onPause, pausedCount }: EventsTableProps) {
   const [selectedEvent, setSelectedEvent] = useState<WafEvent | null>(null)
 
   const filtered = events.filter(e => {
@@ -73,6 +78,22 @@ export const EventsTable = memo(function EventsTable({ events, filter, setFilter
               onChange={e => setSearch(e.target.value)}
               className="h-7 rounded-md border border-border bg-background px-2.5 text-xs text-foreground placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-accent w-40"
             />
+            {onPause && (
+              <button
+                onClick={onPause}
+                aria-label={paused ? 'Resume live feed' : 'Pause live feed'}
+                aria-pressed={paused}
+                className={cn(
+                  'h-7 px-2.5 rounded-md border border-border text-xs font-medium flex items-center gap-1.5 transition-colors',
+                  paused
+                    ? 'bg-orange/15 text-orange border-orange/30'
+                    : 'text-muted hover:text-foreground hover:bg-card'
+                )}
+              >
+                {paused ? <Play className="w-3 h-3" /> : <Pause className="w-3 h-3" />}
+                {paused ? `Resume${pausedCount ? ` (${pausedCount})` : ''}` : 'Pause'}
+              </button>
+            )}
           </div>
         </div>
 

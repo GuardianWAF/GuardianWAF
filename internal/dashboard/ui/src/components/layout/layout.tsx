@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Outlet } from 'react-router'
 import { Sidebar } from './sidebar'
 import { Header } from './header'
@@ -7,8 +7,15 @@ import { EventsProvider, useEventsContext } from '@/hooks/use-events'
 import { ToastProvider } from '@/components/ui/toast'
 
 function LayoutInner() {
-  const { addEvent } = useEventsContext()
+  const { addEvent, setConnected } = useEventsContext()
   const { connected } = useSSE(addEvent)
+
+  // Sync SSE connection state into the events context so the dashboard page
+  // can show the real connection indicator instead of a hardcoded value.
+  useEffect(() => {
+    setConnected(connected)
+  }, [connected, setConnected])
+
   const [mobileOpen, setMobileOpen] = useState(false)
   const closeMobileSidebar = useCallback(() => setMobileOpen(false), [])
   const openMobileSidebar = useCallback(() => setMobileOpen(true), [])
