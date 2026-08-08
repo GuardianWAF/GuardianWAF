@@ -285,13 +285,21 @@ func BenchmarkDetectionLayer_Process(b *testing.B) {
 	detLayer := detection.NewLayer(&detection.Config{
 		Enabled: true,
 		Detectors: map[string]detection.DetectorConfig{
-			"sqli": {Enabled: true, Multiplier: 1.0},
-			"xss":  {Enabled: true, Multiplier: 1.0},
-			"lfi":  {Enabled: true, Multiplier: 1.0},
-			"cmdi": {Enabled: true, Multiplier: 1.0},
-			"xxe":  {Enabled: true, Multiplier: 1.0},
-			"ssrf": {Enabled: true, Multiplier: 1.0},
+			"sqli":         {Enabled: true, Multiplier: 1.0},
+			"xss":          {Enabled: true, Multiplier: 1.0},
+			"lfi":          {Enabled: true, Multiplier: 1.0},
+			"cmdi":         {Enabled: true, Multiplier: 1.0},
+			"xxe":          {Enabled: true, Multiplier: 1.0},
+			"ssrf":         {Enabled: true, Multiplier: 1.0},
+			"ssti":         {Enabled: true, Multiplier: 1.0},
+			"nosqli":       {Enabled: true, Multiplier: 1.0},
+			"smuggling":    {Enabled: true, Multiplier: 1.0},
+			"openredirect": {Enabled: true, Multiplier: 1.0},
+			"graphql":      {Enabled: true, Multiplier: 1.0},
 		},
+		GraphQLMaxDepth:           10,
+		GraphQLMaxComplexity:      1000,
+		GraphQLBlockIntrospection: true,
 	})
 	eng.AddLayer(engine.OrderedLayer{Layer: detLayer, Order: engine.OrderDetection})
 
