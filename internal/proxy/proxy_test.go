@@ -1267,7 +1267,10 @@ func TestIsPrivateOrReservedIPWithPolicy_AllowPrivateShortCircuits(t *testing.T)
 }
 
 func TestIsPrivateOrReservedIPWithPolicy_HostnameBranches(t *testing.T) {
-	cidrs, err := ParseAllowedUpstreamCIDRs([]string{"127.0.0.1/32"})
+	// "localhost" may resolve to 127.0.0.1 (IPv4) or ::1 (IPv6) depending on
+	// the resolver and /etc/hosts configuration. Allow both loopback forms so
+	// the test passes consistently across local, CI, and container envs.
+	cidrs, err := ParseAllowedUpstreamCIDRs([]string{"127.0.0.1/32", "::1/128"})
 	if err != nil {
 		t.Fatalf("ParseAllowedUpstreamCIDRs() error = %v", err)
 	}

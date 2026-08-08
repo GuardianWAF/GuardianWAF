@@ -150,7 +150,7 @@ func shutdownServeRuntime(ctx context.Context, resources serveShutdownResources)
 	if resources.dockerWatcher != nil {
 		if err := resources.dockerWatcher.StopWithContext(ctx); err != nil {
 			eng.Logs.Warnf("Docker watcher shutdown timed out: %v", err)
-			shutdownErrs = append(shutdownErrs, fmt.Errorf("Docker watcher shutdown: %w", err))
+			shutdownErrs = append(shutdownErrs, fmt.Errorf("docker watcher shutdown: %w", err))
 		}
 	}
 	if resources.aiAnalyzer != nil {
