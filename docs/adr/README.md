@@ -61,7 +61,7 @@ the decision made, and the consequences.
 | ADR | Order | Layer | Status |
 |-----|-------|-------|--------|
 | [0024](./0024-zero-trust-network-access.md) | 70 | Zero Trust (mTLS) | Proposed — not registered in pipeline |
-| (internal/cluster/) | 75 | Cluster | Proposed — not registered in pipeline |
+| (internal/cluster/) | 75 | Cluster | Gossip membership implemented (`internal/cluster/gossip/`); Raft consensus and state replication planned |
 | [0035](./0035-websocket-proxy.md) | 76 | WebSocket | Implemented (middleware wrapper, not pipeline layer) |
 | [0019](./0019-grpc-protocol-support.md) | 78 | gRPC | Proposed — not registered in pipeline |
 | [0036](./0036-canary-deployments.md) | 95 | Canary Deployment | Proposed — not registered in pipeline |
