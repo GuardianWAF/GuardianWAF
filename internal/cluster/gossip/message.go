@@ -82,7 +82,7 @@ func (m *Message) Encode(w io.Writer) error {
 	}
 
 	// type (1 byte)
-	if _, err := w.Write([]byte{byte(m.Type)}); err != nil { //nolint:gosec // G115 — MessageType is uint8, same width
+	if _, err := w.Write([]byte{byte(m.Type)}); err != nil { // #nosec G115 -- MessageType is uint8, same width
 		return fmt.Errorf("write type: %w", err)
 	}
 
@@ -92,7 +92,7 @@ func (m *Message) Encode(w io.Writer) error {
 	if len(m.Source) > 255 {
 		return fmt.Errorf("source ID too long: %d bytes (max 255)", len(m.Source))
 	}
-	if _, err := w.Write([]byte{byte(len(m.Source))}); err != nil { //nolint:gosec // G115 — bounds-checked above
+	if _, err := w.Write([]byte{byte(len(m.Source))}); err != nil { // #nosec G115 -- bounds-checked above (max 255)
 		return fmt.Errorf("write srcLen: %w", err)
 	}
 
@@ -184,14 +184,13 @@ func EncodeMembers(members []Member) []byte {
 		var tmp [8]byte
 		binary.LittleEndian.PutUint64(tmp[:], m.Incarnation)
 		buf = append(buf, tmp[:]...)
-		// state
-		buf = append(buf, byte(m.State))
-		// idLen + id
-		buf = append(buf, byte(len(m.ID)))
+		// state — MemberState values are 0-2, always fit in a byte.
+		buf = append(buf, byte(m.State)) // #nosec G115 -- state values 0-2
+		// idLen + id — bounded to maxSourceIDLen (255) above.
+		buf = append(buf, byte(len(m.ID))) // #nosec G115 -- len capped at maxSourceIDLen
 		buf = append(buf, m.ID...)
-		// addrLen + addr
-		buf = append(buf, byte(len(m.Addr)))
-		buf = append(buf, m.Addr...)
+		// addrLen + addr — bounded to maxSourceIDLen (255) above.
+		buf = append(buf, byte(len(m.Addr))) // #nosec G115 -- len capped at maxSourceIDLen
 	}
 	return buf
 }
@@ -206,7 +205,7 @@ func DecodeMembers(data []byte) ([]Member, error) {
 		}
 		m := Member{
 			Incarnation: binary.LittleEndian.Uint64(data[offset : offset+8]),
-			State:       MemberState(data[offset+8]),
+			State:       MemberState(data[offset+8]), // #nosec G115 -- state byte fits in MemberState (uint8-based)
 		}
 		offset += 9
 

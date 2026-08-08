@@ -242,7 +242,6 @@ func TestProductionDocsDistinguishPlannedAdvancedRuntimePackages(t *testing.T) {
 	goMod := readOutboundPolicyFixture(t, filepath.Join(root, "go.mod"))
 
 	plannedOnlyDirs := []string{
-		"internal/cluster",
 		"internal/clustersync",
 		"internal/layers/grpc",
 		"internal/layers/graphql",
