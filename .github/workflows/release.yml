@@ -211,10 +211,10 @@ jobs:
           set -o pipefail
           {
             echo "image_ref=${IMAGE_REF}"
-            echo "certificate_identity_regexp=https://github.com/guardianwaf/guardianwaf/.github/workflows/release.yml@refs/tags/v.*"
+            echo "certificate_identity_regexp=https://github.com/GuardianWAF/GuardianWAF/.github/workflows/release.yml@refs/tags/v.*"
             echo "certificate_oidc_issuer=https://token.actions.githubusercontent.com"
             cosign verify \
-              --certificate-identity-regexp 'https://github.com/guardianwaf/guardianwaf/.github/workflows/release.yml@refs/tags/v.*' \
+              --certificate-identity-regexp 'https://github.com/GuardianWAF/GuardianWAF/.github/workflows/release.yml@refs/tags/v.*' \
               --certificate-oidc-issuer https://token.actions.githubusercontent.com \
               "${IMAGE_REF}" 2>&1
           } | tee dist/release-evidence/release/supply-chain/cosign-verify.txt
@@ -226,11 +226,11 @@ jobs:
           set -o pipefail
           {
             echo "image_ref=${IMAGE_REF}"
-            echo "certificate_identity_regexp=https://github.com/guardianwaf/guardianwaf/.github/workflows/release.yml@refs/tags/v.*"
+            echo "certificate_identity_regexp=https://github.com/GuardianWAF/GuardianWAF/.github/workflows/release.yml@refs/tags/v.*"
             echo "certificate_oidc_issuer=https://token.actions.githubusercontent.com"
             cosign verify-attestation \
               --type slsaprovenance \
-              --certificate-identity-regexp 'https://github.com/guardianwaf/guardianwaf/.github/workflows/release.yml@refs/tags/v.*' \
+              --certificate-identity-regexp 'https://github.com/GuardianWAF/GuardianWAF/.github/workflows/release.yml@refs/tags/v.*' \
               --certificate-oidc-issuer https://token.actions.githubusercontent.com \
               "${IMAGE_REF}" 2>&1
           } | tee dist/release-evidence/release/supply-chain/provenance-verify.txt
@@ -242,11 +242,11 @@ jobs:
           set -o pipefail
           {
             echo "image_ref=${IMAGE_REF}"
-            echo "certificate_identity_regexp=https://github.com/guardianwaf/guardianwaf/.github/workflows/release.yml@refs/tags/v.*"
+            echo "certificate_identity_regexp=https://github.com/GuardianWAF/GuardianWAF/.github/workflows/release.yml@refs/tags/v.*"
             echo "certificate_oidc_issuer=https://token.actions.githubusercontent.com"
             cosign verify-attestation \
               --type spdxjson \
-              --certificate-identity-regexp 'https://github.com/guardianwaf/guardianwaf/.github/workflows/release.yml@refs/tags/v.*' \
+              --certificate-identity-regexp 'https://github.com/GuardianWAF/GuardianWAF/.github/workflows/release.yml@refs/tags/v.*' \
               --certificate-oidc-issuer https://token.actions.githubusercontent.com \
               "${IMAGE_REF}" 2>&1
           } | tee dist/release-evidence/release/supply-chain/sbom-attestation-verify.txt
