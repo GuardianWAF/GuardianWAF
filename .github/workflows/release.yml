@@ -268,15 +268,18 @@ jobs:
           IMAGE_REF: ghcr.io/${{ steps.img.outputs.repo }}@${{ steps.build.outputs.digest }}
         run: |
           set -o pipefail
+          ATTEST_OUT=$(cosign verify-attestation \
+            --type slsaprovenance \
+            --certificate-identity-regexp 'https://github.com/GuardianWAF/GuardianWAF/.github/workflows/release.yml@refs/tags/v.*' \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            "${IMAGE_REF}" 2>&1)
           {
             echo "image_ref=${IMAGE_REF}"
             echo "certificate_identity_regexp=https://github.com/GuardianWAF/GuardianWAF/.github/workflows/release.yml@refs/tags/v.*"
             echo "certificate_oidc_issuer=https://token.actions.githubusercontent.com"
-            cosign verify-attestation \
-              --type slsaprovenance \
-              --certificate-identity-regexp 'https://github.com/GuardianWAF/GuardianWAF/.github/workflows/release.yml@refs/tags/v.*' \
-              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-              "${IMAGE_REF}" 2>&1
+            echo "${ATTEST_OUT}"
+            echo "--- Decoded attestation payload ---"
+            echo "${ATTEST_OUT}" | jq -r '.payload | @base64d' 2>/dev/null || true
           } | tee dist/release-evidence/release/supply-chain/provenance-verify.txt
 
       - name: Verify staged image SBOM attestation
@@ -284,15 +287,18 @@ jobs:
           IMAGE_REF: ghcr.io/${{ steps.img.outputs.repo }}@${{ steps.build.outputs.digest }}
         run: |
           set -o pipefail
+          ATTEST_OUT=$(cosign verify-attestation \
+            --type spdxjson \
+            --certificate-identity-regexp 'https://github.com/GuardianWAF/GuardianWAF/.github/workflows/release.yml@refs/tags/v.*' \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            "${IMAGE_REF}" 2>&1)
           {
             echo "image_ref=${IMAGE_REF}"
             echo "certificate_identity_regexp=https://github.com/GuardianWAF/GuardianWAF/.github/workflows/release.yml@refs/tags/v.*"
             echo "certificate_oidc_issuer=https://token.actions.githubusercontent.com"
-            cosign verify-attestation \
-              --type spdxjson \
-              --certificate-identity-regexp 'https://github.com/GuardianWAF/GuardianWAF/.github/workflows/release.yml@refs/tags/v.*' \
-              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-              "${IMAGE_REF}" 2>&1
+            echo "${ATTEST_OUT}"
+            echo "--- Decoded attestation payload ---"
+            echo "${ATTEST_OUT}" | jq -r '.payload | @base64d' 2>/dev/null || true
           } | tee dist/release-evidence/release/supply-chain/sbom-attestation-verify.txt
 
       - name: Verify staged image supply-chain evidence
