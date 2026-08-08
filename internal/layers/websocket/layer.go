@@ -53,8 +53,6 @@ func NewLayer(cfg *Config) *Layer {
 	}
 }
 
-
-
 // IsWebSocketUpgrade returns true if this request is a WebSocket upgrade.
 func IsWebSocketUpgrade(r *http.Request) bool {
 	return IsUpgradeRequest(r)
