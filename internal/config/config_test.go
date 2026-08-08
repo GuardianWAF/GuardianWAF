@@ -99,7 +99,7 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.WAF.Detection.Threshold.Log != 25 {
 		t.Fatalf("expected log threshold 25, got %d", cfg.WAF.Detection.Threshold.Log)
 	}
-	expectedDetectors := []string{"sqli", "xss", "lfi", "cmdi", "xxe", "ssrf", "ssti", "nosqli", "smuggling", "openredirect"}
+	expectedDetectors := []string{"sqli", "xss", "lfi", "cmdi", "xxe", "ssrf", "ssti", "nosqli", "smuggling", "openredirect", "graphql"}
 	if len(cfg.WAF.Detection.Detectors) != len(expectedDetectors) {
 		t.Fatalf("expected %d detectors, got %d", len(expectedDetectors), len(cfg.WAF.Detection.Detectors))
 	}

@@ -73,6 +73,7 @@ func DefaultConfig() *Config {
 					"nosqli":       {Enabled: true, Multiplier: 1.0},
 					"smuggling":    {Enabled: true, Multiplier: 1.0},
 					"openredirect": {Enabled: true, Multiplier: 1.0},
+					"graphql":      {Enabled: true, Multiplier: 1.0},
 				},
 			},
 			BotDetection: BotDetectionConfig{

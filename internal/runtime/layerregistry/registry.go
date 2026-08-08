@@ -449,9 +449,13 @@ func buildDetection(cfg *config.Config) (engine.Layer, error) {
 		})
 	}
 	return detection.NewLayer(&detection.Config{
-		Enabled:    cfg.WAF.Detection.Enabled,
-		Detectors:  detConfigs,
-		Exclusions: exclusions,
+		Enabled:                   cfg.WAF.Detection.Enabled,
+		Detectors:                 detConfigs,
+		Exclusions:                exclusions,
+		GraphQLMaxDepth:           cfg.WAF.GraphQL.MaxDepth,
+		GraphQLMaxComplexity:      cfg.WAF.GraphQL.MaxComplexity,
+		GraphQLBlockIntrospection: cfg.WAF.GraphQL.BlockIntrospection,
+		GraphQLAllowEndpoints:     cfg.WAF.GraphQL.AllowEndpoints,
 	}), nil
 }
 

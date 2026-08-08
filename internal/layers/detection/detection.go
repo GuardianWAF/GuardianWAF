@@ -9,6 +9,7 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/layers/detection/cmdi"
+	"github.com/guardianwaf/guardianwaf/internal/layers/detection/graphql"
 	"github.com/guardianwaf/guardianwaf/internal/layers/detection/lfi"
 	"github.com/guardianwaf/guardianwaf/internal/layers/detection/nosqli"
 	"github.com/guardianwaf/guardianwaf/internal/layers/detection/openredirect"
@@ -31,6 +32,12 @@ type Config struct {
 	Enabled    bool
 	Detectors  map[string]DetectorConfig // keyed by: sqli, xss, lfi, cmdi, xxe, ssrf
 	Exclusions []Exclusion
+
+	// GraphQL-specific settings consumed by the graphql detector.
+	GraphQLMaxDepth           int
+	GraphQLMaxComplexity      int
+	GraphQLBlockIntrospection bool
+	GraphQLAllowEndpoints     []string
 }
 
 // Exclusion defines a path-based detection exclusion.
@@ -81,6 +88,15 @@ func NewLayer(cfg *Config) *Layer {
 	}
 	if dc, ok := cfg.Detectors["openredirect"]; ok {
 		l.detectors = append(l.detectors, openredirect.NewDetector(dc.Enabled, dc.Multiplier))
+	}
+	if dc, ok := cfg.Detectors["graphql"]; ok {
+		l.detectors = append(l.detectors, graphql.NewDetector(
+			dc.Enabled, dc.Multiplier,
+			cfg.GraphQLMaxDepth,
+			cfg.GraphQLMaxComplexity,
+			cfg.GraphQLBlockIntrospection,
+			cfg.GraphQLAllowEndpoints,
+		))
 	}
 
 	return l

@@ -1,0 +1,381 @@
+// Package graphql detects GraphQL query-depth, complexity, and introspection
+// attacks.
+//
+// GraphQL APIs accept arbitrarily complex queries. A single HTTP request can
+// nest selection sets dozens of levels deep or alias the same field hundreds
+// of times, producing exponential server-side work. Without cost enforcement,
+// one query can exhaust database connections, CPU, or memory.
+//
+// This detector is a lightweight brace-and-field counter — not a full GraphQL
+// parser. It extracts the query string from three transport formats (raw
+// application/graphql, JSON-wrapped, query parameter), strips comments and
+// string literals, then measures:
+//
+//   - Maximum nesting depth (count of unclosed `{` at any point)
+//   - Total field selections (every field reference, including aliases)
+//   - Introspection fields (__schema, __type, __typename)
+//   - Batch queries (JSON array of operations)
+//
+// The detector does NOT evaluate the query semantically (fragments, directives,
+// variables are not expanded). This is intentional: the goal is to bound cost,
+// not to validate the query. False positives on benign deep queries are
+// controlled via configurable thresholds (maxDepth, maxComplexity).
+package graphql
+
+import (
+	"encoding/json"
+	"strings"
+	"unicode"
+
+	"github.com/guardianwaf/guardianwaf/internal/engine"
+)
+
+// Detector implements engine.Detector for GraphQL cost-based attacks.
+type Detector struct {
+	enabled            bool
+	multiplier         float64
+	maxDepth           int
+	maxComplexity      int
+	blockIntrospection bool
+	allowEndpoints     map[string]bool
+}
+
+// NewDetector creates a GraphQL detector.
+func NewDetector(enabled bool, multiplier float64, maxDepth, maxComplexity int, blockIntrospection bool, allowEndpoints []string) *Detector {
+	allow := make(map[string]bool, len(allowEndpoints))
+	for _, ep := range allowEndpoints {
+		allow[ep] = true
+	}
+	return &Detector{
+		enabled:            enabled,
+		multiplier:         multiplier,
+		maxDepth:           maxDepth,
+		maxComplexity:      maxComplexity,
+		blockIntrospection: blockIntrospection,
+		allowEndpoints:     allow,
+	}
+}
+
+func (d *Detector) Name() string         { return "graphql-detector" }
+func (d *Detector) Order() int           { return 0 }
+func (d *Detector) DetectorName() string { return "graphql" }
+func (d *Detector) Patterns() []string {
+	return []string{
+		"depth-exceeded",
+		"complexity-exceeded",
+		"introspection-query",
+		"batch-query-bomb",
+	}
+}
+
+// Process inspects the request for GraphQL queries that exceed depth or
+// complexity limits, or attempt introspection.
+func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
+	if !d.enabled {
+		return engine.LayerResult{}
+	}
+
+	// Only inspect endpoints that look GraphQL-related. If an allowEndpoints
+	// list is configured, restrict to those paths; otherwise sniff content type.
+	if len(d.allowEndpoints) > 0 {
+		if !d.allowEndpoints[ctx.NormalizedPath] && !d.allowEndpoints[ctx.Path] {
+			return engine.LayerResult{}
+		}
+	}
+
+	// Extract the query string from the request.
+	queries := extractQueries(ctx)
+	if len(queries) == 0 {
+		return engine.LayerResult{}
+	}
+
+	var findings []engine.Finding
+	batchCount := len(queries)
+
+	for _, q := range queries {
+		qFindings := d.analyzeQuery(q)
+		findings = append(findings, qFindings...)
+	}
+
+	// Batch query bomb: multiple operations in one request.
+	if batchCount > 1 {
+		findings = append(findings, engine.Finding{
+			DetectorName: "graphql",
+			Category:     "graphql-batch-query-bomb",
+			Severity:     engine.SeverityHigh,
+			Score:        70,
+			Description:  "Batch GraphQL query: multiple operations in a single request",
+			MatchedValue: "",
+			Location:     "body",
+			Confidence:   0.8,
+		})
+	}
+
+	score := 0
+	for _, f := range findings {
+		score += f.Score
+	}
+	score = int(float64(score) * d.multiplier)
+
+	return engine.LayerResult{
+		Score:    score,
+		Findings: findings,
+	}
+}
+
+// extractQueries pulls the GraphQL query string(s) from the request, handling
+// three transport formats: raw application/graphql body, JSON-wrapped body,
+// and query parameter.
+func extractQueries(ctx *engine.RequestContext) []string {
+	var queries []string
+
+	// 1. Query parameter (GET requests or POST with query in URL).
+	if rawQ, ok := ctx.QueryParams["query"]; ok && len(rawQ) > 0 && strings.TrimSpace(rawQ[0]) != "" {
+		queries = append(queries, rawQ[0])
+	}
+
+	ct := strings.ToLower(ctx.ContentType)
+
+	// 2. application/graphql — raw query in body.
+	if strings.Contains(ct, "application/graphql") {
+		body := strings.TrimSpace(ctx.BodyString)
+		if body == "" {
+			body = strings.TrimSpace(ctx.NormalizedBody)
+		}
+		if body != "" {
+			queries = append(queries, body)
+		}
+		return queries
+	}
+
+	// 3. application/json — may contain {"query": "..."} or a batch array.
+	if strings.Contains(ct, "application/json") || strings.Contains(ct, "text/plain") {
+		body := ctx.BodyString
+		if body == "" {
+			body = ctx.NormalizedBody
+		}
+		body = strings.TrimSpace(body)
+		if body == "" {
+			return queries
+		}
+
+		// Try batch first: [{"query":"..."}, ...].
+		if body[0] == '[' {
+			var batch []map[string]any
+			if json.Unmarshal([]byte(body), &batch) == nil {
+				for _, op := range batch {
+					if q, ok := op["query"].(string); ok && strings.TrimSpace(q) != "" {
+						queries = append(queries, q)
+					}
+				}
+				return queries
+			}
+		}
+
+		// Single operation: {"query": "..."}.
+		if body[0] == '{' {
+			var op map[string]any
+			if json.Unmarshal([]byte(body), &op) == nil {
+				if q, ok := op["query"].(string); ok && strings.TrimSpace(q) != "" {
+					queries = append(queries, q)
+				}
+			}
+		}
+	}
+
+	return queries
+}
+
+// analyzeQuery measures a single GraphQL query string for depth, complexity,
+// and introspection.
+func (d *Detector) analyzeQuery(query string) []engine.Finding {
+	cleaned := stripCommentsAndStrings(query)
+	depth, complexity := measureDepthComplexity(cleaned)
+
+	var findings []engine.Finding
+
+	// Depth check.
+	if d.maxDepth > 0 && depth > d.maxDepth {
+		findings = append(findings, engine.Finding{
+			DetectorName: "graphql",
+			Category:     "graphql-depth-exceeded",
+			Severity:     engine.SeverityHigh,
+			Score:        80,
+			Description:  "GraphQL query nesting depth exceeds maximum",
+			MatchedValue: "",
+			Location:     "body",
+			Confidence:   0.95,
+		})
+	}
+
+	// Complexity check.
+	if d.maxComplexity > 0 && complexity > d.maxComplexity {
+		findings = append(findings, engine.Finding{
+			DetectorName: "graphql",
+			Category:     "graphql-complexity-exceeded",
+			Severity:     engine.SeverityHigh,
+			Score:        75,
+			Description:  "GraphQL query field complexity exceeds maximum",
+			MatchedValue: "",
+			Location:     "body",
+			Confidence:   0.9,
+		})
+	}
+
+	// Introspection check.
+	if d.blockIntrospection && hasIntrospection(cleaned) {
+		findings = append(findings, engine.Finding{
+			DetectorName: "graphql",
+			Category:     "graphql-introspection-query",
+			Severity:     engine.SeverityMedium,
+			Score:        60,
+			Description:  "GraphQL introspection query (schema disclosure)",
+			MatchedValue: "",
+			Location:     "body",
+			Confidence:   0.95,
+		})
+	}
+
+	return findings
+}
+
+// stripCommentsAndStrings removes GraphQL comments (#...) and string literals
+// (including block strings """...""") so they don't confuse the brace counter.
+func stripCommentsAndStrings(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	i := 0
+	for i < len(s) {
+		// Block string: """..."""
+		if i+2 < len(s) && s[i] == '"' && s[i+1] == '"' && s[i+2] == '"' {
+			i += 3
+			for i+2 < len(s) {
+				if s[i] == '"' && s[i+1] == '"' && s[i+2] == '"' {
+					i += 3
+					break
+				}
+				i++
+			}
+			b.WriteByte(' ') // preserve token boundary
+			continue
+		}
+		// Single-line string: "..."
+		if s[i] == '"' {
+			i++
+			for i < len(s) && s[i] != '"' {
+				if s[i] == '\\' && i+1 < len(s) {
+					i += 2
+					continue
+				}
+				i++
+			}
+			if i < len(s) {
+				i++ // closing quote
+			}
+			b.WriteByte(' ')
+			continue
+		}
+		// Comment: #...
+		if s[i] == '#' {
+			for i < len(s) && s[i] != '\n' {
+				i++
+			}
+			continue
+		}
+		b.WriteByte(s[i])
+		i++
+	}
+	return b.String()
+}
+
+// measureDepthComplexity returns (maxDepth, totalComplexity) for a cleaned
+// GraphQL query. Depth counts the maximum nesting of `{ ... }` blocks.
+// Complexity counts field selections: every identifier that is a field name
+// (not a directive, argument, or type reference).
+func measureDepthComplexity(s string) (int, int) {
+	depth := 0
+	maxDepth := 0
+	complexity := 0
+
+	runes := []rune(s)
+	i := 0
+	for i < len(runes) {
+		ch := runes[i]
+
+		switch ch {
+		case '{':
+			depth++
+			if depth > maxDepth {
+				maxDepth = depth
+			}
+			i++
+		case '}':
+			if depth > 0 {
+				depth--
+			}
+			i++
+		case '(', '@':
+			// Skip argument lists and directives: advance to matching close.
+			depth2 := 1
+			i++
+			for i < len(runes) && depth2 > 0 {
+				if runes[i] == '(' || (ch == '@' && runes[i] == '@') {
+					depth2++
+				}
+				if runes[i] == ')' {
+					depth2--
+				}
+				i++
+			}
+		default:
+			// Read an identifier.
+			if isIdentStart(ch) {
+				start := i
+				i++
+				for i < len(runes) && isIdentPart(runes[i]) {
+					i++
+				}
+				ident := string(runes[start:i])
+
+				// Skip GraphQL keywords that aren't field selections.
+				if !isGraphQLKeyword(ident) && depth > 0 {
+					// We're inside a selection set; this is a field.
+					complexity++
+				}
+			} else {
+				i++
+			}
+		}
+	}
+
+	return maxDepth, complexity
+}
+
+// hasIntrospection returns true if the cleaned query references any GraphQL
+// introspection field.
+func hasIntrospection(s string) bool {
+	return strings.Contains(s, "__schema") ||
+		strings.Contains(s, "__type") ||
+		strings.Contains(s, "__typename")
+}
+
+var graphQLKeywords = map[string]bool{
+	"query": true, "mutation": true, "subscription": true,
+	"fragment": true, "on": true, "schema": true,
+	"input": true, "type": true, "interface": true,
+	"union": true, "enum": true, "scalar": true,
+	"implements": true, "extends": true, "directive": true,
+	"true": true, "false": true, "null": true,
+}
+
+func isGraphQLKeyword(s string) bool {
+	return graphQLKeywords[s]
+}
+
+func isIdentStart(ch rune) bool {
+	return ch == '_' || unicode.IsLetter(ch)
+}
+
+func isIdentPart(ch rune) bool {
+	return ch == '_' || unicode.IsLetter(ch) || unicode.IsDigit(ch)
+}

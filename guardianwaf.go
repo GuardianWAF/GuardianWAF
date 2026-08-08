@@ -605,9 +605,13 @@ func addDefaultLayers(eng *engine.Engine, cfg *config.Config) {
 			})
 		}
 		detLayer := detection.NewLayer(&detection.Config{
-			Enabled:    true,
-			Detectors:  detConfigs,
-			Exclusions: exclusions,
+			Enabled:                   true,
+			Detectors:                 detConfigs,
+			Exclusions:                exclusions,
+			GraphQLMaxDepth:           cfg.WAF.GraphQL.MaxDepth,
+			GraphQLMaxComplexity:      cfg.WAF.GraphQL.MaxComplexity,
+			GraphQLBlockIntrospection: cfg.WAF.GraphQL.BlockIntrospection,
+			GraphQLAllowEndpoints:     cfg.WAF.GraphQL.AllowEndpoints,
 		})
 		eng.AddLayer(engine.OrderedLayer{Layer: detLayer, Order: engine.OrderDetection})
 	}
