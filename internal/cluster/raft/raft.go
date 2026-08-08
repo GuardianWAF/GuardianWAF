@@ -157,6 +157,16 @@ func (r *Raft) Peers() []Peer {
 	return r.config.Peers
 }
 
+// Log returns the log store (for testing/inspection).
+func (r *Raft) Log() *LogStore {
+	return r.persist.Log()
+}
+
+// PersistentState returns the persistent state container (for testing/inspection).
+func (r *Raft) PersistentState() *PersistentState {
+	return r.persist
+}
+
 // Role returns the current role of this node.
 func (r *Raft) Role() Role {
 	r.mu.Lock()

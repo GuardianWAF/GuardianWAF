@@ -650,3 +650,217 @@ func waitForLeaderExcluding(t *testing.T, nodes map[string]*testNode, exclude st
 func findNode(nodes map[string]*testNode, id string) *testNode {
 	return nodes[id]
 }
+
+// TestRaft_PublicAPI exercises all exported methods to keep deadcode clean.
+func TestRaft_PublicAPI(t *testing.T) {
+	tr, err := New(Config{
+		NodeID:             "api-node",
+		BindAddr:           "127.0.0.1:0",
+		Peers:              nil,
+		ElectionTimeoutMin: 5 * time.Second,
+		ElectionTimeoutMax: 10 * time.Second,
+		HeartbeatInterval:  500 * time.Millisecond,
+	}, nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer tr.Stop()
+
+	// State machine methods.
+	if tr.Role() != RoleFollower {
+		t.Errorf("Role() = %s, want Follower", tr.Role())
+	}
+	if tr.ID() != "api-node" {
+		t.Errorf("ID() = %q, want api-node", tr.ID())
+	}
+	if tr.LeaderID() != "" {
+		t.Errorf("LeaderID() = %q, want empty", tr.LeaderID())
+	}
+	if tr.CurrentTerm() != 0 {
+		t.Errorf("CurrentTerm() = %d, want 0", tr.CurrentTerm())
+	}
+
+	// Transport accessor.
+	if tr.Transport() == nil {
+		t.Error("Transport() returned nil")
+	}
+	if tr.Transport().LocalAddr() == "" {
+		t.Error("Transport().LocalAddr() is empty")
+	}
+
+	// UpdatePeers.
+	tr.UpdatePeers([]Peer{{ID: "p1", Addr: "127.0.0.1:9999"}})
+
+	// Members should reflect the updated peer list.
+	members := tr.Members()
+	if len(members) != 1 || members[0].ID != "p1" {
+		t.Errorf("Members() = %v, want [p1]", members)
+	}
+
+	// AddPeer.
+	tr.AddPeer(Peer{ID: "p2", Addr: "127.0.0.1:9998"})
+	if len(tr.Members()) != 2 {
+		t.Errorf("Members() after AddPeer = %d, want 2", len(tr.Members()))
+	}
+
+	// StateJSON (debug snapshot).
+	sj, err := tr.StateJSON()
+	if err != nil {
+		t.Fatalf("StateJSON: %v", err)
+	}
+	if len(sj) == 0 {
+		t.Error("StateJSON returned empty")
+	}
+
+	// Term.
+	if tr.Term() != 0 {
+		t.Errorf("Term() = %d, want 0", tr.Term())
+	}
+
+	// CommitIndex and LastApplied.
+	if tr.CommitIndex() != 0 {
+		t.Errorf("CommitIndex() = %d, want 0", tr.CommitIndex())
+	}
+	if tr.LastApplied() != 0 {
+		t.Errorf("LastApplied() = %d, want 0", tr.LastApplied())
+	}
+}
+
+// TestPersistentState_API exercises all PersistentState methods.
+func TestPersistentState_API(t *testing.T) {
+	ps := NewPersistentState()
+
+	// Term operations.
+	if ps.CurrentTerm() != 0 {
+		t.Fatalf("CurrentTerm = %d, want 0", ps.CurrentTerm())
+	}
+	ps.SetCurrentTerm(5)
+	if ps.CurrentTerm() != 5 {
+		t.Fatalf("CurrentTerm = %d, want 5", ps.CurrentTerm())
+	}
+	if ps.VotedFor() != "" {
+		t.Fatalf("VotedFor = %q, want empty", ps.VotedFor())
+	}
+	ps.SetVotedFor("node-a")
+	if ps.VotedFor() != "node-a" {
+		t.Fatalf("VotedFor = %q, want node-a", ps.VotedFor())
+	}
+
+	// IncCurrentTerm resets votedFor.
+	newTerm := ps.IncCurrentTerm()
+	if newTerm != 6 {
+		t.Fatalf("IncCurrentTerm = %d, want 6", newTerm)
+	}
+	if ps.CurrentTerm() != 6 {
+		t.Fatalf("CurrentTerm = %d, want 6", ps.CurrentTerm())
+	}
+	if ps.VotedFor() != "" {
+		t.Fatalf("VotedFor after IncCurrentTerm = %q, want empty", ps.VotedFor())
+	}
+
+	// Log accessor.
+	if ps.Log() == nil {
+		t.Fatal("Log() returned nil")
+	}
+	ps.Log().Append(6, []byte("cmd"))
+	if ps.Log().LastIndex() != 1 {
+		t.Fatalf("Log().LastIndex() = %d, want 1", ps.Log().LastIndex())
+	}
+}
+
+// TestLeaderState_API exercises all LeaderState methods.
+func TestLeaderState_API(t *testing.T) {
+	ls := NewLeaderState([]string{"p1", "p2"}, 3)
+
+	// NextIndex initialized to lastIndex+1.
+	if ls.NextIndex("p1") != 4 {
+		t.Errorf("NextIndex(p1) = %d, want 4", ls.NextIndex("p1"))
+	}
+
+	// SetNextIndex.
+	ls.SetNextIndex("p1", 2)
+	if ls.NextIndex("p1") != 2 {
+		t.Errorf("NextIndex(p1) after SetNextIndex = %d, want 2", ls.NextIndex("p1"))
+	}
+
+	// DecrNextIndex with conflictIndex.
+	ls.DecrNextIndex("p1", 1)
+	if ls.NextIndex("p1") != 1 {
+		t.Errorf("NextIndex(p1) after DecrNextIndex = %d, want 1", ls.NextIndex("p1"))
+	}
+
+	// DecrNextIndex with 0 (decrement).
+	ls.SetNextIndex("p2", 5)
+	ls.DecrNextIndex("p2", 0)
+	if ls.NextIndex("p2") != 4 {
+		t.Errorf("NextIndex(p2) after DecrNextIndex = %d, want 4", ls.NextIndex("p2"))
+	}
+
+	// MatchIndex.
+	if ls.MatchIndex("p1") != 0 {
+		t.Errorf("MatchIndex(p1) = %d, want 0", ls.MatchIndex("p1"))
+	}
+	ls.SetMatchIndex("p1", 3)
+	if ls.MatchIndex("p1") != 3 {
+		t.Errorf("MatchIndex(p1) after SetMatchIndex = %d, want 3", ls.MatchIndex("p1"))
+	}
+
+	// PeerIDs.
+	peers := ls.PeerIDs()
+	if len(peers) != 2 {
+		t.Errorf("PeerIDs() returned %d, want 2", len(peers))
+	}
+
+	// ComputeCommitIndex.
+	ls.SetMatchIndex("p1", 3)
+	ls.SetMatchIndex("p2", 2)
+	ci := ls.ComputeCommitIndex(3)
+	if ci != 3 {
+		t.Errorf("ComputeCommitIndex = %d, want 3", ci)
+	}
+}
+
+func TestDeadcodeCoverage(t *testing.T) {
+	// DefaultConfig
+	cfg := DefaultConfig("dc-node", "127.0.0.1:0")
+	if cfg.NodeID != "dc-node" {
+		t.Fatalf("DefaultConfig NodeID = %q", cfg.NodeID)
+	}
+
+	// ApplyFunc.Apply (StateMachine wrapper)
+	sm := ApplyFunc(func(_ LogEntry) {})
+	sm.Apply(LogEntry{Term: 1, Index: 1, Command: []byte("test")})
+
+	r, err := New(Config{
+		NodeID:             "dc-node",
+		BindAddr:           "127.0.0.1:0",
+		ElectionTimeoutMin: 150 * time.Millisecond,
+		ElectionTimeoutMax: 300 * time.Millisecond,
+		HeartbeatInterval:  50 * time.Millisecond,
+	}, sm)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	if err := r.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer r.Stop()
+
+	// Raft.Log()
+	if r.Log() == nil {
+		t.Error("Log() returned nil")
+	}
+
+	// Raft.PersistentState()
+	if r.PersistentState() == nil {
+		t.Error("PersistentState() returned nil")
+	}
+
+	// Raft.Peers()
+	r.UpdatePeers([]Peer{{ID: "p1", Addr: "127.0.0.1:9999"}})
+	peers := r.Peers()
+	if len(peers) != 1 || peers[0].ID != "p1" {
+		t.Errorf("Peers() = %v, want [p1]", peers)
+	}
+}
