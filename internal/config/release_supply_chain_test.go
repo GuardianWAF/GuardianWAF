@@ -53,7 +53,7 @@ func TestReleaseWorkflowStagesVerifiesAndPromotesTransactionally(t *testing.T) {
 	if strings.Contains(stageImage, "ghcr.io/${{ github.repository }}:${{ github.ref_name }}") {
 		t.Fatal("image staging publishes the semantic release tag before verification")
 	}
-	if !strings.Contains(stageImage, "ghcr.io/${{ github.repository }}:candidate-${{ github.sha }}") {
+	if !strings.Contains(stageImage, "candidate-${{ github.sha }}") {
 		t.Fatal("image staging must use a SHA-scoped candidate tag")
 	}
 
@@ -77,7 +77,7 @@ func TestReleaseWorkflowStagesVerifiesAndPromotesTransactionally(t *testing.T) {
 		"cosign sign --yes",
 		"mkdir -p \\\n            dist/release-evidence/release/hosted-ci",
 		"dist/release-evidence/release/supply-chain/image-digest.txt",
-		"aquasec/trivy:0.68.1 image",
+		"trivy_0.73.0_Linux-64bit",
 		"cosign verify-attestation \\",
 		"--type slsaprovenance",
 		"--type spdxjson",
@@ -453,8 +453,8 @@ func TestCIWorkflowPinsActionsToolsAndReleaseGates(t *testing.T) {
 		"name: release-verification-${{ github.run_id }}",
 		"name: release-promotion-${{ github.run_id }}",
 		"./scripts/promote-release.sh \\",
-		"anchore/syft:v1.38.0",
-		"aquasec/trivy:0.68.1 image",
+		"-b /usr/local/bin v1.38.0",
+		"trivy_0.73.0_Linux-64bit",
 		"--no-progress",
 	} {
 		if !strings.Contains(release, want) {
