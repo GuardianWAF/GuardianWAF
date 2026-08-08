@@ -13,21 +13,10 @@ func uint16ToPayloadLen(ext []byte) int64 {
 	return int64(binary.BigEndian.Uint16(ext)) // #nosec G115 -- max 65535 fits int64
 }
 
-// uint64ToPayloadLen reads an 8-byte big-endian uint64 from ext and returns it
-// as int64, clamped to a safe maximum. WebSocket extended payloads are capped
-// by MaxFrameSize before this value is used, so truncation cannot cause DoS.
-func uint64ToPayloadLen(ext []byte) (int64, bool) {
-	v := binary.BigEndian.Uint64(ext)
-	if v > maxInt64 {
-		return 0, false
-	}
-	return int64(v), true // #nosec G115 -- bounds-checked above
-}
-
 // lenToUint16 converts an int payload length to uint16 for the WebSocket frame
 // header. Caller must ensure n <= 65535.
 func lenToUint16(n int) uint16 {
-	return uint16(n) // #nosec G115 -- caller guarantees n <= 125
+	return uint16(n) // #nosec G115 -- caller guarantees n <= 65535
 }
 
 // lenToUint64 converts an int payload length to uint64 for the WebSocket frame
