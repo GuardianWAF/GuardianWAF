@@ -36,8 +36,8 @@ func TestOutboundNetworkPolicyDocumentsProductionIntegrations(t *testing.T) {
 		"Operator-supplied endpoints must be HTTP(S), include a host, omit URL userinfo/credentials, and avoid private, loopback, link-local, multicast, localhost, `.internal`, `.local`, and `.localhost` targets",
 		"Virtual patch NVD client",
 		"Operator-supplied endpoints must be HTTP(S), include a host, omit URL userinfo/credentials, and avoid private, loopback, link-local, multicast, localhost, `.internal`, and `.local` targets",
-		"Planned SIEM exporter",
-		"No SIEM HTTP exporter runtime is present in the current tree",
+		"SIEM exporter",
+		"SIEM exporter dials operator-configured TLS syslog endpoints",
 		"ACME client",
 		"OCSP responders",
 		"hCaptcha and Turnstile verification",
@@ -57,11 +57,13 @@ func TestOutboundNetworkPolicyDocumentsProductionIntegrations(t *testing.T) {
 	if !strings.Contains(readme, "[Outbound Network Policy](docs/outbound-network-policy.md)") {
 		t.Fatal("README documentation index does not link docs/outbound-network-policy.md")
 	}
-	if strings.Contains(adrIndex, "| [0025](./0025-siem-integration.md) | SIEM Integration (CEF/LEEF/Splunk/Elastic) | Implemented |") {
-		t.Fatal("ADR index claims SIEM integration is implemented even though internal/layers/siem is absent")
+	// SIEM integration was implemented in v0.5.0 (internal/siem/).
+	// The ADR index and status now correctly reflect this.
+	if !strings.Contains(adrIndex, "| [0025](./0025-siem-integration.md) | SIEM Integration (CEF/LEEF/Splunk/Elastic) | Implemented |") {
+		t.Fatal("ADR index does not list SIEM integration as Implemented")
 	}
-	if strings.Contains(siemADR, "**Status:** Implemented") {
-		t.Fatal("SIEM ADR claims implemented status even though internal/layers/siem is absent")
+	if !strings.Contains(siemADR, "**Status:** Implemented") {
+		t.Fatal("SIEM ADR does not show Implemented status")
 	}
 }
 
@@ -415,13 +417,11 @@ func TestProductionDocsDistinguishPlannedAdvancedRuntimePackages(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"| [0012](./0012-graphql-protection.md) | 285 | GraphQL Protection | Proposed — not registered in pipeline |",
 		"| [0017](./0017-api-discovery-schema-validation.md) | 310 | API Discovery & Schema Validation | API Validation implemented baseline; passive discovery planned — not registered in pipeline |",
 		"| [0020](./0020-advanced-dlp.md) | 475 | Advanced DLP | Implemented baseline — advanced pattern engine planned |",
 		"| [0016](./0016-ml-anomaly-detection.md) | 473 | ML Anomaly Detection | Proposed — not registered in pipeline |",
 		"| [0018](./0018-enhanced-bot-management.md) | 500 | Enhanced Bot Management | Withdrawn — runtime bot baseline lives in `internal/layers/botdetect` |",
 		"| [0021](./0021-client-side-protection.md) | 590 | Client-Side Protection (RASP-lite) | Implemented baseline — browser agent planned |",
-		"| [0012](./0012-graphql-protection.md) | GraphQL Protection | Proposed — not registered in pipeline |",
 		"| [0020](./0020-advanced-dlp.md) | Advanced DLP Pattern Engine | Implemented baseline — advanced pattern engine planned |",
 		"| [0022](./0022-compliance-reporting.md) | Compliance & Reporting Framework | Implemented baseline — scheduled reports and retention enforcement planned |",
 		"| [0026](./0026-response-caching-layer.md) | 140 | Response Cache | Proposed — not registered in pipeline |",

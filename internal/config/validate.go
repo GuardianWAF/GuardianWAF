@@ -1333,16 +1333,15 @@ func validateRemovedLayers(waf *WAFConfig, ve *ValidationError) {
 	}{
 		{"waf.ml_anomaly", waf.MLAnomaly.Enabled},
 		{"waf.api_discovery", waf.APIDiscovery.Enabled},
-		{"waf.graphql", waf.GraphQL.Enabled},
+		// Note: waf.graphql is NOT removed — the GraphQL depth/complexity
+		// detector was added in v0.5.0 and runs inside the detection layer.
 		{"waf.grpc", waf.GRPC.Enabled},
 		{"waf.zero_trust", waf.ZeroTrust.Enabled},
-		{"waf.siem", waf.SIEM.Enabled},
 		{"waf.cache", waf.Cache.Enabled},
 		{"waf.replay", waf.Replay.Enabled},
 		{"waf.canary", waf.Canary.Enabled},
 		{"waf.analytics", waf.Analytics.Enabled},
 		{"waf.cluster", waf.Cluster.Enabled},
-		{"waf.websocket", waf.WebSocket.Enabled},
 	}
 	for _, r := range removed {
 		if r.enabled {
