@@ -4,7 +4,7 @@
 # complete tag set is exactly candidate-<commit-sha>.
 set -euo pipefail
 
-REPOSITORY="${GITHUB_REPOSITORY:-}"
+REPOSITORY="$(printf '%s' "${GITHUB_REPOSITORY:-}" | tr '[:upper:]' '[:lower:]')"
 OWNER="${GITHUB_REPOSITORY_OWNER:-}"
 COMMIT="${GITHUB_SHA:-}"
 CANDIDATE_TAG="candidate-${COMMIT}"

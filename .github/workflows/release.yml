@@ -104,6 +104,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Compute lowercase image repository
+        id: img
+        run: echo "repo=$(printf '%s' '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
       - name: Log in to GHCR for SHA-scoped staging
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -124,7 +128,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ghcr.io/${{ github.repository }}:candidate-${{ github.sha }}
+          tags: ghcr.io/${{ steps.img.outputs.repo }}:candidate-${{ github.sha }}
           labels: |
             org.opencontainers.image.version=${{ github.ref_name }}
             org.opencontainers.image.revision=${{ github.sha }}
@@ -144,12 +148,12 @@ jobs:
       - name: Sign staged image digest
         env:
           COSIGN_EXPERIMENTAL: "true"
-          IMAGE_REF: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
+          IMAGE_REF: ghcr.io/${{ steps.img.outputs.repo }}@${{ steps.build.outputs.digest }}
         run: cosign sign --yes "${IMAGE_REF}"
 
       - name: Record staged image evidence
         env:
-          IMAGE_REF: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
+          IMAGE_REF: ghcr.io/${{ steps.img.outputs.repo }}@${{ steps.build.outputs.digest }}
         run: |
           set -euo pipefail
           mkdir -p \
@@ -166,7 +170,7 @@ jobs:
           result: success
           EOF
           {
-            echo "image=ghcr.io/${GITHUB_REPOSITORY}:${GITHUB_REF_NAME}"
+            echo "image=ghcr.io/${GITHUB_REPOSITORY,,}:${GITHUB_REF_NAME}"
             echo "image_ref=${IMAGE_REF}"
             echo "digest=${{ steps.build.outputs.digest }}"
             echo "commit=${GITHUB_SHA}"
@@ -181,7 +185,7 @@ jobs:
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v "$PWD:/out" \
             anchore/syft:v1.38.0 \
-            "ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}" \
+            "ghcr.io/${{ steps.img.outputs.repo }}@${{ steps.build.outputs.digest }}" \
             -o spdx-json=/out/dist/release-evidence/release/supply-chain/sbom.spdx.json
 
       - name: Scan staged image
@@ -193,12 +197,12 @@ jobs:
             --severity HIGH,CRITICAL \
             --exit-code 1 \
             --no-progress \
-            "ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}" \
+            "ghcr.io/${{ steps.img.outputs.repo }}@${{ steps.build.outputs.digest }}" \
             | tee dist/release-evidence/release/supply-chain/trivy.txt
 
       - name: Verify staged image signature
         env:
-          IMAGE_REF: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
+          IMAGE_REF: ghcr.io/${{ steps.img.outputs.repo }}@${{ steps.build.outputs.digest }}
         run: |
           set -o pipefail
           {
@@ -213,7 +217,7 @@ jobs:
 
       - name: Verify staged image provenance attestation
         env:
-          IMAGE_REF: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
+          IMAGE_REF: ghcr.io/${{ steps.img.outputs.repo }}@${{ steps.build.outputs.digest }}
         run: |
           set -o pipefail
           {
@@ -229,7 +233,7 @@ jobs:
 
       - name: Verify staged image SBOM attestation
         env:
-          IMAGE_REF: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
+          IMAGE_REF: ghcr.io/${{ steps.img.outputs.repo }}@${{ steps.build.outputs.digest }}
         run: |
           set -o pipefail
           {
