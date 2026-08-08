@@ -191,6 +191,7 @@ func EncodeMembers(members []Member) []byte {
 		buf = append(buf, m.ID...)
 		// addrLen + addr — bounded to maxSourceIDLen (255) above.
 		buf = append(buf, byte(len(m.Addr))) // #nosec G115 -- len capped at maxSourceIDLen
+		buf = append(buf, m.Addr...)
 	}
 	return buf
 }
