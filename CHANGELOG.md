@@ -1,5 +1,42 @@
 ## [Unreleased]
 
+### Added — v0.5.0 Detection Expansion
+
+- **HTTP Request Smuggling detector** — inspects CL/TE framing headers for
+  desync attacks (CL.TE, CL.CL, TE.TE obfuscation, duplicate TE, HTTP/1.0 + TE,
+  CR/LF injection). 15 unit cases + fuzz target.
+- **Open Redirect detector** — 18 redirect parameter names + 6 redirect headers,
+  detects external URLs, protocol-relative, scheme injection, data exfil,
+  backslash confusion, CRLF injection. Same-origin bypass. 27/28 corpus (96.4%).
+- **GraphQL depth/complexity detector** — max depth, max complexity, introspection
+  blocking, aliasing abuse (>10 same-field), fragment cycles, batch-query bombs,
+  parenthesis nesting. Raw/JSON/query-param transport support. 20/20 corpus (100%).
+- **SIEM export (CEF over TLS syslog)** — async batch sender via EventBus. CEF
+  and JSON formats. Auto-reconnect with exponential backoff. Block/challenge event
+  filtering. Tenant-isolated. Config: `waf.siem.*`.
+- **WebSocket inspection layer** — frame-level injection detection on text frames
+  (full 11-detector pipeline), origin validation (CSWSH), frame size limiting,
+  connection limiting per IP, binary frame blocking. Config: `waf.websocket.*`.
+- **Dashboard SSE live feed** — real-time event push via Server-Sent Events with
+  pause/resume (500-event buffer), connection status indicator, filter chips, search.
+- **Fuzz targets** for all three new detectors (smuggling, openredirect, graphql).
+  45M combined executions, 0 crashes.
+
+### Changed
+
+- Detection pipeline expanded from 8 to 11 detectors. All benchmarks updated to
+  run the full 11-detector pipeline.
+- `waf.graphql`, `waf.siem`, `waf.websocket` removed from the "removed layers"
+  guard — they are now fully implemented.
+- Dashboard config page detector list updated from 6 to 11 detectors.
+- ADR status updated: GraphQL, WebSocket, SIEM marked "Implemented".
+
+### Performance
+
+- All new layers within budget: benign request 22.8 µs (budget: <1 ms), attack
+  request 22.9 µs (budget: <2 ms). Proxy p99 overhead: 1.0 ms standalone, 1.0 ms
+  sidecar (budgets: <5 ms / <3 ms). Zero measurable overhead from new detectors.
+
 ### Breaking Changes
 
 - Threat intel feed URLs and the GeoIP `download_url` must now use `https://`.
