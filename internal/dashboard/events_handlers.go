@@ -26,6 +26,11 @@ func (d *Dashboard) handleGetStats(w http.ResponseWriter, r *http.Request) {
 	if d.alertingStats != nil {
 		result["alerting"] = d.alertingStats.GetAlertingStats()
 	}
+	d.extraStatsMu.RLock()
+	for k, fn := range d.extraStats {
+		result[k] = fn()
+	}
+	d.extraStatsMu.RUnlock()
 	writeJSON(w, http.StatusOK, result)
 }
 

@@ -340,6 +340,9 @@ func cmdServe(args []string) {
 		eng.Logs.Info("MCP stdio transport enabled")
 	}
 
+	// 10c.2 Start SIEM export if enabled
+	siemExp := setupSIEMRuntime(cfg, eng, eventBus, &eventConsumerWG, dash)
+
 	// 10d. Start Docker auto-discovery if enabled
 	dockerWatcher := setupDockerRuntime(cfg, eng, dash, &proxyRouter, &proxyHealthCheckers, &proxyRuntimeMu, &upstreamHandler, tenantMiddleware)
 	if dockerWatcher != nil {
@@ -385,6 +388,7 @@ func cmdServe(args []string) {
 		alertManager:        alertMgr,
 		dashboard:           dash,
 		tenantManager:       tenantManager,
+		siemExporter:        siemExp,
 		eventConsumerWG:     &eventConsumerWG,
 		layerResources:      layerResources,
 	}); err != nil {

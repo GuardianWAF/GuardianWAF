@@ -36,6 +36,7 @@ type serveShutdownResources struct {
 	alertManager        *alerting.Manager
 	dashboard           *dashboard.Dashboard
 	tenantManager       interface{ CloseWithContext(context.Context) error }
+	siemExporter        interface{ Close() error }
 	eventConsumerWG     *sync.WaitGroup
 	layerResources      *layerRuntimeResources
 }
@@ -169,6 +170,12 @@ func shutdownServeRuntime(ctx context.Context, resources serveShutdownResources)
 		if err := resources.dashboard.CloseWithContext(ctx); err != nil {
 			eng.Logs.Warnf("Dashboard shutdown timed out: %v", err)
 			shutdownErrs = append(shutdownErrs, fmt.Errorf("dashboard shutdown: %w", err))
+		}
+	}
+	if resources.siemExporter != nil {
+		if err := resources.siemExporter.Close(); err != nil {
+			eng.Logs.Warnf("SIEM exporter shutdown timed out: %v", err)
+			shutdownErrs = append(shutdownErrs, fmt.Errorf("SIEM exporter shutdown: %w", err))
 		}
 	}
 	if resources.tenantManager != nil && !isNilInterface(resources.tenantManager) {

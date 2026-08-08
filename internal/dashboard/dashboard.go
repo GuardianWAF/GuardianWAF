@@ -121,6 +121,10 @@ type Dashboard struct {
 
 	// Audit log for REST API mutations
 	auditLog *AuditLog
+
+	// Extra stats providers for /api/stats (SIEM, etc.)
+	extraStatsMu sync.RWMutex
+	extraStats   map[string]func() any
 }
 
 const (
@@ -305,6 +309,20 @@ func (d *Dashboard) SetAlertingStatsFn(fn func() any) {
 		return
 	}
 	d.alertingStats = &alertingStatsAdapter{fn: fn}
+}
+
+// SetSIEMStatsFn injects SIEM exporter stats for the /api/stats endpoint.
+func (d *Dashboard) SetSIEMStatsFn(fn func() any) {
+	if fn == nil {
+		return
+	}
+	// Store via the extra stats mechanism — surfaced as "siem" in /api/stats.
+	d.extraStatsMu.Lock()
+	defer d.extraStatsMu.Unlock()
+	if d.extraStats == nil {
+		d.extraStats = make(map[string]func() any)
+	}
+	d.extraStats["siem"] = fn
 }
 
 // alertingStatsAdapter wraps a func() any as an AlertingStatsProvider.

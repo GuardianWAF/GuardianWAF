@@ -211,7 +211,7 @@ func DefaultConfig() *Config {
 			},
 			SIEM: SIEMConfig{
 				Enabled:       false,
-				Format:        "json",
+				Format:        "cef",
 				BatchSize:     100,
 				FlushInterval: 5 * time.Second,
 				Timeout:       10 * time.Second,

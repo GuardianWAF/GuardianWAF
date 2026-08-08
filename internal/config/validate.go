@@ -1097,6 +1097,9 @@ func Validate(cfg *Config) error {
 	// Docker discovery validation
 	validateDocker(&cfg.Docker, ve)
 
+	// SIEM export validation
+	validateSIEM(&cfg.WAF.SIEM, ve)
+
 	// Distributed tracing validation
 	validateTracing(&cfg.Tracing, ve)
 
@@ -1676,6 +1679,32 @@ func ValidateRoutesExported(routes []RouteConfig, upstreams []UpstreamConfig, ve
 // ValidateVirtualHostsExported validates virtual host configs (exported for dashboard).
 func ValidateVirtualHostsExported(vhosts []VirtualHostConfig, upstreams []UpstreamConfig, ve *ValidationError) {
 	validateVirtualHosts(vhosts, upstreams, ve)
+}
+
+func validateSIEM(siem *SIEMConfig, ve *ValidationError) {
+	if !siem.Enabled {
+		return
+	}
+	if siem.Endpoint == "" {
+		ve.addError("waf.siem.endpoint", "must not be empty when siem is enabled")
+	} else if !strings.Contains(siem.Endpoint, ":") {
+		ve.addError("waf.siem.endpoint", fmt.Sprintf("must include a port (host:port); got %q", siem.Endpoint))
+	}
+	switch siem.Format {
+	case "cef", "json", "":
+		// valid (empty defaults to cef)
+	default:
+		ve.addError("waf.siem.format", fmt.Sprintf("must be one of: cef, json; got %q", siem.Format))
+	}
+	if siem.BatchSize < 0 {
+		ve.addError("waf.siem.batch_size", fmt.Sprintf("must be >= 0; got %d", siem.BatchSize))
+	}
+	if siem.FlushInterval < 0 {
+		ve.addError("waf.siem.flush_interval", "must be >= 0")
+	}
+	if siem.Timeout < 0 {
+		ve.addError("waf.siem.timeout", "must be >= 0")
+	}
 }
 
 // isValidIPOrCIDR returns true if s is a valid IP address or CIDR notation.
