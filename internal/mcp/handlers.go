@@ -101,7 +101,7 @@ func validateJSONTypes[T any](params json.RawMessage) error {
 	}
 
 	t := reflect.TypeOf((*T)(nil)).Elem()
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 	if t.Kind() != reflect.Struct {
@@ -163,7 +163,7 @@ func jsonTypeName(t reflect.Type) string {
 		return "array"
 	case reflect.Map:
 		return "object"
-	case reflect.Ptr:
+	case reflect.Pointer:
 		return jsonTypeName(t.Elem())
 	default:
 		return "string"

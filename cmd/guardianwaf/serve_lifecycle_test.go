@@ -363,7 +363,7 @@ func TestShutdownRuntimesReturnEventStoreDurabilityErrors(t *testing.T) {
 			if !errors.Is(err, wantErr) {
 				t.Fatalf("shutdown error = %v, want wrapped %v", err, wantErr)
 			}
-			if err == wantErr {
+			if err.Error() == wantErr.Error() {
 				t.Fatal("shutdown error should identify the failing lifecycle component")
 			}
 		})

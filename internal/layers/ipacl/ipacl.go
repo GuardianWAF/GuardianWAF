@@ -360,7 +360,7 @@ func (l *Layer) SaveBans(path string) {
 	}
 	bans := l.ActiveBans()
 	if len(bans) == 0 {
-		removeFile(cleanPath) // #nosec G104 -- best-effort cleanup; error not actionable
+		_ = removeFile(cleanPath) // #nosec G104 -- best-effort cleanup; error not actionable
 		return
 	}
 	data, err := jsonMarshal(bans)

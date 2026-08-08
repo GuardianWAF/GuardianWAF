@@ -360,9 +360,6 @@ func (d *Dashboard) syncTenantAPIKeys(manager tenantManagerInterface) {
 			keys[record.ID] = record.APIKeyHash
 		}
 	}
-	if keys == nil {
-		keys = make(map[string]string)
-	}
 
 	d.tenantAPIKeysMu.Lock()
 	d.tenantAPIKeys = keys

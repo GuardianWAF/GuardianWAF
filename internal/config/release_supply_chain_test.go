@@ -497,6 +497,9 @@ func TestWorkflowPrerequisiteChecksRunAfterToolchainSetup(t *testing.T) {
 				continue
 			}
 			checkIdx := strings.Index(job, "Check build prerequisites")
+			if checkIdx < 0 {
+				continue
+			}
 			beforeCheck := job[:checkIdx]
 			if !strings.Contains(beforeCheck, "actions/setup-go@") {
 				t.Fatalf("%s job runs scripts/check-prereqs.sh before actions/setup-go; validate the configured Go version, not the runner default:\n%s", workflowPath, firstLine(job))

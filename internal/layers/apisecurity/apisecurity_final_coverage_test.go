@@ -57,13 +57,11 @@ func TestFinalPublicKeyParsingAndConstructors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ecKeys := make([]*ecdsa.PublicKey, 0, 3)
 	for _, curve := range []elliptic.Curve{elliptic.P256(), elliptic.P384(), elliptic.P521()} {
 		k, err := ecdsa.GenerateKey(curve, rand.Reader)
 		if err != nil {
 			t.Fatal(err)
 		}
-		ecKeys = append(ecKeys, &k.PublicKey)
 		if got, err := parsePublicKey([]byte(finalPEM(t, &k.PublicKey))); err != nil || got == nil {
 			t.Fatalf("parse EC %s: %v", curve.Params().Name, err)
 		}

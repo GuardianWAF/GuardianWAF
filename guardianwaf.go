@@ -293,15 +293,15 @@ func NewFromFile(path string, opts ...Option) (*Engine, error) {
 	if err != nil {
 		return nil, fmt.Errorf("loading config file %q: %w", path, err)
 	}
-	if err := config.LoadEnv(cfg); err != nil {
-		return nil, fmt.Errorf("loading environment configuration: %w", err)
+	if envErr := config.LoadEnv(cfg); envErr != nil {
+		return nil, fmt.Errorf("loading environment configuration: %w", envErr)
 	}
 
 	for _, opt := range opts {
 		opt(cfg)
 	}
-	if err := config.Validate(cfg); err != nil {
-		return nil, fmt.Errorf("validating configuration: %w", err)
+	if validateErr := config.Validate(cfg); validateErr != nil {
+		return nil, fmt.Errorf("validating configuration: %w", validateErr)
 	}
 
 	store := events.NewMemoryStore(cfg.Events.MaxEvents)

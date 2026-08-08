@@ -1073,31 +1073,6 @@ func TestEnqueueResponse_DoneClient(t *testing.T) {
 	}
 }
 
-// flushRecorder is an http.ResponseWriter + http.Flusher for testing.
-type flushRecorder struct {
-	header  http.Header
-	written int
-	flushes int
-}
-
-func (f *flushRecorder) Header() http.Header {
-	if f.header == nil {
-		f.header = make(http.Header)
-	}
-	return f.header
-}
-
-func (f *flushRecorder) Write(b []byte) (int, error) {
-	f.written += len(b)
-	return len(b), nil
-}
-
-func (f *flushRecorder) WriteHeader(code int) {}
-
-func (f *flushRecorder) Flush() {
-	f.flushes++
-}
-
 // Ensure unused import for io is consumed.
 var _ io.Reader = &errReader{}
 
