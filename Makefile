@@ -51,6 +51,7 @@ fuzz:
 	go test -run=XXX -fuzz=FuzzSQLiTokenizer -fuzztime=$(FUZZTIME) ./internal/layers/detection/sqli/
 	go test -run=XXX -fuzz=FuzzXSSDetector -fuzztime=$(FUZZTIME) ./internal/layers/detection/xss/
 	go test -run=XXX -fuzz=FuzzSmugglingDetector -fuzztime=$(FUZZTIME) ./internal/layers/detection/smuggling/
+	go test -run=XXX -fuzz=FuzzOpenRedirectDetector -fuzztime=$(FUZZTIME) ./internal/layers/detection/openredirect/
 
 clean:
 	rm -f $(BINARY)

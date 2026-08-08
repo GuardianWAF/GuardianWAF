@@ -11,6 +11,7 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/layers/detection/cmdi"
 	"github.com/guardianwaf/guardianwaf/internal/layers/detection/lfi"
 	"github.com/guardianwaf/guardianwaf/internal/layers/detection/nosqli"
+	"github.com/guardianwaf/guardianwaf/internal/layers/detection/openredirect"
 	"github.com/guardianwaf/guardianwaf/internal/layers/detection/smuggling"
 	"github.com/guardianwaf/guardianwaf/internal/layers/detection/sqli"
 	"github.com/guardianwaf/guardianwaf/internal/layers/detection/ssrf"
@@ -77,6 +78,9 @@ func NewLayer(cfg *Config) *Layer {
 	}
 	if dc, ok := cfg.Detectors["smuggling"]; ok {
 		l.detectors = append(l.detectors, smuggling.NewDetector(dc.Enabled, dc.Multiplier))
+	}
+	if dc, ok := cfg.Detectors["openredirect"]; ok {
+		l.detectors = append(l.detectors, openredirect.NewDetector(dc.Enabled, dc.Multiplier))
 	}
 
 	return l
