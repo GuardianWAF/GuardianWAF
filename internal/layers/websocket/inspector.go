@@ -119,13 +119,17 @@ func (fr *FrameReader) ReadFrame() (*Frame, error) {
 		if _, err := io.ReadFull(fr.r, ext); err != nil {
 			return nil, err
 		}
-		payloadLen = int64(binary.BigEndian.Uint16(ext))
+		payloadLen = uint16ToPayloadLen(ext)
 	case 127:
 		ext := make([]byte, 8)
 		if _, err := io.ReadFull(fr.r, ext); err != nil {
 			return nil, err
 		}
-		payloadLen = int64(binary.BigEndian.Uint64(ext))
+		v := binary.BigEndian.Uint64(ext)
+		if v > maxInt64 { // guard against overflow on 32-bit platforms
+			return nil, ErrFrameTooLarge
+		}
+		payloadLen = int64(v) // #nosec G115 -- guarded by maxInt64 check above
 	default:
 		payloadLen = int64(hdr[1] & 0x7F)
 	}
@@ -173,7 +177,7 @@ func WriteFrame(w io.Writer, frame *Frame) error {
 	var lenByte byte
 	switch {
 	case len(frame.Payload) < 126:
-		lenByte = byte(len(frame.Payload))
+		lenByte = byte(len(frame.Payload)) // #nosec G115 -- len < 126 in this branch
 	case len(frame.Payload) <= 0xFFFF:
 		lenByte = 126
 	default:
@@ -185,7 +189,7 @@ func WriteFrame(w io.Writer, frame *Frame) error {
 	if frame.FIN {
 		hdr0 |= 0x80
 	}
-	hdr0 |= byte(frame.Opcode & 0x0F)
+	hdr0 |= byte(frame.Opcode & 0x0F) // #nosec G115 -- opcode is always 0-15
 
 	// Build header.
 	var hdr []byte
@@ -194,11 +198,11 @@ func WriteFrame(w io.Writer, frame *Frame) error {
 	switch lenByte {
 	case 126:
 		ext := make([]byte, 2)
-		binary.BigEndian.PutUint16(ext, uint16(len(frame.Payload)))
+		binary.BigEndian.PutUint16(ext, lenToUint16(len(frame.Payload)))
 		hdr = append(hdr, ext...)
 	case 127:
 		ext := make([]byte, 8)
-		binary.BigEndian.PutUint64(ext, uint64(len(frame.Payload)))
+		binary.BigEndian.PutUint64(ext, lenToUint64(len(frame.Payload)))
 		hdr = append(hdr, ext...)
 	}
 

@@ -11,8 +11,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/guardianwaf/guardianwaf/internal/engine"
 )
 
 // Config holds the WebSocket inspection layer configuration.
@@ -55,11 +53,7 @@ func NewLayer(cfg *Config) *Layer {
 	}
 }
 
-func (l *Layer) Name() string { return "websocket-inspection" }
-func (l *Layer) Order() int   { return engine.OrderResponse + 10 } // After response layer
-func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
-	return engine.LayerResult{} // No-op: inspection happens in the middleware wrapper
-}
+
 
 // IsWebSocketUpgrade returns true if this request is a WebSocket upgrade.
 func IsWebSocketUpgrade(r *http.Request) bool {
@@ -317,8 +311,8 @@ func originAllowed(origin string, allowed []string) bool {
 // makeClosePayload creates a WebSocket close frame payload (code + reason).
 func makeClosePayload(code int, reason string) []byte {
 	payload := make([]byte, 2+len(reason))
-	payload[0] = byte(code >> 8)
-	payload[1] = byte(code)
+	payload[0] = byte(code >> 8) // #nosec G115 -- code is validated to fit in 16 bits
+	payload[1] = byte(code)      // #nosec G115 -- code is validated to fit in 16 bits
 	copy(payload[2:], reason)
 	return payload
 }
