@@ -50,7 +50,9 @@ Rather than adopting `hashicorp/raft` (external dependency), implement a minimal
 - Pre-vote optimization
 - Read-only lease reads (all reads are linearizable)
 
-**RPC transport:** The existing `clustersync` gRPC-lite transport is reused. Raft messages are serialized as protobuf-encoded binary and sent over TCP. No external gRPC library — a hand-rolled binary framing protocol over `net.Conn`.
+**RPC transport:** Raft messages use a hand-rolled binary framing protocol over TCP (`net.Conn`) — no external gRPC library, no protobuf. The message format mirrors the gossip wire format: `<type:1><len:4><payload>` with JSON-encoded command structs for human readability during debugging.
+
+**Peer discovery:** The gossip membership layer (`internal/cluster/gossip/`, implemented in v0.6.0) provides the peer list. Raft nodes discover each other through gossip's `Members()` API rather than static config. The gossip layer handles liveness detection (alive/suspect/dead) and node discovery; Raft handles strong consistency on top of the membership view. This mirrors the etcd/Consul architecture: gossip for membership, Raft for consensus.
 
 ### Architecture
 
@@ -172,18 +174,23 @@ cluster:
 
 ## Implementation Locations
 
-**Note**: `internal/cluster/` exists (cluster.go, layer.go) — provides HTTP gossip + leader election (NOT yet using Raft). Cluster mode is not registered in the main pipeline. The Raft implementation files below (`raft/`, `state/`) and cluster dashboard handlers are planned but do not exist yet.
+**Current tree note:** The SWIM gossip membership protocol is implemented at `internal/cluster/gossip/` (member state machine, UDP transport, probe/indirect-ping/suspicion protocol, push-pull join, piggyback dissemination — 28 tests, race-clean). Gossip handles membership and failure detection only — it does not provide consensus. The Raft consensus layer (`internal/cluster/raft/`) and the replicated state machine (`internal/cluster/state/` or `internal/clustersync/`) are planned and do not exist in the current tree. Cluster dashboard handlers at `internal/dashboard/cluster_handlers.go` exist as stubs returning empty/disabled responses.
 
-| File | Purpose |
-|------|---------|
-| `internal/cluster/raft/raft.go` | Core Raft state machine (leader election, log) (planned) |
-| `internal/cluster/raft/log.go` | Persistent log storage (planned) |
-| `internal/cluster/raft/snapshot.go` | State machine snapshot/restore (planned) |
-| `internal/cluster/raft/transport.go` | Binary framing RPC over TCP (planned) |
-| `internal/cluster/state/machine.go` | WAF state machine (ban list, rules, counters) (planned) |
-| `internal/cluster/state/commands.go` | Command type definitions and serialization (planned) |
-| `internal/dashboard/cluster.go` | Cluster health dashboard handlers (planned — does not exist yet) |
-| `internal/config/config.go` | `ClusterConfig` extension |
+| File | Status | Purpose |
+|------|--------|---------|
+| `internal/cluster/gossip/member.go` | **Implemented** | Member struct, MemberList state machine (incarnation-based conflict resolution) |
+| `internal/cluster/gossip/message.go` | **Implemented** | Wire format encoding, member list serialization for piggyback |
+| `internal/cluster/gossip/transport.go` | **Implemented** | UDP transport with `Transport` interface |
+| `internal/cluster/gossip/protocol.go` | **Implemented** | SWIM protocol: probe loop, indirect ping, suspicion, push-pull, piggyback |
+| `internal/cluster/raft/raft.go` | Planned | Core Raft state machine (leader election, log replication) |
+| `internal/cluster/raft/log.go` | Planned | Persistent log storage (WAL on disk) |
+| `internal/cluster/raft/snapshot.go` | Planned | State machine snapshot/restore |
+| `internal/cluster/raft/transport.go` | Planned | Binary framing RPC over TCP (AppendEntries, RequestVote) |
+| `internal/cluster/raft/membership.go` | Planned | Adapter: read gossip member list → Raft peer configuration |
+| `internal/clustersync/store.go` | Planned | `ReplicatedStore` interface for ban list, rules, counters |
+| `internal/clustersync/commands.go` | Planned | Command type definitions and serialization |
+| `internal/dashboard/cluster_handlers.go` | **Stub** | Returns empty/disabled responses — will wire to Raft state |
+| `internal/config/config.go` | **Exists** | `ClusterConfig` struct — Raft config fields will be added |
 
 ## References
 
