@@ -251,8 +251,6 @@ func TestProductionDocsDistinguishPlannedAdvancedRuntimePackages(t *testing.T) {
 		"internal/layers/cache",
 		"internal/layers/canary",
 		"internal/layers/replay",
-		"internal/layers/siem",
-		"internal/layers/websocket",
 		"internal/layers/zerotrust",
 	}
 	for _, rel := range plannedOnlyDirs {
@@ -279,7 +277,7 @@ func TestProductionDocsDistinguishPlannedAdvancedRuntimePackages(t *testing.T) {
 		"current registered runtime pipeline",
 		"planned/config-compatibility layer orders",
 		"HTTP/3/QUIC is not a production listener",
-		"8 Detectors",
+		"11 Detectors",
 	} {
 		if !strings.Contains(docsArchitecture, want) {
 			t.Fatalf("docs architecture missing current-vs-planned qualifier %q", want)
@@ -288,7 +286,7 @@ func TestProductionDocsDistinguishPlannedAdvancedRuntimePackages(t *testing.T) {
 	for _, want := range []string{
 		"current registered runtime pipeline",
 		"planned/runtime-absent layers",
-		"8 attack detectors",
+		"11 attack detectors",
 		"gRPC message inspection",
 	} {
 		if !strings.Contains(detectionEngine, want) {

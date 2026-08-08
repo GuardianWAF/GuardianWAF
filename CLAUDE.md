@@ -106,7 +106,7 @@ parsed-but-inert and are rejected as unknown top-level keys.)
 | 280 | API Validation | Request/response schema validation (YAML-defined schemas) |
 | 300 | Sanitizer | Normalize + validate requests |
 | 350 | CRS | OWASP ModSecurity Core Rule Set parser and executor |
-| 400 | Detection | 8 detectors: sqli, xss, lfi, cmdi, xxe, ssrf, ssti, nosqli (each in own subdirectory) |
+| 400 | Detection | 11 detectors: sqli, xss, lfi, cmdi, xxe, ssrf, ssti, nosqli, smuggling, openredirect, graphql (each in own subdirectory) |
 | 430 | JS Challenge | Bot proof-of-work challenge (SHA-256 PoW) — wired via the challenge service |
 | 450 | Virtual Patch | Virtual patching layer |
 | 475 | DLP | Data Loss Prevention (credit cards, SSNs, API keys, PII) |
