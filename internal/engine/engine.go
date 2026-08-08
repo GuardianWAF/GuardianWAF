@@ -81,6 +81,11 @@ type Engine struct {
 	// Challenge service (optional, injected via SetChallengeService)
 	challengeSvc ChallengeChecker
 
+	// WebSocket interceptor (optional). When set, the middleware wraps the
+	// downstream handler with this interceptor so WebSocket upgrade requests
+	// are hijacked and inspected frame-by-frame instead of proxied raw.
+	wsHandler func(http.Handler) http.Handler
+
 	// Application log buffer
 	Logs *LogBuffer
 
@@ -191,6 +196,43 @@ func (e *Engine) SetChallengeService(svc ChallengeChecker) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.challengeSvc = svc
+}
+
+// SetWebSocketInterceptor injects a WebSocket frame-inspection wrapper.
+// When set, Middleware wraps the downstream handler with this function,
+// so WebSocket upgrade requests are hijacked and inspected frame-by-frame.
+func (e *Engine) SetWebSocketInterceptor(fn func(http.Handler) http.Handler) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.wsHandler = fn
+}
+
+// ScanPayload runs the detection pipeline on a raw payload (e.g., a WebSocket
+// text frame). It returns the total score and whether the payload should be
+// blocked. This is used by the WebSocket inspection layer to scan individual
+// frames without constructing a full *http.Request.
+func (e *Engine) ScanPayload(clientIP, path, payload string) (score int, block bool) {
+	ctx := &RequestContext{
+		ClientIP:        net.ParseIP(clientIP),
+		Path:            path,
+		NormalizedPath:  path,
+		Method:          "WS",
+		BodyString:      payload,
+		NormalizedBody:  payload,
+		Headers:         map[string][]string{},
+		QueryParams:     map[string][]string{},
+		NormalizedQuery: map[string][]string{},
+		Cookies:         map[string]string{},
+	}
+
+	pipeline := e.currentPipeline()
+	if pipeline == nil {
+		return 0, false
+	}
+
+	result := pipeline.Execute(ctx)
+	finalAction := determineAction(result, int(e.blockThreshold.Load()), int(e.logThreshold.Load()))
+	return result.TotalScore, finalAction == ActionBlock
 }
 
 // SetAccessLog sets a callback for structured access logging.
@@ -413,6 +455,17 @@ func (e *Engine) Check(r *http.Request) (ev *Event) {
 // next handler or returns a 403 block response. Security headers from the
 // response layer are applied to all responses (both blocked and passed).
 func (e *Engine) Middleware(next http.Handler) http.Handler {
+	// Wrap next with the WebSocket interceptor when configured. This must be
+	// applied outside the detection pipeline so WS upgrade requests still go
+	// through detection layers on the initial HTTP request — the interceptor
+	// only takes over after the connection is upgraded.
+	e.mu.RLock()
+	wsHandler := e.wsHandler
+	e.mu.RUnlock()
+	if wsHandler != nil {
+		next = wsHandler(next)
+	}
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Panic recovery — prevent a single request from crashing the server
 		defer func() {

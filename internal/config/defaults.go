@@ -300,7 +300,7 @@ func DefaultConfig() *Config {
 				StoragePath:         "data/remediation",
 			},
 			WebSocket: WebSocketConfig{
-				Enabled:             false, // layer removed; kept parsed-but-inert for old configs
+				Enabled:             false, // enable to inspect WebSocket frame payloads
 				MaxMessageSize:      10 * 1024 * 1024,
 				MaxFrameSize:        1 * 1024 * 1024,
 				RateLimitPerSecond:  100,

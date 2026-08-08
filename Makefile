@@ -53,6 +53,7 @@ fuzz:
 	go test -run=XXX -fuzz=FuzzSmugglingDetector -fuzztime=$(FUZZTIME) ./internal/layers/detection/smuggling/
 	go test -run=XXX -fuzz=FuzzOpenRedirectDetector -fuzztime=$(FUZZTIME) ./internal/layers/detection/openredirect/
 	go test -run=XXX -fuzz=FuzzGraphQLDetector -fuzztime=$(FUZZTIME) ./internal/layers/detection/graphql/
+	go test -run=XXX -fuzz=FuzzParseFrame -fuzztime=$(FUZZTIME) ./internal/layers/websocket/
 
 clean:
 	rm -f $(BINARY)

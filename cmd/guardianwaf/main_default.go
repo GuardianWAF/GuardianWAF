@@ -345,6 +345,9 @@ func cmdServe(args []string) {
 	siem.SetVersion(version)
 	siemExp := setupSIEMRuntime(cfg, eng, eventBus, &eventConsumerWG, dash)
 
+	// 10c.3 Wire WebSocket inspection if enabled
+	setupWebSocketRuntime(cfg, eng)
+
 	// 10d. Start Docker auto-discovery if enabled
 	dockerWatcher := setupDockerRuntime(cfg, eng, dash, &proxyRouter, &proxyHealthCheckers, &proxyRuntimeMu, &upstreamHandler, tenantMiddleware)
 	if dockerWatcher != nil {
