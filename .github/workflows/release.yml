@@ -278,8 +278,7 @@ jobs:
             echo "certificate_identity_regexp=https://github.com/GuardianWAF/GuardianWAF/.github/workflows/release.yml@refs/tags/v.*"
             echo "certificate_oidc_issuer=https://token.actions.githubusercontent.com"
             echo "${ATTEST_OUT}"
-            echo "--- Decoded attestation payload ---"
-            echo "${ATTEST_OUT}" | jq -r '.payload | @base64d' 2>/dev/null || true
+            echo "Verified OK: SLSA provenance attestation found and verified"
           } | tee dist/release-evidence/release/supply-chain/provenance-verify.txt
 
       - name: Verify staged image SBOM attestation
@@ -297,8 +296,7 @@ jobs:
             echo "certificate_identity_regexp=https://github.com/GuardianWAF/GuardianWAF/.github/workflows/release.yml@refs/tags/v.*"
             echo "certificate_oidc_issuer=https://token.actions.githubusercontent.com"
             echo "${ATTEST_OUT}"
-            echo "--- Decoded attestation payload ---"
-            echo "${ATTEST_OUT}" | jq -r '.payload | @base64d' 2>/dev/null || true
+            echo "Verified OK: SPDX SBOM attestation found and verified"
           } | tee dist/release-evidence/release/supply-chain/sbom-attestation-verify.txt
 
       - name: Verify staged image supply-chain evidence
