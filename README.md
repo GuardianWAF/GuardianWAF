@@ -24,7 +24,7 @@ GuardianWAF is a production-grade Web Application Firewall written in pure Go wi
 ## Features
 
 **Detection & Protection**
-- Six attack detectors: SQL injection, XSS, path traversal, command injection, XXE, SSRF
+- Eleven attack detectors: SQL injection, XSS, path traversal, command injection, XXE, SSRF, SSTI, NoSQL injection, HTTP request smuggling, open redirect, GraphQL depth/complexity
 - Tokenizer-based detection engine with configurable scoring thresholds
 - JS Challenge (SHA-256 proof-of-work) for suspicious requests -- stops bots, passes real browsers
 - Rate limiting with token bucket algorithm, per-IP and per-path scoping, and auto-ban
@@ -65,6 +65,21 @@ GuardianWAF is a production-grade Web Application Firewall written in pure Go wi
 - Auto-block malicious IPs based on AI verdict (configurable confidence threshold)
 - Hard cost limits: tokens/hour, tokens/day, requests/hour to prevent runaway API costs
 - See [AI Analysis Guide](docs/ai-analysis.md) for setup and configuration
+
+**SIEM Integration**
+- CEF (Common Event Format) export over TLS syslog (RFC 5425) for Splunk, QRadar, ArcSight, Sentinel
+- Forwards block and challenge events only (not pass) to reduce noise
+- Batched delivery: 100 events or 1 second, whichever comes first
+- Automatic reconnection with exponential backoff
+- JSON format option for Elasticsearch and generic HTTP log collectors
+- Zero request-path latency (async EventBus subscriber)
+
+**WebSocket Security**
+- Frame-level inspection of WebSocket text messages through the full detection pipeline
+- Origin validation to prevent Cross-Site WebSocket Hijacking (CSWSH)
+- Per-IP concurrent connection limiting and frame size enforcement
+- Binary frame size limiting (no content inspection)
+- Configurable idle timeout and handshake timeout
 
 **Alerting & Notifications**
 - Real-time webhook alerts for Slack, Discord, PagerDuty, and generic HTTP endpoints
@@ -392,6 +407,8 @@ GuardianWAF was built to eliminate the trade-offs other WAF solutions force: com
 | **CORS Security** | Built-in layer | No | No | No | No |
 | **ATO Protection** | Brute force + credential stuffing | No | No | No | No |
 | **API Security** | JWT validation + API keys | No | No | No | No |
+| **WebSocket inspection** | Frame-level detection | No | No | No | No |
+| **SIEM export** | CEF over TLS syslog | No | No | No | No |
 | **Configuration** | YAML + env + dashboard UI | Web UI | SecRule directives | SecRule directives | NGINX directives |
 | **False positive mgmt** | Score tuning per-route | Auto learning | Rule exclusions | Rule exclusions | Allowlists |
 | **Performance overhead** | < 1ms p99 | Low | Low | Moderate | Low |
@@ -435,7 +452,7 @@ GuardianWAF was built to eliminate the trade-offs other WAF solutions force: com
                    circuit breaker)
 ```
 
-Each layer runs in order and can pass, log, challenge, or block the request. The detection layer runs 6 independent detectors (SQLi, XSS, LFI, CMDi, XXE, SSRF) and produces a cumulative threat score. Bot detection scores between 40-79 trigger a JavaScript proof-of-work challenge instead of blocking outright.
+Each layer runs in order and can pass, log, challenge, or block the request. The detection layer runs 11 independent detectors — SQLi, XSS, LFI, CMDi, XXE, SSRF, SSTI, NoSQLi, HTTP request smuggling, open redirect, GraphQL depth/complexity — and produces a cumulative threat score. Bot detection scores between 40-79 trigger a JavaScript proof-of-work challenge instead of blocking outright. WebSocket upgrade requests are intercepted by the WebSocket inspection layer, which hijacks the connection and runs the full detection pipeline against each text frame.
 
 ---
 
@@ -564,6 +581,47 @@ dashboard:
 Configuration layering: `defaults` -> `YAML file` -> `environment variables (GWAF_ prefix)` -> `CLI flags`.
 
 See [Configuration Reference](docs/configuration.md) for the complete YAML schema.
+
+### SIEM Integration (CEF over TLS syslog)
+
+Forward block/challenge events to Splunk, QRadar, ArcSight, or Microsoft Sentinel:
+
+<!-- guardianwaf-config:validate -->
+```yaml
+waf:
+  siem:
+    enabled: true
+    endpoint: "siem.example.com:6514"  # TLS syslog port (RFC 5425)
+    format: "cef"                       # cef | json
+    batch_size: 100                     # flush after N events
+    flush_interval: "1s"                # or after this duration
+    timeout: "10s"                      # per-write timeout
+    # api_key: "${SIEM_API_KEY}"        # optional, for HTTP-based SIEM collectors
+    # skip_verify: false                # skip TLS cert verification (testing only)
+```
+
+Events are forwarded asynchronously via the EventBus — SIEM connectivity issues never block request processing.
+
+### WebSocket Inspection
+
+Inspect WebSocket text frames for injection attacks (SQLi, XSS, CMDi, etc.) and validate upgrade origins:
+
+<!-- guardianwaf-config:validate -->
+```yaml
+waf:
+  websocket:
+    enabled: true
+    scan_payloads: true                 # run detection pipeline on text frames
+    max_frame_size: 1048576             # 1MB — reject oversized frames (DoS protection)
+    allowed_origins:                    # CSWSH protection — block unknown origins
+      - "https://app.example.com"
+      - "https://chat.example.com"
+    max_concurrent_per_ip: 100          # prevent connection exhaustion
+    block_binary_messages: false        # allow binary frames (size-checked only)
+    idle_timeout: "60s"
+```
+
+Binary frames are size-checked only — content inspection is not possible without protocol awareness.
 
 ---
 

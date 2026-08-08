@@ -399,6 +399,48 @@ config.
 
 ---
 
+## SIEM Export
+
+Forward block and challenge events to an external SIEM (Splunk, QRadar, Sentinel) via CEF over TLS syslog (RFC 5425 port 6514).
+
+<!-- guardianwaf-config:validate -->
+```yaml
+waf:
+  siem:
+    enabled: true
+    endpoint: "siem.example.com:6514"   # host:port of TLS syslog receiver
+    format: cef                          # cef | json
+    batch_size: 100                      # flush at N events (default: 100)
+    flush_interval: 1s                   # or every duration (default: 1s)
+    timeout: 10s                         # connection/write timeout (default: 10s)
+    skip_verify: false                   # set true to skip TLS cert verification
+```
+
+The exporter subscribes to the event bus asynchronously — it never blocks request processing. Only `block` and `challenge` actions are forwarded; passed traffic is silently dropped. The exporter auto-reconnects with exponential backoff on failure.
+
+---
+
+## WebSocket Inspection
+
+GuardianWAF can inspect WebSocket text frames through the full detection pipeline (SQLi, XSS, CMDi, etc.) and enforce connection-level security controls.
+
+<!-- guardianwaf-config:validate -->
+```yaml
+waf:
+  websocket:
+    enabled: true
+    scan_payloads: true                  # run detection pipeline on text frames
+    max_frame_size: 1048576              # max bytes per frame (default: 1 MB)
+    max_concurrent_per_ip: 100           # concurrent WS connections per IP
+    block_binary_messages: false         # reject all binary frames
+    allowed_origins: []                  # empty = allow all; set to restrict (CSWSH protection)
+    idle_timeout: 60s                    # close idle connections
+```
+
+When enabled, GuardianWAF hijacks WebSocket upgrade requests, validates the Origin header (CSWSH protection), dials the backend, and copies frames bidirectionally with inspection. Non-upgrade requests pass through unaffected. Binary frames are size-checked only; text frames are scanned through all enabled detectors.
+
+---
+
 ## Environment Variable Overrides
 
 All environment variables use the `GWAF_` prefix. These override values from the YAML file.
@@ -517,6 +559,70 @@ guardianwaf validate [options]
 
   -c, --config      Path to config file (default: guardianwaf.yaml)
 ```
+
+---
+
+## SIEM Export
+
+Forward block and challenge events to external Security Information and Event Management (SIEM) systems via CEF (Common Event Format) over TLS syslog (RFC 5425).
+
+<!-- guardianwaf-config:validate -->
+```yaml
+waf:
+  siem:
+    enabled: true
+    endpoint: "siem.example.com:6514"   # TLS syslog port (RFC 5425)
+    format: cef                          # cef | json
+    batch_size: 100                      # flush at N events
+    flush_interval: 1s                   # or every interval, whichever first
+    timeout: 10s                         # connection and write timeout
+    skip_verify: false                   # set true only for self-signed certs
+```
+
+| Setting | Default | Description |
+|---|---|---|
+| `enabled` | `false` | Enable SIEM event forwarding |
+| `endpoint` | — | `host:port` of the TLS syslog receiver |
+| `format` | `cef` | Event format: `cef` or `json` |
+| `batch_size` | `100` | Maximum events per batch |
+| `flush_interval` | `1s` | Maximum time between flushes |
+| `timeout` | `10s` | Connection and write timeout |
+| `skip_verify` | `false` | Skip TLS certificate verification |
+
+The exporter subscribes to the event bus asynchronously — it never blocks request processing. Only `block` and `challenge` events are forwarded. Connection failures trigger exponential backoff with auto-reconnect. Stats are available at `GET /api/v1/stats` under the `siem` key.
+
+---
+
+## WebSocket Inspection
+
+Inspect WebSocket text frames through the full detection pipeline and enforce security controls on WebSocket connections.
+
+<!-- guardianwaf-config:validate -->
+```yaml
+waf:
+  websocket:
+    enabled: true
+    scan_payloads: true                  # run detection on text frames
+    max_frame_size: 1048576              # 1 MB per frame (DoS protection)
+    max_concurrent_per_ip: 100           # concurrent WS connections per IP
+    block_binary_messages: false         # reject all binary frames
+    block_empty_messages: false          # reject empty payloads
+    allowed_origins: []                  # restrict origins (CSWSH protection)
+    idle_timeout: 60s                    # close idle connections
+```
+
+| Setting | Default | Description |
+|---|---|---|
+| `enabled` | `false` | Enable WebSocket inspection |
+| `scan_payloads` | `true` | Run detection pipeline on text frames |
+| `max_frame_size` | `1048576` | Maximum frame size in bytes |
+| `max_concurrent_per_ip` | `100` | Max concurrent WS connections per IP |
+| `block_binary_messages` | `false` | Block all binary frames |
+| `block_empty_messages` | `false` | Block empty payloads |
+| `allowed_origins` | `[]` | Allowed origins for CSWSH protection (empty = all) |
+| `idle_timeout` | `60s` | Close idle connections |
+
+When enabled, GuardianWAF hijacks WebSocket upgrade requests, validates the origin, dials the backend, and copies frames bidirectionally with inspection. Text frames are scanned through the same detection pipeline as HTTP requests (SQLi, XSS, CMDi, SSRF, etc.). Binary frames are size-checked only.
 
 ---
 

@@ -35,7 +35,7 @@ the decision made, and the consequences.
 | ADR | Title | Status |
 |-----|-------|--------|
 | [0009](./0009-opentelemetry-integration.md) | OpenTelemetry Integration | Proposed |
-| [0025](./0025-siem-integration.md) | SIEM Integration (CEF/LEEF/Splunk/Elastic) | Proposed |
+| [0025](./0025-siem-integration.md) | SIEM Integration (CEF/LEEF/Splunk/Elastic) | Implemented |
 
 ### Security Features & Rules
 
@@ -62,7 +62,7 @@ the decision made, and the consequences.
 |-----|-------|-------|--------|
 | [0024](./0024-zero-trust-network-access.md) | 70 | Zero Trust (mTLS) | Proposed — not registered in pipeline |
 | (internal/cluster/) | 75 | Cluster | Proposed — not registered in pipeline |
-| [0035](./0035-websocket-proxy.md) | 76 | WebSocket | Proposed — not registered in pipeline |
+| [0035](./0035-websocket-proxy.md) | 76 | WebSocket | Implemented (middleware wrapper, not pipeline layer) |
 | [0019](./0019-grpc-protocol-support.md) | 78 | gRPC | Proposed — not registered in pipeline |
 | [0036](./0036-canary-deployments.md) | 95 | Canary Deployment | Proposed — not registered in pipeline |
 | [0028](./0028-ip-acl-radix-tree.md) | 100 | IP ACL (Radix Tree) | Implemented |
@@ -74,7 +74,7 @@ the decision made, and the consequences.
 | [0030](./0030-ato-protection.md) | 250 | ATO Protection | Implemented |
 | (internal/layers/apisecurity/) | 275 | API Security | Implemented |
 | (internal/layers/apivalidation/) | 280 | API Validation | Implemented |
-| [0012](./0012-graphql-protection.md) | 285 | GraphQL Protection | Proposed — not registered in pipeline |
+| [0012](./0012-graphql-protection.md) | 285 | GraphQL Protection | Implemented (depth/complexity/introspection detector in detection layer) |
 | [0017](./0017-api-discovery-schema-validation.md) | 310 | API Discovery & Schema Validation | API Validation implemented baseline; passive discovery planned — not registered in pipeline |
 | [0033](./0033-request-sanitizer.md) | 300 | Request Sanitizer | Implemented |
 | [0032](./0032-owasp-crs-integration.md) | 350 | OWASP CRS | Implemented |
