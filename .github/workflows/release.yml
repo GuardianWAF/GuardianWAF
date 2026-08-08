@@ -183,6 +183,7 @@ jobs:
         run: |
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$HOME/.docker/config.json:/root/.docker/config.json:ro" \
             -v "$PWD:/out" \
             anchore/syft:v1.38.0 \
             "ghcr.io/${{ steps.img.outputs.repo }}@${{ steps.build.outputs.digest }}" \
@@ -193,6 +194,7 @@ jobs:
           set -o pipefail
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$HOME/.docker/config.json:/root/.docker/config.json:ro" \
             aquasec/trivy:0.68.1 image \
             --severity HIGH,CRITICAL \
             --exit-code 1 \
