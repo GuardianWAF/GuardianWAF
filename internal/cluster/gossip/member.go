@@ -100,13 +100,6 @@ func (ml *MemberList) Add(m Member) bool {
 	return true
 }
 
-// Remove deletes a member by ID.
-func (ml *MemberList) Remove(id string) {
-	ml.mu.Lock()
-	defer ml.mu.Unlock()
-	delete(ml.members, id)
-}
-
 // Get returns a copy of a member by ID, or ok=false if not present.
 func (ml *MemberList) Get(id string) (Member, bool) {
 	ml.mu.Lock()

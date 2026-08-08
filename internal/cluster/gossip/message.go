@@ -36,7 +36,7 @@ func (mt MessageType) String() string {
 	case TypePushPull:
 		return "PUSH-PULL"
 	default:
-		return fmt.Sprintf("UNKNOWN(%d)", uint8(mt))
+		return fmt.Sprintf("UNKNOWN(%d)", uint8(mt)) // #nosec G115 -- MessageType is uint8
 	}
 }
 
@@ -82,17 +82,22 @@ func (m *Message) Encode(w io.Writer) error {
 	}
 
 	// type (1 byte)
-	if _, err := w.Write([]byte{byte(m.Type)}); err != nil {
+	if _, err := w.Write([]byte{byte(m.Type)}); err != nil { //nolint:gosec // G115 — MessageType is uint8, same width
 		return fmt.Errorf("write type: %w", err)
 	}
 
 	// srcLen (1 byte) — part of the fixed 8-byte header.
-	if _, err := w.Write([]byte{byte(len(m.Source))}); err != nil {
+	// Source IDs are node identifiers, always short (<256). Guard against
+	// truncation explicitly so the wire format stays unambiguous.
+	if len(m.Source) > 255 {
+		return fmt.Errorf("source ID too long: %d bytes (max 255)", len(m.Source))
+	}
+	if _, err := w.Write([]byte{byte(len(m.Source))}); err != nil { //nolint:gosec // G115 — bounds-checked above
 		return fmt.Errorf("write srcLen: %w", err)
 	}
 
 	// payloadLen (2 bytes LE) — part of the fixed 8-byte header.
-	binary.LittleEndian.PutUint16(buf[:2], uint16(len(m.Payload)))
+	binary.LittleEndian.PutUint16(buf[:2], lenToUint16(len(m.Payload)))
 	if _, err := w.Write(buf[:2]); err != nil {
 		return fmt.Errorf("write payloadLen: %w", err)
 	}
@@ -121,9 +126,10 @@ func DecodeMessage(r io.Reader) (*Message, error) {
 		return nil, fmt.Errorf("read header: %w", err)
 	}
 
+	msgType := MessageType(header[4]) // #nosec G115 -- byte to MessageType (uint8), same width
 	msg := &Message{
 		Seq:  binary.LittleEndian.Uint32(header[0:4]),
-		Type: MessageType(header[4]),
+		Type: msgType,
 	}
 
 	srcLen := int(header[5])
@@ -256,4 +262,13 @@ func (b *bytesReader) Read(p []byte) (int, error) {
 	n := copy(p, b.data[b.pos:])
 	b.pos += n
 	return n, nil
+}
+
+// lenToUint16 converts an int length to uint16 with an explicit bounds check,
+// centralizing the G115-triggering conversion so callers don't each need a directive.
+func lenToUint16(n int) uint16 {
+	if n < 0 || n > 65535 {
+		panic(fmt.Sprintf("length out of uint16 range: %d", n))
+	}
+	return uint16(n) //nolint:gosec // G115 — bounds-checked above
 }

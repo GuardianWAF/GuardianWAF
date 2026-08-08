@@ -162,6 +162,44 @@ func (g *Gossip) Incarnation() uint64 {
 	return g.incarnation.Load()
 }
 
+// IsLocalNode reports whether id is this node's own ID.
+func (g *Gossip) IsLocalNode(id string) bool {
+	return id == g.config.NodeID
+}
+
+// UpdateMember merges a member update from an external source (e.g. Raft
+// state replication). Stale incarnations are ignored.
+func (g *Gossip) UpdateMember(m Member) {
+	wasNew := !g.members.Contains(m.ID)
+	g.members.Add(m)
+	g.enqueuePiggyback(m)
+	if wasNew && m.State == StateAlive && g.onJoin != nil {
+		g.onJoin(m.ID, m.Addr)
+	}
+	if m.State == StateDead && g.onLeave != nil {
+		g.onLeave(m.ID)
+	}
+}
+
+// PurgeDead removes dead members from the memberlist. Called periodically
+// by the prober; also safe to call manually.
+func (g *Gossip) PurgeDead() {
+	g.members.PurgeDead()
+}
+
+// Leave announces departure by incrementing incarnation and marking self dead,
+// then disseminates the state to peers.
+func (g *Gossip) Leave() {
+	inc := g.incarnation.Add(1)
+	g.members.MarkDead(g.config.NodeID)
+	g.enqueuePiggyback(Member{
+		ID:          g.config.NodeID,
+		Addr:        g.transport.LocalAddr(),
+		Incarnation: inc,
+		State:       StateDead,
+	})
+}
+
 // Join attempts to contact known peers and exchange state.
 // Each addr is "host:port". Returns the number of peers that responded.
 func (g *Gossip) Join(addrs []string) int {

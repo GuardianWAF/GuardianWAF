@@ -572,3 +572,194 @@ func TestUDPTransport_ReceiveTimeout(t *testing.T) {
 		t.Fatal("expected timeout error")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Public API surface tests — exercise exported functions for deadcode coverage
+// ---------------------------------------------------------------------------
+
+func TestGossip_PublicAPI(t *testing.T) {
+	tr, err := NewUDPTransport("127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("NewUDPTransport: %v", err)
+	}
+	defer tr.Close()
+
+	g, err := NewWithTransport(Config{
+		NodeID:           "api-test",
+		Addr:             tr.LocalAddr(),
+		ProbeInterval:    200 * time.Millisecond,
+		ProbeTimeout:     50 * time.Millisecond,
+		GossipInterval:   200 * time.Millisecond,
+		SuspicionTimeout: 500 * time.Millisecond,
+	}, tr)
+	if err != nil {
+		t.Fatalf("NewWithTransport: %v", err)
+	}
+
+	if err := g.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer g.Stop()
+
+	// LocalMember should return self.
+	lm := g.LocalMember()
+	if lm.ID != "api-test" {
+		t.Errorf("LocalMember().ID = %q, want %q", lm.ID, "api-test")
+	}
+
+	// Incarnation should be >= 1.
+	if inc := g.Incarnation(); inc < 1 {
+		t.Errorf("Incarnation() = %d, want >= 1", inc)
+	}
+
+	// Members should include self.
+	ms := g.Members()
+	if len(ms) < 1 {
+		t.Fatalf("Members() returned %d members, want >= 1", len(ms))
+	}
+
+	// MemberCount should match alive member count.
+	if c := g.MemberCount(); c < 1 {
+		t.Errorf("MemberCount() = %d, want >= 1", c)
+	}
+
+	// IsLocalNode should be true for self.
+	if !g.IsLocalNode("api-test") {
+		t.Error("IsLocalNode(self) = false, want true")
+	}
+
+	// UpdateMember should add a new member.
+	g.UpdateMember(Member{
+		ID:          "external",
+		Addr:        "127.0.0.1:9999",
+		Incarnation: 1,
+		State:       StateAlive,
+	})
+
+	// PurgeDead should run without panic.
+	g.PurgeDead()
+
+	// Leave should mark self as leaving.
+	g.Leave()
+}
+
+func TestGossip_UpdateMember(t *testing.T) {
+	tr, err := NewUDPTransport("127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("NewUDPTransport: %v", err)
+	}
+	defer tr.Close()
+
+	g, err := NewWithTransport(Config{
+		NodeID:           "um-test",
+		Addr:             tr.LocalAddr(),
+		ProbeInterval:    200 * time.Millisecond,
+		ProbeTimeout:     50 * time.Millisecond,
+		GossipInterval:   200 * time.Millisecond,
+		SuspicionTimeout: 500 * time.Millisecond,
+	}, tr)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer g.Stop()
+
+	// Add a member via UpdateMember.
+	m := Member{ID: "node-x", Addr: "127.0.0.1:5000", Incarnation: 5, State: StateAlive}
+	g.UpdateMember(m)
+
+	got, ok := g.members.Get("node-x")
+	if !ok {
+		t.Fatal("UpdateMember did not add member")
+	}
+	if got.Incarnation != 5 {
+		t.Errorf("incarnation = %d, want 5", got.Incarnation)
+	}
+
+	// Update with stale incarnation should be ignored.
+	g.UpdateMember(Member{ID: "node-x", Addr: "127.0.0.1:5000", Incarnation: 3, State: StateAlive})
+	got, _ = g.members.Get("node-x")
+	if got.Incarnation != 5 {
+		t.Errorf("incarnation after stale update = %d, want 5", got.Incarnation)
+	}
+}
+
+func TestDefaultConfig(t *testing.T) {
+	cfg := DefaultConfig("dc-test", "127.0.0.1:0")
+	if cfg.NodeID != "dc-test" {
+		t.Errorf("DefaultConfig().NodeID = %q, want %q", cfg.NodeID, "dc-test")
+	}
+	if cfg.Addr != "127.0.0.1:0" {
+		t.Errorf("DefaultConfig().Addr = %q, want %q", cfg.Addr, "127.0.0.1:0")
+	}
+	if cfg.ProbeInterval <= 0 {
+		t.Error("DefaultConfig().ProbeInterval must be positive")
+	}
+	if cfg.IndirectChecks < 1 {
+		t.Error("DefaultConfig().IndirectChecks must be >= 1")
+	}
+}
+
+func TestGossip_Callbacks(t *testing.T) {
+	tr, err := NewUDPTransport("127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("NewUDPTransport: %v", err)
+	}
+	defer tr.Close()
+
+	var joined []string
+	var left []string
+
+	g, err := NewWithTransport(Config{
+		NodeID:           "cb-test",
+		Addr:             tr.LocalAddr(),
+		ProbeInterval:    200 * time.Millisecond,
+		ProbeTimeout:     50 * time.Millisecond,
+		GossipInterval:   200 * time.Millisecond,
+		SuspicionTimeout: 500 * time.Millisecond,
+	}, tr)
+	if err != nil {
+		t.Fatalf("NewWithTransport: %v", err)
+	}
+	g.OnJoin(func(id, addr string) { joined = append(joined, id) })
+	g.OnLeave(func(id string) { left = append(left, id) })
+
+	if err := g.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer g.Stop()
+
+	// Manually update a member to trigger the join callback.
+	g.UpdateMember(Member{
+		ID:          "cb-remote",
+		Addr:        "127.0.0.1:9998",
+		Incarnation: 1,
+		State:       StateAlive,
+	})
+
+	// Wait for callback.
+	deadline := time.Now().Add(time.Second)
+	for len(joined) == 0 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	if len(joined) == 0 {
+		t.Error("OnJoin callback was not called")
+	}
+
+	// Mark the member dead to trigger the leave callback.
+	g.UpdateMember(Member{
+		ID:          "cb-remote",
+		Addr:        "127.0.0.1:9998",
+		Incarnation: 2,
+		State:       StateDead,
+	})
+
+	deadline = time.Now().Add(time.Second)
+	for len(left) == 0 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	if len(left) == 0 {
+		t.Error("OnLeave callback was not called")
+	}
+}
