@@ -69,7 +69,7 @@ Token 6: Comment        --     (SQL line comment)
 
 ## Detectors
 
-GuardianWAF ships with 8 attack detectors. Each runs independently and contributes findings to the total score.
+GuardianWAF ships with 11 attack detectors. Each runs independently and contributes findings to the total score.
 
 ### 1. SQL Injection (sqli)
 

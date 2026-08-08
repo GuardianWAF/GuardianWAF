@@ -42,7 +42,7 @@ flowchart TB
             L7b["280: API Validation<br/>OpenAPI Schema"]
             L8["300: Sanitizer<br/>Multi-layer Decode"]
             L8b["350: CRS<br/>OWASP ModSecurity"]
-            L9["400: Detection<br/>8 Detectors"]
+            L9["400: Detection<br/>11 Detectors"]
             L9b["450: Virtual Patch<br/>CVE/NVD"]
             L9c["475: DLP + ML<br/>Masking + Anomaly"]
             L10["500: Bot Detection<br/>JA3/JA4/Fingerprint"]
