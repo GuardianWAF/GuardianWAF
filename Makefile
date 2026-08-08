@@ -38,12 +38,18 @@ lint:
 bench:
 	go test -bench=. -benchmem -run=^$$ ./...
 
+FUZZTIME ?= 30s
+
 fuzz:
-	@echo "Running fuzz tests for 30 seconds each..."
-	go test -fuzz=Fuzz -fuzztime=30s ./internal/config/
-	go test -fuzz=Fuzz -fuzztime=30s ./internal/layers/sanitizer/
-	go test -fuzz=Fuzz -fuzztime=30s ./internal/layers/detection/sqli/
-	go test -fuzz=Fuzz -fuzztime=30s ./internal/layers/detection/xss/
+	@echo "Running fuzz tests for $(FUZZTIME) each..."
+	go test -run=XXX '-fuzz=FuzzYAMLParser$$' -fuzztime=$(FUZZTIME) ./internal/config/
+	go test -run=XXX -fuzz=FuzzYAMLParserWithValidation -fuzztime=$(FUZZTIME) ./internal/config/
+	go test -run=XXX -fuzz=FuzzNormalizeAll -fuzztime=$(FUZZTIME) ./internal/layers/sanitizer/
+	go test -run=XXX -fuzz=FuzzDecodeURLRecursive -fuzztime=$(FUZZTIME) ./internal/layers/sanitizer/
+	go test -run=XXX -fuzz=FuzzCanonicalizePath -fuzztime=$(FUZZTIME) ./internal/layers/sanitizer/
+	go test -run=XXX -fuzz=FuzzSQLiDetector -fuzztime=$(FUZZTIME) ./internal/layers/detection/sqli/
+	go test -run=XXX -fuzz=FuzzSQLiTokenizer -fuzztime=$(FUZZTIME) ./internal/layers/detection/sqli/
+	go test -run=XXX -fuzz=FuzzXSSDetector -fuzztime=$(FUZZTIME) ./internal/layers/detection/xss/
 
 clean:
 	rm -f $(BINARY)
