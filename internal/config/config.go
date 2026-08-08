@@ -532,7 +532,7 @@ type PathOverride struct {
 type DetectionConfig struct {
 	Enabled    bool                      `yaml:"enabled"`
 	Threshold  ThresholdConfig           `yaml:"threshold"`
-	Detectors  map[string]DetectorConfig `yaml:"detectors"` // keyed by: sqli, xss, lfi, cmdi, xxe, ssrf, ssti, nosqli
+	Detectors  map[string]DetectorConfig `yaml:"detectors"` // keyed by: sqli, xss, lfi, cmdi, xxe, ssrf, ssti, nosqli, smuggling
 	Exclusions []ExclusionConfig         `yaml:"exclusions"`
 }
 

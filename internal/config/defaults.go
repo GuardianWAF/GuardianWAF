@@ -70,7 +70,8 @@ func DefaultConfig() *Config {
 					"xxe":    {Enabled: true, Multiplier: 1.0},
 					"ssrf":   {Enabled: true, Multiplier: 1.0},
 					"ssti":   {Enabled: true, Multiplier: 1.0},
-					"nosqli": {Enabled: true, Multiplier: 1.0},
+					"nosqli":   {Enabled: true, Multiplier: 1.0},
+					"smuggling": {Enabled: true, Multiplier: 1.0},
 				},
 			},
 			BotDetection: BotDetectionConfig{

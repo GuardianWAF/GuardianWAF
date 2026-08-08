@@ -280,7 +280,7 @@ generate_changelog() {
 
   git log ${range} --format='%s' 2>/dev/null \
     | grep -vE '^(docs|test|ci|chore|merge):' \
-    | sort \
+    | sort || true \
     | awk '
       /^feat/     { feat[++f]  = "- " $0 }
       /^fix/      { fix[++x]   = "- " $0 }
