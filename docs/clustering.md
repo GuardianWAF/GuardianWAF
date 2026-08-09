@@ -242,19 +242,20 @@ The dashboard REST API exposes cluster status endpoints:
 | `/api/v1/cluster/config` | GET | Current cluster configuration |
 | `/api/v1/cluster/bans` | GET | All active bans in the replicated store |
 
-### CLI: `guardianwaf cluster status`
+### CLI Quick Reference
 
-The `cluster status` command queries the local node's dashboard API and prints a human-readable summary — useful for quick health checks from the terminal, shell scripts, or cron-based monitoring.
+The `guardianwaf cluster` command provides six subcommands for querying and managing the cluster from the terminal. All accept `--url`, `--api-key`, `-c/--config`, and `--timeout` flags (see [CLI Reference](#cli-reference) for details).
 
 ```bash
-# Query the local node (reads dashboard address from config)
-guardianwaf cluster status
-
-# Query a specific node
-guardianwaf cluster status --url http://10.0.0.1:9443 --api-key mykey
+guardianwaf cluster status           # detailed node + store summary
+guardianwaf cluster nodes            # peer table with leader marking
+guardianwaf cluster bans             # active cluster-wide ban list
+guardianwaf cluster ban 10.0.0.5     # ban an IP cluster-wide
+guardianwaf cluster unban 10.0.0.5   # remove a cluster-wide ban
+guardianwaf cluster health           # scriptable health check (exit 0/1)
 ```
 
-See [CLI: `guardianwaf cluster status`](#cli-guardianwaf-cluster-status) below for full flags and sample output.
+See [CLI Reference](#cli-reference) below for full flags, sample output, and scripting patterns.
 
 ---
 
@@ -347,22 +348,29 @@ The Helm chart automatically deploys the StatefulSet, headless Service, and a Po
 
 ---
 
-## CLI: `guardianwaf cluster status`
+## CLI Reference
 
-Query the local node's cluster status and print a human-readable summary. Useful for quick diagnostics without opening the dashboard.
+The `guardianwaf cluster` command provides six subcommands for querying and managing the cluster from the terminal. All subcommands work against any node — ban/unban requests automatically follow 307 redirects to the current leader.
+
+**Common flags** (all subcommands):
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--url` | from config `dashboard.listen` | Dashboard base URL |
+| `--api-key` | `GWAF_DASHBOARD_API_KEY` env or config | Dashboard API key |
+| `--timeout` | `5s` | Request timeout |
+| `-c` / `--config` | platform default | Config file path |
+
+### `cluster status` — detailed summary
+
+Prints node identity, Raft state (term, commit/applied indices, replication lag), replicated store stats (bans/rules/counters), and the full peer list with leader marking.
 
 ```bash
-# Default — reads config to find the dashboard address
 guardianwaf cluster status
-
-# Explicit URL + API key
 guardianwaf cluster status --url http://10.0.0.1:9443 --api-key SECRET
-
-# Override config path
-guardianwaf cluster status -c /etc/guardianwaf/guardianwaf.yaml
 ```
 
-**Sample output** (leader node):
+Sample output (leader node):
 
 ```
 ┌─────────────────────────────────────────────┐
@@ -390,16 +398,161 @@ guardianwaf cluster status -c /etc/guardianwaf/guardianwaf.yaml
   ✓ This node is the cluster leader.
 ```
 
-**Flags:**
+Exits 0 on success, 1 on error or when cluster mode is disabled.
+
+### `cluster nodes` — peer table
+
+Lists all known cluster members with their Raft addresses. The leader is marked with ★.
+
+```bash
+guardianwaf cluster nodes
+```
+
+Sample output:
+
+```
+ID               ROLE      ADDR                      LEADER
+---------------  --------  ------------------------  ------
+guardianwaf-0    leader    (self)                    ★
+guardianwaf-1              10.0.0.2:7947
+guardianwaf-2              10.0.0.3:7947
+
+3 cluster member(s), leader: guardianwaf-0
+```
+
+### `cluster bans` — active ban list
+
+Lists all non-expired banned IPs from the replicated store.
+
+```bash
+guardianwaf cluster bans
+```
+
+Sample output:
+
+```
+IP               BANNED AT                  EXPIRES AT
+---------------  -------------------------  -------------------------
+10.0.0.5         2026-08-07T14:30:00Z       2026-08-07T15:30:00Z
+192.168.1.100    2026-08-07T13:00:00Z       permanent
+
+2 active cluster-wide ban(s)
+```
+
+### `cluster ban` — ban an IP
+
+Bans an IP cluster-wide via Raft consensus. The request automatically redirects to the leader if sent to a follower (up to 3 redirects).
+
+```bash
+# Ban for 1 hour (default)
+guardianwaf cluster ban 10.0.0.5
+
+# Custom duration and reason
+guardianwaf cluster ban --duration 24h --reason "credential stuffing" 10.0.0.5
+
+# Explicit endpoint
+guardianwaf cluster ban --url http://10.0.0.1:9443 --api-key SECRET 10.0.0.5
+```
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--url` | from config | Dashboard base URL |
-| `--api-key` | `GWAF_DASHBOARD_API_KEY` | Dashboard API key |
-| `--timeout` | `5s` | Request timeout |
-| `-c` / `--config` | platform default | Config file path |
+| `--duration` | `1h` | Ban duration (Go duration string: `30m`, `1h`, `24h`) |
+| `--reason` | `"manual ban from CLI"` | Reason recorded in the ban entry |
 
-Exits 0 on success, 1 on connection error or when cluster mode is disabled.
+Sample output:
+
+```
+✓ Banned 10.0.0.5 for 1h0m0s (cluster-wide)
+```
+
+### `cluster unban` — remove a ban
+
+Removes an IP from the cluster-wide ban list via Raft consensus.
+
+```bash
+guardianwaf cluster unban 10.0.0.5
+```
+
+Sample output:
+
+```
+✓ Removed ban on 10.0.0.5 (cluster-wide)
+```
+
+### `cluster health` — scriptable health check
+
+Queries the cluster health endpoint and exits 0 if healthy, 1 if not. Minimal output — designed for cron jobs, init containers, and monitoring scripts.
+
+```bash
+# One-shot check
+guardianwaf cluster health
+
+# Use in a script
+if guardianwaf cluster health --url http://10.0.0.1:9443; then
+  echo "cluster is healthy"
+else
+  echo "cluster is unhealthy or unreachable" >&2
+  exit 1
+fi
+```
+
+Output:
+
+```
+OK: leader (leader=guardianwaf-0, term=5)
+```
+
+| Condition | Exit Code | Output |
+|-----------|-----------|--------|
+| Node is leader or follower | 0 | `OK: <role> (leader=<id>, term=<N>)` |
+| Single-node mode (no cluster) | 0 | `OK: single-node` |
+| Node reports unhealthy | 1 | `UNHEALTHY: <status>` |
+| Connection refused / timeout | 1 | Error to stderr |
+
+### Scripting patterns
+
+**Environment variables**: Set these once for all cluster subcommands:
+
+```bash
+export GWAF_DASHBOARD_URL=http://guardianwaf:9443
+export GWAF_DASHBOARD_API_KEY=secret
+
+guardianwaf cluster status
+guardianwaf cluster ban 10.0.0.5
+guardianwaf cluster health
+```
+
+**Cron-based health monitoring**:
+
+```bash
+# /etc/cron.d/guardianwaf-cluster-check
+*/1 * * * * root guardianwaf cluster health || systemctl restart guardianwaf
+```
+
+**Bulk ban from a feed**:
+
+```bash
+while read -r ip; do
+  guardianwaf cluster ban --duration 24h --reason "threat feed" "$ip"
+done < /etc/guardianwaf/threat-feed.txt
+```
+
+**Kubernetes init container** — wait for cluster before starting the WAF:
+
+```yaml
+initContainers:
+  - name: wait-for-cluster
+    image: ghcr.io/guardianwaf/guardianwaf:latest
+    command: ['guardianwaf', 'cluster', 'health', '--url', 'http://localhost:9443']
+    env:
+      - name: GWAF_DASHBOARD_API_KEY
+        valueFrom:
+          secretKeyRef:
+            name: guardianwaf-dashboard-auth
+            key: api-key
+```
+
+**Leader redirect behavior**: `ban` and `unban` commands sent to a follower receive a 307 redirect to the leader's dashboard URL. The CLI follows up to 3 redirects automatically, re-authenticating each time. If the leader is unknown or redirects loop, the command fails with exit 1.
 
 ---
 
