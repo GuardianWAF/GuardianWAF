@@ -498,3 +498,132 @@ No manual intervention is needed for healing. The cluster was tested with:
 | `internal/clustersync/` | Replicated state machine: bans, rules, counters + API |
 | `cmd/guardianwaf/cluster_runtime.go` | Wiring: creates gossip + Raft + bridge at startup |
 | `cmd/guardianwaf/cluster_status_provider.go` | Dashboard adapter: `ClusterStatusProvider` implementation |
+
+---
+
+## Production Readiness Checklist
+
+Before deploying GuardianWAF cluster mode to production, review each item below.
+Items marked **[limitation]** describe known constraints with recommended mitigations.
+
+### Cluster Size & Quorum
+
+- [ ] **Use an odd number of nodes (3 or 5).** Raft requires a majority quorum to commit entries.
+  3 nodes tolerates 1 failure; 5 nodes tolerates 2 failures. Even numbers waste a node without improving fault tolerance.
+- [ ] **Never run 2 nodes in production.** Losing either node leaves no quorum — the cluster stalls.
+- [ ] **Spread nodes across failure domains.** Use Kubernetes `podAntiAffinity` (see the StatefulSet manifest) or deploy to different physical hosts / availability zones.
+- [ ] **Set a PodDisruptionBudget** with `minAvailable: 2` (for 3-node clusters) to prevent voluntary evictions from breaking quorum.
+
+### Network Security
+
+- [ ] **Isolate cluster ports on a private network.** Raft (TCP 7947) and gossip (UDP 7946) carry no TLS — they must not be exposed to untrusted networks.
+
+  ```yaml
+  # Kubernetes NetworkPolicy example — restrict inter-node traffic
+  apiVersion: networking.k8s.io/v1
+  kind: NetworkPolicy
+  metadata:
+    name: guardianwaf-cluster-net
+  spec:
+    podSelector:
+      matchLabels:
+        app: guardianwaf
+    policyTypes:
+      - Ingress
+      - Egress
+    ingress:
+      - from:
+          - podSelector:
+              matchLabels:
+                app: guardianwaf
+        ports:
+          - protocol: TCP
+            port: 7947
+          - protocol: UDP
+            port: 7946
+    egress:
+      - to:
+          - podSelector:
+              matchLabels:
+                app: guardianwaf
+        ports:
+          - protocol: TCP
+            port: 7947
+          - protocol: UDP
+            port: 7946
+  ```
+
+- **[limitation] No inter-node TLS.** The Raft TCP transport and gossip UDP transport use plaintext communication. Mitigations:
+  - Deploy on a private subnet or VPC with security group rules limiting port 7947/7946 to cluster members only.
+  - Use a service mesh (Istio, Linkerd) with mTLS for sidecar-level encryption.
+  - In Kubernetes, the NetworkPolicy above restricts traffic to same-label pods.
+  - TLS support for inter-node traffic is planned for a future release.
+
+### Persistence & Backup
+
+- **[limitation] Raft log is in-memory.** The current Raft implementation stores its log, current term, and vote in memory (`internal/cluster/raft/state.go`). A full cluster restart loses all replicated state. Mitigations:
+
+  - **Export the ban list before maintenance.** Use the API to dump all active bans, then re-apply them after restart:
+
+    ```bash
+    # Export current bans (run on the leader)
+    guardianwaf cluster status  # find the leader
+    curl -s -H "X-API-Key: $KEY" http://leader:9443/api/v1/cluster/bans | jq '.bans[].ip' > bans.txt
+
+    # Re-apply after restart
+    while read ip; do
+      guardianwaf cluster ban --duration 24h "$ip"
+    done < bans.txt
+    ```
+
+  - **For zero-downtime rolling updates**, restart one node at a time. The surviving majority maintains the ban list in memory and replicates it to the restarted node when it rejoins.
+
+  - **For planned full-cluster restarts**, drain the ban list to a file first (above), then re-apply after restart.
+
+  - **Persisted Raft log (WAL) is planned** — the `PersistentState` API is already designed with locking so a WAL layer can be added without changing callers.
+
+- **[limitation] No log compaction or snapshots.** The Raft log grows unboundedly during the lifetime of a node. For long-running deployments, restart nodes periodically (one at a time, maintaining quorum) to reset their log. Snapshot/log-compaction support is planned.
+
+### Resource Sizing
+
+| Cluster Size | Min Memory/Node | Min CPU/Node | Tolerated Failures | Use Case |
+|---|---|---|---|---|
+| 3 nodes | 256 Mi | 500m | 1 | Development, small production |
+| 5 nodes | 256 Mi | 500m | 2 | Production with high availability |
+| 7 nodes | 256 Mi | 500m | 3 | Large production (rarely needed) |
+
+The replicated store (bans, rules, counters) is small — typically a few MB even with thousands of bans. The primary memory consumers are the WAF detection engines and event buffers, not the cluster subsystem.
+
+### Monitoring & Alerting
+
+- [ ] **Import the cluster Grafana dashboard** (`contrib/grafana/cluster-dashboard.json`). See [Monitoring](#monitoring).
+- [ ] **Alert on replication lag > 10.** `guardianwaf_cluster_raft_commit_index - guardianwaf_cluster_raft_last_applied > 10` means the state machine is falling behind. Check for disk I/O issues or a stuck apply loop.
+- [ ] **Alert on no leader.** `max(guardianwaf_cluster_is_leader) == 0` across all nodes means the cluster has no leader — no writes can succeed.
+- [ ] **Alert on member count drop.** `guardianwaf_cluster_member_count < 2` on any node means it's isolated — the readiness probe will return 503.
+
+### Operational Procedures
+
+**Rolling restart (zero downtime):**
+
+1. Restart one node at a time, waiting for it to rejoin and `/readyz` to return 200 before proceeding to the next.
+2. Verify quorum is maintained: `guardianwaf cluster status` should show 2+ members alive during the restart.
+
+**Scaling up (3 → 5 nodes):**
+
+1. Deploy the 2 new nodes with the same cluster config.
+2. Gossip discovers them automatically — no manual peer configuration needed.
+3. Raft includes them in the quorum once they're reachable.
+4. Verify with `guardianwaf cluster status` — member count should increase.
+
+**Scaling down (5 → 3 nodes):**
+
+1. Remove one node at a time.
+2. Wait for gossip to mark it dead and Raft to adjust quorum.
+3. Never remove 2 nodes simultaneously from a 5-node cluster — you'll lose quorum.
+
+**Leader failover:**
+
+- No manual action needed. Raft elects a new leader automatically (typically within 2–4 seconds based on election timeout settings).
+- Verify with `guardianwaf cluster status` after a failover.
+- Committed bans survive failover (verified by `TestChaos_KillLeaderCommittedBansSurvive`).
+
