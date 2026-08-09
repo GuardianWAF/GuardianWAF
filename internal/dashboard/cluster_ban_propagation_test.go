@@ -14,8 +14,7 @@ import (
 // fakeBanLayer is a minimal engine.Layer that also implements banLayer.
 // It records ban/unban calls so tests can verify the local fallback path.
 type fakeBanLayer struct {
-	bans   map[string]string // ip → reason
-	banErr error
+	bans map[string]string // ip → reason
 }
 
 func (f *fakeBanLayer) Name() string { return "ipacl" }
