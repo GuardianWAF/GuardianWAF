@@ -2,6 +2,7 @@ package clustersync
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -371,7 +372,7 @@ func (n *e2eNode) handleUnban(w http.ResponseWriter, r *http.Request) {
 }
 
 func isNotLeaderErr(err error) bool {
-	return err == ErrRaftNotLeader || strings.Contains(err.Error(), "not leader")
+	return errors.Is(err, ErrRaftNotLeader) || strings.Contains(err.Error(), "not leader")
 }
 
 func writeE2EJSON(w http.ResponseWriter, code int, v any) {
