@@ -239,14 +239,26 @@ func printClusterSummaryTo(w io.Writer, stats, nodes map[string]any) {
 func toUint64(v any) uint64 {
 	switch n := v.(type) {
 	case float64:
-		return uint64(n)
+		if n < 0 {
+			return 0
+		}
+		return uint64(n) //#nosec G115 -- non-negative float
 	case int:
-		return uint64(n)
+		if n < 0 {
+			return 0
+		}
+		return uint64(n) //#nosec G115 -- non-negative int
 	case int64:
-		return uint64(n)
+		if n < 0 {
+			return 0
+		}
+		return uint64(n) //#nosec G115 -- non-negative int64
 	case json.Number:
 		i, _ := n.Int64()
-		return uint64(i)
+		if i < 0 {
+			return 0
+		}
+		return uint64(i) //#nosec G115 -- non-negative int64
 	default:
 		return 0
 	}
