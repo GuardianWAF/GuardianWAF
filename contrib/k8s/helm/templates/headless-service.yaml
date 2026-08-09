@@ -1,0 +1,39 @@
+{{- if .Values.cluster.enabled }}
+# Headless Service — gives each StatefulSet pod a stable DNS A record.
+# Pod DNS: <pod-name>.<headless-service>.<namespace>.svc.cluster.local
+#   e.g., guardianwaf-0.guardianwaf-cluster.default.svc.cluster.local
+#
+# This is required for Raft and gossip: each pod must know its peers'
+# addresses at startup, and headless DNS gives each pod a resolvable name.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "guardianwaf.fullname" . }}-cluster
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "guardianwaf.labels" . | nindent 4 }}
+    component: cluster
+spec:
+  clusterIP: None  # headless — no load balancing, clients resolve individual pods
+  selector:
+    {{- include "guardianwaf.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: raft
+      port: {{ .Values.cluster.raftPort }}
+      targetPort: raft
+      protocol: TCP
+    - name: gossip
+      port: {{ .Values.cluster.gossipPort }}
+      targetPort: gossip
+      protocol: UDP
+    - name: http
+      port: {{ .Values.service.port | default 80 }}
+      targetPort: http
+      protocol: TCP
+    {{- if .Values.dashboard.enabled }}
+    - name: dashboard
+      port: {{ .Values.dashboard.port | default 9443 }}
+      targetPort: dashboard
+      protocol: TCP
+    {{- end }}
+{{- end }}

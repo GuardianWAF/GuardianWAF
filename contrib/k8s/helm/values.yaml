@@ -254,3 +254,24 @@ istio:
     #     consecutive5xxErrors: 5
     #     interval: 30s
     #     baseEjectionTime: 30s
+
+# Cluster mode — Raft consensus + gossip membership for multi-node
+# state replication (bans, rules, rate-limit counters).
+# When enabled, deploys a StatefulSet with a headless Service instead of
+# a Deployment, so each pod gets a stable DNS name for Raft and gossip.
+cluster:
+  enabled: false
+
+  # Number of cluster replicas. Must be odd (3 or 5) for Raft quorum.
+  replicas: 3
+
+  # Raft TCP port — leader election + log replication.
+  raftPort: 7947
+
+  # Gossip UDP port — membership + peer discovery.
+  gossipPort: 7946
+
+  # Raft timing parameters (optional — defaults shown).
+  electionTimeoutMin: "2s"
+  electionTimeoutMax: "4s"
+  heartbeatInterval: "50ms"

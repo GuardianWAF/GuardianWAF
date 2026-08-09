@@ -295,28 +295,41 @@ services:
 
 ### Kubernetes
 
-For Kubernetes, use a **headless Service** so each pod gets a stable DNS name for Raft and gossip:
+GuardianWAF ships production-ready Kubernetes manifests for cluster mode. A **StatefulSet** provides stable pod identities (`guardianwaf-0`, `-1`, `-2`) with stable DNS names via a **headless Service**. This is required because Raft and gossip need to know peer addresses at startup.
 
-```yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: guardianwaf-cluster
-spec:
-  clusterIP: None  # Headless — gives each pod a DNS record
-  selector:
-    app: guardianwaf
-  ports:
-    - name: raft
-      port: 7947
-    - name: gossip
-      port: 7946
-      protocol: UDP
-    - name: dashboard
-      port: 8080
+**Apply the manifests:**
+
+```bash
+# ConfigMap first (contains cluster config with peer DNS names)
+kubectl apply -f contrib/k8s/cluster-configmap.yaml
+
+# StatefulSet + headless Service
+kubectl apply -f contrib/k8s/cluster-statefulset.yaml
 ```
 
-Pods discover each other via the headless Service DNS: `guardian-01.guardianwaf-cluster.namespace.svc.cluster.local`.
+**Pod DNS pattern**: `guardianwaf-0.guardianwaf-cluster.default.svc.cluster.local`
+
+The ConfigMap references these DNS names as seed peers. Each pod uses the Kubernetes downward API (`metadata.name`) as its `node_id`. Gossip discovers additional peers automatically after bootstrap.
+
+**Port reference:**
+
+| Port | Protocol | Purpose |
+|------|----------|---------|
+| 7947 | TCP | Raft — leader election, log replication |
+| 7946 | UDP | Gossip — membership, peer discovery |
+| 8088 | TCP | WAF reverse proxy |
+| 9443 | TCP | Dashboard + REST API |
+
+**Helm chart** (preferred for production):
+
+```bash
+helm install guardianwaf contrib/k8s/helm \
+  --set cluster.enabled=true \
+  --set cluster.replicas=3 \
+  --set apiKey.existingSecret=guardianwaf-dashboard-auth
+```
+
+The Helm chart automatically deploys the StatefulSet, headless Service, and a PodDisruptionBudget (prevents simultaneous evictions from breaking Raft quorum). Set `cluster.enabled: true` in `values.yaml` to switch from a Deployment to a StatefulSet.
 
 ---
 

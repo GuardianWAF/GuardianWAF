@@ -1,0 +1,193 @@
+# GuardianWAF Cluster StatefulSet + Headless Service
+#
+# A StatefulSet provides stable pod identities (guardianwaf-0, -1, -2) with
+# stable DNS names via the headless Service. This is required for Raft and
+# gossip: each pod must know its peers' addresses at startup.
+#
+# Pod DNS pattern: <pod-name>.<headless-service>.<namespace>.svc.cluster.local
+#   guardianwaf-0.guardianwaf-cluster.default.svc.cluster.local:7947
+#
+# The ConfigMap at cluster-configmap.yaml references these DNS names as
+# seed peers. Gossip discovers additional peers automatically.
+#
+# Apply (ConfigMap first, then StatefulSet):
+#   kubectl apply -f contrib/k8s/cluster-configmap.yaml
+#   kubectl apply -f contrib/k8s/cluster-statefulset.yaml
+#
+# Verify:
+#   kubectl get pods -l app=guardianwaf
+#   kubectl exec guardianwaf-0 -- wget -qO- http://localhost:9443/api/v1/cluster/status
+
+---
+# Headless Service — gives each StatefulSet pod a stable DNS A record.
+# Not load-balanced; clients must resolve and connect to individual pods.
+apiVersion: v1
+kind: Service
+metadata:
+  name: guardianwaf-cluster
+  namespace: default
+  labels:
+    app: guardianwaf
+    component: cluster
+spec:
+  clusterIP: None  # headless
+  selector:
+    app: guardianwaf
+  ports:
+    - name: raft       # Raft TCP — leader election, log replication
+      port: 7947
+      targetPort: raft
+      protocol: TCP
+    - name: gossip     # Gossip UDP — membership, peer discovery
+      port: 7946
+      targetPort: gossip
+      protocol: UDP
+    - name: http       # WAF reverse proxy
+      port: 8088
+      targetPort: http
+      protocol: TCP
+    - name: dashboard  # Dashboard + REST API
+      port: 9443
+      targetPort: dashboard
+      protocol: TCP
+
+---
+# StatefulSet — 3 replicas with stable identities.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: guardianwaf
+  namespace: default
+  labels:
+    app: guardianwaf
+spec:
+  serviceName: guardianwaf-cluster  # must match the headless Service name
+  replicas: 3
+  selector:
+    matchLabels:
+      app: guardianwaf
+  template:
+    metadata:
+      labels:
+        app: guardianwaf
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+
+      # Wait for all 3 pods to be scheduled before starting.
+      # Raft needs a quorum (2 of 3) to elect a leader.
+      terminationGracePeriodSeconds: 30
+
+      containers:
+        - name: guardianwaf
+          image: ghcr.io/guardianwaf/guardianwaf:0.5.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - serve
+            - -c
+            - /etc/guardianwaf/guardianwaf.yaml
+
+          ports:
+            - name: http
+              containerPort: 8088
+              protocol: TCP
+            - name: dashboard
+              containerPort: 9443
+              protocol: TCP
+            - name: raft
+              containerPort: 7947
+              protocol: TCP
+            - name: gossip
+              containerPort: 7946
+              protocol: UDP
+
+          env:
+            # Kubernetes downward API — sets POD_NAME to the pod's name
+            # (e.g., "guardianwaf-0"). The ConfigMap uses ${POD_NAME} as
+            # the cluster node_id.
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: GWAF_DASHBOARD_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: guardianwaf-dashboard-auth
+                  key: api-key
+
+          volumeMounts:
+            - name: config
+              mountPath: /etc/guardianwaf
+              readOnly: true
+            - name: cache
+              mountPath: /var/cache/guardianwaf
+            - name: state
+              mountPath: /var/lib/guardianwaf
+
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: 8088
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8088
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            capabilities:
+              drop:
+                - ALL
+
+      volumes:
+        - name: config
+          configMap:
+            name: guardianwaf-cluster-config
+        - name: cache
+          emptyDir:
+            sizeLimit: 100Mi
+        - name: state
+          emptyDir:
+            sizeLimit: 1Gi
+
+      # Spread pods across nodes for fault tolerance.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - guardianwaf
+                topologyKey: kubernetes.io/hostname
+
+      # The first pod (guardianwaf-0) is the Raft bootstrap seed.
+      # If it fails to start, the cluster won't form. Use a pod
+      # disruption budget to prevent simultaneous evictions.
+      # (See pod-disruption-budget.yaml or Helm chart.)

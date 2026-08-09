@@ -1,0 +1,111 @@
+# GuardianWAF Cluster ConfigMap
+#
+# Cluster-mode configuration with dynamic peer discovery via gossip.
+# Each pod uses its StatefulSet ordinal as its node_id (e.g., "guardianwaf-0").
+# The POD_NAME env var is injected via the Kubernetes downward API.
+#
+# Raft TCP port: 7947  — leader election + log replication
+# Gossip UDP port: 7946 — membership + failure detection + peer discovery
+#
+# Apply:
+#   kubectl apply -f contrib/k8s/cluster-configmap.yaml
+#   kubectl apply -f contrib/k8s/cluster-statefulset.yaml
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: guardianwaf-cluster-config
+  namespace: default
+  labels:
+    app: guardianwaf
+    component: cluster
+data:
+  guardianwaf.yaml: |
+    mode: enforce
+    listen: ":8088"
+    allow_private_upstreams: true
+
+    dashboard:
+      enabled: true
+      listen: ":9443"
+      api_key: "${GWAF_DASHBOARD_API_KEY}"
+      admin_key: "${GWAF_DASHBOARD_ADMIN_KEY}"
+      audit_path: /var/lib/guardianwaf/audit/dashboard.jsonl
+
+    cluster:
+      enabled: true
+      # node_id uses the pod name: guardianwaf-0, guardianwaf-1, guardianwaf-2
+      node_id: "${POD_NAME}"
+
+      # Raft TCP — leader election + log replication.
+      bind_addr: "0.0.0.0:7947"
+
+      # Gossip UDP — membership + peer discovery.
+      gossip_addr: "0.0.0.0:7946"
+
+      # Seed peers — the other StatefulSet pods.
+      # Only one reachable seed is needed; gossip discovers the rest.
+      # The headless Service DNS resolves each pod individually.
+      peers:
+        - id: "guardianwaf-0"
+          addr: "guardianwaf-0.guardianwaf-cluster.default.svc.cluster.local:7947"
+        - id: "guardianwaf-1"
+          addr: "guardianwaf-1.guardianwaf-cluster.default.svc.cluster.local:7947"
+        - id: "guardianwaf-2"
+          addr: "guardianwaf-2.guardianwaf-cluster.default.svc.cluster.local:7947"
+
+      # Raft timing (defaults shown; tune for your network).
+      election_timeout_min: 2s
+      election_timeout_max: 4s
+      heartbeat_interval: 50ms
+
+    waf:
+      detection:
+        enabled: true
+        threshold:
+          block: 50
+          log: 25
+        detectors:
+          sqli:
+            enabled: true
+          xss:
+            enabled: true
+          lfi:
+            enabled: true
+          cmdi:
+            enabled: true
+
+      rate_limit:
+        enabled: true
+        rules:
+          - id: global
+            scope: ip
+            limit: 1000
+            window: 1m
+            burst: 50
+            action: block
+
+      ip_acl:
+        enabled: true
+
+      sanitizer:
+        enabled: true
+        max_url_length: 8192
+        max_header_size: 1048576
+        max_body_size: 10485760
+
+      response:
+        security_headers:
+          enabled: true
+        data_masking:
+          enabled: true
+          mask_credit_cards: true
+
+    logging:
+      level: info
+      format: json
+      log_blocked: true
+
+    events:
+      storage: memory
+      max_events: 100000
