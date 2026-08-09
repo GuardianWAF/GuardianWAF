@@ -237,7 +237,7 @@ func cmdServe(args []string) {
 		osExit(1)
 		return
 	}
-	defer clusterRT.Stop()
+	defer func() { _ = clusterRT.Stop() }()
 
 	// 7. Set up JS challenge service if enabled
 	challengeSvc, err := setupChallengeService(cfg, eng)
