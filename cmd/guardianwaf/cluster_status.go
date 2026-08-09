@@ -155,8 +155,8 @@ func printClusterSummaryTo(w io.Writer, stats, nodes map[string]any) {
 
 	var bans, rules, counters int
 	if store, ok := stats["store"].(map[string]any); ok {
-		bans = int(toUint64(store["bans"]))   // #nosec G115 -- small count value
-		rules = int(toUint64(store["rules"])) // #nosec G115 -- small count value
+		bans = int(toUint64(store["bans"]))         // #nosec G115 -- small count value
+		rules = int(toUint64(store["rules"]))       // #nosec G115 -- small count value
 		counters = int(toUint64(store["counters"])) // #nosec G115 -- small count value
 	}
 
