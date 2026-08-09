@@ -174,7 +174,7 @@ cluster:
 
 ## Implementation Locations
 
-**Current tree note:** The SWIM gossip membership protocol is implemented at `internal/cluster/gossip/` (member state machine, UDP transport, probe/indirect-ping/suspicion protocol, push-pull join, piggyback dissemination — 28 tests, race-clean). Gossip handles membership and failure detection only — it does not provide consensus. The Raft consensus layer (`internal/cluster/raft/`) and the replicated state machine (`internal/cluster/state/` or `internal/clustersync/`) are planned and do not exist in the current tree. Cluster dashboard handlers at `internal/dashboard/cluster_handlers.go` exist as stubs returning empty/disabled responses.
+**Current tree note:** The SWIM gossip membership protocol is implemented at `internal/cluster/gossip/` (member state machine, UDP transport, probe/indirect-ping/suspicion protocol, push-pull join, piggyback dissemination — 28 tests, race-clean). The Raft consensus layer is implemented at `internal/cluster/raft/` (leader election, log replication over TCP, per-peer connection pooling, 26 tests, race-clean). The replicated state store is implemented at `internal/clustersync/` (ReplicatedStore with ban list, rules, rate counters, StateMachine adapter for Raft). Gossip handles membership and failure detection; Raft handles strong consistency; clustersync provides the replicated state machine on top of Raft. Cluster dashboard handlers at `internal/dashboard/cluster_handlers.go` exist as stubs returning empty/disabled responses.
 
 | File | Status | Purpose |
 |------|--------|---------|
@@ -182,13 +182,16 @@ cluster:
 | `internal/cluster/gossip/message.go` | **Implemented** | Wire format encoding, member list serialization for piggyback |
 | `internal/cluster/gossip/transport.go` | **Implemented** | UDP transport with `Transport` interface |
 | `internal/cluster/gossip/protocol.go` | **Implemented** | SWIM protocol: probe loop, indirect ping, suspicion, push-pull, piggyback |
-| `internal/cluster/raft/raft.go` | Planned | Core Raft state machine (leader election, log replication) |
-| `internal/cluster/raft/log.go` | Planned | Persistent log storage (WAL on disk) |
-| `internal/cluster/raft/snapshot.go` | Planned | State machine snapshot/restore |
-| `internal/cluster/raft/transport.go` | Planned | Binary framing RPC over TCP (AppendEntries, RequestVote) |
-| `internal/cluster/raft/membership.go` | Planned | Adapter: read gossip member list → Raft peer configuration |
-| `internal/clustersync/store.go` | Planned | `ReplicatedStore` interface for ban list, rules, counters |
-| `internal/clustersync/commands.go` | Planned | Command type definitions and serialization |
+| `internal/cluster/raft/types.go` | **Implemented** | Core types: Role, LogEntry, Config, RPC message structs |
+| `internal/cluster/raft/log.go` | **Implemented** | In-memory LogStore with conflict detection and RWMutex locking |
+| `internal/cluster/raft/state.go` | **Implemented** | PersistentState, LeaderState (nextIndex/matchIndex), commit index |
+| `internal/cluster/raft/rpc.go` | **Implemented** | Binary framing RPC encode/decode over TCP |
+| `internal/cluster/raft/transport.go` | **Implemented** | TCP transport with per-peer connection pooling |
+| `internal/cluster/raft/raft.go` | **Implemented** | Core Raft node: election loop, heartbeat, AppendEntries handler |
+| `internal/clustersync/commands.go` | **Implemented** | Command types (ban/unban/set-rule/delete-rule/incr/reset-counter) |
+| `internal/clustersync/store.go` | **Implemented** | ReplicatedStore with ban list, rules, rate counters |
+| `internal/clustersync/state_machine.go` | **Implemented** | Raft StateMachine adapter — decodes commands, applies to store |
+| `internal/clustersync/api.go` | **Implemented** | Public write API (ProposeBan, ProposeUnban, etc.) |
 | `internal/dashboard/cluster_handlers.go` | **Stub** | Returns empty/disabled responses — will wire to Raft state |
 | `internal/config/config.go` | **Exists** | `ClusterConfig` struct — Raft config fields will be added |
 

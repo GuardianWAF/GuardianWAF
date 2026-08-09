@@ -54,14 +54,14 @@ the decision made, and the consequences.
 |-----|-------|--------|
 | [0013](./0013-multi-region-support.md) | Multi-Region Support | Proposed |
 | [0015](./0015-distributed-event-store.md) | Distributed Event Store | Proposed |
-| [0023](./0023-high-availability-raft.md) | High Availability with Raft Consensus | Proposed |
+| [0023](./0023-high-availability-raft.md) | High Availability with Raft Consensus | Accepted — partially implemented |
 
 ### WAF Pipeline Layers (by order)
 
 | ADR | Order | Layer | Status |
 |-----|-------|-------|--------|
 | [0024](./0024-zero-trust-network-access.md) | 70 | Zero Trust (mTLS) | Proposed — not registered in pipeline |
-| (internal/cluster/) | 75 | Cluster | Gossip membership implemented (`internal/cluster/gossip/`); Raft consensus and state replication planned |
+| [0023](./0023-high-availability-raft.md) | 75 | Cluster | Implemented — gossip membership (`internal/cluster/gossip/`), Raft consensus (`internal/cluster/raft/`), replicated state store (`internal/clustersync/`) |
 | [0035](./0035-websocket-proxy.md) | 76 | WebSocket | Implemented (middleware wrapper, not pipeline layer) |
 | [0019](./0019-grpc-protocol-support.md) | 78 | gRPC | Proposed — not registered in pipeline |
 | [0036](./0036-canary-deployments.md) | 95 | Canary Deployment | Proposed — not registered in pipeline |
