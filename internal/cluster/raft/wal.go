@@ -205,7 +205,7 @@ func encodeWALRecord(rec WALRecord) []byte {
 	case WALState:
 		payload = binary.BigEndian.AppendUint64(payload, rec.Term)
 		vf := []byte(rec.VotedFor)
-		payload = binary.BigEndian.AppendUint16(payload, uint16(len(vf)))
+		payload = binary.BigEndian.AppendUint16(payload, uint16(len(vf))) // #nosec G115 -- node IDs are short strings, well under 65535
 		payload = append(payload, vf...)
 
 	case WALLog:
@@ -215,7 +215,7 @@ func encodeWALRecord(rec WALRecord) []byte {
 		if cmd == nil {
 			cmd = []byte{}
 		}
-		payload = binary.BigEndian.AppendUint32(payload, uint32(len(cmd)))
+		payload = binary.BigEndian.AppendUint32(payload, uint32(len(cmd))) // #nosec G115 -- command length is bounded by LogEntry.Command slice size
 		payload = append(payload, cmd...)
 
 	case WALTruncate:
@@ -228,7 +228,7 @@ func encodeWALRecord(rec WALRecord) []byte {
 	// Build the full record: length + payload + CRC.
 	crc := crc32sum(payload)
 	buf := make([]byte, 4+len(payload)+4)
-	binary.BigEndian.PutUint32(buf[0:4], uint32(len(payload)))
+	binary.BigEndian.PutUint32(buf[0:4], uint32(len(payload))) // #nosec G115 -- payload length is bounded by record size limit
 	copy(buf[4:], payload)
 	binary.BigEndian.PutUint32(buf[4+len(payload):], crc)
 	return buf
