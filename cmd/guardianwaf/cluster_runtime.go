@@ -59,6 +59,7 @@ func setupClusterRuntime(cfg *config.Config, eng *engine.Engine, bctx *layerregi
 		ElectionTimeoutMax: cfg.Cluster.ElectionTimeoutMax,
 		HeartbeatInterval:  cfg.Cluster.HeartbeatInterval,
 		DataDir:            cfg.Cluster.DataDir,
+		SnapshotThreshold:  cfg.Cluster.SnapshotThreshold,
 	}
 
 	// Convert config peers to raft peers (initial seed list).

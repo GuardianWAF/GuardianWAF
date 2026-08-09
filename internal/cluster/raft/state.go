@@ -97,6 +97,22 @@ func (ps *PersistentState) SetWAL(w *WAL) {
 	}
 }
 
+// Snapshot triggers a WAL compaction: writes the full current state
+// (term, votedFor, all log entries) as a single snapshot record, then
+// atomically rotates the WAL file. After compaction, the WAL contains
+// exactly one record instead of thousands of incremental appends.
+//
+// Returns nil if persistence is disabled (no WAL attached).
+func (ps *PersistentState) Snapshot() error {
+	ps.mu.RLock()
+	wal := ps.wal
+	ps.mu.RUnlock()
+	if wal == nil {
+		return nil
+	}
+	return wal.Compact(ps)
+}
+
 // WALRef returns the attached WAL (nil when persistence is disabled).
 func (ps *PersistentState) WALRef() *WAL {
 	ps.mu.RLock()

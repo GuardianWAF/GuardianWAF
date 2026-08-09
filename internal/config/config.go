@@ -51,7 +51,8 @@ type ClusterConfig struct {
 	ElectionTimeoutMin time.Duration `yaml:"election_timeout_min"`
 	ElectionTimeoutMax time.Duration `yaml:"election_timeout_max"`
 	HeartbeatInterval  time.Duration `yaml:"heartbeat_interval"`
-	DataDir            string        `yaml:"data_dir"` // Raft WAL persistence directory (empty = in-memory)
+	DataDir            string        `yaml:"data_dir"`           // Raft WAL persistence directory (empty = in-memory)
+	SnapshotThreshold  int           `yaml:"snapshot_threshold"` // WAL compaction threshold (0 = disabled)
 }
 
 // ClusterPeer defines a known cluster node for bootstrapping.

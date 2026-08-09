@@ -1,5 +1,13 @@
 package raft
 
+// resetNoPersist clears all entries without invoking persist callbacks.
+// Used during WAL replay when a snapshot record resets the log.
+func (l *LogStore) resetNoPersist() {
+	l.mu.Lock()
+	l.entries = l.entries[:0]
+	l.mu.Unlock()
+}
+
 // NewLogStore creates a new empty in-memory log store.
 func NewLogStore() *LogStore {
 	return &LogStore{
@@ -159,6 +167,24 @@ func (l *LogStore) CheckConflict(prevIndex, prevTerm uint64) ConflictInfo {
 
 	// Case 3: no conflict.
 	return ConflictInfo{}
+}
+
+// AllEntries returns a copy of all log entries. Used for WAL compaction
+// snapshots — the snapshot captures the full current log state.
+func (l *LogStore) AllEntries() []LogEntry {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	result := make([]LogEntry, len(l.entries))
+	copy(result, l.entries)
+	return result
+}
+
+// ResetNoPersist clears the log without invoking the persistence callbacks.
+// Used during WAL replay when a snapshot record resets all prior state.
+func (l *LogStore) ResetNoPersist() {
+	l.mu.Lock()
+	l.entries = nil
+	l.mu.Unlock()
 }
 
 // Slice returns a copy of entries [start, end] (1-based, inclusive).

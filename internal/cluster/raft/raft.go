@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
-	"path/filepath"
+	"os"
 	"sync"
 	"time"
 )
@@ -21,9 +21,17 @@ type Config struct {
 
 	// DataDir is the directory for persistent Raft state (WAL + snapshots).
 	// When empty (default), all state is in-memory and lost on restart.
-	// When set, the WAL is created/opened in DataDir/raft-wal.log and replayed
+	// When set, the WAL is created/opened in DataDir/raft.wal and replayed
 	// on startup to restore the committed log and term/vote state.
 	DataDir string
+
+	// SnapshotThreshold is the number of WAL records after which a
+	// compaction is triggered. Each AppendEntry, state mutation, and
+	// truncation counts as one record. When recordCount reaches this
+	// threshold, the leader writes the full current state as a single
+	// snapshot record and atomically rotates the WAL. Set to 0 to disable
+	// compaction (WAL grows unboundedly). Default: 0 (disabled).
+	SnapshotThreshold int
 }
 
 // Peer is a cluster node known to Raft.
@@ -121,7 +129,7 @@ func New(cfg Config, sm StateMachine) (*Raft, error) {
 
 	// If DataDir is set, create/open the WAL and replay persisted state.
 	if cfg.DataDir != "" {
-		wal, err := OpenWAL(filepath.Join(cfg.DataDir, "raft.wal"))
+		wal, err := OpenWAL(cfg.DataDir)
 		if err != nil {
 			return nil, fmt.Errorf("raft: open WAL: %w", err)
 		}
@@ -577,6 +585,18 @@ func (r *Raft) applyLoop() {
 
 		if r.sm != nil {
 			r.sm.Apply(entry)
+		}
+
+		// Check if WAL compaction is needed. Triggered after each apply so
+		// only committed+applied entries are compacted.
+		if r.config.SnapshotThreshold > 0 {
+			if wal := r.persist.WALRef(); wal != nil && wal.ShouldCompact(r.config.SnapshotThreshold) {
+				if err := r.persist.Snapshot(); err != nil {
+					// Compaction failures are non-fatal — the WAL grows
+					// until the next successful compaction.
+					fmt.Fprintf(os.Stderr, "guardianwaf: wal compaction failed: %v\n", err)
+				}
+			}
 		}
 	}
 }

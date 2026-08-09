@@ -18,16 +18,18 @@ const (
 	WALState    WALRecordType = 1 // term/votedFor change
 	WALLog      WALRecordType = 2 // log entry append
 	WALTruncate WALRecordType = 3 // log truncation from index
+	WALSnapshot WALRecordType = 4 // full-state snapshot (compaction)
 )
 
 // WALRecord is a single durable record in the Write-Ahead Log.
 // Only the fields relevant to Type are populated.
 type WALRecord struct {
 	Type     WALRecordType
-	Term     uint64   // WALState: current term
-	VotedFor string   // WALState: voted-for candidate ID
-	Entry    LogEntry // WALLog: the appended entry
-	Index    uint64   // WALTruncate: truncation start index (1-based)
+	Term     uint64     // WALState, WALSnapshot: current term
+	VotedFor string     // WALState, WALSnapshot: voted-for candidate ID
+	Entry    LogEntry   // WALLog: the appended entry
+	Index    uint64     // WALTruncate: truncation start index (1-based)
+	Entries  []LogEntry // WALSnapshot: all surviving log entries after compaction
 }
 
 // WAL is a binary append-only Write-Ahead Log that persists Raft state
@@ -40,13 +42,20 @@ type WALRecord struct {
 //
 // The WAL is safe for concurrent use — all operations are guarded by a mutex.
 type WAL struct {
-	mu   sync.Mutex
-	file *os.File
-	path string
+	mu          sync.Mutex
+	file        *os.File
+	path        string
+	dataDir     string
+	recordCount int // incremented on each AppendRecord, reset by Compact
 }
 
 // magicWALHeader identifies the WAL file format.
 const magicWALHeader = "GWAFWAL1"
+
+// maxWALRecordSize bounds a single WAL record (32 MB). Records larger than
+// this are rejected to prevent a corrupt/truncated length prefix from causing
+// an oversized allocation during replay.
+const maxWALRecordSize = 32 * 1024 * 1024
 
 // OpenWAL opens (or creates) a WAL file in the given directory. If the file
 // already exists, it is opened for append. The directory is created if it
@@ -73,7 +82,46 @@ func OpenWAL(dataDir string) (*WAL, error) {
 		}
 	}
 
-	return &WAL{file: f, path: path}, nil
+	wal := &WAL{file: f, path: path, dataDir: dataDir}
+	wal.recordCount = wal.countRecords()
+	return wal, nil
+}
+
+// countRecords reads the WAL file sequentially to count valid records.
+// This is a lightweight scan (no state application) used by OpenWAL to
+// initialize recordCount so ShouldCompact() works immediately after restart.
+func (w *WAL) countRecords() int {
+	if _, err := w.file.Seek(0, 0); err != nil {
+		return 0
+	}
+	defer w.file.Seek(0, 2) // restore append position // #nosec G104 -- best-effort
+
+	// Read and validate magic header.
+	header := make([]byte, len(magicWALHeader))
+	if _, err := io.ReadFull(w.file, header); err != nil {
+		return 0
+	}
+	if string(header) != magicWALHeader {
+		return 0
+	}
+
+	count := 0
+	for {
+		var lenBuf [4]byte
+		if _, err := io.ReadFull(w.file, lenBuf[:]); err != nil {
+			break // EOF or partial record
+		}
+		recLen := binary.BigEndian.Uint32(lenBuf[:])
+		if recLen == 0 || recLen > maxWALRecordSize {
+			break // corrupt
+		}
+		// Skip payload + CRC.
+		if _, err := w.file.Seek(int64(recLen)+4, 1); err != nil {
+			break
+		}
+		count++
+	}
+	return count
 }
 
 // Close flushes and closes the WAL file.
@@ -99,7 +147,19 @@ func (w *WAL) AppendRecord(rec WALRecord) error {
 	if _, err := w.file.Write(data); err != nil {
 		return fmt.Errorf("wal: write: %w", err)
 	}
-	return w.file.Sync()
+	if err := w.file.Sync(); err != nil {
+		return fmt.Errorf("wal: sync: %w", err)
+	}
+	w.recordCount++
+	return nil
+}
+
+// RecordCount returns the number of records written since the last compaction.
+// Used by the compaction threshold check.
+func (w *WAL) RecordCount() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.recordCount
 }
 
 // Replay reads the WAL from the beginning and applies all records to the
@@ -160,6 +220,19 @@ func (w *WAL) Replay(ps *PersistentState) error {
 			ps.log.appendNoPersist(rec.Entry)
 		case WALTruncate:
 			ps.log.truncateNoPersist(rec.Index)
+		case WALSnapshot:
+			// A snapshot resets all accumulated state. Replace the log
+			// and term/vote with the snapshot contents, then continue
+			// replaying any records that follow the snapshot.
+			ps.log.resetNoPersist()
+			for _, e := range rec.Entries {
+				ps.log.appendNoPersist(e)
+			}
+			lastValidTerm = rec.Term
+			lastValidVotedFor = rec.VotedFor
+			// Snapshot replaces all prior records — count is managed by
+		// countRecords() in OpenWAL; Replay() only applies state.
+		default:
 		}
 
 		off, _ := reader.Seek(0, io.SeekCurrent)
@@ -179,6 +252,89 @@ func (w *WAL) Replay(ps *PersistentState) error {
 
 	// Seek to end for future appends.
 	_, _ = w.file.Seek(0, io.SeekEnd)
+
+	return nil
+}
+
+// ShouldCompact returns true when the WAL has accumulated enough records
+// to warrant a compaction. Compaction replaces the append-only WAL with a
+// single snapshot record, keeping the file small.
+func (w *WAL) ShouldCompact(threshold int) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return threshold > 0 && w.recordCount >= threshold
+}
+
+// Compact writes a snapshot of the current persistent state to a temporary
+// file, then atomically renames it over the live WAL. After compaction, the
+// WAL contains exactly one record (the snapshot) plus any state mutations.
+//
+// The snapshot captures: currentTerm, votedFor, and all log entries.
+func (w *WAL) Compact(ps *PersistentState) error {
+	// Gather snapshot data under the PersistentState lock.
+	ps.mu.RLock()
+	term := ps.currentTerm
+	votedFor := ps.votedFor
+	entries := ps.log.AllEntries()
+	ps.mu.RUnlock()
+
+	rec := WALRecord{
+		Type:     WALSnapshot,
+		Term:     term,
+		VotedFor: votedFor,
+		Entries:  entries,
+	}
+	data := encodeWALRecord(rec)
+
+	// Write the snapshot to a temporary file in the same directory.
+	tmpPath := w.path + ".compact.tmp"
+	tmpFile, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600) // #nosec G304 -- w.path is operator-configured
+	if err != nil {
+		return fmt.Errorf("wal compact: create temp file: %w", err)
+	}
+
+	// Write magic header + snapshot record.
+	if _, err := tmpFile.Write([]byte(magicWALHeader)); err != nil {
+		tmpFile.Close() // #nosec G104 -- best-effort cleanup
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("wal compact: write magic: %w", err)
+	}
+
+	// encodeWALRecord returns the full framed record: [4 len][payload][4 crc].
+	// Write it directly — no additional framing needed.
+	if _, err := tmpFile.Write(data); err != nil {
+		tmpFile.Close() // #nosec G104 -- best-effort cleanup
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("wal compact: write snapshot: %w", err)
+	}
+
+	if err := tmpFile.Sync(); err != nil {
+		tmpFile.Close() // #nosec G104 -- best-effort cleanup
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("wal compact: fsync temp: %w", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("wal compact: close temp: %w", err)
+	}
+
+	// Atomically replace the live WAL.
+	if err := os.Rename(tmpPath, w.path); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("wal compact: rename: %w", err)
+	}
+
+	// Open the new file for appending.
+	newFile, err := os.OpenFile(w.path, os.O_RDWR|os.O_APPEND, 0o600) // #nosec G304 -- operator-configured path
+	if err != nil {
+		return fmt.Errorf("wal compact: reopen: %w", err)
+	}
+
+	w.mu.Lock()
+	_ = w.file.Close() // #nosec G104 -- old file is replaced
+	w.file = newFile
+	w.recordCount = 1
+	w.mu.Unlock()
 
 	return nil
 }
@@ -220,6 +376,24 @@ func encodeWALRecord(rec WALRecord) []byte {
 
 	case WALTruncate:
 		payload = binary.BigEndian.AppendUint64(payload, rec.Index)
+
+	case WALSnapshot:
+		// Snapshot payload: [8 term][2 votedForLen][votedFor][4 entryCount][entries...]
+		payload = binary.BigEndian.AppendUint64(payload, rec.Term)
+		vf := []byte(rec.VotedFor)
+		payload = binary.BigEndian.AppendUint16(payload, uint16(len(vf))) // #nosec G115 -- node IDs are short
+		payload = append(payload, vf...)
+		payload = binary.BigEndian.AppendUint32(payload, uint32(len(rec.Entries))) // #nosec G115 -- entry count bounded by log length
+		for _, e := range rec.Entries {
+			payload = binary.BigEndian.AppendUint64(payload, e.Term)
+			payload = binary.BigEndian.AppendUint64(payload, e.Index)
+			cmd := e.Command
+			if cmd == nil {
+				cmd = []byte{}
+			}
+			payload = binary.BigEndian.AppendUint32(payload, uint32(len(cmd))) // #nosec G115 -- command bounded
+			payload = append(payload, cmd...)
+		}
 
 	default:
 		payload = append(payload, 0) // unknown type — will be skipped on replay
@@ -305,6 +479,38 @@ func decodeWALPayload(payload []byte) (WALRecord, error) {
 			return WALRecord{}, errors.New("wal: short truncate record")
 		}
 		rec.Index = binary.BigEndian.Uint64(p[0:8])
+
+	case WALSnapshot:
+		// Snapshot payload: term(8) | votedFor_len(2) | votedFor(N) | entry_count(4) | entries...
+		if len(p) < 10 {
+			return WALRecord{}, errors.New("wal: short snapshot record")
+		}
+		rec.Term = binary.BigEndian.Uint64(p[0:8])
+		vfLen := binary.BigEndian.Uint16(p[8:10])
+		if len(p) < 10+int(vfLen)+4 {
+			return WALRecord{}, errors.New("wal: short snapshot votedFor")
+		}
+		rec.VotedFor = string(p[10 : 10+int(vfLen)])
+		off := 10 + int(vfLen)
+		entryCount := binary.BigEndian.Uint32(p[off : off+4])
+		off += 4
+		rec.Entries = make([]LogEntry, 0, entryCount)
+		for i := uint32(0); i < entryCount; i++ {
+			if len(p) < off+20 {
+				return WALRecord{}, fmt.Errorf("wal: short snapshot entry %d", i)
+			}
+			var e LogEntry
+			e.Term = binary.BigEndian.Uint64(p[off : off+8])
+			e.Index = binary.BigEndian.Uint64(p[off+8 : off+16])
+			cmdLen := binary.BigEndian.Uint32(p[off+16 : off+20])
+			if len(p) < off+20+int(cmdLen) {
+				return WALRecord{}, fmt.Errorf("wal: short snapshot entry %d command", i)
+			}
+			e.Command = make([]byte, cmdLen)
+			copy(e.Command, p[off+20:off+20+int(cmdLen)])
+			rec.Entries = append(rec.Entries, e)
+			off += 20 + int(cmdLen)
+		}
 
 	default:
 		return WALRecord{}, fmt.Errorf("wal: unknown record type %d", rec.Type)
