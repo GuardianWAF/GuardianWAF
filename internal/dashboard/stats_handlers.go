@@ -44,4 +44,50 @@ func (d *Dashboard) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "# HELP guardianwaf_latency_avg_microseconds Average request latency in microseconds.\n")
 	fmt.Fprintf(w, "# TYPE guardianwaf_latency_avg_microseconds gauge\n")
 	fmt.Fprintf(w, "guardianwaf_latency_avg_microseconds %d\n", s.AvgLatencyUs)
+
+	// Cluster metrics — emitted only when cluster mode is active.
+	if cs := d.clusterStatus; cs != nil {
+		isLeader := 0
+		if cs.Role() == "leader" {
+			isLeader = 1
+		}
+		memberCount := len(cs.Peers()) + 1 // peers + self
+		storeStats := cs.StoreStats()
+
+		fmt.Fprintf(w, "# HELP guardianwaf_cluster_member_count Number of nodes in the cluster (peers + self).\n")
+		fmt.Fprintf(w, "# TYPE guardianwaf_cluster_member_count gauge\n")
+		fmt.Fprintf(w, "guardianwaf_cluster_member_count %d\n", memberCount)
+
+		fmt.Fprintf(w, "# HELP guardianwaf_cluster_is_leader 1 if this node is the Raft leader, 0 otherwise.\n")
+		fmt.Fprintf(w, "# TYPE guardianwaf_cluster_is_leader gauge\n")
+		fmt.Fprintf(w, "guardianwaf_cluster_is_leader %d\n", isLeader)
+
+		fmt.Fprintf(w, "# HELP guardianwaf_cluster_raft_term Current Raft term.\n")
+		fmt.Fprintf(w, "# TYPE guardianwaf_cluster_raft_term gauge\n")
+		fmt.Fprintf(w, "guardianwaf_cluster_raft_term %d\n", cs.CurrentTerm())
+
+		fmt.Fprintf(w, "# HELP guardianwaf_cluster_raft_commit_index Index of the highest log entry known to be committed.\n")
+		fmt.Fprintf(w, "# TYPE guardianwaf_cluster_raft_commit_index gauge\n")
+		fmt.Fprintf(w, "guardianwaf_cluster_raft_commit_index %d\n", cs.CommitIndex())
+
+		fmt.Fprintf(w, "# HELP guardianwaf_cluster_raft_last_applied Index of the highest log entry applied to the state machine.\n")
+		fmt.Fprintf(w, "# TYPE guardianwaf_cluster_raft_last_applied gauge\n")
+		fmt.Fprintf(w, "guardianwaf_cluster_raft_last_applied %d\n", cs.LastApplied())
+
+		fmt.Fprintf(w, "# HELP guardianwaf_cluster_raft_log_length Number of entries in the Raft log.\n")
+		fmt.Fprintf(w, "# TYPE guardianwaf_cluster_raft_log_length gauge\n")
+		fmt.Fprintf(w, "guardianwaf_cluster_raft_log_length %d\n", cs.LogLength())
+
+		fmt.Fprintf(w, "# HELP guardianwaf_cluster_store_bans Number of active bans in the replicated store.\n")
+		fmt.Fprintf(w, "# TYPE guardianwaf_cluster_store_bans gauge\n")
+		fmt.Fprintf(w, "guardianwaf_cluster_store_bans %d\n", storeStats.Bans)
+
+		fmt.Fprintf(w, "# HELP guardianwaf_cluster_store_rules Number of rules in the replicated store.\n")
+		fmt.Fprintf(w, "# TYPE guardianwaf_cluster_store_rules gauge\n")
+		fmt.Fprintf(w, "guardianwaf_cluster_store_rules %d\n", storeStats.Rules)
+
+		fmt.Fprintf(w, "# HELP guardianwaf_cluster_store_counters Number of rate-limit counters in the replicated store.\n")
+		fmt.Fprintf(w, "# TYPE guardianwaf_cluster_store_counters gauge\n")
+		fmt.Fprintf(w, "guardianwaf_cluster_store_counters %d\n", storeStats.Counters)
+	}
 }

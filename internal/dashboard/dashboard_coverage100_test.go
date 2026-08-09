@@ -228,6 +228,56 @@ func TestHandleMetrics(t *testing.T) {
 	if !strings.Contains(body, "guardianwaf_requests_total") {
 		t.Error("expected requests_total metric")
 	}
+	// Cluster metrics should NOT appear when no provider is wired.
+	if strings.Contains(body, "guardianwaf_cluster_") {
+		t.Error("cluster metrics should not appear without a provider")
+	}
+}
+
+func TestHandleMetrics_WithCluster(t *testing.T) {
+	proxy.SetPrivateTargetsAllowed(true)
+	cfg := config.DefaultConfig()
+	store := events.NewMemoryStore(100)
+	bus := events.NewEventBus()
+	eng, err := engine.NewEngine(cfg, store, bus)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := New(eng, store, "test-key")
+
+	// Wire a mock cluster status provider with realistic data.
+	d.SetClusterStatusProvider(&mockClusterProvider{
+		peers: []ClusterPeerInfo{
+			{ID: "node-a", Addr: "127.0.0.1:7947"},
+			{ID: "node-b", Addr: "127.0.0.1:7948"},
+		},
+		stats: ClusterStoreStats{Bans: 5, Rules: 3, Counters: 12},
+	})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	d.handleMetrics(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	body := rr.Body.String()
+
+	for _, want := range []string{
+		"guardianwaf_cluster_member_count",
+		"guardianwaf_cluster_is_leader",
+		"guardianwaf_cluster_raft_term",
+		"guardianwaf_cluster_raft_commit_index",
+		"guardianwaf_cluster_raft_last_applied",
+		"guardianwaf_cluster_raft_log_length",
+		"guardianwaf_cluster_store_bans",
+		"guardianwaf_cluster_store_rules",
+		"guardianwaf_cluster_store_counters",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("expected cluster metric %q in output", want)
+		}
+	}
 }
 
 // =====================================================================

@@ -35,6 +35,8 @@ type mockClusterProvider struct {
 	bans   map[string]time.Duration
 	unbans map[string]bool
 	err    error // error to return from ProposeBan/ProposeUnban
+	peers  []ClusterPeerInfo
+	stats  ClusterStoreStats
 }
 
 func (m *mockClusterProvider) Enabled() bool                 { return true }
@@ -45,8 +47,8 @@ func (m *mockClusterProvider) CurrentTerm() uint64           { return 1 }
 func (m *mockClusterProvider) CommitIndex() uint64           { return 0 }
 func (m *mockClusterProvider) LastApplied() uint64           { return 0 }
 func (m *mockClusterProvider) LogLength() uint64             { return 0 }
-func (m *mockClusterProvider) Peers() []ClusterPeerInfo      { return nil }
-func (m *mockClusterProvider) StoreStats() ClusterStoreStats { return ClusterStoreStats{} }
+func (m *mockClusterProvider) Peers() []ClusterPeerInfo      { return m.peers }
+func (m *mockClusterProvider) StoreStats() ClusterStoreStats { return m.stats }
 func (m *mockClusterProvider) BannedIPs() []ClusterBanInfo   { return nil }
 func (m *mockClusterProvider) ProposeBan(ip string, d time.Duration) error {
 	if m.err != nil {
