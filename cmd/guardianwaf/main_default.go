@@ -322,6 +322,10 @@ func cmdServe(args []string) {
 		dashboardReady.Store(dashSrv != nil && dash != nil)
 		wireDashboardProxyControls(dash, cfg, eng, loadedConfigPath, &proxyRouter, &proxyHealthCheckers, &proxyRuntimeMu, &upstreamHandler, &tenantMWPtr, diskStore)
 		wireDashboardRules(dash, cfg, eng, layerResources)
+
+		if clusterRT != nil {
+			dash.SetClusterStatusProvider(NewClusterStatusProvider(clusterRT.raft, clusterRT.store))
+		}
 	}
 
 	// Register MCP SSE routes on dashboard mux

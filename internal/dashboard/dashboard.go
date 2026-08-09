@@ -125,6 +125,9 @@ type Dashboard struct {
 	// Extra stats providers for /api/stats (SIEM, etc.)
 	extraStatsMu sync.RWMutex
 	extraStats   map[string]func() any
+
+	// Cluster status provider (nil when cluster mode is disabled)
+	clusterStatus ClusterStatusProvider
 }
 
 const (
@@ -309,6 +312,13 @@ func (d *Dashboard) SetAlertingStatsFn(fn func() any) {
 		return
 	}
 	d.alertingStats = &alertingStatsAdapter{fn: fn}
+}
+
+// SetClusterStatusProvider injects the cluster status provider so dashboard
+// cluster endpoints return real data. When nil (single-node mode), the
+// endpoints report "cluster mode disabled".
+func (d *Dashboard) SetClusterStatusProvider(p ClusterStatusProvider) {
+	d.clusterStatus = p
 }
 
 // SetSIEMStatsFn injects SIEM exporter stats for the /api/stats endpoint.
