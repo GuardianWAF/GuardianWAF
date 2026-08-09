@@ -242,6 +242,20 @@ The dashboard REST API exposes cluster status endpoints:
 | `/api/v1/cluster/config` | GET | Current cluster configuration |
 | `/api/v1/cluster/bans` | GET | All active bans in the replicated store |
 
+### CLI: `guardianwaf cluster status`
+
+The `cluster status` command queries the local node's dashboard API and prints a human-readable summary — useful for quick health checks from the terminal, shell scripts, or cron-based monitoring.
+
+```bash
+# Query the local node (reads dashboard address from config)
+guardianwaf cluster status
+
+# Query a specific node
+guardianwaf cluster status --url http://10.0.0.1:9443 --api-key mykey
+```
+
+See [CLI: `guardianwaf cluster status`](#cli-guardianwaf-cluster-status) below for full flags and sample output.
+
 ---
 
 ## Deployment
@@ -333,6 +347,62 @@ The Helm chart automatically deploys the StatefulSet, headless Service, and a Po
 
 ---
 
+## CLI: `guardianwaf cluster status`
+
+Query the local node's cluster status and print a human-readable summary. Useful for quick diagnostics without opening the dashboard.
+
+```bash
+# Default — reads config to find the dashboard address
+guardianwaf cluster status
+
+# Explicit URL + API key
+guardianwaf cluster status --url http://10.0.0.1:9443 --api-key SECRET
+
+# Override config path
+guardianwaf cluster status -c /etc/guardianwaf/guardianwaf.yaml
+```
+
+**Sample output** (leader node):
+
+```
+┌─────────────────────────────────────────────┐
+│           GuardianWAF Cluster Status         │
+└─────────────────────────────────────────────┘
+
+  Node ID:        guardianwaf-0
+  Role:           leader ★
+  Term:           5
+  Commit Index:   42
+  Last Applied:   42
+  Log Length:     42
+  Replication Lag: 0
+
+  Replicated Store:
+    Bans:      3
+    Rules:     7
+    Counters:  12
+
+  Cluster Members (3):
+    ★ guardianwaf-0    (leader)
+      guardianwaf-1    10.0.0.2:7947
+      guardianwaf-2    10.0.0.3:7947
+
+  ✓ This node is the cluster leader.
+```
+
+**Flags:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--url` | from config | Dashboard base URL |
+| `--api-key` | `GWAF_DASHBOARD_API_KEY` | Dashboard API key |
+| `--timeout` | `5s` | Request timeout |
+| `-c` / `--config` | platform default | Config file path |
+
+Exits 0 on success, 1 on connection error or when cluster mode is disabled.
+
+---
+
 ## Troubleshooting
 
 ### Cluster won't form
@@ -341,25 +411,80 @@ The Helm chart automatically deploys the StatefulSet, headless Service, and a Po
 2. **Check `node_id` uniqueness**: Each node must have a unique `node_id`.
 3. **Check peer addresses**: At least one peer's Raft address must be reachable.
 4. **Check logs**: Look for `gossip started`, `raft: starting election`, `became leader`.
+5. **Use the CLI**: Run `guardianwaf cluster status` on each node — if `Member Count: 1`, gossip can't reach peers.
 
 ### No leader elected
 
 1. Wait for election timeout (default 2-4 seconds after startup).
 2. Check `guardianwaf_cluster_is_leader` — should be 1 on exactly one node.
 3. If 0 on all nodes, the cluster has no majority — add nodes or check connectivity.
+4. **Use the CLI**: Run `guardianwaf cluster status` — if `Role:` is empty or `Term:` is 0, the node hasn't started an election yet.
 
 ### Ban not replicating
 
 1. Check `guardianwaf_cluster_raft_commit_index` is advancing on all nodes.
 2. Check `commit_index - last_applied` is near 0 — high lag means the apply loop is stuck.
-3. Send the ban to the **leader** node directly (check `/api/v1/cluster/status` for leader ID).
-4. Check for `ErrRaftNotLeader` errors in the logs.
+3. **Use the CLI**: Run `guardianwaf cluster status` on each node and compare `Commit Index` values — diverging values indicate replication failure.
+4. Send the ban to the **leader** node directly (the CLI shows `★` next to the leader; or check `/api/v1/cluster/status`).
+5. Check for `ErrRaftNotLeader` errors in the logs.
 
 ### Redirect not working (503 instead of 307)
 
 1. Verify gossip is running: check `/api/v1/cluster/nodes` — if empty, gossip didn't converge.
-2. The leader's `DashboardAddr` must be non-empty in the gossip member list.
+2. The leader's `DashboardAddr` must be non empty in the gossip member list.
 3. If using static peers only (no gossip), redirects are not available — the 503 response includes `leader_id` for manual retry.
+
+### Network partition (split-brain)
+
+A network partition isolates one or more nodes from the rest of the cluster. GuardianWAF's Raft implementation guarantees that **only the majority partition can commit entries** — the minority cannot accept bans, unban, or rule changes.
+
+**Symptoms:**
+
+- One or more nodes report `not ready` on `/readyz` (gossip isolation detected).
+- Bans sent to a minority node fail — the node is either not the leader or cannot reach the majority.
+- The `guardianwaf_cluster_member_count` metric drops on partitioned nodes.
+
+**Diagnosis:**
+
+```bash
+# Check which nodes the local node can see
+guardianwaf cluster status
+
+# Or query each node individually
+kubectl exec guardianwaf-0 -- guardianwaf cluster status --url http://localhost:9443
+kubectl exec guardianwaf-1 -- guardianwaf cluster status --url http://localhost:9443
+kubectl exec guardianwaf-2 -- guardianwaf cluster status --url http://localhost:9443
+```
+
+If a node shows `Member Count: 1` (only itself) while others show 3, that node is partitioned.
+
+**Expected behavior during partition (verified by integration tests):**
+
+| Cluster size | Partitioned | Quorum | Behavior |
+|---|---|---|---|
+| 3 nodes | 1 isolated | 2 of 3 | Majority continues serving. Isolated node goes `not ready`. |
+| 5 nodes | 2 isolated | 3 of 5 | Majority continues serving. Isolated nodes go `not ready`. |
+| 3 nodes | 2 isolated | 1 of 3 | **No quorum** — cluster stops accepting writes until healed. |
+
+**Recovery:**
+
+1. Restore network connectivity between the nodes.
+2. The partitioned node automatically rejoins via gossip probe convergence.
+3. Raft log replication catches up — the node receives all committed entries it missed.
+4. The readiness probe (`/readyz`) returns 200 once gossip sees ≥2 members.
+
+No manual intervention is needed for healing. The cluster was tested with:
+
+- `TestPartition_MinorityCannotCommit` — verifies a partitioned node can't commit bans.
+- `TestPartition_HealCatchUp` — verifies the partitioned node receives missed bans after healing.
+- `TestPartition_MajorityLeaderStable` — verifies the majority leader stays stable during partition.
+- `TestPartition_FollowerRedirectMajorityLeader` — verifies follower redirects still reach the majority leader.
+
+**Chaos tests** (leader failover):
+
+- `TestChaos_KillLeaderCommittedBansSurvive` — committed bans survive leader failure.
+- `TestChaos_SecondLeaderKill` — cluster survives double leader failure (5-node cluster).
+- `TestChaos_StoreConsistencyAfterFailover` — no split-brain after failover.
 
 ---
 
