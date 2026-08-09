@@ -22,4 +22,6 @@ The healthcheck request retains narrow G704 suppressions only at the request-con
 
 An independent external assessment has not been supplied. That is a release-evidence gap, not proof of a code vulnerability, and remains mandatory under `docs/security-review-scope.md` and `docs/release-checklist.md`.
 
-Earlier detailed finding lists in this directory are historical hunt inputs. Many were fixed or refer to deleted runtime packages and are not the current verified-finding set.
+Point-in-time scanner dumps and superseded finding lists are intentionally
+excluded from the repository. Regenerate them for the exact release candidate;
+do not treat an older scan as current evidence.
