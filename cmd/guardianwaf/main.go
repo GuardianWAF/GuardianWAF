@@ -105,6 +105,8 @@ COMMANDS:
   check       Test a request against the WAF (dry-run)
   validate    Validate a configuration file
   test-alert  Send test alert to configured targets
+  cluster     Cluster operations (status, ban, unban)
+  healthcheck Probe the local server liveness endpoint
   setup       Interactive first-time setup
   version     Print version information
   help        Show help
