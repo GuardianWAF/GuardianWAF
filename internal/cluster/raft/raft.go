@@ -121,7 +121,7 @@ func New(cfg Config, sm StateMachine) (*Raft, error) {
 
 	// If DataDir is set, create/open the WAL and replay persisted state.
 	if cfg.DataDir != "" {
-		wal, err := OpenWAL(filepath.Join(cfg.DataDir, "raft-wal.log"))
+		wal, err := OpenWAL(filepath.Join(cfg.DataDir, "raft.wal"))
 		if err != nil {
 			return nil, fmt.Errorf("raft: open WAL: %w", err)
 		}

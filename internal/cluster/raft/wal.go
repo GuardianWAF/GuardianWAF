@@ -59,7 +59,7 @@ func OpenWAL(dataDir string) (*WAL, error) {
 		return nil, fmt.Errorf("wal: create data dir %s: %w", dataDir, err)
 	}
 	path := filepath.Join(dataDir, "raft.wal")
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o600)
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o600) // #nosec G304 -- path is operator-configured data_dir joined with a fixed filename
 	if err != nil {
 		return nil, fmt.Errorf("wal: open %s: %w", path, err)
 	}
