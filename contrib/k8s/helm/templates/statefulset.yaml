@@ -92,6 +92,8 @@ spec:
               mountPath: /var/cache/guardianwaf
             - name: state
               mountPath: /var/lib/guardianwaf
+            - name: wal
+              mountPath: /var/lib/guardianwaf/raft
             {{- if .Values.tls.enabled }}
             - name: certs
               mountPath: /etc/guardianwaf/certs
@@ -157,4 +159,14 @@ spec:
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+
+  volumeClaimTemplates:
+    - metadata:
+        name: wal
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: {{ .Values.cluster.walSize | default "1Gi" }}
 {{- end }}

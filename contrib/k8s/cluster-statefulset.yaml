@@ -125,6 +125,8 @@ spec:
               mountPath: /var/cache/guardianwaf
             - name: state
               mountPath: /var/lib/guardianwaf
+            - name: wal
+              mountPath: /var/lib/guardianwaf/raft
 
           livenessProbe:
             httpGet:
@@ -191,3 +193,16 @@ spec:
       # If it fails to start, the cluster won't form. Use a pod
       # disruption budget to prevent simultaneous evictions.
       # (See pod-disruption-budget.yaml or Helm chart.)
+
+  # PersistentVolumeClaim template — gives each pod a stable PVC for WAL
+  # persistence. When data_dir is set, the Raft WAL (term, vote, log entries)
+  # is fsync'd here so the node rejoins the cluster with its state intact
+  # after a restart (pod crash, node drain, rolling update).
+  volumeClaimTemplates:
+    - metadata:
+        name: wal
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi

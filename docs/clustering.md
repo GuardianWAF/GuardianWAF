@@ -714,7 +714,7 @@ Items marked **[limitation]** describe known constraints with recommended mitiga
 
 ### Persistence & Backup
 
-- **[limitation] Raft log is in-memory.** The current Raft implementation stores its log, current term, and vote in memory (`internal/cluster/raft/state.go`). A full cluster restart loses all replicated state. Mitigations:
+- **Raft log persistence via WAL.** When `cluster.data_dir` is set, the Raft log, current term, and vote are persisted to a write-ahead log (`raft-wal.log`) in the data directory. Every state mutation (term change, vote, log append, log truncation) is fsync'd before the in-memory state is updated. On restart, the WAL is replayed to restore the full log and consensus state. Without `data_dir`, the Raft log is in-memory only (existing behavior, for backward compatibility).
 
   - **Export the ban list before maintenance.** Use the API to dump all active bans, then re-apply them after restart:
 

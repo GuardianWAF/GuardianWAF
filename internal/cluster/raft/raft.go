@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -17,6 +18,12 @@ type Config struct {
 	ElectionTimeoutMin time.Duration
 	ElectionTimeoutMax time.Duration
 	HeartbeatInterval  time.Duration
+
+	// DataDir is the directory for persistent Raft state (WAL + snapshots).
+	// When empty (default), all state is in-memory and lost on restart.
+	// When set, the WAL is created/opened in DataDir/raft-wal.log and replayed
+	// on startup to restore the committed log and term/vote state.
+	DataDir string
 }
 
 // Peer is a cluster node known to Raft.
@@ -110,6 +117,18 @@ func New(cfg Config, sm StateMachine) (*Raft, error) {
 		leaderID:      "",
 		commitIndex:   0,
 		lastApplied:   0,
+	}
+
+	// If DataDir is set, create/open the WAL and replay persisted state.
+	if cfg.DataDir != "" {
+		wal, err := OpenWAL(filepath.Join(cfg.DataDir, "raft-wal.log"))
+		if err != nil {
+			return nil, fmt.Errorf("raft: open WAL: %w", err)
+		}
+		r.persist.SetWAL(wal)
+		if err := wal.Replay(r.persist); err != nil {
+			return nil, fmt.Errorf("raft: replay WAL: %w", err)
+		}
 	}
 
 	tr.SetHandler(r.handleRPC)

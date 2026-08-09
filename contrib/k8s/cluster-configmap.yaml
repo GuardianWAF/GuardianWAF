@@ -54,6 +54,10 @@ data:
         - id: "guardianwaf-2"
           addr: "guardianwaf-2.guardianwaf-cluster.default.svc.cluster.local:7947"
 
+      # Raft WAL persistence — survives full cluster restarts.
+      # Each pod writes its WAL to its own persistent volume.
+      data_dir: /var/lib/guardianwaf/raft
+
       # Raft timing (defaults shown; tune for your network).
       election_timeout_min: 2s
       election_timeout_max: 4s

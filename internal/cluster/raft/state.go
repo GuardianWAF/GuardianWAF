@@ -14,6 +14,7 @@ type PersistentState struct {
 	currentTerm uint64
 	votedFor    string // "" means no vote cast this term
 	log         *LogStore
+	wal         *WAL // nil when persistence is disabled
 }
 
 // NewPersistentState creates a new persistent state container with an empty
@@ -37,6 +38,9 @@ func (ps *PersistentState) SetCurrentTerm(term uint64) {
 	defer ps.mu.Unlock()
 	ps.currentTerm = term
 	ps.votedFor = "" // starting a new term resets the vote
+	if ps.wal != nil {
+		_ = ps.wal.AppendRecord(WALRecord{Type: WALState, Term: term, VotedFor: ""})
+	}
 }
 
 // IncCurrentTerm increments the term and returns the new value.
@@ -45,6 +49,9 @@ func (ps *PersistentState) IncCurrentTerm() uint64 {
 	defer ps.mu.Unlock()
 	ps.currentTerm++
 	ps.votedFor = ""
+	if ps.wal != nil {
+		_ = ps.wal.AppendRecord(WALRecord{Type: WALState, Term: ps.currentTerm, VotedFor: ""})
+	}
 	return ps.currentTerm
 }
 
@@ -61,12 +68,40 @@ func (ps *PersistentState) SetVotedFor(candidateID string) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
 	ps.votedFor = candidateID
+	if ps.wal != nil {
+		_ = ps.wal.AppendRecord(WALRecord{Type: WALState, Term: ps.currentTerm, VotedFor: candidateID})
+	}
 }
 
 // Log returns the log store. Callers must hold no other lock; the LogStore
 // has its own internal locking.
 func (ps *PersistentState) Log() *LogStore {
 	return ps.log
+}
+
+// SetWAL attaches a Write-Ahead Log for persistence. Once set, all mutations
+// to currentTerm, votedFor, and the log store are durably appended before
+// the in-memory state is updated. Pass nil to disable persistence.
+func (ps *PersistentState) SetWAL(w *WAL) {
+	ps.mu.Lock()
+	ps.wal = w
+	ps.mu.Unlock()
+
+	// Wire log persistence: every append and truncate is durably written
+	// to the WAL before the in-memory log is modified.
+	if w != nil {
+		ps.log.SetPersistence(
+			func(e LogEntry) { _ = w.AppendRecord(WALRecord{Type: WALLog, Entry: e}) },
+			func(index uint64) { _ = w.AppendRecord(WALRecord{Type: WALTruncate, Index: index}) },
+		)
+	}
+}
+
+// WALRef returns the attached WAL (nil when persistence is disabled).
+func (ps *PersistentState) WALRef() *WAL {
+	ps.mu.RLock()
+	defer ps.mu.RUnlock()
+	return ps.wal
 }
 
 // --- Volatile state (leader) ---

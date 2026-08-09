@@ -11,21 +11,30 @@ func NewLogStore() *LogStore {
 // Returns the assigned index.
 func (l *LogStore) Append(term uint64, command []byte) uint64 {
 	l.mu.Lock()
-	defer l.mu.Unlock()
 	idx := uint64(len(l.entries) + 1)
-	l.entries = append(l.entries, LogEntry{
+	entry := LogEntry{
 		Term:    term,
 		Index:   idx,
 		Command: command,
-	})
+	}
+	l.entries = append(l.entries, entry)
+	persist := l.persistEntry
+	l.mu.Unlock()
+	if persist != nil {
+		persist(entry)
+	}
 	return idx
 }
 
 // AppendEntry adds a pre-constructed LogEntry to the log.
 func (l *LogStore) AppendEntry(entry LogEntry) uint64 {
 	l.mu.Lock()
-	defer l.mu.Unlock()
 	l.entries = append(l.entries, entry)
+	persist := l.persistEntry
+	l.mu.Unlock()
+	if persist != nil {
+		persist(entry)
+	}
 	return entry.Index
 }
 
@@ -100,6 +109,9 @@ func (l *LogStore) TruncateFrom(index uint64) bool {
 		return false
 	}
 	l.entries = l.entries[:index-1]
+	if l.persistTrunc != nil {
+		l.persistTrunc(index)
+	}
 	return true
 }
 

@@ -109,4 +109,5 @@ data:
       election_timeout_min: {{ .Values.cluster.electionTimeoutMin | default "2s" | quote }}
       election_timeout_max: {{ .Values.cluster.electionTimeoutMax | default "4s" | quote }}
       heartbeat_interval: {{ .Values.cluster.heartbeatInterval | default "50ms" | quote }}
+      data_dir: /var/lib/guardianwaf/raft
     {{- end }}

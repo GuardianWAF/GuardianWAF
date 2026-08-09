@@ -61,6 +61,21 @@ type ConflictInfo struct {
 type LogStore struct {
 	mu      sync.RWMutex
 	entries []LogEntry
+
+	// persistEntry, if set, is called after every successful append/truncate.
+	// It allows the WAL to durably record the change before the caller proceeds.
+	persistEntry func(entry LogEntry)
+	persistTrunc func(fromIndex uint64)
+}
+
+// SetPersistence wires durable persistence callbacks for the log store.
+// persistEntry is called after each Append/AppendEntry; persistTrunc is
+// called after each TruncateFrom. Pass nil for both to disable.
+func (l *LogStore) SetPersistence(persistEntry func(LogEntry), persistTrunc func(uint64)) {
+	l.mu.Lock()
+	l.persistEntry = persistEntry
+	l.persistTrunc = persistTrunc
+	l.mu.Unlock()
 }
 
 // PeerInfo describes a cluster peer discovered via gossip.

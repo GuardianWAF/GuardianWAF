@@ -275,3 +275,8 @@ cluster:
   electionTimeoutMin: "2s"
   electionTimeoutMax: "4s"
   heartbeatInterval: "50ms"
+
+  # Raft WAL persistence — size of the persistent volume for each pod.
+  # The WAL stores committed entries, term, and vote data so the cluster
+  # survives a full restart. Set to 0 to disable persistence.
+  walSize: 5Gi
