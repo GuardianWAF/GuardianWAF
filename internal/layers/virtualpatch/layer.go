@@ -36,9 +36,9 @@ type Layer struct {
 
 	// Statistics
 	updateCount atomic.Int64
-	lastError   atomic.Value
 
-	mu sync.RWMutex
+	mu        sync.RWMutex
+	lastError error // protected by mu
 }
 
 // NewLayer creates a new virtual patching layer.
@@ -123,7 +123,9 @@ func (l *Layer) runUpdate(ctx context.Context) {
 
 	resp, err := l.nvdClient.SearchWithContext(ctx, opts)
 	if err != nil {
-		l.lastError.Store(err)
+		l.mu.Lock()
+		l.lastError = err
+		l.mu.Unlock()
 		return
 	}
 
@@ -142,6 +144,7 @@ func (l *Layer) runUpdate(ctx context.Context) {
 	l.updateCount.Add(1)
 	l.mu.Lock()
 	l.lastUpdate = time.Now()
+	l.lastError = nil // clear previous error on success
 	l.mu.Unlock()
 }
 
@@ -267,7 +270,9 @@ func (l *Layer) GetUpdateStats() UpdateStats {
 	lastUpdate := l.lastUpdate
 	l.mu.RUnlock()
 
-	lastErr, _ := l.lastError.Load().(error)
+	l.mu.RLock()
+	lastErr := l.lastError
+	l.mu.RUnlock()
 	var lastErrorStr string
 	if lastErr != nil {
 		lastErrorStr = lastErr.Error()
@@ -601,10 +606,10 @@ func (l *Layer) TriggerUpdate() error {
 		return fmt.Errorf("NVD client not configured (enable auto_update)")
 	}
 	l.runUpdate(context.Background())
-	if err, _ := l.lastError.Load().(error); err != nil {
-		return err
-	}
-	return nil
+	l.mu.RLock()
+	err := l.lastError
+	l.mu.RUnlock()
+	return err
 }
 
 // GetStats returns statistics.
