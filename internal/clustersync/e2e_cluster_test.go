@@ -122,11 +122,22 @@ func setupE2ECluster(t *testing.T, n int) map[string]*e2eNode {
 
 	// Phase 3: Each node joins the gossip mesh via the first node.
 	for i := 1; i < n; i++ {
-		inits[i].gossip.Join([]string{gossipAddrs[0]})
+		// Join ALL other nodes, not just the first seed. Push-pull exchange
+		// with every peer makes gossip converge immediately instead of
+		// waiting for periodic dissemination.
+		var seeds []string
+		for j, addr := range gossipAddrs {
+			if j == i {
+				continue // skip self
+			}
+			seeds = append(seeds, addr)
+		}
+		inits[i].gossip.Join(seeds)
 	}
 
 	// Phase 4: Wait for gossip convergence.
-	deadline := time.Now().Add(5 * time.Second)
+	// Scale the deadline with node count: more nodes need more gossip rounds.
+	deadline := time.Now().Add(time.Duration(n) * 3 * time.Second)
 	for time.Now().Before(deadline) {
 		allConverged := true
 		for _, ni := range inits {
