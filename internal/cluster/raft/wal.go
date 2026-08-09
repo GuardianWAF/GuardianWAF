@@ -136,7 +136,7 @@ func (w *WAL) Replay(ps *PersistentState) error {
 	}
 
 	reader := w.file
-	var validOffset int64 = int64(len(magicWALHeader))
+	validOffset := int64(len(magicWALHeader))
 	var lastValidTerm uint64
 	var lastValidVotedFor string
 

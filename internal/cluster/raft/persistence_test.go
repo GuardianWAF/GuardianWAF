@@ -204,7 +204,7 @@ func TestRaft_WALEmptyDirRecover(t *testing.T) {
 	r.persist.Log().Append(1, []byte("first"))
 
 	// WAL file should exist.
-	walPath := filepath.Join(dataDir, "raft-wal.log")
+	walPath := filepath.Join(dataDir, "raft.wal")
 	if _, err := os.Stat(walPath); err != nil {
 		t.Errorf("WAL file not created: %v", err)
 	}
