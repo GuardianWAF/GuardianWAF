@@ -272,3 +272,70 @@ func TestCmdClusterBans_HttpError(t *testing.T) {
 		t.Fatal("expected exit 1 for HTTP 401, got 0")
 	}
 }
+
+func TestCmdClusterNodes_WithNodes(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"enabled": true,
+			"nodes": []any{
+				map[string]any{
+					"id":        "guardianwaf-0",
+					"role":      "leader",
+					"is_leader": true,
+				},
+				map[string]any{
+					"id":        "guardianwaf-1",
+					"addr":      "10.0.0.2:7947",
+					"is_leader": false,
+				},
+				map[string]any{
+					"id":        "guardianwaf-2",
+					"addr":      "10.0.0.3:7947",
+					"is_leader": false,
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	code := cmdClusterNodes([]string{"--url", srv.URL})
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d", code)
+	}
+}
+
+func TestCmdClusterNodes_Disabled(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"enabled": false,
+			"nodes":   []any{},
+		})
+	}))
+	defer srv.Close()
+
+	code := cmdClusterNodes([]string{"--url", srv.URL})
+	if code != 0 {
+		t.Fatalf("expected exit 0 for disabled cluster, got %d", code)
+	}
+}
+
+func TestCmdClusterNodes_ConnectionError(t *testing.T) {
+	code := cmdClusterNodes([]string{"--url", "http://127.0.0.1:1"})
+	if code == 0 {
+		t.Fatal("expected exit 1 for connection error, got 0")
+	}
+}
+
+func TestCmdClusterNodes_HttpError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	code := cmdClusterNodes([]string{"--url", srv.URL, "--api-key", "wrong"})
+	if code == 0 {
+		t.Fatal("expected exit 1 for HTTP 401, got 0")
+	}
+}

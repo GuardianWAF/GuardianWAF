@@ -42,9 +42,11 @@ func cmdCluster(args []string) int {
 		return cmdClusterUnban(args[1:])
 	case "bans":
 		return cmdClusterBans(args[1:])
+	case "nodes":
+		return cmdClusterNodes(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown cluster subcommand: %s\n\n", args[0])
-		fmt.Fprintln(os.Stderr, "Available subcommands: status, ban, unban, bans")
+		fmt.Fprintln(os.Stderr, "Available subcommands: status, ban, unban, bans, nodes")
 		return 1
 	}
 }

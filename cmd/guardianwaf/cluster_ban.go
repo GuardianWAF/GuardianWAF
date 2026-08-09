@@ -265,3 +265,80 @@ func cmdClusterBans(args []string) int {
 	fmt.Printf("\n%d active cluster-wide ban(s)\n", len(bansRaw))
 	return 0
 }
+
+// cmdClusterNodes lists all cluster peer nodes with their roles, Raft
+// addresses, and dashboard URLs.
+//
+// Usage:
+//
+//	guardianwaf cluster nodes [--url URL] [--api-key KEY]
+func cmdClusterNodes(args []string) int {
+	fs := flag.NewFlagSet("cluster nodes", flag.ExitOnError)
+	apiURL := fs.String("url", "", "Dashboard URL (default: from config)")
+	apiKey := fs.String("api-key", "", "Dashboard API key (default: GWAF_DASHBOARD_API_KEY env)")
+	configPath := fs.String("config", "", "Path to config file (for deriving --url)")
+	timeout := fs.Duration("timeout", 5*time.Second, "Request timeout")
+	_ = fs.Parse(args) // nolint:errcheck
+
+	baseURL, key := resolveClusterEndpoint(*apiURL, *apiKey, *configPath)
+
+	client := &http.Client{Timeout: *timeout}
+	url := strings.TrimRight(baseURL, "/") + "/api/v1/cluster/nodes"
+	body, status, err := fetchJSON(client, url, key)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cluster nodes: %v\n", err)
+		return 1
+	}
+	if status != http.StatusOK {
+		errStr := "unknown"
+		if e, ok := body["error"].(string); ok {
+			errStr = e
+		}
+		fmt.Fprintf(os.Stderr, "cluster nodes: HTTP %d: %s\n", status, errStr)
+		return 1
+	}
+
+	if enabled, _ := body["enabled"].(bool); !enabled {
+		fmt.Println("Cluster mode is not enabled on this node.")
+		return 0
+	}
+
+	nodesRaw, ok := body["nodes"].([]any)
+	if !ok || len(nodesRaw) == 0 {
+		fmt.Println("No cluster nodes found.")
+		return 0
+	}
+
+	// Print table header.
+	fmt.Printf("%-3s  %-20s  %-10s  %-28s  %s\n", "", "NODE ID", "ROLE", "RAFT ADDR", "DASHBOARD URL")
+	fmt.Println(strings.Repeat("-", 3) + "  " + strings.Repeat("-", 20) + "  " + strings.Repeat("-", 10) + "  " + strings.Repeat("-", 28) + "  " + strings.Repeat("-", 30))
+
+	for _, n := range nodesRaw {
+		entry, ok := n.(map[string]any)
+		if !ok {
+			continue
+		}
+		id, _ := entry["id"].(string)
+		addr, _ := entry["addr"].(string)
+		isLeader, _ := entry["is_leader"].(bool)
+		dashURL, _ := entry["dashboard_url"].(string)
+
+		role := "follower"
+		marker := " "
+		if isLeader {
+			role = "leader"
+			marker = "★"
+		}
+		if addr == "" {
+			addr = "—"
+		}
+		if dashURL == "" {
+			dashURL = "—"
+		}
+
+		fmt.Printf("%-3s  %-20s  %-10s  %-28s  %s\n", marker, id, role, addr, dashURL)
+	}
+
+	fmt.Printf("\n%d node(s)\n", len(nodesRaw))
+	return 0
+}
