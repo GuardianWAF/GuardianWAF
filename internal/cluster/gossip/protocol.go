@@ -23,6 +23,7 @@ type Config struct {
 	NodeID           string        // unique identifier for this node
 	Addr             string        // bind address (e.g., ":7946")
 	RaftAddr         string        // Raft TCP address (e.g., ":7947") — propagated to peers via gossip
+	DashboardAddr    string        // Dashboard HTTP address (e.g., ":8080") — propagated to peers via gossip
 	ProbeInterval    time.Duration // how often to probe a random member
 	ProbeTimeout     time.Duration // timeout for a single probe cycle
 	IndirectChecks   int           // number of peers to ask for indirect-ping
@@ -109,11 +110,12 @@ func NewWithTransport(cfg Config, tr Transport) (*Gossip, error) {
 	// Register self as alive.
 	g.incarnation.Store(1)
 	g.members.Add(Member{
-		ID:          cfg.NodeID,
-		Addr:        tr.LocalAddr(),
-		RaftAddr:    cfg.RaftAddr,
-		Incarnation: 1,
-		State:       StateAlive,
+		ID:            cfg.NodeID,
+		Addr:          tr.LocalAddr(),
+		RaftAddr:      cfg.RaftAddr,
+		DashboardAddr: cfg.DashboardAddr,
+		Incarnation:   1,
+		State:         StateAlive,
 	})
 
 	return g, nil

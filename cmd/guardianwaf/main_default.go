@@ -324,7 +324,7 @@ func cmdServe(args []string) {
 		wireDashboardRules(dash, cfg, eng, layerResources)
 
 		if clusterRT != nil {
-			dash.SetClusterStatusProvider(NewClusterStatusProvider(clusterRT.raft, clusterRT.store, clusterRT.api))
+			dash.SetClusterStatusProvider(NewClusterStatusProvider(clusterRT.raft, clusterRT.store, clusterRT.api, clusterRT.gossip))
 		}
 	}
 

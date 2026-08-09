@@ -195,6 +195,9 @@ func EncodeMembers(members []Member) []byte {
 		// raftAddrLen + raftAddr — bounded to maxSourceIDLen (255).
 		buf = append(buf, byte(len(m.RaftAddr))) // #nosec G115 -- len bounded to 255
 		buf = append(buf, m.RaftAddr...)
+		// dashboardAddrLen + dashboardAddr — bounded to maxSourceIDLen (255).
+		buf = append(buf, byte(len(m.DashboardAddr))) // #nosec G115 -- len bounded to 255
+		buf = append(buf, m.DashboardAddr...)
 	}
 	return buf
 }
@@ -242,6 +245,17 @@ func DecodeMembers(data []byte) ([]Member, error) {
 		}
 		m.RaftAddr = string(data[offset : offset+raftAddrLen])
 		offset += raftAddrLen
+
+		if offset >= len(data) {
+			return nil, fmt.Errorf("truncated dashboardAddr length")
+		}
+		dashLen := int(data[offset])
+		offset++
+		if offset+dashLen > len(data) {
+			return nil, fmt.Errorf("truncated dashboardAddr")
+		}
+		m.DashboardAddr = string(data[offset : offset+dashLen])
+		offset += dashLen
 
 		members = append(members, m)
 	}

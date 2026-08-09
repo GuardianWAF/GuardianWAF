@@ -96,9 +96,10 @@ func setupClusterRuntime(cfg *config.Config, eng *engine.Engine, bctx *layerregi
 	var peerBridge *peersync.Bridge
 	if cfg.Cluster.GossipAddr != "" {
 		gossipCfg := gossip.Config{
-			NodeID:   cfg.Cluster.NodeID,
-			Addr:     cfg.Cluster.GossipAddr,
-			RaftAddr: cfg.Cluster.BindAddr,
+			NodeID:        cfg.Cluster.NodeID,
+			Addr:          cfg.Cluster.GossipAddr,
+			RaftAddr:      cfg.Cluster.BindAddr,
+			DashboardAddr: "http://" + cfg.Dashboard.Listen,
 		}
 
 		g, err = gossip.New(gossipCfg)

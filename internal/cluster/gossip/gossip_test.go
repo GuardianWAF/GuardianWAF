@@ -2,6 +2,7 @@ package gossip
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -292,9 +293,9 @@ func TestMessage_LargeSourceID(t *testing.T) {
 
 func TestEncodeDecodeMembers(t *testing.T) {
 	original := []Member{
-		{ID: "n1", Addr: "10.0.0.1:7946", RaftAddr: "10.0.0.1:7947", Incarnation: 1, State: StateAlive},
-		{ID: "n2", Addr: "10.0.0.2:7946", RaftAddr: "10.0.0.2:7947", Incarnation: 5, State: StateSuspect},
-		{ID: "n3", Addr: "10.0.0.3:7946", RaftAddr: "10.0.0.3:7947", Incarnation: 10, State: StateDead},
+		{ID: "n1", Addr: "10.0.0.1:7946", RaftAddr: "10.0.0.1:7947", DashboardAddr: "http://10.0.0.1:8080", Incarnation: 1, State: StateAlive},
+		{ID: "n2", Addr: "10.0.0.2:7946", RaftAddr: "10.0.0.2:7947", DashboardAddr: "http://10.0.0.2:8080", Incarnation: 5, State: StateSuspect},
+		{ID: "n3", Addr: "10.0.0.3:7946", RaftAddr: "10.0.0.3:7947", DashboardAddr: "", Incarnation: 10, State: StateDead},
 	}
 
 	data := EncodeMembers(original)
@@ -320,6 +321,9 @@ func TestEncodeDecodeMembers(t *testing.T) {
 		}
 		if m.RaftAddr != original[i].RaftAddr {
 			t.Errorf("member[%d].RaftAddr = %q, want %q", i, m.RaftAddr, original[i].RaftAddr)
+		}
+		if m.DashboardAddr != original[i].DashboardAddr {
+			t.Errorf("member[%d].DashboardAddr = %q, want %q", i, m.DashboardAddr, original[i].DashboardAddr)
 		}
 	}
 }
@@ -499,6 +503,96 @@ func TestGossip_MultiNodeUDP(t *testing.T) {
 		count := n.MemberCount()
 		if count < 3 {
 			t.Errorf("node-%d: only %d members, want >= 3", i, count)
+		}
+	}
+}
+
+// TestThreeNodeDashboardAddrPropagation verifies that the DashboardAddr field
+// is gossiped between nodes so each node can build a complete peer-to-dashboard
+// URL map for leader redirects.
+func TestThreeNodeDashboardAddrPropagation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping multi-node DashboardAddr test in short mode")
+	}
+
+	nodes := make([]*Gossip, 3)
+	cleanup := func() {
+		for _, n := range nodes {
+			if n != nil {
+				n.Stop()
+			}
+		}
+	}
+	defer cleanup()
+
+	for i := range nodes {
+		nodeID := "dash-node-" + string(rune('0'+i))
+		g, err := New(Config{
+			NodeID:           nodeID,
+			Addr:             "127.0.0.1:0",
+			RaftAddr:         fmt.Sprintf("127.0.0.1:%d", 9000+i),
+			DashboardAddr:    fmt.Sprintf("http://127.0.0.1:%d", 8000+i),
+			ProbeInterval:    50 * time.Millisecond,
+			ProbeTimeout:     20 * time.Millisecond,
+			SuspicionTimeout: 200 * time.Millisecond,
+			GossipInterval:   20 * time.Millisecond,
+			GossipFanout:     3,
+			IndirectChecks:   2,
+			Logger:           slog.New(slog.NewTextHandler(io.Discard, nil)),
+		})
+		if err != nil {
+			t.Fatalf("node %d: New: %v", i, err)
+		}
+		if err := g.Start(); err != nil {
+			t.Fatalf("node %d: Start: %v", i, err)
+		}
+		nodes[i] = g
+	}
+
+	// Bootstrap: node-0 joins node-1, node-1 joins node-2.
+	nodes[0].Join([]string{nodes[1].LocalMember().Addr})
+	nodes[1].Join([]string{nodes[2].LocalMember().Addr})
+
+	// Wait for convergence — all 3 nodes should see all 3 members with
+	// their DashboardAddr fields populated.
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		allConverged := true
+		for _, n := range nodes {
+			if n.MemberCount() < 3 {
+				allConverged = false
+				break
+			}
+		}
+		if allConverged {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// Verify each node knows every other node's DashboardAddr.
+	expectedDash := map[string]string{
+		"dash-node-0": "http://127.0.0.1:8000",
+		"dash-node-1": "http://127.0.0.1:8001",
+		"dash-node-2": "http://127.0.0.1:8002",
+	}
+
+	for i, n := range nodes {
+		members := n.Members()
+		if len(members) < 3 {
+			t.Errorf("node-%d: only %d members, want >= 3", i, len(members))
+			continue
+		}
+		for _, m := range members {
+			want, ok := expectedDash[m.ID]
+			if !ok {
+				t.Errorf("node-%d: unexpected member %q", i, m.ID)
+				continue
+			}
+			if m.DashboardAddr != want {
+				t.Errorf("node-%d: member %q DashboardAddr = %q, want %q",
+					i, m.ID, m.DashboardAddr, want)
+			}
 		}
 	}
 }

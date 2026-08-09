@@ -51,12 +51,13 @@ func (s MemberState) String() string {
 
 // Member describes a single cluster node.
 type Member struct {
-	ID          string      `json:"id"`
-	Addr        string      `json:"addr"`                // host:port for UDP gossip
-	RaftAddr    string      `json:"raft_addr,omitempty"` // host:port for TCP Raft consensus
-	Tags        []string    `json:"tags,omitempty"`
-	Incarnation uint64      `json:"incarnation"`
-	State       MemberState `json:"state"`
+	ID            string      `json:"id"`
+	Addr          string      `json:"addr"`                     // host:port for UDP gossip
+	RaftAddr      string      `json:"raft_addr,omitempty"`      // host:port for TCP Raft consensus
+	DashboardAddr string      `json:"dashboard_addr,omitempty"` // host:port for the dashboard HTTP server
+	Tags          []string    `json:"tags,omitempty"`
+	Incarnation   uint64      `json:"incarnation"`
+	State         MemberState `json:"state"`
 }
 
 // memberEntry is the internal bookkeeping record.
