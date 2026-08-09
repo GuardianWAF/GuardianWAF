@@ -1,6 +1,7 @@
 package clustersync
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -390,7 +391,7 @@ func TestProposeOnFollowerReturnsError(t *testing.T) {
 	if err == nil {
 		t.Fatal("ProposeBan on follower should return error")
 	}
-	if err != ErrRaftNotLeader {
+	if !errors.Is(err, ErrRaftNotLeader) {
 		t.Errorf("expected ErrRaftNotLeader, got: %v", err)
 	}
 
