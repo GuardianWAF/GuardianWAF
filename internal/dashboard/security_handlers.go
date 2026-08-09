@@ -168,8 +168,30 @@ func (d *Dashboard) handleAddBan(w http.ResponseWriter, r *http.Request) {
 	if body.Reason == "" {
 		body.Reason = "manual ban from dashboard"
 	}
+
+	// When cluster mode is active, propose the ban via Raft so it replicates
+	// to all nodes. Also apply locally for immediate enforcement on this node.
+	if d.clusterStatus != nil {
+		if err := d.clusterStatus.ProposeBan(body.IP, ttl); err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+				"status": "error",
+				"ip":     body.IP,
+				"error":  err.Error(),
+				"hint":   "ban proposal requires the Raft leader; redirect to the leader node",
+			})
+			return
+		}
+	}
+
+	// Apply locally (immediate effect on this node; other nodes get it via Raft).
 	bl.AddAutoBan(body.IP, body.Reason, ttl)
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "ip": body.IP, "duration": ttl.String()})
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":   "ok",
+		"ip":       body.IP,
+		"duration": ttl.String(),
+		"cluster":  d.clusterStatus != nil,
+	})
 }
 
 func (d *Dashboard) handleRemoveBan(w http.ResponseWriter, r *http.Request) {
@@ -185,8 +207,23 @@ func (d *Dashboard) handleRemoveBan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "ip is required")
 		return
 	}
+
+	// When cluster mode is active, propose the unban via Raft so it replicates.
+	if d.clusterStatus != nil {
+		if err := d.clusterStatus.ProposeUnban(body.IP); err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+				"status": "error",
+				"ip":     body.IP,
+				"error":  err.Error(),
+				"hint":   "unban proposal requires the Raft leader; redirect to the leader node",
+			})
+			return
+		}
+	}
+
+	// Apply locally (immediate effect on this node; other nodes get it via Raft).
 	bl.RemoveAutoBan(body.IP)
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "ip": body.IP})
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "ip": body.IP, "cluster": d.clusterStatus != nil})
 }
 
 func (d *Dashboard) getBanLayer() banLayer {

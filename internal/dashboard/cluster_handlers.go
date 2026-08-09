@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"net/http"
+	"time"
 )
 
 // ClusterStatusProvider exposes cluster health and replicated-store state to the
@@ -40,6 +41,21 @@ type ClusterStatusProvider interface {
 
 	// BannedIPs returns all non-expired banned IPs in the replicated store.
 	BannedIPs() []ClusterBanInfo
+
+	// ProposeBan proposes banning an IP cluster-wide. Returns an error if
+	// this node is not the Raft leader or the proposal fails.
+	ProposeBan(ip string, duration time.Duration) error
+
+	// ProposeUnban proposes removing an IP from the cluster-wide ban list.
+	ProposeUnban(ip string) error
+}
+
+// ClusterBanMutationResult describes the outcome of a cluster ban/unban request.
+type ClusterBanMutationResult struct {
+	Proposed bool   `json:"proposed"`
+	NodeID   string `json:"node_id,omitempty"`
+	Role     string `json:"role,omitempty"`
+	Error    string `json:"error,omitempty"`
 }
 
 // ClusterPeerInfo describes a single cluster peer.

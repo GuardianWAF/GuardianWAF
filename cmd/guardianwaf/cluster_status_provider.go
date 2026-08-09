@@ -14,12 +14,14 @@ import (
 type clusterStatusProvider struct {
 	raft  *raft.Raft
 	store *clustersync.ReplicatedStore
+	api   *clustersync.API
 }
 
 // NewClusterStatusProvider creates a dashboard-compatible status provider
-// from the cluster runtime resources.
-func NewClusterStatusProvider(r *raft.Raft, store *clustersync.ReplicatedStore) dashboard.ClusterStatusProvider {
-	return &clusterStatusProvider{raft: r, store: store}
+// from the cluster runtime resources. The api is used for write operations
+// (ProposeBan, ProposeUnban); it may be nil for read-only providers.
+func NewClusterStatusProvider(r *raft.Raft, store *clustersync.ReplicatedStore, api *clustersync.API) dashboard.ClusterStatusProvider {
+	return &clusterStatusProvider{raft: r, store: store, api: api}
 }
 
 func (p *clusterStatusProvider) Enabled() bool       { return true }
@@ -76,4 +78,16 @@ func (p *clusterStatusProvider) BannedIPs() []dashboard.ClusterBanInfo {
 		result[i] = info
 	}
 	return result
+}
+
+// ProposeBan proposes banning an IP cluster-wide via the Raft consensus layer.
+// Returns clustersync.ErrRaftNotLeader if this node is not the leader.
+func (p *clusterStatusProvider) ProposeBan(ip string, duration time.Duration) error {
+	return p.api.ProposeBan(ip, duration)
+}
+
+// ProposeUnban proposes removing an IP from the cluster-wide ban list.
+// Returns clustersync.ErrRaftNotLeader if this node is not the leader.
+func (p *clusterStatusProvider) ProposeUnban(ip string) error {
+	return p.api.ProposeUnban(ip)
 }
