@@ -242,7 +242,7 @@ func TestProductionDocsDistinguishPlannedAdvancedRuntimePackages(t *testing.T) {
 	goMod := readOutboundPolicyFixture(t, filepath.Join(root, "go.mod"))
 
 	plannedOnlyDirs := []string{
-		"internal/clustersync",
+		// internal/clustersync — implemented in v0.6.0 (see docs/adr/0023)
 		"internal/layers/grpc",
 		"internal/layers/graphql",
 		"internal/discovery",

@@ -36,5 +36,8 @@ func (sm *StoreStateMachine) Apply(entry raft.LogEntry) {
 			"index", entry.Index, "term", entry.Term, "err", err)
 		return
 	}
-	sm.store.Apply(cmd)
+	if err := sm.store.Apply(cmd); err != nil {
+		sm.log.Error("clustersync: failed to apply command",
+			"index", entry.Index, "term", entry.Term, "err", err)
+	}
 }

@@ -398,6 +398,57 @@ func TestReplicationRoundTrip(t *testing.T) {
 	}
 }
 
+// --- API deadcode coverage ---
+
+func TestAPI_DeadcodeCoverage(t *testing.T) {
+	store := NewReplicatedStore()
+	sm := NewStoreStateMachine(store, nil)
+
+	// Exercise StoreStateMachine.Store()
+	if sm.Store() == nil {
+		t.Fatal("Store() returned nil")
+	}
+
+	// Create a Raft node (not started) so Propose returns ErrNotLeader,
+	// but all API code paths are exercised.
+	r, err := raft.New(raft.Config{
+		NodeID:             "api-test",
+		BindAddr:           "127.0.0.1:0",
+		ElectionTimeoutMin: 150 * time.Millisecond,
+		ElectionTimeoutMax: 300 * time.Millisecond,
+		HeartbeatInterval:  50 * time.Millisecond,
+	}, sm)
+	if err != nil {
+		t.Fatalf("raft.New: %v", err)
+	}
+
+	api := NewAPI(r, store)
+	if api.Store() == nil {
+		t.Fatal("API.Store() returned nil")
+	}
+
+	// All Propose methods will return ErrRaftNotLeader since the node isn't
+	// started. The point is to exercise the encode + propose code paths.
+	if err := api.ProposeBan("10.0.0.1", time.Hour); err == nil {
+		t.Error("ProposeBan should fail on non-started node")
+	}
+	if err := api.ProposeUnban("10.0.0.1"); err == nil {
+		t.Error("ProposeUnban should fail on non-started node")
+	}
+	if err := api.ProposeSetRule("rule-1", json.RawMessage(`{}`)); err == nil {
+		t.Error("ProposeSetRule should fail on non-started node")
+	}
+	if err := api.ProposeDeleteRule("rule-1"); err == nil {
+		t.Error("ProposeDeleteRule should fail on non-started node")
+	}
+	if err := api.ProposeIncrCounter("key", 1, 1); err == nil {
+		t.Error("ProposeIncrCounter should fail on non-started node")
+	}
+	if err := api.ProposeResetCounter("key"); err == nil {
+		t.Error("ProposeResetCounter should fail on non-started node")
+	}
+}
+
 // --- helpers ---
 
 func fakeLogEntry(term, index uint64, data []byte) raft.LogEntry {
