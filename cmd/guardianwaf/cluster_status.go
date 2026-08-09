@@ -155,9 +155,9 @@ func printClusterSummaryTo(w io.Writer, stats, nodes map[string]any) {
 
 	var bans, rules, counters int
 	if store, ok := stats["store"].(map[string]any); ok {
-		bans = int(toUint64(store["bans"]))
-		rules = int(toUint64(store["rules"]))
-		counters = int(toUint64(store["counters"]))
+		bans = int(toUint64(store["bans"]))   // #nosec G115 -- small count value
+		rules = int(toUint64(store["rules"])) // #nosec G115 -- small count value
+		counters = int(toUint64(store["counters"])) // #nosec G115 -- small count value
 	}
 
 	// Header
@@ -242,23 +242,23 @@ func toUint64(v any) uint64 {
 		if n < 0 {
 			return 0
 		}
-		return uint64(n) //#nosec G115 -- non-negative float
+		return uint64(n) // #nosec G115 -- non-negative float
 	case int:
 		if n < 0 {
 			return 0
 		}
-		return uint64(n) //#nosec G115 -- non-negative int
+		return uint64(n) // #nosec G115 -- non-negative int
 	case int64:
 		if n < 0 {
 			return 0
 		}
-		return uint64(n) //#nosec G115 -- non-negative int64
+		return uint64(n) // #nosec G115 -- non-negative int64
 	case json.Number:
 		i, _ := n.Int64()
 		if i < 0 {
 			return 0
 		}
-		return uint64(i) //#nosec G115 -- non-negative int64
+		return uint64(i) // #nosec G115 -- non-negative int64
 	default:
 		return 0
 	}
