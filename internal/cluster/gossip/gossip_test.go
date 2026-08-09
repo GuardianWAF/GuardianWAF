@@ -292,9 +292,9 @@ func TestMessage_LargeSourceID(t *testing.T) {
 
 func TestEncodeDecodeMembers(t *testing.T) {
 	original := []Member{
-		{ID: "n1", Addr: "10.0.0.1:7946", Incarnation: 1, State: StateAlive},
-		{ID: "n2", Addr: "10.0.0.2:7946", Incarnation: 5, State: StateSuspect},
-		{ID: "n3", Addr: "10.0.0.3:7946", Incarnation: 10, State: StateDead},
+		{ID: "n1", Addr: "10.0.0.1:7946", RaftAddr: "10.0.0.1:7947", Incarnation: 1, State: StateAlive},
+		{ID: "n2", Addr: "10.0.0.2:7946", RaftAddr: "10.0.0.2:7947", Incarnation: 5, State: StateSuspect},
+		{ID: "n3", Addr: "10.0.0.3:7946", RaftAddr: "10.0.0.3:7947", Incarnation: 10, State: StateDead},
 	}
 
 	data := EncodeMembers(original)
@@ -317,6 +317,9 @@ func TestEncodeDecodeMembers(t *testing.T) {
 		}
 		if m.State != original[i].State {
 			t.Errorf("member[%d].State = %s, want %s", i, m.State, original[i].State)
+		}
+		if m.RaftAddr != original[i].RaftAddr {
+			t.Errorf("member[%d].RaftAddr = %q, want %q", i, m.RaftAddr, original[i].RaftAddr)
 		}
 	}
 }

@@ -22,6 +22,7 @@ func shuffle[T any](s []T) {
 type Config struct {
 	NodeID           string        // unique identifier for this node
 	Addr             string        // bind address (e.g., ":7946")
+	RaftAddr         string        // Raft TCP address (e.g., ":7947") — propagated to peers via gossip
 	ProbeInterval    time.Duration // how often to probe a random member
 	ProbeTimeout     time.Duration // timeout for a single probe cycle
 	IndirectChecks   int           // number of peers to ask for indirect-ping
@@ -110,11 +111,20 @@ func NewWithTransport(cfg Config, tr Transport) (*Gossip, error) {
 	g.members.Add(Member{
 		ID:          cfg.NodeID,
 		Addr:        tr.LocalAddr(),
+		RaftAddr:    cfg.RaftAddr,
 		Incarnation: 1,
 		State:       StateAlive,
 	})
 
 	return g, nil
+}
+
+// SetCallbacks registers join/leave callbacks invoked when members transition
+// to alive (join) or dead (leave). These are used by the PeerSyncBridge to
+// propagate membership changes to the Raft consensus layer.
+func (g *Gossip) SetCallbacks(onJoin func(id, addr string), onLeave func(id string)) {
+	g.onJoin = onJoin
+	g.onLeave = onLeave
 }
 
 // Start launches background probe, gossip, and receive goroutines.

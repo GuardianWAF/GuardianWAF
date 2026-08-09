@@ -173,7 +173,7 @@ func DecodeMessageBytes(data []byte) (*Message, error) {
 //
 // Per-member format:
 //
-//	incarnation(8) + state(1) + idLen(1) + id + addrLen(1) + addr
+//	incarnation(8) + state(1) + idLen(1) + id + addrLen(1) + addr + raftAddrLen(1) + raftAddr
 func EncodeMembers(members []Member) []byte {
 	var buf []byte
 	for _, m := range members {
@@ -192,6 +192,9 @@ func EncodeMembers(members []Member) []byte {
 		// addrLen + addr — bounded to maxSourceIDLen (255) above.
 		buf = append(buf, byte(len(m.Addr))) // #nosec G115 -- len capped at maxSourceIDLen
 		buf = append(buf, m.Addr...)
+		// raftAddrLen + raftAddr — bounded to maxSourceIDLen (255).
+		buf = append(buf, byte(len(m.RaftAddr))) // #nosec G115 -- len bounded to 255
+		buf = append(buf, m.RaftAddr...)
 	}
 	return buf
 }
@@ -228,6 +231,17 @@ func DecodeMembers(data []byte) ([]Member, error) {
 		}
 		m.Addr = string(data[offset : offset+addrLen])
 		offset += addrLen
+
+		if offset >= len(data) {
+			return nil, fmt.Errorf("truncated raftAddr length")
+		}
+		raftAddrLen := int(data[offset])
+		offset++
+		if offset+raftAddrLen > len(data) {
+			return nil, fmt.Errorf("truncated raftAddr")
+		}
+		m.RaftAddr = string(data[offset : offset+raftAddrLen])
+		offset += raftAddrLen
 
 		members = append(members, m)
 	}

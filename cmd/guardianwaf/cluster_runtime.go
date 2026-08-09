@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 
+	"github.com/guardianwaf/guardianwaf/internal/cluster/gossip"
 	"github.com/guardianwaf/guardianwaf/internal/cluster/raft"
 	"github.com/guardianwaf/guardianwaf/internal/clustersync"
 	"github.com/guardianwaf/guardianwaf/internal/config"
@@ -13,10 +14,12 @@ import (
 // clusterRuntime holds the cluster subsystem resources that need lifecycle
 // management (start/stop) alongside the main GuardianWAF process.
 type clusterRuntime struct {
-	raft  *raft.Raft
-	store *clustersync.ReplicatedStore
-	sm    *clustersync.StoreStateMachine
-	api   *clustersync.API
+	gossip *gossip.Gossip
+	bridge *PeerSyncBridge
+	raft   *raft.Raft
+	store  *clustersync.ReplicatedStore
+	sm     *clustersync.StoreStateMachine
+	api    *clustersync.API
 }
 
 // setupClusterRuntime initializes the cluster subsystem if clustering is
@@ -24,6 +27,8 @@ type clusterRuntime struct {
 // falls back to single-node operation with local-only state.
 //
 // The cluster subsystem consists of:
+//   - Gossip membership (UDP-based node discovery + failure detection)
+//   - PeerSyncBridge (feeds gossip membership changes into Raft UpdatePeers)
 //   - Raft consensus node (leader election + log replication)
 //   - Replicated state store (ban lists, rules, rate counters)
 //   - StoreStateMachine adapter (feeds committed Raft entries to the store)
@@ -39,6 +44,9 @@ func setupClusterRuntime(cfg *config.Config, eng *engine.Engine, bctx *layerregi
 	if cfg.Cluster.BindAddr == "" {
 		return nil, fmt.Errorf("cluster.enabled is true but cluster.bind_addr is empty")
 	}
+	if cfg.Cluster.GossipAddr == "" {
+		return nil, fmt.Errorf("cluster.enabled is true but cluster.gossip_addr is empty")
+	}
 
 	store := clustersync.NewReplicatedStore()
 	sm := clustersync.NewStoreStateMachine(store, nil)
@@ -51,7 +59,7 @@ func setupClusterRuntime(cfg *config.Config, eng *engine.Engine, bctx *layerregi
 		HeartbeatInterval:  cfg.Cluster.HeartbeatInterval,
 	}
 
-	// Convert config peers to raft peers.
+	// Convert config peers to raft peers (initial seed list).
 	for _, p := range cfg.Cluster.Peers {
 		raftCfg.Peers = append(raftCfg.Peers, raft.Peer{
 			ID:   p.ID,
@@ -79,13 +87,55 @@ func setupClusterRuntime(cfg *config.Config, eng *engine.Engine, bctx *layerregi
 		bctx.ClusterStore = store
 	}
 
+	// Start gossip membership for dynamic peer discovery.
+	// The gossip layer discovers nodes via UDP probes; the PeerSyncBridge
+	// feeds alive/suspect transitions into Raft.UpdatePeers so the consensus
+	// layer adjusts its peer list without a restart.
+	var g *gossip.Gossip
+	var bridge *PeerSyncBridge
+	if cfg.Cluster.GossipAddr != "" {
+		gossipCfg := gossip.Config{
+			NodeID:   cfg.Cluster.NodeID,
+			Addr:     cfg.Cluster.GossipAddr,
+			RaftAddr: cfg.Cluster.BindAddr,
+		}
+
+		g, err = gossip.New(gossipCfg)
+		if err != nil {
+			r.Stop()
+			return nil, fmt.Errorf("create gossip node: %w", err)
+		}
+
+		bridge = NewPeerSyncBridge(g, r, nil)
+		g.SetCallbacks(bridge.onJoin, bridge.onLeave)
+		bridge.Start()
+
+		if err := g.Start(); err != nil {
+			bridge.Stop()
+			g.Stop()
+			r.Stop()
+			return nil, fmt.Errorf("start gossip node: %w", err)
+		}
+
+		// Bootstrap: contact known peers so gossip discovers them.
+		// The YAML peers list contains Raft TCP addresses; gossip uses
+		// its own UDP addresses. For single-bootstrap deployments, nodes
+		// discover each other via UDP multicast/seed lists at the gossip
+		// layer. Here we just log — gossip probes will find peers once
+		// their UDP addresses are known.
+		eng.Logs.Infof("Gossip membership started: node=%s gossip=%s raft=%s",
+			cfg.Cluster.NodeID, cfg.Cluster.GossipAddr, cfg.Cluster.BindAddr)
+	}
+
 	eng.Logs.Infof("Cluster mode enabled: node=%s bind=%s peers=%d", cfg.Cluster.NodeID, cfg.Cluster.BindAddr, len(raftCfg.Peers))
 
 	return &clusterRuntime{
-		raft:  r,
-		store: store,
-		sm:    sm,
-		api:   api,
+		gossip: g,
+		raft:   r,
+		store:  store,
+		sm:     sm,
+		api:    api,
+		// bridge is tracked inside the gossip callbacks; no separate lifecycle.
 	}, nil
 }
 
@@ -93,6 +143,9 @@ func setupClusterRuntime(cfg *config.Config, eng *engine.Engine, bctx *layerregi
 func shutdownCluster(cr *clusterRuntime) error {
 	if cr == nil {
 		return nil
+	}
+	if cr.gossip != nil {
+		cr.gossip.Stop()
 	}
 	if cr.raft != nil {
 		cr.raft.Stop()
