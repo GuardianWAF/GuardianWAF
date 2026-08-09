@@ -287,8 +287,13 @@ func DefaultConfig() *Config {
 				Clusters:           []ClusterMembership{},
 			},
 			Cluster: ClusterConfig{
-				Enabled: false,
-				Config:  nil,
+				Enabled:              false,
+				NodeID:               "",
+				BindAddr:             "",
+				Peers:                nil,
+				ElectionTimeoutMin:   500 * time.Millisecond,
+				ElectionTimeoutMax:   1000 * time.Millisecond,
+				HeartbeatInterval:    100 * time.Millisecond,
 			},
 			Remediation: RemediationConfig{
 				Enabled:             false,

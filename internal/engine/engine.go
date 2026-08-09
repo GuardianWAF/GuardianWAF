@@ -78,6 +78,10 @@ type Engine struct {
 	closeErr   error
 	closed     atomic.Bool
 
+	// Cluster store (optional). When non-nil, layers consult it for
+	// cluster-wide bans, rules, and rate counters alongside their local state.
+	clusterStore ClusterStore
+
 	// Challenge service (optional, injected via SetChallengeService)
 	challengeSvc ChallengeChecker
 
@@ -196,6 +200,45 @@ func (e *Engine) SetChallengeService(svc ChallengeChecker) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.challengeSvc = svc
+}
+
+// SetClusterStore injects the cluster replicated state store. When set, WAF
+// layers consult it for cluster-wide bans, rules, and rate counters alongside
+// their local state. Pass nil to disable cluster-aware behavior.
+func (e *Engine) SetClusterStore(store ClusterStore) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.clusterStore = store
+}
+
+// ClusterStore returns the active cluster store, or nil if clustering is
+// disabled. Layers call this during Process to check cluster-wide state.
+func (e *Engine) ClusterStore() ClusterStore {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.clusterStore
+}
+
+// ClusterStoreSetter is implemented by layers that accept a cluster store
+// (e.g. ipacl, ratelimit). The engine calls SetClusterStore on every layer
+// that implements this interface when PropagateClusterStore is invoked.
+type ClusterStoreSetter interface {
+	SetClusterStore(ClusterStore)
+}
+
+// PropagateClusterStore pushes the engine's cluster store to every registered
+// layer that implements ClusterStoreSetter. Must be called after all layers are
+// registered and the cluster store is set.
+func (e *Engine) PropagateClusterStore() {
+	store := e.ClusterStore()
+	for _, ol := range e.currentPipeline().Layers() {
+		if ol.Layer == nil {
+			continue
+		}
+		if setter, ok := ol.Layer.(ClusterStoreSetter); ok {
+			setter.SetClusterStore(store)
+		}
+	}
 }
 
 // SetWebSocketInterceptor injects a WebSocket frame-inspection wrapper.

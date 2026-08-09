@@ -38,8 +38,21 @@ type Layer struct {
 	violations  sync.Map // key -> *int64 (violation count for auto-ban)
 	bucketCount atomic.Int64
 
+	// clusterStore, when non-nil, provides cluster-wide rate-limit counter
+	// values. Local token buckets are still used for per-node burst control;
+	// the cluster counter is consulted for aggregate enforcement.
+	clusterStore engine.ClusterStore
+
 	// OnAutoBan is called when violation count exceeds AutoBanAfter.
 	OnAutoBan func(ip string, reason string)
+}
+
+// SetClusterStore wires in the cluster-wide rate-limit store. When set,
+// Process() checks the cluster counter in addition to the local token bucket.
+func (l *Layer) SetClusterStore(cs engine.ClusterStore) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.clusterStore = cs
 }
 
 const maxBuckets = 500000 // Hard cap to prevent memory exhaustion
@@ -140,6 +153,11 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	totalScore := 0
 	blocked := false
 
+	// Compute the current window epoch for cluster-wide counters.
+	// All rate-limit rules use a 60-second window for the cluster counter;
+	// the local token bucket still enforces the per-rule window.
+	windowEpoch := time.Now().Unix() / 60
+
 	for i := range rules {
 		rule := &rules[i]
 
@@ -150,7 +168,19 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		key := l.bucketKey(rule, tenantID, ip, reqPath)
 		bucket := l.getOrCreateBucket(key, rule)
 
-		if !bucket.Allow() {
+		localExceeded := !bucket.Allow()
+
+		// Check cluster-wide counter if a cluster store is wired.
+		clusterExceeded := false
+		if l.clusterStore != nil {
+			clusterKey := key // same bucket key, but prefixed in the store
+			clusterVal := l.clusterStore.GetCounter(clusterKey, windowEpoch)
+			if clusterVal >= int64(rule.Limit) {
+				clusterExceeded = true
+			}
+		}
+
+		if localExceeded || clusterExceeded {
 			finding := engine.Finding{
 				DetectorName: "ratelimit",
 				Category:     "ratelimit",

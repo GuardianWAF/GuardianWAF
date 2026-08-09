@@ -36,6 +36,27 @@ type Config struct {
 	Tracing               TracingConfig    `yaml:"tracing"`
 	Features              map[string]bool  `yaml:"features"`
 	Compliance            ComplianceConfig `yaml:"compliance"`
+	Cluster               ClusterConfig    `yaml:"cluster"`
+}
+
+// ClusterConfig controls multi-node cluster coordination via gossip membership
+// and Raft consensus. When Enabled is false (default), the WAF runs in
+// standalone mode with purely local state.
+type ClusterConfig struct {
+	Enabled             bool          `yaml:"enabled"`
+	NodeID              string        `yaml:"node_id"`
+	BindAddr            string        `yaml:"bind_addr"`       // Raft TCP bind address (e.g., "0.0.0.0:7947")
+	GossipAddr         string        `yaml:"gossip_addr"`      // Gossip UDP bind address (e.g., "0.0.0.0:7946")
+	Peers               []ClusterPeer `yaml:"peers"`            // Initial seed peers for bootstrapping
+	ElectionTimeoutMin  time.Duration `yaml:"election_timeout_min"`
+	ElectionTimeoutMax  time.Duration `yaml:"election_timeout_max"`
+	HeartbeatInterval   time.Duration `yaml:"heartbeat_interval"`
+}
+
+// ClusterPeer defines a known cluster node for bootstrapping.
+type ClusterPeer struct {
+	ID   string `yaml:"id"`
+	Addr string `yaml:"addr"` // Raft TCP address
 }
 
 // AlertingConfig controls webhook and email-based alert delivery.
@@ -412,14 +433,6 @@ type ClusterSyncConfig struct {
 	ConflictResolution string              `yaml:"conflict_resolution"` // "last_write_wins", "source_priority", "manual"
 	MaxRetries         int                 `yaml:"max_retries"`
 	RetryDelay         time.Duration       `yaml:"retry_delay"`
-}
-
-// ClusterConfig controls the cluster layer (distributed coordination).
-type ClusterConfig struct {
-	Enabled bool `yaml:"enabled"`
-	// Config is the cluster package config (internal/cluster.Config).
-	// Stored as any to avoid circular import; parsed from YAML as an interface{} node.
-	Config any `yaml:"cluster_config"`
 }
 
 type ClusterMembership struct {

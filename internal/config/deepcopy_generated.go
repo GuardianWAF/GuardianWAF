@@ -67,6 +67,7 @@ func (in *Config) DeepCopy() *Config {
 		}
 	}
 	out.Compliance = *in.Compliance.DeepCopy()
+	out.Cluster = *in.Cluster.DeepCopy()
 	out.setPlaceholderBindings(in.placeholderBindings())
 	return &out
 }
@@ -622,10 +623,17 @@ func (in *ClusterConfig) DeepCopy() *ClusterConfig {
 	if in == nil {
 		return nil
 	}
-	out := *in // shallow copy of scalar fields
+	out := &ClusterConfig{}
 	out.Enabled = in.Enabled
-	out.Config = in.Config
-	return &out
+	out.NodeID = in.NodeID
+	out.BindAddr = in.BindAddr
+	out.GossipAddr = in.GossipAddr
+	out.Peers = make([]ClusterPeer, len(in.Peers))
+	copy(out.Peers, in.Peers)
+	out.ElectionTimeoutMin = in.ElectionTimeoutMin
+	out.ElectionTimeoutMax = in.ElectionTimeoutMax
+	out.HeartbeatInterval = in.HeartbeatInterval
+	return out
 }
 
 func (in *ClusterMembership) DeepCopy() *ClusterMembership {

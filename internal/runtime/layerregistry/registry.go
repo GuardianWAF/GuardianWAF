@@ -34,9 +34,10 @@ type ContextBuilder func(*BuildContext, *config.Config) (engine.Layer, error)
 
 // BuildContext carries dependencies discovered while constructing an ordered layer pipeline.
 type BuildContext struct {
-	IPACLLayer *ipacl.Layer
-	GeoIPDB    *geoip.DB
-	StartHooks []StartHook
+	IPACLLayer   *ipacl.Layer
+	GeoIPDB      *geoip.DB
+	ClusterStore engine.ClusterStore
+	StartHooks   []StartHook
 }
 
 // StartHook is a lifecycle hook registered by a layer builder.

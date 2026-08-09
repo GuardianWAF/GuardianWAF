@@ -41,14 +41,15 @@ type autoBanEntry struct {
 
 // Layer implements engine.Layer for IP-based access control.
 type Layer struct {
-	config    Config
-	whitelist *RadixTree
-	blacklist *RadixTree
-	autoBan   map[string]*autoBanEntry // IP string -> entry
-	mu        sync.RWMutex             // protects autoBan
-	stopCh    chan struct{}            // signals persistence goroutine to stop
-	stopOnce  sync.Once
-	wg        sync.WaitGroup
+	config       Config
+	whitelist    *RadixTree
+	blacklist    *RadixTree
+	autoBan      map[string]*autoBanEntry // IP string -> entry
+	mu           sync.RWMutex             // protects autoBan
+	stopCh       chan struct{}            // signals persistence goroutine to stop
+	stopOnce     sync.Once
+	wg           sync.WaitGroup
+	clusterStore engine.ClusterStore // nil when clustering disabled
 }
 
 // NewLayer creates a new IP ACL layer from the given config.
@@ -162,7 +163,33 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		}
 	}
 
+	// 4. Check cluster-wide ban (from Raft-replicated state)
+	if l.clusterStore != nil && l.clusterStore.IsBanned(ip.String()) {
+		return engine.LayerResult{
+			Action: engine.ActionBlock,
+			Findings: []engine.Finding{{
+				DetectorName: "ipacl",
+				Category:     "ipacl",
+				Score:        100,
+				Severity:     engine.SeverityCritical,
+				Description:  "IP is banned cluster-wide",
+				MatchedValue: ip.String(),
+				Location:     "ip",
+			}},
+			Score:    100,
+			Duration: time.Since(start),
+		}
+	}
+
 	return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
+}
+
+// SetClusterStore wires the replicated cluster store so that cluster-wide bans
+// are enforced alongside local auto-bans.
+func (l *Layer) SetClusterStore(cs engine.ClusterStore) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.clusterStore = cs
 }
 
 // AddWhitelist adds an IP or CIDR to the whitelist at runtime.

@@ -999,9 +999,12 @@ waf:
             address: https://node-b.example.com
   cluster:
     enabled: true
-    cluster_config:
-      backend: memory
-      node_id: node-a
+    node_id: node-1
+    bind_addr: "0.0.0.0:7947"
+    gossip_addr: "0.0.0.0:7946"
+    peers:
+      - id: node-2
+        addr: "10.0.0.2:7947"
   remediation:
     enabled: true
     auto_apply: true
@@ -1103,9 +1106,8 @@ waf:
 	if !cfg.WAF.ClusterSync.Enabled || cfg.WAF.ClusterSync.Clusters[0].Nodes[0].Address != "https://node-b.example.com" || cfg.WAF.ClusterSync.RetryDelay != 2*time.Second {
 		t.Fatalf("cluster sync not populated: %+v", cfg.WAF.ClusterSync)
 	}
-	clusterConfig, ok := cfg.WAF.Cluster.Config.(map[string]any)
-	if !cfg.WAF.Cluster.Enabled || !ok || clusterConfig["backend"] != "memory" {
-		t.Fatalf("cluster not populated: enabled=%v config=%#v", cfg.WAF.Cluster.Enabled, cfg.WAF.Cluster.Config)
+	if !cfg.WAF.Cluster.Enabled || cfg.WAF.Cluster.NodeID != "node-1" {
+		t.Fatalf("cluster not populated: enabled=%v nodeID=%q", cfg.WAF.Cluster.Enabled, cfg.WAF.Cluster.NodeID)
 	}
 	if !cfg.WAF.Remediation.Enabled || cfg.WAF.Remediation.RuleTTL != 24*time.Hour {
 		t.Fatalf("remediation not populated: %+v", cfg.WAF.Remediation)

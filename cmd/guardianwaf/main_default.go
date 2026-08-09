@@ -230,6 +230,15 @@ func cmdServe(args []string) {
 	}
 	logRuntimeEngineReady(eng, cfg)
 
+	// 4b. Start cluster subsystem if enabled
+	clusterRT, err := setupClusterRuntime(cfg, eng, nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to initialize cluster subsystem: %v\n", err)
+		osExit(1)
+		return
+	}
+	defer clusterRT.Stop()
+
 	// 7. Set up JS challenge service if enabled
 	challengeSvc, err := setupChallengeService(cfg, eng)
 	if err != nil {
