@@ -1106,6 +1106,9 @@ func Validate(cfg *Config) error {
 	// Virtual hosts validation
 	validateVirtualHosts(cfg.VirtualHosts, cfg.Upstreams, ve)
 
+	// Cluster validation
+	validateCluster(&cfg.Cluster, ve)
+
 	if ve.HasErrors() {
 		return ve
 	}
@@ -1703,6 +1706,59 @@ func validateSIEM(siem *SIEMConfig, ve *ValidationError) {
 	}
 	if siem.Timeout < 0 {
 		ve.addError("waf.siem.timeout", "must be >= 0")
+	}
+}
+
+// validateCluster checks that cluster configuration is complete when enabled.
+// When cluster mode is on, the node must have a bind address (for Raft TCP),
+// a gossip address (for UDP membership), and at least one seed peer so it can
+// discover the rest of the cluster. A single-node cluster (1 node, 0 peers)
+// is valid only if it explicitly sets its own node ID — this is the bootstrap
+// leader case.
+func validateCluster(cfg *ClusterConfig, ve *ValidationError) {
+	if !cfg.Enabled {
+		return
+	}
+
+	if cfg.NodeID == "" {
+		ve.addError("cluster.node_id", "is required when cluster mode is enabled")
+	}
+	if cfg.BindAddr == "" {
+		ve.addError("cluster.bind_addr", "is required when cluster mode is enabled (Raft TCP listen address, e.g. \"0.0.0.0:7947\")")
+	}
+	if cfg.GossipAddr == "" {
+		ve.addError("cluster.gossip_addr", "is required when cluster mode is enabled (gossip UDP listen address, e.g. \"0.0.0.0:7946\")")
+	}
+	if len(cfg.Peers) == 0 {
+		ve.addError("cluster.peers", "must contain at least one seed peer when cluster mode is enabled (or set this node as a bootstrap single-node cluster)")
+	}
+
+	// Validate each peer entry.
+	seenPeerIDs := make(map[string]bool)
+	for i, peer := range cfg.Peers {
+		prefix := fmt.Sprintf("cluster.peers[%d]", i)
+		if peer.ID == "" {
+			ve.addError(prefix+".id", "must not be empty")
+		}
+		if peer.Addr == "" {
+			ve.addError(prefix+".addr", "must not be empty (Raft TCP address)")
+		}
+		if seenPeerIDs[peer.ID] {
+			ve.addError(prefix+".id", fmt.Sprintf("duplicate peer ID %q", peer.ID))
+		}
+		seenPeerIDs[peer.ID] = true
+	}
+
+	// Sanity-check timing fields if set.
+	if cfg.ElectionTimeoutMin > 0 && cfg.ElectionTimeoutMax > 0 {
+		if cfg.ElectionTimeoutMin >= cfg.ElectionTimeoutMax {
+			ve.addError("cluster.election_timeout_min", "must be less than election_timeout_max")
+		}
+	}
+	if cfg.HeartbeatInterval > 0 && cfg.ElectionTimeoutMin > 0 {
+		if cfg.HeartbeatInterval >= cfg.ElectionTimeoutMin {
+			ve.addError("cluster.heartbeat_interval", "should be less than election_timeout_min to avoid unnecessary elections")
+		}
 	}
 }
 
