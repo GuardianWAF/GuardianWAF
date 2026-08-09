@@ -339,3 +339,78 @@ func TestCmdClusterNodes_HttpError(t *testing.T) {
 		t.Fatal("expected exit 1 for HTTP 401, got 0")
 	}
 }
+
+func TestCmdClusterHealth_Healthy(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status":    "leader",
+			"healthy":   true,
+			"leader_id": "guardianwaf-0",
+			"term":      float64(5),
+		})
+	}))
+	defer srv.Close()
+
+	code := cmdClusterHealth([]string{"--url", srv.URL})
+	if code != 0 {
+		t.Fatalf("expected exit 0 for healthy cluster, got %d", code)
+	}
+}
+
+func TestCmdClusterHealth_Follower(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status":    "follower",
+			"healthy":   true,
+			"leader_id": "guardianwaf-0",
+			"term":      float64(5),
+		})
+	}))
+	defer srv.Close()
+
+	code := cmdClusterHealth([]string{"--url", srv.URL})
+	if code != 0 {
+		t.Fatalf("expected exit 0 for healthy follower, got %d", code)
+	}
+}
+
+func TestCmdClusterHealth_SingleNode(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status":  "single-node",
+			"healthy": true,
+		})
+	}))
+	defer srv.Close()
+
+	code := cmdClusterHealth([]string{"--url", srv.URL})
+	if code != 0 {
+		t.Fatalf("expected exit 0 for single-node, got %d", code)
+	}
+}
+
+func TestCmdClusterHealth_Unhealthy(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status":  "",
+			"healthy": false,
+		})
+	}))
+	defer srv.Close()
+
+	code := cmdClusterHealth([]string{"--url", srv.URL})
+	if code == 0 {
+		t.Fatal("expected exit 1 for unhealthy cluster, got 0")
+	}
+}
+
+func TestCmdClusterHealth_ConnectionError(t *testing.T) {
+	code := cmdClusterHealth([]string{"--url", "http://127.0.0.1:1"})
+	if code == 0 {
+		t.Fatal("expected exit 1 for connection error, got 0")
+	}
+}

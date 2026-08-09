@@ -23,13 +23,15 @@ import (
 //	unban    Remove a ban cluster-wide (scriptable, follows leader redirects)
 func cmdCluster(args []string) int {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: guardianwaf cluster <status|ban|unban|bans> [options]")
+		fmt.Fprintln(os.Stderr, "Usage: guardianwaf cluster <status|ban|unban|bans|nodes|health> [options]")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Subcommands:")
 		fmt.Fprintln(os.Stderr, "  status    Show cluster membership, Raft state, and replicated store stats")
 		fmt.Fprintln(os.Stderr, "  ban       Ban an IP cluster-wide (scriptable, follows leader redirects)")
 		fmt.Fprintln(os.Stderr, "  unban     Remove a ban cluster-wide (scriptable, follows leader redirects)")
 		fmt.Fprintln(os.Stderr, "  bans      List all active cluster-wide bans")
+		fmt.Fprintln(os.Stderr, "  nodes     List all cluster peer nodes")
+		fmt.Fprintln(os.Stderr, "  health    Quick health check (exit 0 = healthy, 1 = unhealthy, 2 = error)")
 		return 1
 	}
 
@@ -44,9 +46,11 @@ func cmdCluster(args []string) int {
 		return cmdClusterBans(args[1:])
 	case "nodes":
 		return cmdClusterNodes(args[1:])
+	case "health":
+		return cmdClusterHealth(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown cluster subcommand: %s\n\n", args[0])
-		fmt.Fprintln(os.Stderr, "Available subcommands: status, ban, unban, bans, nodes")
+		fmt.Fprintln(os.Stderr, "Available subcommands: status, ban, unban, bans, nodes, health")
 		return 1
 	}
 }

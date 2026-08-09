@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -341,4 +342,56 @@ func cmdClusterNodes(args []string) int {
 
 	fmt.Printf("\n%d node(s)\n", len(nodesRaw))
 	return 0
+}
+
+// cmdClusterHealth queries /api/v1/cluster/health and prints a one-line
+// summary. Exits 0 when the node is healthy, 1 when unhealthy or on error.
+// Designed for scripting: monitoring, CI/CD gates, load-balancer checks.
+func cmdClusterHealth(args []string) int {
+	fs := flag.NewFlagSet("cluster health", flag.ExitOnError)
+	configPath := fs.String("config", "", "Path to config file")
+	fs.StringVar(configPath, "c", "", "Path to config file (short)")
+	apiURL := fs.String("url", "", "Dashboard URL (default: derived from config)")
+	apiKey := fs.String("api-key", "", "Dashboard API key (default: GWAF_DASHBOARD_API_KEY env)")
+	timeout := fs.Duration("timeout", 3*time.Second, "Request timeout")
+	_ = fs.Parse(args) //nolint:errcheck // ExitOnError
+
+	baseURL, key := resolveClusterEndpoint(*apiURL, *apiKey, *configPath)
+
+	client := &http.Client{Timeout: *timeout}
+	url := strings.TrimRight(baseURL, "/") + "/api/v1/cluster/health"
+	body, status, err := fetchJSON(client, url, key)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cluster health: %v\n", err)
+		return 1
+	}
+	if status != http.StatusOK {
+		fmt.Fprintf(os.Stderr, "cluster health: HTTP %d\n", status)
+		return 1
+	}
+
+	healthy, _ := body["healthy"].(bool)
+	clusterStatus, _ := body["status"].(string)
+
+	if !healthy {
+		fmt.Printf("UNHEALTHY: %s\n", clusterStatus)
+		return 1
+	}
+
+	leaderID, _ := body["leader_id"].(string)
+	if leaderID != "" {
+		fmt.Printf("OK: %s (leader=%s, term=%s)\n", clusterStatus, leaderID, fmtTerm(body["term"]))
+	} else {
+		fmt.Printf("OK: %s\n", clusterStatus)
+	}
+	return 0
+}
+
+// fmtTerm renders the term value (float64 from JSON) as a clean integer string.
+func fmtTerm(v any) string {
+	n := toUint64(v)
+	if n == 0 {
+		return "0"
+	}
+	return strconv.FormatUint(n, 10)
 }
