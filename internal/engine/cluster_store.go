@@ -26,6 +26,6 @@ type ClusterStore interface {
 // return false/zero — the pipeline falls back to local state.
 type noopClusterStore struct{}
 
-func (noopClusterStore) IsBanned(string) bool                       { return false }
-func (noopClusterStore) GetRule(string) (json.RawMessage, bool)     { return nil, false }
-func (noopClusterStore) GetCounter(string, int64) int64             { return 0 }
+func (noopClusterStore) IsBanned(string) bool                   { return false }
+func (noopClusterStore) GetRule(string) (json.RawMessage, bool) { return nil, false }
+func (noopClusterStore) GetCounter(string, int64) int64         { return 0 }

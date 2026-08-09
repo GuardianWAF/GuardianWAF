@@ -43,14 +43,14 @@ type Config struct {
 // and Raft consensus. When Enabled is false (default), the WAF runs in
 // standalone mode with purely local state.
 type ClusterConfig struct {
-	Enabled             bool          `yaml:"enabled"`
-	NodeID              string        `yaml:"node_id"`
-	BindAddr            string        `yaml:"bind_addr"`       // Raft TCP bind address (e.g., "0.0.0.0:7947")
-	GossipAddr         string        `yaml:"gossip_addr"`      // Gossip UDP bind address (e.g., "0.0.0.0:7946")
-	Peers               []ClusterPeer `yaml:"peers"`            // Initial seed peers for bootstrapping
-	ElectionTimeoutMin  time.Duration `yaml:"election_timeout_min"`
-	ElectionTimeoutMax  time.Duration `yaml:"election_timeout_max"`
-	HeartbeatInterval   time.Duration `yaml:"heartbeat_interval"`
+	Enabled            bool          `yaml:"enabled"`
+	NodeID             string        `yaml:"node_id"`
+	BindAddr           string        `yaml:"bind_addr"`   // Raft TCP bind address (e.g., "0.0.0.0:7947")
+	GossipAddr         string        `yaml:"gossip_addr"` // Gossip UDP bind address (e.g., "0.0.0.0:7946")
+	Peers              []ClusterPeer `yaml:"peers"`       // Initial seed peers for bootstrapping
+	ElectionTimeoutMin time.Duration `yaml:"election_timeout_min"`
+	ElectionTimeoutMax time.Duration `yaml:"election_timeout_max"`
+	HeartbeatInterval  time.Duration `yaml:"heartbeat_interval"`
 }
 
 // ClusterPeer defines a known cluster node for bootstrapping.
