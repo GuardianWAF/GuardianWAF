@@ -15,7 +15,7 @@ func (d *Dashboard) registerRoutes() {
 	d.mux.HandleFunc("GET /health", d.handleHealth)
 	d.mux.HandleFunc("GET /healthz", d.handleHealth)
 	d.mux.HandleFunc("GET /livez", d.handleHealth)
-	d.mux.HandleFunc("GET /readyz", d.handleHealth)
+	d.mux.HandleFunc("GET /readyz", d.handleReady)
 	d.mux.HandleFunc("GET /api/v1/health", d.handleHealth)
 	d.mux.HandleFunc("GET /api/v1/version", d.handleVersion)
 

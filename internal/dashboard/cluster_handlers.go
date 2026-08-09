@@ -55,6 +55,18 @@ type ClusterStatusProvider interface {
 	IsNotLeader(err error) bool
 }
 
+// ClusterIsolationChecker reports whether this node is isolated from the
+// gossip mesh. The readiness probe uses this to take the node out of the
+// load-balancer rotation when it can't reach its peers.
+type ClusterIsolationChecker interface {
+	// IsIsolated returns true when this node cannot reach enough peers to
+	// form or maintain quorum. When true, /readyz returns 503.
+	IsIsolated() bool
+
+	// MemberCount returns the number of alive gossip members (including self).
+	MemberCount() int
+}
+
 // ClusterBanMutationResult describes the outcome of a cluster ban/unban request.
 type ClusterBanMutationResult struct {
 	Proposed bool   `json:"proposed"`

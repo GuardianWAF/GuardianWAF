@@ -24,7 +24,7 @@ type clusterStatusProvider struct {
 // from the cluster runtime resources. The api is used for write operations
 // (ProposeBan, ProposeUnban); it may be nil for read-only providers.
 // gossip may be nil when gossip membership is not active.
-func NewClusterStatusProvider(r *raft.Raft, store *clustersync.ReplicatedStore, api *clustersync.API, g *gossip.Gossip) dashboard.ClusterStatusProvider {
+func NewClusterStatusProvider(r *raft.Raft, store *clustersync.ReplicatedStore, api *clustersync.API, g *gossip.Gossip) *clusterStatusProvider {
 	return &clusterStatusProvider{raft: r, store: store, api: api, gossip: g}
 }
 
@@ -129,4 +129,23 @@ func normalizeURL(addr string) string {
 		return addr
 	}
 	return "http://" + addr
+}
+
+// IsIsolated reports whether this node is isolated from the gossip mesh.
+// A node is isolated when it sees fewer than 2 alive members (itself + at
+// least one peer). When isolated, the readiness probe returns 503 so the
+// load balancer takes the node out of rotation.
+func (p *clusterStatusProvider) IsIsolated() bool {
+	if p.gossip == nil {
+		return false // gossip not active — can't be isolated
+	}
+	return p.gossip.MemberCount() < 2
+}
+
+// MemberCount returns the number of alive gossip members including self.
+func (p *clusterStatusProvider) MemberCount() int {
+	if p.gossip == nil {
+		return 0
+	}
+	return p.gossip.MemberCount()
 }

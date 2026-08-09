@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"embed"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -128,6 +129,10 @@ type Dashboard struct {
 
 	// Cluster status provider (nil when cluster mode is disabled)
 	clusterStatus ClusterStatusProvider
+
+	// Cluster isolation checker (nil when cluster mode is disabled).
+	// Used by /readyz to report not-ready when the node can't reach peers.
+	isolationChecker ClusterIsolationChecker
 }
 
 const (
@@ -321,6 +326,13 @@ func (d *Dashboard) SetClusterStatusProvider(p ClusterStatusProvider) {
 	d.clusterStatus = p
 }
 
+// SetClusterIsolationChecker injects a checker that reports whether this node
+// is isolated from the gossip mesh. When set, /readyz returns 503 if the node
+// can't see enough peers for a healthy Raft quorum.
+func (d *Dashboard) SetClusterIsolationChecker(c ClusterIsolationChecker) {
+	d.isolationChecker = c
+}
+
 // SetSIEMStatsFn injects SIEM exporter stats for the /api/stats endpoint.
 func (d *Dashboard) SetSIEMStatsFn(fn func() any) {
 	if fn == nil {
@@ -442,6 +454,44 @@ func (d *Dashboard) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
+		"status":     status,
+		"components": components,
+	})
+}
+
+func (d *Dashboard) handleReady(w http.ResponseWriter, r *http.Request) {
+	status := "ready"
+	components := map[string]string{
+		"engine":     "ready",
+		"eventStore": "ready",
+	}
+
+	httpStatus := http.StatusOK
+
+	if d.engine == nil {
+		status = "not ready"
+		components["engine"] = "unhealthy"
+		httpStatus = http.StatusServiceUnavailable
+	}
+	if d.eventStore == nil {
+		status = "not ready"
+		components["eventStore"] = "unhealthy"
+		httpStatus = http.StatusServiceUnavailable
+	}
+
+	// Cluster isolation check: when cluster mode is active and this node
+	// can't reach enough peers for quorum, report not-ready so the load
+	// balancer removes it from rotation.
+	if d.isolationChecker != nil && d.isolationChecker.IsIsolated() {
+		status = "not ready"
+		components["cluster"] = "isolated"
+		httpStatus = http.StatusServiceUnavailable
+	} else if d.isolationChecker != nil {
+		components["cluster"] = "ready"
+		components["cluster_members"] = fmt.Sprintf("%d", d.isolationChecker.MemberCount())
+	}
+
+	writeJSON(w, httpStatus, map[string]any{
 		"status":     status,
 		"components": components,
 	})
