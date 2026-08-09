@@ -52,6 +52,19 @@ GuardianWAF exposes Prometheus-compatible text metrics at `GET /metrics` on the 
 | `guardianwaf_tracing_enabled` | gauge | none | `1` when the engine-local tracing runtime is enabled, otherwise `0`. |
 | `guardianwaf_tracing_spans_created_total` | counter | none | Tracing spans created by the engine. |
 | `guardianwaf_tracing_spans_exported_total` | counter | none | Tracing spans handed to the configured exporter. |
+| `guardianwaf_cluster_member_count` | gauge | none | Number of nodes in the cluster (peers + self). Only emitted when cluster mode is active. |
+| `guardianwaf_cluster_is_leader` | gauge | none | `1` if this node is the Raft leader, `0` otherwise. |
+| `guardianwaf_cluster_raft_term` | gauge | none | Current Raft term number. |
+| `guardianwaf_cluster_raft_commit_index` | gauge | none | Index of the highest Raft log entry known to be committed. |
+| `guardianwaf_cluster_raft_last_applied` | gauge | none | Index of the highest Raft log entry applied to the state machine. |
+| `guardianwaf_cluster_raft_log_length` | gauge | none | Number of entries in the Raft log. |
+| `guardianwaf_cluster_store_bans` | gauge | none | Active bans in the replicated store. |
+| `guardianwaf_cluster_store_rules` | gauge | none | Rules in the replicated store. |
+| `guardianwaf_cluster_store_counters` | gauge | none | Rate-limit counters in the replicated store. |
+
+Cluster metrics are emitted only when cluster mode is enabled. See [Clustering & High Availability](clustering.md) for setup details. A pre-built Grafana dashboard for these metrics is available at [`contrib/grafana/cluster-dashboard.json`](../contrib/grafana/cluster-dashboard.json).
+
+The key operational metric for cluster health is the gap between `commit_index` and `last_applied` — this is the **replication lag**. A healthy cluster has lag near 0; lag > 10 indicates the state machine apply loop is falling behind.
 
 Backup/restore automation can additionally emit `guardianwaf_backup_last_success_timestamp_seconds`, `guardianwaf_backup_archive_bytes`, `guardianwaf_backup_files`, and `guardianwaf_backup_rpo_target_seconds` to a node-exporter textfile-collector path. These host-level metrics are produced by `scripts/backup-state.sh`, not by the GuardianWAF `/metrics` endpoint.
 
@@ -147,6 +160,35 @@ guardianwaf_geoip_ready == 1
 # Tracing configured but no spans exported in the last five minutes
 guardianwaf_tracing_enabled == 1
   and increase(guardianwaf_tracing_spans_exported_total[5m]) == 0
+```
+
+## Cluster Metrics
+
+The following metrics are emitted only when cluster mode is active (`cluster.enabled: true`). See [Clustering & High Availability](clustering.md) for details.
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `guardianwaf_cluster_member_count` | gauge | none | Total nodes in the cluster (peers + self). |
+| `guardianwaf_cluster_is_leader` | gauge | none | 1 if this node is the Raft leader, 0 otherwise. |
+| `guardianwaf_cluster_raft_term` | gauge | none | Current Raft term. |
+| `guardianwaf_cluster_raft_commit_index` | gauge | none | Highest log entry index known to be committed. |
+| `guardianwaf_cluster_raft_last_applied` | gauge | none | Highest log entry applied to the state machine. |
+| `guardianwaf_cluster_raft_log_length` | gauge | none | Number of entries in the Raft log. |
+| `guardianwaf_cluster_store_bans` | gauge | none | Active bans in the replicated store. |
+| `guardianwaf_cluster_store_rules` | gauge | none | Rules in the replicated store. |
+| `guardianwaf_cluster_store_counters` | gauge | none | Rate-limit counters in the replicated store. |
+
+### Cluster Alert Examples
+
+```promql
+# Replication lag: committed entries not yet applied
+guardianwaf_cluster_raft_commit_index - guardianwaf_cluster_raft_last_applied > 10
+
+# No leader elected
+max(guardianwaf_cluster_is_leader) == 0
+
+# Member loss
+guardianwaf_cluster_member_count < 3
 ```
 
 ## Planned Metrics
