@@ -1,0 +1,17 @@
+{{- if .Values.cluster.enabled }}
+# PodDisruptionBudget — prevents voluntary evictions from dropping below
+# Raft quorum. For a 3-node cluster, maxUnavailable=1 ensures at least
+# 2 pods stay running (quorum = floor(N/2) + 1 = 2).
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "guardianwaf.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "guardianwaf.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "guardianwaf.selectorLabels" . | nindent 6 }}
+  maxUnavailable: 1
+{{- end }}

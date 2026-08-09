@@ -93,3 +93,20 @@ data:
         strip_prefix: {{ .stripPrefix | default false }}
     {{- end }}
     {{- end }}
+    {{- if .Values.cluster.enabled }}
+    cluster:
+      enabled: true
+      node_id: "${POD_NAME}"
+      bind_addr: "0.0.0.0:{{ .Values.cluster.raftPort }}"
+      gossip_addr: "0.0.0.0:{{ .Values.cluster.gossipPort }}"
+      peers:
+        {{- $fullname := include "guardianwaf.fullname" . }}
+        {{- $ns := .Release.Namespace }}
+        {{- range $i, $e := until (int $.Values.cluster.replicas) }}
+        - id: "{{ $fullname }}-{{ $i }}"
+          addr: "{{ $fullname }}-{{ $i }}.{{ $fullname }}-cluster.{{ $ns }}.svc.cluster.local:{{ $.Values.cluster.raftPort }}"
+        {{- end }}
+      election_timeout_min: {{ .Values.cluster.electionTimeoutMin | default "2s" | quote }}
+      election_timeout_max: {{ .Values.cluster.electionTimeoutMax | default "4s" | quote }}
+      heartbeat_interval: {{ .Values.cluster.heartbeatInterval | default "50ms" | quote }}
+    {{- end }}
