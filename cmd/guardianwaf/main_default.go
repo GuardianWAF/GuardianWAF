@@ -75,6 +75,8 @@ func runMain(args []string) int {
 		cmdValidate(args[2:])
 	case "test-alert":
 		cmdTestAlert(args[2:])
+	case "cluster":
+		return cmdCluster(args[2:])
 	case "healthcheck":
 		return cmdHealthcheck(args[2:])
 	case "setup":
