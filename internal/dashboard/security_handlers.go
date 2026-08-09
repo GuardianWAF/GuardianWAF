@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -173,12 +174,7 @@ func (d *Dashboard) handleAddBan(w http.ResponseWriter, r *http.Request) {
 	// to all nodes. Also apply locally for immediate enforcement on this node.
 	if d.clusterStatus != nil {
 		if err := d.clusterStatus.ProposeBan(body.IP, ttl); err != nil {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]any{
-				"status": "error",
-				"ip":     body.IP,
-				"error":  err.Error(),
-				"hint":   "ban proposal requires the Raft leader; redirect to the leader node",
-			})
+			d.handleClusterRedirect(w, r, err, body.IP, "ban")
 			return
 		}
 	}
@@ -211,12 +207,7 @@ func (d *Dashboard) handleRemoveBan(w http.ResponseWriter, r *http.Request) {
 	// When cluster mode is active, propose the unban via Raft so it replicates.
 	if d.clusterStatus != nil {
 		if err := d.clusterStatus.ProposeUnban(body.IP); err != nil {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]any{
-				"status": "error",
-				"ip":     body.IP,
-				"error":  err.Error(),
-				"hint":   "unban proposal requires the Raft leader; redirect to the leader node",
-			})
+			d.handleClusterRedirect(w, r, err, body.IP, "unban")
 			return
 		}
 	}
@@ -236,4 +227,64 @@ func (d *Dashboard) getBanLayer() banLayer {
 		return nil
 	}
 	return bl
+}
+
+// handleClusterRedirect checks if a ProposeBan/ProposeUnban error means
+// "this node is not the leader" and, if so, returns a 307 redirect response
+// pointing the client at the leader's dashboard. If the leader is unknown or
+// the error is something else, returns 503.
+//
+// The response body is JSON for programmatic clients; the Location header
+// enables automatic redirect for HTTP clients and the dashboard frontend.
+func (d *Dashboard) handleClusterRedirect(w http.ResponseWriter, r *http.Request, err error, ip, action string) {
+	// Not a "not leader" error — return generic 503.
+	if !d.clusterStatus.IsNotLeader(err) {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"error":  err.Error(),
+			"ip":     ip,
+			"action": action,
+		})
+		return
+	}
+
+	leaderID := d.clusterStatus.LeaderID()
+	leaderURL := ""
+
+	// Look up the leader's dashboard URL from the peer list.
+	for _, peer := range d.clusterStatus.Peers() {
+		if peer.ID == leaderID && peer.DashboardURL != "" {
+			leaderURL = peer.DashboardURL
+			break
+		}
+	}
+
+	// If the leader is self (shouldn't happen — we ARE the leader check),
+	// or no leader URL is known, return a structured error.
+	if leaderID == "" || leaderURL == "" {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"error":     "not raft leader",
+			"leader_id": leaderID,
+			"ip":        ip,
+			"action":    action,
+			"hint":      "leader dashboard URL is not known; retry on the leader node directly",
+		})
+		return
+	}
+
+	// Build the redirect URL: same path + query on the leader's dashboard.
+	location := strings.TrimRight(leaderURL, "/") + r.URL.Path
+	if r.URL.RawQuery != "" {
+		location += "?" + r.URL.RawQuery
+	}
+
+	w.Header().Set("Location", location)
+	writeJSON(w, http.StatusTemporaryRedirect, map[string]any{
+		"error":      "not raft leader",
+		"leader_id":  leaderID,
+		"leader_url": leaderURL,
+		"location":   location,
+		"ip":         ip,
+		"action":     action,
+		"hint":       "retry the request on the leader node",
+	})
 }

@@ -48,6 +48,11 @@ type ClusterStatusProvider interface {
 
 	// ProposeUnban proposes removing an IP from the cluster-wide ban list.
 	ProposeUnban(ip string) error
+
+	// IsNotLeader reports whether the given error from ProposeBan/ProposeUnban
+	// indicates that this node is not the Raft leader. The dashboard uses this
+	// to return a leader-redirect response instead of a generic 503.
+	IsNotLeader(err error) bool
 }
 
 // ClusterBanMutationResult describes the outcome of a cluster ban/unban request.
@@ -60,8 +65,9 @@ type ClusterBanMutationResult struct {
 
 // ClusterPeerInfo describes a single cluster peer.
 type ClusterPeerInfo struct {
-	ID   string `json:"id"`
-	Addr string `json:"addr"`
+	ID           string `json:"id"`
+	Addr         string `json:"addr"`          // Raft TCP address
+	DashboardURL string `json:"dashboard_url"` // Dashboard HTTP base URL (e.g., "http://10.0.0.2:8080")
 }
 
 // ClusterStoreStats is a point-in-time snapshot of replicated store sizes.

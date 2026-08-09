@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/cluster/raft"
@@ -90,4 +91,11 @@ func (p *clusterStatusProvider) ProposeBan(ip string, duration time.Duration) er
 // Returns clustersync.ErrRaftNotLeader if this node is not the leader.
 func (p *clusterStatusProvider) ProposeUnban(ip string) error {
 	return p.api.ProposeUnban(ip)
+}
+
+// IsNotLeader reports whether an error returned by ProposeBan/ProposeUnban
+// means "this node is not the Raft leader". The dashboard uses this to decide
+// whether to return a leader-redirect (307) or a generic 503.
+func (p *clusterStatusProvider) IsNotLeader(err error) bool {
+	return errors.Is(err, clustersync.ErrRaftNotLeader) || errors.Is(err, raft.ErrNotLeader)
 }

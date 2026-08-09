@@ -29,20 +29,37 @@ func (f *fakeBanLayer) RemoveAutoBan(ip string) {
 	delete(f.bans, ip)
 }
 
+// errMockNotLeader is the sentinel error the mock returns when configured as
+// a follower. mockClusterProvider.IsNotLeader recognizes this value.
+var errMockNotLeader = errors.New("not raft leader")
+
 // mockClusterProvider implements ClusterStatusProvider to record ProposeBan/
 // ProposeUnban calls and optionally simulate "not leader" errors.
+
 type mockClusterProvider struct {
-	bans   map[string]time.Duration
-	unbans map[string]bool
-	err    error // error to return from ProposeBan/ProposeUnban
-	peers  []ClusterPeerInfo
-	stats  ClusterStoreStats
+	bans     map[string]time.Duration
+	unbans   map[string]bool
+	err      error // error to return from ProposeBan/ProposeUnban
+	peers    []ClusterPeerInfo
+	stats    ClusterStoreStats
+	leaderID string
+	role     string // "leader" or "follower"
 }
 
-func (m *mockClusterProvider) Enabled() bool                 { return true }
-func (m *mockClusterProvider) NodeID() string                { return "test-node" }
-func (m *mockClusterProvider) Role() string                  { return "leader" }
-func (m *mockClusterProvider) LeaderID() string              { return "test-node" }
+func (m *mockClusterProvider) Enabled() bool  { return true }
+func (m *mockClusterProvider) NodeID() string { return "test-node" }
+func (m *mockClusterProvider) Role() string {
+	if m.role != "" {
+		return m.role
+	}
+	return "leader"
+}
+func (m *mockClusterProvider) LeaderID() string {
+	if m.leaderID != "" {
+		return m.leaderID
+	}
+	return "test-node"
+}
 func (m *mockClusterProvider) CurrentTerm() uint64           { return 1 }
 func (m *mockClusterProvider) CommitIndex() uint64           { return 0 }
 func (m *mockClusterProvider) LastApplied() uint64           { return 0 }
@@ -69,6 +86,11 @@ func (m *mockClusterProvider) ProposeUnban(ip string) error {
 	}
 	m.unbans[ip] = true
 	return nil
+}
+
+// IsNotLeader reports whether an error is the mock's sentinel "not leader" error.
+func (m *mockClusterProvider) IsNotLeader(err error) bool {
+	return errors.Is(err, errMockNotLeader)
 }
 
 // TestClusterBanPropagation_ProposeBan verifies that POST /api/v1/bans calls
@@ -113,7 +135,13 @@ func TestClusterBanPropagation_ProposeBanFollower(t *testing.T) {
 	bl := &fakeBanLayer{bans: make(map[string]string)}
 	d.engine.AddLayer(engine.OrderedLayer{Layer: bl, Order: 10})
 
-	provider := &mockClusterProvider{err: errors.New("not raft leader")}
+	// Non-leader error that IsNotLeader will recognize.
+	provider := &mockClusterProvider{
+		err:      errMockNotLeader,
+		role:     "follower",
+		leaderID: "leader-node",
+		// No peers with DashboardURL → handler returns 503 with leader_id.
+	}
 	d.SetClusterStatusProvider(provider)
 
 	body := `{"ip":"203.0.113.99","reason":"ban from follower","duration":"1h"}`
@@ -128,6 +156,82 @@ func TestClusterBanPropagation_ProposeBanFollower(t *testing.T) {
 	// Verify the ban was NOT applied locally (proposal failed).
 	if _, ok := bl.bans["203.0.113.99"]; ok {
 		t.Error("ban should NOT be applied locally when cluster proposal fails")
+	}
+}
+
+// TestClusterBanPropagation_LeaderRedirect verifies that when ProposeBan fails
+// with "not leader" and the leader's DashboardURL is known, the handler returns
+// 307 Temporary Redirect with the Location header pointing to the leader.
+func TestClusterBanPropagation_LeaderRedirect(t *testing.T) {
+	d := newTestDashboard(t, "test-key")
+
+	bl := &fakeBanLayer{bans: make(map[string]string)}
+	d.engine.AddLayer(engine.OrderedLayer{Layer: bl, Order: 10})
+
+	provider := &mockClusterProvider{
+		err:      errMockNotLeader,
+		role:     "follower",
+		leaderID: "leader-node",
+		peers: []ClusterPeerInfo{
+			{ID: "leader-node", Addr: "10.0.0.2:7947", DashboardURL: "http://10.0.0.2:8080"},
+		},
+	}
+	d.SetClusterStatusProvider(provider)
+
+	body := `{"ip":"203.0.113.55","reason":"redirect test","duration":"1h"}`
+	req := httptest.NewRequest("POST", "/api/v1/bans", strings.NewReader(body))
+	req.Header.Set("X-API-Key", "test-key")
+	rr := httptest.NewRecorder()
+	d.handleAddBan(rr, req)
+
+	if rr.Code != http.StatusTemporaryRedirect {
+		t.Fatalf("expected 307, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	loc := rr.Header().Get("Location")
+	expected := "http://10.0.0.2:8080/api/v1/bans"
+	if loc != expected {
+		t.Errorf("Location = %q, want %q", loc, expected)
+	}
+
+	// Ban should NOT be applied locally on the follower.
+	if _, ok := bl.bans["203.0.113.55"]; ok {
+		t.Error("ban should NOT be applied locally on follower")
+	}
+}
+
+// TestClusterBanPropagation_UnbanLeaderRedirect verifies that DELETE /api/v1/bans
+// on a follower also returns 307 redirect to the leader.
+func TestClusterBanPropagation_UnbanLeaderRedirect(t *testing.T) {
+	d := newTestDashboard(t, "test-key")
+
+	bl := &fakeBanLayer{bans: map[string]string{"203.0.113.55": "existing"}}
+	d.engine.AddLayer(engine.OrderedLayer{Layer: bl, Order: 10})
+
+	provider := &mockClusterProvider{
+		err:      errMockNotLeader,
+		role:     "follower",
+		leaderID: "leader-node",
+		peers: []ClusterPeerInfo{
+			{ID: "leader-node", Addr: "10.0.0.2:7947", DashboardURL: "http://10.0.0.2:8080"},
+		},
+	}
+	d.SetClusterStatusProvider(provider)
+
+	body := `{"ip":"203.0.113.55"}`
+	req := httptest.NewRequest("DELETE", "/api/v1/bans", strings.NewReader(body))
+	req.Header.Set("X-API-Key", "test-key")
+	rr := httptest.NewRecorder()
+	d.handleRemoveBan(rr, req)
+
+	if rr.Code != http.StatusTemporaryRedirect {
+		t.Fatalf("expected 307, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	loc := rr.Header().Get("Location")
+	expected := "http://10.0.0.2:8080/api/v1/bans"
+	if loc != expected {
+		t.Errorf("Location = %q, want %q", loc, expected)
 	}
 }
 
