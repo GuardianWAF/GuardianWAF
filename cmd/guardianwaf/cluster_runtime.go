@@ -75,9 +75,9 @@ func setupClusterRuntime(cfg *config.Config, eng *engine.Engine, bctx *layerregi
 
 	api := clustersync.NewAPI(r, store)
 
-	if err := r.Start(); err != nil {
+	if startErr := r.Start(); startErr != nil {
 		r.Stop()
-		return nil, fmt.Errorf("start raft node: %w", err)
+		return nil, fmt.Errorf("start raft node: %w", startErr)
 	}
 
 	// Wire the store into the engine and layers so the request pipeline
