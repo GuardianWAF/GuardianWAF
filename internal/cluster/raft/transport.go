@@ -45,6 +45,19 @@ func NewTCPTransport(addr, localID string, timeout time.Duration) (*TCPTransport
 	return t, nil
 }
 
+// SetDialer replaces the dialer used for outbound connections and drops all
+// existing pooled connections. Intended for testing (e.g., to simulate
+// network partitions by swapping in a dialer that refuses certain peers).
+func (t *TCPTransport) SetDialer(d Dialer) {
+	t.connMu.Lock()
+	for _, conn := range t.conns {
+		conn.Close()
+	}
+	t.conns = make(map[string]net.Conn)
+	t.dialer = d
+	t.connMu.Unlock()
+}
+
 // LocalAddr returns the transport's listen address.
 func (t *TCPTransport) LocalAddr() string {
 	return t.listener.Addr().String()
