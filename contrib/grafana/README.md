@@ -215,6 +215,68 @@ _Screenshots to be added after deployment_
 
 ## Version History
 
+## Cluster Dashboard
+
+A dedicated dashboard for monitoring GuardianWAF cluster health and Raft consensus.
+
+### Import
+
+Follow the same installation steps as the main dashboard, but use
+`cluster-dashboard.json` instead of `dashboard.json`.
+
+### Panels
+
+**Cluster Membership**
+- **Member Count**: Number of nodes in the cluster (peers + self)
+- **Leader Status**: 1 if this node is the Raft leader, 0 otherwise
+- **Node Roles**: Leader vs follower count across all instances
+- **Active Peers**: Configured peer count per instance
+
+**Raft Consensus**
+- **Current Term**: Raft term across all instances (should converge after election)
+- **Commit Index**: Highest log entry known to be committed
+- **Last Applied**: Highest log entry applied to the state machine
+- **Replication Lag**: Difference between commit index and last applied — should stay near zero
+
+**Replicated Store**
+- **Active Bans**: Bans in the replicated store across all instances
+- **Cluster Rules**: Rules in the replicated store
+- **Rate-Limit Counters**: Counters in the replicated store
+
+### Alerts (Prometheus)
+
+```yaml
+groups:
+  - name: guardianwaf-cluster
+    rules:
+      - alert: ClusterNoLeader
+        expr: max(guardianwaf_cluster_is_leader) == 0
+        for: 30s
+        annotations:
+          summary: "GuardianWAF cluster has no leader"
+
+      - alert: ClusterMultipleLeaders
+        expr: sum(guardianwaf_cluster_is_leader) > 1
+        for: 10s
+        annotations:
+          summary: "GuardianWAF cluster has multiple leaders (split brain)"
+
+      - alert: ClusterReplicationLag
+        expr: max(guardianwaf_cluster_raft_commit_index - guardianwaf_cluster_raft_last_applied) > 10
+        for: 1m
+        annotations:
+          summary: "GuardianWAF Raft replication lag is too high"
+
+      - alert: ClusterMemberCountDrop
+        expr: max(guardianwaf_cluster_member_count) < 2
+        for: 1m
+        annotations:
+          summary: "GuardianWAF cluster degraded to single node"
+```
+
+## Changelog
+
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0.0 | 2026-04-05 | Initial production dashboard |
+| 1.1.0 | 2026-08-07 | Added cluster dashboard (`cluster-dashboard.json`) |
