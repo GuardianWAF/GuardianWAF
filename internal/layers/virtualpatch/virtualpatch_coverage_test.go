@@ -2567,8 +2567,8 @@ func TestNVDClient_GetCVENotFound(t *testing.T) {
 
 func TestLayer_GetUpdateStatsWithError(t *testing.T) {
 	layer := NewLayer(&Config{Enabled: true, AutoUpdate: false})
-	layer.lastError.Store(fmt.Errorf("boom"))
 	layer.mu.Lock()
+	layer.lastError = fmt.Errorf("boom")
 	layer.lastUpdate = time.Now().UTC()
 	layer.mu.Unlock()
 

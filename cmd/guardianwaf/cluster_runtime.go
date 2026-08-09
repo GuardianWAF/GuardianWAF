@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/guardianwaf/guardianwaf/internal/cluster/gossip"
+	"github.com/guardianwaf/guardianwaf/internal/cluster/peersync"
 	"github.com/guardianwaf/guardianwaf/internal/cluster/raft"
 	"github.com/guardianwaf/guardianwaf/internal/clustersync"
 	"github.com/guardianwaf/guardianwaf/internal/config"
@@ -15,7 +16,7 @@ import (
 // management (start/stop) alongside the main GuardianWAF process.
 type clusterRuntime struct {
 	gossip *gossip.Gossip
-	bridge *PeerSyncBridge
+	bridge *peersync.Bridge
 	raft   *raft.Raft
 	store  *clustersync.ReplicatedStore
 	sm     *clustersync.StoreStateMachine
@@ -92,7 +93,7 @@ func setupClusterRuntime(cfg *config.Config, eng *engine.Engine, bctx *layerregi
 	// feeds alive/suspect transitions into Raft.UpdatePeers so the consensus
 	// layer adjusts its peer list without a restart.
 	var g *gossip.Gossip
-	var bridge *PeerSyncBridge
+	var peerBridge *peersync.Bridge
 	if cfg.Cluster.GossipAddr != "" {
 		gossipCfg := gossip.Config{
 			NodeID:   cfg.Cluster.NodeID,
@@ -106,12 +107,12 @@ func setupClusterRuntime(cfg *config.Config, eng *engine.Engine, bctx *layerregi
 			return nil, fmt.Errorf("create gossip node: %w", err)
 		}
 
-		bridge = NewPeerSyncBridge(g, r, nil)
-		g.SetCallbacks(bridge.onJoin, bridge.onLeave)
-		bridge.Start()
+		peerBridge = peersync.NewBridge(g, r, nil)
+		onJoin, onLeave := peerBridge.Callbacks()
+		g.SetCallbacks(onJoin, onLeave)
+		peerBridge.Sync()
 
 		if err := g.Start(); err != nil {
-			bridge.Stop()
 			g.Stop()
 			r.Stop()
 			return nil, fmt.Errorf("start gossip node: %w", err)
@@ -131,11 +132,11 @@ func setupClusterRuntime(cfg *config.Config, eng *engine.Engine, bctx *layerregi
 
 	return &clusterRuntime{
 		gossip: g,
+		bridge: peerBridge,
 		raft:   r,
 		store:  store,
 		sm:     sm,
 		api:    api,
-		// bridge is tracked inside the gossip callbacks; no separate lifecycle.
 	}, nil
 }
 
