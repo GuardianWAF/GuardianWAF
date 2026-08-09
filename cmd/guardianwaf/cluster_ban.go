@@ -194,3 +194,74 @@ func doClusterRequest(method, url, apiKey string, body []byte) (*http.Response, 
 
 	return nil, 0, fmt.Errorf("too many leader redirects (>3)")
 }
+
+// cmdClusterBans lists all active cluster-wide bans from the dashboard API.
+//
+// Usage:
+//
+//	guardianwaf cluster bans [--url URL] [--api-key KEY]
+func cmdClusterBans(args []string) int {
+	fs := flag.NewFlagSet("cluster bans", flag.ExitOnError)
+	apiURL := fs.String("url", "", "Dashboard URL (default: from config)")
+	apiKey := fs.String("api-key", "", "Dashboard API key (default: GWAF_DASHBOARD_API_KEY env)")
+	configPath := fs.String("config", "", "Path to config file (for deriving --url)")
+	timeout := fs.Duration("timeout", 5*time.Second, "Request timeout")
+	_ = fs.Parse(args) // nolint:errcheck
+
+	baseURL, key := resolveClusterEndpoint(*apiURL, *apiKey, *configPath)
+
+	client := &http.Client{Timeout: *timeout}
+	url := strings.TrimRight(baseURL, "/") + "/api/v1/cluster/bans"
+	body, status, err := fetchJSON(client, url, key)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cluster bans: %v\n", err)
+		return 1
+	}
+	if status != http.StatusOK {
+		errStr := "unknown"
+		if e, ok := body["error"].(string); ok {
+			errStr = e
+		}
+		fmt.Fprintf(os.Stderr, "cluster bans: HTTP %d: %s\n", status, errStr)
+		return 1
+	}
+
+	if enabled, _ := body["enabled"].(bool); !enabled {
+		fmt.Println("Cluster mode is not enabled on this node.")
+		return 0
+	}
+
+	bansRaw, ok := body["bans"].([]any)
+	if !ok {
+		fmt.Println("No active cluster-wide bans.")
+		return 0
+	}
+	if len(bansRaw) == 0 {
+		fmt.Println("No active cluster-wide bans.")
+		return 0
+	}
+
+	// Print table header.
+	fmt.Printf("%-45s %-25s %s\n", "IP", "BANNED AT", "EXPIRES AT")
+	fmt.Println(strings.Repeat("-", 45) + " " + strings.Repeat("-", 25) + " " + strings.Repeat("-", 25))
+
+	for _, b := range bansRaw {
+		entry, ok := b.(map[string]any)
+		if !ok {
+			continue
+		}
+		ip, _ := entry["ip"].(string)
+		bannedAt, _ := entry["banned_at"].(string)
+		expiresAt, _ := entry["expires_at"].(string)
+		if expiresAt == "" {
+			expiresAt = "permanent"
+		}
+		if bannedAt == "" {
+			bannedAt = "unknown"
+		}
+		fmt.Printf("%-45s %-25s %s\n", ip, bannedAt, expiresAt)
+	}
+
+	fmt.Printf("\n%d active cluster-wide ban(s)\n", len(bansRaw))
+	return 0
+}

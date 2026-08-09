@@ -189,3 +189,86 @@ func TestDoClusterRequest_TooManyRedirects(t *testing.T) {
 		t.Errorf("expected 'too many redirects' error, got: %v", err)
 	}
 }
+
+func TestCmdClusterBans_Success(t *testing.T) {
+	var capturedURL, capturedKey string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedURL = r.URL.Path
+		capturedKey = r.Header.Get("X-API-Key")
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"enabled": true,
+			"bans": []map[string]any{
+				{"ip": "10.0.0.1", "banned_at": "2026-08-07T10:00:00Z", "expires_at": "2026-08-07T11:00:00Z"},
+				{"ip": "10.0.0.2", "banned_at": "2026-08-07T09:00:00Z"},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	code := cmdClusterBans([]string{"--url", srv.URL, "--api-key", "test-key"})
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d", code)
+	}
+	if capturedURL != "/api/v1/cluster/bans" {
+		t.Errorf("URL = %q, want /api/v1/cluster/bans", capturedURL)
+	}
+	if capturedKey != "test-key" {
+		t.Errorf("API key = %q, want test-key", capturedKey)
+	}
+}
+
+func TestCmdClusterBans_EmptyList(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"enabled": true,
+			"bans":    []any{},
+		})
+	}))
+	defer srv.Close()
+
+	code := cmdClusterBans([]string{"--url", srv.URL})
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d", code)
+	}
+}
+
+func TestCmdClusterBans_ClusterDisabled(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"enabled": false,
+			"bans":    []any{},
+		})
+	}))
+	defer srv.Close()
+
+	code := cmdClusterBans([]string{"--url", srv.URL})
+	if code != 0 {
+		t.Fatalf("expected exit 0 for disabled cluster, got %d", code)
+	}
+}
+
+func TestCmdClusterBans_ConnectionError(t *testing.T) {
+	// Use port 1 — guaranteed to refuse connections.
+	code := cmdClusterBans([]string{"--url", "http://127.0.0.1:1"})
+	if code == 0 {
+		t.Fatal("expected exit 1 for connection error, got 0")
+	}
+}
+
+func TestCmdClusterBans_HttpError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error": "invalid api key",
+		})
+	}))
+	defer srv.Close()
+
+	code := cmdClusterBans([]string{"--url", srv.URL, "--api-key", "wrong"})
+	if code == 0 {
+		t.Fatal("expected exit 1 for HTTP 401, got 0")
+	}
+}
