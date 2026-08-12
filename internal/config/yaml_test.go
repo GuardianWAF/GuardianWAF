@@ -2144,3 +2144,36 @@ func getStringField(t *testing.T, n *Node, key string) string {
 	}
 	return v.Value
 }
+
+func TestParse_RejectsOversizedInput(t *testing.T) {
+	// Input exactly at the limit should succeed (boundary check)
+	atLimit := make([]byte, maxInputBytes)
+	for i := range atLimit {
+		atLimit[i] = ' '
+	}
+	// Make it valid YAML (just whitespace = empty doc)
+	_, err := Parse(atLimit)
+	if err != nil {
+		t.Errorf("input at exactly maxInputBytes should parse, got error: %v", err)
+	}
+
+	// One byte over the limit should fail
+	overLimit := make([]byte, maxInputBytes+1)
+	for i := range overLimit {
+		overLimit[i] = ' '
+	}
+	_, err = Parse(overLimit)
+	if err == nil {
+		t.Fatal("input exceeding maxInputBytes should be rejected")
+	}
+	pe, ok := err.(*ParseError)
+	if !ok {
+		t.Fatalf("expected *ParseError, got %T", err)
+	}
+	if pe.Line != 1 {
+		t.Errorf("expected error on line 1, got line %d", pe.Line)
+	}
+	if !strings.Contains(pe.Message, "exceeds maximum") {
+		t.Errorf("error message should mention size limit, got: %s", pe.Message)
+	}
+}

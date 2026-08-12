@@ -30,6 +30,25 @@ type Config struct {
 	Rules   []Rule
 }
 
+// evictedBucket snapshots a bucket's rate-limit state at eviction time so
+// that a concurrent or immediately-following Process call can restore it
+// instead of creating a fresh bucket at full capacity. Without this, a
+// cleanup-Process race resets rate-limit accounting: an attacker whose
+// bucket was at 0 tokens gets a fresh bucket at maxTokens.
+type evictedBucket struct {
+	tokens     float64
+	maxTokens  float64
+	refillRate float64
+	lastRefill time.Time
+	evictedAt  time.Time
+}
+
+// evictionRestoreWindow is how long an eviction record remains valid for
+// restoration. Must be long enough to cover the cleanup-Process race window
+// (microseconds) but short enough to avoid stale-state restoration for keys
+// that were genuinely idle and have since fully refilled.
+const evictionRestoreWindow = 5 * time.Minute
+
 // Layer implements engine.Layer for rate limiting.
 type Layer struct {
 	mu          sync.RWMutex
@@ -37,6 +56,12 @@ type Layer struct {
 	buckets     sync.Map // key -> *TokenBucket
 	violations  sync.Map // key -> *int64 (violation count for auto-ban)
 	bucketCount atomic.Int64
+
+	// evictedBuckets preserves rate-limit state across the cleanup-Process
+	// race. When deleteBucket evicts a key, it snapshots the bucket state
+	// here; getOrCreateBucket checks for a recent snapshot and restores it
+	// instead of creating a full-capacity bucket.
+	evictedBuckets sync.Map // key -> *evictedBucket
 
 	// clusterStore, when non-nil, provides cluster-wide rate-limit counter
 	// values. Local token buckets are still used for per-node burst control;
@@ -170,12 +195,16 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 
 		localExceeded := !bucket.Allow()
 
-		// Check cluster-wide counter if a cluster store is wired.
+		// Atomically increment-and-check the cluster counter if a cluster
+		// store is wired. The previous code used GetCounter (read) then a
+		// separate comparison — a TOCTOU race where N concurrent requests
+		// all read the same pre-increment value and all pass the check.
+		// IncrementCounter performs the increment and returns the
+		// post-increment value in a single atomic call.
 		clusterExceeded := false
 		if l.clusterStore != nil {
-			clusterKey := key // same bucket key, but prefixed in the store
-			clusterVal := l.clusterStore.GetCounter(clusterKey, windowEpoch)
-			if clusterVal >= int64(rule.Limit) {
+			clusterVal := l.clusterStore.IncrementCounter(key, windowEpoch)
+			if clusterVal > int64(rule.Limit) {
 				clusterExceeded = true
 			}
 		}
@@ -241,6 +270,11 @@ func (l *Layer) bucketKey(rule *Rule, tenantID, ip, reqPath string) string {
 // getOrCreateBucket retrieves or creates a token bucket for the given key.
 // Returns blockedBucket (which always returns false from Allow()) when the
 // maxBuckets limit is reached, ensuring callers never receive nil.
+//
+// If a recent eviction snapshot exists (from a cleanup-Process race), the
+// bucket is restored from that snapshot instead of being created fresh at
+// full capacity. This prevents an attacker from resetting their rate-limit
+// window by timing requests against the cleanup interval.
 func (l *Layer) getOrCreateBucket(key string, rule *Rule) *TokenBucket {
 	if val, ok := l.buckets.Load(key); ok {
 		return val.(*TokenBucket)
@@ -262,20 +296,68 @@ func (l *Layer) getOrCreateBucket(key string, rule *Rule) *TokenBucket {
 		refillRate = float64(rule.Limit) / rule.Window.Seconds()
 	}
 
-	bucket := NewTokenBucket(maxTokens, refillRate)
+	// Check for a recent eviction snapshot. If the bucket was evicted by
+	// CleanupExpired while a concurrent Process was in flight, restore the
+	// rate-limit state instead of giving the client a fresh full bucket.
+	bucket := l.restoreFromEviction(key, maxTokens, refillRate)
 	actual, loaded := l.buckets.LoadOrStore(key, bucket)
 	if !loaded {
 		l.bucketCount.Add(1)
+	} else {
+		// Lost the race to another goroutine — discard our snapshot restore
+		// and use the winner. Clean up any stale eviction record.
+		l.evictedBuckets.Delete(key)
 	}
 	return actual.(*TokenBucket)
 }
 
-func (l *Layer) deleteBucket(key any) {
-	if _, loaded := l.buckets.LoadAndDelete(key); loaded {
-		if l.bucketCount.Load() > 0 {
-			l.bucketCount.Add(-1)
+// restoreFromEviction checks for a recent eviction snapshot and returns a
+// bucket with the preserved state. If no snapshot exists or it has expired,
+// returns a fresh full-capacity bucket.
+func (l *Layer) restoreFromEviction(key string, maxTokens, refillRate float64) *TokenBucket {
+	if val, ok := l.evictedBuckets.LoadAndDelete(key); ok {
+		ev := val.(*evictedBucket)
+		if time.Since(ev.evictedAt) <= evictionRestoreWindow {
+			return &TokenBucket{
+				tokens:     min(ev.tokens, maxTokens),
+				maxTokens:  maxTokens,
+				refillRate: refillRate,
+				lastRefill: ev.lastRefill,
+				lastAccess: time.Now(),
+			}
 		}
 	}
+	return NewTokenBucket(maxTokens, refillRate)
+}
+
+// deleteBucket atomically removes a bucket and snapshots its state into
+// evictedBuckets. If a concurrent Process recreates the key immediately
+// after, getOrCreateBucket restores the snapshot instead of starting fresh
+// at full capacity — closing the cleanup-Process rate-limit reset race.
+func (l *Layer) deleteBucket(key any) {
+	val, loaded := l.buckets.LoadAndDelete(key)
+	if !loaded {
+		return
+	}
+	if l.bucketCount.Load() > 0 {
+		l.bucketCount.Add(-1)
+	}
+
+	// Snapshot the bucket's live state so a concurrent Process can restore it.
+	// Guard against wrong-type values (e.g. corrupted map state in tests).
+	tb, ok := val.(*TokenBucket)
+	if !ok {
+		return
+	}
+	tb.mu.Lock()
+	l.evictedBuckets.Store(key, &evictedBucket{
+		tokens:     tb.tokens,
+		maxTokens:  tb.maxTokens,
+		refillRate: tb.refillRate,
+		lastRefill: tb.lastRefill,
+		evictedAt:  time.Now(),
+	})
+	tb.mu.Unlock()
 }
 
 // matchesRule checks if the request path matches the rule's path patterns.
@@ -357,6 +439,17 @@ func (l *Layer) CleanupExpired(staleDuration time.Duration) {
 			if _, exists := l.buckets.Load(bucketKey); !exists {
 				l.violations.Delete(key)
 			}
+		}
+		return true
+	})
+
+	// Purge expired eviction snapshots. These are only useful within
+	// evictionRestoreWindow; after that the client's rate-limit window
+	// has fully reset and a fresh full-capacity bucket is correct.
+	l.evictedBuckets.Range(func(key, value any) bool {
+		ev := value.(*evictedBucket)
+		if time.Since(ev.evictedAt) > evictionRestoreWindow {
+			l.evictedBuckets.Delete(key)
 		}
 		return true
 	})

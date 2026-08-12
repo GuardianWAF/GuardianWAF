@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -855,25 +856,74 @@ func TestLoginRateLimit_WindowExpiry(t *testing.T) {
 // =====================================================================
 
 func TestVerifyAPIKeyHash_V2Format(t *testing.T) {
-	// Create a v2 hash manually
+	// Create a v2 hash manually (legacy 100K iterations)
 	key := "test-key"
 	salt := []byte("0123456789abcdef")
-	derived := deriveAPIKey([]byte(key), salt, 100000)
+	derived := deriveAPIKey([]byte(key), salt, apiKeyHashIterationsLegacy)
 	hash := "v2$" + fmt.Sprintf("%x", salt) + "$" + fmt.Sprintf("%x", derived)
 
 	matched, upgrade := verifyAPIKeyHash(hash, key)
 	if !matched {
 		t.Error("expected v2 key to match")
 	}
+	if !upgrade {
+		t.Error("v2 should need upgrade to v3")
+	}
+}
+
+func TestVerifyAPIKeyHash_V3Format(t *testing.T) {
+	key := "test-key-v3"
+	salt := []byte("0123456789abcdef")
+	derived := deriveAPIKey([]byte(key), salt, apiKeyHashIterations)
+	hash := "v3$" + strconv.Itoa(apiKeyHashIterations) + "$" + fmt.Sprintf("%x", salt) + "$" + fmt.Sprintf("%x", derived)
+
+	matched, upgrade := verifyAPIKeyHash(hash, key)
+	if !matched {
+		t.Error("expected v3 key to match")
+	}
 	if upgrade {
-		t.Error("v2 should not need upgrade")
+		t.Error("v3 should not need upgrade")
+	}
+}
+
+func TestVerifyAPIKeyHash_V3WrongKey(t *testing.T) {
+	key := "test-key-v3"
+	salt := []byte("0123456789abcdef")
+	derived := deriveAPIKey([]byte(key), salt, apiKeyHashIterations)
+	hash := "v3$" + strconv.Itoa(apiKeyHashIterations) + "$" + fmt.Sprintf("%x", salt) + "$" + fmt.Sprintf("%x", derived)
+
+	matched, _ := verifyAPIKeyHash(hash, "wrong-key")
+	if matched {
+		t.Error("expected wrong key to not match")
+	}
+}
+
+func TestVerifyAPIKeyHash_V3InvalidHex(t *testing.T) {
+	matched, _ := verifyAPIKeyHash("v3$600000$zzzz$aaaa", "key")
+	if matched {
+		t.Error("expected invalid salt hex to not match")
+	}
+	matched, _ = verifyAPIKeyHash("v3$600000$abcd$zzzz", "key")
+	if matched {
+		t.Error("expected invalid hash hex to not match")
+	}
+}
+
+func TestVerifyAPIKeyHash_V3BadIterations(t *testing.T) {
+	matched, _ := verifyAPIKeyHash("v3$notanumber$abcd$aaaa", "key")
+	if matched {
+		t.Error("expected non-numeric iterations to not match")
+	}
+	matched, _ = verifyAPIKeyHash("v3$0$abcd$aaaa", "key")
+	if matched {
+		t.Error("expected zero iterations to not match")
 	}
 }
 
 func TestVerifyAPIKeyHash_V2WrongKey(t *testing.T) {
 	key := "test-key"
 	salt := []byte("0123456789abcdef")
-	derived := deriveAPIKey([]byte(key), salt, 100000)
+	derived := deriveAPIKey([]byte(key), salt, apiKeyHashIterationsLegacy)
 	hash := "v2$" + fmt.Sprintf("%x", salt) + "$" + fmt.Sprintf("%x", derived)
 
 	matched, _ := verifyAPIKeyHash(hash, "wrong-key")

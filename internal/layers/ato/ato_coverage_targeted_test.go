@@ -180,19 +180,20 @@ func TestHaversineDistance_InvalidCoordinatesReturnZero(t *testing.T) {
 	}
 }
 
-func TestAttemptTrackerRecordAttempt_DropsNewIPWhenCapReached(t *testing.T) {
+func TestAttemptTrackerRecordAttempt_EvictsOldestWhenCapReached(t *testing.T) {
 	tracker := NewAttemptTracker()
 	tracker.maxEntries = 1
 	now := time.Now()
 
 	tracker.RecordAttempt(&LoginAttempt{IP: net.ParseIP("192.0.2.1"), Email: "first@example.com", Time: now})
-	tracker.RecordAttempt(&LoginAttempt{IP: net.ParseIP("192.0.2.2"), Email: "second@example.com", Time: now})
+	tracker.RecordAttempt(&LoginAttempt{IP: net.ParseIP("192.0.2.2"), Email: "second@example.com", Time: now.Add(time.Minute)})
 
-	if got := tracker.GetIPAttempts(net.ParseIP("192.0.2.1"), time.Hour); got != 1 {
-		t.Fatalf("expected first IP to remain tracked, got %d", got)
+	// With oldest-first eviction, the first IP is evicted to make room for the second.
+	if got := tracker.GetIPAttempts(net.ParseIP("192.0.2.1"), time.Hour); got != 0 {
+		t.Fatalf("expected oldest IP to be evicted, got %d attempts", got)
 	}
-	if got := tracker.GetIPAttempts(net.ParseIP("192.0.2.2"), time.Hour); got != 0 {
-		t.Fatalf("expected second IP to be dropped when cap reached, got %d", got)
+	if got := tracker.GetIPAttempts(net.ParseIP("192.0.2.2"), time.Hour); got != 1 {
+		t.Fatalf("expected newest IP to be tracked, got %d", got)
 	}
 }
 

@@ -165,8 +165,17 @@ type parser struct {
 	maxNest int
 }
 
+// maxInputBytes caps the total input size accepted by Parse. This prevents
+// memory-exhaustion DoS from pathologically large config inputs before
+// bytes.ReplaceAll and strings.Split materialize the entire file into memory.
+const maxInputBytes = 10 * 1024 * 1024 // 10 MiB
+
 // Parse parses YAML data and returns the root Node.
 func Parse(data []byte) (*Node, error) {
+	if len(data) > maxInputBytes {
+		return nil, &ParseError{Line: 1, Message: fmt.Sprintf("input size %d bytes exceeds maximum %d bytes", len(data), maxInputBytes)}
+	}
+
 	if !utf8.Valid(data) {
 		return nil, &ParseError{Line: 1, Message: "input is not valid UTF-8"}
 	}

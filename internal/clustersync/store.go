@@ -113,6 +113,36 @@ func (s *ReplicatedStore) GetCounter(key string, window int64) int64 {
 	return c.Value
 }
 
+// IncrementCounter atomically increments the counter for the given key and
+// window under the write lock, and returns the post-increment value. If the
+// stored counter's window differs from the requested window, the counter is
+// reset to 1 for the new window (rollover). This eliminates the read-then-check
+// TOCTOU race that GetCounter + separate comparison introduces.
+//
+// Note: this operates on the local replica only. In a multi-node Raft cluster,
+// each node increments its own replica independently — the aggregate rate is
+// approximate (N nodes can each see Limit requests). For exact cluster-wide
+// enforcement, use the Raft-replicated IncrCounter command via API.ProposeIncrCounter.
+// The local atomic increment is the correct choice for the hot request path
+// because it avoids a Raft round-trip per request.
+func (s *ReplicatedStore) IncrementCounter(key string, window int64) int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	existing := s.counters[key]
+	if existing.Window != window {
+		// New window: reset counter to 1.
+		s.counters[key] = CounterEntry{
+			Value:  1,
+			Window: window,
+		}
+		return 1
+	}
+	existing.Value++
+	s.counters[key] = existing
+	return existing.Value
+}
+
 // --- State mutations (called by Apply, not directly by clients) ---
 
 func (s *ReplicatedStore) applyBanIP(payload BanIPPayload) {

@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -150,6 +151,10 @@ func (c *Client) ListContainers(labelPrefix string) ([]Container, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
+	if err := validateDockerLabelPrefix(labelPrefix); err != nil {
+		return nil, err
+	}
+
 	filter := fmt.Sprintf("label=%s.enable=true", labelPrefix)
 	out, err := c.dockerCmd(ctx, "ps", "--filter", filter, "--format", "{{json .}}", "--no-trunc")
 	if err != nil {
@@ -260,6 +265,9 @@ func (c *Client) InspectContainer(id string) (*ContainerDetail, error) {
 // Blocks until ctx is canceled or the process exits.
 func (c *Client) StreamEvents(ctx context.Context, labelPrefix string, ch chan<- Event) error {
 	if err := validateDockerCLIArg("label prefix", labelPrefix); err != nil {
+		return err
+	}
+	if err := validateDockerLabelPrefix(labelPrefix); err != nil {
 		return err
 	}
 	if err := validateDockerCLIArg("docker host", c.hostFlag); err != nil {
@@ -373,6 +381,22 @@ func validateDockerCLIArg(name, arg string) error {
 		if r < 0x20 || r == 0x7f {
 			return fmt.Errorf("%s contains control character", name)
 		}
+	}
+	return nil
+}
+
+// validDockerLabelPrefix matches safe docker label-namespace identifiers:
+// alphanumeric, dash, underscore, dot, forward slash, and colon. Docker
+// filters use '=', ',', and '"' as syntactic delimiters — allowing them
+// in a prefix would let a crafted value inject extra filter clauses or
+// break the filter parser. Length is bounded to 128.
+var validDockerLabelPrefix = regexp.MustCompile("^[a-zA-Z0-9._\\-/:]{1,128}$")
+
+// validateDockerLabelPrefix ensures a caller-supplied label prefix contains
+// only characters safe for docker --filter interpolation.
+func validateDockerLabelPrefix(prefix string) error {
+	if !validDockerLabelPrefix.MatchString(prefix) {
+		return fmt.Errorf("invalid label prefix %q: must be 1-128 chars of [a-zA-Z0-9._-/:]", prefix)
 	}
 	return nil
 }

@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/config"
@@ -170,6 +169,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	}
 
 	start := time.Now()
+	deadline := newRegexDeadline()
 	var findings []engine.Finding
 	resultAction := engine.ActionPass
 	totalScore := 0
@@ -179,7 +179,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 			continue
 		}
 
-		if l.matchAll(rule.Conditions, ctx) {
+		if l.matchAll(rule.Conditions, ctx, deadline) {
 			action := parseAction(rule.Action)
 
 			findings = append(findings, engine.Finding{
@@ -223,16 +223,16 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 
 // --- Condition Evaluation ---
 
-func (l *Layer) matchAll(conditions []Condition, ctx *engine.RequestContext) bool {
+func (l *Layer) matchAll(conditions []Condition, ctx *engine.RequestContext, deadline *regexDeadline) bool {
 	for _, cond := range conditions {
-		if !l.matchCondition(cond, ctx) {
+		if !l.matchCondition(cond, ctx, deadline) {
 			return false
 		}
 	}
 	return true
 }
 
-func (l *Layer) matchCondition(cond Condition, ctx *engine.RequestContext) bool {
+func (l *Layer) matchCondition(cond Condition, ctx *engine.RequestContext, deadline *regexDeadline) bool {
 	fieldValue := l.getFieldValue(cond.Field, ctx)
 
 	switch cond.Op {
@@ -249,7 +249,7 @@ func (l *Layer) matchCondition(cond Condition, ctx *engine.RequestContext) bool 
 	case "ends_with":
 		return strings.HasSuffix(fieldValue, toString(cond.Value))
 	case "matches":
-		return l.regexMatch(toString(cond.Value), fieldValue)
+		return l.regexMatch(toString(cond.Value), fieldValue, deadline)
 	case "in":
 		return l.inList(cond.Value, fieldValue)
 	case "not_in":
@@ -322,15 +322,62 @@ func (l *Layer) getFieldValue(field string, ctx *engine.RequestContext) string {
 	}
 }
 
-// regexMatchTimeout limits regex execution time to prevent ReDoS attacks.
-const regexMatchTimeout = 5 * time.Second
+// regexMatchTimeout limits individual regex execution to prevent ReDoS.
+// Go's regexp engine cannot be cancelled mid-match, so a timed-out goroutine
+// keeps burning CPU until the engine finishes. 500 ms (down from 5 s) limits
+// the worst-case CPU waste per goroutine while remaining far above the
+// sub-millisecond latency of legitimate matches.
+const regexMatchTimeout = 500 * time.Millisecond
 
-// maxConcurrentRegex limits the number of simultaneous regex goroutines.
-var activeRegexCount int64
+// regexTotalBudget caps the cumulative wall-clock time a single request may
+// spend on regex evaluation. Once exhausted, regexMatch fails closed (returns
+// true) instead of spawning more uncancellable goroutines. This bounds the
+// total CPU drain: with a 2 s budget and 500 ms per-regex timeout, at most
+// ~4 timed-out goroutines per request can accumulate.
+const regexTotalBudget = 2 * time.Second
+
+const maxConcurrentRegex = 500
+
+// regexSem is a counting semaphore that bounds simultaneous regex goroutines.
+// Unlike a counter-and-skip approach, callers queue-and-wait for a slot so
+// detection is never silently bypassed.
+var regexSem = make(chan struct{}, maxConcurrentRegex)
 
 var regexTimeoutAfter = time.After
 
-const maxConcurrentRegex = 500
+// regexDeadline tracks the remaining per-request regex evaluation budget.
+// A nil deadline means "no budget tracking" (used by tests that call
+// regexMatch directly without going through Process).
+type regexDeadline struct {
+	deadline time.Time
+}
+
+// newRegexDeadline creates a deadline for a fresh request.
+func newRegexDeadline() *regexDeadline {
+	return &regexDeadline{deadline: time.Now().Add(regexTotalBudget)}
+}
+
+// exhausted reports whether the per-request regex budget is spent.
+// When true, the caller must fail closed instead of spawning goroutines.
+func (d *regexDeadline) exhausted() bool {
+	if d == nil {
+		return false
+	}
+	return time.Now().After(d.deadline)
+}
+
+// remaining returns the time left until the deadline, clamped to >= 0.
+// Returns a large duration when d is nil (no limit).
+func (d *regexDeadline) remaining() time.Duration {
+	if d == nil {
+		return regexMatchTimeout
+	}
+	r := time.Until(d.deadline)
+	if r < 0 {
+		return 0
+	}
+	return r
+}
 
 // isRegexSafe performs basic static analysis to reject pathological regex patterns.
 func isRegexSafe(pattern string) error {
@@ -358,7 +405,13 @@ func isRegexSafe(pattern string) error {
 	return nil
 }
 
-func (l *Layer) regexMatch(pattern, value string) bool {
+func (l *Layer) regexMatch(pattern, value string, deadline *regexDeadline) bool {
+	// If the per-request regex budget is already exhausted, fail closed
+	// instead of spawning more uncancellable goroutines.
+	if deadline.exhausted() {
+		return true
+	}
+
 	l.mu.RLock()
 	re, ok := l.regexCache[pattern]
 	l.mu.RUnlock()
@@ -385,19 +438,49 @@ func (l *Layer) regexMatch(pattern, value string) bool {
 		l.mu.Unlock()
 	}
 
-	return regexMatchWithTimeout(re, value)
+	return regexMatchWithTimeout(re, value, deadline)
 }
 
 // regexMatchWithTimeout runs re.MatchString in a goroutine with a timeout.
-// Returns false on timeout or no match. Limits concurrent regex goroutines.
-func regexMatchWithTimeout(re *regexp.Regexp, s string) bool {
-	// Limit concurrent regex goroutines to prevent resource exhaustion
-	if cur := atomic.AddInt64(&activeRegexCount, 1); cur > maxConcurrentRegex {
-		atomic.AddInt64(&activeRegexCount, -1)
-		// concurrency limit reached - silently skip
-		return false
+// It bounds concurrent regex goroutines via a counting semaphore so that
+// callers queue-and-wait for a slot instead of being silently dropped.
+//
+// The per-request deadline (regexDeadline) clamps both the semaphore wait
+// and the per-regex execution timeout. When the budget is exhausted the
+// caller (regexMatch) already fails closed without calling this function;
+// the clamping here ensures the last regex within budget doesn't overrun.
+func regexMatchWithTimeout(re *regexp.Regexp, s string, deadline *regexDeadline) bool {
+	// Clamp the semaphore-wait timeout to the remaining per-request budget.
+	semWait := deadline.remaining()
+	if semWait == 0 {
+		return true // budget exhausted while waiting
 	}
-	defer atomic.AddInt64(&activeRegexCount, -1)
+
+	// Acquire a semaphore slot, queueing if necessary.
+	select {
+	case regexSem <- struct{}{}:
+		defer func() { <-regexSem }()
+	default:
+		// Fast path missed; wait up to the remaining budget.
+		select {
+		case regexSem <- struct{}{}:
+			defer func() { <-regexSem }()
+		case <-regexTimeoutAfter(semWait):
+			// Extreme overload: every slot is held by a long-running regex.
+			// Failing open would let attackers disable detection by flooding.
+			return true
+		}
+	}
+
+	// Clamp the per-regex timeout to the remaining budget, but never exceed
+	// the per-regex ceiling (regexMatchTimeout).
+	perRegex := regexMatchTimeout
+	if remaining := deadline.remaining(); remaining < perRegex {
+		perRegex = remaining
+	}
+	if perRegex == 0 {
+		return true // budget exhausted after acquiring slot
+	}
 
 	done := make(chan bool, 1)
 	go func() {
@@ -406,7 +489,7 @@ func regexMatchWithTimeout(re *regexp.Regexp, s string) bool {
 	select {
 	case matched := <-done:
 		return matched
-	case <-regexTimeoutAfter(regexMatchTimeout):
+	case <-regexTimeoutAfter(perRegex):
 		return false
 	}
 }

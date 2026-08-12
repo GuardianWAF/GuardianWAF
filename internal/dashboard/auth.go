@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/hmac"
 	cryptrand "crypto/rand"
+	"crypto/pbkdf2"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
@@ -11,7 +12,6 @@ import (
 	"html"
 	"io"
 	"log/slog"
-	mathrand "math/rand"
 	"net"
 	"net/http"
 	"strconv"
@@ -54,22 +54,15 @@ var authLog = slog.Default().With(slog.String("component", "dashboard/auth"))
 func init() {
 	secret, err := generateSessionSecret(cryptrand.Read)
 	if err != nil {
-		// crypto/rand failure is extremely unlikely on modern systems. If it does
-		// fail we fall back to a time-seeded random source rather than crashing
-		// the process — sessions won't survive restarts, but the WAF stays up.
-		authLog.Error("crypto/rand failed for session secret; falling back to insecure random", "err", err)
-		// #nosec G404 -- fallback only; crypto/rand already failed at init
-		rng := mathrand.New(newTimeSeedSource())
-		secret = make([]byte, 32)
-		_, _ = rng.Read(secret)
+		// crypto/rand failure means the system is in a fundamentally broken
+		// state (no entropy, broken kernel, container misconfiguration). A WAF
+		// that cannot generate cryptographic randomness is not safe to run —
+		// session tokens would be forgeable, API-key derivation compromised,
+		// and CSRF state predictable. Refuse to start rather than continuing
+		// with a predictable key.
+		panic(fmt.Sprintf("guardianwaf: crypto/rand failed for session secret, refusing to start: %v", err))
 	}
 	secretHolder.Store(secret)
-}
-
-// newTimeSeedSource creates a math/rand source seeded from the current time.
-// Used only as a last-resort fallback when crypto/rand fails at init time.
-func newTimeSeedSource() mathrand.Source {
-	return mathrand.NewSource(time.Now().UnixNano())
 }
 
 func generateSessionSecret(read func([]byte) (int, error)) ([]byte, error) {
@@ -314,10 +307,39 @@ func verifyTenantAPIKey(storedHash, apiKey string) bool {
 }
 
 // verifyAPIKeyHash mirrors tenant.verifyAPIKey to avoid circular imports.
+// PBKDF2 iteration counts for API key hashing.
+const (
+	// apiKeyHashIterationsLegacy is the v2 iteration count (100K). Kept for
+	// backward-compatible verification of existing hashes; new hashes use
+	// apiKeyHashIterations.
+	apiKeyHashIterationsLegacy = 100000
+	// apiKeyHashIterations is the current iteration count (600K), matching
+	// OWASP 2023+ guidance for PBKDF2-HMAC-SHA256.
+	apiKeyHashIterations = 600000
+)
+
 func verifyAPIKeyHash(storedHash, apiKey string) (matched bool, upgrade bool) {
 	parts := strings.Split(storedHash, "$")
 
-	// v2 format: v2$salt$hash
+	// v3 format: v3$iterations$salt$hash (self-describing iteration count)
+	if len(parts) == 4 && parts[0] == "v3" {
+		iterations, err := strconv.Atoi(parts[1])
+		if err != nil || iterations < 1 {
+			return false, false
+		}
+		salt, err := hex.DecodeString(parts[2])
+		if err != nil {
+			return false, false
+		}
+		expected, err := hex.DecodeString(parts[3])
+		if err != nil {
+			return false, false
+		}
+		derived := deriveAPIKey([]byte(apiKey), salt, iterations)
+		return subtle.ConstantTimeCompare(derived, expected) == 1, false
+	}
+
+	// v2 format: v2$salt$hash (100K iterations — upgrade to v3)
 	if len(parts) == 3 && parts[0] == "v2" {
 		salt, err := hex.DecodeString(parts[1])
 		if err != nil {
@@ -327,8 +349,8 @@ func verifyAPIKeyHash(storedHash, apiKey string) (matched bool, upgrade bool) {
 		if err != nil {
 			return false, false
 		}
-		derived := deriveAPIKey([]byte(apiKey), salt, 100000)
-		return subtle.ConstantTimeCompare(derived, expected) == 1, false
+		derived := deriveAPIKey([]byte(apiKey), salt, apiKeyHashIterationsLegacy)
+		return subtle.ConstantTimeCompare(derived, expected) == 1, true // upgrade to v3
 	}
 
 	// v1 format: salt$hash
@@ -343,26 +365,16 @@ func verifyAPIKeyHash(storedHash, apiKey string) (matched bool, upgrade bool) {
 	return subtle.ConstantTimeCompare([]byte(storedHash), []byte(hex.EncodeToString(expected[:]))) == 1, true
 }
 
-// deriveAPIKey performs standard PBKDF2-HMAC-SHA256 key derivation.
+// deriveAPIKey performs standard PBKDF2-HMAC-SHA256 key derivation using
+// crypto/pbkdf2 (Go 1.24+). Output is byte-identical to the previous
+// hand-rolled implementation for the same inputs.
 func deriveAPIKey(password, salt []byte, iterations int) []byte {
-	// U_1 = HMAC(password, salt)
-	mac := hmac.New(sha256.New, password)
-	mac.Write(salt)
-	result := mac.Sum(nil)
-
-	// U_i = HMAC(password, U_{i-1}); result ^= U_i
-	u := make([]byte, len(result))
-	copy(u, result)
-
-	for range iterations - 1 {
-		mac.Reset()
-		mac.Write(u)
-		u = mac.Sum(u[:0])
-		for i := range result {
-			result[i] ^= u[i]
-		}
+	derived, err := pbkdf2.Key(sha256.New, string(password), salt, iterations, sha256.Size)
+	if err != nil {
+		// pbkdf2.Key only errors on keyLen < 1, which cannot happen here.
+		panic(fmt.Sprintf("pbkdf2.Key failed unexpectedly: %v", err))
 	}
-	return result
+	return derived
 }
 
 // isAuthenticated checks if the request has a valid session cookie, global dashboard API key,

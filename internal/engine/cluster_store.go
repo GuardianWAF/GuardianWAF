@@ -20,6 +20,15 @@ type ClusterStore interface {
 	// GetCounter returns the cluster-wide counter value for the given key
 	// and window epoch. If the stored window differs, returns 0.
 	GetCounter(key string, window int64) int64
+
+	// IncrementCounter atomically increments the counter for the given key
+	// and window, and returns the post-increment value. If the stored
+	// counter's window differs from the requested window, the counter is
+	// reset to 1 for the new window (rollover). The increment-and-return
+	// is atomic so callers can decide enforcement from a single call,
+	// eliminating the read-then-check TOCTOU race that GetCounter +
+	// separate comparison introduces in multi-node deployments.
+	IncrementCounter(key string, window int64) int64
 }
 
 // noopClusterStore is the default when clustering is disabled. All lookups
@@ -29,3 +38,4 @@ type noopClusterStore struct{}
 func (noopClusterStore) IsBanned(string) bool                   { return false }
 func (noopClusterStore) GetRule(string) (json.RawMessage, bool) { return nil, false }
 func (noopClusterStore) GetCounter(string, int64) int64         { return 0 }
+func (noopClusterStore) IncrementCounter(string, int64) int64   { return 1 }

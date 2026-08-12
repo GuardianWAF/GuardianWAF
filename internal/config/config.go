@@ -802,6 +802,12 @@ type DashboardConfig struct {
 	AdminKey  string `yaml:"admin_key"` // System admin key for cross-tenant management
 	AuditPath string `yaml:"audit_path"`
 	TLS       bool   `yaml:"tls"`
+	// Insecure acknowledges that the dashboard will run on plain HTTP and
+	// suppresses the startup warning. Set to true only when the dashboard
+	// is on a trusted local network or behind a TLS-terminating reverse proxy
+	// that the operator has verified. Session cookies are sent without the
+	// Secure flag over plain HTTP, making them vulnerable to interception.
+	Insecure bool `yaml:"insecure"`
 }
 
 // MCPConfig controls the Model Context Protocol server.

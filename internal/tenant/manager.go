@@ -4,7 +4,7 @@ package tenant
 
 import (
 	"context"
-	"crypto/hmac"
+	"crypto/pbkdf2"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -866,51 +867,70 @@ func generateAPIKey() (string, error) {
 	return "gwaf_" + hex.EncodeToString(b), nil
 }
 
-// apiKeyHashIterations is the number of HMAC-SHA256 iterations for key derivation.
-// Provides brute-force resistance comparable to PBKDF2 with 100k rounds.
-const apiKeyHashIterations = 100000
+// PBKDF2 iteration counts for API key hashing.
+const (
+	// apiKeyHashIterationsLegacy is the v2 iteration count (100K). Kept for
+	// backward-compatible verification of existing hashes.
+	apiKeyHashIterationsLegacy = 100000
+	// apiKeyHashIterations is the current iteration count (600K), matching
+	// OWASP 2023+ guidance for PBKDF2-HMAC-SHA256.
+	apiKeyHashIterations = 600000
+)
 
-// hashAPIKey hashes an API key using iterated HMAC-SHA256 (PBKDF2-like) with a
-// random salt. Returns "v2$salt$hash" format. The v2 prefix distinguishes from
-// legacy single-pass SHA256 hashes for backwards compatibility.
+// hashAPIKey hashes an API key using PBKDF2-HMAC-SHA256 (via crypto/pbkdf2)
+// with a random salt. Returns "v3$iterations$salt$hash" format. The v3
+// prefix and embedded iteration count make the hash self-describing so
+// future iteration increases need no format change.
 func hashAPIKey(apiKey string) (string, error) {
 	salt := make([]byte, 16)
 	if _, err := rand.Read(salt); err != nil {
 		return "", fmt.Errorf("crypto/rand failed: %w", err)
 	}
 	derived := deriveKey([]byte(apiKey), salt, apiKeyHashIterations)
-	return "v2$" + hex.EncodeToString(salt) + "$" + hex.EncodeToString(derived), nil
+	return "v3$" + strconv.Itoa(apiKeyHashIterations) + "$" + hex.EncodeToString(salt) + "$" + hex.EncodeToString(derived), nil
 }
 
-// deriveKey performs standard PBKDF2-HMAC-SHA256 key derivation.
+// deriveKey performs standard PBKDF2-HMAC-SHA256 key derivation using
+// crypto/pbkdf2 (Go 1.24+). Output is byte-identical to the previous
+// hand-rolled implementation for the same inputs.
 func deriveKey(password, salt []byte, iterations int) []byte {
-	// U_1 = HMAC(password, salt)
-	mac := hmac.New(sha256.New, password)
-	mac.Write(salt)
-	result := mac.Sum(nil)
-
-	// U_i = HMAC(password, U_{i-1}); result ^= U_i
-	u := make([]byte, len(result))
-	copy(u, result)
-
-	for range iterations - 1 {
-		mac.Reset()
-		mac.Write(u)
-		u = mac.Sum(u[:0])
-		for i := range result {
-			result[i] ^= u[i]
-		}
+	derived, err := pbkdf2.Key(sha256.New, string(password), salt, iterations, sha256.Size)
+	if err != nil {
+		// pbkdf2.Key only errors on keyLen < 1, which cannot happen here.
+		panic(fmt.Sprintf("pbkdf2.Key failed unexpectedly: %v", err))
 	}
-	return result
+	return derived
 }
 
 // verifyAPIKey checks if an API key matches a stored hash.
-// Supports v2 (iterated HMAC), v1 (salted SHA256), and legacy (unsalted SHA256).
+// Supports v3 (self-describing iterations), v2 (100K iterated HMAC), v1 (salted SHA256),
+// and legacy (unsalted SHA256).
 // Returns (matched, legacy) where legacy is true if the hash should be rehashed.
 func verifyAPIKey(storedHash, apiKey string) (matched bool, legacy bool) {
 	parts := strings.Split(storedHash, "$")
 
-	// v2 format: v2$salt$hash
+	// v3 format: v3$iterations$salt$hash (self-describing iteration count)
+	if len(parts) == 4 && parts[0] == "v3" {
+		iterations, err := strconv.Atoi(parts[1])
+		if err != nil || iterations < 1 {
+			return false, false
+		}
+		salt, err := hex.DecodeString(parts[2])
+		if err != nil {
+			return false, false
+		}
+		expected, err := hex.DecodeString(parts[3])
+		if err != nil {
+			return false, false
+		}
+		derived := deriveKey([]byte(apiKey), salt, iterations)
+		if subtle.ConstantTimeCompare(derived, expected) == 1 {
+			return true, false
+		}
+		return false, false
+	}
+
+	// v2 format: v2$salt$hash (100K iterations — upgrade to v3)
 	if len(parts) == 3 && parts[0] == "v2" {
 		salt, err := hex.DecodeString(parts[1])
 		if err != nil {
@@ -920,9 +940,9 @@ func verifyAPIKey(storedHash, apiKey string) (matched bool, legacy bool) {
 		if err != nil {
 			return false, false
 		}
-		derived := deriveKey([]byte(apiKey), salt, apiKeyHashIterations)
+		derived := deriveKey([]byte(apiKey), salt, apiKeyHashIterationsLegacy)
 		if subtle.ConstantTimeCompare(derived, expected) == 1 {
-			return true, false
+			return true, true // upgrade to v3
 		}
 		return false, false
 	}

@@ -247,3 +247,52 @@ func TestStripCommentsAndStrings(t *testing.T) {
 		t.Errorf("comment braces leaked: depth=%d for cleaned=%q (want 2)", d, cleaned)
 	}
 }
+
+func TestDetectFragmentCycle_NoCycle(t *testing.T) {
+	cases := map[string]string{
+		"empty":                 ``,
+		"no fragments":          `{ user { name } }`,
+		"single no refs":        `fragment A on User { name }`,
+		"two independent":       `fragment A on User { name } fragment B on User { email }`,
+		"linear chain":          `fragment A on User { ...B } fragment B on User { ...C } fragment C on User { name }`,
+		"diamond":               `fragment A on User { ...B ...C } fragment B on User { ...D } fragment C on User { ...D } fragment D on User { name }`,
+		"diamond with extra":    `fragment A on Q { ...B ...C x } fragment B on Q { ...D } fragment C on Q { ...D y } fragment D on Q { z }`,
+		"shared leaf twice":     `fragment X on Q { ...A ...A } fragment A on Q { f }`,
+		"spread on keyword":     `fragment A on User { ...on Admin { name } }`,
+	}
+	for name, input := range cases {
+		t.Run(name, func(t *testing.T) {
+			if detectFragmentCycle(input) {
+				t.Fatalf("expected false (no cycle) for %s: %s", name, input)
+			}
+		})
+	}
+}
+
+func TestDetectFragmentCycle_RealCycle(t *testing.T) {
+	cases := map[string]string{
+		// NOTE: self-reference (fragment A { ...A }) is excluded by the parser
+		// (ref != fragName check) so it never enters the graph — that is a
+		// parser limitation (L2), not a DFS issue.
+		"two-node cycle":    `fragment A on User { ...B } fragment B on User { ...A }`,
+		"three-node cycle":  `fragment A on Q { ...B } fragment B on Q { ...C } fragment C on Q { ...A }`,
+		"cycle with extra":  `fragment A on Q { ...B name } fragment B on Q { ...A email }`,
+		"cycle in diamond":  `fragment A on Q { ...B ...C } fragment B on Q { ...D } fragment C on Q { ...B } fragment D on Q { ...A }`,
+		"self via chain":    `fragment A on Q { ...B } fragment B on Q { ...C } fragment C on Q { ...B }`,
+		// Regression: the old strings.Split(s, "}") parser broke fragment bodies
+		// at every "}" including inner selection-set closes. This cycle has
+		// spread ...B appearing AFTER an inner "}" — the old parser missed it.
+		// The brace-depth-aware parser correctly detects it.
+		"cycle after nested close": `fragment A on Q { user { name } ...B } fragment B on Q { ...A }`,
+		// Another regression case: deeply nested selection sets with multiple
+		// inner "}" before the spread reference.
+		"cycle after deep nesting": `fragment A on Q { a { b { c { d } } } ...B } fragment B on Q { ...A }`,
+	}
+	for name, input := range cases {
+		t.Run(name, func(t *testing.T) {
+			if !detectFragmentCycle(input) {
+				t.Fatalf("expected true (cycle detected) for %s: %s", name, input)
+			}
+		})
+	}
+}

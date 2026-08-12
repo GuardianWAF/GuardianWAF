@@ -42,6 +42,7 @@ func TestAttemptTrackerMapsStayBounded(t *testing.T) {
 func TestAttemptTrackerInnerSetsStayBounded(t *testing.T) {
 	tracker := NewAttemptTracker()
 	tracker.maxEntries = 2
+	tracker.maxInnerEntries = 2
 	now := time.Now()
 	ip := net.ParseIP("192.0.2.200")
 
@@ -52,12 +53,13 @@ func TestAttemptTrackerInnerSetsStayBounded(t *testing.T) {
 			Time:  now,
 		})
 	}
-	if got := len(tracker.ipToEmails[ip.String()]); got > tracker.maxEntries {
-		t.Fatalf("emails per IP = %d, want <= %d", got, tracker.maxEntries)
+	if got := len(tracker.ipToEmails[ip.String()]); got > tracker.maxInnerEntries {
+		t.Fatalf("emails per IP = %d, want <= %d", got, tracker.maxInnerEntries)
 	}
 
 	tracker = NewAttemptTracker()
 	tracker.maxEntries = 2
+	tracker.maxInnerEntries = 2
 	email := "shared@example.com"
 	for i := 0; i < 5; i++ {
 		tracker.RecordAttempt(&LoginAttempt{
@@ -66,26 +68,93 @@ func TestAttemptTrackerInnerSetsStayBounded(t *testing.T) {
 			Time:  now,
 		})
 	}
-	if got := len(tracker.emailToIPs[email]); got > tracker.maxEntries {
-		t.Fatalf("IPs per email = %d, want <= %d", got, tracker.maxEntries)
+	if got := len(tracker.emailToIPs[email]); got > tracker.maxInnerEntries {
+		t.Fatalf("IPs per email = %d, want <= %d", got, tracker.maxInnerEntries)
 	}
 }
 
-func TestAttemptTrackerBlockListsRespectMaxEntries(t *testing.T) {
+func TestAttemptTrackerBlockListsAlwaysRecorded(t *testing.T) {
 	tracker := NewAttemptTracker()
 	tracker.maxEntries = 2
 	until := time.Now().Add(time.Hour)
 
+	// All 5 IPs/emails are actively blocked — none can be evicted.
+	// The tracker must still record every block, growing past the cap
+	// rather than silently dropping a security-critical block.
 	for i := 0; i < 5; i++ {
 		tracker.BlockIP(net.ParseIP(fmt.Sprintf("203.0.113.%d", i+1)), until, "test")
 		tracker.BlockEmail(fmt.Sprintf("blocked-%d@example.com", i), until, "test")
 	}
 
 	stats := tracker.Stats()
-	if stats["tracked_ips"] > tracker.maxEntries || stats["blocked_ips"] > tracker.maxEntries {
-		t.Fatalf("blocked IP state exceeded cap: stats=%v max=%d", stats, tracker.maxEntries)
+	if stats["blocked_ips"] != 5 {
+		t.Fatalf("all 5 blocked IPs must be tracked, got %d", stats["blocked_ips"])
 	}
-	if stats["tracked_emails"] > tracker.maxEntries || stats["blocked_emails"] > tracker.maxEntries {
-		t.Fatalf("blocked email state exceeded cap: stats=%v max=%d", stats, tracker.maxEntries)
+	if stats["blocked_emails"] != 5 {
+		t.Fatalf("all 5 blocked emails must be tracked, got %d", stats["blocked_emails"])
+	}
+
+	// Verify each block is actually enforceable
+	for i := 0; i < 5; i++ {
+		blocked, _ := tracker.IsIPBlocked(net.ParseIP(fmt.Sprintf("203.0.113.%d", i+1)))
+		if !blocked {
+			t.Fatalf("IP 203.0.113.%d should be blocked", i+1)
+		}
+		blocked, _ = tracker.IsEmailBlocked(fmt.Sprintf("blocked-%d@example.com", i))
+		if !blocked {
+			t.Fatalf("email blocked-%d should be blocked", i)
+		}
+	}
+}
+
+func TestAttemptTrackerEvictsOldestNotBlocked(t *testing.T) {
+	tracker := NewAttemptTracker()
+	tracker.maxEntries = 3
+	now := time.Now()
+
+	// Fill with 3 IPs — first one is oldest
+	for i := 0; i < 3; i++ {
+		tracker.RecordAttempt(&LoginAttempt{
+			IP:   net.ParseIP(fmt.Sprintf("10.0.0.%d", i+1)),
+			Time: now.Add(time.Duration(i) * time.Minute),
+		})
+	}
+
+	// 4th IP should evict the oldest (10.0.0.1)
+	tracker.RecordAttempt(&LoginAttempt{
+		IP:   net.ParseIP("10.0.0.99"),
+		Time: now.Add(10 * time.Minute),
+	})
+
+	stats := tracker.Stats()
+	if stats["tracked_ips"] > tracker.maxEntries {
+		t.Fatalf("tracked IPs = %d, want <= %d", stats["tracked_ips"], tracker.maxEntries)
+	}
+	if _, exists := tracker.ipAttempts["10.0.0.1"]; exists {
+		t.Fatal("oldest IP 10.0.0.1 should have been evicted")
+	}
+	if _, exists := tracker.ipAttempts["10.0.0.99"]; !exists {
+		t.Fatal("newest IP 10.0.0.99 should be present")
+	}
+}
+
+func TestAttemptTrackerDoesNotEvictActiveBlocks(t *testing.T) {
+	tracker := NewAttemptTracker()
+	tracker.maxEntries = 2
+	until := time.Now().Add(time.Hour)
+
+	// Fill with 2 actively-blocked IPs
+	tracker.BlockIP(net.ParseIP("10.0.0.1"), until, "attack")
+	tracker.BlockIP(net.ParseIP("10.0.0.2"), until, "attack")
+
+	// 3rd blocked IP — both existing are still blocked so neither is evictable,
+	// but the new block MUST still be recorded for security.
+	tracker.BlockIP(net.ParseIP("10.0.0.3"), until, "attack")
+
+	for _, ip := range []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"} {
+		blocked, _ := tracker.IsIPBlocked(net.ParseIP(ip))
+		if !blocked {
+			t.Fatalf("IP %s must remain blocked", ip)
+		}
 	}
 }

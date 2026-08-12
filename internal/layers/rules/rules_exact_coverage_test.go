@@ -15,7 +15,7 @@ func TestRegexMatchWithTimeout_Timeout(t *testing.T) {
 	}
 	t.Cleanup(func() { regexTimeoutAfter = oldAfter })
 
-	if regexMatchWithTimeout(regexp.MustCompile(`a`), "a") {
+	if regexMatchWithTimeout(regexp.MustCompile(`a`), "a", nil) {
 		t.Fatal("expected forced timeout to return false")
 	}
 }

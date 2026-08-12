@@ -3,7 +3,6 @@ package dashboard
 import (
 	"encoding/json"
 	"fmt"
-	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -97,19 +96,17 @@ func TestIsASCIILetter(t *testing.T) {
 	}
 }
 
-func TestNewTimeSeedSource(t *testing.T) {
-	src := newTimeSeedSource()
-	if src == nil {
-		t.Fatal("expected non-nil source")
+func TestGenerateSessionSecret_FailClosed(t *testing.T) {
+	// Verify that generateSessionSecret returns an error when the reader
+	// fails. The init() panic is not tested directly (it would crash the
+	// test binary), but by confirming the error propagates we verify the
+	// only code path the fallback branch depends on.
+	_, err := generateSessionSecret(func([]byte) (int, error) {
+		return 0, fmt.Errorf("simulated crypto/rand failure")
+	})
+	if err == nil {
+		t.Fatal("expected error from generateSessionSecret when reader fails")
 	}
-	// Verify it produces random numbers
-	v1 := src.Int63()
-	v2 := src.Int63()
-	if v1 == v2 {
-		t.Log("note: two random values were equal (possible but unlikely)")
-	}
-	// Verify it implements Source
-	var _ rand.Source = src
 }
 
 func TestSetRoutingController(t *testing.T) {

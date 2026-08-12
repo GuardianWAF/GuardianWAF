@@ -18,7 +18,8 @@ type AttemptTracker struct {
 	ipToEmails     map[string]map[string]bool // IP -> set of emails tried
 	emailToIPs     map[string]map[string]bool // Email -> set of IPs used
 	passwordHashes map[string]*PasswordRecord // Password hash -> record
-	maxEntries     int                        // max entries per map (0 = unlimited)
+	maxEntries     int                        // max entries per outer map (0 = unlimited)
+	maxInnerEntries int                       // max entries per inner map/set (0 = unlimited)
 }
 
 // AttemptRecord tracks failed login attempts.
@@ -27,6 +28,7 @@ type AttemptRecord struct {
 	Attempts     []time.Time
 	BlockedUntil time.Time
 	BlockReason  string
+	lastAccess   time.Time // updated on every write; used for oldest-first eviction
 }
 
 // PasswordRecord tracks password usage for spray detection.
@@ -36,6 +38,7 @@ type PasswordRecord struct {
 	FirstSeen time.Time
 	LastSeen  time.Time
 	SourceIPs map[string]bool
+	lastAccess time.Time // updated on every write; used for oldest-first eviction
 }
 
 // GeoLocation represents a geographic location.
@@ -64,7 +67,89 @@ func NewAttemptTracker() *AttemptTracker {
 		ipToEmails:     make(map[string]map[string]bool),
 		emailToIPs:     make(map[string]map[string]bool),
 		passwordHashes: make(map[string]*PasswordRecord),
-		maxEntries:     100000, // Cap at 100K entries per map to prevent OOM
+		maxEntries:      100000, // Cap outer maps at 100K entries to prevent OOM
+		maxInnerEntries: 1000,   // Cap inner sets at 1K entries (IPs per email, emails per IP, IPs per password)
+	}
+}
+
+// evictOldestAttempt removes the stalest entry from an attempt map
+// (ipAttempts or emailAttempts), skipping any currently-blocked entries.
+// Must be called with t.mu held.
+func (t *AttemptTracker) evictOldestAttempt(m map[string]*AttemptRecord) {
+	if len(m) == 0 {
+		return
+	}
+	var oldestKey string
+	var oldestTime time.Time
+	first := true
+	now := time.Now()
+	for k, rec := range m {
+		rec.mu.RLock()
+		// Skip entries that are still actively blocked
+		if now.Before(rec.BlockedUntil) {
+			rec.mu.RUnlock()
+			continue
+		}
+		la := rec.lastAccess
+		if len(rec.Attempts) > 0 {
+			la = rec.Attempts[len(rec.Attempts)-1]
+		}
+		rec.mu.RUnlock()
+		if first || la.Before(oldestTime) {
+			oldestKey = k
+			oldestTime = la
+			first = false
+		}
+	}
+	if !first {
+		delete(m, oldestKey)
+	}
+}
+
+// evictOldestPassword removes the stalest entry from passwordHashes based on
+// LastSeen. Must be called with t.mu held.
+func (t *AttemptTracker) evictOldestPassword() {
+	if len(t.passwordHashes) == 0 {
+		return
+	}
+	var oldestKey string
+	var oldestTime time.Time
+	first := true
+	for k, rec := range t.passwordHashes {
+		rec.mu.RLock()
+		la := rec.LastSeen
+		rec.mu.RUnlock()
+		if first || la.Before(oldestTime) {
+			oldestKey = k
+			oldestTime = la
+			first = false
+		}
+	}
+	if !first {
+		delete(t.passwordHashes, oldestKey)
+	}
+}
+
+// evictOldestSimpleMap removes the stalest key from a simple map[string]map[string]bool
+// by evicting the key whose inner set was last accessed earliest (approximated by
+// iterating inner set entries). Since simple maps have no per-key timestamp, we use
+// the outer key that has the fewest inner entries as a proxy (least useful).
+// Must be called with t.mu held.
+func (t *AttemptTracker) evictOldestSimpleMap(m map[string]map[string]bool) {
+	if len(m) == 0 {
+		return
+	}
+	var evictKey string
+	minSize := -1
+	for k, inner := range m {
+		size := len(inner)
+		if minSize == -1 || size < minSize {
+			minSize = size
+			evictKey = k
+		}
+	}
+	if evictKey != "" {
+		delete(m, evictKey)
 	}
 }
 
@@ -74,19 +159,15 @@ func (t *AttemptTracker) RecordAttempt(attempt *LoginAttempt) {
 	defer t.mu.Unlock()
 
 	ip := attempt.IP.String()
-
-	// Enforce map size cap — reject new entries if over limit
-	if t.maxEntries > 0 {
-		if _, exists := t.ipAttempts[ip]; !exists && len(t.ipAttempts) >= t.maxEntries {
-			return // Map full, silently drop to prevent OOM
-		}
-	}
 	now := attempt.Time
 	if now.IsZero() {
 		now = time.Now()
 	}
 
-	// Record IP attempt
+	// Record IP attempt (evict oldest if at capacity)
+	if _, exists := t.ipAttempts[ip]; !exists && t.maxEntries > 0 && len(t.ipAttempts) >= t.maxEntries {
+		t.evictOldestAttempt(t.ipAttempts)
+	}
 	ipRec := t.ipAttempts[ip]
 	if ipRec == nil {
 		ipRec = &AttemptRecord{Attempts: []time.Time{}}
@@ -97,11 +178,15 @@ func (t *AttemptTracker) RecordAttempt(attempt *LoginAttempt) {
 	if len(ipRec.Attempts) > 1000 {
 		ipRec.Attempts = ipRec.Attempts[len(ipRec.Attempts)-500:]
 	}
+	ipRec.lastAccess = now
 	ipRec.mu.Unlock()
 
-	// Record email attempt (with size cap)
+	// Record email attempt (evict oldest if at capacity)
 	if attempt.Email != "" {
-		if t.maxEntries <= 0 || len(t.emailAttempts) < t.maxEntries || t.emailAttempts[attempt.Email] != nil {
+		if _, exists := t.emailAttempts[attempt.Email]; !exists && t.maxEntries > 0 && len(t.emailAttempts) >= t.maxEntries {
+			t.evictOldestAttempt(t.emailAttempts)
+		}
+		if emailRec := t.emailAttempts[attempt.Email]; emailRec != nil || t.maxEntries <= 0 || len(t.emailAttempts) < t.maxEntries {
 			emailRec := t.emailAttempts[attempt.Email]
 			if emailRec == nil {
 				emailRec = &AttemptRecord{Attempts: []time.Time{}}
@@ -112,42 +197,40 @@ func (t *AttemptTracker) RecordAttempt(attempt *LoginAttempt) {
 			if len(emailRec.Attempts) > 1000 {
 				emailRec.Attempts = emailRec.Attempts[len(emailRec.Attempts)-500:]
 			}
+			emailRec.lastAccess = now
 			emailRec.mu.Unlock()
 		}
 
-		// Track IP->Email mapping for credential stuffing (capped by maxEntries)
+		// Track IP->Email mapping for credential stuffing
 		if t.ipToEmails[ip] == nil {
 			if t.maxEntries > 0 && len(t.ipToEmails) >= t.maxEntries {
-				for k := range t.ipToEmails {
-					delete(t.ipToEmails, k)
-					break
-				}
+				t.evictOldestSimpleMap(t.ipToEmails)
 			}
 			t.ipToEmails[ip] = make(map[string]bool)
 		}
-		if t.maxEntries <= 0 || t.ipToEmails[ip][attempt.Email] || len(t.ipToEmails[ip]) < t.maxEntries {
+		if t.maxInnerEntries <= 0 || t.ipToEmails[ip][attempt.Email] || len(t.ipToEmails[ip]) < t.maxInnerEntries {
 			t.ipToEmails[ip][attempt.Email] = true
 		}
 
-		// Track Email->IP mapping (capped by maxEntries)
+		// Track Email->IP mapping
 		if t.emailToIPs[attempt.Email] == nil {
 			if t.maxEntries > 0 && len(t.emailToIPs) >= t.maxEntries {
-				for k := range t.emailToIPs {
-					delete(t.emailToIPs, k)
-					break
-				}
+				t.evictOldestSimpleMap(t.emailToIPs)
 			}
 			t.emailToIPs[attempt.Email] = make(map[string]bool)
 		}
-		if t.maxEntries <= 0 || t.emailToIPs[attempt.Email][ip] || len(t.emailToIPs[attempt.Email]) < t.maxEntries {
+		if t.maxInnerEntries <= 0 || t.emailToIPs[attempt.Email][ip] || len(t.emailToIPs[attempt.Email]) < t.maxInnerEntries {
 			t.emailToIPs[attempt.Email][ip] = true
 		}
 	}
 
-	// Record password hash for spray detection (with size cap)
+	// Record password hash for spray detection (evict oldest if at capacity)
 	if attempt.Password != "" {
 		hash := hashPassword(attempt.Password)
-		if t.maxEntries <= 0 || len(t.passwordHashes) < t.maxEntries || t.passwordHashes[hash] != nil {
+		if _, exists := t.passwordHashes[hash]; !exists && t.maxEntries > 0 && len(t.passwordHashes) >= t.maxEntries {
+			t.evictOldestPassword()
+		}
+		if pwRec := t.passwordHashes[hash]; pwRec != nil || t.maxEntries <= 0 || len(t.passwordHashes) < t.maxEntries {
 			pwRec := t.passwordHashes[hash]
 			if pwRec == nil {
 				pwRec = &PasswordRecord{
@@ -159,9 +242,10 @@ func (t *AttemptTracker) RecordAttempt(attempt *LoginAttempt) {
 			pwRec.mu.Lock()
 			pwRec.Count++
 			pwRec.LastSeen = now
-			if t.maxEntries <= 0 || pwRec.SourceIPs[ip] || len(pwRec.SourceIPs) < t.maxEntries {
+			if t.maxInnerEntries <= 0 || pwRec.SourceIPs[ip] || len(pwRec.SourceIPs) < t.maxInnerEntries {
 				pwRec.SourceIPs[ip] = true
 			}
+			pwRec.lastAccess = now
 			pwRec.mu.Unlock()
 		}
 	}
@@ -253,7 +337,7 @@ func (t *AttemptTracker) BlockIP(ip net.IP, until time.Time, reason string) {
 	rec := t.ipAttempts[ipStr]
 	if rec == nil {
 		if t.maxEntries > 0 && len(t.ipAttempts) >= t.maxEntries {
-			return
+			t.evictOldestAttempt(t.ipAttempts)
 		}
 		rec = &AttemptRecord{}
 		t.ipAttempts[ipStr] = rec
@@ -261,6 +345,7 @@ func (t *AttemptTracker) BlockIP(ip net.IP, until time.Time, reason string) {
 	rec.mu.Lock()
 	rec.BlockedUntil = until
 	rec.BlockReason = reason
+	rec.lastAccess = time.Now()
 	rec.mu.Unlock()
 }
 
@@ -272,7 +357,7 @@ func (t *AttemptTracker) BlockEmail(email string, until time.Time, reason string
 	rec := t.emailAttempts[email]
 	if rec == nil {
 		if t.maxEntries > 0 && len(t.emailAttempts) >= t.maxEntries {
-			return
+			t.evictOldestAttempt(t.emailAttempts)
 		}
 		rec = &AttemptRecord{}
 		t.emailAttempts[email] = rec
@@ -280,6 +365,7 @@ func (t *AttemptTracker) BlockEmail(email string, until time.Time, reason string
 	rec.mu.Lock()
 	rec.BlockedUntil = until
 	rec.BlockReason = reason
+	rec.lastAccess = time.Now()
 	rec.mu.Unlock()
 }
 

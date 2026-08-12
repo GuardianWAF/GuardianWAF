@@ -2,6 +2,7 @@ package clustersync
 
 import (
 	"encoding/json"
+	"sync"
 	"testing"
 	"time"
 
@@ -460,4 +461,80 @@ func mustCmd(c Command, err error) Command {
 		panic(err)
 	}
 	return c
+}
+
+func TestStore_IncrementCounter_Sequence(t *testing.T) {
+	s := NewReplicatedStore()
+
+	// First increment in a new window returns 1.
+	if v := s.IncrementCounter("k1", 100); v != 1 {
+		t.Fatalf("first increment = %d, want 1", v)
+	}
+	// Subsequent increments within same window accumulate.
+	if v := s.IncrementCounter("k1", 100); v != 2 {
+		t.Fatalf("second increment = %d, want 2", v)
+	}
+	if v := s.IncrementCounter("k1", 100); v != 3 {
+		t.Fatalf("third increment = %d, want 3", v)
+	}
+	// GetCounter should see the same value.
+	if v := s.GetCounter("k1", 100); v != 3 {
+		t.Fatalf("GetCounter = %d, want 3", v)
+	}
+}
+
+func TestStore_IncrementCounter_WindowRollover(t *testing.T) {
+	s := NewReplicatedStore()
+
+	s.IncrementCounter("k1", 100)
+	s.IncrementCounter("k1", 100)
+	s.IncrementCounter("k1", 100)
+
+	// New window resets to 1.
+	if v := s.IncrementCounter("k1", 101); v != 1 {
+		t.Fatalf("new window increment = %d, want 1", v)
+	}
+	// Old window is now stale.
+	if v := s.GetCounter("k1", 100); v != 0 {
+		t.Fatalf("stale window GetCounter = %d, want 0", v)
+	}
+}
+
+func TestStore_IncrementCounter_Concurrent(t *testing.T) {
+	s := NewReplicatedStore()
+
+	const goroutines = 100
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	start := make(chan struct{})
+
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer wg.Done()
+			<-start
+			s.IncrementCounter("k1", 200)
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	// All goroutines incremented exactly once; no lost updates.
+	if v := s.GetCounter("k1", 200); v != goroutines {
+		t.Fatalf("concurrent result = %d, want %d (lost updates detected)", v, goroutines)
+	}
+}
+
+func TestStore_IncrementCounter_IndependentKeys(t *testing.T) {
+	s := NewReplicatedStore()
+
+	s.IncrementCounter("a", 1)
+	s.IncrementCounter("b", 1)
+	s.IncrementCounter("a", 1)
+
+	if v := s.GetCounter("a", 1); v != 2 {
+		t.Fatalf("key 'a' = %d, want 2", v)
+	}
+	if v := s.GetCounter("b", 1); v != 1 {
+		t.Fatalf("key 'b' = %d, want 1", v)
+	}
 }

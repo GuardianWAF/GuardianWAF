@@ -389,8 +389,8 @@ func TestCoverage_GetTenantByAPIKey_LegacyUpgrade(t *testing.T) {
 	if found == nil || found.ID != t1.ID {
 		t.Error("should find tenant with legacy key")
 	}
-	if !strings.HasPrefix(t1.APIKeyHash, "v2$") {
-		t.Error("hash should be upgraded to v2")
+	if !strings.HasPrefix(t1.APIKeyHash, "v3$") {
+		t.Error("hash should be upgraded to v3")
 	}
 }
 

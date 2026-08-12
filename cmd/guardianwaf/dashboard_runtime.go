@@ -32,6 +32,32 @@ func startDashboard(cfg *config.Config, eng *engine.Engine) (*http.Server, *dash
 		return nil, nil, nil
 	}
 
+	// Warn loudly when the dashboard runs on plain HTTP without an explicit
+	// insecure opt-in. Session cookies are sent without the Secure flag over
+	// HTTP, making them interceptable. Operators who intentionally run behind
+	// a TLS-terminating reverse proxy on a trusted network should set
+	// dashboard.insecure: true in their config to acknowledge and suppress.
+	if !cfg.Dashboard.Insecure {
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "==========================================================")
+		fmt.Fprintln(os.Stderr, "[SECURITY WARNING] Dashboard is starting on plain HTTP!")
+		fmt.Fprintln(os.Stderr, "==========================================================")
+		fmt.Fprintf(os.Stderr, "  Listening on: %s\n", cfg.Dashboard.Listen)
+		fmt.Fprintln(os.Stderr, "  Session cookies will be sent WITHOUT the Secure flag.")
+		fmt.Fprintln(os.Stderr, "  Anyone who can sniff traffic between client and dashboard")
+		fmt.Fprintln(os.Stderr, "  can steal session tokens and API keys.")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "  REMEDIATION:")
+		fmt.Fprintln(os.Stderr, "    1. Place the dashboard behind a TLS-terminating reverse proxy")
+		fmt.Fprintln(os.Stderr, "    2. Bind to 127.0.0.1 or a private network interface")
+		fmt.Fprintln(os.Stderr, "    3. To acknowledge and suppress this warning, set:")
+		fmt.Fprintln(os.Stderr, "         dashboard.insecure: true")
+		fmt.Fprintln(os.Stderr, "==========================================================")
+		fmt.Fprintln(os.Stderr, "")
+		slog.Warn("dashboard starting on plain HTTP without dashboard.insecure flag; session cookies will not have Secure attribute",
+			"listen", cfg.Dashboard.Listen)
+	}
+
 	// Require API key for dashboard - generate random if not set.
 	if cfg.Dashboard.APIKey == "" {
 		apiKey, err := generateDashboardPassword()

@@ -480,53 +480,169 @@ func countAliases(s string) int {
 
 // detectFragmentCycle returns true if the query contains fragment definitions
 // that reference each other circularly (e.g. fragment A {...B} fragment B {...A}).
+//
+// The parser is a lightweight single-pass tokenizer that tracks brace depth to
+// correctly identify fragment-definition boundaries and collect all fragment
+// spread references (...Name) within each body — including spreads that appear
+// after nested closing braces. The previous implementation used
+// strings.Split(s, "}"), which broke fragment bodies at every "}" regardless of
+// nesting depth, causing false negatives when a spread appeared after an inner
+// selection-set close (e.g. fragment A on Q { user { name } ...B }).
+//
+// Input must already be cleaned via stripCommentsAndStrings so string literals
+// and comments containing braces or "..." are eliminated.
 func detectFragmentCycle(s string) bool {
-	fragments := make(map[string][]string)
-	lines := strings.Split(s, "}")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		// Match: fragment Name on Type {
-		if !strings.HasPrefix(line, "fragment ") {
-			continue
-		}
-		rest := strings.TrimPrefix(line, "fragment ")
-		parts := strings.SplitN(rest, " ", 3)
-		if len(parts) < 2 {
-			continue
-		}
-		fragName := parts[0]
-		// Find ...Spread references in the fragment body.
-		var refs []string
-		for i := 0; i < len(line)-3; i++ {
-			if line[i] == '.' && line[i+1] == '.' && line[i+2] == '.' {
-				// Extract identifier after ...
-				j := i + 3
-				for j < len(line) && isIdentPart(rune(line[j])) {
-					j++
-				}
-				if j > i+3 {
-					ref := line[i+3 : j]
-					if ref != "on" && ref != fragName {
-						refs = append(refs, ref)
-					}
+	fragments := parseFragmentGraph(s)
+	if len(fragments) == 0 {
+		return false
+	}
+
+	// Check for cycles using three-color DFS (white/gray/black).
+	// A node is gray while it is on the current recursion path; black once
+	// fully explored. Encountering a gray node during traversal proves a cycle.
+	// This correctly distinguishes a diamond (A→B→D, A→C→D — acyclic) from a
+	// real cycle (A→B→A), which the old single-color DFS could not.
+	const (
+		white = 0 // unvisited
+		gray  = 1 // on current DFS path
+		black = 2 // fully explored, no cycle through it
+	)
+	color := make(map[string]int, len(fragments))
+	for name := range fragments {
+		color[name] = white
+	}
+
+	var dfs func(name string) bool
+	dfs = func(name string) bool {
+		color[name] = gray
+		for _, ref := range fragments[name] {
+			if color[ref] == gray {
+				return true // back-edge → cycle
+			}
+			if color[ref] == white {
+				if dfs(ref) {
+					return true
 				}
 			}
+			// black: already fully explored, skip
 		}
-		fragments[fragName] = refs
+		color[name] = black
+		return false
 	}
-	// Check for cycles using DFS.
-	for start := range fragments {
-		visited := make(map[string]bool)
-		stack := []string{start}
-		for len(stack) > 0 {
-			node := stack[len(stack)-1]
-			stack = stack[:len(stack)-1]
-			if visited[node] {
+
+	for name := range fragments {
+		if color[name] == white {
+			if dfs(name) {
 				return true
 			}
-			visited[node] = true
-			stack = append(stack, fragments[node]...)
 		}
 	}
 	return false
+}
+
+// parseFragmentGraph tokenizes a cleaned GraphQL query and builds a directed
+// graph of fragment-spread references. Each fragment definition produces an
+// adjacency list of other named fragments it spreads. The parser tracks brace
+// depth so that the body of a fragment is correctly delimited by its matching
+// closing brace (depth 0), not by the first inner "}".
+//
+// Grammar recognized per fragment:
+//
+//	fragment Name on Type { ...body... }
+//
+// Within the body, every ...Name (fragment spread, excluding ...on) is an edge
+// from the defining fragment to Name. Self-references (fragment A spreading
+// ...A) are excluded since the GraphQL spec treats them as a parse error, not a
+// runtime cycle.
+func parseFragmentGraph(s string) map[string][]string {
+	fragments := make(map[string][]string)
+	runes := []rune(s)
+	n := len(runes)
+	i := 0
+
+	for i < n {
+		// Scan for the "fragment" keyword at the start of a token.
+		if i+8 <= n && string(runes[i:i+8]) == "fragment" && (i == 0 || !isIdentPart(runes[i-1])) {
+			// Skip "fragment"
+			j := i + 8
+			// Skip whitespace
+			for j < n && (runes[j] == ' ' || runes[j] == '\t' || runes[j] == '\n' || runes[j] == '\r') {
+				j++
+			}
+			// Read fragment name
+			if j >= n || !isIdentStart(runes[j]) {
+				i = j
+				continue
+			}
+			nameStart := j
+			j++
+			for j < n && isIdentPart(runes[j]) {
+				j++
+			}
+			fragName := string(runes[nameStart:j])
+
+			// Skip "on" keyword and type condition (could be "on Type {")
+			// Advance to the opening brace of the fragment body.
+			braceStart := -1
+			for j < n {
+				if runes[j] == '{' {
+					braceStart = j
+					break
+				}
+				j++
+			}
+			if braceStart == -1 {
+				i = j
+				continue
+			}
+
+			// Walk the body tracking brace depth to find the matching close.
+			j++ // past opening {
+			depth := 1
+			bodyStart := j
+			for j < n && depth > 0 {
+				switch runes[j] {
+				case '{':
+					depth++
+				case '}':
+					depth--
+				}
+				if depth > 0 {
+					j++
+				}
+			}
+			bodyEnd := j // position of matching }
+
+			// Collect all ...Spread references within the body [bodyStart, bodyEnd).
+			body := runes[bodyStart:bodyEnd]
+			var refs []string
+			for k := 0; k < len(body)-2; k++ {
+				if body[k] == '.' && body[k+1] == '.' && body[k+2] == '.' {
+					m := k + 3
+					// Skip optional "on" keyword for type conditions (... on Type)
+					for m < len(body) && (body[m] == ' ' || body[m] == '\t') {
+						m++
+					}
+					if m < len(body) && isIdentStart(body[m]) {
+						refStart := m
+						for m < len(body) && isIdentPart(body[m]) {
+							m++
+						}
+						ref := string(body[refStart:m])
+						if ref != "on" && ref != fragName {
+							refs = append(refs, ref)
+						}
+						k = m - 1
+					}
+				}
+			}
+
+			fragments[fragName] = refs
+			i = j + 1 // past matching }
+			continue
+		}
+		i++
+	}
+
+	return fragments
 }

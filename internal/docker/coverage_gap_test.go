@@ -274,3 +274,80 @@ func TestDockerCmdNonExitError(t *testing.T) {
 		t.Fatal("expected error when docker is not in PATH")
 	}
 }
+
+func TestValidateDockerLabelPrefix(t *testing.T) {
+	tests := []struct {
+		prefix string
+		wantOK bool
+	}{
+		// Valid prefixes
+		{"guardianwaf", true},
+		{"my-app", true},
+		{"my_app", true},
+		{"my.app", true},
+		{"org/name", true},
+		{"registry.io:5000/app", true},
+		{"a", true},
+		{strings.Repeat("x", 128), true},
+
+		// Invalid: empty
+		{"", false},
+
+		// Invalid: too long
+		{strings.Repeat("x", 129), false},
+
+		// Invalid: filter-syntax delimiters that could inject clauses
+		{"foo=bar", false},     // '=' is docker filter delimiter
+		{"foo,bar", false},     // ',' separates filter values
+		{`foo"bar`, false},     // '"' breaks filter parsing
+		{"foo bar", false},     // space
+		{"foo;bar", false},     // semicolon
+		{"foo|bar", false},     // pipe
+		{"$(id)", false},       // shell expansion chars
+		{"foo\tbar", false},    // tab
+		{"foo\nbar", false},    // newline
+		{"foo\x00bar", false},  // NUL
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.prefix[:min(len(tt.prefix), 20)], func(t *testing.T) {
+			err := validateDockerLabelPrefix(tt.prefix)
+			if tt.wantOK && err != nil {
+				t.Errorf("validateDockerLabelPrefix(%q) = %v, want nil", tt.prefix, err)
+			}
+			if !tt.wantOK && err == nil {
+				t.Errorf("validateDockerLabelPrefix(%q) = nil, want error", tt.prefix)
+			}
+		})
+	}
+}
+
+func TestClientListContainersRejectsBadLabelPrefix(t *testing.T) {
+	c := &Client{}
+	_, err := c.ListContainers("evil=prefix")
+	if err == nil {
+		t.Fatal("expected error for label prefix containing '='")
+	}
+	if !strings.Contains(err.Error(), "invalid label prefix") {
+		t.Fatalf("expected 'invalid label prefix' error, got: %v", err)
+	}
+}
+
+func TestClientStreamEventsRejectsBadLabelPrefix(t *testing.T) {
+	c := &Client{}
+	ch := make(chan Event, 1)
+	err := c.StreamEvents(context.Background(), "evil=prefix", ch)
+	if err == nil {
+		t.Fatal("expected error for label prefix containing '='")
+	}
+	if !strings.Contains(err.Error(), "invalid label prefix") {
+		t.Fatalf("expected 'invalid label prefix' error, got: %v", err)
+	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
