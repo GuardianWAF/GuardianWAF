@@ -54,6 +54,9 @@ ACME protocol responses contain absolute URLs for nonce, account, order, authori
 - Require clean image/SBOM/provenance evidence and target-environment load evidence for the exact release candidate.
 - Re-run vulnerability and dependency scans at release time; point-in-time results expire as advisories and registries change.
 
-## Historical Reports
+## Report Hygiene
 
-The individual `sc-*.md` files in this directory are point-in-time hunt artifacts from earlier scans. Some mention packages that were subsequently removed. This report and `verified-findings.md` are the current consolidated status; historical artifacts must not be interpreted as current architecture or open findings.
+Point-in-time scanner dumps and superseded finding lists are intentionally not
+kept in the repository. This report and `verified-findings.md` are the current
+consolidated status; release-specific evidence must be regenerated for the exact
+candidate and retained with that release rather than committed here.
