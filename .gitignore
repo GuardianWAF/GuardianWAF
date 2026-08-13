@@ -7,6 +7,8 @@
 /guardianwaf.exe
 /gwaf
 /gwaf.exe
+/raft.test
+/raft.test.exe
 *.exe
 *.exe~
 *.dll
@@ -31,6 +33,10 @@ internal/dashboard/dist/*
 coverage.html
 coverage.txt
 coverage.out
+tmpcov.txt
+.coverage-current/
+.coverage-next/
+.coverage-pkgs/
 *.prof
 cpu.prof
 mem.prof
@@ -94,6 +100,9 @@ events.jsonl
 tmp/
 temp/
 .tmp/
+
+# Security scan reports (ephemeral; regenerated per scan)
+security-report/
 
 # Docker
 .docker/
