@@ -36,3 +36,11 @@ repos:
         language: system
         types: [go]
         description: "Check Go files are formatted"
+
+      - id: block-banned-paths
+        name: block banned repo-root paths from being tracked
+        entry: scripts/check-no-banned-tracked.sh
+        pass_filenames: false
+        language: system
+        always_run: true
+        description: "Refuse commits that stage .coverage-*, tmpcov.txt, security-report/, or .project/."
