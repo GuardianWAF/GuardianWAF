@@ -708,6 +708,74 @@ func TestDetect_EncodedNewlineCROnlyWithCommand(t *testing.T) {
 	}
 }
 
+// TestDetect_NewlineInjection_CommonWordIsCommonWord pins the
+// known FP-prone pattern from M1 (AUDIT.md): a URL-encoded newline
+// followed by a common English word that also happens to be in
+// commandDatabase ("cat", "set", "at", "head", "tail", "more",
+// "less", "find", "kill", "service", "host", "file", "last",
+// "env", "w", "ip", etc.) is treated as a command-injection
+// finding. The detector fundamentally cannot distinguish this
+// from a real attack payload like "test%0awhoami" — both are
+// "encoded newline + first-token-is-known-command + no shell
+// metachar in the immediate vicinity."
+//
+// This test asserts the current behavior (it fires) so a future
+// maintainer who tries to "fix" the FP is forced to update the
+// test and re-derive the trade-off (documented in the
+// checkEncodedNewline function doc). An earlier attempt at
+// narrowing the heuristic ("must have a remainder after the
+// command word") correctly suppressed this FP but ALSO
+// suppressed the real attack "test%0awhoami" — see git history
+// for the revert.
+//
+// If you change the detector to no longer fire on these
+// patterns, you must also assert that real attacks like
+// "test%0awhoami" still fire; otherwise the fix has silently
+// re-opened a TP bypass.
+func TestDetect_NewlineInjection_CommonWordIsCommonWord(t *testing.T) {
+	// FP-prone: natural English text where a common word that
+	// also happens to be a known command follows a URL-encoded
+	// newline. These fire today (the known M1 limitation).
+	fpCases := []struct {
+		name  string
+		input string
+	}{
+		{"cat as sentence subject", "Hello%0Acat is great"},
+		{"set as sentence verb", "Note%0Aset the value later"},
+		{"head as body part", "Article%0Ahead of the document"},
+		{"find as search verb", "Help%0Afind my order"},
+		{"service as business term", "Ticket%0Aservice request #42"},
+	}
+	for _, tc := range fpCases {
+		t.Run("fp/"+tc.name, func(t *testing.T) {
+			findings := Detect(tc.input, "query")
+			if len(findings) == 0 {
+				t.Fatalf("expected at least one finding for FP-prone input %q (M1 limitation: common-word-as-command fires; this is the documented behavior — see checkEncodedNewline doc)", tc.input)
+			}
+		})
+	}
+
+	// TP guard: real attacks must still fire. If a "fix" to the
+	// M1 limitation accidentally suppresses these, the WAF has
+	// silently let a real attack through.
+	tpCases := []struct {
+		name  string
+		input string
+	}{
+		{"recon command with no remainder", "test%0awhoami"},
+		{"destructive command with no remainder", "foo%0areboot"},
+		{"network command with no remainder", "x%0aping 1.1.1.1"},
+	}
+	for _, tc := range tpCases {
+		t.Run("tp/"+tc.name, func(t *testing.T) {
+			findings := Detect(tc.input, "query")
+			if len(findings) == 0 {
+				t.Fatalf("TP GUARD FAILED: real attack %q was not detected. A fix to the M1 FP limitation has likely re-opened a TP bypass.", tc.input)
+			}
+		})
+	}
+}
+
 // --- Coverage gap tests ---
 
 // TestMakeFinding_LongMatchedValueTruncation directly tests the truncation branch

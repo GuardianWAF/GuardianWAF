@@ -353,6 +353,34 @@ func checkBase64Pipe(lower, location string) []engine.Finding {
 }
 
 // checkEncodedNewline detects URL-encoded newline injection.
+//
+// Known limitation (M1 in AUDIT.md): a "newline + known command"
+// pattern fires the detector at score 60, confidence 0.80. Every
+// command in commandDatabase is also a common English word or
+// single character ("cat", "set", "at", "head", "tail", "more",
+// "less", "find", "kill", "service", "host", "file", "last",
+// "env", "w", "ip", etc.), so natural multi-line text that
+// contains a URL-encoded newline followed by one of those words
+// (e.g. "Hello%0Acat is great") produces a high-score finding
+// that can trip default block thresholds on innocent traffic.
+//
+// This is not a "must-fix" because the heuristic fundamentally
+// cannot distinguish an attack payload ("test%0awhoami") from
+// natural text ("Hello%0Acat is great"): both are "URL-encoded
+// newline + first-token-is-known-command + no shell metachar in
+// the immediate vicinity." Any narrowing that suppresses the FP
+// will also let the TP through (see git history for the
+// reverted "must have a remainder" attempt that suppressed
+// test%0awhoami). A correct fix requires either a context-aware
+// parser (knowing the input is multi-line natural text vs. a
+// deliberate payload) or a layered approach (lower the
+// confidence on the no-remainder case so default block
+// thresholds don't trip, while still logging). The current
+// behavior is preserved; a regression test
+// (TestDetect_NewlineInjection_CommonWordIsCommonWord) pins
+// the FP-prone pattern so future maintainers confronting this
+// trade-off are forced to update the test (and re-derive the
+// reasoning above) rather than silently weaken the TP.
 func checkEncodedNewline(input, lower, location string) []engine.Finding {
 	// Count all newline occurrences (case-insensitive)
 	newlineCount := strings.Count(lower, "%0a") + strings.Count(lower, "%0A") +
