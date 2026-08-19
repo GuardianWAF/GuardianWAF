@@ -97,12 +97,14 @@ waf:
 	}
 }
 
-// TestWAFConfigInertFieldsAreUnreachable is a belt-and-braces
-// guard: it checks that the YAML populate path does not silently
-// accept a `waf.ml_anomaly` or `waf.api_discovery` block under
-// any code path. If a future change re-adds the populate helpers
-// or the WAFConfig fields, this test catches it via the
-// strict-key enforcement on the populate side.
+// TestWAFConfigInertFieldsAreUnreachable pins the post-cleanup
+// invariant that `waf.ml_anomaly` and `waf.api_discovery` YAML
+// keys cannot be silently consumed by either the populate path
+// or the validator path. The cleanup removed the structs; this
+// test asserts that both code paths reject the now-stale keys
+// loudly so an operator who has a stale config gets a clear
+// error instead of a silently-zeroed field (the silent
+// fail-open class the audit was designed to prevent).
 func TestWAFConfigInertFieldsAreUnreachable(t *testing.T) {
 	yaml := []byte(`
 waf:
@@ -117,36 +119,35 @@ waf:
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	cfg := DefaultConfig()
-	// The populate path is strict: unknown top-level keys in the
-	// waf subtree must produce an error. Before the cleanup, an
-	// operator who wrote `waf.ml_anomaly` would silently see the
-	// field zeroed (parsed but inert). After the cleanup, the
-	// same write produces a loud error.
-	// PopulateFromNode must reject unknown waf.* keys loudly.
-	// Before the cleanup, an operator who wrote `waf.ml_anomaly`
-	// would silently see the field zeroed (parsed but inert) —
-	// exactly the silent-fail-open class the audit was designed
-	// to prevent. After the cleanup, the strict-key enforcement
-	// on the populate path must surface a loud error so the
-	// operator notices the field is gone. This assertion fails
-	// until the populate path's unknown-key enforcement is
-	// extended to cover the now-removed keys; see the follow-up
-	// note in the commit that introduced this test.
-	if err := PopulateFromNode(cfg, node); err == nil {
-		t.Errorf("PopulateFromNode silently accepted the removed waf.ml_anomaly / waf.api_discovery yaml keys (silent fail-open). The cleanup removed the structs but the populate path does not yet enforce unknown-key rejection at the waf.* level. Fix the populate path to surface this as a loud error.")
-	}
 
-	// The most important property: the field path for the
-	// removed types must not appear in the populate-source-of-
-	// truth. Check via the validator's known removed-layer list,
-	// which is the public surface that surfaces the cleanup to
-	// operators.
-	ve := &ValidationError{}
-	validateRemovedLayers(&cfg.WAF, ve)
-	for _, e := range ve.Errors {
-		if strings.Contains(e.Field, "ml_anomaly") || strings.Contains(e.Field, "api_discovery") {
-			t.Errorf("validateRemovedLayers surfaced a removed-and-deleted type as a removed layer: %q. After this cleanup, the types are gone, so the validator should not mention them.", e.Field)
+	// Populate path: PopulateFromNode must error loudly. The
+	// strict-key enforcement at the top of populateWAF walks the
+	// waf node's MapKeys and rejects anything not in
+	// wafPopulateKnownSubkeys.
+	t.Run("populate path rejects removed keys", func(t *testing.T) {
+		cfg := DefaultConfig()
+		err := PopulateFromNode(cfg, node)
+		if err == nil {
+			t.Fatal("PopulateFromNode silently accepted the removed waf.ml_anomaly / waf.api_discovery yaml keys (silent fail-open re-introduced). The strict-key enforcement at the top of populateWAF is missing or incomplete.")
 		}
-	}
+		if !strings.Contains(err.Error(), "ml_anomaly") && !strings.Contains(err.Error(), "api_discovery") {
+			t.Errorf("PopulateFromNode errored, but the error does not name either removed key: %v", err)
+		}
+	})
+
+	// Validator path: even if the populate path is bypassed
+	// (e.g. a future maintainer wires a non-default populate
+	// path), the validator must not surface the removed types
+	// as a removed layer. The structs are gone, so the
+	// removed-layer list must not mention them.
+	t.Run("validator does not mention removed types", func(t *testing.T) {
+		cfg := DefaultConfig()
+		ve := &ValidationError{}
+		validateRemovedLayers(&cfg.WAF, ve)
+		for _, e := range ve.Errors {
+			if strings.Contains(e.Field, "ml_anomaly") || strings.Contains(e.Field, "api_discovery") {
+				t.Errorf("validateRemovedLayers surfaced a removed-and-deleted type as a removed layer: %q. After this cleanup, the types are gone, so the validator should not mention them.", e.Field)
+			}
+		}
+	})
 }

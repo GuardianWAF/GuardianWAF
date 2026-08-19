@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -913,9 +914,39 @@ func populateVirtualHosts(n *Node) ([]VirtualHostConfig, error) {
 
 // --- WAF ---
 
+// wafPopulateKnownSubkeys is derived from the WAFConfig struct's
+// yaml: tags at populate time, not hand-maintained. This makes
+// the strict-key enforcement self-maintaining: adding a new
+// field to WAFConfig automatically extends the allowed set, and
+// removing a field automatically tightens it. The populate path
+// itself is the source of truth for what it consumes, but the
+// YAML schema is the source of truth for what is *valid* — using
+// the schema for the allowlist keeps the two in sync without
+// duplicating the field list.
+var wafPopulateKnownSubkeysOnce sync.Once
+var wafPopulateKnownSubkeys map[string]bool
+
 func populateWAF(waf *WAFConfig, n *Node) error {
 	if n.Kind != MapNode {
 		return nil
+	}
+	// Strict-key enforcement at populate time: any top-level
+	// waf.* key that does not match a yaml: tag on WAFConfig
+	// is rejected loudly. This prevents the silent fail-open
+	// that allowed the removed waf.ml_anomaly / waf.api_discovery
+	// blocks (and any future stale or typo'd keys) to be parsed
+	// but ignored.
+	wafPopulateKnownSubkeysOnce.Do(func() {
+		fields := yamlSchemaFields(reflect.TypeOf(WAFConfig{}))
+		wafPopulateKnownSubkeys = make(map[string]bool, len(fields))
+		for name := range fields {
+			wafPopulateKnownSubkeys[name] = true
+		}
+	})
+	for _, key := range n.MapKeys {
+		if !wafPopulateKnownSubkeys[key] {
+			return fmt.Errorf("waf.%s: unknown top-level key (the populate path does not consume this key; if you are migrating a removed feature, see AUDIT.md and the config schema)", key)
+		}
 	}
 	if sub := n.Get("ip_acl"); sub != nil {
 		if err := populateIPACL(&waf.IPACL, sub); err != nil {
