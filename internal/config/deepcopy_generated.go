@@ -378,8 +378,6 @@ func (in *WAFConfig) DeepCopy() *WAFConfig {
 	out.Response = *in.Response.DeepCopy()
 	out.ClientSide = *in.ClientSide.DeepCopy()
 	out.AIAnalysis = *in.AIAnalysis.DeepCopy()
-	out.MLAnomaly = *in.MLAnomaly.DeepCopy()
-	out.APIDiscovery = *in.APIDiscovery.DeepCopy()
 	out.GraphQL = *in.GraphQL.DeepCopy()
 	out.GRPC = *in.GRPC.DeepCopy()
 	out.Tenant = *in.Tenant.DeepCopy()
@@ -1111,39 +1109,6 @@ func (in *ErrorPagesConfig) DeepCopy() *ErrorPagesConfig {
 	out := *in // shallow copy of scalar fields
 	out.Enabled = in.Enabled
 	out.Mode = in.Mode
-	return &out
-}
-
-func (in *MLAnomalyConfig) DeepCopy() *MLAnomalyConfig {
-	if in == nil {
-		return nil
-	}
-	out := *in // shallow copy of scalar fields
-	out.Enabled = in.Enabled
-	out.Mode = in.Mode
-	out.Threshold = in.Threshold
-	out.WindowSize = in.WindowSize
-	out.MinSamples = in.MinSamples
-	out.FeatureBuckets = in.FeatureBuckets
-	out.AutoBlock = in.AutoBlock
-	out.BlockThreshold = in.BlockThreshold
-	return &out
-}
-
-func (in *APIDiscoveryConfig) DeepCopy() *APIDiscoveryConfig {
-	if in == nil {
-		return nil
-	}
-	out := *in // shallow copy of scalar fields
-	out.Enabled = in.Enabled
-	out.CaptureMode = in.CaptureMode
-	out.RingBufferSize = in.RingBufferSize
-	out.MinSamples = in.MinSamples
-	out.ClusterThreshold = in.ClusterThreshold
-	out.ExportPath = in.ExportPath
-	out.ExportFormat = in.ExportFormat
-	out.AutoExport = in.AutoExport
-	out.ExportInterval = in.ExportInterval
 	return &out
 }
 

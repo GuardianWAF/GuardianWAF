@@ -1334,10 +1334,11 @@ func validateRemovedLayers(waf *WAFConfig, ve *ValidationError) {
 		path    string
 		enabled bool
 	}{
-		{"waf.ml_anomaly", waf.MLAnomaly.Enabled},
-		{"waf.api_discovery", waf.APIDiscovery.Enabled},
 		// Note: waf.graphql is NOT removed — the GraphQL depth/complexity
 		// detector was added in v0.5.0 and runs inside the detection layer.
+		// The waf.ml_anomaly and waf.api_discovery blocks were deleted
+		// because those layers were removed in Round 8 of the audit and
+		// the config structs are now gone (2026-08).
 		{"waf.grpc", waf.GRPC.Enabled},
 		{"waf.zero_trust", waf.ZeroTrust.Enabled},
 		{"waf.cache", waf.Cache.Enabled},

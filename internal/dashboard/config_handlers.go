@@ -655,7 +655,6 @@ func (d *Dashboard) logSecurityConfigChanges(oldCfg, newCfg *config.Config, r *h
 		{"ato_protection", oldCfg.WAF.ATOProtection.Enabled, newCfg.WAF.ATOProtection.Enabled},
 		{"api_security", oldCfg.WAF.APISecurity.Enabled, newCfg.WAF.APISecurity.Enabled},
 		{"dlp", oldCfg.WAF.DLP.Enabled, newCfg.WAF.DLP.Enabled},
-		{"ml_anomaly", oldCfg.WAF.MLAnomaly.Enabled, newCfg.WAF.MLAnomaly.Enabled},
 		{"crs", oldCfg.WAF.CRS.Enabled, newCfg.WAF.CRS.Enabled},
 	}
 	clientIP := clientIPFromRequest(r)

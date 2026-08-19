@@ -18,9 +18,6 @@ func TestGeneratedDeepCopyNilReceivers(t *testing.T) {
 	if ((*AnalyticsConfig)(nil)).DeepCopy() != nil {
 		t.Errorf("AnalyticsConfig.DeepCopy nil receiver returned non-nil")
 	}
-	if ((*APIDiscoveryConfig)(nil)).DeepCopy() != nil {
-		t.Errorf("APIDiscoveryConfig.DeepCopy nil receiver returned non-nil")
-	}
 	if ((*APIKeyConfig)(nil)).DeepCopy() != nil {
 		t.Errorf("APIKeyConfig.DeepCopy nil receiver returned non-nil")
 	}
@@ -176,9 +173,6 @@ func TestGeneratedDeepCopyNilReceivers(t *testing.T) {
 	}
 	if ((*MCPConfig)(nil)).DeepCopy() != nil {
 		t.Errorf("MCPConfig.DeepCopy nil receiver returned non-nil")
-	}
-	if ((*MLAnomalyConfig)(nil)).DeepCopy() != nil {
-		t.Errorf("MLAnomalyConfig.DeepCopy nil receiver returned non-nil")
 	}
 	if ((*Node)(nil)).DeepCopy() != nil {
 		t.Errorf("Node.DeepCopy nil receiver returned non-nil")

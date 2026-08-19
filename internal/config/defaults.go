@@ -140,27 +140,6 @@ func DefaultConfig() *Config {
 				AutoBlock:        false,
 				AutoBlockTTL:     time.Hour,
 			},
-			MLAnomaly: MLAnomalyConfig{
-				Enabled:        false,
-				Mode:           "monitor",
-				Threshold:      0.7,
-				WindowSize:     100,
-				MinSamples:     50,
-				FeatureBuckets: 20,
-				AutoBlock:      false,
-				BlockThreshold: 0.9,
-			},
-			APIDiscovery: APIDiscoveryConfig{
-				Enabled:          false,
-				CaptureMode:      "passive",
-				RingBufferSize:   10000,
-				MinSamples:       100,
-				ClusterThreshold: 0.85,
-				ExportPath:       "data/api-discovery",
-				ExportFormat:     "openapi",
-				AutoExport:       false,
-				ExportInterval:   24 * time.Hour,
-			},
 			GraphQL: GraphQLConfig{
 				Enabled:            false,
 				MaxDepth:           10,
@@ -978,16 +957,6 @@ func populateWAF(waf *WAFConfig, n *Node) error {
 			return fmt.Errorf("ai_analysis: %w", err)
 		}
 	}
-	if sub := n.Get("ml_anomaly"); sub != nil {
-		if err := populateMLAnomaly(&waf.MLAnomaly, sub); err != nil {
-			return fmt.Errorf("ml_anomaly: %w", err)
-		}
-	}
-	if sub := n.Get("api_discovery"); sub != nil {
-		if err := populateAPIDiscovery(&waf.APIDiscovery, sub); err != nil {
-			return fmt.Errorf("api_discovery: %w", err)
-		}
-	}
 	if sub := n.Get("graphql"); sub != nil {
 		if err := populateGraphQL(&waf.GraphQL, sub); err != nil {
 			return fmt.Errorf("graphql: %w", err)
@@ -1380,123 +1349,6 @@ func populateAIAnalysis(ai *AIAnalysisConfig, n *Node) error {
 			return fmt.Errorf("auto_block_ttl: %w", err)
 		}
 		ai.AutoBlockTTL = d
-	}
-	return nil
-}
-
-func populateMLAnomaly(ml *MLAnomalyConfig, n *Node) error {
-	if n.Kind != MapNode {
-		return nil
-	}
-	if v := n.Get("enabled"); v != nil {
-		b, err := nodeBool(v)
-		if err != nil {
-			return fmt.Errorf("enabled: %w", err)
-		}
-		ml.Enabled = b
-	}
-	if v := n.Get("mode"); v != nil && !v.IsNull {
-		ml.Mode = v.String()
-	}
-	if v := n.Get("threshold"); v != nil {
-		f, err := nodeFloat64(v)
-		if err != nil {
-			return fmt.Errorf("threshold: %w", err)
-		}
-		ml.Threshold = f
-	}
-	if v := n.Get("window_size"); v != nil {
-		i, err := nodeInt(v)
-		if err != nil {
-			return fmt.Errorf("window_size: %w", err)
-		}
-		ml.WindowSize = i
-	}
-	if v := n.Get("min_samples"); v != nil {
-		i, err := nodeInt(v)
-		if err != nil {
-			return fmt.Errorf("min_samples: %w", err)
-		}
-		ml.MinSamples = i
-	}
-	if v := n.Get("feature_buckets"); v != nil {
-		i, err := nodeInt(v)
-		if err != nil {
-			return fmt.Errorf("feature_buckets: %w", err)
-		}
-		ml.FeatureBuckets = i
-	}
-	if v := n.Get("auto_block"); v != nil {
-		b, err := nodeBool(v)
-		if err != nil {
-			return fmt.Errorf("auto_block: %w", err)
-		}
-		ml.AutoBlock = b
-	}
-	if v := n.Get("block_threshold"); v != nil {
-		f, err := nodeFloat64(v)
-		if err != nil {
-			return fmt.Errorf("block_threshold: %w", err)
-		}
-		ml.BlockThreshold = f
-	}
-	return nil
-}
-
-func populateAPIDiscovery(ad *APIDiscoveryConfig, n *Node) error {
-	if n.Kind != MapNode {
-		return nil
-	}
-	if v := n.Get("enabled"); v != nil {
-		b, err := nodeBool(v)
-		if err != nil {
-			return fmt.Errorf("enabled: %w", err)
-		}
-		ad.Enabled = b
-	}
-	if v := n.Get("capture_mode"); v != nil && !v.IsNull {
-		ad.CaptureMode = v.String()
-	}
-	if v := n.Get("ring_buffer_size"); v != nil {
-		i, err := nodeInt(v)
-		if err != nil {
-			return fmt.Errorf("ring_buffer_size: %w", err)
-		}
-		ad.RingBufferSize = i
-	}
-	if v := n.Get("min_samples"); v != nil {
-		i, err := nodeInt(v)
-		if err != nil {
-			return fmt.Errorf("min_samples: %w", err)
-		}
-		ad.MinSamples = i
-	}
-	if v := n.Get("cluster_threshold"); v != nil {
-		f, err := nodeFloat64(v)
-		if err != nil {
-			return fmt.Errorf("cluster_threshold: %w", err)
-		}
-		ad.ClusterThreshold = f
-	}
-	if v := n.Get("export_path"); v != nil && !v.IsNull {
-		ad.ExportPath = v.String()
-	}
-	if v := n.Get("export_format"); v != nil && !v.IsNull {
-		ad.ExportFormat = v.String()
-	}
-	if v := n.Get("auto_export"); v != nil {
-		b, err := nodeBool(v)
-		if err != nil {
-			return fmt.Errorf("auto_export: %w", err)
-		}
-		ad.AutoExport = b
-	}
-	if v := n.Get("export_interval"); v != nil && !v.IsNull {
-		d, err := parseDuration(v.String())
-		if err != nil {
-			return fmt.Errorf("export_interval: %w", err)
-		}
-		ad.ExportInterval = d
 	}
 	return nil
 }

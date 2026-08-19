@@ -602,20 +602,6 @@ func TestDeepCopy_EdgeCases(t *testing.T) {
 			t.Error("AIAnalysisConfig DeepCopy failed")
 		}
 	})
-	t.Run("MLAnomalyConfig", func(t *testing.T) {
-		m := MLAnomalyConfig{Enabled: true, Threshold: 0.7}
-		cp := m.DeepCopy()
-		if !cp.Enabled || cp.Threshold != 0.7 {
-			t.Error("MLAnomalyConfig DeepCopy failed")
-		}
-	})
-	t.Run("APIDiscoveryConfig", func(t *testing.T) {
-		a := APIDiscoveryConfig{Enabled: true, CaptureMode: "passive"}
-		cp := a.DeepCopy()
-		if !cp.Enabled || cp.CaptureMode != "passive" {
-			t.Error("APIDiscoveryConfig DeepCopy failed")
-		}
-	})
 	t.Run("GRPCRateLimit", func(t *testing.T) {
 		g := GRPCRateLimit{Method: "svc/Method", RequestsPerSecond: 100}
 		cp := g.DeepCopy()

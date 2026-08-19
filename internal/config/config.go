@@ -279,8 +279,6 @@ type WAFConfig struct {
 	Response      ResponseConfig      `yaml:"response"`
 	ClientSide    ClientSideConfig    `yaml:"client_side"`
 	AIAnalysis    AIAnalysisConfig    `yaml:"ai_analysis"`
-	MLAnomaly     MLAnomalyConfig     `yaml:"ml_anomaly"`
-	APIDiscovery  APIDiscoveryConfig  `yaml:"api_discovery"`
 	GraphQL       GraphQLConfig       `yaml:"graphql"`
 	GRPC          GRPCConfig          `yaml:"grpc"`
 	Tenant        TenantConfig        `yaml:"tenant"`
@@ -704,32 +702,16 @@ type ErrorPagesConfig struct {
 	Mode    string `yaml:"mode"` // "production", "development"
 }
 
-// MLAnomalyConfig controls ML-based real-time anomaly detection.
-type MLAnomalyConfig struct {
-	Enabled        bool    `yaml:"enabled"`
-	Mode           string  `yaml:"mode"` // "monitor" or "enforce"
-	Threshold      float64 `yaml:"threshold"`
-	WindowSize     int     `yaml:"window_size"`
-	MinSamples     int     `yaml:"min_samples"`
-	FeatureBuckets int     `yaml:"feature_buckets"`
-	AutoBlock      bool    `yaml:"auto_block"`
-	BlockThreshold float64 `yaml:"block_threshold"`
-}
-
-// APIDiscoveryConfig controls automatic API endpoint discovery and OpenAPI generation.
-type APIDiscoveryConfig struct {
-	Enabled          bool          `yaml:"enabled"`
-	CaptureMode      string        `yaml:"capture_mode"` // "passive", "active"
-	RingBufferSize   int           `yaml:"ring_buffer_size"`
-	MinSamples       int           `yaml:"min_samples"`
-	ClusterThreshold float64       `yaml:"cluster_threshold"`
-	ExportPath       string        `yaml:"export_path"`
-	ExportFormat     string        `yaml:"export_format"` // "openapi" or "json"
-	AutoExport       bool          `yaml:"auto_export"`
-	ExportInterval   time.Duration `yaml:"export_interval"`
-}
-
 // GraphQLConfig controls GraphQL security layer settings.
+//
+// Note: this struct is live. The MaxDepth / MaxComplexity /
+// BlockIntrospection / AllowEndpoints fields are consumed by the
+// runtime layerregistry and the public library API to wire
+// GraphQL depth/complexity/introspection protection. Do NOT
+// remove this struct as part of the "inert config struct"
+// cleanup that removed MLAnomaly and APIDiscovery — the GraphQL
+// protection still runs inside the detection layer (see
+// internal/layers/detection/graphql) and reads these settings.
 type GraphQLConfig struct {
 	Enabled            bool     `yaml:"enabled"`
 	MaxDepth           int      `yaml:"max_depth"`

@@ -160,8 +160,6 @@ func TestValidateAIAnalysis_MinScoreNegative(t *testing.T) {
 func TestValidateRemovedLayers_DetectsEnabledRemovedLayers(t *testing.T) {
 	ve := &ValidationError{}
 	cfg := DefaultConfig()
-	cfg.WAF.MLAnomaly = MLAnomalyConfig{Enabled: true}
-	cfg.WAF.APIDiscovery = APIDiscoveryConfig{Enabled: true}
 	cfg.WAF.GraphQL = GraphQLConfig{Enabled: true}
 	cfg.WAF.GRPC = GRPCConfig{Enabled: true}
 	validateRemovedLayers(&cfg.WAF, ve)
