@@ -13,6 +13,7 @@ import (
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 	logging "github.com/guardianwaf/guardianwaf/internal/logging"
+	"github.com/guardianwaf/guardianwaf/internal/regexsafe"
 )
 
 // Layer implements virtual patching for known CVEs.
@@ -36,6 +37,13 @@ type Layer struct {
 
 	// Statistics
 	updateCount atomic.Int64
+
+	// newDeadline is the per-request regexsafe budget factory. It
+	// returns a fresh Deadline for every Process call. Production
+	// wiring leaves this as nil and Process falls back to
+	// regexsafe.NewDeadline; tests inject a factory that returns a
+	// pre-saturated deadline to exercise the fail-closed path.
+	newDeadline func() *regexsafe.Deadline
 
 	mu        sync.RWMutex
 	lastError error // protected by mu
@@ -311,6 +319,17 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 
 	start := time.Now()
 
+	// Fresh per-request regexsafe budget so every regex match against
+	// this request is bounded by the shared 2s total / 500ms per-regex /
+	// 500-slot semaphore caps. The deadline is threaded through
+	// matchPatch → matchPattern → matchRegex → regexMatchWithTimeout.
+	// It must NOT be reused across requests.
+	factory := l.newDeadline
+	if factory == nil {
+		factory = regexsafe.NewDeadline
+	}
+	deadline := factory()
+
 	// Get all active patches
 	patches := l.database.GetActivePatches()
 
@@ -324,7 +343,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		}
 
 		// Match patch patterns
-		matched, details := l.matchPatch(ctx, &patch)
+		matched, details := l.matchPatch(ctx, &patch, deadline)
 		if matched {
 			// Create finding
 			finding := engine.Finding{
@@ -379,7 +398,10 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 }
 
 // matchPatch checks if a request matches a virtual patch.
-func (l *Layer) matchPatch(ctx *engine.RequestContext, patch *VirtualPatch) (bool, string) {
+// deadline is the per-request regexsafe budget that bounds regex
+// evaluations of this patch's patterns against the request. Callers
+// must pass a fresh deadline; it must NOT be reused across requests.
+func (l *Layer) matchPatch(ctx *engine.RequestContext, patch *VirtualPatch, deadline *regexsafe.Deadline) (bool, string) {
 	if len(patch.Patterns) == 0 {
 		return false, ""
 	}
@@ -391,7 +413,7 @@ func (l *Layer) matchPatch(ctx *engine.RequestContext, patch *VirtualPatch) (boo
 	details := []string{}
 
 	for _, pattern := range patch.Patterns {
-		matched := l.matchPattern(ctx, pattern)
+		matched := l.matchPattern(ctx, pattern, deadline)
 
 		if matched {
 			matchedCount++
@@ -413,7 +435,9 @@ func (l *Layer) matchPatch(ctx *engine.RequestContext, patch *VirtualPatch) (boo
 }
 
 // matchPattern checks a single pattern.
-func (l *Layer) matchPattern(ctx *engine.RequestContext, pattern PatchPattern) bool {
+// deadline is the per-request regexsafe budget passed through to
+// regex-mode patterns. Non-regex pattern types ignore it.
+func (l *Layer) matchPattern(ctx *engine.RequestContext, pattern PatchPattern, deadline *regexsafe.Deadline) bool {
 	value := l.getValueByType(ctx, pattern.Type, pattern.Key)
 
 	if value == "" {
@@ -430,7 +454,7 @@ func (l *Layer) matchPattern(ctx *engine.RequestContext, pattern PatchPattern) b
 	case "ends_with":
 		return strings.HasSuffix(value, pattern.Pattern)
 	case "regex":
-		return l.matchRegex(value, pattern.Pattern)
+		return l.matchRegex(value, pattern.Pattern, deadline)
 	default:
 		// Default to contains
 		return strings.Contains(value, pattern.Pattern)
@@ -494,7 +518,10 @@ func (l *Layer) getValueByType(ctx *engine.RequestContext, typ, key string) stri
 }
 
 // matchRegex matches value against regex pattern.
-func (l *Layer) matchRegex(value, pattern string) bool {
+// deadline is the per-request regexsafe budget that bounds this
+// match against the request's total 2s budget. Pass nil only in
+// tests that bypass the Process call.
+func (l *Layer) matchRegex(value, pattern string, deadline *regexsafe.Deadline) bool {
 	l.mu.RLock()
 	re, ok := l.compiledPatterns[pattern]
 	l.mu.RUnlock()
@@ -523,13 +550,21 @@ func (l *Layer) matchRegex(value, pattern string) bool {
 		l.mu.Unlock()
 	}
 
-	return regexMatchWithTimeout(re, value)
+	return regexMatchWithTimeout(re, value, deadline)
 }
 
-// regexMatchWithTimeout matches using Go's RE2-based regexp engine, whose
-// linear-time execution avoids catastrophic backtracking.
-func regexMatchWithTimeout(re *regexp.Regexp, s string) bool {
-	return re.MatchString(s)
+// regexMatchWithTimeout matches using Go's RE2-based regexp engine under
+// the process-wide regexsafe budget (per-regex 500ms ceiling, per-request
+// 2s total, semaphore cap 500). This replaces the previous C4 path which
+// was just `return re.MatchString(s)` — no timeout, no semaphore, no
+// fail-closed, no per-request budget — allowing a single slow regex or
+// a flood of matches to exhaust CPU.
+//
+// The deadline is created per-request by the virtualpatch Process call
+// and threaded through matchPatch → matchPattern → matchRegex. Pass nil
+// only in tests that bypass the Process call.
+func regexMatchWithTimeout(re *regexp.Regexp, s string, deadline *regexsafe.Deadline) bool {
+	return regexsafe.Match(re, s, deadline)
 }
 
 // shouldBlock checks if a severity level should be blocked.

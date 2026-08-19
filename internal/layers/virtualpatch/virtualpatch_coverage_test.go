@@ -2397,7 +2397,7 @@ func TestLayer_MatchRegex_ExistingCacheUnderWriteLock(t *testing.T) {
 
 func TestRegexMatchWithTimeout_Match(t *testing.T) {
 	re := regexp.MustCompile(`^test[0-9]+$`)
-	result := regexMatchWithTimeout(re, "test123")
+	result := regexMatchWithTimeout(re, "test123", nil)
 	if !result {
 		t.Error("expected match")
 	}
@@ -2405,7 +2405,7 @@ func TestRegexMatchWithTimeout_Match(t *testing.T) {
 
 func TestRegexMatchWithTimeout_NoMatch(t *testing.T) {
 	re := regexp.MustCompile(`^test[0-9]+$`)
-	result := regexMatchWithTimeout(re, "no-match")
+	result := regexMatchWithTimeout(re, "no-match", nil)
 	if result {
 		t.Error("expected no match")
 	}

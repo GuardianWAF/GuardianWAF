@@ -12,6 +12,7 @@ import (
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/logging"
+	"github.com/guardianwaf/guardianwaf/internal/regexsafe"
 )
 
 // Layer implements the OWASP Core Rule Set WAF layer.
@@ -36,6 +37,13 @@ type Layer struct {
 	// CRS layer that could not load its ruleset (fail-closed), rather than
 	// running an empty, silently-ineffective ruleset.
 	loadErr error
+
+	// newDeadline is the per-request regexsafe budget factory. It
+	// returns a fresh Deadline for every Process call. Production
+	// wiring leaves this as nil and Process falls back to
+	// regexsafe.NewDeadline; tests inject a factory that returns a
+	// pre-saturated deadline to exercise the fail-closed path.
+	newDeadline func() *regexsafe.Deadline
 
 	mu sync.RWMutex
 }
@@ -225,8 +233,19 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
+	// Create a fresh per-request regexsafe budget so every @rx match
+	// against this request is bounded by the shared 2s total / 500ms
+	// per-regex / 500-slot semaphore caps. The deadline is threaded
+	// into the OperatorEvaluator through createTransaction; it must
+	// NOT be reused across requests.
+	factory := l.newDeadline
+	if factory == nil {
+		factory = regexsafe.NewDeadline
+	}
+	deadline := factory()
+
 	// Create transaction from context
-	tx := l.createTransaction(ctx)
+	tx := l.createTransaction(ctx, deadline)
 
 	// Process rules by phase
 	// Phase 1: Request headers
@@ -291,7 +310,10 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 }
 
 // createTransaction creates a transaction from request context.
-func (l *Layer) createTransaction(ctx *engine.RequestContext) *Transaction {
+// deadline is the per-request regexsafe budget that bounds @rx
+// evaluations against this transaction. Callers must pass a fresh
+// deadline (never reuse across requests).
+func (l *Layer) createTransaction(ctx *engine.RequestContext, deadline *regexsafe.Deadline) *Transaction {
 	tx := NewTransaction()
 
 	// Request line
@@ -324,6 +346,7 @@ func (l *Layer) createTransaction(ctx *engine.RequestContext) *Transaction {
 
 	tx.resolver = NewVariableResolver(tx)
 	tx.evaluator = NewOperatorEvaluator()
+	tx.evaluator.SetDeadline(deadline)
 	return tx
 }
 

@@ -9,6 +9,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/guardianwaf/guardianwaf/internal/regexsafe"
 )
 
 // regexCache caches compiled regex patterns to avoid recompilation per request.
@@ -19,29 +21,40 @@ var (
 
 const maxRegexCacheSize = 10000 // cap regex cache to prevent unbounded growth
 
-// regexExecutionTimeout is the maximum time allowed for a single regex match.
-// Go's regexp package uses RE2 (linear-time, no catastrophic backtracking),
-// but this timeout provides defense-in-depth against pathological inputs.
-const regexExecutionTimeout = 5 * time.Second
-
-// matchWithTimeout evaluates a regex match with a hard execution timeout.
-// This prevents any single regex from monopolizing CPU, even though RE2
-// guarantees O(n) matching — large inputs can still take significant wall time.
-func matchWithTimeout(re *regexp.Regexp, s string) []string {
-	return matchWithDeadline(re, s, regexExecutionTimeout)
+// matchWithTimeout evaluates a regex match under the process-wide regexsafe
+// budget (per-regex 500ms ceiling, per-request 2s total, semaphore cap 500).
+// This replaces the previous C3 path (5s ceiling, no semaphore, no
+// fail-closed, no per-request budget) which allowed a single request to
+// keep a goroutine alive for 5s and a flood of slow matches to spawn
+// unbounded goroutines — both exploitable for CPU exhaustion.
+//
+// d is the per-request regexsafe.Deadline created by the CRS layer
+// Process call. A nil deadline means "no budget tracking" (tests).
+//
+// Returns nil when the regex does not match, the budget/semaphore is
+// exhausted, or the per-regex timeout fires. Callers must treat nil as
+// "no match"; this is the correct behavior for CRS SecRules where
+// absence of a match means the rule did not fire (CRS is explicit
+// allow/deny, not fail-closed-by-default).
+func matchWithTimeout(re *regexp.Regexp, s string, d ...*regexsafe.Deadline) []string {
+	var deadline *regexsafe.Deadline
+	if len(d) > 0 {
+		deadline = d[0]
+	}
+	return regexsafe.FindSubmatch(re, s, deadline)
 }
 
+// matchWithDeadline is retained for tests that need a custom timeout
+// without a per-request deadline. Production callers should use
+// matchWithTimeout (which threads the shared regexsafe.Deadline and
+// semaphore).
 func matchWithDeadline(re *regexp.Regexp, s string, timeout time.Duration) []string {
-	done := make(chan []string, 1)
-	go func() {
-		done <- re.FindStringSubmatch(s)
-	}()
-	select {
-	case matches := <-done:
-		return matches
-	case <-time.After(timeout):
-		return nil
-	}
+	// Create a one-shot deadline whose remaining budget equals the
+	// requested timeout. This lets tests verify timeout behavior while
+	// still routing through the shared regexsafe budget/semaphore.
+	deadline := &regexsafe.Deadline{}
+	deadline.SetTestDeadline(timeout)
+	return regexsafe.FindSubmatch(re, s, deadline)
 }
 
 func getCachedRegex(pattern string) (*regexp.Regexp, error) {
@@ -66,6 +79,12 @@ func getCachedRegex(pattern string) (*regexp.Regexp, error) {
 // OperatorEvaluator evaluates SecRule operators against values.
 type OperatorEvaluator struct {
 	captureGroups []string
+
+	// deadline is the per-request regexsafe budget shared by every
+	// @rx evaluation in this transaction. A nil deadline means "no
+	// budget tracking" (the production path always sets one; test
+	// paths that bypass Process may leave it nil).
+	deadline *regexsafe.Deadline
 }
 
 // NewOperatorEvaluator creates a new operator evaluator.
@@ -73,6 +92,13 @@ func NewOperatorEvaluator() *OperatorEvaluator {
 	return &OperatorEvaluator{
 		captureGroups: []string{},
 	}
+}
+
+// SetDeadline installs the per-request regexsafe deadline that bounds
+// @rx evaluations. Each Process call must create a fresh deadline;
+// the same deadline must not be reused across requests.
+func (oe *OperatorEvaluator) SetDeadline(d *regexsafe.Deadline) {
+	oe.deadline = d
 }
 
 // Evaluate evaluates an operator against a value.
@@ -144,8 +170,13 @@ func (oe *OperatorEvaluator) evaluateRx(pattern, value string) (bool, error) {
 		return false, fmt.Errorf("invalid regex pattern: %w", err)
 	}
 
-	// Use timeout-wrapped matching to prevent CPU monopolization (H6 fix)
-	matches := matchWithTimeout(re, value)
+	// Use timeout-wrapped matching to prevent CPU monopolization (H6 fix).
+	// Thread the per-request deadline so the regexsafe budget (2s total,
+	// 500ms per regex, semaphore cap 500) is actually enforced on the
+	// production path. When the deadline is exhausted, FindSubmatch
+	// returns nil and the rule does not fire — the documented CRS
+	// behavior (no match => rule did not fire).
+	matches := matchWithTimeout(re, value, oe.deadline)
 	if matches == nil {
 		return false, nil
 	}
