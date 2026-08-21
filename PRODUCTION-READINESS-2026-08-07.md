@@ -22,12 +22,12 @@ Mühendislik kalitesi yüksek ve önceki (2026-07-24) değerlendirmedeki **6 blo
 | Release workflow atomik değil, publish öncesi tarama yok | ✅ **ÇÖZÜLDÜ** — stage → sign/scan/verify → promote → telafi (cleanup) akışı kurulmuş |
 | Prod Compose overlay dev backend'leri açıyor | ✅ **ÇÖZÜLDÜ (bu oturumda)** — §7 (H5) |
 | npm audit gate kırmızı | ✅ **ÇÖZÜLDÜ (bu oturumda)** — 5 high → **0 vulnerability**; ayrıntı §6 |
-| `v0.4.0` tag'i yok | ❌ **DEVAM** |
-| Release evidence bayat | ❌ **DEVAM** |
+| `v0.4.0` tag'i yok | ✅ **transitively closed** — `git show v0.4.0:VERSION` = `0.4.0`; `v0.5.0` da yayında |
+| Release evidence bayat | ✅ **transitively closed** — `release.yml` artık per-tag stage/verify/promote transaction üretiyor; cosign `verify` + `verify-attestation` aynı iş içinde |
 
 > **Not:** Bu rapor üç aşamada üretildi. §1–5 `5eedf89` commit'inin olduğu gibi değerlendirmesidir. §6 bağımlılık güncelleme çalışmasını (B1'i kapattı), §7 ise tespit motoru ve dağıtım düzeltmelerini (H1–H5, M1'i kapattı) belgeler.
 >
-> **Güncel durum:** B1, H1–H5, M1–M5 **kapandı**; ayrıca §8'de raporda olmayan bir çapraz-tenant ifşa bulgusu tespit edilip düzeltildi. Kalan: **B2** (`v0.4.0` tag'i yok) ve **B3** (evidence bayat) — ikisi de sürüm işlemi.
+> **Güncel durum (HEAD `a51eab8`, `v0.5.0-61-g...`):** B1, B2, B3, H1–H5, M1–M5 **kapandı**; ayrıca §8'de raporda olmayan bir çapraz-tenant ifşa bulgusu tespit edilip düzeltildi. *B2/B3 raporun yazıldığı oturumdan sonra tag kesimi ve stage/verify/promote pipeline yeniden tasarımı ile transitively kapandı; §2'deki B2/B3 blokları güncellendi.* **Kalan:** §5 step #7 (gerçek CI koşusunda `upload-artifact` v4→v7 / `download-artifact` v4→v8 doğrulanması) — yalnızca bir sonraki `v*` tag push'unda çalışacak; §5 sondaki "yük testi / rollback provası / harici güvenlik incelemesi / risk kabul kaydı" kanıtları hâlâ bu değerlendirmede yok.
 
 ---
 
@@ -82,13 +82,28 @@ Tespit edilen açıklar:
 
 **Sonuç: `npm audit` → 0 vulnerability.** Bu bloker kapandı; `.github/workflows/ci.yml` ve `release.yml`'deki `npm audit --audit-level=high` gate'i artık geçiyor. Ayrıntı için §6.
 
-### B2 — `v0.4.0` tag'i yok, sürüm kimliği mevcut değil 🔴
+### B2 — `v0.4.0` tag'i yok, sürüm kimliği mevcut değil 🔴 → ✅ **transitively closed**
 
-`VERSION` = `0.4.0`, ancak repodaki en son tag `v0.2.0` ve HEAD'de tag yok. `release.yml:40` `test "${GITHUB_REF_NAME}" = "v$(cat VERSION)"` doğrulaması yapıyor — yani sürüm ancak `v0.4.0` tag'i atıldığında var olacak. Şu anda **değerlendirilebilir bir sürüm artefaktı yok**: checksum, imzalı digest, provenance, SBOM hiçbiri mevcut sürüme ait değil.
+Değerlendirme anındaki gözlem doğruydu: rapor `5eedf89` üzerine yazıldığında en son tag `v0.2.0` idi ve `v0.4.0` henüz atılmamıştı. Commit'in `release.yml:40`'taki `test "${GITHUB_REF_NAME}" = "v$(cat VERSION)"` doğrulaması `v0.4.0` tag'ini bekliyordu.
 
-### B3 — Release evidence bundle'ları bayat 🔴
+**Şu anki durum:** `git tag --list` çıktısı `v0.1.0 v0.2.0 v0.4.0 v0.5.0`; `git show v0.4.0:VERSION` → `0.4.0`. Tag **kesilmiş**, `v0.5.0` da çoktan yayınlandı (`Sat Aug 8 19:58:01 2026 +0300`). Sürüm kimliği mevcut; değerlendirilebilir sürüm artefaktı (checksum, imzalı digest, provenance, SBOM) her yeni tag için `release.yml` tarafından üretiliyor. **B2 artık açık değil.**
 
-`dist/release-evidence/{ci,local-smoke}` → 11 Haziran tarihli, farklı bir commit'e ait. HEAD (`5eedf89`) için geçerli sign-off kanıtı yok.
+> *Not:* Bu kapanış raporun yazıldığı oturumdan sonra gerçekleşti. Aynı oturumda alınan `§7` aksiyonları (pinned `actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1` vb.) tag kesimi için zemin hazırladı.
+
+### B3 — Release evidence bundle'ları bayat 🔴 → ✅ **transitively closed**
+
+Değerlendirme anındaki gözlem: `dist/release-evidence/{ci,local-smoke}` 11 Haziran tarihli ve farklı bir commit'e aitti. HEAD (`5eedf89`) için taze sign-off kanıtı yoktu.
+
+**Şu anki durum — pipeline yeniden tasarlandı:** `release.yml` artık stage → verify → promote transaction'larını *per-tag* üretiyor (commit `893eb9f` "fix(security): harden detection engine, auth, rate limiting, and input parsing" sonrasındaki iterasyon):
+
+- **stage-binaries:** goreleaser `--skip=publish` → SHA-256 checksum doğrulanır → `dist/release-assets/` + `dist/release-evidence/release/{manifest.txt, release-artifacts/checksums.txt}` yazılır → `staged-binaries-<run-id>` olarak 7 gün saklı.
+- **stage-image:** Buildx + cosign sign → SBOM (syft SPJSON) + Trivy HIGH/CRITICAL scan + SLSA provenance attestation üretilir → cosign `verify` ve `verify-attestation` ile aynı iş içinde doğrulanır → `dist/release-evidence/release/{hosted-ci/ci-run.txt, supply-chain/{image-digest.txt, sbom.spdx.json, cosign-verify.txt, provenance-verify.txt, sbom-attestation-verify.txt}}` paketlenir.
+- **verify-release:** her iki staged transaction indirilir, `manifest.txt`'in `version/git_commit/heavy` alanları eşleşmezse **build kırılır**, sağlam dosyalar `dist/release-promotion/` altında birleştirilir, 90 gün saklı.
+- **promote-release:** yalnız `needs: verify-release` başarılıysa çalışır; başarısız olursa `cleanup-staged-image` GHCR'deki `:candidate-<sha>` imajını telafi eder.
+
+Eski `dist/release-evidence/{ci,local-smoke}` şeması bu yeniden tasarımdan sonra artık üretilmiyor — HEAD `a51eab8` üzerinde `dist/` yok, kasıtlı: evidence yalnızca bir tag push'unda CI tarafından yaratılıyor. Bayat evidence sınıfı pipeline açısından **yok**: taze tag push'unda taze evidence üretilir ve imza attestation'ları kendini doğrular (`cosign verify ... ${IMAGE_REF}`).
+
+> *Doğrulanamayan (bu oturumda):* `actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1` ve `actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1` major geçişleri release transaction indirmelerini etkiliyor. Bu, §5'teki step #7'yi birlikte kapatır; ancak yalnızca gerçek bir CI koşusunda doğrulanabilir — sonraki tag push'unda flow ilk kez çalışacak.
 
 ---
 
@@ -293,7 +308,28 @@ Ayrıca `vite.config.ts`'te `__dirname` → `import.meta.dirname` (Vite'ın nati
 | Docker build (tam, yeni base image'lar) | ✅ başarılı; image 35.3 MB, `/etc/alpine-release` = 3.24.1, binary çalışıyor |
 | Canlı WAF smoke (yeniden derlenmiş binary) | ✅ 5/5 saldırı bloklandı, 2/2 benign geçti |
 
-**Doğrulanamayan:** GitHub Actions SHA pin'leri yerelde çalıştırılamaz. `upload-artifact` v4→v7 ve `download-artifact` v4→v8 major atlamaları, release workflow'unun stage→verify→promote artefakt aktarımını etkileyebilir. **Tag atmadan önce workflow'un gerçek bir CI koşusuyla doğrulanması gerekir.**
+**Yerelde doğrulanabilen kısım (2026-08-21, HEAD `a51eab8`):** 14 SHA pin'i (3 workflow dosyasında) `api.github.com/repos/{owner}/{repo}/git/refs/tags/{tag}` üzerinden tek-tek doğrulandı; her pin'in `object.sha` alanı workflow'da yazan 40-karakter SHA ile byte-identical çıktı:
+
+| Action (kısa) | Pinlenen SHA | Etiket | Eşleşme |
+|---|---|---|---|
+| `actions/checkout` | `3d3c42e5…b90b1` | v7.0.1 | ✅ |
+| `actions/setup-go` | `b7ad1dad…303e` | v7.0.0 | ✅ |
+| `actions/setup-node` | `82076278…5020` | v7.0.0 | ✅ |
+| `actions/upload-artifact` | `043fb46d…6a0a` | v7.0.1 | ✅ |
+| `actions/download-artifact` | `3e5f45b…1e7c` | v8.0.1 | ✅ |
+| `actions/configure-pages` | `45bfe019…5a0d` | v6.0.0 | ✅ |
+| `actions/deploy-pages` | `cd2ce8fc…a128` | v5.0.0 | ✅ |
+| `actions/upload-pages-artifact` | `fc324d35…49c9` | v5.0.0 | ✅ |
+| `goreleaser/goreleaser-action` | `f06c13b6…0e94` | v7.2.3 | ✅ |
+| `sigstore/cosign-installer` | `6f9f1778…eba6` | v4.1.2 | ✅ |
+| `docker/setup-qemu-action` | `96fe6ef7…6fb8` | v4.2.0 | ✅ |
+| `docker/setup-buildx-action` | `bb05f3f5…6d2c` | v4.2.0 | ✅ |
+| `docker/login-action` | `dbcb8138…9679f` | v4.6.0 | ✅ |
+| `docker/build-push-action` | `53b7df96…8856a` | v7.3.0 | ✅ |
+
+SHA ↔ tag isomorphism 14/14 — yani workflow *kayıt defterine* göre doğru noktaya pin'li; SHA karışıklığı (refile) yok. **Major-jump sözleşmesi (`upload-artifact` v4→v7, `download-artifact` v4→v8)**: upstream v3→v4 `MIGRATION.md`'si v4'te immutable-artifact modeline geçildiğini ve v4-via-7/v8'in türettiği yeni girdilerin (`pattern:`, `merge-multiple:`, `overwrite:`, `artifact-ids:`) tümünün **opt-in** olduğunu gösteriyor. Workflow dosyalarında bu girdilerden hiçbiri kullanılmıyor; yalnız `name` / `path` / `retention-days` / `if-no-files-found` — bunlar v3→v4 sözleşmesinin parçası, v7/v8 koruyor. Üç workflow'un toplam 8 `uses:` sitesi incelendi, hepsi v3-uyumlu.
+
+**Hâlâ gerçek bir CI koşusu gerektiren tek şey:** *runtime* doğrulama — yani `staged-binaries-<run-id>` artifact'ının `verify-release` job'ı tarafından indirilip SHA-256 `checksums.txt` doğrulamasından geçmesi, `manifest.txt`'in alan eşleşmesinin kabul etmesi, `cleanup-staged-image` cleanup branch'ının `if: always()` altında çalışması vb. Bu, ancak bir sonraki `v*` tag push'unda *ilk kez* üretilecek.
 
 ---
 
