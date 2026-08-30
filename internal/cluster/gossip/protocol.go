@@ -75,6 +75,12 @@ type Gossip struct {
 	acksMu sync.Mutex
 	acks   map[uint32]chan struct{}
 
+	// suspect→dead transition timers, tracked so Stop() can cancel them and
+	// the onLeave callback (Raft peer-sync bridge) never fires post-shutdown
+	timersMu sync.Mutex
+	timers   map[string]*time.Timer
+	stopped  atomic.Bool
+
 	// lifecycle
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
@@ -115,6 +121,7 @@ func NewWithTransport(cfg Config, tr Transport) (*Gossip, error) {
 		transport: tr,
 		members:   NewMemberList(cfg.NodeID),
 		acks:      make(map[uint32]chan struct{}),
+		timers:    make(map[string]*time.Timer),
 		logger:    logger,
 	}
 
@@ -156,6 +163,17 @@ func (g *Gossip) Start() error {
 
 // Stop gracefully shuts down the protocol.
 func (g *Gossip) Stop() {
+	g.stopped.Store(true)
+
+	// Cancel pending suspect→dead timers so the onLeave callback (Raft
+	// peer-sync bridge) can never fire after shutdown.
+	g.timersMu.Lock()
+	for id, tm := range g.timers {
+		tm.Stop()
+		delete(g.timers, id)
+	}
+	g.timersMu.Unlock()
+
 	if g.cancel != nil {
 		g.cancel()
 	}
@@ -416,6 +434,9 @@ func (g *Gossip) indirectProbe(target Member) {
 }
 
 func (g *Gossip) markSuspect(id string) {
+	if g.stopped.Load() {
+		return
+	}
 	if !g.members.MarkSuspect(id) {
 		return
 	}
@@ -423,8 +444,23 @@ func (g *Gossip) markSuspect(id string) {
 	g.logger.Info("member suspected", "id", id, "incarnation", m.Incarnation)
 	g.enqueuePiggyback(m)
 
-	// Schedule dead transition after suspicion timeout.
-	time.AfterFunc(g.config.SuspicionTimeout, func() {
+	// Schedule the dead transition after the suspicion timeout. The timer is
+	// tracked per member and cancelled in Stop() so the suspect→dead
+	// transition and the onLeave callback (Raft peer-sync bridge) can never
+	// fire after shutdown.
+	g.timersMu.Lock()
+	if old, ok := g.timers[id]; ok {
+		old.Stop()
+	}
+	g.timers[id] = time.AfterFunc(g.config.SuspicionTimeout, func() {
+		defer func() {
+			g.timersMu.Lock()
+			delete(g.timers, id)
+			g.timersMu.Unlock()
+		}()
+		if g.stopped.Load() {
+			return
+		}
 		if cur, ok := g.members.Get(id); ok && cur.State == StateSuspect {
 			if g.members.MarkDead(id) {
 				g.logger.Info("member dead", "id", id)
@@ -435,6 +471,7 @@ func (g *Gossip) markSuspect(id string) {
 			}
 		}
 	})
+	g.timersMu.Unlock()
 }
 
 // ---------------------------------------------------------------------------
