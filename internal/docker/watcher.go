@@ -155,7 +155,19 @@ func (w *Watcher) loop() {
 	defer w.wg.Done()
 	defer func() {
 		if r := recover(); r != nil {
-			dockerLog.Error("docker watcher panic recovered", "panic", r)
+			select {
+			case <-w.stopCh:
+				// Shutting down — do not restart; Stop() owns the final state.
+				dockerLog.Error("docker watcher panic recovered during shutdown", "panic", r)
+			default:
+				// Restart the loop (same pattern as internal/ai/analyzer.go) so a
+				// panicking callback cannot kill discovery for the process lifetime.
+				// Sleep first to avoid a hot restart spin on a persistently panicking callback.
+				dockerLog.Error("docker watcher panic recovered — restarting watcher loop", "panic", r)
+				time.Sleep(time.Second)
+				w.wg.Add(1)
+				go w.loop()
+			}
 		}
 	}()
 

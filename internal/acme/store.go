@@ -245,7 +245,14 @@ func (s *CertDiskStore) storeCert(domains []string, cert *tls.Certificate) {
 }
 
 func (s *CertDiskStore) renewIfNeeded() {
-	for _, domains := range s.domains {
+	// Snapshot domain groups under the lock: AddDomains may append concurrently
+	// while this runs on the background renewal goroutine (data race fix).
+	s.mu.RLock()
+	domainGroups := make([][]string, len(s.domains))
+	copy(domainGroups, s.domains)
+	s.mu.RUnlock()
+
+	for _, domains := range domainGroups {
 		if len(domains) == 0 {
 			continue
 		}

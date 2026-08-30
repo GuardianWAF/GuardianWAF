@@ -139,9 +139,10 @@ func (m *Manager) buildSMTPMessage(from string, to []string, subject, body strin
 	headers = append(headers, fmt.Sprintf("Subject: %s", sanitizeHeader(subject)))
 	headers = append(headers, "MIME-Version: 1.0")
 	headers = append(headers, "Content-Type: text/plain; charset=\"utf-8\"")
-	headers = append(headers, "")
 
-	return []byte(strings.Join(headers, "\r\n") + body)
+	// RFC 5322 §2.1: a blank line (CRLF CRLF) separates the header block from
+	// the body; without it the first body line is parsed as a header.
+	return []byte(strings.Join(headers, "\r\n") + "\r\n\r\n" + body)
 }
 
 // sanitizeTemplateValue strips control characters from event values used in templates.
