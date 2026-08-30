@@ -15,6 +15,7 @@ func TestRaft_PersistenceSurvivesRestart(t *testing.T) {
 
 	cfg := Config{
 		NodeID:             "persist-test",
+		Secret:             testSecret,
 		BindAddr:           "127.0.0.1:0",
 		ElectionTimeoutMin: 2 * time.Second,
 		ElectionTimeoutMax: 4 * time.Second,
@@ -88,6 +89,7 @@ func TestRaft_PersistenceTruncateAfterRestart(t *testing.T) {
 
 	cfg := Config{
 		NodeID:             "trunc-test",
+		Secret:             testSecret,
 		BindAddr:           "127.0.0.1:0",
 		ElectionTimeoutMin: 2 * time.Second,
 		ElectionTimeoutMax: 4 * time.Second,
@@ -139,6 +141,7 @@ func TestRaft_PersistenceTruncateAfterRestart(t *testing.T) {
 func TestRaft_PersistenceDisabledByDefault(t *testing.T) {
 	cfg := Config{
 		NodeID:             "no-persist",
+		Secret:             testSecret,
 		BindAddr:           "127.0.0.1:0",
 		ElectionTimeoutMin: 2 * time.Second,
 		ElectionTimeoutMax: 4 * time.Second,
@@ -185,6 +188,7 @@ func TestRaft_WALEmptyDirRecover(t *testing.T) {
 
 	cfg := Config{
 		NodeID:             "empty-dir-test",
+		Secret:             testSecret,
 		BindAddr:           "127.0.0.1:0",
 		ElectionTimeoutMin: 2 * time.Second,
 		ElectionTimeoutMax: 4 * time.Second,

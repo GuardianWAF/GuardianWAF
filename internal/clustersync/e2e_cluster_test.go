@@ -71,6 +71,7 @@ func setupE2ECluster(t *testing.T, n int) map[string]*e2eNode {
 
 		r, err := raft.New(raft.Config{
 			NodeID:             id,
+			Secret:             testClusterSecret,
 			BindAddr:           "127.0.0.1:0",
 			ElectionTimeoutMin: 2000 * time.Millisecond,
 			ElectionTimeoutMax: 4000 * time.Millisecond,
@@ -91,6 +92,7 @@ func setupE2ECluster(t *testing.T, n int) map[string]*e2eNode {
 
 		// Create gossip node with ephemeral UDP port.
 		gCfg := gossip.DefaultConfig(id, "127.0.0.1:0")
+		gCfg.Secret = testClusterSecret
 		gCfg.RaftAddr = r.Transport().LocalAddr()
 		gCfg.DashboardAddr = dashAddr
 		gCfg.ProbeInterval = 200 * time.Millisecond

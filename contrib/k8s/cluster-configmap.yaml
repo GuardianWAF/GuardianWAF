@@ -43,6 +43,11 @@ data:
       # Gossip UDP — membership + peer discovery.
       gossip_addr: "0.0.0.0:7946"
 
+      # REQUIRED shared peer-authentication key (>= 32 bytes, identical on
+      # every node). Supplied from the guardianwaf-cluster Secret via the
+      # GWAF_CLUSTER_SECRET environment variable — never inline it here.
+      secret: "${GWAF_CLUSTER_SECRET}"
+
       # Seed peers — the other StatefulSet pods.
       # Only one reachable seed is needed; gossip discovers the rest.
       # The headless Service DNS resolves each pod individually.

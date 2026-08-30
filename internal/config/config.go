@@ -53,7 +53,20 @@ type ClusterConfig struct {
 	HeartbeatInterval  time.Duration `yaml:"heartbeat_interval"`
 	DataDir            string        `yaml:"data_dir"`           // Raft WAL persistence directory (empty = in-memory)
 	SnapshotThreshold  int           `yaml:"snapshot_threshold"` // WAL compaction threshold (0 = disabled)
+
+	// Secret is the shared key that authenticates every Raft RPC frame and
+	// gossip datagram between peers. It is REQUIRED when clustering is
+	// enabled: the Raft log replicates IP bans and WAF rule changes, so an
+	// unauthenticated peer port lets anyone who can reach it delete rules or
+	// ban addresses across the whole fleet. Supply at least 32 bytes of real
+	// entropy, identical on every node, e.g. via ${GWAF_CLUSTER_SECRET}.
+	Secret string `yaml:"secret"`
 }
+
+// ClusterSecretMinLen is the minimum length of ClusterConfig.Secret. It mirrors
+// raft.MinSecretLen and gossip.MinSecretLen, duplicated here so the config
+// package does not import the cluster packages.
+const ClusterSecretMinLen = 32
 
 // ClusterPeer defines a known cluster node for bootstrapping.
 type ClusterPeer struct {

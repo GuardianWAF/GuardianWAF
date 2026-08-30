@@ -21,6 +21,7 @@ func TestWALCompaction_ReducesRecordCount(t *testing.T) {
 
 	r1, err := New(Config{
 		NodeID:             "n1",
+		Secret:             testSecret,
 		BindAddr:           "127.0.0.1:0",
 		DataDir:            dir,
 		ElectionTimeoutMin: 2 * time.Second,
@@ -66,6 +67,7 @@ func TestWALCompaction_StateSurvivesRestart(t *testing.T) {
 	// Create node, append entries, compact.
 	r1, err := New(Config{
 		NodeID:             "n1",
+		Secret:             testSecret,
 		BindAddr:           "127.0.0.1:0",
 		DataDir:            dir,
 		ElectionTimeoutMin: 2 * time.Second,
@@ -98,6 +100,7 @@ func TestWALCompaction_StateSurvivesRestart(t *testing.T) {
 	// Restart — the snapshot should be replayed.
 	r2, err := New(Config{
 		NodeID:             "n1",
+		Secret:             testSecret,
 		BindAddr:           "127.0.0.1:0",
 		DataDir:            dir,
 		ElectionTimeoutMin: 2 * time.Second,
@@ -159,6 +162,7 @@ func TestWALCompaction_AutoTriggerAfterApply(t *testing.T) {
 
 	r1, err := New(Config{
 		NodeID:             "n1",
+		Secret:             testSecret,
 		BindAddr:           "127.0.0.1:0",
 		DataDir:            dir,
 		SnapshotThreshold:  5,

@@ -10,11 +10,14 @@ import (
 // suitable as a baseline for tests that then remove one field at a time.
 func validClusterConfig() ClusterConfig {
 	return ClusterConfig{
-		Enabled:            true,
-		NodeID:             "node-1",
-		BindAddr:           "0.0.0.0:7947",
-		GossipAddr:         "0.0.0.0:7946",
-		Peers:              []ClusterPeer{{ID: "node-2", Addr: "10.0.0.2:7947"}},
+		Enabled:    true,
+		NodeID:     "node-1",
+		BindAddr:   "0.0.0.0:7947",
+		GossipAddr: "0.0.0.0:7946",
+		Peers:      []ClusterPeer{{ID: "node-2", Addr: "10.0.0.2:7947"}},
+		// Peer authentication is mandatory when clustering is enabled; the
+		// Raft log replicates ban and rule mutations.
+		Secret:             "0123456789abcdef0123456789abcdef",
 		ElectionTimeoutMin: 150 * time.Millisecond,
 		ElectionTimeoutMax: 300 * time.Millisecond,
 		HeartbeatInterval:  50 * time.Millisecond,

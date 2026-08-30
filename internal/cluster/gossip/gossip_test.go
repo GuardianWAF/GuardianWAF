@@ -374,7 +374,7 @@ func TestMessageType_String(t *testing.T) {
 
 func TestPiggyback_EnqueueTake(t *testing.T) {
 	g := &Gossip{
-		config:  Config{NodeID: "self"},
+		config:  Config{NodeID: "self", Secret: testSecret},
 		members: NewMemberList("self"),
 	}
 
@@ -408,7 +408,7 @@ func TestPiggyback_EnqueueTake(t *testing.T) {
 
 func TestPiggyback_MaxPerMsg(t *testing.T) {
 	g := &Gossip{
-		config:  Config{NodeID: "self"},
+		config:  Config{NodeID: "self", Secret: testSecret},
 		members: NewMemberList("self"),
 	}
 
@@ -457,6 +457,7 @@ func TestGossip_MultiNodeUDP(t *testing.T) {
 		nodeID := "node-" + string(rune('0'+i))
 		g, err := New(Config{
 			NodeID:           nodeID,
+			Secret:           testSecret,
 			Addr:             "127.0.0.1:0",
 			ProbeInterval:    50 * time.Millisecond,
 			ProbeTimeout:     20 * time.Millisecond,
@@ -529,6 +530,7 @@ func TestThreeNodeDashboardAddrPropagation(t *testing.T) {
 		nodeID := "dash-node-" + string(rune('0'+i))
 		g, err := New(Config{
 			NodeID:           nodeID,
+			Secret:           testSecret,
 			Addr:             "127.0.0.1:0",
 			RaftAddr:         fmt.Sprintf("127.0.0.1:%d", 9000+i),
 			DashboardAddr:    fmt.Sprintf("http://127.0.0.1:%d", 8000+i),
@@ -683,6 +685,7 @@ func TestGossip_PublicAPI(t *testing.T) {
 
 	g, err := NewWithTransport(Config{
 		NodeID:           "api-test",
+		Secret:           testSecret,
 		Addr:             tr.LocalAddr(),
 		ProbeInterval:    200 * time.Millisecond,
 		ProbeTimeout:     50 * time.Millisecond,
@@ -749,6 +752,7 @@ func TestGossip_UpdateMember(t *testing.T) {
 
 	g, err := NewWithTransport(Config{
 		NodeID:           "um-test",
+		Secret:           testSecret,
 		Addr:             tr.LocalAddr(),
 		ProbeInterval:    200 * time.Millisecond,
 		ProbeTimeout:     50 * time.Millisecond,
@@ -782,6 +786,7 @@ func TestGossip_UpdateMember(t *testing.T) {
 
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig("dc-test", "127.0.0.1:0")
+	cfg.Secret = testSecret
 	if cfg.NodeID != "dc-test" {
 		t.Errorf("DefaultConfig().NodeID = %q, want %q", cfg.NodeID, "dc-test")
 	}
@@ -808,6 +813,7 @@ func TestGossip_Callbacks(t *testing.T) {
 
 	g, err := NewWithTransport(Config{
 		NodeID:           "cb-test",
+		Secret:           testSecret,
 		Addr:             tr.LocalAddr(),
 		ProbeInterval:    200 * time.Millisecond,
 		ProbeTimeout:     50 * time.Millisecond,

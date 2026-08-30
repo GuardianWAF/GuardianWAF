@@ -379,6 +379,7 @@ func TestRaft_ElectionSingleCandidate(t *testing.T) {
 	// A single-node cluster should elect itself leader immediately.
 	r, err := New(Config{
 		NodeID:             "solo",
+		Secret:             testSecret,
 		BindAddr:           "127.0.0.1:0",
 		ElectionTimeoutMin: 100 * time.Millisecond,
 		ElectionTimeoutMax: 150 * time.Millisecond,
@@ -573,6 +574,7 @@ func setupCluster(t *testing.T, n int) map[string]*testNode {
 		id := "node-" + string(rune('a'+i))
 		r, err := New(Config{
 			NodeID:             id,
+			Secret:             testSecret,
 			BindAddr:           "127.0.0.1:0",
 			ElectionTimeoutMin: 2000 * time.Millisecond,
 			ElectionTimeoutMax: 4000 * time.Millisecond,
@@ -655,6 +657,7 @@ func findNode(nodes map[string]*testNode, id string) *testNode {
 func TestRaft_PublicAPI(t *testing.T) {
 	tr, err := New(Config{
 		NodeID:             "api-node",
+		Secret:             testSecret,
 		BindAddr:           "127.0.0.1:0",
 		Peers:              nil,
 		ElectionTimeoutMin: 5 * time.Second,
@@ -833,6 +836,7 @@ func TestDeadcodeCoverage(t *testing.T) {
 
 	r, err := New(Config{
 		NodeID:             "dc-node",
+		Secret:             testSecret,
 		BindAddr:           "127.0.0.1:0",
 		ElectionTimeoutMin: 150 * time.Millisecond,
 		ElectionTimeoutMax: 300 * time.Millisecond,

@@ -78,7 +78,8 @@ spec:
 
       # Wait for all 3 pods to be scheduled before starting.
       # Raft needs a quorum (2 of 3) to elect a leader.
-      terminationGracePeriodSeconds: 30
+      # Must exceed the app's 30s drain deadline, or SIGKILL races the flush.
+      terminationGracePeriodSeconds: 45
 
       containers:
         - name: guardianwaf
@@ -116,6 +117,16 @@ spec:
                 secretKeyRef:
                   name: guardianwaf-dashboard-auth
                   key: api-key
+            # Shared peer-authentication key for Raft RPC and gossip. Required
+            # whenever cluster.enabled is true; the pod refuses to start
+            # without it. Must be identical across every replica.
+            #   kubectl create secret generic guardianwaf-cluster-auth \
+            #     --from-literal=cluster-secret="$(openssl rand -hex 32)"
+            - name: GWAF_CLUSTER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: guardianwaf-cluster-auth
+                  key: cluster-secret
 
           volumeMounts:
             - name: config

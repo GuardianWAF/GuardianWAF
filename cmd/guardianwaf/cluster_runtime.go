@@ -48,6 +48,15 @@ func setupClusterRuntime(cfg *config.Config, eng *engine.Engine, bctx *layerregi
 	if cfg.Cluster.GossipAddr == "" {
 		return nil, fmt.Errorf("cluster.enabled is true but cluster.gossip_addr is empty")
 	}
+	// Fail closed. Peers authenticate each other with this secret alone, and
+	// the replicated log carries ban and rule mutations, so starting a cluster
+	// without one would expose fleet-wide enforcement control on an open port.
+	if len(cfg.Cluster.Secret) < raft.MinSecretLen {
+		return nil, fmt.Errorf(
+			"cluster.enabled is true but cluster.secret is shorter than %d bytes; "+
+				"set an identical high-entropy secret on every node", raft.MinSecretLen)
+	}
+	clusterSecret := []byte(cfg.Cluster.Secret)
 
 	store := clustersync.NewReplicatedStore()
 	sm := clustersync.NewStoreStateMachine(store, nil)
@@ -60,6 +69,7 @@ func setupClusterRuntime(cfg *config.Config, eng *engine.Engine, bctx *layerregi
 		HeartbeatInterval:  cfg.Cluster.HeartbeatInterval,
 		DataDir:            cfg.Cluster.DataDir,
 		SnapshotThreshold:  cfg.Cluster.SnapshotThreshold,
+		Secret:             clusterSecret,
 	}
 
 	// Convert config peers to raft peers (initial seed list).
@@ -102,6 +112,7 @@ func setupClusterRuntime(cfg *config.Config, eng *engine.Engine, bctx *layerregi
 			Addr:          cfg.Cluster.GossipAddr,
 			RaftAddr:      cfg.Cluster.BindAddr,
 			DashboardAddr: "http://" + cfg.Dashboard.Listen,
+			Secret:        clusterSecret,
 		}
 
 		g, err = gossip.New(gossipCfg)

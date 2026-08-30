@@ -26,10 +26,22 @@ type TCPTransport struct {
 	// handler is called for every incoming RPC. It runs in the reader
 	// goroutine of the connection, so it must not block.
 	handler func(msgType RPCType, payload []byte) ([]byte, error)
+
+	// secret authenticates every frame in both directions. Without it any
+	// host able to reach the listener could drive the replicated state
+	// machine, so the transport refuses to start without one.
+	secret []byte
 }
 
 // NewTCPTransport creates a TCP transport listening on addr.
-func NewTCPTransport(addr, localID string, timeout time.Duration) (*TCPTransport, error) {
+//
+// secret authenticates every RPC frame and is mandatory: the Raft log carries
+// ban and rule mutations, so an unauthenticated listener is remote control of
+// the WAF fleet. It must be at least MinSecretLen bytes.
+func NewTCPTransport(addr, localID string, timeout time.Duration, secret []byte) (*TCPTransport, error) {
+	if err := validateSecret(secret); err != nil {
+		return nil, err
+	}
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("raft transport: listen %s: %w", addr, err)
@@ -41,6 +53,7 @@ func NewTCPTransport(addr, localID string, timeout time.Duration) (*TCPTransport
 		listener: ln,
 		localID:  localID,
 		timeout:  timeout,
+		secret:   append([]byte(nil), secret...),
 	}
 	return t, nil
 }
@@ -90,8 +103,11 @@ func (t *TCPTransport) handleConn(conn net.Conn) {
 		if t.timeout > 0 {
 			_ = conn.SetReadDeadline(time.Now().Add(t.timeout * 10)) // generous read deadline
 		}
-		msgType, payload, err := ReadFrame(conn)
+		msgType, payload, err := ReadAuthenticatedFrame(conn, t.secret)
 		if err != nil {
+			// An unauthenticated or replayed frame means this peer does not
+			// share the cluster secret. Drop the connection rather than
+			// answering, so a prober learns nothing about the protocol.
 			return
 		}
 
@@ -102,7 +118,7 @@ func (t *TCPTransport) handleConn(conn net.Conn) {
 		resp, err := t.handler(msgType, payload)
 		if err != nil {
 			// Send an empty error response
-			_ = EncodeRequest(conn, RPCError, nil)
+			_ = EncodeAuthenticatedRequest(conn, t.secret, RPCError, nil)
 			continue
 		}
 		// Determine response type: for RequestVote → RequestVoteResponse, etc.
@@ -114,9 +130,9 @@ func (t *TCPTransport) handleConn(conn net.Conn) {
 			respType = RPCAppendEntriesResponse
 		}
 		if resp != nil {
-			_ = EncodeRequest(conn, respType, resp)
+			_ = EncodeAuthenticatedRequest(conn, t.secret, respType, resp)
 		} else {
-			_ = EncodeRequest(conn, respType, nil)
+			_ = EncodeAuthenticatedRequest(conn, t.secret, respType, nil)
 		}
 	}
 }
@@ -170,7 +186,7 @@ func (t *TCPTransport) SendRPC(addr string, msgType RPCType, payload []byte) (RP
 		_ = conn.SetWriteDeadline(time.Now().Add(t.timeout))
 	}
 
-	if encodeErr := EncodeRequest(conn, msgType, payload); encodeErr != nil {
+	if encodeErr := EncodeAuthenticatedRequest(conn, t.secret, msgType, payload); encodeErr != nil {
 		t.dropConn(addr)
 		return 0, nil, encodeErr
 	}
@@ -179,7 +195,7 @@ func (t *TCPTransport) SendRPC(addr string, msgType RPCType, payload []byte) (RP
 	if t.timeout > 0 {
 		_ = conn.SetReadDeadline(time.Now().Add(t.timeout))
 	}
-	respType, respPayload, err := ReadFrame(conn)
+	respType, respPayload, err := ReadAuthenticatedFrame(conn, t.secret)
 	if err != nil {
 		t.dropConn(addr)
 		return 0, nil, err

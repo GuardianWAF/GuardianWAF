@@ -1730,6 +1730,15 @@ func validateCluster(cfg *ClusterConfig, ve *ValidationError) {
 	if cfg.GossipAddr == "" {
 		ve.addError("cluster.gossip_addr", "is required when cluster mode is enabled (gossip UDP listen address, e.g. \"0.0.0.0:7946\")")
 	}
+	// The Raft log replicates IP bans and WAF rule mutations, and peers
+	// authenticate one another with this secret alone. Without it the Raft and
+	// gossip ports accept commands from anyone who can reach them, so this is a
+	// hard error rather than a warning.
+	if len(cfg.Secret) < ClusterSecretMinLen {
+		ve.addError("cluster.secret", fmt.Sprintf(
+			"is required when cluster mode is enabled and must be at least %d bytes of high-entropy "+
+				"material, identical on every node (Raft/gossip peer authentication)", ClusterSecretMinLen))
+	}
 	if len(cfg.Peers) == 0 {
 		ve.addError("cluster.peers", "must contain at least one seed peer when cluster mode is enabled (or set this node as a bootstrap single-node cluster)")
 	}

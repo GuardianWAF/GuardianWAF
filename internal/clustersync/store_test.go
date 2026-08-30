@@ -414,6 +414,7 @@ func TestAPI_DeadcodeCoverage(t *testing.T) {
 	// but all API code paths are exercised.
 	r, err := raft.New(raft.Config{
 		NodeID:             "api-test",
+		Secret:             testClusterSecret,
 		BindAddr:           "127.0.0.1:0",
 		ElectionTimeoutMin: 150 * time.Millisecond,
 		ElectionTimeoutMax: 300 * time.Millisecond,

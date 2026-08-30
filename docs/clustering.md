@@ -49,6 +49,13 @@ cluster:
   # Gossip UDP listen address — used for membership and peer discovery.
   gossip_addr: "0.0.0.0:7946"
 
+  # REQUIRED. Shared secret authenticating every Raft RPC frame and gossip
+  # datagram. Must be at least 32 bytes of high-entropy material and IDENTICAL
+  # on every node. The Raft log replicates IP bans and WAF rule changes, so a
+  # peer port without this accepts those commands from anyone who can reach it.
+  # Generate with: openssl rand -hex 32
+  secret: "${GWAF_CLUSTER_SECRET}"
+
   # Seed peers for bootstrapping. After initial discovery via gossip,
   # the cluster maintains its own peer list dynamically.
   # Only ONE seed peer is needed to discover the entire cluster.
@@ -73,7 +80,16 @@ When `cluster.enabled: true`, these fields are **required** — config validatio
 | `node_id` | Unique node identifier | `guardian-01` |
 | `bind_addr` | Raft TCP listen address | `0.0.0.0:7947` |
 | `gossip_addr` | Gossip UDP listen address | `0.0.0.0:7946` |
+| `secret` | Shared peer-authentication key, >= 32 bytes, identical on every node | `${GWAF_CLUSTER_SECRET}` |
 | `peers` | At least one seed peer (or self for single-node bootstrap) | See above |
+
+> **Security.** `secret` is what stops an arbitrary host from joining the
+> cluster. Raft frames and gossip datagrams are authenticated with HMAC-SHA256
+> over this key, and frames older than five minutes are rejected. Without it the
+> peer ports would accept `ban_ip`, `unban_ip`, `set_rule` and `delete_rule`
+> commands from any source that can reach them — fleet-wide control of WAF
+> enforcement. Keep it out of the config file itself: reference an environment
+> variable, and supply it from a Kubernetes Secret or your secret manager.
 
 ---
 

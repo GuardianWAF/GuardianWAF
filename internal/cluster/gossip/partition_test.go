@@ -94,6 +94,7 @@ func newGossipTestNode(t *testing.T, id string) *gossipTestNode {
 		t.Fatalf("node %s transport: %v", id, err)
 	}
 	cfg := DefaultConfig(id, "127.0.0.1:0")
+	cfg.Secret = testSecret
 	cfg.ProbeInterval = 200 * time.Millisecond
 	cfg.ProbeTimeout = 500 * time.Millisecond
 	cfg.SuspicionTimeout = 1 * time.Second

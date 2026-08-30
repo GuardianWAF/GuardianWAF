@@ -32,6 +32,12 @@ type Config struct {
 	// snapshot record and atomically rotates the WAL. Set to 0 to disable
 	// compaction (WAL grows unboundedly). Default: 0 (disabled).
 	SnapshotThreshold int
+
+	// Secret authenticates every RPC frame between peers. It is required:
+	// the Raft log replicates IP bans and WAF rule mutations, so a node that
+	// accepts unauthenticated AppendEntries hands an attacker control of the
+	// fleet's enforcement state. Must be at least MinSecretLen bytes.
+	Secret []byte
 }
 
 // Peer is a cluster node known to Raft.
@@ -107,7 +113,7 @@ type Raft struct {
 
 // New creates a new Raft node with the given config.
 func New(cfg Config, sm StateMachine) (*Raft, error) {
-	tr, err := NewTCPTransport(cfg.BindAddr, cfg.NodeID, cfg.ElectionTimeoutMax*2)
+	tr, err := NewTCPTransport(cfg.BindAddr, cfg.NodeID, cfg.ElectionTimeoutMax*2, cfg.Secret)
 	if err != nil {
 		return nil, fmt.Errorf("raft: create transport: %w", err)
 	}

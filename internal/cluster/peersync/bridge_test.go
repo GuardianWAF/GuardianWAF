@@ -32,7 +32,7 @@ func TestBridge_SyncAddsAlivePeers(t *testing.T) {
 		},
 	}
 
-	r, err := raft.New(raft.DefaultConfig("self", "127.0.0.1:0"), noopStateMachine{})
+	r, err := raft.New(testRaftConfig("self", "127.0.0.1:0"), noopStateMachine{})
 	if err != nil {
 		t.Fatalf("raft.New: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestBridge_SyncExcludesSelf(t *testing.T) {
 		},
 	}
 
-	r, err := raft.New(raft.DefaultConfig("self", "127.0.0.1:0"), noopStateMachine{})
+	r, err := raft.New(testRaftConfig("self", "127.0.0.1:0"), noopStateMachine{})
 	if err != nil {
 		t.Fatalf("raft.New: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestBridge_CallbacksTriggerSync(t *testing.T) {
 		},
 	}
 
-	r, err := raft.New(raft.DefaultConfig("self", "127.0.0.1:0"), noopStateMachine{})
+	r, err := raft.New(testRaftConfig("self", "127.0.0.1:0"), noopStateMachine{})
 	if err != nil {
 		t.Fatalf("raft.New: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestBridge_CallbacksTriggerSync(t *testing.T) {
 func TestBridge_EmptyMemberList(t *testing.T) {
 	fakeML := &fakeMemberList{members: nil}
 
-	r, err := raft.New(raft.DefaultConfig("self", "127.0.0.1:0"), noopStateMachine{})
+	r, err := raft.New(testRaftConfig("self", "127.0.0.1:0"), noopStateMachine{})
 	if err != nil {
 		t.Fatalf("raft.New: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestBridge_PeerOrdering(t *testing.T) {
 		},
 	}
 
-	r, err := raft.New(raft.DefaultConfig("self", "127.0.0.1:0"), noopStateMachine{})
+	r, err := raft.New(testRaftConfig("self", "127.0.0.1:0"), noopStateMachine{})
 	if err != nil {
 		t.Fatalf("raft.New: %v", err)
 	}
@@ -164,6 +164,7 @@ func TestBridge_PeerOrdering(t *testing.T) {
 func TestBridge_RealGossipIntegration(t *testing.T) {
 	// Create a real gossip node.
 	gCfg := gossip.DefaultConfig("bridge-test", "127.0.0.1:0")
+	gCfg.Secret = testClusterSecret
 	g, err := gossip.New(gCfg)
 	if err != nil {
 		t.Fatalf("gossip.New: %v", err)
@@ -175,7 +176,9 @@ func TestBridge_RealGossipIntegration(t *testing.T) {
 	}
 
 	// Create a real Raft node.
-	r, err := raft.New(raft.DefaultConfig("bridge-test", "127.0.0.1:0"), noopStateMachine{})
+	rCfg := raft.DefaultConfig("bridge-test", "127.0.0.1:0")
+	rCfg.Secret = testClusterSecret
+	r, err := raft.New(rCfg, noopStateMachine{})
 	if err != nil {
 		t.Fatalf("raft.New: %v", err)
 	}

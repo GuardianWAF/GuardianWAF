@@ -120,6 +120,7 @@ func setupPartitionCluster(t *testing.T, n int) map[string]*pNode {
 		// Raft node.
 		r, err := raft.New(raft.Config{
 			NodeID:             id,
+			Secret:             testClusterSecret,
 			BindAddr:           "127.0.0.1:0",
 			ElectionTimeoutMin: 300 * time.Millisecond,
 			ElectionTimeoutMax: 600 * time.Millisecond,
@@ -143,6 +144,7 @@ func setupPartitionCluster(t *testing.T, n int) map[string]*pNode {
 		pt := &partitionedGossipTransport{inner: udpTr}
 
 		gCfg := gossip.DefaultConfig(id, pt.LocalAddr())
+		gCfg.Secret = testClusterSecret
 		gCfg.RaftAddr = r.Transport().LocalAddr()
 		gCfg.DashboardAddr = "http://" + httpLn.Addr().String()
 		gCfg.ProbeInterval = 200 * time.Millisecond

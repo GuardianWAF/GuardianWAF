@@ -12,6 +12,7 @@ func TestAppendEntries_DirectSend(t *testing.T) {
 	// Create two nodes with no peers (no election will fire).
 	a, err := New(Config{
 		NodeID:             "a",
+		Secret:             testSecret,
 		BindAddr:           "127.0.0.1:0",
 		ElectionTimeoutMin: 9999 * time.Second, // effectively never
 		ElectionTimeoutMax: 9999 * time.Second,
@@ -25,6 +26,7 @@ func TestAppendEntries_DirectSend(t *testing.T) {
 
 	b, err := New(Config{
 		NodeID:             "b",
+		Secret:             testSecret,
 		BindAddr:           "127.0.0.1:0",
 		ElectionTimeoutMin: 9999 * time.Second,
 		ElectionTimeoutMax: 9999 * time.Second,

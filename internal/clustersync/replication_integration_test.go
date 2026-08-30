@@ -51,6 +51,7 @@ func setupIntegrationCluster(t *testing.T, n int) map[string]*integrationNode {
 
 		r, err := raft.New(raft.Config{
 			NodeID:             id,
+			Secret:             testClusterSecret,
 			BindAddr:           "127.0.0.1:0",
 			ElectionTimeoutMin: 2000 * time.Millisecond,
 			ElectionTimeoutMax: 4000 * time.Millisecond,

@@ -31,6 +31,12 @@ type Config struct {
 	GossipInterval   time.Duration // how often to disseminate piggybacked state
 	GossipFanout     int           // number of peers to gossip to per interval
 	Logger           *slog.Logger
+
+	// Secret authenticates every gossip datagram. It is required: a member
+	// discovered over gossip is promoted into the Raft peer set, so an
+	// unauthenticated socket lets one spoofed packet join the cluster.
+	// Must be at least MinSecretLen bytes.
+	Secret []byte
 }
 
 // DefaultConfig returns production-ready defaults.
@@ -93,6 +99,11 @@ func New(cfg Config) (*Gossip, error) {
 func NewWithTransport(cfg Config, tr Transport) (*Gossip, error) {
 	if cfg.NodeID == "" {
 		return nil, errors.New("gossip: NodeID is required")
+	}
+	// Fail closed: a gossip node without a secret would accept membership
+	// updates from anyone who can reach its UDP port.
+	if err := validateSecret(cfg.Secret); err != nil {
+		return nil, err
 	}
 	logger := cfg.Logger
 	if logger == nil {
@@ -300,7 +311,14 @@ func (g *Gossip) runReceiver(ctx context.Context) {
 			g.logger.Debug("receive error", "err", err)
 			continue
 		}
-		g.handleMessage(data, from)
+		body, authErr := open(g.config.Secret, data)
+		if authErr != nil {
+			// Anyone can send this socket a UDP packet; only peers holding the
+			// cluster secret get to influence membership.
+			g.logger.Debug("rejected unauthenticated datagram", "from", from, "err", authErr)
+			continue
+		}
+		g.handleMessage(body, from)
 	}
 }
 
@@ -589,7 +607,12 @@ func (g *Gossip) send(addr string, msg Message) {
 		g.logger.Debug("encode error", "err", err)
 		return
 	}
-	if err := g.transport.Send(addr, data); err != nil {
+	sealed, err := seal(g.config.Secret, data)
+	if err != nil {
+		g.logger.Debug("seal error", "err", err)
+		return
+	}
+	if err := g.transport.Send(addr, sealed); err != nil {
 		g.logger.Debug("send error", "addr", addr, "err", err)
 	}
 }
