@@ -7,11 +7,14 @@ import (
 )
 
 // RateTracker tracks request rates using a sliding window algorithm.
+// Requests are bucketed per second: each slot counts the hits of one unix
+// second, so a burst inside the window is counted instead of collapsed.
 type RateTracker struct {
-	mu       sync.RWMutex
-	window   time.Duration
-	slots    []time.Time
-	position int
+	mu        sync.RWMutex
+	window    time.Duration
+	slots     []int64   // per-second request counters, indexed by unix-second modulo
+	secs      []int64   // unix second each bucket belongs to (staleness check)
+	lastWrite time.Time // last Record() time, used by TenantRateLimiter.Cleanup
 }
 
 // NewRateTracker creates a new rate tracker with the given window size.
@@ -23,7 +26,8 @@ func NewRateTracker(window time.Duration) *RateTracker {
 	}
 	return &RateTracker{
 		window: window,
-		slots:  make([]time.Time, slotCount),
+		slots:  make([]int64, slotCount),
+		secs:   make([]int64, slotCount),
 	}
 }
 
@@ -33,20 +37,32 @@ func (rt *RateTracker) Record() {
 	defer rt.mu.Unlock()
 
 	now := time.Now()
-	rt.slots[rt.position] = now
-	rt.position = (rt.position + 1) % len(rt.slots)
+	idx := int(now.Unix()) % len(rt.slots)
+	if rt.secs[idx] != now.Unix() {
+		rt.secs[idx] = now.Unix()
+		rt.slots[idx] = 0
+	}
+	rt.slots[idx]++
+	rt.lastWrite = now
 }
 
-// Count returns the number of requests in the window.
+// Count returns the number of requests in the window. Only buckets belonging
+// to the exact seconds inside the window are summed — a stale bucket whose
+// second has been reused by an older window rotation counts as zero.
 func (rt *RateTracker) Count() int64 {
 	rt.mu.RLock()
 	defer rt.mu.RUnlock()
 
-	cutoff := time.Now().Add(-rt.window)
+	now := time.Now().Unix()
+	windowSecs := int64(rt.window.Seconds())
+	if windowSecs > int64(len(rt.slots)) {
+		windowSecs = int64(len(rt.slots))
+	}
 	var count int64
-	for _, t := range rt.slots {
-		if t.After(cutoff) {
-			count++
+	for i := int64(0); i < windowSecs; i++ {
+		idx := int((now - i) % int64(len(rt.slots)))
+		if rt.secs[idx] == now-i {
+			count += rt.slots[idx]
 		}
 	}
 	return count
@@ -58,9 +74,10 @@ func (rt *RateTracker) Reset() {
 	defer rt.mu.Unlock()
 
 	for i := range rt.slots {
-		rt.slots[i] = time.Time{}
+		rt.slots[i] = 0
+		rt.secs[i] = 0
 	}
-	rt.position = 0
+	rt.lastWrite = time.Time{}
 }
 
 // TenantRateLimiter provides per-tenant rate limiting with sliding windows.
@@ -132,15 +149,8 @@ func (trl *TenantRateLimiter) Cleanup(maxAge time.Duration) {
 
 	cutoff := time.Now().Add(-maxAge)
 	for id, tracker := range trl.trackers {
-		// Check if any slot is recent
-		hasRecent := false
 		tracker.mu.RLock()
-		for _, t := range tracker.slots {
-			if t.After(cutoff) {
-				hasRecent = true
-				break
-			}
-		}
+		hasRecent := tracker.lastWrite.After(cutoff)
 		tracker.mu.RUnlock()
 
 		if !hasRecent {

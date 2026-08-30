@@ -41,8 +41,8 @@ func TestRateTrackerSlotsStayFixedUnderHighEventVolume(t *testing.T) {
 	if got := len(tracker.slots); got != initialSlots {
 		t.Fatalf("slot count = %d, want fixed size %d", got, initialSlots)
 	}
-	if got := tracker.Count(); got > int64(initialSlots) {
-		t.Fatalf("count = %d, want <= fixed slot count %d", got, initialSlots)
+	if got := tracker.Count(); got != int64(initialSlots*10) {
+		t.Fatalf("count = %d, want %d — every event inside the window must be counted (burst collapse was the round-3 bug)", got, initialSlots*10)
 	}
 }
 
