@@ -123,7 +123,23 @@ func LoadCSV(path string) (*DB, error) {
 			}
 			db.ranges = append(db.ranges, ipRange{start: start, end: end, country: country})
 		} else if len(parts) >= 3 {
-			// Format: start_ip,end_ip,country (or with extra fields)
+			// MaxMind GeoLite2 shape: network,country,... — CIDR-first with
+			// extra columns. These rows previously fell through to the
+			// start_ip,end_ip,country branch, failed ParseIP on the CIDR, and
+			// were silently dropped (total coverage loss, no warning).
+			if _, _, cidrErr := net.ParseCIDR(parts[0]); cidrErr == nil {
+				start, end, rangeErr := cidrToRange(parts[0])
+				if rangeErr != nil {
+					continue
+				}
+				country := strings.ToUpper(parts[1])
+				if len(country) != 2 {
+					continue
+				}
+				db.ranges = append(db.ranges, ipRange{start: start, end: end, country: country})
+				continue
+			}
+			// Simple format: start_ip,end_ip,country (or with extra fields)
 			startIP := net.ParseIP(parts[0])
 			endIP := net.ParseIP(parts[1])
 			country := strings.ToUpper(parts[2])

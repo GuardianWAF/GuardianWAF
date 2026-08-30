@@ -76,21 +76,20 @@ func (eb *EventBus) Unsubscribe(ch chan<- engine.Event) {
 }
 
 // Publish sends an event to all subscribers. Non-blocking: if a subscriber's
-// channel is full, the event is skipped for that subscriber.
+// channel is full, the event is skipped for that subscriber. The read lock is
+// held across the sends so Close() (which takes the write lock before closing
+// the channels) can never interleave with a send — a snapshot-then-send
+// outside the lock allowed "send on closed channel" panics during shutdown.
 func (eb *EventBus) Publish(event engine.Event) {
-	// Snapshot subscriber list under RLock, then iterate outside the lock
-	// to minimize the critical section and avoid blocking Subscribe/Unsubscribe.
 	eb.mu.RLock()
+	defer eb.mu.RUnlock()
+
 	if eb.closed {
-		eb.mu.RUnlock()
 		return
 	}
-	subs := make([]chan<- engine.Event, len(eb.subscribers))
-	copy(subs, eb.subscribers)
-	eb.mu.RUnlock()
 
 	eb.publishedTotal.Add(1)
-	for _, ch := range subs {
+	for _, ch := range eb.subscribers {
 		select {
 		case ch <- event:
 		default:

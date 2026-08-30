@@ -158,6 +158,9 @@ func NewManagerWithEmail(targets []WebhookTarget, emails []config.EmailConfig) *
 
 // SetLogger sets the log callback.
 func (m *Manager) SetLogger(fn func(level, msg string)) {
+	if fn == nil {
+		fn = func(_, _ string) {}
+	}
 	m.logFn.Store(fn)
 }
 

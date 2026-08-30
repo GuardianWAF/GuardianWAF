@@ -71,10 +71,10 @@ func (m *Manager) SendEmail(target *EmailTarget, event *engine.Event) {
 
 	if err != nil {
 		emailFailed.Add(1)
-		m.logFn.Load().(func(string, string))("error", fmt.Sprintf("failed to send email alert: %v", err))
+		m.log("error", fmt.Sprintf("failed to send email alert: %v", err))
 	} else {
 		emailSent.Add(1)
-		m.logFn.Load().(func(string, string))("info", fmt.Sprintf("email alert sent to %s for event %s", strings.Join(cfg.To, ", "), event.ID))
+		m.log("info", fmt.Sprintf("email alert sent to %s for event %s", strings.Join(cfg.To, ", "), event.ID))
 	}
 }
 

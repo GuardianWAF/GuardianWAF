@@ -2,6 +2,7 @@ package siem
 
 import (
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -297,45 +298,48 @@ func ExporterConfigFromSIEM(cfg config.SIEMConfig) ExporterConfig {
 }
 
 // formatJSON renders an event as a compact JSON string for SIEM ingestion.
+// encoding/json guarantees escaping of attacker-controlled fields (query,
+// user_agent, path, ...) — the previous hand-rolled concatenation allowed
+// log injection and emitted structurally invalid JSON.
 func formatJSON(ev engine.Event) string {
-	// Simple JSON encoding without external deps.
-	var sb strings.Builder
-	sb.WriteString(`{"timestamp":"`)
-	sb.WriteString(ev.Timestamp.UTC().Format(time.RFC3339Nano))
-	sb.WriteString(`","id":"`)
-	sb.WriteString(ev.ID)
-	sb.WriteString(`","action":"`)
-	sb.WriteString(ev.Action.String())
-	sb.WriteString(`","score":`)
-	sb.WriteString(fmt.Sprintf("%d", ev.Score))
-	sb.WriteString(`,"client_ip":"`)
-	sb.WriteString(ev.ClientIP)
-	sb.WriteString(`","method":"`)
-	sb.WriteString(ev.Method)
-	sb.WriteString(`","path":"`)
-	sb.WriteString(ev.Path)
-	sb.WriteString(`","query":"`)
-	sb.WriteString(ev.Query)
-	sb.WriteString(`","user_agent":"`)
-	sb.WriteString(ev.UserAgent)
-	sb.WriteString(`","host":"`)
-	sb.WriteString(ev.Host)
-	sb.WriteString(`","status_code":`)
-	sb.WriteString(fmt.Sprintf("%d", ev.StatusCode))
-	if ev.TenantID != "" {
-		sb.WriteString(`,"tenant_id":"`)
-		sb.WriteString(ev.TenantID)
-		sb.WriteString(`"`)
+	payload := struct {
+		Timestamp   string `json:"timestamp"`
+		ID          string `json:"id"`
+		Action      string `json:"action"`
+		Score       int    `json:"score"`
+		ClientIP    string `json:"client_ip"`
+		Method      string `json:"method"`
+		Path        string `json:"path"`
+		Query       string `json:"query"`
+		UserAgent   string `json:"user_agent"`
+		Host        string `json:"host"`
+		StatusCode  int    `json:"status_code"`
+		TenantID    string `json:"tenant_id,omitempty"`
+		Detector    string `json:"detector,omitempty"`
+		Description string `json:"description,omitempty"`
+	}{
+		Timestamp:  ev.Timestamp.UTC().Format(time.RFC3339Nano),
+		ID:         ev.ID,
+		Action:     ev.Action.String(),
+		Score:      ev.Score,
+		ClientIP:   ev.ClientIP,
+		Method:     ev.Method,
+		Path:       ev.Path,
+		Query:      ev.Query,
+		UserAgent:  ev.UserAgent,
+		Host:       ev.Host,
+		StatusCode: ev.StatusCode,
+		TenantID:   ev.TenantID,
 	}
 	if len(ev.Findings) > 0 {
-		sb.WriteString(`,"detector":"`)
-		sb.WriteString(ev.Findings[0].DetectorName)
-		sb.WriteString(`","description":"`)
-		sb.WriteString(ev.Findings[0].Description)
-		sb.WriteString(`"`)
+		payload.Detector = ev.Findings[0].DetectorName
+		payload.Description = ev.Findings[0].Description
 	}
-	sb.WriteString(`}`)
-	return sb.String()
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 // version is the SIEM product version (set at link time or build time).

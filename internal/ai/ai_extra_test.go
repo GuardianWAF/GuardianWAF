@@ -20,7 +20,7 @@ func TestAnalyzer_SetLogger(t *testing.T) {
 
 	called := false
 	a.SetLogger(func(level, msg string) { called = true })
-	a.logs("info", "test")
+	a.log("info", "test")
 	if !called {
 		t.Error("expected logger to be called")
 	}

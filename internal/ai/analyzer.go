@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
@@ -70,7 +71,7 @@ type Analyzer struct {
 	blocker IPBlocker
 	config  AnalyzerConfig
 	catalog *CatalogCache
-	logs    logFunc
+	logFn   atomic.Value // logFunc; atomic so SetLogger never races the background loop
 
 	// Event collection
 	pending []eventSummary
@@ -132,9 +133,9 @@ func NewAnalyzer(cfg AnalyzerConfig, store *Store, catalogURL string) *Analyzer 
 		config:  cfg,
 		catalog: NewCatalogCache(catalogURL),
 		stopCh:  make(chan struct{}),
-		logs:    func(_, _ string) {},                   // noop default
 		pending: make([]eventSummary, 0, cfg.BatchSize), // pre-allocated to avoid slice reallocation
 	}
+	a.logFn.Store(logFunc(func(_, _ string) {})) // noop default
 
 	// Initialize client from stored config if available
 	if store.HasConfig() {
@@ -153,9 +154,18 @@ func NewAnalyzer(cfg AnalyzerConfig, store *Store, catalogURL string) *Analyzer 
 
 // SetLogger sets the log function (typically eng.Logs.Add).
 func (a *Analyzer) SetLogger(fn logFunc) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.logs = fn
+	if fn == nil {
+		fn = func(_, _ string) {}
+	}
+	a.logFn.Store(fn)
+}
+
+// log safely invokes the stored logger with a comma-ok type assertion so a
+// zero-value Analyzer or a nil logger can never panic a background goroutine.
+func (a *Analyzer) log(level, msg string) {
+	if fn, ok := a.logFn.Load().(logFunc); ok {
+		fn(level, msg)
+	}
 }
 
 // SetBlocker sets the IP blocker for auto-ban verdicts.
@@ -202,7 +212,7 @@ func (a *Analyzer) loop(eventCh <-chan engine.Event) {
 	defer func() {
 		if r := recover(); r != nil {
 			// AI analyzer panic recovery — prevent silent failure of threat analysis
-			a.logs("error", fmt.Sprintf("AI analyzer loop panic: %v - restarting", r))
+			a.log("error", fmt.Sprintf("AI analyzer loop panic: %v - restarting", r))
 			a.wg.Add(1)
 			go a.loop(eventCh)
 		}
@@ -281,13 +291,13 @@ func (a *Analyzer) flushBatch() {
 	a.mu.Unlock()
 
 	if client == nil {
-		a.logs("warn", "AI analyzer: no provider configured, skipping batch")
+		a.log("warn", "AI analyzer: no provider configured, skipping batch")
 		return
 	}
 
 	// Check cost limits
 	if !a.store.WithinLimits(a.config.MaxTokensHour, a.config.MaxTokensDay, a.config.MaxRequestsHour) {
-		a.logs("warn", "AI analyzer: usage limit reached, skipping batch")
+		a.log("warn", "AI analyzer: usage limit reached, skipping batch")
 		return
 	}
 
@@ -328,7 +338,7 @@ func (a *Analyzer) flushBatch() {
 
 	if err != nil {
 		result.Error = err.Error()
-		a.logs("error", fmt.Sprintf("AI analysis failed: %v", err))
+		a.log("error", fmt.Sprintf("AI analysis failed: %v", err))
 		_ = a.store.AddResult(result)
 		return
 	}
@@ -340,7 +350,7 @@ func (a *Analyzer) flushBatch() {
 	if err := json.Unmarshal([]byte(jsonStr), &aiResp); err != nil {
 		result.Error = fmt.Sprintf("failed to parse AI response: %v", err)
 		result.Summary = truncate(responseText, 500)
-		a.logs("warn", fmt.Sprintf("AI response parse error: %v", err))
+		a.log("warn", fmt.Sprintf("AI response parse error: %v", err))
 		_ = a.store.AddResult(result)
 		return
 	}
@@ -349,7 +359,7 @@ func (a *Analyzer) flushBatch() {
 	result.Summary = aiResp.Summary
 	result.ThreatsDetected = aiResp.ThreatsDetected
 
-	a.logs("info", fmt.Sprintf("AI analysis complete: %d events, %d verdicts, %d tokens ($%.4f)",
+	a.log("info", fmt.Sprintf("AI analysis complete: %d events, %d verdicts, %d tokens ($%.4f)",
 		len(batch), len(aiResp.Verdicts), usage.TotalTokens, cost))
 
 	// Apply verdicts
@@ -375,7 +385,7 @@ func (a *Analyzer) applyVerdicts(verdicts []Verdict) {
 		if v.Action == "block" && v.Confidence >= 0.7 {
 			reason := fmt.Sprintf("AI verdict: %s (confidence: %.0f%%)", v.Reason, v.Confidence*100)
 			blocker.AddAutoBan(v.IP, reason, ttl)
-			a.logs("info", fmt.Sprintf("AI auto-blocked IP %s: %s", v.IP, v.Reason))
+			a.log("info", fmt.Sprintf("AI auto-blocked IP %s: %s", v.IP, v.Reason))
 		}
 	}
 }
