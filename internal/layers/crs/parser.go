@@ -229,6 +229,16 @@ func (p *Parser) parseVariables(s string) ([]RuleVariable, error) {
 func (p *Parser) parseOperator(s string) (RuleOperator, error) {
 	s = strings.TrimSpace(s)
 
+	// splitQuoted keeps each quoted section's surrounding quotes, so a quoted
+	// operator section arrives as "\"@streq TRACE\"". Unquote it BEFORE the
+	// negation/@ detection — otherwise the @ branch never fires and every
+	// file-loaded rule degrades to the default @rx operator with the raw
+	// operator text as its argument (the whole layer goes inert).
+	if len(s) >= 2 && strings.HasPrefix(s, "\"") && strings.HasSuffix(s, "\"") {
+		s = s[1 : len(s)-1]
+		s = strings.TrimSpace(s)
+	}
+
 	op := RuleOperator{
 		Type: "@rx", // Default operator
 	}
@@ -289,7 +299,7 @@ func (p *Parser) parseOperator(s string) (RuleOperator, error) {
 	}
 
 	// Remove quotes from argument
-	if strings.HasPrefix(s, "\"") && strings.HasSuffix(s, "\"") {
+	if len(s) >= 2 && strings.HasPrefix(s, "\"") && strings.HasSuffix(s, "\"") {
 		s = s[1 : len(s)-1]
 	}
 
