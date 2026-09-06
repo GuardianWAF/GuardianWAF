@@ -135,9 +135,14 @@ type Server struct {
 // SetAPIKey sets the API key required for MCP server authentication.
 // When set, all tool calls must include the key in the initialize request.
 // Empty string disables authentication (default for stdio transport).
+// Changing the key invalidates any session authenticated against the
+// previous key; clients must re-initialize with the new credential.
 func (s *Server) SetAPIKey(key string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if key != s.apiKey {
+		s.authenticated = false
+	}
 	s.apiKey = key
 }
 
@@ -551,7 +556,12 @@ func (s *Server) processRequestWithAuditContext(req JSONRPCRequest, auditCtx *Au
 		authed := s.authenticated
 		apiKey := s.apiKey
 		s.mu.Unlock()
-		if apiKey != "" && !authed {
+		// A transport that authenticates every request with its own
+		// credential (SSE X-API-Key) satisfies the auth requirement for that
+		// request: AuditContext.AuthType is set only after a successful
+		// constant-time key comparison in authenticateContext.
+		transportAuthed := auditCtx != nil && auditCtx.AuthType == "api_key"
+		if apiKey != "" && !authed && !transportAuthed {
 			return JSONRPCResponse{JSONRPC: "2.0", ID: req.ID, Error: &RPCError{Code: ErrCodeUnauthorized, Message: "authentication required"}}
 		}
 		return s.processToolsCall(req, auditCtx)
