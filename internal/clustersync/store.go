@@ -39,6 +39,9 @@ type ReplicatedStore struct {
 	bans     map[string]BanEntry        // key = IP
 	rules    map[string]json.RawMessage // key = rule_id
 	counters map[string]CounterEntry
+	// sweptWindow is the newest counter window epoch already reclaimed by
+	// sweepStaleCounters; 0 means never swept.
+	sweptWindow int64
 }
 
 // NewReplicatedStore creates an empty store.
@@ -113,6 +116,26 @@ func (s *ReplicatedStore) GetCounter(key string, window int64) int64 {
 	return c.Value
 }
 
+// sweepStaleCounters removes counter entries from epochs older than window.
+// Called at epoch advance from both mutation seams (hot-path IncrementCounter
+// and Raft-replay applyIncrCounter); stale entries are dead state — GetCounter
+// returns 0 for them and the next increment resets them — so without the sweep
+// the map grows unboundedly under adversarial key cardinality. The monotonic
+// guard (window must be newer than the last swept epoch) prevents an
+// old-window replayed command from wiping newer, live counters.
+// Caller must hold s.mu for writing.
+func (s *ReplicatedStore) sweepStaleCounters(window int64) {
+	if window <= s.sweptWindow {
+		return
+	}
+	for key, entry := range s.counters {
+		if entry.Window != window {
+			delete(s.counters, key)
+		}
+	}
+	s.sweptWindow = window
+}
+
 // IncrementCounter atomically increments the counter for the given key and
 // window under the write lock, and returns the post-increment value. If the
 // stored counter's window differs from the requested window, the counter is
@@ -128,6 +151,8 @@ func (s *ReplicatedStore) GetCounter(key string, window int64) int64 {
 func (s *ReplicatedStore) IncrementCounter(key string, window int64) int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	s.sweepStaleCounters(window)
 
 	existing := s.counters[key]
 	if existing.Window != window {
@@ -145,18 +170,39 @@ func (s *ReplicatedStore) IncrementCounter(key string, window int64) int64 {
 
 // --- State mutations (called by Apply, not directly by clients) ---
 
-func (s *ReplicatedStore) applyBanIP(payload BanIPPayload) {
+func (s *ReplicatedStore) applyBanIP(payload BanIPPayload) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Negative durations are out-of-domain: ExpiresAt is only set for
+	// positive durations, so accepting them would silently escalate a
+	// finite-ban request to a permanent one (raft-replay hardening — the
+	// constructor path is validated in NewBanCommand).
+	if payload.Duration < 0 {
+		return fmt.Errorf("clustersync: invalid ban duration %s (0 = permanent)", payload.Duration)
+	}
+
+	now := time.Now()
+	// Opportunistic reclamation: expired bans are dead state (IsBanned
+	// filters them on read) but linger forever unless an operator issues an
+	// explicit unban per IP — PurgeExpiredBans has no production caller. Ban
+	// commands are rare, so an O(n) sweep at this seam is free. Mirrors
+	// sweepStaleCounters.
+	for ip, b := range s.bans {
+		if b.IsExpired(now) {
+			delete(s.bans, ip)
+		}
+	}
+
 	entry := BanEntry{
 		IP:       payload.IP,
-		BannedAt: time.Now(),
+		BannedAt: now,
 	}
 	if payload.Duration > 0 {
 		entry.ExpiresAt = entry.BannedAt.Add(payload.Duration)
 	}
 	s.bans[payload.IP] = entry
+	return nil
 }
 
 func (s *ReplicatedStore) applyUnbanIP(payload UnbanIPPayload) {
@@ -180,6 +226,8 @@ func (s *ReplicatedStore) applyDeleteRule(payload DeleteRulePayload) {
 func (s *ReplicatedStore) applyIncrCounter(payload IncrCounterPayload) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	s.sweepStaleCounters(payload.Window)
 
 	existing := s.counters[payload.Key]
 	if existing.Window != payload.Window {
@@ -210,7 +258,9 @@ func (s *ReplicatedStore) Apply(cmd Command) error {
 		if err := cmd.DecodePayload(&p); err != nil {
 			return fmt.Errorf("clustersync: decode ban payload: %w", err)
 		}
-		s.applyBanIP(p)
+		if err := s.applyBanIP(p); err != nil {
+			return fmt.Errorf("clustersync: apply ban: %w", err)
+		}
 	case CmdUnbanIP:
 		var p UnbanIPPayload
 		if err := cmd.DecodePayload(&p); err != nil {

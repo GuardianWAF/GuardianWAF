@@ -89,8 +89,13 @@ func DecodeCommand(data []byte) (Command, error) {
 	return cmd, nil
 }
 
-// NewBanCommand creates a ban command.
+// NewBanCommand creates a ban command. Duration 0 means permanent; negative
+// durations are rejected — applyBanIP only sets ExpiresAt for positive
+// durations, so a negative request would silently escalate to a permanent ban.
 func NewBanCommand(ip string, duration time.Duration) (Command, error) {
+	if duration < 0 {
+		return Command{}, fmt.Errorf("clustersync: invalid ban duration %s (0 = permanent)", duration)
+	}
 	payload, err := json.Marshal(BanIPPayload{IP: ip, Duration: duration})
 	if err != nil {
 		return Command{}, err
