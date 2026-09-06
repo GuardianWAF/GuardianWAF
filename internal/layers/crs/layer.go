@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -344,6 +345,29 @@ func (l *Layer) createTransaction(ctx *engine.RequestContext, deadline *regexsaf
 		tx.RequestBody = ctx.Body
 	}
 
+	// Populate the ARGS collection: query string + urlencoded request body.
+	// Without this, ARGS/ARGS_GET/ARGS_POST resolve empty and every
+	// ARGS-targeted rule is inert. A malformed query or body populates no
+	// ARGS from that source (ParseQuery errors are skipped — fail-soft).
+	if ctx.Request != nil && ctx.Request.URL != nil {
+		if query, err := url.ParseQuery(ctx.Request.URL.RawQuery); err == nil {
+			for key, vals := range query {
+				tx.RequestArgs[key] = append(tx.RequestArgs[key], vals...)
+			}
+		}
+	}
+	for name, vals := range ctx.Headers {
+		if strings.EqualFold(name, "Content-Type") && len(vals) > 0 &&
+			strings.Contains(strings.ToLower(vals[0]), "application/x-www-form-urlencoded") && len(ctx.Body) > 0 {
+			if form, err := url.ParseQuery(string(ctx.Body)); err == nil {
+				for key, formVals := range form {
+					tx.RequestArgs[key] = append(tx.RequestArgs[key], formVals...)
+				}
+			}
+			break
+		}
+	}
+
 	tx.resolver = NewVariableResolver(tx)
 	tx.evaluator = NewOperatorEvaluator()
 	tx.evaluator.SetDeadline(deadline)
@@ -357,20 +381,50 @@ func (l *Layer) evaluateRule(rule *Rule, tx *Transaction) (bool, int, *engine.Fi
 	resolver.transaction = tx
 	evaluator.captureGroups = evaluator.captureGroups[:0]
 
-	// Evaluate variables
+	// Evaluate variables. Exclusion targets (!VAR) remove their resolved
+	// values from the included result set (ModSecurity negation semantics —
+	// CRS exclusions suppress matches on specific fields). A rule with only
+	// exclusion targets means the collection minus the excluded entries.
+	excludeValues := map[string]bool{}
+	included := make([]RuleVariable, 0, len(rule.Variables))
+	for _, variable := range rule.Variables {
+		if !variable.Exclude {
+			included = append(included, variable)
+			continue
+		}
+		if values, err := resolver.Resolve(variable); err == nil {
+			for _, v := range values {
+				excludeValues[v] = true
+			}
+		}
+	}
+	if len(included) == 0 {
+		for _, variable := range rule.Variables {
+			if !variable.Exclude {
+				continue
+			}
+			base := variable
+			base.Key = ""
+			base.KeyRegex = false
+			base.Exclude = false
+			included = append(included, base)
+		}
+	}
+
 	matched := false
 	matchedValues := []string{}
 
-	for _, variable := range rule.Variables {
-		// Skip if variable is excluded
-		if variable.Exclude {
-			continue
-		}
-
+	for _, variable := range included {
 		values, _ := resolver.Resolve(variable)
 
 		// Apply transformations
 		for _, value := range values {
+			// Excluded field's value (value-level difference — the resolver
+			// model is flat values).
+			if excludeValues[value] {
+				continue
+			}
+
 			transformed := Transform(value, rule.Actions.Transformations)
 
 			// Evaluate operator

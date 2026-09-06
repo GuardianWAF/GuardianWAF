@@ -192,16 +192,16 @@ func (p *Parser) parseVariables(s string) ([]RuleVariable, error) {
 
 		var rv RuleVariable
 
-		// Check for exclusion (!)
-		if strings.HasPrefix(part, "!+") {
-			rv.Exclude = true
-			part = strings.TrimPrefix(part, "!")
-		}
-
-		// Check for count operator (&)
-		if strings.HasPrefix(part, "&+") {
+		// Check for count operator (&X — may combine with negation, &!X)
+		if strings.HasPrefix(part, "&") {
 			rv.Count = true
 			part = strings.TrimPrefix(part, "&")
+		}
+
+		// Check for exclusion (!X)
+		if strings.HasPrefix(part, "!") {
+			rv.Exclude = true
+			part = strings.TrimPrefix(part, "!")
 		}
 
 		// Check for collection key (:)
