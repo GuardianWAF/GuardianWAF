@@ -180,6 +180,12 @@ func (s *Store) SaveTenant(tenant *Tenant) error {
 	if err != nil {
 		return err
 	}
+	// Ensure the store directory exists: SaveTenant can run on a store whose
+	// Init has not been called (the path may even be the constructor default),
+	// and persistence must not silently no-op in that state.
+	if err := os.MkdirAll(s.basePath, 0o700); err != nil {
+		return fmt.Errorf("creating tenant directory: %w", err)
+	}
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, jsonData, 0600); err != nil {
 		return fmt.Errorf("writing tenant file: %w", err)

@@ -20,6 +20,7 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/layers/rules"
 	logging "github.com/guardianwaf/guardianwaf/internal/logging"
+	"github.com/guardianwaf/guardianwaf/internal/netutil"
 )
 
 // Tenant represents a single tenant with isolated WAF configuration.
@@ -175,7 +176,7 @@ func (m *Manager) LoadTenants() error {
 	for _, tenant := range tenants {
 		m.tenants[tenant.ID] = tenant
 		for _, domain := range tenant.Domains {
-			m.domains[domain] = tenant.ID
+			m.domains[domainKey(domain)] = tenant.ID
 		}
 		// Set first tenant as default
 		if m.defaultTenantID == "" {
@@ -244,7 +245,7 @@ func (m *Manager) CreateTenant(name, description string, domains []string, quota
 
 	// Check domain uniqueness
 	for _, domain := range domains {
-		if existingID, exists := m.domains[domain]; exists {
+		if existingID, exists := m.domains[domainKey(domain)]; exists {
 			return nil, fmt.Errorf("domain %s already assigned to tenant %s", domain, existingID)
 		}
 	}
@@ -283,7 +284,7 @@ func (m *Manager) CreateTenant(name, description string, domains []string, quota
 
 	// Register domains
 	for _, domain := range domains {
-		m.domains[domain] = id
+		m.domains[domainKey(domain)] = id
 	}
 
 	// Set as default if first tenant
@@ -339,6 +340,9 @@ func (m *Manager) GetDefaultTenantID() string {
 func (m *Manager) GetTenantByDomain(domain string) *Tenant {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
+	// DNS names are case-insensitive: the index stores normalized keys.
+	domain = domainKey(domain)
 
 	// Exact match
 	if tenantID, exists := m.domains[domain]; exists {
@@ -458,8 +462,10 @@ func (m *Manager) ResolveTenant(r *http.Request) *Tenant {
 		}
 	}
 
-	// 2. Try domain
-	domain := r.Host
+	// 2. Try domain — r.Host carries "host:port" for any request to a
+	// non-default port, so strip the port before matching registered
+	// domains (mirrors the proxy virtual-host router).
+	domain := netutil.StripPort(r.Host)
 	if domain != "" {
 		if tenant := m.GetTenantByDomain(domain); tenant != nil {
 			return tenant
@@ -508,22 +514,23 @@ func (m *Manager) UpdateTenant(id string, updates *TenantUpdate) error {
 
 	// Update domains — this is part of the same atomic operation under m.mu
 	if len(updates.Domains) > 0 {
-		// Remove old domain mappings
-		for _, oldDomain := range tenant.Domains {
-			delete(m.domains, oldDomain)
-		}
-
-		// Check new domains
+		// Check new domains before touching the index so a rejected update
+		// cannot leave the mappings inconsistent with tenant.Domains.
 		for _, domain := range updates.Domains {
-			if existingID, exists := m.domains[domain]; exists && existingID != id {
+			if existingID, exists := m.domains[domainKey(domain)]; exists && existingID != id {
 				return fmt.Errorf("domain %s already assigned to tenant %s", domain, existingID)
 			}
+		}
+
+		// Remove old domain mappings
+		for _, oldDomain := range tenant.Domains {
+			delete(m.domains, domainKey(oldDomain))
 		}
 
 		// Set new domains
 		tenant.Domains = updates.Domains
 		for _, domain := range updates.Domains {
-			m.domains[domain] = id
+			m.domains[domainKey(domain)] = id
 		}
 	}
 
@@ -560,7 +567,7 @@ func (m *Manager) DeleteTenant(id string) error {
 
 	// Remove domain mappings
 	for _, domain := range tenant.Domains {
-		delete(m.domains, domain)
+		delete(m.domains, domainKey(domain))
 	}
 
 	delete(m.tenants, id)
@@ -850,6 +857,13 @@ type ManagerStats struct {
 }
 
 // Helper functions
+
+// domainKey normalizes a domain for the tenant domain index. DNS names are
+// case-insensitive, so index keys and lookups are lowercased; tenant.Domains
+// keeps the operator's original spelling for display and the API.
+func domainKey(domain string) string {
+	return strings.ToLower(domain)
+}
 
 func generateTenantID(name string) (string, error) {
 	b := make([]byte, 16) // 128-bit entropy for collision resistance at scale
