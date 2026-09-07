@@ -214,7 +214,9 @@ func (ls *LeaderState) ComputeCommitIndex(myLastIndex uint64) uint64 {
 	defer ls.mu.RUnlock()
 
 	if len(ls.matchIndex) == 0 {
-		return 0
+		// Single-node cluster (no peers): the leader is the entire quorum,
+		// so its own lastIndex is by definition replicated on 1 of 1 nodes.
+		return myLastIndex
 	}
 
 	// Collect all matchIndex values plus our own lastIndex.

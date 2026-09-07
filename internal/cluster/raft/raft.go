@@ -306,6 +306,13 @@ func (r *Raft) electionLoop() {
 				return
 			case <-time.After(r.config.HeartbeatInterval):
 				r.broadcastHeartbeat()
+				// A leader with zero peers receives no AppendEntries
+				// responses, so the response path can never advance the
+				// commit index — re-evaluate it here on every heartbeat
+				// (same locking contract as the response handler).
+				r.mu.Lock()
+				r.maybeAdvanceCommitIndex()
+				r.mu.Unlock()
 			}
 		}
 	}
@@ -331,6 +338,11 @@ func (r *Raft) startElection() {
 
 	r.role = RoleCandidate
 	r.persist.IncCurrentTerm()
+	// §5.2: a candidate votes for itself and must PERSIST that vote before
+	// answering vote requests — IncCurrentTerm clears votedFor, and without
+	// recording the self-vote here the candidate would grant its vote to a
+	// competing candidate in the same term (two votes in one term).
+	r.persist.SetVotedFor(r.config.NodeID)
 	r.leaderID = ""
 	r.votesReceived = map[string]bool{r.config.NodeID: true}
 	r.resetElectionTimer()
