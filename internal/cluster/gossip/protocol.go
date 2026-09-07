@@ -211,6 +211,12 @@ func (g *Gossip) IsLocalNode(id string) bool {
 // UpdateMember merges a member update from an external source (e.g. Raft
 // state replication). Stale incarnations are ignored.
 func (g *Gossip) UpdateMember(m Member) {
+	// External-source entry point: honor the Stop() shutdown invariant —
+	// join/leave callbacks (the Raft peer-sync bridge) can never fire after
+	// shutdown, matching markSuspect and the suspect->dead timers.
+	if g.stopped.Load() {
+		return
+	}
 	wasNew := !g.members.Contains(m.ID)
 	g.members.Add(m)
 	g.enqueuePiggyback(m)
