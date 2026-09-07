@@ -61,7 +61,22 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		ctx.NormalizedQuery[k] = normalized
 	}
 
-	// Normalize body
+	// Normalize body.
+	//
+	// NOTE (measured): NormalizeAll is a multi-pass decoder allocating ~17x its
+	// input — 1 MiB of "/" costs 12.3 ms and 17.8 MB (BenchmarkNormalizeAllLarge).
+	// The engine reads up to waf.max_body_size (10 MiB default) while the
+	// sanitizer's own max_body_size defaults to 1 MiB, so a 10 MiB body of "/"
+	// costs roughly 123 ms and 178 MB here before ValidateRequest below ever
+	// checks the size.
+	//
+	// Skipping normalization for over-limit bodies was tried and reverted: an
+	// oversized body scores 40, which is under the block threshold, so it is
+	// only logged and still proxied. Not normalizing it would leave
+	// NormalizedBody empty and blind every detector that reads it for bodies
+	// between the two limits — trading a capacity problem for a detection gap.
+	// Closing this properly needs a policy decision (block on oversize, or
+	// lower the engine's read cap), not a silent change here.
 	ctx.NormalizedBody = NormalizeAll(ctx.BodyString)
 
 	// Normalize headers
@@ -77,10 +92,13 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	// Step 2: Validate
 	findings := ValidateRequest(ctx, l.config)
 
-	// Step 3: Strip hop-by-hop if enabled
-	if l.config.StripHopByHop {
-		StripHopByHopHeaders(ctx)
-	}
+	// NOTE: hop-by-hop stripping (strip_hop_by_hop) previously mutated
+	// ctx.Headers here. That blinded the order-400 smuggling detector (it
+	// reads ctx.Headers["Transfer-Encoding"] for four of its five vectors)
+	// while never affecting what the backend receives — the reverse proxy
+	// forwards the original *http.Request and never reads ctx.Headers. The
+	// mutation was removed; hop-by-hop removal toward the backend needs
+	// proxy-forward-side wiring if it is ever wanted.
 
 	// Determine action
 	action := engine.ActionPass

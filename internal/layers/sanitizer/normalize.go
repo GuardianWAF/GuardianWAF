@@ -289,8 +289,10 @@ func DecodeHTMLEntities(s string) string {
 			}
 		}
 
-		// Named entity
-		if decoded, ok := namedEntities[entity]; ok {
+		// Named entity. HTML5 names are case-sensitive in a browser, but a
+		// detector must catch whichever casing the target parser accepts, so
+		// match case-insensitively ("&Tab;", "&TAB;", "&tab;" all decode).
+		if decoded, ok := namedEntities[strings.ToLower(entity)]; ok {
 			b.WriteRune(decoded)
 			i = end + 1
 			continue
@@ -303,18 +305,58 @@ func DecodeHTMLEntities(s string) string {
 	return b.String()
 }
 
-// namedEntities maps common HTML entity names to their rune values.
+// namedEntities maps HTML entity names to their rune values.
+//
+// Names are stored lowercase and looked up case-insensitively, because HTML5
+// entity names are case-sensitive in a browser but an attacker picks whichever
+// case the parser will honour. The table previously held "tab" and "newl",
+// which are not HTML entities at all, while the real "&Tab;" and "&NewLine;" —
+// the ones used to break up "javascript:" in href payloads — were absent and
+// passed through untouched. Verified: "jav&Tab;ascript:alert(1)" survived
+// normalization unchanged, while the invented "jav&tab;ascript:" was decoded.
+//
+// The whitespace and separator entities matter most here: they are what let a
+// payload split a scheme or an attribute name past a substring matcher.
 var namedEntities = map[string]rune{
-	"amp":   '&',
-	"lt":    '<',
-	"gt":    '>',
-	"quot":  '"',
-	"apos":  '\'',
-	"nbsp":  '\u00A0',
-	"tab":   '\t',
-	"newl":  '\n',
-	"colon": ':',
-	"semi":  ';',
+	"amp":     '&',
+	"lt":      '<',
+	"gt":      '>',
+	"quot":    '"',
+	"apos":    '\'',
+	"nbsp":    '\u00A0',
+	"tab":     '\t',
+	"newline": '\n',
+	"colon":   ':',
+	"semi":    ';',
+	"sol":     '/',
+	"bsol":    '\\',
+	"lpar":    '(',
+	"rpar":    ')',
+	"lbrack":  '[',
+	"rbrack":  ']',
+	"lbrace":  '{',
+	"rbrace":  '}',
+	"equals":  '=',
+	"excl":    '!',
+	"ast":     '*',
+	"midast":  '*',
+	"period":  '.',
+	"comma":   ',',
+	"dollar":  '$',
+	"percnt":  '%',
+	"num":     '#',
+	"plus":    '+',
+	"minus":   '-',
+	"lowbar":  '_',
+	"verbar":  '|',
+	"vert":    '|',
+	"grave":   '`',
+	"dquo":    '"',
+	"quest":   '?',
+	"commat":  '@',
+	"hyphen":  '-',
+	"nvgt":    '>',
+	"nvlt":    '<',
 }
 
 // parseHexEntity parses a hex numeric character reference value.
@@ -400,6 +442,35 @@ func NormalizeBackslashes(s string) string {
 // 7. Backslash normalization
 // (Case normalization is separate - applied only for comparison)
 func NormalizeAll(s string) string {
+	// Run the chain to a fixed point rather than once.
+	//
+	// A single pass decodes in a fixed order — URL first, HTML entities fifth —
+	// so any encoding that *produces* an earlier layer's syntax survives.
+	// Measured: "&#37;3Cscript&#37;3E" normalized to "%3Cscript%3E" and stopped
+	// there, because "&#37;" (a literal '%') was only decoded after URL
+	// decoding had already finished. The XSS detector, which scans the
+	// normalized value, therefore never saw "<script>". Repeating until the
+	// output stops changing closes that whole class instead of special-casing
+	// one ordering.
+	//
+	// The iteration cap bounds the work: normalization is monotonically
+	// shrinking or stable in practice, so this converges in one or two rounds
+	// for real input, and a crafted input cannot spin it. Cost is measured by
+	// BenchmarkNormalizeAllLarge.
+	const maxRounds = 4
+
+	for range maxRounds {
+		next := normalizeOnce(s)
+		if next == s {
+			return s
+		}
+		s = next
+	}
+	return s
+}
+
+// normalizeOnce runs one full normalization pass over s.
+func normalizeOnce(s string) string {
 	s = DecodeURLRecursive(s)
 	s = RemoveNullBytes(s)
 	s = CanonicalizePath(s)

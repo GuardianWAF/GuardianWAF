@@ -157,7 +157,7 @@ func TestSanitizerLayer_ValidateNullBytes(t *testing.T) {
 	}
 }
 
-func TestSanitizerLayer_HopByHopStripping(t *testing.T) {
+func TestSanitizerLayer_HopByHopDetectorViewPreserved(t *testing.T) {
 	cfg := Config{
 		StripHopByHop:  true,
 		AllowedMethods: []string{"GET"},
@@ -172,18 +172,37 @@ func TestSanitizerLayer_HopByHopStripping(t *testing.T) {
 
 	layer.Process(ctx)
 
-	// Hop-by-hop headers should be removed
-	if _, ok := ctx.Headers["Connection"]; ok {
-		t.Error("Connection header should have been stripped")
+	// StripHopByHopHeaders(ctx) previously mutated the shared header map
+	// here. That blinded the order-400 smuggling detector (which reads
+	// ctx.Headers["Transfer-Encoding"] for four of its five vectors) while
+	// never affecting what the backend receives — the proxy forwards the
+	// original *http.Request, not ctx.Headers. The corrected contract: the
+	// detector view is untouched. See hophop_blind_test.go for the
+	// cross-layer smuggling regression.
+	for _, h := range []string{"Connection", "Keep-Alive", "Transfer-Encoding", "X-Custom"} {
+		if _, ok := ctx.Headers[h]; !ok {
+			t.Errorf("%s header must remain in the detector view", h)
+		}
 	}
-	if _, ok := ctx.Headers["Keep-Alive"]; ok {
-		t.Error("Keep-Alive header should have been stripped")
+}
+
+func TestStripHopByHopHeadersFunction(t *testing.T) {
+	// The exported helper itself still strips hop-by-hop headers from a
+	// standalone context (available for proxy-forward-side wiring if
+	// hop-by-hop removal is ever wanted there).
+	ctx := &engine.RequestContext{Headers: map[string][]string{
+		"Connection":        {"keep-alive"},
+		"Transfer-Encoding": {"chunked"},
+		"X-Custom":          {"v"},
+	}}
+	StripHopByHopHeaders(ctx)
+
+	if _, ok := ctx.Headers["Connection"]; ok {
+		t.Error("Connection should have been stripped by the helper")
 	}
 	if _, ok := ctx.Headers["Transfer-Encoding"]; ok {
-		t.Error("Transfer-Encoding header should have been stripped")
+		t.Error("Transfer-Encoding should have been stripped by the helper")
 	}
-
-	// Custom header should remain
 	if _, ok := ctx.Headers["X-Custom"]; !ok {
 		t.Error("X-Custom header should not have been stripped")
 	}

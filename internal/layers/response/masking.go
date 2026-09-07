@@ -106,6 +106,24 @@ func MaskSSN(s string) string {
 	return string(result)
 }
 
+// indexFold returns the byte index of the first case-insensitive occurrence
+// of sub in s, or -1. It must not be implemented via strings.ToLower(s):
+// ToLower is not length-preserving (e.g. "İ" U+0130 is 2 bytes but
+// lowercases to 1-byte "i"), so indices taken from a transformed copy would
+// be invalid in the original string.
+func indexFold(s, sub string) int {
+	n := len(sub)
+	if n == 0 {
+		return 0
+	}
+	for i := 0; i+n <= len(s); i++ {
+		if strings.EqualFold(s[i:i+n], sub) {
+			return i
+		}
+	}
+	return -1
+}
+
 // apiKeyKeywords are lowercase keywords searched in MaskAPIKeys.
 var apiKeyKeywords = []string{
 	"key", "token", "secret", "apikey", "api_key", "api-key",
@@ -115,13 +133,16 @@ var apiKeyKeywords = []string{
 // MaskAPIKeys masks common API key patterns in text.
 // Looks for key/token/secret keywords followed by long hex/alphanumeric strings.
 func MaskAPIKeys(s string) string {
-	lower := strings.ToLower(s)
 	result := []byte(s)
 
 	for _, kw := range apiKeyKeywords {
 		searchFrom := 0
 		for {
-			idx := strings.Index(lower[searchFrom:], kw)
+			// Case-insensitive search on the ORIGINAL string: offsets must be
+			// valid in s/result, not in a ToLower copy (ToLower is not
+			// length-preserving — "İ" 2 bytes → "i" — so offsets from a
+			// lowered copy misalign the mask window and leak key bytes).
+			idx := indexFold(s[searchFrom:], kw)
 			if idx < 0 {
 				break
 			}
