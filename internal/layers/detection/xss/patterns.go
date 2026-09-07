@@ -171,15 +171,20 @@ func Detect(input, location string) []engine.Finding {
 			truncateMatch(analysisStr), location, 0.85))
 	}
 
-	// 9. document.write — score 55
-	if strings.Contains(analysisLower, "document.write") {
+	// 9. document.write( — score 55
+	//
+	// Requires the call parenthesis. Matching the bare name flagged any text
+	// that merely discussed the API, so a code-review comment reading "Avoid
+	// innerHTML here; use textContent instead" scored 50 and hit the block
+	// threshold exactly. A sink only matters when it is actually invoked.
+	if isFollowedBy(analysisLower, "document.write", '(') {
 		findings = append(findings, makeFinding(55, engine.SeverityMedium,
 			"document.write() call detected",
 			truncateMatch(analysisStr), location, 0.80))
 	}
 
-	// 10. innerHTML — score 50
-	if strings.Contains(analysisLower, "innerhtml") {
+	// 10. innerHTML assignment — score 50
+	if isFollowedBy(analysisLower, "innerhtml", '=') {
 		findings = append(findings, makeFinding(50, engine.SeverityMedium,
 			"innerHTML manipulation detected",
 			truncateMatch(analysisStr), location, 0.75))
@@ -325,4 +330,28 @@ func truncateMatch(s string) string {
 		return s[:197] + "..."
 	}
 	return s
+}
+
+// isFollowedBy reports whether name occurs in lower followed — after optional
+// whitespace — by the operator char, which is what distinguishes an actual DOM
+// sink write ("el.innerHTML=…", "document.write(…)") from prose that merely
+// names the API. For '=' an immediately following '=' is rejected so that a
+// comparison ("innerHTML == x") does not count as an assignment.
+func isFollowedBy(lower, name string, op byte) bool {
+	for i := 0; ; {
+		j := strings.Index(lower[i:], name)
+		if j < 0 {
+			return false
+		}
+		k := i + j + len(name)
+		for k < len(lower) && (lower[k] == ' ' || lower[k] == '\t' || lower[k] == '\n' || lower[k] == '\r') {
+			k++
+		}
+		if k < len(lower) && lower[k] == op {
+			if op != '=' || k+1 >= len(lower) || lower[k+1] != '=' {
+				return true
+			}
+		}
+		i = i + j + 1
+	}
 }

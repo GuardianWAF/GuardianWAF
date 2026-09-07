@@ -1,6 +1,7 @@
 package sqli
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
@@ -283,7 +284,7 @@ func checkStackedQuery(tokens []Token, location string) (engine.Finding, bool) {
 				}
 				if tokens[j].Type == TokenKeyword {
 					upper := tokenUpperValue(tokens[j])
-					if IsDangerousKeyword(upper) {
+					if IsDangerousKeyword(upper) && hasSQLContinuation(tokens, j) {
 						matched := extractRange(tokens, i, min(len(tokens)-1, j+2))
 						return makeFinding(95, engine.SeverityCritical,
 							"Stacked query with dangerous keyword: "+upper,
@@ -591,4 +592,61 @@ func stripQuotes(s string) string {
 		return s[1 : len(s)-1]
 	}
 	return s
+}
+
+// statementFollowers maps a dangerous keyword to the tokens that must appear
+// after it for the text to be an actual SQL statement rather than an English
+// sentence that happens to start with the same verb.
+var statementFollowers = map[string][]string{
+	"UNION":    {"SELECT", "ALL"},
+	"UPDATE":   {"SET"},
+	"DELETE":   {"FROM"},
+	"INSERT":   {"INTO"},
+	"DROP":     {"TABLE", "DATABASE", "SCHEMA", "INDEX", "VIEW", "USER", "PROCEDURE", "FUNCTION", "TRIGGER", "COLUMN"},
+	"TRUNCATE": {"TABLE"},
+	"ALTER":    {"TABLE", "DATABASE", "SCHEMA", "INDEX", "VIEW", "USER", "PROCEDURE", "FUNCTION", "TRIGGER", "COLUMN"},
+	"CREATE":   {"TABLE", "DATABASE", "SCHEMA", "INDEX", "VIEW", "USER", "PROCEDURE", "FUNCTION", "TRIGGER"},
+	"GRANT":    {"ON", "TO", "ALL"},
+	"REVOKE":   {"ON", "FROM", "ALL"},
+	"SELECT":   {"FROM"},
+}
+
+// hasSQLContinuation reports whether the tokens after a dangerous keyword
+// actually continue a SQL statement.
+//
+// Matching "; <dangerous keyword>" alone scored 95 — nearly double the block
+// threshold — on ordinary prose, because most of those keywords are everyday
+// English verbs. An issue comment reading "Fixed the bug; update the docs when
+// you get a chance" was blocked outright.
+//
+// Requiring merely "some SQL keyword follows" is not enough either: the
+// tokenizer classifies WHEN, THEN, END, IS, IN and ALL as keywords, so that
+// same sentence still matched on "when". A real statement has a specific shape
+// — UPDATE ... SET, DELETE FROM, DROP TABLE, UNION SELECT — so require the
+// structural follower that belongs to the keyword in hand.
+func hasSQLContinuation(tokens []Token, keywordIdx int) bool {
+	const lookahead = 8
+
+	upper := tokenUpperValue(tokens[keywordIdx])
+	wanted := statementFollowers[upper]
+
+	seen := 0
+	for j := keywordIdx + 1; j < len(tokens) && seen < lookahead; j++ {
+		switch tokens[j].Type {
+		case TokenWhitespace, TokenComment:
+			continue
+		case TokenKeyword:
+			if slices.Contains(wanted, tokenUpperValue(tokens[j])) {
+				return true
+			}
+		case TokenWildcard, TokenParenOpen, TokenStringLiteral, TokenFunction:
+			// SELECT *, SELECT (…), EXEC xp_cmdshell 'dir', SELECT CHAR(65).
+			// None of these shapes occur in prose after the verb.
+			if upper == "SELECT" || upper == "EXEC" || upper == "EXECUTE" || upper == "UNION" {
+				return true
+			}
+		}
+		seen++
+	}
+	return false
 }

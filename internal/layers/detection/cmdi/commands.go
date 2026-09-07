@@ -187,3 +187,38 @@ func isReconCommand(cmd string) bool {
 func isNetworkCommand(cmd string) bool {
 	return networkCommands[cmd]
 }
+
+// ambiguousCommands are entries in commandDatabase that are also ordinary
+// English words, markdown/table artifacts, or one-to-two character tokens. On
+// their own, after a shell metacharacter, they carry almost no signal: a
+// markdown table row "| id | name |" and an attack "127.0.0.1;id" are the same
+// shape to a substring matcher.
+//
+// This is the trade-off documented for M1 in docs/history/AUDIT.md, resolved
+// the way that note recommends — keep detecting them, but score the
+// uncorroborated case in the log range so a default block threshold does not
+// trip on prose, while unambiguous commands (whoami, nc, wget, …) keep their
+// blocking score. An attacker cannot make "id" unambiguous, so unlike a
+// structural guard this cannot be evaded by reshaping the payload.
+var ambiguousCommands = map[string]bool{
+	"at": true, "cut": true, "dir": true, "echo": true, "env": true,
+	"file": true, "find": true, "head": true, "id": true, "info": true,
+	"ip": true, "kill": true, "last": true, "less": true, "link": true,
+	"ls": true, "more": true, "od": true, "ps": true, "run": true,
+	"set": true, "sort": true, "ss": true, "strings": true, "tail": true,
+	"time": true, "tr": true, "uniq": true, "w": true, "wc": true,
+	"who": true, "write": true, "cat": true, "test": true, "top": true,
+	"type": true, "help": true, "history": true, "date": true, "free": true,
+}
+
+// isAmbiguousCommand reports whether cmd is a command name that doubles as an
+// everyday word, so a bare occurrence should not by itself force a block.
+func isAmbiguousCommand(cmd string) bool {
+	return ambiguousCommands[cmd]
+}
+
+// ambiguousCommandScore is the score used for an uncorroborated ambiguous
+// command. It sits above the default log threshold (25) and below the default
+// block threshold (50), so the event is still recorded and still contributes to
+// a request that has other signals, without blocking on its own.
+const ambiguousCommandScore = 35

@@ -122,8 +122,16 @@ func Detect(input, location string) []engine.Finding {
 }
 
 // serverSideJS are MongoDB server-side JavaScript-execution operators (RCE/DoS).
-var serverSideJS = []string{"$where", "$function", "$accumulator", "mapreduce"}
+// The "$"-prefixed names are unambiguous, so a bare substring match is safe.
+var serverSideJS = []string{"$where", "$function", "$accumulator"}
 
+// checkServerSideJS flags MongoDB server-side JavaScript execution.
+//
+// "mapReduce" is handled separately from the "$" operators above. It is an
+// ordinary English-ish word, and matching it as a bare substring scored 90 —
+// well past the block threshold — on any text that merely mentioned it, so a
+// comment reading "We discussed mapreduce at the meeting" was blocked. It is
+// only meaningful as a command name, so require command syntax around it.
 func checkServerSideJS(lower, location string) []engine.Finding {
 	var findings []engine.Finding
 	for _, op := range serverSideJS {
@@ -131,6 +139,10 @@ func checkServerSideJS(lower, location string) []engine.Finding {
 			findings = append(findings, makeFinding(90, engine.SeverityCritical,
 				"NoSQL server-side JavaScript operator detected", op, location, 0.90))
 		}
+	}
+	if hasMapReduceCommand(lower) {
+		findings = append(findings, makeFinding(90, engine.SeverityCritical,
+			"NoSQL server-side JavaScript operator detected", "mapreduce", location, 0.90))
 	}
 	return findings
 }
@@ -218,4 +230,42 @@ func makeFinding(score int, severity engine.Severity, desc, matched, location st
 		Location:     location,
 		Confidence:   confidence,
 	}
+}
+
+// hasMapReduceCommand reports whether "mapreduce" appears as a MongoDB command
+// rather than as prose. Real uses are a JSON/BSON key ({"mapReduce": "coll"}),
+// a driver method call (db.coll.mapReduce(...)), or an operator-style key —
+// all of which put a quote, dot, brace or colon immediately against the word.
+func hasMapReduceCommand(lower string) bool {
+	const word = "mapreduce"
+	for i := 0; ; {
+		j := strings.Index(lower[i:], word)
+		if j < 0 {
+			return false
+		}
+		start := i + j
+		end := start + len(word)
+		if isCommandDelimited(lower, start, end) {
+			return true
+		}
+		i = start + 1
+	}
+}
+
+// isCommandDelimited reports whether the token at [start,end) is bounded by
+// syntax that marks it as a command name rather than a word in a sentence.
+func isCommandDelimited(lower string, start, end int) bool {
+	before := byte(' ')
+	if start > 0 {
+		before = lower[start-1]
+	}
+	after := byte(' ')
+	if end < len(lower) {
+		after = lower[end]
+	}
+	leading := before == '"' || before == '\'' || before == '.' || before == '{' ||
+		before == '$' || before == ',' || before == '&' || before == '?'
+	trailing := after == '"' || after == '\'' || after == '(' || after == ':' ||
+		after == '=' || after == '}'
+	return leading && trailing
 }

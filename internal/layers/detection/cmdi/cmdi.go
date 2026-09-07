@@ -108,6 +108,14 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 	}
 
 	// Apply multiplier
+	// Collapse the same finding discovered in more than one representation of
+	// the same field. Every input is scanned raw AND normalized, and when
+	// normalization rewrites the string the two forms are no longer equal, so
+	// the input-level dedup above lets both through and the identical finding
+	// is scored twice. That doubling is what pushed a markdown table row
+	// ("| id | name |") from a deliberately sub-threshold 35 to a blocking 70.
+	allFindings = dedupeFindings(allFindings)
+
 	engine.ApplyMultiplier(allFindings, d.multiplier)
 
 	action := engine.ActionPass
@@ -195,6 +203,11 @@ func checkShellMetachars(_, lower, location string) []engine.Finding {
 		{"\r", 75, "Carriage-return command separator with command detected"},
 	}
 
+	// A command reached through more than one separator pattern must be
+	// reported once. "test || id" splits on both "||" and "|", which produced
+	// two findings for the same "id" and doubled its score.
+	reported := make(map[string]bool)
+
 	for _, s := range separators {
 		parts := strings.Split(lower, s.sep)
 		if len(parts) < 2 {
@@ -207,21 +220,48 @@ func checkShellMetachars(_, lower, location string) []engine.Finding {
 				continue
 			}
 			cmd := extractFirstWord(trimmed)
+			if reported[cmd] {
+				continue
+			}
 
-			if isReconCommand(cmd) {
-				score := max(s.score, 65)
+			// A command name that is also an everyday word carries almost no
+			// signal on its own: "| id | name |" from a markdown table and
+			// "127.0.0.1;id" are the same shape to a substring matcher. Record
+			// it, but keep it below the default block threshold unless the
+			// invocation is corroborated by real arguments. Applies to every
+			// branch below — "id" is classified as a recon command, so guarding
+			// only the generic branch left the markdown table blocking.
+			downgrade := isAmbiguousCommand(cmd) && !hasCommandArguments(trimmed, cmd)
+
+			if isReconCommand(cmd) || isNetworkCommand(cmd) || IsCommand(cmd) {
+				reported[cmd] = true
+			}
+
+			switch {
+			case isReconCommand(cmd):
+				score, confidence := max(s.score, 65), 0.85
+				if downgrade {
+					score, confidence = ambiguousCommandScore, 0.40
+				}
 				findings = append(findings, makeFinding(score, engine.SeverityHigh,
 					s.desc+" (recon: "+cmd+")",
-					extractContext(lower, s.sep), location, 0.85))
-			} else if isNetworkCommand(cmd) {
-				score := max(s.score, 75)
+					extractContext(lower, s.sep), location, confidence))
+			case isNetworkCommand(cmd):
+				score, confidence := max(s.score, 75), 0.90
+				if downgrade {
+					score, confidence = ambiguousCommandScore, 0.40
+				}
 				findings = append(findings, makeFinding(score, engine.SeverityCritical,
 					s.desc+" (network: "+cmd+")",
-					extractContext(lower, s.sep), location, 0.90))
-			} else if IsCommand(cmd) {
-				findings = append(findings, makeFinding(s.score, engine.SeverityHigh,
+					extractContext(lower, s.sep), location, confidence))
+			case IsCommand(cmd):
+				score, confidence := s.score, 0.80
+				if downgrade {
+					score, confidence = ambiguousCommandScore, 0.40
+				}
+				findings = append(findings, makeFinding(score, engine.SeverityHigh,
 					s.desc+" ("+cmd+")",
-					extractContext(lower, s.sep), location, 0.80))
+					extractContext(lower, s.sep), location, confidence))
 			}
 		}
 	}
@@ -338,23 +378,68 @@ func checkInterpreterFlags(lower, location string) []engine.Finding {
 	return findings
 }
 
-// checkBase64Pipe detects base64 decode piped to shell.
+// base64DecodeFlags are the flags that turn base64(1) into a decoder, which is
+// what makes it useful in a command-injection chain.
+var base64DecodeFlags = []string{"-d", "--decode", "-D", "--dec"}
+
+// checkBase64Pipe detects base64 decode piped to a shell.
+//
+// The test used to be `contains("base64") && (contains("|") || contains(";"))`,
+// which matches every data URI ever submitted: "data:image/png;base64,iVBOR..."
+// contains both. That scored 85 against a block threshold of 50, so avatar
+// uploads, rich-text embeds and canvas exports were all blocked. The attack
+// this rule exists for is `... | base64 -d | sh`, so require the decode flag
+// that distinguishes decoding from the encoding half of a data URI.
 func checkBase64Pipe(lower, location string) []engine.Finding {
 	var findings []engine.Finding
 
-	// Patterns like: base64 -d | sh, echo ... | base64 -d | bash
-	if strings.Contains(lower, "base64") && (strings.Contains(lower, "|") || strings.Contains(lower, ";")) {
-		findings = append(findings, makeFinding(85, engine.SeverityCritical,
-			"base64 with pipe/chain detected (likely encoded command execution)",
-			extractContext(lower, "base64"), location, 0.90))
+	idx := strings.Index(lower, "base64")
+	if idx < 0 {
+		return nil
 	}
+	if !strings.Contains(lower, "|") && !strings.Contains(lower, ";") {
+		return nil
+	}
+
+	// The decode flag must follow the command name, not merely exist somewhere.
+	rest := lower[idx+len("base64"):]
+	hasDecodeFlag := false
+	for _, flag := range base64DecodeFlags {
+		if fieldFollows(rest, flag) {
+			hasDecodeFlag = true
+			break
+		}
+	}
+	if !hasDecodeFlag {
+		return nil
+	}
+
+	findings = append(findings, makeFinding(85, engine.SeverityCritical,
+		"base64 decode with pipe/chain detected (likely encoded command execution)",
+		extractContext(lower, "base64"), location, 0.90))
 
 	return findings
 }
 
+// fieldFollows reports whether flag appears as a whitespace-delimited argument
+// within the first few fields of rest, so "base64 -d" matches but the trailing
+// payload of a data URI does not.
+func fieldFollows(rest, flag string) bool {
+	fields := strings.Fields(rest)
+	for i, f := range fields {
+		if i >= 3 {
+			return false
+		}
+		if f == flag {
+			return true
+		}
+	}
+	return false
+}
+
 // checkEncodedNewline detects URL-encoded newline injection.
 //
-// Known limitation (M1 in AUDIT.md): a "newline + known command"
+// Known limitation (M1 in docs/history/AUDIT.md): a "newline + known command"
 // pattern fires the detector at score 60, confidence 0.80. Every
 // command in commandDatabase is also a common English word or
 // single character ("cat", "set", "at", "head", "tail", "more",
@@ -539,4 +624,51 @@ func extractContext(input, pattern string) string {
 		result = result[:197] + "..."
 	}
 	return result
+}
+
+// hasCommandArguments reports whether the text after a command name looks like
+// an actual argument list — a flag, a path, a variable expansion, a redirect or
+// a further chained command — rather than the next words of a sentence or the
+// next cell of a markdown table. It is what upgrades an ambiguous command name
+// back to a blocking score: ";cat /etc/passwd" corroborates, "| id | name |"
+// does not.
+func hasCommandArguments(trimmed, cmd string) bool {
+	rest := strings.TrimSpace(strings.TrimPrefix(trimmed, cmd))
+	if rest == "" {
+		return false
+	}
+	switch rest[0] {
+	case '-', '/', '$', '`', '>', '<', '*', '~', '\'', '"':
+		return true
+	}
+	return strings.Contains(rest, "/") ||
+		strings.Contains(rest, "$(") ||
+		strings.Contains(rest, "&&") ||
+		strings.Contains(rest, "\\")
+}
+
+// dedupeFindings collapses findings that describe the same detection at the
+// same location, keeping the highest-scoring instance. Two representations of
+// one field must contribute one finding, not one each.
+func dedupeFindings(findings []engine.Finding) []engine.Finding {
+	if len(findings) < 2 {
+		return findings
+	}
+
+	type key struct{ desc, location string }
+	best := make(map[key]int, len(findings))
+	out := make([]engine.Finding, 0, len(findings))
+
+	for _, f := range findings {
+		k := key{f.Description, f.Location}
+		if idx, ok := best[k]; ok {
+			if f.Score > out[idx].Score {
+				out[idx] = f
+			}
+			continue
+		}
+		best[k] = len(out)
+		out = append(out, f)
+	}
+	return out
 }

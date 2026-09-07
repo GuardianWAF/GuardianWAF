@@ -10,7 +10,7 @@
 // Detection strategy:
 //
 //   - Inspect common redirect-parameter names (next, url, redirect, etc.)
-//   - Also inspect Location and Referer headers
+//   - Also inspect the Location header
 //   - Classify each value as internal (relative path, same-host absolute) or
 //     external (different scheme/host)
 //   - External and scheme-relative (//evil.com) values are flagged
@@ -122,8 +122,16 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 		}
 	}
 
-	// Check Location and Referer headers.
-	for _, hdr := range []string{"Location", "Referer"} {
+	// Check redirect-target headers.
+	//
+	// Referer is deliberately NOT inspected. It is an inbound header stating
+	// where the user came *from*; the application never redirects to it, so it
+	// is not a redirect target. Treating it as one made an ordinary visitor
+	// arriving from any external site look like an open-redirect attempt:
+	// `Referer: https://www.google.com/` on host example.com scored 60 against
+	// a block_threshold of 50, so every click-through from a search engine,
+	// social link or partner site was answered with 403.
+	for _, hdr := range []string{"Location"} {
 		for _, val := range ctx.Headers[hdr] {
 			if f := d.checkValue(val, "header:"+hdr, reqHost); f != nil {
 				findings = append(findings, *f)
@@ -175,21 +183,24 @@ func (d *Detector) checkValue(rawVal, location, reqHost string) *engine.Finding 
 		}
 	}
 
-	// Detect backslash confusion. Browsers treat \ as / in many contexts,
-	// so \\evil.com or \/\/evil.com become //evil.com (protocol-relative
-	// redirect to an external host). Normalize and re-check.
+	// Detect backslash confusion. Browsers treat \ as / in special-scheme
+	// URLs, but the rewrite is dangerous only when it produces an *authority*:
+	// "\\evil.com" or "/\evil.com" become "//evil.com" (protocol-relative) and
+	// "https:\\evil.com" becomes "https://evil.com". A single leading backslash
+	// is just a path separator — "\evil.com" resolves to the same-origin path
+	// "/evil.com" — so matching every leading-"/" form here reported path
+	// segments as "external hosts" and blocked legitimate relative redirects
+	// like "/settings\profile".
 	if strings.Contains(val, `\`) {
 		normalized := strings.ReplaceAll(val, `\`, "/")
-		if strings.HasPrefix(normalized, "//") || strings.HasPrefix(normalized, "https://") || strings.HasPrefix(normalized, "http://") || (strings.HasPrefix(normalized, "/") && !strings.HasPrefix(normalized, "//")) {
+		if strings.HasPrefix(normalized, "//") || strings.HasPrefix(normalized, "https://") || strings.HasPrefix(normalized, "http://") {
 			host := normalized
 			if strings.HasPrefix(host, "//") {
 				host = host[2:]
 			} else if strings.HasPrefix(host, "https://") {
 				host = host[8:]
-			} else if strings.HasPrefix(host, "http://") {
-				host = host[7:]
 			} else {
-				host = strings.TrimLeft(host, "/")
+				host = host[7:]
 			}
 			host = strings.TrimLeft(host, "/")
 			// Strip scheme if present after normalization.
@@ -270,8 +281,11 @@ func (d *Detector) checkValue(rawVal, location, reqHost string) *engine.Finding 
 	}
 
 	// Explicit http/https with a host — check against the request host.
+	// DNS names are case-insensitive: compare case-insensitively, or
+	// same-site redirects spelled in a different case (e.g. the app echoing
+	// "Host: EXAMPLE.com") are false-positively blocked as external.
 	if (scheme == "http" || scheme == "https") && host != "" {
-		if host != reqHost && !strings.HasSuffix(host, "."+reqHost) {
+		if !strings.EqualFold(host, reqHost) && !strings.HasSuffix(strings.ToLower(host), "."+strings.ToLower(reqHost)) {
 			return &engine.Finding{
 				DetectorName: "openredirect",
 				Category:     "open-redirect",
@@ -331,13 +345,22 @@ func ctx2Host(ctx *engine.RequestContext) string {
 
 // hostname returns the host portion (without port) of a host:port string.
 func hostname(h string) string {
-	if idx := strings.LastIndexByte(h, ':'); idx >= 0 &&
-		!strings.HasPrefix(h, "[") { // not an IPv6 literal
+	// Bracketed IPv6 literal: the host is everything between the brackets;
+	// anything after ']' is the port. The previous guard used the leading '['
+	// only to skip colon-splitting, then relied on TrimSuffix("]") — a no-op
+	// when a port follows, so "[2001:db8::1]:8443" came back as
+	// "2001:db8::1]:8443" and checkValue misjudged every same-host absolute
+	// redirect on such a vhost as external.
+	if strings.HasPrefix(h, "[") {
+		if end := strings.IndexByte(h, ']'); end >= 0 {
+			return h[1:end]
+		}
+		// Malformed (no closing bracket): return what is there, as before.
+		return strings.TrimPrefix(h, "[")
+	}
+	if idx := strings.LastIndexByte(h, ':'); idx >= 0 {
 		return h[:idx]
 	}
-	// Strip IPv6 brackets.
-	h = strings.TrimPrefix(h, "[")
-	h = strings.TrimSuffix(h, "]")
 	return h
 }
 

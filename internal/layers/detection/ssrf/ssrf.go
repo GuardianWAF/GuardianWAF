@@ -252,6 +252,20 @@ func containsHostPattern(s, pattern string) bool {
 // isHostBoundary reports whether the byte at index end terminates a hostname —
 // i.e. it is end-of-string or not a character that can continue a host/IP
 // (letters, digits, '.', '-').
+//
+// A trailing dot is special. Treating '.' as always continuing the host is what
+// stops "127.0.0.100" from matching the pattern "127.0.0.1", but it also meant
+// "http://127.0.0.1./admin" matched nothing — the fully-qualified form with the
+// DNS root label, which resolves to exactly the same address. A dot followed by
+// another label ("127.0.0.1.nip.io") really is a different hostname and stays
+// unmatched; a dot at the end of the host is just the root label and counts as
+// a boundary.
+//
+// Note that a rebinding name like "127.0.0.1.nip.io", or any attacker-owned
+// domain whose A record points at a private address, is not detectable by
+// matching text at all — it needs resolution, which the SSRF *egress* controls
+// in internal/proxy and the outbound HTTP clients handle by dialing a
+// pre-resolved IP. This detector is a signal, not the boundary.
 func isHostBoundary(s string, end int) bool {
 	if end >= len(s) {
 		return true
@@ -260,7 +274,11 @@ func isHostBoundary(s string, end int) bool {
 	if c >= 'a' && c <= 'z' || c >= '0' && c <= '9' {
 		return false
 	}
-	return c != '.' && c != '-'
+	if c == '.' {
+		// Root label: a boundary only if nothing host-like follows it.
+		return isHostBoundary(s, end+1)
+	}
+	return c != '-'
 }
 
 // checkMetadataEndpoints detects cloud metadata endpoint access.
@@ -537,12 +555,16 @@ func checkURLCredential(lower, location string) []engine.Finding {
 			}
 			afterScheme := searchStr[idx+len(prefix):]
 
-			// Find the first / after the authority
-			slashIdx := strings.Index(afterScheme, "/")
-			authority := afterScheme
-			if slashIdx >= 0 {
-				authority = afterScheme[:slashIdx]
-			}
+			// Delimit the authority.
+			//
+			// This used to end the authority only at the first "/", so a URL
+			// with no path ran to the end of the input. In an embedded context
+			// that swallowed everything after it: the body
+			// {"website":"http://example.com","email":"alice@example.com"}
+			// produced an "authority" reaching into the e-mail address, whose
+			// "@" scored 70 and blocked an ordinary profile update. An
+			// authority ends at the first character that cannot appear in one.
+			authority := afterScheme[:authorityEnd(afterScheme)]
 
 			// Check for @ in authority part
 			if strings.Contains(authority, "@") {
@@ -575,4 +597,22 @@ func extractContext(input, pattern string) string {
 		result = result[:197] + "..."
 	}
 	return result
+}
+
+// authorityEnd returns the length of the leading URL authority in s.
+//
+// RFC 3986 ends an authority at "/", "?" or "#". A URL embedded in JSON, a
+// query string, HTML or free text also ends at any character that cannot occur
+// in an authority — a quote, comma, whitespace, angle bracket or brace — and
+// stopping there is what keeps an unrelated "@" later in the document from
+// being read as URL credentials.
+func authorityEnd(s string) int {
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '/', '?', '#', '"', '\'', '`', ',', ';', '<', '>', '{', '}',
+			'[', ']', '|', '\\', '&', '=', ' ', '\t', '\n', '\r':
+			return i
+		}
+	}
+	return len(s)
 }

@@ -281,15 +281,17 @@ func checkWindowsPaths(lower, location string) []engine.Finding {
 		}
 	}
 
-	// Windows short name bypass (e.g., PROGRA~1 for Program Files)
-	// Short names contain ~ but no dots in the name segment
-	for i := 0; i < len(lower); i++ {
-		if lower[i] == '~' {
-			findings = append(findings, makeFinding(60, engine.SeverityHigh,
-				"Windows short name format detected (path traversal attempt)",
-				extractContext(lower, "~"), location, 0.75))
-			break
-		}
+	// Windows 8.3 short-name bypass (e.g. PROGRA~1 for "Program Files").
+	//
+	// This used to fire on a bare '~' anywhere in the input, which is far too
+	// broad: '~' is ordinary in URLs and version strings, so /~alice/photo.jpg
+	// and ?v=~1.2.3 both scored 60 against a block threshold of 50. A real 8.3
+	// name is a truncated basename followed by a tilde and an ordinal, so
+	// require that actual shape.
+	if idx := indexShortName(lower); idx >= 0 {
+		findings = append(findings, makeFinding(60, engine.SeverityHigh,
+			"Windows short name format detected (path traversal attempt)",
+			extractContext(lower, lower[idx:min(idx+8, len(lower))]), location, 0.75))
 	}
 
 	// \windows\system32 or /windows/system32
@@ -394,4 +396,49 @@ func safeTruncate(s string, maxBytes int) string {
 		maxBytes--
 	}
 	return s[:maxBytes]
+}
+
+// indexShortName reports the start offset of a Windows 8.3 short name such as
+// "progra~1", or -1 if the input contains none. The shape is 1-6 filename
+// characters, a tilde, then a 1-2 digit ordinal — and the run must not be part
+// of a longer word, so "a~1b" and a bare "~1.2.3" do not qualify.
+func indexShortName(lower string) int {
+	for i := 0; i < len(lower); i++ {
+		if lower[i] != '~' {
+			continue
+		}
+		// An ordinal must follow the tilde.
+		j := i + 1
+		digits := 0
+		for j < len(lower) && lower[j] >= '0' && lower[j] <= '9' && digits < 2 {
+			j++
+			digits++
+		}
+		if digits == 0 {
+			continue
+		}
+		// The ordinal must end the name segment, not run into more letters.
+		if j < len(lower) && isShortNameChar(lower[j]) {
+			continue
+		}
+		// A truncated basename of 1-6 characters must precede the tilde.
+		start := i
+		for start > 0 && isShortNameChar(lower[start-1]) && i-(start-1) <= 6 {
+			start--
+		}
+		if start == i {
+			continue // nothing before the tilde, e.g. "/~1" or "~1.2.3"
+		}
+		// The basename must start at a path or token boundary.
+		if start > 0 && isShortNameChar(lower[start-1]) {
+			continue // longer than 6 chars, so not a truncation
+		}
+		return start
+	}
+	return -1
+}
+
+// isShortNameChar reports whether c can appear in an 8.3 basename.
+func isShortNameChar(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= '0' && c <= '9'
 }
