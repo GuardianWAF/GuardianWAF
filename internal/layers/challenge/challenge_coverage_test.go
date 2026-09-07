@@ -250,26 +250,7 @@ func TestVerifyHandler_RedirectWithAt_Cov(t *testing.T) {
 
 	handler := svc.VerifyHandler()
 
-	challenge := "aabbccddaabbccddaabbccddaabbccdd"
-	var validNonce string
-	for i := range 1 << 20 {
-		digit := i
-		nonce := ""
-		for digit > 0 {
-			nonce = string(rune('a'+digit%26)) + nonce
-			digit /= 26
-		}
-		if nonce == "" {
-			nonce = "a"
-		}
-		if verifyPoW(challenge, nonce, 4) {
-			validNonce = nonce
-			break
-		}
-	}
-	if validNonce == "" {
-		t.Fatal("could not find valid nonce")
-	}
+	challenge, validNonce := issueAndSolve(t, svc, remoteAddrIP(t, "192.168.1.1:12345"))
 
 	form := url.Values{
 		"challenge": {challenge},
@@ -301,26 +282,7 @@ func TestVerifyHandler_ProtocolRelativeRedirect_Cov(t *testing.T) {
 
 	handler := svc.VerifyHandler()
 
-	challenge := "aabbccddaabbccddaabbccddaabbccdd"
-	var validNonce string
-	for i := range 1 << 20 {
-		digit := i
-		nonce := ""
-		for digit > 0 {
-			nonce = string(rune('a'+digit%26)) + nonce
-			digit /= 26
-		}
-		if nonce == "" {
-			nonce = "a"
-		}
-		if verifyPoW(challenge, nonce, 4) {
-			validNonce = nonce
-			break
-		}
-	}
-	if validNonce == "" {
-		t.Fatal("could not find valid nonce")
-	}
+	challenge, validNonce := issueAndSolve(t, svc, remoteAddrIP(t, "192.168.1.1:12345"))
 
 	form := url.Values{
 		"challenge": {challenge},
@@ -352,26 +314,7 @@ func TestVerifyHandler_RedirectBackslash_Cov(t *testing.T) {
 
 	handler := svc.VerifyHandler()
 
-	challenge := "aabbccddaabbccddaabbccddaabbccdd"
-	var validNonce string
-	for i := range 1 << 20 {
-		digit := i
-		nonce := ""
-		for digit > 0 {
-			nonce = string(rune('a'+digit%26)) + nonce
-			digit /= 26
-		}
-		if nonce == "" {
-			nonce = "a"
-		}
-		if verifyPoW(challenge, nonce, 4) {
-			validNonce = nonce
-			break
-		}
-	}
-	if validNonce == "" {
-		t.Fatal("could not find valid nonce")
-	}
+	challenge, validNonce := issueAndSolve(t, svc, remoteAddrIP(t, "192.168.1.1:12345"))
 
 	form := url.Values{
 		"challenge": {challenge},
@@ -415,26 +358,7 @@ func TestVerifyHandler_ClientIPExtractor_Cov(t *testing.T) {
 
 	handler := svc.VerifyHandler()
 
-	challenge := "aabbccddaabbccddaabbccddaabbccdd"
-	var validNonce string
-	for i := range 1 << 20 {
-		digit := i
-		nonce := ""
-		for digit > 0 {
-			nonce = string(rune('a'+digit%26)) + nonce
-			digit /= 26
-		}
-		if nonce == "" {
-			nonce = "a"
-		}
-		if verifyPoW(challenge, nonce, 4) {
-			validNonce = nonce
-			break
-		}
-	}
-	if validNonce == "" {
-		t.Fatal("could not find valid nonce")
-	}
+	challenge, validNonce := issueAndSolve(t, svc, ipString(net.ParseIP("10.0.0.1")))
 
 	form := url.Values{
 		"challenge": {challenge},

@@ -63,7 +63,8 @@ func DefaultConfigE() (Config, error) {
 
 // Service handles challenge page serving and solution verification.
 type Service struct {
-	config Config
+	config   Config
+	redeemed *redeemedSet
 }
 
 // NewService creates a new challenge service.
@@ -85,7 +86,7 @@ func NewService(cfg Config) (*Service, error) {
 	if cfg.Difficulty == 0 {
 		cfg.Difficulty = 20
 	}
-	return &Service{config: cfg}, nil
+	return &Service{config: cfg, redeemed: newRedeemedSet()}, nil
 }
 
 // HasValidCookie checks whether the request carries a valid, non-expired challenge cookie.
@@ -101,7 +102,7 @@ func (s *Service) HasValidCookie(r *http.Request, clientIP net.IP) bool {
 // The page contains inline JavaScript that solves a SHA-256 proof-of-work
 // and submits the solution to the verification endpoint.
 func (s *Service) ServeChallengePage(w http.ResponseWriter, r *http.Request) {
-	challenge, err := s.generateChallenge()
+	challenge, err := s.issueChallenge(s.clientIPString(r))
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
@@ -146,19 +147,35 @@ func (s *Service) VerifyHandler() http.Handler {
 			return
 		}
 
-		// Verify the proof-of-work solution
-		if !verifyPoW(challenge, nonce, s.config.Difficulty) {
-			http.Error(w, "Invalid solution", http.StatusForbidden)
-			return
-		}
-
-		// Generate signed cookie token
 		var clientIP net.IP
 		if s.config.ClientIPExtractor != nil {
 			clientIP = s.config.ClientIPExtractor(r)
 		} else {
 			clientIP = extractClientIP(r)
 		}
+
+		// Authenticate the challenge BEFORE spending CPU on the PoW check: it
+		// must be one this server issued, recently, to this client. Skipping
+		// this let an attacker solve a self-chosen string once and replay it.
+		challengeID, expiry, err := s.verifyChallengeToken(challenge, ipString(clientIP))
+		if err != nil {
+			http.Error(w, "Invalid challenge", http.StatusForbidden)
+			return
+		}
+
+		// Verify the proof-of-work solution
+		if !verifyPoW(challenge, nonce, s.config.Difficulty) {
+			http.Error(w, "Invalid solution", http.StatusForbidden)
+			return
+		}
+
+		// Consume the challenge so one solution buys exactly one cookie.
+		if !s.redeemed.redeem(challengeID, timeNow().Unix(), expiry) {
+			http.Error(w, "Challenge already used", http.StatusForbidden)
+			return
+		}
+
+		// Generate signed cookie token
 		token := s.generateToken(clientIP)
 
 		http.SetCookie(w, &http.Cookie{
@@ -167,7 +184,10 @@ func (s *Service) VerifyHandler() http.Handler {
 			Path:     "/",
 			MaxAge:   int(s.config.CookieTTL.Seconds()),
 			HttpOnly: true,
-			Secure:   true,
+			// Hard-coding Secure broke plain-HTTP deployments: the browser
+			// discarded the clearance cookie, so HasValidCookie never
+			// succeeded and challenged users looped forever.
+			Secure:   isRequestHTTPS(r),
 			SameSite: http.SameSiteLaxMode,
 		})
 

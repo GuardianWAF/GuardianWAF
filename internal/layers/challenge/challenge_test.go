@@ -1,7 +1,6 @@
 package challenge
 
 import (
-	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"net"
@@ -256,20 +255,15 @@ func TestVerifyHandler(t *testing.T) {
 
 	handler := svc.VerifyHandler()
 
-	// Find a valid nonce for our challenge
-	challenge := "deadbeef01234567deadbeef01234567"
-	var validNonce string
-	for i := range 1 << 20 {
-		nonce := fmt.Sprintf("%x", i)
-		data := challenge + nonce
-		hash := sha256.Sum256([]byte(data))
-		if hasLeadingZeroBits(hash[:], 4) {
-			validNonce = nonce
-			break
-		}
-	}
+	// Challenges are single-use and bound to the issuing server, the issue
+	// time and the client IP, so each subtest that expects to succeed mints its
+	// own. This pair is shared only by the subtests that are meant to fail
+	// before redemption.
+	const clientAddr = "192.168.1.1:12345"
+	challenge, validNonce := issueAndSolve(t, svc, remoteAddrIP(t, clientAddr))
 
 	t.Run("valid solution", func(t *testing.T) {
+		challenge, validNonce := issueAndSolve(t, svc, remoteAddrIP(t, clientAddr))
 		form := url.Values{
 			"challenge": {challenge},
 			"nonce":     {validNonce},
@@ -278,7 +272,7 @@ func TestVerifyHandler(t *testing.T) {
 		req := httptest.NewRequest("POST", "/__guardianwaf/challenge/verify",
 			strings.NewReader(form.Encode()))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		req.RemoteAddr = "192.168.1.1:12345"
+		req.RemoteAddr = clientAddr
 
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
@@ -373,6 +367,7 @@ func TestVerifyHandler(t *testing.T) {
 	})
 
 	t.Run("empty redirect defaults to /", func(t *testing.T) {
+		challenge, validNonce := issueAndSolve(t, svc, remoteAddrIP(t, clientAddr))
 		form := url.Values{
 			"challenge": {challenge},
 			"nonce":     {validNonce},
@@ -381,7 +376,7 @@ func TestVerifyHandler(t *testing.T) {
 		req := httptest.NewRequest("POST", "/__guardianwaf/challenge/verify",
 			strings.NewReader(form.Encode()))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		req.RemoteAddr = "192.168.1.1:12345"
+		req.RemoteAddr = clientAddr
 
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
@@ -394,6 +389,7 @@ func TestVerifyHandler(t *testing.T) {
 	})
 
 	t.Run("non-relative redirect sanitized to /", func(t *testing.T) {
+		challenge, validNonce := issueAndSolve(t, svc, remoteAddrIP(t, clientAddr))
 		form := url.Values{
 			"challenge": {challenge},
 			"nonce":     {validNonce},
@@ -402,7 +398,7 @@ func TestVerifyHandler(t *testing.T) {
 		req := httptest.NewRequest("POST", "/__guardianwaf/challenge/verify",
 			strings.NewReader(form.Encode()))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		req.RemoteAddr = "192.168.1.1:12345"
+		req.RemoteAddr = clientAddr
 
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)
