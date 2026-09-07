@@ -378,9 +378,25 @@ func (e *Engine) AppendChainWithError(entryType string, data any) (ChainEntry, e
 	}
 
 	// Compute hash: SHA-256(index + time + type + JSON(data) + prevHash)
+	//
+	// The hashed JSON must be canonical (type-independent): replayChain
+	// unmarshals persisted entries into `any` (map[string]any) and
+	// encoding/json emits maps with alphabetically sorted keys, while the
+	// original value (e.g. a Report struct) emitted fields in declaration
+	// order. Hashing the original encoding made VerifyChain report every
+	// replayed entry as a hash mismatch after a restart. Canonicalize by
+	// round-tripping the value through JSON and hashing (and storing) the
+	// canonical form, so the replayed map re-encodes to the exact same bytes.
 	hasher := sha256.New()
 	fmt.Fprintf(hasher, "%d|%s|%s|", entry.Index, entry.Time.Format(time.RFC3339Nano), entry.Type)
 	if dataBytes, err := json.Marshal(data); err == nil {
+		var canonical any
+		if json.Unmarshal(dataBytes, &canonical) == nil {
+			if canonicalBytes, cerr := json.Marshal(canonical); cerr == nil {
+				entry.Data = canonical
+				dataBytes = canonicalBytes
+			}
+		}
 		hasher.Write(dataBytes)
 	}
 	fmt.Fprintf(hasher, "|%s", entry.PrevHash)

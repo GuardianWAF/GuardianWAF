@@ -255,6 +255,11 @@ func (e *Engine) SetWebSocketInterceptor(fn func(http.Handler) http.Handler) {
 // blocked. This is used by the WebSocket inspection layer to scan individual
 // frames without constructing a full *http.Request.
 func (e *Engine) ScanPayload(clientIP, path, payload string) (score int, block bool) {
+	// Accumulator must be set: pipeline.Execute dereferences it
+	// unconditionally (AddMultiple on findings, Total() at the end).
+	// AcquireContext establishes this invariant for HTTP requests;
+	// ScanPayload builds its own context and must uphold it too,
+	// honoring the engine's configured paranoia level.
 	ctx := &RequestContext{
 		ClientIP:        net.ParseIP(clientIP),
 		Path:            path,
@@ -266,6 +271,7 @@ func (e *Engine) ScanPayload(clientIP, path, payload string) (score int, block b
 		QueryParams:     map[string][]string{},
 		NormalizedQuery: map[string][]string{},
 		Cookies:         map[string]string{},
+		Accumulator:     NewScoreAccumulator(int(e.paranoiaLevel.Load())),
 	}
 
 	pipeline := e.currentPipeline()

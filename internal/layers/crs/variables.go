@@ -93,22 +93,29 @@ func (vr *VariableResolver) Resolve(rv RuleVariable) ([]string, error) {
 		return []string{strconv.Itoa(vr.transaction.ClientPort)}, nil
 
 	// Time variables
+	//
+	// time.Time.Format uses Go's reference layout ("Mon Jan 2 15:04:05 MST
+	// 2006") — it has no PHP-style placeholders, so "H", "i", "s", "Y", "m",
+	// "d" are emitted literally ("H:i:s", "Y", ...). The layouts below are the
+	// Go equivalents of the ModSecurity TIME* variables: TIME "HH:MM:SS",
+	// TIME_YEAR "YYYY", TIME_MON/TIME_DAY/TIME_HOUR/TIME_MIN/TIME_SEC
+	// zero-padded two digits.
 	case "TIME":
-		return []string{vr.transaction.Timestamp.Format("H:i:s")}, nil
+		return []string{vr.transaction.Timestamp.Format("15:04:05")}, nil
 	case "TIME_EPOCH":
 		return []string{strconv.FormatInt(vr.transaction.Timestamp.Unix(), 10)}, nil
 	case "TIME_YEAR":
-		return []string{vr.transaction.Timestamp.Format("Y")}, nil
+		return []string{vr.transaction.Timestamp.Format("2006")}, nil
 	case "TIME_MON":
-		return []string{vr.transaction.Timestamp.Format("m")}, nil
+		return []string{vr.transaction.Timestamp.Format("01")}, nil
 	case "TIME_DAY":
-		return []string{vr.transaction.Timestamp.Format("d")}, nil
+		return []string{vr.transaction.Timestamp.Format("02")}, nil
 	case "TIME_HOUR":
-		return []string{vr.transaction.Timestamp.Format("H")}, nil
+		return []string{vr.transaction.Timestamp.Format("15")}, nil
 	case "TIME_MIN":
-		return []string{vr.transaction.Timestamp.Format("i")}, nil
+		return []string{vr.transaction.Timestamp.Format("04")}, nil
 	case "TIME_SEC":
-		return []string{vr.transaction.Timestamp.Format("s")}, nil
+		return []string{vr.transaction.Timestamp.Format("05")}, nil
 
 	// Transaction variables
 	case "TX":

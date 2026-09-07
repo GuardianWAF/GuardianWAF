@@ -260,6 +260,11 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 
 	// Phase 1: Request headers (after receiving request headers)
 	for _, rule := range l.rulesByPhase[1] {
+		// Runtime disable (DisableRule/dashboard) must take effect without a
+		// reload: loadRuleFile applies config DisabledRules at load time only.
+		if rule.ID != "" && l.disabledRules[rule.ID] {
+			continue
+		}
 		matched, score, finding := l.evaluateRule(rule, tx)
 		if matched {
 			anomalyScore += score
@@ -283,6 +288,9 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 
 	// Phase 2: Request body (after receiving request body)
 	for _, rule := range l.rulesByPhase[2] {
+		if rule.ID != "" && l.disabledRules[rule.ID] {
+			continue
+		}
 		matched, score, finding := l.evaluateRule(rule, tx)
 		if matched {
 			anomalyScore += score

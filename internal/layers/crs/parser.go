@@ -44,6 +44,15 @@ func (p *Parser) ParseFile(content string) ([]*Rule, error) {
 				if pendingChainRule != nil {
 					pendingChainRule.Chain = rule
 					pendingChainRule = nil
+					// Multi-level chain: the linked rule itself continues the
+					// chain, so it becomes the new tail awaiting the next
+					// SecRule line. Ignoring its "chain" action leaked the
+					// tail of depth-3+ chains as a standalone top-level rule
+					// (evaluated both outside the chain's AND-condition and
+					// with the chain firing without the tail condition).
+					if rule.Actions.Chain {
+						pendingChainRule = rule
+					}
 				} else {
 					p.rules = append(p.rules, rule)
 					// Check if this rule has chain flag
@@ -52,10 +61,7 @@ func (p *Parser) ParseFile(content string) ([]*Rule, error) {
 					}
 				}
 			}
-		}
-
-		// Parse SecAction (unconditional action)
-		if strings.HasPrefix(line, "SecAction") {
+		case "SecAction":
 			rule, err := p.parseSecAction(line)
 			if err != nil {
 				return nil, fmt.Errorf("line %d: %w", p.lineNum, err)

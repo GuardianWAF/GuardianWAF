@@ -243,7 +243,22 @@ func (m *Manager) CreateTenant(name, description string, domains []string, quota
 		return nil, fmt.Errorf("tenant with ID %s already exists", id)
 	}
 
-	// Check domain uniqueness
+	// Check domain uniqueness. Domains are normalized first at this
+	// index-write seam: resolution strips the port from Host
+	// (netutil.StripPort) and Host headers cannot carry whitespace, so raw
+	// port-suffixed or padded values would register index keys that can
+	// never match a request. Case is preserved for display (domainKey
+	// lowercases the index keys).
+	normalizedDomains := make([]string, 0, len(domains))
+	for _, domain := range domains {
+		d := normalizeDomain(domain)
+		if d == "" {
+			return nil, fmt.Errorf("invalid domain %q: empty after normalization", domain)
+		}
+		normalizedDomains = append(normalizedDomains, d)
+	}
+	domains = normalizedDomains
+
 	for _, domain := range domains {
 		if existingID, exists := m.domains[domainKey(domain)]; exists {
 			return nil, fmt.Errorf("domain %s already assigned to tenant %s", domain, existingID)
@@ -349,11 +364,23 @@ func (m *Manager) GetTenantByDomain(domain string) *Tenant {
 		return m.tenants[tenantID]
 	}
 
-	// Try wildcard match
+	// Try wildcard match. Multiple wildcard patterns can match one host
+	// (e.g. *.example.com and *.sub.example.com both match
+	// shop.sub.example.com), and Go map iteration order is randomized, so
+	// returning on the first hit made tenant resolution nondeterministic.
+	// Standard DNS wildcard semantics apply: the longest (most-specific)
+	// suffix wins. Two distinct equal-length patterns cannot both
+	// suffix-match one host, so longest-pattern alone is deterministic.
+	bestPattern := ""
+	var bestTenantID string
 	for d, tenantID := range m.domains {
-		if matchWildcard(domain, d) {
-			return m.tenants[tenantID]
+		if matchWildcard(domain, d) && len(d) > len(bestPattern) {
+			bestPattern = d
+			bestTenantID = tenantID
 		}
+	}
+	if bestPattern != "" {
+		return m.tenants[bestTenantID]
 	}
 
 	return nil
@@ -514,9 +541,22 @@ func (m *Manager) UpdateTenant(id string, updates *TenantUpdate) error {
 
 	// Update domains — this is part of the same atomic operation under m.mu
 	if len(updates.Domains) > 0 {
+		// Normalize at this index-write seam (see CreateTenant): raw
+		// port-suffixed or padded values could never match a request.
+		// Normalization happens before the consistency check so a rejected
+		// update cannot leave the mappings inconsistent with tenant.Domains.
+		normalizedDomains := make([]string, 0, len(updates.Domains))
+		for _, domain := range updates.Domains {
+			d := normalizeDomain(domain)
+			if d == "" {
+				return fmt.Errorf("invalid domain %q: empty after normalization", domain)
+			}
+			normalizedDomains = append(normalizedDomains, d)
+		}
+
 		// Check new domains before touching the index so a rejected update
 		// cannot leave the mappings inconsistent with tenant.Domains.
-		for _, domain := range updates.Domains {
+		for _, domain := range normalizedDomains {
 			if existingID, exists := m.domains[domainKey(domain)]; exists && existingID != id {
 				return fmt.Errorf("domain %s already assigned to tenant %s", domain, existingID)
 			}
@@ -528,8 +568,8 @@ func (m *Manager) UpdateTenant(id string, updates *TenantUpdate) error {
 		}
 
 		// Set new domains
-		tenant.Domains = updates.Domains
-		for _, domain := range updates.Domains {
+		tenant.Domains = normalizedDomains
+		for _, domain := range normalizedDomains {
 			m.domains[domainKey(domain)] = id
 		}
 	}
@@ -863,6 +903,16 @@ type ManagerStats struct {
 // keeps the operator's original spelling for display and the API.
 func domainKey(domain string) string {
 	return strings.ToLower(domain)
+}
+
+// normalizeDomain canonicalizes an operator-provided domain at the tenant
+// domain index-write seams. Resolution strips the port from Host
+// (netutil.StripPort) and Host headers cannot carry whitespace, so a stored
+// domain containing either could never match a request. Trimming and
+// port-stripping are semantic corrections; case is preserved for display
+// (the index lowercases keys via domainKey).
+func normalizeDomain(domain string) string {
+	return netutil.StripPort(strings.TrimSpace(domain))
 }
 
 func generateTenantID(name string) (string, error) {

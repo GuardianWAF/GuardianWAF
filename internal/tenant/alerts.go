@@ -117,6 +117,14 @@ func (am *AlertManager) TriggerAlert(tenantID string, alertType AlertType, sever
 		am.mu.Unlock()
 		return nil
 	}
+	// Authoritative cooldown check under the write lock: the RLock check
+	// above races — concurrent triggers with the same key can all pass
+	// before any of them stores the cooldown, producing N duplicate alerts
+	// (each one dispatched to every handler). Check-and-set must be atomic.
+	if lastTime, exists := am.cooldowns[cooldownKey]; exists && time.Since(lastTime) < am.cooldownDur {
+		am.mu.Unlock()
+		return nil
+	}
 	// Store alert
 	am.alerts[tenantID] = append(am.alerts[tenantID], *alert)
 	// Trim if too many

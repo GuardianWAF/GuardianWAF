@@ -28,6 +28,10 @@ var geoipLog = slog.Default().With(slog.String("component", "geoip"))
 type DB struct {
 	mu     sync.RWMutex
 	ranges []ipRange
+	// maxEndPrefix[i] is the largest end among ranges[0..i]. Lookup uses it
+	// to stop the overlap walk-back as soon as no earlier range can contain
+	// the target, keeping disjoint-data lookups at O(log n).
+	maxEndPrefix []uint32
 }
 
 // AutoRefreshHandle controls a GeoIP auto-refresh goroutine.
@@ -163,7 +167,23 @@ func LoadCSV(path string) (*DB, error) {
 		return db.ranges[i].start < db.ranges[j].start
 	})
 
+	db.maxEndPrefix = buildMaxEndPrefix(db.ranges)
+
 	return db, nil
+}
+
+// buildMaxEndPrefix returns the running maximum of range ends. Lookup uses
+// it to bound the overlap walk-back (see Lookup).
+func buildMaxEndPrefix(ranges []ipRange) []uint32 {
+	prefix := make([]uint32, len(ranges))
+	var maxEnd uint32
+	for i, r := range ranges {
+		if r.end > maxEnd {
+			maxEnd = r.end
+		}
+		prefix[i] = maxEnd
+	}
+	return prefix
 }
 
 // Lookup returns the country code for the given IP address.
@@ -184,14 +204,22 @@ func (db *DB) Lookup(ip net.IP) string {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
 
-	// Binary search for the range containing target
+	// Binary search for the first range whose start is beyond target, then
+	// walk back through every range with start <= target. LoadCSV accepts
+	// overlapping/nested ranges (e.g. a /24 carve-out inside a /16), where
+	// the containing range can sit at an earlier index than the last-start
+	// candidate — checking only idx-1 returned "" for IPs inside the
+	// shadowed portion of the broader range. Walking from the latest start
+	// downward lets the most specific (latest-start) containing range win.
+	// maxEndPrefix prunes the walk: once even the largest end among
+	// ranges[0..i] is below the target, nothing earlier can match. With
+	// disjoint data (official datasets) the first check decides — misses
+	// exit immediately, so lookups stay O(log n) as before.
 	idx := sort.Search(len(db.ranges), func(i int) bool {
 		return db.ranges[i].start > target
 	})
-
-	// Check the range before idx (the last range where start <= target)
-	if idx > 0 {
-		r := db.ranges[idx-1]
+	for i := idx - 1; i >= 0 && db.maxEndPrefix[i] >= target; i-- {
+		r := db.ranges[i]
 		if target >= r.start && target <= r.end {
 			return r.country
 		}
@@ -232,6 +260,7 @@ func (db *DB) Reload(path string) error {
 	}
 	db.mu.Lock()
 	db.ranges = fresh.ranges
+	db.maxEndPrefix = fresh.maxEndPrefix
 	db.mu.Unlock()
 	return nil
 }
