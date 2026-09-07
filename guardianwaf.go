@@ -243,6 +243,32 @@ func (e *Engine) runCleanup() {
 	}
 }
 
+// wireChallengeService builds and registers the challenge service when the
+// config enables it. Shared by New and NewFromFile so both constructors
+// honor challenge.enabled — without this, NewFromFile silently degraded
+// every ActionChallenge verdict to the block fallback in Middleware.
+func wireChallengeService(eng *engine.Engine, cfg *config.Config) error {
+	if !cfg.WAF.Challenge.Enabled {
+		return nil
+	}
+	chCfg := challenge.Config{
+		Enabled:    true,
+		Difficulty: cfg.WAF.Challenge.Difficulty,
+		CookieTTL:  cfg.WAF.Challenge.CookieTTL,
+		CookieName: cfg.WAF.Challenge.CookieName,
+	}
+	if cfg.WAF.Challenge.SecretKey != "" {
+		chCfg.SecretKey = []byte(cfg.WAF.Challenge.SecretKey)
+	}
+	chCfg.ClientIPExtractor = engine.ExtractClientIP
+	challengeSvc, err := newChallengeService(chCfg)
+	if err != nil {
+		return fmt.Errorf("creating challenge service: %w", err)
+	}
+	eng.SetChallengeService(challengeSvc)
+	return nil
+}
+
 // New creates a new WAF engine with the given configuration.
 func New(cfg Config, opts ...Option) (*Engine, error) {
 	internalCfg := convertConfig(cfg)
@@ -263,23 +289,8 @@ func New(cfg Config, opts ...Option) (*Engine, error) {
 
 	addDefaultLayers(eng, internalCfg)
 
-	// Wire challenge service if enabled
-	if internalCfg.WAF.Challenge.Enabled {
-		chCfg := challenge.Config{
-			Enabled:    true,
-			Difficulty: internalCfg.WAF.Challenge.Difficulty,
-			CookieTTL:  internalCfg.WAF.Challenge.CookieTTL,
-			CookieName: internalCfg.WAF.Challenge.CookieName,
-		}
-		if internalCfg.WAF.Challenge.SecretKey != "" {
-			chCfg.SecretKey = []byte(internalCfg.WAF.Challenge.SecretKey)
-		}
-		chCfg.ClientIPExtractor = engine.ExtractClientIP
-		challengeSvc, svcErr := newChallengeService(chCfg)
-		if svcErr != nil {
-			return nil, fmt.Errorf("creating challenge service: %w", svcErr)
-		}
-		eng.SetChallengeService(challengeSvc)
+	if err := wireChallengeService(eng, internalCfg); err != nil {
+		return nil, err
 	}
 
 	e := &Engine{internal: eng, cfg: internalCfg}
@@ -312,6 +323,10 @@ func NewFromFile(path string, opts ...Option) (*Engine, error) {
 	}
 
 	addDefaultLayers(eng, cfg)
+
+	if err := wireChallengeService(eng, cfg); err != nil {
+		return nil, err
+	}
 
 	e := &Engine{internal: eng, cfg: cfg}
 	e.startCleanup()

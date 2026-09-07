@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-GuardianWAF is a zero-dependency Web Application Firewall written in Go (`go.mod` declares `go 1.25` with `toolchain go1.26.5`).
+GuardianWAF is a zero-dependency Web Application Firewall written in Go (`go.mod` declares `go 1.26.5`; there is no `toolchain` directive).
 Module: `github.com/guardianwaf/guardianwaf`
 
 The codebase uses the Go standard library **only** — `go.mod` has zero `require` entries and `go.sum` is empty (verified 2026-06-04, after the dead `internal/http3` package and its sole dependency `quic-go` were removed).
@@ -70,7 +70,9 @@ All WAF processing flows through a **layer pipeline** (`internal/engine/pipeline
 3. Layers read `ctx.TenantWAFConfig` directly for per-tenant config overrides (race-free, per-request)
 4. Accumulates `Finding` scores via `ScoreAccumulator`
 5. **Short-circuits on `ActionBlock`** — immediately returns without running remaining layers
-6. `ActionChallenge` only applies if current action is `ActionPass` (block takes priority)
+6. Actions escalate monotonically — `Pass < Log < Challenge < Block`: `Log` never
+   overrides `Challenge`, `Challenge` overrides both, and `ActionBlock` still
+   short-circuits with absolute priority
 
 ### Request Context
 
@@ -84,15 +86,32 @@ All WAF processing flows through a **layer pipeline** (`internal/engine/pipeline
 
 Defined in `internal/engine/layer.go`.
 
-> **⚠️ Accuracy note (verified 2026-06-04):** The serve binary (`cmd/guardianwaf`) wires **16** layers via `layerregistry` — the ones marked ✅ below. The remaining layers in this table are **implemented and unit-tested but NOT compiled into the serve binary**. The `internal/integrations/v040` Integrator that would have wired most of them had zero callers and was **deleted on 2026-06-04** (along with `internal/feature`, `internal/http3`, `internal/analytics` — all dead; see `AUDIT.md` §2). Those ❌ layer packages now have no wiring path at all and are candidates for removal too. The original "29 registered" figure was aspirational/incorrect. Library mode (`guardianwaf.go`) wires only 6 core layers: IP ACL, Rate Limit, Sanitizer, Detection, Bot Detection, Response.
+> **Accuracy note (re-verified 2026-08-28 via `go list -deps ./cmd/guardianwaf` and
+> `internal/runtime/layerregistry/registry.go`):** the serve binary wires exactly the **16**
+> pipeline layers in the table below — every row is live, there are no unwired entries.
+> Library mode (`guardianwaf.go`) wires only 6: IP ACL, Rate Limit, Sanitizer, Detection,
+> Bot Detection, Response.
 
-The 16 layers actually wired in serve mode: IP ACL, Threat Intel, CORS, Custom Rules, Rate Limit, ATO Protection, API Security, API Validation, Sanitizer, CRS, Detection, Virtual Patch, DLP, Bot Detection, Client-Side, Response.
+**Deleted packages** (gone, no wiring path): `internal/http3`, `internal/feature`,
+`internal/analytics`, `internal/integrations/v040`, and the layer packages `grpc`,
+`zerotrust`, `canary`, `cache`, `replay`, `apidiscovery`, `mlanomaly`, `airemediation`.
+Their `WAF.*` config structs were removed too and are now rejected as unknown keys
+(`internal/config/defaults.go`). See `docs/history/AUDIT.md` §2.
 
-**Layer catalogue** — all layers below are wired in serve mode. (The previously-listed
-unwired "showcase" layers — SIEM, Cluster, WebSocket, gRPC, Zero Trust, Canary, Cache,
-Replay, GraphQL, API Discovery, ML Anomaly, AI Remediation — were **deleted on 2026-06-04**
-as dead code with no wiring path; see `AUDIT.md` §2. Their `WAF.*` config structs remain
-parsed-but-inert and are rejected as unknown top-level keys.)
+**Not pipeline layers, but compiled into and started by the serve binary** — these are
+runtime services/interceptors wired in `cmd/guardianwaf/*_runtime.go`, so do not describe
+them as absent:
+
+| Subsystem | Package | Wiring |
+|---|---|---|
+| SIEM export (CEF/JSON over TLS syslog) | `internal/siem` | `siem_runtime.go`, `siem.enabled` |
+| Clustering (gossip, Raft, peer sync) | `internal/cluster/{gossip,raft,peersync}`, `internal/clustersync` | `cluster_runtime.go`, top-level `cluster:` |
+| WebSocket frame inspection | `internal/layers/websocket` | `websocket_runtime.go` → `eng.SetWebSocketInterceptor`, `waf.websocket.enabled` |
+| Distributed tracing | `internal/tracing` | `observability_runtime.go`, `tracing.enabled` |
+| Compliance reporting | `internal/compliance` | dashboard API |
+
+**Pipeline layer catalogue** (all 16 wired in serve mode; JS Challenge at order 430 is
+provided by the challenge service rather than the registry):
 
 | Order | Layer | Description |
 |-------|-------|-------------|
@@ -126,7 +145,7 @@ parsed-but-inert and are rejected as unknown top-level keys.)
 
 ### Layer vs Library Mode
 
-The `serve` command (`cmd/guardianwaf/main.go` → `cmd/guardianwaf/layers.go`) wires the **16** layers marked ✅ above (via `layerregistry`), plus the JS-challenge service. The remaining (❌) layers exist as packages but are not wired into serve — see `refactor.md` §3.7. The Go library API (`guardianwaf.go`) wires only 6 core layers by default. To add more layers in library mode, access the internal engine and call `AddLayer` directly.
+The `serve` command (`cmd/guardianwaf/main.go` → `cmd/guardianwaf/layers.go`) wires all **16** layers above via `layerregistry`, plus the JS-challenge service and the runtime subsystems listed in the table above. The Go library API (`guardianwaf.go`) wires only 6 core layers by default. To add more layers in library mode, access the internal engine and call `AddLayer` directly.
 
 ### Multi-Tenancy
 

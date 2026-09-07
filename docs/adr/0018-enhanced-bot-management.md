@@ -11,7 +11,7 @@
 > package and a `waf.bot_detection.enhanced` config block, but the layer was
 > **never wired into any binary** (the serve path uses the standard
 > `botdetect.NewLayer`). It ran nowhere and was kept alive only by its own unit
-> tests. Per the dead-code policy (AUDIT.md §2, Rounds 7–8), the unused code,
+> tests. Per the dead-code policy (../history/AUDIT.md §2, Rounds 7–8), the unused code,
 > config schema, and client collector asset were removed. Re-introducing this
 > feature should start from a fresh, fully-wired implementation with integration
 > tests. The original proposal text is retained below for historical context.

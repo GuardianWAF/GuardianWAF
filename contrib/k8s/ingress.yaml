@@ -7,6 +7,24 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-body-size: "10m"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "30"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "30"
+    # /metrics, /healthz, /livez and /readyz are registered on the proxy
+    # listener (:8088) as exact ServeMux patterns, so they are served ahead of
+    # the "/" route and never pass through the WAF middleware. Routing "/" here
+    # therefore publishes them to the internet: GET https://api.example.com/metrics
+    # would return upstream route names, circuit-breaker state, block/pass
+    # counts and event-store internals to anyone. docs/metrics.md states the
+    # endpoint is for internal scraping only, so deny it at the edge and scrape
+    # it in-cluster via the Service instead.
+    #
+    # server-snippet is disabled by default in ingress-nginx >= 1.9
+    # (allow-snippet-annotations). If your controller rejects it, put the same
+    # deny in the controller's ConfigMap, or front the WAF with a Service that
+    # does not expose :8088 publicly.
+    nginx.ingress.kubernetes.io/server-snippet: |
+      location = /metrics { return 404; }
+      location = /healthz { return 404; }
+      location = /livez   { return 404; }
+      location = /readyz  { return 404; }
 spec:
   ingressClassName: nginx
   rules:

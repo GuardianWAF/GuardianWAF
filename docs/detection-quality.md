@@ -70,7 +70,14 @@ Inspects redirect-type parameters and headers for untrusted external URLs that e
 
 **18 redirect parameter names:** `redirect`, `redirect_uri`, `redirect_url`, `return`, `return_url`, `returnurl`, `returnTo`, `return_to`, `next`, `callback`, `callback_url`, `target`, `goto`, `dest`, `destination`, `continue`, `redir`, `r`.
 
-**6 redirect headers:** `Location`, `Refresh`, `X-Redirect`, `X-Forwarded-Host`, `Referer`, `Origin`.
+**Redirect header inspected:** `Location`.
+
+`Referer` is deliberately excluded. It is an inbound header naming where the
+visitor came from, not a target the application redirects to, so scoring it as a
+redirect target flagged every ordinary click-through from an external site — a
+referrer of `https://www.google.com/` scored 60 against a block threshold of 50.
+Earlier revisions of this document also listed `Refresh`, `X-Redirect`,
+`X-Forwarded-Host` and `Origin`; the detector has never inspected those.
 
 | Vector | Example | Severity |
 |---|---|---:|

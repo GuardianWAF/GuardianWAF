@@ -104,6 +104,20 @@ temp/
 # Security scan reports (ephemeral; regenerated per scan)
 security-report/
 
+# Stray GeoIP databases. A test that called LoadOrDownload with a relative path
+# and an empty URL once pulled the live ~31MB DB-IP dump into the package source
+# directory, and it was committed. The test is now hermetic; this is the backstop.
+internal/geoip/*.csv
+internal/geoip/*.csv.gz
+/geoip.csv
+/geoip.csv.gz
+
+# Ad-hoc audit/coverage scratch output
+/.coverage-current/
+/.coverage-next/
+/.coverage-pkgs/
+/.project/
+
 # Docker
 .docker/
 

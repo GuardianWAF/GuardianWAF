@@ -31,8 +31,10 @@ repos:
 
       - id: go-fmt
         name: go fmt
-        entry: gofmt -s -l .
-        pass_filenames: true
+        # `gofmt -l` prints offending files but exits 0, so it could never fail
+        # the commit. fmt-check greps the output and exits non-zero.
+        entry: make fmt-check
+        pass_filenames: false
         language: system
         types: [go]
         description: "Check Go files are formatted"

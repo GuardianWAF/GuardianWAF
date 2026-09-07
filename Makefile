@@ -4,11 +4,14 @@ BINARY=guardianwaf
 VERSION?=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT?=$(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
 DATE?=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+# -trimpath keeps absolute builder paths out of the binary so a release can be
+# independently rebuilt and byte-compared.
+GOFLAGS_BUILD=-trimpath
 LDFLAGS=-ldflags "-s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)"
 
 # Build dashboard UI then Go binary
 build: ui
-	go build $(LDFLAGS) -o $(BINARY) ./cmd/guardianwaf
+	go build $(GOFLAGS_BUILD) $(LDFLAGS) -o $(BINARY) ./cmd/guardianwaf
 
 # Build React dashboard
 ui:
@@ -20,7 +23,7 @@ ui-dev:
 
 # Dev build — Go only, skips dashboard rebuild (use ui-dev for frontend changes)
 dev:
-	go build $(LDFLAGS) -o $(BINARY) ./cmd/guardianwaf
+	go build $(GOFLAGS_BUILD) $(LDFLAGS) -o $(BINARY) ./cmd/guardianwaf
 
 test:
 	go test -race -count=1 ./...
@@ -42,18 +45,10 @@ FUZZTIME ?= 30s
 
 fuzz:
 	@echo "Running fuzz tests for $(FUZZTIME) each..."
-	go test -run=XXX '-fuzz=FuzzYAMLParser$$' -fuzztime=$(FUZZTIME) ./internal/config/
-	go test -run=XXX -fuzz=FuzzYAMLParserWithValidation -fuzztime=$(FUZZTIME) ./internal/config/
-	go test -run=XXX -fuzz=FuzzNormalizeAll -fuzztime=$(FUZZTIME) ./internal/layers/sanitizer/
-	go test -run=XXX -fuzz=FuzzDecodeURLRecursive -fuzztime=$(FUZZTIME) ./internal/layers/sanitizer/
-	go test -run=XXX -fuzz=FuzzCanonicalizePath -fuzztime=$(FUZZTIME) ./internal/layers/sanitizer/
-	go test -run=XXX -fuzz=FuzzSQLiDetector -fuzztime=$(FUZZTIME) ./internal/layers/detection/sqli/
-	go test -run=XXX -fuzz=FuzzSQLiTokenizer -fuzztime=$(FUZZTIME) ./internal/layers/detection/sqli/
-	go test -run=XXX -fuzz=FuzzXSSDetector -fuzztime=$(FUZZTIME) ./internal/layers/detection/xss/
-	go test -run=XXX -fuzz=FuzzSmugglingDetector -fuzztime=$(FUZZTIME) ./internal/layers/detection/smuggling/
-	go test -run=XXX -fuzz=FuzzOpenRedirectDetector -fuzztime=$(FUZZTIME) ./internal/layers/detection/openredirect/
-	go test -run=XXX -fuzz=FuzzGraphQLDetector -fuzztime=$(FUZZTIME) ./internal/layers/detection/graphql/
-	go test -run=XXX -fuzz=FuzzParseFrame -fuzztime=$(FUZZTIME) ./internal/layers/websocket/
+	@# Targets are discovered from the tree by the script, not hand-listed here.
+	@# The old inline list named a nonexistent FuzzParseFrame target (go test
+	@# exits 0 on an unmatched -fuzz name) and covered 11 of 33 real targets.
+	FUZZTIME=$(FUZZTIME) ./scripts/fuzz-smoke.sh
 
 clean:
 	rm -f $(BINARY)

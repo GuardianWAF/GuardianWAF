@@ -6,7 +6,20 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "guardianwaf.labels" . | nindent 4 }}
-  {{- with .Values.ingress.annotations }}
+  {{- $ann := deepCopy (.Values.ingress.annotations | default dict) }}
+  {{- if .Values.ingress.denyInternalEndpoints }}
+  {{- /*
+    /metrics, /healthz, /livez and /readyz are registered on the proxy listener
+    as exact ServeMux patterns, ahead of the "/" route and outside the WAF
+    middleware. A "/" Prefix rule therefore publishes them to the internet,
+    which docs/metrics.md explicitly forbids. Deny them at the edge unless the
+    operator opts out.
+  */}}
+  {{- $deny := "location = /metrics { return 404; }\nlocation = /healthz { return 404; }\nlocation = /livez   { return 404; }\nlocation = /readyz  { return 404; }\n" }}
+  {{- $existing := index $ann "nginx.ingress.kubernetes.io/server-snippet" | default "" }}
+  {{- $_ := set $ann "nginx.ingress.kubernetes.io/server-snippet" (printf "%s%s" $deny $existing) }}
+  {{- end }}
+  {{- with $ann }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}

@@ -16,6 +16,13 @@ spec:
         app: guardianwaf
     spec:
       automountServiceAccountToken: false
+      # The app's own drain deadline is 30s (cmd/guardianwaf/main.go). Leaving
+      # this at the 30s default meant the kubelet's SIGKILL landed exactly as
+      # that drain expired, cutting off the shutdown flush of IP auto-bans and
+      # the event store. The preStop sleep gives kube-proxy and the ingress time
+      # to drop this pod from their endpoints before it stops accepting, which
+      # is what prevents connection-refused 502s during a rollout.
+      terminationGracePeriodSeconds: 45
       securityContext:
         fsGroup: 1000
         fsGroupChangePolicy: OnRootMismatch
@@ -23,6 +30,10 @@ spec:
         - name: guardianwaf
           image: ghcr.io/guardianwaf/guardianwaf:0.5.0
           imagePullPolicy: IfNotPresent
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 5"]
           args:
             - serve
             - -c

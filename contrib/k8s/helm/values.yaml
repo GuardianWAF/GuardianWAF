@@ -89,6 +89,14 @@ tls:
 ingress:
   enabled: false
   className: ""
+  # Deny /metrics, /healthz, /livez and /readyz at the ingress. Those endpoints
+  # sit on the proxy listener ahead of the WAF middleware, so a "/" Prefix rule
+  # would otherwise expose Prometheus metrics — upstream names, circuit-breaker
+  # state, block counts — to the public internet. Scrape them in-cluster via the
+  # Service instead. Set to false only if your ingress controller rejects
+  # server-snippet (disabled by default in ingress-nginx >= 1.9) and you have
+  # blocked those paths another way.
+  denyInternalEndpoints: true
   annotations: {}
     # kubernetes.io/ingress.class: nginx
   hosts: []

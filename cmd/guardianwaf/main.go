@@ -1,8 +1,13 @@
 // Package main is the CLI entry point for GuardianWAF.
 // It supports subcommands: serve, sidecar, check, validate, version, and help.
-
-//go:build http3
-
+//
+// This file carries no build constraint. It was previously duplicated verbatim
+// as main.go (//go:build http3) and main_default.go (//go:build !http3) — 978
+// byte-identical lines guarded by a drift test — because HTTP/3 was once a
+// build-tagged runtime. The internal/http3 package is gone, so the tag selected
+// identical code under either setting while doubling the blast radius of every
+// edit to the serve/sidecar lifecycle. `go build -tags http3` still succeeds;
+// the tag is now simply inert.
 package main
 
 import (

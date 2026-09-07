@@ -33,7 +33,8 @@ spec:
       {{- end }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
-      terminationGracePeriodSeconds: 30
+      # Must exceed the app's 30s drain deadline, or SIGKILL races the flush.
+      terminationGracePeriodSeconds: 45
 
       containers:
         - name: guardianwaf

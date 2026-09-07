@@ -15,6 +15,11 @@ builds:
     binary: guardianwaf
     env:
       - CGO_ENABLED=0
+    # Reproducibility: -trimpath strips builder paths, and mod_timestamp pins the
+    # build date to the commit so two builds of the same tag are byte-identical.
+    flags:
+      - -trimpath
+    mod_timestamp: '{{ .CommitTimestamp }}'
     goos:
       - linux
       - darwin
@@ -26,7 +31,7 @@ builds:
       - -s -w
       - -X main.version={{.Version}}
       - -X main.commit={{.Commit}}
-      - -X main.date={{.Date}}
+      - -X main.date={{ .CommitDate }}
 
 archives:
   - id: default

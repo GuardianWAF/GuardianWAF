@@ -1,0 +1,47 @@
+# Every third-party GitHub Action in this repo is pinned to a commit SHA, and
+# the container base images to explicit tags. Pinning without an updater just
+# converts "unpinned and drifting" into "pinned and rotting", so this keeps the
+# pins moving. Go module updates are deliberately absent: go.mod has no
+# requires and must stay that way (see docs/adr/0001-zero-external-dependencies.md).
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "build"
+
+  - package-ecosystem: npm
+    directory: /internal/dashboard/ui
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(dashboard)"
+    groups:
+      dev-dependencies:
+        dependency-type: development
+
+  - package-ecosystem: npm
+    directory: /website
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "deps(website)"
+
+  - package-ecosystem: npm
+    directory: /tests/e2e/playwright
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "deps(e2e)"
