@@ -50,9 +50,15 @@ type Layer struct {
 	// never observe a half-rebuilt tree (the new tree is fully built, then
 	// published in one store).
 	cidrTree atomic.Pointer[ipacl.RadixTree]
-	feeds    []*FeedManager
-	mu       sync.RWMutex
-	started  bool
+	// cidrEntries accumulates every feed's CIDR ranges keyed by the CIDR
+	// string. Each FeedManager callback carries only its own entries, so the
+	// published tree must be rebuilt from this union — replacing it with one
+	// feed's slice made the last refresh win and silently dropped every other
+	// feed's ranges from the blocking path.
+	cidrEntries map[string]*ThreatInfo
+	feeds       []*FeedManager
+	mu          sync.RWMutex
+	started     bool
 }
 
 // NewLayer creates a new Threat Intelligence layer.
@@ -71,6 +77,7 @@ func NewLayer(cfg *Config) (*Layer, error) {
 		config:      *cfg,
 		ipCache:     NewCache(cacheSize, cacheTTL),
 		domainCache: NewCache(cacheSize/10, cacheTTL),
+		cidrEntries: make(map[string]*ThreatInfo),
 	}
 	l.cidrTree.Store(ipacl.NewRadixTree())
 
@@ -277,10 +284,6 @@ func (l *Layer) updateEntries(entries []ThreatEntry) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	// Build the replacement CIDR tree fully before publishing it, so
-	// concurrent request-path readers never observe a half-populated tree.
-	newTree := ipacl.NewRadixTree()
-
 	for _, e := range entries {
 		if e.Info == nil {
 			continue
@@ -290,13 +293,25 @@ func (l *Layer) updateEntries(entries []ThreatEntry) {
 			l.ipCache.Set(e.IP, e.Info)
 		}
 		if e.CIDR != "" {
-			_ = newTree.Insert(e.CIDR, e.Info) //nolint:errcheck // #nosec G104 -- in-memory tree insert; cannot fail
+			l.cidrEntries[e.CIDR] = e.Info
 		}
 		if e.Domain != "" {
 			l.domainCache.Set(strings.ToLower(e.Domain), e.Info)
 		}
 	}
 
+	// Rebuild the CIDR tree from the accumulated union of ALL feeds' ranges
+	// before publishing it, so concurrent request-path readers never observe
+	// a half-populated tree. Building it from the callback's slice alone made
+	// the last refresh win: with multiple feeds, every refresh dropped the
+	// other feeds' ranges from the blocking path until their next refresh.
+	// Accumulation trades per-feed removals for never losing cross-feed
+	// coverage — the safe direction for a blocking control, and the same
+	// accumulate-on-refresh behavior the caches already have.
+	newTree := ipacl.NewRadixTree()
+	for cidr, info := range l.cidrEntries {
+		_ = newTree.Insert(cidr, info) //nolint:errcheck // #nosec G104 -- in-memory tree insert; cannot fail
+	}
 	l.cidrTree.Store(newTree)
 }
 

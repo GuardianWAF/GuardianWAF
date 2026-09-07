@@ -290,6 +290,13 @@ func TestCheckDomain_NoMatch_Cov(t *testing.T) {
 }
 
 // --- updateEntries rebuilds CIDR tree ---
+//
+// Contract note (round 36): updateEntries accumulates every feed's ranges and
+// rebuilds the tree from the union. Each FeedManager callback carries only its
+// own feed's slice, so the previous replace-on-rebuild semantics made the last
+// refresh win — with multiple feeds, every refresh dropped the other feeds'
+// ranges from the blocking path until their next refresh (proven defect:
+// a 10.0.0.0/8 range went unblocked whenever a second feed refreshed).
 
 func TestLayer_UpdateEntries_RebuildsCIDR_Cov(t *testing.T) {
 	layer, _ := NewLayer(&Config{Enabled: true})
@@ -304,26 +311,44 @@ func TestLayer_UpdateEntries_RebuildsCIDR_Cov(t *testing.T) {
 		t.Errorf("expected 1 CIDR entry, got %d", stats["cidr_entries"])
 	}
 
-	// Second update with different data — should rebuild tree
+	// Second update with different data — should rebuild the tree from the
+	// union of all feeds' ranges, keeping the first range in place.
 	layer.updateEntries([]ThreatEntry{
 		{CIDR: "192.0.2.0/24", Info: &ThreatInfo{Score: 60, Type: "test2"}},
 	})
 
 	stats = layer.Stats()
-	if stats["cidr_entries"] != 1 {
-		t.Errorf("expected 1 CIDR entry after rebuild, got %d", stats["cidr_entries"])
+	if stats["cidr_entries"] != 2 {
+		t.Errorf("expected 2 CIDR entries after rebuild (union of all feeds), got %d", stats["cidr_entries"])
 	}
 
-	// Old CIDR should no longer match
+	// The first feed's range must remain enforced — a second feed's refresh
+	// must not evict it from the blocking path.
 	_, ok := layer.checkIP(net.ParseIP("10.1.2.3"))
-	if ok {
-		t.Error("old CIDR should be evicted after updateEntries rebuild")
+	if !ok {
+		t.Error("first feed's CIDR should still match after another feed's updateEntries (union semantics)")
 	}
 
 	// New CIDR should match
 	info, ok := layer.checkIP(net.ParseIP("192.0.2.100"))
 	if !ok || info.Score != 60 {
 		t.Error("new CIDR should match")
+	}
+
+	// Re-delivering the same CIDR replaces its entry in the union (no growth).
+	// Note: checkIP memoizes CIDR-derived results per-IP in the IP cache with
+	// the cache TTL, so the updated info is asserted via a fresh IP inside the
+	// range — 10.1.2.3 was memoized at score 50 by the earlier lookup above.
+	layer.updateEntries([]ThreatEntry{
+		{CIDR: "10.0.0.0/8", Info: &ThreatInfo{Score: 75, Type: "test-updated"}},
+	})
+	stats = layer.Stats()
+	if stats["cidr_entries"] != 2 {
+		t.Errorf("expected 2 CIDR entries after same-key re-delivery, got %d", stats["cidr_entries"])
+	}
+	info, ok = layer.checkIP(net.ParseIP("10.9.9.9"))
+	if !ok || info.Score != 75 {
+		t.Error("re-delivered CIDR should carry the updated info")
 	}
 }
 
