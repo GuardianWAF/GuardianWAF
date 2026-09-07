@@ -285,15 +285,23 @@ func (e *Exporter) Close() error {
 
 // ExporterConfigFromSIEM converts a config.SIEMConfig to an ExporterConfig.
 func ExporterConfigFromSIEM(cfg config.SIEMConfig) ExporterConfig {
+	endpoint := cfg.Endpoint
+	useTLS := strings.HasPrefix(endpoint, "tls://")
+	if useTLS {
+		// The scheme selects the transport; the dialer must not receive it —
+		// "tls://host" is not a resolvable hostname and every flush would
+		// fail DNS lookup, silently losing all exported events.
+		endpoint = strings.TrimPrefix(endpoint, "tls://")
+	}
 	return ExporterConfig{
-		Endpoint:      cfg.Endpoint,
+		Endpoint:      endpoint,
 		Format:        cfg.Format,
 		FlushInterval: cfg.FlushInterval,
 		BatchSize:     cfg.BatchSize,
 		Timeout:       cfg.Timeout,
 		SkipVerify:    cfg.SkipVerify,
 		ExtraFields:   cfg.Fields,
-		UseTLS:        strings.HasPrefix(cfg.Endpoint, "tls://"),
+		UseTLS:        useTLS,
 	}
 }
 
