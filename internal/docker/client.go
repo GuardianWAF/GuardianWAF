@@ -390,7 +390,7 @@ func validateDockerCLIArg(name, arg string) error {
 // filters use '=', ',', and '"' as syntactic delimiters — allowing them
 // in a prefix would let a crafted value inject extra filter clauses or
 // break the filter parser. Length is bounded to 128.
-var validDockerLabelPrefix = regexp.MustCompile("^[a-zA-Z0-9._\\-/:]{1,128}$")
+var validDockerLabelPrefix = regexp.MustCompile(`^[a-zA-Z0-9._\-/:]{1,128}$`)
 
 // validateDockerLabelPrefix ensures a caller-supplied label prefix contains
 // only characters safe for docker --filter interpolation.

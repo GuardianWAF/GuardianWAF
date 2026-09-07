@@ -297,16 +297,16 @@ func TestValidateDockerLabelPrefix(t *testing.T) {
 		{strings.Repeat("x", 129), false},
 
 		// Invalid: filter-syntax delimiters that could inject clauses
-		{"foo=bar", false},     // '=' is docker filter delimiter
-		{"foo,bar", false},     // ',' separates filter values
-		{`foo"bar`, false},     // '"' breaks filter parsing
-		{"foo bar", false},     // space
-		{"foo;bar", false},     // semicolon
-		{"foo|bar", false},     // pipe
-		{"$(id)", false},       // shell expansion chars
-		{"foo\tbar", false},    // tab
-		{"foo\nbar", false},    // newline
-		{"foo\x00bar", false},  // NUL
+		{"foo=bar", false},    // '=' is docker filter delimiter
+		{"foo,bar", false},    // ',' separates filter values
+		{`foo"bar`, false},    // '"' breaks filter parsing
+		{"foo bar", false},    // space
+		{"foo;bar", false},    // semicolon
+		{"foo|bar", false},    // pipe
+		{"$(id)", false},      // shell expansion chars
+		{"foo\tbar", false},   // tab
+		{"foo\nbar", false},   // newline
+		{"foo\x00bar", false}, // NUL
 	}
 
 	for _, tt := range tests {
