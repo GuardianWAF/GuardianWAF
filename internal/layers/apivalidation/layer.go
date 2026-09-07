@@ -4,14 +4,14 @@ package apivalidation
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
-
-	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"time"
 )
 
@@ -310,7 +310,7 @@ func (l *Layer) compileOperation(spec *CompiledSpec, path, method string, op *Op
 			Name:     p.Name,
 			In:       p.In,
 			Required: p.Required,
-			Schema:   p.Schema,
+			Schema:   l.resolveSchemaRefs(p.Schema, spec.Spec, 0),
 		})
 	}
 
@@ -319,10 +319,11 @@ func (l *Layer) compileOperation(spec *CompiledSpec, path, method string, op *Op
 	if op.RequestBody != nil {
 		for contentType, mediaType := range op.RequestBody.Content {
 			if mediaType.Schema != nil {
+				resolved := l.resolveSchemaRefs(mediaType.Schema, spec.Spec, 0)
 				bodySchema = &CompiledBodySchema{
 					Required:             op.RequestBody.Required,
-					Schema:               mediaType.Schema,
-					AdditionalProperties: l.getAdditionalProperties(mediaType.Schema),
+					Schema:               resolved,
+					AdditionalProperties: l.getAdditionalProperties(resolved),
 				}
 				// Cache the compiled schema
 				cacheKey := fmt.Sprintf("%s:%s:%s", spec.Source.Path, method, path)
@@ -350,6 +351,46 @@ func (l *Layer) compileOperation(spec *CompiledSpec, path, method string, op *Op
 
 	spec.Routes[method+" "+path] = route
 	l.router.AddRoute(method, path, route)
+}
+
+// maxRefResolutionDepth bounds recursive $ref inlining so circular component
+// references (A → B → A) terminate. Beyond the cap the ref stub is left in
+// place, which the validator treats as pass-through (pre-existing behavior).
+const maxRefResolutionDepth = 32
+
+// resolveSchemaRefs returns a schema with "#/components/schemas/<name>"
+// references inlined from the spec's components. Resolution happens at
+// compile time: SchemaValidator.Validate treats a leftover $ref stub as
+// unconditionally valid, so an unresolved ref would silently disable
+// validation for that schema and everything under it.
+func (l *Layer) resolveSchemaRefs(s *Schema, spec *OpenAPISpec, depth int) *Schema {
+	if s == nil || spec == nil || spec.Components == nil || depth >= maxRefResolutionDepth {
+		return s
+	}
+
+	if s.Ref != "" {
+		if name, ok := strings.CutPrefix(s.Ref, "#/components/schemas/"); ok {
+			if comp, exists := spec.Components.Schemas[name]; exists && comp != nil {
+				return l.resolveSchemaRefs(comp, spec, depth+1)
+			}
+		}
+		return s
+	}
+
+	s.Items = l.resolveSchemaRefs(s.Items, spec, depth+1)
+	for name, prop := range s.Properties {
+		s.Properties[name] = l.resolveSchemaRefs(prop, spec, depth+1)
+	}
+	for i, sub := range s.OneOf {
+		s.OneOf[i] = l.resolveSchemaRefs(sub, spec, depth+1)
+	}
+	for i, sub := range s.AnyOf {
+		s.AnyOf[i] = l.resolveSchemaRefs(sub, spec, depth+1)
+	}
+	for i, sub := range s.AllOf {
+		s.AllOf[i] = l.resolveSchemaRefs(sub, spec, depth+1)
+	}
+	return s
 }
 
 // getAdditionalProperties extracts additionalProperties from schema.
@@ -610,6 +651,16 @@ func (l *Layer) validateRequestBody(ctx *engine.RequestContext, route *RouteInfo
 
 	ct := strings.ToLower(strings.Split(contentType[0], ";")[0])
 
+	// Validate against the SPEC's declared contract, not the request's
+	// self-declared Content-Type: the compiled body schema comes from the
+	// spec's application/json entry, so any non-form content type is
+	// validated as JSON. Otherwise an attacker bypasses the schema by
+	// declaring text/plain (or any non-JSON type) while still sending JSON
+	// the backend will parse.
+	if ct != "application/x-www-form-urlencoded" && ct != "multipart/form-data" {
+		ct = "application/json"
+	}
+
 	switch ct {
 	case "application/json":
 		var data any
@@ -635,10 +686,24 @@ func (l *Layer) validateRequestBody(ctx *engine.RequestContext, route *RouteInfo
 			}
 		}
 
-	case "application/x-www-form-urlencoded", "multipart/form-data":
-		// For form data, create a map from query params and validate
-		formData := make(map[string]any)
-		for key, values := range ctx.QueryParams {
+	case "application/x-www-form-urlencoded":
+		// Parse the urlencoded BODY — the form source. Query parameters are
+		// not the request body: validating them against the body schema both
+		// missed real body violations (their fields only entered the map if
+		// they also appeared in the query) and flagged query data that was
+		// never part of the body contract.
+		formValues, err := url.ParseQuery(ctx.BodyString)
+		if err != nil {
+			findings = append(findings, engine.Finding{
+				DetectorName: "apivalidation",
+				Description:  fmt.Sprintf("Invalid urlencoded form body: %v", err),
+				Score:        l.config.ViolationScore,
+			})
+			break
+		}
+
+		formData := make(map[string]any, len(formValues))
+		for key, values := range formValues {
 			if len(values) == 1 {
 				formData[key] = values[0]
 			} else {
@@ -657,6 +722,12 @@ func (l *Layer) validateRequestBody(ctx *engine.RequestContext, route *RouteInfo
 				})
 			}
 		}
+
+	case "multipart/form-data":
+		// Multipart bodies cannot be mapped to key/value form data without
+		// boundary parsing; validating query parameters against the body
+		// schema (the previous behavior) was wrong-source. Validation of
+		// multipart bodies requires a dedicated parser.
 	}
 
 	return findings

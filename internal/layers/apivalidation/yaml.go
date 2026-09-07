@@ -235,6 +235,15 @@ func LoadYAMLSpec(yamlData []byte) (*OpenAPISpec, error) {
 // IsYAML checks if data appears to be YAML format.
 func IsYAML(data []byte) bool {
 	content := string(data)
+
+	// A document opening with a JSON object/array bracket is JSON — the JSON
+	// load path parses it natively. Pretty-printed JSON is full of ": " and
+	// would otherwise be misclassified here, then mangled by the naive YAML
+	// parser into an empty spec.
+	if trimmedContent := strings.TrimSpace(content); strings.HasPrefix(trimmedContent, "{") || strings.HasPrefix(trimmedContent, "[") {
+		return false
+	}
+
 	lines := strings.Split(content, "\n")
 
 	for _, line := range lines {

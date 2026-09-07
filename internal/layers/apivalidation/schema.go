@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"unicode/utf8"
 )
 
 // Pre-compiled regex patterns for format validation (avoids recompilation per request).
@@ -305,8 +306,15 @@ func (v *SchemaValidator) Validate(data any, schema *Schema, path string) Valida
 		}
 	}
 
-	// Type-specific validation
-	switch schema.Type {
+	// Type-specific validation. JSON Schema allows omitting "type": the
+	// applicable keywords (required, properties, minLength, items, ...) must
+	// still apply to instances of the matching shape, so dispatch on the
+	// effective type instead of silently validating nothing.
+	effectiveType := schema.Type
+	if effectiveType == "" {
+		effectiveType = getJSONType(data)
+	}
+	switch effectiveType {
 	case "string":
 		v.validateString(data, schema, path, &result)
 	case "integer", "number":
@@ -368,27 +376,31 @@ func (v *SchemaValidator) validateString(data any, schema *Schema, path string, 
 		return
 	}
 
+	// MinLength/MaxLength count Unicode code points (JSON Schema §6.3.1/6.3.2),
+	// not bytes — len(str) would miscount multi-byte characters.
+	runes := utf8.RuneCountInString(str)
+
 	// MinLength
-	if schema.MinLength != nil && len(str) < *schema.MinLength {
+	if schema.MinLength != nil && runes < *schema.MinLength {
 		result.Valid = false
 		result.Errors = append(result.Errors, ValidationError{
 			Field:    path,
 			Type:     "minLength",
-			Message:  fmt.Sprintf("string length %d is less than minimum %d", len(str), *schema.MinLength),
+			Message:  fmt.Sprintf("string length %d is less than minimum %d", runes, *schema.MinLength),
 			Expected: strconv.Itoa(*schema.MinLength),
-			Got:      strconv.Itoa(len(str)),
+			Got:      strconv.Itoa(runes),
 		})
 	}
 
 	// MaxLength
-	if schema.MaxLength != nil && len(str) > *schema.MaxLength {
+	if schema.MaxLength != nil && runes > *schema.MaxLength {
 		result.Valid = false
 		result.Errors = append(result.Errors, ValidationError{
 			Field:    path,
 			Type:     "maxLength",
-			Message:  fmt.Sprintf("string length %d exceeds maximum %d", len(str), *schema.MaxLength),
+			Message:  fmt.Sprintf("string length %d exceeds maximum %d", runes, *schema.MaxLength),
 			Expected: strconv.Itoa(*schema.MaxLength),
-			Got:      strconv.Itoa(len(str)),
+			Got:      strconv.Itoa(runes),
 		})
 	}
 
