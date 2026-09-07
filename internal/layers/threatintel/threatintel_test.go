@@ -165,7 +165,7 @@ func TestProcess_DomainBlocked(t *testing.T) {
 	}
 
 	result := layer.Process(ctx)
-	if result.Action != engine.ActionPass {
+	if result.Action != engine.ActionBlock {
 		t.Error("Domain blocking adds findings but doesn't block")
 	}
 }

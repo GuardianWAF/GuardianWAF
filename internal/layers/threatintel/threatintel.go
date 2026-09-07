@@ -195,29 +195,34 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		if host != "" {
 			if info, ok := l.checkDomain(host); ok {
 				if l.config.DomainRep.BlockMalicious && info.Score >= 70 {
-					findings = append(findings, engine.Finding{
-						DetectorName: "threat_intel",
-						Category:     "reputation",
-						Severity:     engine.SeverityHigh,
-						Score:        info.Score,
-						Description:  fmt.Sprintf("Domain flagged: %s", info.Type),
-						MatchedValue: host,
-						Location:     "header:Host",
-					})
-					totalScore += info.Score
-				} else {
-					// Log but don't block
-					findings = append(findings, engine.Finding{
-						DetectorName: "threat_intel",
-						Category:     "reputation",
-						Severity:     engine.SeverityMedium,
-						Score:        info.Score / 2,
-						Description:  fmt.Sprintf("Domain suspicious: %s", info.Type),
-						MatchedValue: host,
-						Location:     "header:Host",
-					})
-					totalScore += info.Score / 2
+					// Mirror the IP path: BlockMalicious must actually block,
+					// not just log a finding the pipeline scores as a pass.
+					return engine.LayerResult{
+						Action: engine.ActionBlock,
+						Findings: []engine.Finding{{
+							DetectorName: "threat_intel",
+							Category:     "reputation",
+							Severity:     engine.SeverityHigh,
+							Score:        info.Score,
+							Description:  fmt.Sprintf("Domain flagged: %s", info.Type),
+							MatchedValue: host,
+							Location:     "header:Host",
+						}},
+						Score:    info.Score,
+						Duration: time.Since(start),
+					}
 				}
+				// Log but don't block
+				findings = append(findings, engine.Finding{
+					DetectorName: "threat_intel",
+					Category:     "reputation",
+					Severity:     engine.SeverityMedium,
+					Score:        info.Score / 2,
+					Description:  fmt.Sprintf("Domain suspicious: %s", info.Type),
+					MatchedValue: host,
+					Location:     "header:Host",
+				})
+				totalScore += info.Score / 2
 			}
 		}
 	}
