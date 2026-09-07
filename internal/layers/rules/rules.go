@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/textproto"
 	"regexp"
 	"sort"
 	"strconv"
@@ -306,7 +307,13 @@ func (l *Layer) getFieldValue(field string, ctx *engine.RequestContext) string {
 		}
 		return "0"
 	case strings.HasPrefix(field, "header:"):
-		headerName := field[7:]
+		// Header names are case-insensitive (RFC 9110 §5.1), but ctx.Headers
+		// keys are canonical MIME form. Canonicalize the rule author's spelling
+		// so "header:x-api-key" and "header:X-Api-Key" are the same condition;
+		// CanonicalMIMEHeaderKey returns invalid spellings unchanged, so the
+		// lookup simply misses as before. Cookie names (below) stay
+		// case-sensitive by RFC 6265 and must NOT be canonicalized.
+		headerName := textproto.CanonicalMIMEHeaderKey(field[7:])
 		if vals, ok := ctx.Headers[headerName]; ok && len(vals) > 0 {
 			return vals[0]
 		}
