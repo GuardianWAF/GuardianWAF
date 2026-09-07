@@ -39,7 +39,7 @@ type CircuitBreaker struct {
 	threshold     int32         // failures before opening
 	resetTimeout  time.Duration // how long to stay open before half-open
 	lastFailure   atomic.Value  // stores time.Time of last failure
-	halfOpenProbe atomic.Bool   // true while a probe request is in-flight
+	halfOpenProbe atomic.Bool   // HalfOpen admission token; production never arms it — the Open→HalfOpen transitioner is the probe
 }
 
 // CircuitConfig configures the circuit breaker.
@@ -79,9 +79,11 @@ func (cb *CircuitBreaker) Allow() bool {
 		// Check if reset timeout has elapsed
 		last, _ := cb.lastFailure.Load().(time.Time)
 		if time.Since(last) >= cb.resetTimeout {
-			// Transition to half-open: allow one probe
+			// Transition to half-open. The transitioning caller is the single
+			// half-open probe: halfOpenProbe stays disarmed, so no concurrent
+			// Allow() can win the HalfOpen probe CAS and slip in as a second
+			// probe against an upstream that just failed threshold times.
 			if cb.state.CompareAndSwap(int32(CircuitOpen), int32(CircuitHalfOpen)) {
-				cb.halfOpenProbe.Store(true)
 				cb.failures.Store(0) // Reset so probe failure correctly re-opens
 				return true
 			}

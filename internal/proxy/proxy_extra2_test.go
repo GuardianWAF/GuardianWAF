@@ -401,19 +401,21 @@ func TestAllow_HalfOpenThenFailure(t *testing.T) {
 	}
 }
 
-func TestAllow_HalfOpenAllowsMultiple(t *testing.T) {
+func TestAllow_HalfOpenRejectsWhileProbeInFlight(t *testing.T) {
 	cb := NewCircuitBreaker(CircuitConfig{
 		Threshold:    1,
 		ResetTimeout: 50 * time.Millisecond,
 	})
 	cb.RecordFailure() // opens immediately with threshold 1
 	time.Sleep(60 * time.Millisecond)
-	cb.Allow() // transition to half-open
+	if !cb.Allow() { // transition to half-open; this caller is the single probe
+		t.Fatal("transitioning caller should be admitted as the half-open probe")
+	}
 
-	// In the current implementation, half-open allows all requests
-	// (only the probe result determines next state)
-	if !cb.Allow() {
-		t.Error("half-open should allow in this implementation")
+	// One probe per half-open cycle: the Open->HalfOpen transitioner is the
+	// probe, so a second Allow() while it is in flight must be rejected.
+	if cb.Allow() {
+		t.Error("half-open must admit only one probe; second Allow() should be rejected")
 	}
 }
 
