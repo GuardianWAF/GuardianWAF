@@ -130,6 +130,15 @@ func (p *Pipeline) Execute(ctx *RequestContext) (result PipelineResult) {
 		// Check action
 		switch lr.Action {
 		case ActionBlock:
+			// Security headers (HSTS, X-Frame-Options, X-Content-Type-Options,
+			// CSP) are registered by the response layer at Order 600, and it is
+			// the only thing in the tree that sets them. Returning here without
+			// running it meant every blocked request — the one response an
+			// attacker can reliably force — was served framable, sniffable and
+			// with HSTS dropped. Run the response-shaping layers before the
+			// early return; their action is ignored so the block still stands.
+			runResponseShapingLayers(ctx, layers, timing, exclusions)
+
 			result.Action = ActionBlock
 			result.TotalScore = ctx.Accumulator.Total()
 			result.Duration = time.Since(start)
@@ -143,11 +152,21 @@ func (p *Pipeline) Execute(ctx *RequestContext) (result PipelineResult) {
 			result.LayerTiming = timingCopy
 			return result // early return
 		case ActionLog:
-			if result.Action != ActionBlock {
+			// Actions escalate monotonically: Pass < Log < Challenge < Block.
+			// A Log must not overwrite an earlier Challenge (the old guard —
+			// "anything but Block becomes Log" — cancelled a challenge issued
+			// by an earlier layer, e.g. custom rules at Order 150 or the
+			// JS-challenge layer at Order 430, whenever any later layer
+			// logged), and Log stays the floor for later escalations.
+			if result.Action == ActionPass {
 				result.Action = ActionLog
 			}
 		case ActionChallenge:
-			if result.Action == ActionPass {
+			// Challenge wins over Pass and Log regardless of layer order; an
+			// earlier Log must not suppress the challenge (the old "== Pass"
+			// guard did exactly that, since detection layers at Order 400 log
+			// every sub-threshold score before the challenge layer at 430).
+			if result.Action == ActionPass || result.Action == ActionLog {
 				result.Action = ActionChallenge
 			}
 		}
@@ -201,4 +220,34 @@ func (p *Pipeline) Layers() []OrderedLayer {
 	out := make([]OrderedLayer, len(p.layers))
 	copy(out, p.layers)
 	return out
+}
+
+// runResponseShapingLayers runs the layers at or after OrderResponse so that
+// response-shaping side effects — chiefly the security-header hook — are
+// registered even when an earlier layer short-circuits the pipeline with
+// ActionBlock. Their returned action and findings are deliberately discarded:
+// the block has already been decided, and these layers must not be able to
+// downgrade it or inflate the score of a request that never reached them.
+func runResponseShapingLayers(ctx *RequestContext, layers []OrderedLayer, timing map[string]time.Duration, exclusions []Exclusion) {
+	skipPath := ctx.NormalizedPath
+	if skipPath == "" {
+		skipPath = path.Clean(ctx.Path)
+	}
+
+	for _, ol := range layers {
+		if ol.Order < OrderResponse {
+			continue
+		}
+		// A layer that already ran in this request must not run twice.
+		if _, done := timing[ol.Layer.Name()]; done {
+			continue
+		}
+		if shouldSkip(ol.Layer, skipPath, exclusions) {
+			continue
+		}
+
+		layerStart := time.Now()
+		_ = ol.Layer.Process(ctx)
+		timing[ol.Layer.Name()] = time.Since(layerStart)
+	}
 }

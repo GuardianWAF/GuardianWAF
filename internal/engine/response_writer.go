@@ -33,9 +33,20 @@ func newMaskingResponseWriter(w http.ResponseWriter, maskFn func(string) string,
 	}
 }
 
-// WriteHeader captures the status code and passes it through.
+// WriteHeader captures the status code, decides the capture mode, and passes
+// through. When capturing, the upstream Content-Length is dropped: the
+// buffered body is transformed before it is written (StripStackTraces removes
+// lines), so the declared length can no longer be honored — a stale
+// Content-Length would make clients see truncated responses.
 func (m *maskingResponseWriter) WriteHeader(code int) {
 	m.statusCode = code
+	if !m.decided {
+		m.decided = true
+		m.capture = m.shouldCapture()
+		if m.capture {
+			m.ResponseWriter.Header().Del("Content-Length")
+		}
+	}
 	m.ResponseWriter.WriteHeader(code)
 }
 
@@ -98,6 +109,12 @@ func (m *maskingResponseWriter) FlushMasked() {
 		// maskFn operates on string, convert once
 		data = []byte(m.maskFn(string(data)))
 	}
+	// The transformed body length can differ from the declared length
+	// (StripStackTraces removes lines). Drop a stale passthrough
+	// Content-Length before the first real write — net/http sends headers
+	// here when the handler never called WriteHeader, and a stale length
+	// makes clients see truncated responses.
+	m.ResponseWriter.Header().Del("Content-Length")
 	_, _ = m.ResponseWriter.Write(data) // nolint:errcheck // masking write; error ignored
 }
 

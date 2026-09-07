@@ -119,7 +119,11 @@ func redactSensitiveQueryParams(rawQuery string) string {
 	}
 	vals, err := url.ParseQuery(rawQuery)
 	if err != nil {
-		return rawQuery // malformed — return as-is
+		// Malformed queries (semicolon separators, invalid percent-escapes)
+		// are exactly what attackers send — scrub with the regex fallback
+		// instead of passing credentials through unredacted. This mirrors
+		// redactSensitiveURL's parse-failure handling.
+		return redactSensitiveEvidence(rawQuery)
 	}
 	changed := false
 	for key := range vals {
