@@ -32,6 +32,17 @@ var outdatedBrowserIndicators = []struct {
 	{"firefox/3", 39},
 }
 
+// matchKnownScanner returns the first known scanner substring contained in
+// the (lowercased) User-Agent, if any.
+func matchKnownScanner(lower string) (string, bool) {
+	for _, scanner := range knownScanners {
+		if strings.Contains(lower, scanner) {
+			return scanner, true
+		}
+	}
+	return "", false
+}
+
 // AnalyzeUserAgent analyzes the User-Agent header and returns a threat score and description.
 func AnalyzeUserAgent(ua string) (score int, description string) {
 	// Empty User-Agent
@@ -42,10 +53,8 @@ func AnalyzeUserAgent(ua string) (score int, description string) {
 	lower := strings.ToLower(ua)
 
 	// Check for known scanner tools
-	for _, scanner := range knownScanners {
-		if strings.Contains(lower, scanner) {
-			return 85, "known scanner tool: " + scanner
-		}
+	if scanner, found := matchKnownScanner(lower); found {
+		return 85, "known scanner tool: " + scanner
 	}
 
 	// User-Agent length check

@@ -1,6 +1,7 @@
 package botdetect
 
 import (
+	"strings"
 	"sync"
 	"time"
 
@@ -289,6 +290,13 @@ func (l *Layer) analyzeUA(ctx *engine.RequestContext) (int, []engine.Finding) {
 	cfg := l.snapshotConfig()
 	if ua == "" && !cfg.UserAgent.BlockEmpty {
 		return 0, nil
+	}
+	if !cfg.UserAgent.BlockKnownScanners {
+		if _, isScanner := matchKnownScanner(strings.ToLower(ua)); isScanner {
+			// block_known_scanners: false — scanner UAs are detected but not
+			// escalated to the block-tier score.
+			return 0, nil
+		}
 	}
 
 	severity := engine.SeverityLow
