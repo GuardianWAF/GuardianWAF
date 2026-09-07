@@ -136,8 +136,16 @@ func TestLoadOrDownload_ExistingFile(t *testing.T) {
 }
 
 func TestLoadOrDownload_EmptyPath(t *testing.T) {
-	// With empty path, it tries "geoip.csv" which probably doesn't exist
-	// and would try to download — but with a bad URL it should fail
+	// With an empty path LoadOrDownload falls back to the *relative* name
+	// "geoip.csv", which resolves against the process working directory —
+	// the package source directory when `go test` runs it. downloadDB then
+	// creates its staging temp file in that same directory, so without this
+	// chdir the test litters (and has historically committed) artifacts into
+	// internal/geoip/. Pin the working directory to a temp dir instead.
+	t.Chdir(t.TempDir())
+
+	// The file does not exist there, so it tries to download — with an
+	// unreachable URL that must fail rather than reach the real DB-IP host.
 	_, err := LoadOrDownload("", "http://127.0.0.1:1/nonexistent.csv.gz", 0)
 	if err == nil {
 		t.Error("expected error for unreachable download URL")

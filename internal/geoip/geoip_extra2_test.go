@@ -1,7 +1,10 @@
 package geoip
 
 import (
+	"bytes"
+	"compress/gzip"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -132,16 +135,49 @@ func TestStartAutoRefreshRejectsNULPath(t *testing.T) {
 	}
 }
 
+// TestLoadOrDownload_EmptyDownloadURL pins the empty-downloadURL branch, which
+// falls back to autoDownloadURL(). It must stay hermetic: the earlier version of
+// this test let the fallback reach the real download.db-ip.com host and asserted
+// nothing ("either outcome is acceptable"), so on a networked machine it pulled
+// the live ~31MB country database into the test path. That is how a GeoIP dump
+// once ended up committed under internal/geoip/. Assert the URL the fallback
+// builds instead of fetching it, then exercise the download path against a
+// local server.
 func TestLoadOrDownload_EmptyDownloadURL(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "geo-test-auto.csv")
-	_, err := LoadOrDownload(path, "", 0)
-	// Auto-download may succeed (network) or fail (no network).
-	// Either is acceptable; just verify no panic.
+	auto := autoDownloadURL()
+	if !strings.HasPrefix(auto, "https://download.db-ip.com/free/dbip-country-lite-") {
+		t.Fatalf("autoDownloadURL() = %q, want the DB-IP Lite endpoint", auto)
+	}
+	if !strings.HasSuffix(auto, ".csv.gz") {
+		t.Fatalf("autoDownloadURL() = %q, want a .csv.gz suffix", auto)
+	}
+
+	// Exercise the real download+load path against a local gzip server so the
+	// branch is covered without any outbound network traffic.
+	var body bytes.Buffer
+	gz := gzip.NewWriter(&body)
+	if _, err := gz.Write([]byte("8.8.8.0,8.8.8.255,US\n")); err != nil {
+		t.Fatalf("gzip write: %v", err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatalf("gzip close: %v", err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/gzip")
+		_, _ = w.Write(body.Bytes())
+	}))
+	defer srv.Close()
+
+	path := filepath.Join(t.TempDir(), "geo-test-auto.csv")
+	db, err := LoadOrDownload(path, srv.URL+"/dbip-country-lite.csv.gz", 0)
 	if err != nil {
-		t.Logf("auto-download failed as expected without network: %v", err)
-	} else {
-		t.Log("auto-download succeeded")
+		t.Fatalf("LoadOrDownload: %v", err)
+	}
+	if db.Count() != 1 {
+		t.Fatalf("db.Count() = %d, want 1", db.Count())
+	}
+	if got := db.Lookup(net.ParseIP("8.8.8.8")); got != "US" {
+		t.Fatalf("Lookup(8.8.8.8) = %q, want US", got)
 	}
 }
 
