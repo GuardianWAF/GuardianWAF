@@ -293,14 +293,20 @@ func (oe *OperatorEvaluator) evaluateUrlEncoding(value string) (bool, error) {
 			if i+2 >= len(value) {
 				return false, nil // Incomplete escape
 			}
-			// Check if next two chars are valid hex
-			_, err := strconv.ParseInt(value[i+1:i+3], 16, 0)
-			if err != nil {
+			// Check if next two chars are valid hex digits. ParseInt with
+			// base 16 still honours a leading sign ("-1"/"+5"), which would
+			// treat invalid escapes as valid, so verify the digits directly.
+			if !isHexDigit(value[i+1]) || !isHexDigit(value[i+2]) {
 				return false, nil
 			}
 		}
 	}
 	return true, nil
+}
+
+// isHexDigit reports whether b is an ASCII hexadecimal digit.
+func isHexDigit(b byte) bool {
+	return (b >= '0' && b <= '9') || (b >= 'a' && b <= 'f') || (b >= 'A' && b <= 'F')
 }
 
 // evaluateUtf8Encoding validates UTF-8 encoding in value.

@@ -164,7 +164,15 @@ func (vr *VariableResolver) Resolve(rv RuleVariable) ([]string, error) {
 // resolveArgs resolves ARGS variable.
 func (vr *VariableResolver) resolveArgs(key string, keyRegex bool, count bool) ([]string, error) {
 	if count {
-		return []string{strconv.Itoa(len(vr.transaction.RequestArgs))}, nil
+		// ModSecurity &ARGS counts every name=value pair, including repeated
+		// parameter names, so count-based rules can detect parameter
+		// pollution. Mirror resolveHeaders' total-value counting rather than
+		// counting distinct keys.
+		total := 0
+		for _, vals := range vr.transaction.RequestArgs {
+			total += len(vals)
+		}
+		return []string{strconv.Itoa(total)}, nil
 	}
 
 	if key == "" {
