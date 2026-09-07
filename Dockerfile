@@ -4,7 +4,7 @@
 # Stage 1: Build React dashboard
 # Node 24.15+ is required: jsdom needs ^22.22.2 || ^24.15.0 and react-router
 # needs >=22.22.0, so the previous 22.14.0 pin no longer satisfies the lockfile.
-FROM --platform=$BUILDPLATFORM node:24.15.0-alpine AS ui-builder
+FROM --platform=$BUILDPLATFORM node:26.8.1-alpine AS ui-builder
 
 WORKDIR /ui
 COPY internal/dashboard/ui/package.json internal/dashboard/ui/package-lock.json ./
