@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -224,6 +225,13 @@ func (l *Layer) BlacklistEntries() []string {
 
 // AddAutoBan adds an IP to the auto-ban list with TTL.
 func (l *Layer) AddAutoBan(ip, reason string, ttl time.Duration) {
+	// Auto-ban keys come from AI verdicts (free-text model output influenced by
+	// request content); a non-IP string can never match a client address and
+	// would pollute the ban store, its persistence file, and the dashboard API.
+	if net.ParseIP(ip) == nil {
+		return
+	}
+
 	if l.config.AutoBan.MaxTTL > 0 && ttl > l.config.AutoBan.MaxTTL {
 		ttl = l.config.AutoBan.MaxTTL
 	}
