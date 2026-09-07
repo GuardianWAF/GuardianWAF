@@ -86,6 +86,14 @@ func NewService(cfg Config) (*Service, error) {
 	if cfg.Difficulty == 0 {
 		cfg.Difficulty = 20
 	}
+	// A negative difficulty makes hasLeadingZeroBits trivially pass (the loop
+	// bounds truncate to zero), and anything above 256 indexes past the
+	// 32-byte SHA-256 hash. Reject both so a nonsense config fails loudly at
+	// construction instead of silently disabling bot mitigation or panicking
+	// in every verification request.
+	if cfg.Difficulty < 0 || cfg.Difficulty > 256 {
+		return nil, fmt.Errorf("challenge difficulty %d out of range [1, 256]", cfg.Difficulty)
+	}
 	return &Service{config: cfg, redeemed: newRedeemedSet()}, nil
 }
 
