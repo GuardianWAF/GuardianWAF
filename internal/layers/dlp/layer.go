@@ -152,8 +152,12 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 
 	// Scan request if enabled and request body exists
 	if l.scanRequest && ctx.Request != nil {
-		req := ctx.Request.Clone(ctx.Request.Context())
-		scanResult, err := l.ScanRequest(req)
+		// Scan the shared request in place: the body stream is shared with
+		// the engine middleware and the reverse proxy, and ScanRequest
+		// restores any bytes it consumes onto the request it is given.
+		// Scanning a Clone would strand that restore on the copy and leave
+		// the engine forwarding a truncated body upstream.
+		scanResult, err := l.ScanRequest(ctx.Request)
 		if err == nil && !scanResult.Safe {
 			result.Score = scanResult.RiskScore
 			for _, m := range scanResult.Matches {
