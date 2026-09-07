@@ -600,9 +600,9 @@ func newMockClusterStore() *mockClusterStore {
 	return &mockClusterStore{counters: make(map[string]int64)}
 }
 
-func (m *mockClusterStore) IsBanned(string) bool                          { return false }
-func (m *mockClusterStore) GetRule(string) (json.RawMessage, bool)        { return nil, false }
-func (m *mockClusterStore) GetCounter(key string, _ int64) int64          { return 0 }
+func (m *mockClusterStore) IsBanned(string) bool                   { return false }
+func (m *mockClusterStore) GetRule(string) (json.RawMessage, bool) { return nil, false }
+func (m *mockClusterStore) GetCounter(key string, _ int64) int64   { return 0 }
 func (m *mockClusterStore) IncrementCounter(key string, _ int64) int64 {
 	m.mu.Lock()
 	defer m.mu.Unlock()

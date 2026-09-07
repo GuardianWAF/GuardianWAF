@@ -381,7 +381,10 @@ func matchPath(pattern, p string) bool {
 	// Handle ** prefix patterns (match all under a prefix)
 	if strings.HasSuffix(pattern, "/**") {
 		prefix := strings.TrimSuffix(pattern, "/**")
-		if strings.HasPrefix(p, prefix) {
+		// Subtree semantics: the match must stop at a path segment boundary,
+		// so "/api/**" matches "/api", "/api/", "/api/users/123" — but not
+		// the sibling "/apifoo" (a raw HasPrefix would overmatch it).
+		if p == prefix || strings.HasPrefix(p, prefix+"/") {
 			return true
 		}
 	}
