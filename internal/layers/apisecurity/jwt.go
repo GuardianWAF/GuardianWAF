@@ -143,16 +143,22 @@ func (v *JWTValidator) Validate(tokenString string) (*JWTClaims, error) {
 		return nil, fmt.Errorf("invalid signature encoding: %w", err)
 	}
 
-	// Get the verification key
+	// Get the verification key.
+	//
+	// The kid-indexed HMAC branch must NOT return here: the exp/nbf/iss/aud
+	// checks live at the bottom of this function, so returning early accepted
+	// expired, not-yet-valid, wrong-issuer and wrong-audience tokens outright
+	// as long as the signature matched. Record that the signature is already
+	// verified and fall through to the shared claim validation instead.
 	key := v.publicKey
+	signatureVerified := false
 	if jwtHeader.Kid != "" {
 		if _, ok := v.hmacKeys.Load(jwtHeader.Kid); ok {
 			if err := v.verifyHMACKey(jwtHeader.Kid, signingInput, signature, jwtHeader.Alg); err != nil {
 				return nil, fmt.Errorf("signature verification failed: %w", err)
 			}
-			return &claims, nil
-		}
-		if pk, ok := v.jwksCache.Load(jwtHeader.Kid); ok {
+			signatureVerified = true
+		} else if pk, ok := v.jwksCache.Load(jwtHeader.Kid); ok {
 			key = pk.(crypto.PublicKey)
 		}
 	}
@@ -183,13 +189,15 @@ func (v *JWTValidator) Validate(tokenString string) (*JWTClaims, error) {
 		}
 	}
 
-	if key == nil {
-		return nil, fmt.Errorf("no verification key available")
-	}
+	if !signatureVerified {
+		if key == nil {
+			return nil, fmt.Errorf("no verification key available")
+		}
 
-	// Verify signature based on algorithm
-	if err := v.verifySignature(jwtHeader.Alg, signingInput, signature, key); err != nil {
-		return nil, fmt.Errorf("signature verification failed: %w", err)
+		// Verify signature based on algorithm
+		if err := v.verifySignature(jwtHeader.Alg, signingInput, signature, key); err != nil {
+			return nil, fmt.Errorf("signature verification failed: %w", err)
+		}
 	}
 
 	// Validate claims

@@ -59,9 +59,10 @@ func NewLayer(cfg *Config) (*Layer, error) {
 	// Initialize API key validator. Fail loud: a misconfigured validator must
 	// not silently disable API-key authentication on a security product.
 	if cfg.APIKeys.Enabled {
-		// NewAPIKeyValidator currently has no invalid configuration state; keep
-		// its compatibility error return out of this otherwise-dead branch.
-		validator, _ := NewAPIKeyValidator(cfg.APIKeys.Keys)
+		validator, err := NewAPIKeyValidator(cfg.APIKeys.Keys)
+		if err != nil {
+			return nil, err
+		}
 		l.apiKeyValidator = validator
 	}
 

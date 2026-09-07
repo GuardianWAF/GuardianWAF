@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -12,7 +13,7 @@ import (
 // APIKeyConfig represents a single API key configuration.
 type APIKeyConfig struct {
 	Name         string   `yaml:"name"`
-	KeyHash      string   `yaml:"key_hash"`      // sha256:hex or bcrypt:hash
+	KeyHash      string   `yaml:"key_hash"`      // sha256:hex, or a bare value that is hashed on load (bcrypt is not implemented)
 	KeyPrefix    string   `yaml:"key_prefix"`    // Optional prefix for identification
 	RateLimit    int      `yaml:"rate_limit"`    // Requests per minute
 	AllowedPaths []string `yaml:"allowed_paths"` // Glob patterns
@@ -32,6 +33,26 @@ type keyTracker struct {
 	mu       sync.Mutex
 }
 
+// normalizeKeyHash normalizes cfg.KeyHash in place. Bare values are treated
+// as raw keys and hashed (the same contract as AddKey), "sha256:"-prefixed
+// values are kept, and any other explicit scheme (e.g. "bcrypt:") is
+// rejected: it was never implemented, and silently accepting it produced key
+// configurations that could never authenticate.
+func normalizeKeyHash(cfg *APIKeyConfig) error {
+	switch {
+	case strings.HasPrefix(cfg.KeyHash, "sha256:"):
+		return nil
+	case strings.HasPrefix(cfg.KeyHash, "bcrypt:"):
+		return fmt.Errorf("api key %q: bcrypt key_hash is not supported (only sha256 is implemented)", cfg.Name)
+	case cfg.KeyHash == "":
+		return fmt.Errorf("api key %q: empty key_hash", cfg.Name)
+	default:
+		sum := sha256.Sum256([]byte(cfg.KeyHash))
+		cfg.KeyHash = "sha256:" + hex.EncodeToString(sum[:])
+		return nil
+	}
+}
+
 // NewAPIKeyValidator creates a new API key validator.
 func NewAPIKeyValidator(configs []APIKeyConfig) (*APIKeyValidator, error) {
 	v := &APIKeyValidator{
@@ -44,6 +65,10 @@ func NewAPIKeyValidator(configs []APIKeyConfig) (*APIKeyValidator, error) {
 		cfg := &configs[i]
 		if !cfg.Enabled {
 			continue
+		}
+
+		if err := normalizeKeyHash(cfg); err != nil {
+			return nil, err
 		}
 
 		// Store by hash
@@ -161,10 +186,8 @@ func (v *APIKeyValidator) AddKey(cfg APIKeyConfig) error {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 
-	// Hash the key if not already hashed
-	if !strings.HasPrefix(cfg.KeyHash, "sha256:") && !strings.HasPrefix(cfg.KeyHash, "bcrypt:") {
-		hash := sha256.Sum256([]byte(cfg.KeyHash))
-		cfg.KeyHash = "sha256:" + hex.EncodeToString(hash[:])
+	if err := normalizeKeyHash(&cfg); err != nil {
+		return err
 	}
 
 	v.hashes[cfg.KeyHash] = &cfg
