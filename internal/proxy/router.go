@@ -139,6 +139,16 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Retry only when the body can be faithfully replayed. Unknown-length
+		// and oversized bodies are streamed once without retry (per the
+		// buffering contract above): the error handler drains and closes the
+		// body on a failed attempt, so replaying it would send an empty or
+		// truncated request upstream.
+		if !canReplayBody && r.Body != nil && r.Body != http.NoBody {
+			http.Error(w, "502 Bad Gateway", http.StatusBadGateway)
+			return
+		}
+
 		// Retry with different targets (skip ones already tried in this request)
 		tried := map[string]bool{target.URL.String(): true}
 		for attempt := 0; attempt < maxRetries; attempt++ {
