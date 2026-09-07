@@ -42,6 +42,10 @@ func NewLayer(cfg *Config) (*Layer, error) {
 
 	// Compile origin patterns
 	for _, origin := range cfg.AllowOrigins {
+		origin = normalizeOrigin(origin)
+		if origin == "" {
+			continue
+		}
 		if strings.Contains(origin, "*") {
 			// Wildcard pattern: "https://*.example.com"
 			regex := compileWildcard(origin)
@@ -55,6 +59,49 @@ func NewLayer(cfg *Config) (*Layer, error) {
 	}
 
 	return l, nil
+}
+
+// normalizeOrigin canonicalizes an allowlist origin or wildcard pattern to
+// match how browsers emit the Origin header: scheme and host are
+// case-insensitive (browsers lowercase them) and the scheme's default port
+// never appears on the wire (https:443 / http:80). A wildcard pattern
+// without a scheme (e.g. "*.example.com") is treated as https-only,
+// consistent with the "*://"-pattern handling in compileWildcard — without
+// this, the pattern would compile to "^://..." and match nothing.
+func normalizeOrigin(origin string) string {
+	o := strings.ToLower(strings.TrimSpace(origin))
+
+	if !strings.Contains(o, "://") && strings.Contains(o, "*") {
+		o = "https://" + o
+	}
+
+	scheme, rest := "", o
+	if idx := strings.Index(o, "://"); idx >= 0 {
+		scheme, rest = o[:idx], o[idx+3:]
+	}
+
+	// Strip the scheme's default port from the host part (up to /, ?, or #).
+	if scheme == "https" || scheme == "http" {
+		def := ":443"
+		if scheme == "http" {
+			def = ":80"
+		}
+		hostEnd := strings.IndexAny(rest, "/?#")
+		var host, tail string
+		if hostEnd >= 0 {
+			host, tail = rest[:hostEnd], rest[hostEnd:]
+		} else {
+			host = rest
+		}
+		if strings.HasSuffix(host, def) && len(host) > len(def) {
+			rest = host[:len(host)-len(def)] + tail
+		}
+	}
+
+	if scheme != "" {
+		return scheme + "://" + rest
+	}
+	return rest
 }
 
 // compileWildcard converts a wildcard pattern to a regex.
@@ -167,6 +214,11 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 func (l *Layer) isOriginAllowed(origin string) bool {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
+
+	// Normalize the wire origin the same way the allowlist was normalized at
+	// load (case, default ports, scheme-less wildcards) — otherwise exact
+	// entries still miss on case differences and explicit default ports.
+	origin = normalizeOrigin(origin)
 
 	// Check exact matches
 	if l.exactOrigins[origin] {
@@ -361,6 +413,10 @@ func (l *Layer) UpdateConfig(cfg Config) error {
 	l.exactOrigins = make(map[string]bool)
 
 	for _, origin := range cfg.AllowOrigins {
+		origin = normalizeOrigin(origin)
+		if origin == "" {
+			continue
+		}
 		if strings.Contains(origin, "*") {
 			regex := compileWildcard(origin)
 			if regex != nil {

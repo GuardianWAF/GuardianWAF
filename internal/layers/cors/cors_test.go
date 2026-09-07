@@ -53,7 +53,7 @@ func TestIsOriginAllowed(t *testing.T) {
 		expected bool
 	}{
 		{"https://example.com", true},
-		{"https://Example.com", false}, // case sensitive
+		{"https://Example.com", true}, // case-insensitive — DNS names are case-insensitive
 		{"https://sub.test.com", true},
 		{"https://a.b.test.com", true},
 		{"https://test.com", false}, // wildcard needs subdomain
