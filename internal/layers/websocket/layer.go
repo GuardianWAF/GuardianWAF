@@ -218,8 +218,11 @@ func (l *Layer) inspectAndForward(src io.Reader, dst io.Writer, clientIP, path s
 			return
 		}
 
-		// Inspect text frame payloads.
-		if frame.Opcode == OpText && len(frame.Payload) > 0 && l.cfg.CheckPayload != nil {
+		// Inspect data-frame payloads (text AND continuation — RFC 6455 §5.4
+		// fragmentation splits messages across frames, and inspecting only
+		// OpText would let an attacker move the payload into continuation
+		// frames, bypassing detection entirely).
+		if (frame.Opcode == OpText || frame.Opcode == OpContinuation) && len(frame.Payload) > 0 && l.cfg.CheckPayload != nil {
 			score, block := l.cfg.CheckPayload(clientIP, path, frame.Payload)
 			if block {
 				slog.Default().Info("WebSocket frame blocked",
