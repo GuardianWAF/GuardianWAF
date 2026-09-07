@@ -17,7 +17,7 @@ package config
 // positive guard against a future maintainer over-correcting and
 // removing the live struct along with the inert ones.
 //
-// Reference: AUDIT.md §2 (Round 8 layer deletion left the
+// Reference: docs/history/AUDIT.md §2 (Round 8 layer deletion left the
 // config structs in place as parsed-but-inert; this test closes
 // the remaining gap).
 

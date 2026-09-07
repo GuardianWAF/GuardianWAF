@@ -1938,7 +1938,7 @@ func TestCleanCheckoutDashboardEmbedContract(t *testing.T) {
 	root := filepath.Join("..", "..")
 	placeholder := readTextFixture(t, filepath.Join(root, "internal/dashboard/dist/placeholder.txt"))
 	gitignore := readTextFixture(t, filepath.Join(root, ".gitignore"))
-	roadmap := readTextFixture(t, filepath.Join(root, "PRODUCTION_READINESS_ROADMAP.md"))
+	roadmap := readTextFixture(t, filepath.Join(root, "docs/production-readiness-roadmap.md"))
 	readme := readTextFixture(t, filepath.Join(root, "README.md"))
 	gettingStarted := readTextFixture(t, filepath.Join(root, "docs/getting-started.md"))
 	productionDeployment := readTextFixture(t, filepath.Join(root, "docs/production-deployment.md"))

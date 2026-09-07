@@ -224,7 +224,7 @@ func TestProductionDocsDistinguishPlannedAdvancedRuntimePackages(t *testing.T) {
 	detectionEngine := readOutboundPolicyFixture(t, filepath.Join(root, "docs/detection-engine.md"))
 	designSpecification := readOutboundPolicyFixture(t, filepath.Join(root, "docs/design/SPECIFICATION.md"))
 	marketComparison := readOutboundPolicyFixture(t, filepath.Join(root, "docs/market-comparison.md"))
-	roadmap := readOutboundPolicyFixture(t, filepath.Join(root, "PRODUCTION_READINESS_ROADMAP.md"))
+	roadmap := readOutboundPolicyFixture(t, filepath.Join(root, "docs/production-readiness-roadmap.md"))
 	threatModel := readOutboundPolicyFixture(t, filepath.Join(root, "docs/threat-model.md"))
 	grpcADR := readOutboundPolicyFixture(t, filepath.Join(root, "docs/adr/0019-grpc-protocol-support.md"))
 	mcpDocs := readOutboundPolicyFixture(t, filepath.Join(root, "docs/mcp-integration.md"))

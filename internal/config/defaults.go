@@ -945,7 +945,7 @@ func populateWAF(waf *WAFConfig, n *Node) error {
 	})
 	for _, key := range n.MapKeys {
 		if !wafPopulateKnownSubkeys[key] {
-			return fmt.Errorf("waf.%s: unknown top-level key (the populate path does not consume this key; if you are migrating a removed feature, see AUDIT.md and the config schema)", key)
+			return fmt.Errorf("waf.%s: unknown top-level key (the populate path does not consume this key; if you are migrating a removed feature, see docs/history/AUDIT.md and the config schema)", key)
 		}
 	}
 	if sub := n.Get("ip_acl"); sub != nil {

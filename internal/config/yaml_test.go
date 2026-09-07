@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -2166,8 +2167,8 @@ func TestParse_RejectsOversizedInput(t *testing.T) {
 	if err == nil {
 		t.Fatal("input exceeding maxInputBytes should be rejected")
 	}
-	pe, ok := err.(*ParseError)
-	if !ok {
+	var pe *ParseError
+	if !errors.As(err, &pe) {
 		t.Fatalf("expected *ParseError, got %T", err)
 	}
 	if pe.Line != 1 {
