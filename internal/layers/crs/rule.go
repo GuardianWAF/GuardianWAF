@@ -103,7 +103,7 @@ type RuleActions struct {
 type VarAction struct {
 	Collection string
 	Variable   string
-	Operation  string // =, +, -, =+
+	Operation  string // =, +=, -=
 	Value      string
 }
 

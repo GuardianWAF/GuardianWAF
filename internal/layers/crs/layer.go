@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -504,9 +505,25 @@ func (l *Layer) evaluateRule(rule *Rule, tx *Transaction) (bool, int, *engine.Fi
 		switch varAction.Operation {
 		case "=":
 			tx.SetVar(varAction.Variable, varAction.Value)
-		case "+=":
-			// For anomaly score, add numeric value
-			tx.AddAnomalyScore(score)
+		case "+=", "-=":
+			// ModSecurity semantics: arithmetic add/subtract of the authored
+			// numeric value on the variable's current value (empty/unparseable
+			// values act as 0). The rule's severity score is not involved.
+			if varAction.Variable == "" {
+				break // malformed action: no target variable
+			}
+			delta := 0
+			if v, err := strconv.Atoi(strings.TrimSpace(varAction.Value)); err == nil {
+				delta = v
+			}
+			if varAction.Operation == "-=" {
+				delta = -delta
+			}
+			current := 0
+			if v, err := strconv.Atoi(strings.TrimSpace(tx.GetVar(varAction.Variable))); err == nil {
+				current = v
+			}
+			tx.SetVar(varAction.Variable, strconv.Itoa(current+delta))
 		}
 	}
 

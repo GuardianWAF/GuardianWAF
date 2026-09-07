@@ -33,8 +33,22 @@ func (p *Parser) ParseFile(content string) ([]*Rule, error) {
 			continue
 		}
 
-		// Parse SecRule
-		if strings.HasPrefix(line, "SecRule") {
+		// Dispatch on the first whitespace-delimited token. Only an actual
+		// "SecRule"/"SecAction" directive is parsed; directives that merely
+		// share the prefix ("SecRuleEngine", "SecRuleUpdateTargetById",
+		// "SecRuleUpdateActionById", "SecRuleRemoveById/Tag",
+		// "SecRuleScript", ...) are skipped like the other unsupported
+		// directives. Prefix matching here made any such line fail
+		// parseSecRule with "invalid SecRule format", aborting ParseFile —
+		// and via the LoadRules walk, discarding the whole ruleset — instead
+		// of just the one unsupported directive.
+		directive := line
+		if idx := strings.IndexAny(line, " \t"); idx >= 0 {
+			directive = line[:idx]
+		}
+
+		switch directive {
+		case "SecRule":
 			rule, err := p.parseSecRule(line)
 			if err != nil {
 				return nil, fmt.Errorf("line %d: %w", p.lineNum, err)
@@ -429,12 +443,21 @@ func (p *Parser) parseVarAction(s string) VarAction {
 		s = s[idx+1:]
 	}
 
-	// Parse operation
-	if idx := strings.Index(s, "="); idx > 0 {
+	// Parse operation. Canonical ModSecurity forms first ("+=N"/"-=N"), then
+	// the legacy "=+N"/"=-N" spellings, then plain assignment.
+	if idx := strings.Index(s, "+="); idx > 0 {
+		va.Variable = s[:idx]
+		va.Operation = "+="
+		va.Value = s[idx+2:]
+	} else if idx := strings.Index(s, "-="); idx > 0 {
+		va.Variable = s[:idx]
+		va.Operation = "-="
+		va.Value = s[idx+2:]
+	} else if idx := strings.Index(s, "="); idx > 0 {
 		va.Variable = s[:idx]
 		rest := s[idx+1:]
 
-		// Check for += or -=
+		// Legacy "=+N" / "=-N" spellings
 		if strings.HasPrefix(rest, "+") {
 			va.Operation = "+="
 			va.Value = rest[1:]

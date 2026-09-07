@@ -349,7 +349,7 @@ func TestLayer_Process_NilHeaders(t *testing.T) {
 // Layer - evaluateRule with SetVar +=
 // ============================================================================
 
-func TestLayer_EvaluateRule_SetVarAddAnomalyScore(t *testing.T) {
+func TestLayer_EvaluateRule_SetVarDegenerateNoVariable(t *testing.T) {
 	layer := NewLayer(&Config{Enabled: true})
 	tx := NewTransaction()
 	tx.URI = "/test"
@@ -371,9 +371,15 @@ func TestLayer_EvaluateRule_SetVarAddAnomalyScore(t *testing.T) {
 	if !matched {
 		t.Error("Expected match")
 	}
-	// AddAnomalyScore should have been called with score=5 (WARNING)
-	if tx.AnomalyScore != 5 {
-		t.Errorf("Expected AnomalyScore=5, got %d", tx.AnomalyScore)
+	// A setvar action without a target variable is malformed: it must be
+	// skipped without leaking the severity score into the anomaly score (the
+	// old evaluator did exactly that) or creating a junk empty-named
+	// variable.
+	if tx.AnomalyScore != 0 {
+		t.Errorf("Expected AnomalyScore=0 for a variable-less setvar, got %d", tx.AnomalyScore)
+	}
+	if got := tx.GetVar(""); got != "" {
+		t.Errorf("Expected no junk empty-named variable, got %q", got)
 	}
 }
 
