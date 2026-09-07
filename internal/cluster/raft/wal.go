@@ -94,7 +94,9 @@ func (w *WAL) countRecords() int {
 	if _, err := w.file.Seek(0, 0); err != nil {
 		return 0
 	}
-	defer w.file.Seek(0, 2) // restore append position // #nosec G104 -- best-effort
+	defer func() {
+		_, _ = w.file.Seek(0, 2) // restore append position (best-effort)
+	}()
 
 	// Read and validate magic header.
 	header := make([]byte, len(magicWALHeader))
@@ -294,7 +296,7 @@ func (w *WAL) Compact(ps *PersistentState) error {
 	}
 
 	// Write magic header + snapshot record.
-	if _, err := tmpFile.Write([]byte(magicWALHeader)); err != nil {
+	if _, err = tmpFile.Write([]byte(magicWALHeader)); err != nil {
 		tmpFile.Close() // #nosec G104 -- best-effort cleanup
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("wal compact: write magic: %w", err)
@@ -302,24 +304,24 @@ func (w *WAL) Compact(ps *PersistentState) error {
 
 	// encodeWALRecord returns the full framed record: [4 len][payload][4 crc].
 	// Write it directly — no additional framing needed.
-	if _, err := tmpFile.Write(data); err != nil {
+	if _, err = tmpFile.Write(data); err != nil {
 		tmpFile.Close() // #nosec G104 -- best-effort cleanup
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("wal compact: write snapshot: %w", err)
 	}
 
-	if err := tmpFile.Sync(); err != nil {
+	if err = tmpFile.Sync(); err != nil {
 		tmpFile.Close() // #nosec G104 -- best-effort cleanup
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("wal compact: fsync temp: %w", err)
 	}
-	if err := tmpFile.Close(); err != nil {
+	if err = tmpFile.Close(); err != nil {
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("wal compact: close temp: %w", err)
 	}
 
 	// Atomically replace the live WAL.
-	if err := os.Rename(tmpPath, w.path); err != nil {
+	if err = os.Rename(tmpPath, w.path); err != nil {
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("wal compact: rename: %w", err)
 	}
