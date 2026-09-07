@@ -518,6 +518,12 @@ func (s *Server) HandleRequestJSONWithAuditContext(reqData []byte, auditCtx *Aud
 	}
 
 	resp := s.processRequestWithAuditContext(req, auditCtx)
+	// JSON-RPC 2.0: a notification (request without an id) MUST NOT receive a
+	// response. The dispatcher returns the zero-value response for
+	// notifications; suppress it here so transports emit nothing.
+	if resp.ID == nil && resp.Result == nil && resp.Error == nil {
+		return nil, nil
+	}
 	return json.Marshal(resp)
 }
 

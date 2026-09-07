@@ -267,7 +267,10 @@ func (h *SSEHandler) handleMessage(w http.ResponseWriter, r *http.Request) {
 	// Process only after the target session has been authenticated and resolved,
 	// then enqueue the response to that connection alone.
 	respData, _ := h.server.HandleRequestJSONWithAuditContext(body, authCtx)
-	if client != nil {
+	// Notifications (JSON-RPC 2.0) produce no response: HandleRequestJSON*
+	// returns nil bytes for them, and enqueuing an empty frame would send the
+	// client a spurious response for a request that must go unanswered.
+	if client != nil && len(respData) > 0 {
 		h.enqueueResponse(client, respData)
 	}
 
