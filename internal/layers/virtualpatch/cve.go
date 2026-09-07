@@ -149,11 +149,25 @@ func (db *Database) AddCVE(entry *CVEEntry) {
 	}
 	db.entries[entry.CVEID] = entry
 
-	// Index by product
+	// Index by product. Deduplicate: AddCVE runs on every feed refresh for
+	// every CVE in the rolling window, and re-appending the same CVEID would
+	// accumulate duplicates (index bloat; GetPatchesForProduct would return
+	// the same patch multiplied).
 	for _, prod := range entry.AffectedProducts {
 		cpe := prod.CPE
-		if cpe != "" {
-			db.byProduct[cpe] = append(db.byProduct[cpe], entry.CVEID)
+		if cpe == "" {
+			continue
+		}
+		ids := db.byProduct[cpe]
+		dup := false
+		for _, id := range ids {
+			if id == entry.CVEID {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			db.byProduct[cpe] = append(ids, entry.CVEID)
 		}
 	}
 
