@@ -3,8 +3,8 @@ package dashboard
 import (
 	"context"
 	"crypto/hmac"
-	cryptrand "crypto/rand"
 	"crypto/pbkdf2"
+	cryptrand "crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
