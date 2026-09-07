@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -93,7 +94,10 @@ func (w *RotatingFileWriter) Close() error {
 }
 
 func (w *RotatingFileWriter) rotate() error {
-	if err := w.file.Close(); err != nil {
+	// A previous rotation may have failed after closing the handle (transient
+	// open error below). Treat "already closed" as done so this attempt can
+	// proceed to the reopen and recover instead of failing forever.
+	if err := w.file.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
 		return err
 	}
 
@@ -111,6 +115,11 @@ func (w *RotatingFileWriter) rotate() error {
 
 	f, err := os.OpenFile(w.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600) // #nosec G304 -- w.path is normalized by NewRotatingFileWriter before storage.
 	if err != nil {
+		// The rotation half-applied: the live file now sits at path.1 and no
+		// fresh file exists. Roll the rename back so the on-disk state matches
+		// this writer again and the next Write can retry, instead of leaving a
+		// closed handle pointed at a moved file (which bricked the writer).
+		_ = os.Rename(fmt.Sprintf("%s.1", w.path), w.path) //nolint:errcheck // #nosec G104 -- best-effort rollback; error not actionable
 		return err
 	}
 	w.file = f
