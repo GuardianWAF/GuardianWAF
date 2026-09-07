@@ -53,6 +53,11 @@ const (
 	auditDirMode        = 0o700
 	auditFileMode       = 0o600
 	maxAuditEntryBytes  = 64 * 1024
+	// Replay reads entries with a scanner capped at maxAuditEntryBytes, and a
+	// longer line fails startup by design. Clamp the request-derived fields on
+	// write so a stored line can always be replayed.
+	maxAuditPathBytes     = 2048
+	maxAuditMutationBytes = 256
 )
 
 // NewAuditLog creates an in-memory audit log ring buffer.
@@ -147,6 +152,12 @@ func (al *AuditLog) Append(entry AuditEntry) error {
 	}
 	al.mu.Lock()
 	defer al.mu.Unlock()
+	// Path and Mutation carry request-derived data (r.URL.Path, and the path
+	// itself for unclassified mutations) and are the only unbounded fields.
+	// Without the clamp a single long-path request would write a line that
+	// fails replay at startup.
+	entry.Path = clampAuditField(entry.Path, maxAuditPathBytes)
+	entry.Mutation = clampAuditField(entry.Mutation, maxAuditMutationBytes)
 	if al.file != nil {
 		data, err := json.Marshal(entry)
 		if err != nil {
@@ -162,6 +173,15 @@ func (al *AuditLog) Append(entry AuditEntry) error {
 	}
 	al.appendMemory(entry)
 	return nil
+}
+
+// clampAuditField truncates s to at most max bytes. Cutting mid-rune is
+// acceptable: json.Marshal replaces invalid UTF-8 with U+FFFD.
+func clampAuditField(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max]
 }
 
 // Close syncs and closes the persistent audit file. It is safe for in-memory logs.
