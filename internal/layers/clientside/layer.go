@@ -296,6 +296,11 @@ func (l *Layer) shouldInject(path string) bool {
 	return false
 }
 
+// agentMarker is the attribute generateAgentScript embeds in the injected
+// agent script and InjectAgent's dedup guard checks for. Both reference this
+// constant so the guard can never drift from the emitted marker again.
+const agentMarker = `data-guardian="security-agent"`
+
 // InjectAgent injects the security monitoring agent into HTML responses.
 func (l *Layer) InjectAgent(body []byte) []byte {
 	if !l.config.AgentInjection.Enabled {
@@ -304,30 +309,37 @@ func (l *Layer) InjectAgent(body []byte) []byte {
 
 	bodyStr := string(body)
 
-	// Check if already injected
-	if strings.Contains(bodyStr, l.config.AgentInjection.ScriptURL) {
+	// Check if already injected: either the inline agent's own marker (what
+	// generateAgentScript emits) or the configured script URL is already
+	// present (a page loading the agent externally). (The original guard
+	// only looked for ScriptURL, which the inline agent script never
+	// references — chained transforms stacked duplicate agents.)
+	if strings.Contains(bodyStr, agentMarker) ||
+		(l.config.AgentInjection.ScriptURL != "" && strings.Contains(bodyStr, l.config.AgentInjection.ScriptURL)) {
 		return body
 	}
 
 	// Generate agent script
 	agentScript := l.generateAgentScript()
 
-	// Inject based on position (case-insensitive tag matching)
-	lower := strings.ToLower(bodyStr)
+	// Inject based on position (case-insensitive tag matching). indexFold
+	// keeps offsets valid in bodyStr: searching a strings.ToLower copy would
+	// shift them, because ToLower is not length-preserving (e.g. "İ" U+0130
+	// is 2 bytes but lowercases to 1-byte "i").
 	switch l.config.AgentInjection.InjectPosition {
 	case "head":
 		// Inject before </head>
-		if idx := strings.Index(lower, "</head>"); idx != -1 {
+		if idx := indexFold(bodyStr, "</head>"); idx != -1 {
 			return []byte(bodyStr[:idx] + agentScript + bodyStr[idx:])
 		}
 	case "body-end":
 		// Inject before </body>
-		if idx := strings.Index(lower, "</body>"); idx != -1 {
+		if idx := indexFold(bodyStr, "</body>"); idx != -1 {
 			return []byte(bodyStr[:idx] + agentScript + bodyStr[idx:])
 		}
 	default:
 		// Default: inject after <head> or at start of <body>
-		if idx := strings.Index(lower, "<head>"); idx != -1 {
+		if idx := indexFold(bodyStr, "<head>"); idx != -1 {
 			headEnd := idx + len("<head>")
 			return []byte(bodyStr[:headEnd] + agentScript + bodyStr[headEnd:])
 		}
@@ -343,7 +355,7 @@ func (l *Layer) generateAgentScript() string {
 		return ""
 	}
 
-	script := `<script data-guardian="security-agent">(function(){`
+	script := `<script ` + agentMarker + `>(function(){`
 	script += `function gwafReport(type,data){try{fetch("/_guardian/report",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:type,data:data,url:location.href,ts:Date.now()})}).catch(function(){});}catch(e){}}`
 
 	// DOM monitoring
@@ -475,4 +487,22 @@ func minInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// indexFold returns the byte index of the first case-insensitive occurrence
+// of sub in s, or -1. It must not be implemented via strings.ToLower(s):
+// ToLower is not length-preserving (e.g. "İ" U+0130 is 2 bytes but lowercases
+// to 1-byte "i"), so indices taken from a transformed copy would be invalid
+// in the original string.
+func indexFold(s, sub string) int {
+	n := len(sub)
+	if n == 0 {
+		return 0
+	}
+	for i := 0; i+n <= len(s); i++ {
+		if strings.EqualFold(s[i:i+n], sub) {
+			return i
+		}
+	}
+	return -1
 }
