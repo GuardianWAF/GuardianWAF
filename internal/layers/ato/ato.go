@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"net/url"
 	"regexp"
 	"strings"
 	"sync"
@@ -339,14 +340,19 @@ func (l *Layer) extractEmail(body string) string {
 		}
 	}
 
-	// Try form format
+	// Try form format. Form values are percent-encoded ("@" arrives as %40),
+	// so decode before matching.
 	pairs := strings.Split(body, "&")
 	for _, pair := range pairs {
 		kv := strings.SplitN(pair, "=", 2)
 		if len(kv) == 2 {
 			key := strings.ToLower(kv[0])
 			if key == "email" || key == "username" || key == "login" {
-				email := strings.ToLower(kv[1])
+				email, err := url.QueryUnescape(kv[1])
+				if err != nil {
+					email = kv[1]
+				}
+				email = strings.ToLower(email)
 				if l.emailRe.MatchString(email) {
 					return email
 				}
@@ -370,13 +376,16 @@ func (l *Layer) extractPassword(body string) string {
 		return jsonBody.Pass
 	}
 
-	// Try form format
+	// Try form format. Form values are percent-encoded; decode before use.
 	pairs := strings.Split(body, "&")
 	for _, pair := range pairs {
 		kv := strings.SplitN(pair, "=", 2)
 		if len(kv) == 2 {
 			key := strings.ToLower(kv[0])
 			if key == "password" || key == "pass" {
+				if pw, err := url.QueryUnescape(kv[1]); err == nil {
+					return pw
+				}
 				return kv[1]
 			}
 		}

@@ -672,9 +672,11 @@ func TestExtractEmail_FormEncoded(t *testing.T) {
 		expected string
 	}{
 		// URL-encoded @ (%40) does not match the email regex which requires literal @
-		{"email=user%40example.com", ""},
-		{"username=alice%40test.org", ""},
-		{"login=bob%40mail.net", ""},
+		// Percent-encoded form values decode since the URL-decode fix — the
+		// old expectations ("") pinned the extraction defect.
+		{"email=user%40example.com", "user@example.com"},
+		{"username=alice%40test.org", "alice@test.org"},
+		{"login=bob%40mail.net", "bob@mail.net"},
 		{"email=alice@example.com&password=x", "alice@example.com"},
 		{"username=alice@example.com", "alice@example.com"},
 		{"login=bob@example.com", "bob@example.com"},

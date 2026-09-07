@@ -12,14 +12,14 @@ import (
 
 // AttemptTracker tracks login attempts per IP and per email.
 type AttemptTracker struct {
-	mu             sync.RWMutex
-	ipAttempts     map[string]*AttemptRecord  // IP -> attempts
-	emailAttempts  map[string]*AttemptRecord  // Email -> attempts
-	ipToEmails     map[string]map[string]bool // IP -> set of emails tried
-	emailToIPs     map[string]map[string]bool // Email -> set of IPs used
-	passwordHashes map[string]*PasswordRecord // Password hash -> record
-	maxEntries     int                        // max entries per outer map (0 = unlimited)
-	maxInnerEntries int                       // max entries per inner map/set (0 = unlimited)
+	mu              sync.RWMutex
+	ipAttempts      map[string]*AttemptRecord  // IP -> attempts
+	emailAttempts   map[string]*AttemptRecord  // Email -> attempts
+	ipToEmails      map[string]map[string]bool // IP -> set of emails tried
+	emailToIPs      map[string]map[string]bool // Email -> set of IPs used
+	passwordHashes  map[string]*PasswordRecord // Password hash -> record
+	maxEntries      int                        // max entries per outer map (0 = unlimited)
+	maxInnerEntries int                        // max entries per inner map/set (0 = unlimited)
 }
 
 // AttemptRecord tracks failed login attempts.
@@ -33,11 +33,11 @@ type AttemptRecord struct {
 
 // PasswordRecord tracks password usage for spray detection.
 type PasswordRecord struct {
-	mu        sync.RWMutex
-	Count     int
-	FirstSeen time.Time
-	LastSeen  time.Time
-	SourceIPs map[string]bool
+	mu         sync.RWMutex
+	Count      int
+	FirstSeen  time.Time
+	LastSeen   time.Time
+	SourceIPs  map[string]bool
 	lastAccess time.Time // updated on every write; used for oldest-first eviction
 }
 
@@ -62,11 +62,11 @@ type LoginAttempt struct {
 // NewAttemptTracker creates a new attempt tracker.
 func NewAttemptTracker() *AttemptTracker {
 	return &AttemptTracker{
-		ipAttempts:     make(map[string]*AttemptRecord),
-		emailAttempts:  make(map[string]*AttemptRecord),
-		ipToEmails:     make(map[string]map[string]bool),
-		emailToIPs:     make(map[string]map[string]bool),
-		passwordHashes: make(map[string]*PasswordRecord),
+		ipAttempts:      make(map[string]*AttemptRecord),
+		emailAttempts:   make(map[string]*AttemptRecord),
+		ipToEmails:      make(map[string]map[string]bool),
+		emailToIPs:      make(map[string]map[string]bool),
+		passwordHashes:  make(map[string]*PasswordRecord),
 		maxEntries:      100000, // Cap outer maps at 100K entries to prevent OOM
 		maxInnerEntries: 1000,   // Cap inner sets at 1K entries (IPs per email, emails per IP, IPs per password)
 	}
