@@ -398,6 +398,16 @@ func (bm *BillingManager) load() error {
 
 	bm.invoices = data.Invoices
 	bm.currentUsage = data.CurrentUsage
+	// A store file may legitimately omit either key (or carry JSON null after
+	// truncation or manual edits); the rest of the type assumes non-nil maps
+	// (RecordUsage and GenerateInvoice assign into them), so normalize at the
+	// deserialization boundary instead of panicking later.
+	if bm.invoices == nil {
+		bm.invoices = make(map[string][]Invoice)
+	}
+	if bm.currentUsage == nil {
+		bm.currentUsage = make(map[string]*UsageMetrics)
+	}
 	return nil
 }
 

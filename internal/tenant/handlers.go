@@ -97,6 +97,13 @@ func (h *Handlers) handleTenantRoutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Key-regeneration subpath: POST /api/v1/tenants/{id}/regenerate-key.
+	// RegenerateAPIKeyHandler validates the method and re-parses the path.
+	if strings.HasSuffix(path, "/regenerate-key") {
+		h.RegenerateAPIKeyHandler(w, r)
+		return
+	}
+
 	// Regular tenant CRUD
 	switch r.Method {
 	case http.MethodGet:

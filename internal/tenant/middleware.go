@@ -84,6 +84,12 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 
 		// Call next handler
 		next.ServeHTTP(wrapped, r.WithContext(ctx))
+
+		// Record usage for the completed request. This is the sole writer
+		// feeding the per-minute quota window, usage counters, billing, and
+		// quota alerts; without it CheckQuota's window stays empty and every
+		// request is allowed regardless of the configured limits.
+		m.manager.RecordUsage(tenant, wrapped.bytesWritten)
 	})
 }
 

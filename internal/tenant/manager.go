@@ -91,6 +91,7 @@ type Manager struct {
 
 	// Rate limiting
 	rateLimiter *TenantRateLimiter
+	hourLimiter *TenantRateLimiter // 1-hour sliding window for MaxRequestsPerHour
 
 	// Tenant-specific rules
 	rulesManager *TenantRulesManager
@@ -138,6 +139,7 @@ func NewManagerWithStore(maxTenants int, storePath string) *Manager {
 		domains:        make(map[string]string),
 		maxTenants:     maxTenants,
 		rateLimiter:    NewTenantRateLimiter(time.Minute),
+		hourLimiter:    NewTenantRateLimiter(time.Hour),
 		rulesManager:   NewTenantRulesManager(100),
 		billingManager: NewBillingManager(""),
 		alertManager:   NewAlertManager(),
@@ -719,6 +721,15 @@ func (m *Manager) CheckQuota(tenant *Tenant) error {
 		}
 	}
 
+	// Check requests per hour using sliding window. The > 0 guard is required:
+	// TenantRateLimiter.Check treats limit <= 0 as its internal default, but a
+	// zero hourly quota means unlimited.
+	if tenant.Quota.MaxRequestsPerHour > 0 {
+		if !m.hourLimiter.Check(tenant.ID, tenant.Quota.MaxRequestsPerHour) {
+			return fmt.Errorf("rate limit exceeded: %d requests per hour", tenant.Quota.MaxRequestsPerHour)
+		}
+	}
+
 	return nil
 }
 
@@ -736,6 +747,7 @@ func (m *Manager) RecordUsage(tenant *Tenant, bytes int64) {
 
 	// Record in rate limiter for sliding window tracking
 	m.rateLimiter.Record(tenant.ID)
+	m.hourLimiter.Record(tenant.ID)
 
 	// Record for billing
 	if m.billingManager != nil {
@@ -756,6 +768,9 @@ func (m *Manager) CleanupRateLimiter(maxAge time.Duration) {
 	}
 	if m.rateLimiter != nil {
 		m.rateLimiter.Cleanup(maxAge)
+	}
+	if m.hourLimiter != nil {
+		m.hourLimiter.Cleanup(maxAge)
 	}
 
 	// Cleanup alerts too
@@ -816,10 +831,14 @@ func (m *Manager) GetTenantUsage(tenantID string) *UsageStats {
 		return nil
 	}
 
-	// Get current rate limiter count
+	// Get current rate limiter counts
 	var requestsPerMinute int64
 	if m.rateLimiter != nil {
 		requestsPerMinute = m.rateLimiter.Count(tenantID)
+	}
+	var requestsPerHour int64
+	if m.hourLimiter != nil {
+		requestsPerHour = m.hourLimiter.Count(tenantID)
 	}
 
 	tenant.mu.RLock()
@@ -828,6 +847,7 @@ func (m *Manager) GetTenantUsage(tenantID string) *UsageStats {
 		Name:              tenant.Name,
 		Active:            tenant.Active,
 		RequestsPerMinute: requestsPerMinute,
+		RequestsPerHour:   requestsPerHour,
 		TotalRequests:     tenant.RequestCount,
 		BlockedRequests:   tenant.BlockedCount,
 		BytesTransferred:  tenant.ByteCount,
@@ -1221,8 +1241,15 @@ func (m *Manager) UpdateTenantRule(tenantID string, rule map[string]any) error {
 		return fmt.Errorf("rule id is required")
 	}
 
-	// Get existing rule and update
-	r := rules.Rule{ID: ruleID}
+	// Get existing rule and update. Partial-update semantics: fields absent
+	// from the update map keep their current values — rules.Layer.UpdateRule
+	// replaces the stored rule wholesale, so building the rule from scratch
+	// here would wipe Enabled/Conditions/Action on every partial update.
+	existing := m.rulesManager.GetTenantRule(tenantID, ruleID)
+	if existing == nil {
+		return fmt.Errorf("rule not found")
+	}
+	r := *existing
 	if v, ok := rule["name"].(string); ok {
 		r.Name = v
 	}
@@ -1239,6 +1266,9 @@ func (m *Manager) UpdateTenantRule(tenantID string, rule map[string]any) error {
 		r.Score = int(v)
 	}
 	if conds, ok := rule["conditions"].([]any); ok {
+		// A provided conditions array REPLACES the existing one; without the
+		// reset the merge above would append onto the copied slice header.
+		r.Conditions = nil
 		for _, c := range conds {
 			cm, ok := c.(map[string]any)
 			if !ok {

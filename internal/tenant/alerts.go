@@ -4,8 +4,11 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/guardianwaf/guardianwaf/internal/logging"
 )
 
 // AlertSeverity represents the severity of an alert.
@@ -52,6 +55,7 @@ type AlertManager struct {
 	cooldowns   map[string]time.Time // key: alert cooldown key
 	cooldownDur time.Duration
 	maxAlerts   int // per tenant
+	log         *slog.Logger
 	closed      bool
 
 	// Bounded dispatch channel
@@ -68,6 +72,7 @@ func NewAlertManager() *AlertManager {
 		cooldowns:   make(map[string]time.Time),
 		cooldownDur: 5 * time.Minute,
 		maxAlerts:   100,
+		log:         logging.NewLogger("tenant/alerts"),
 		dispatchCh:  make(chan *Alert, 256),
 	}
 	// Start bounded dispatch workers
@@ -302,9 +307,24 @@ func (am *AlertManager) dispatchLoop() {
 		am.mu.RUnlock()
 
 		for _, handler := range handlers {
-			handler(alert)
+			am.dispatchOne(handler, alert)
 		}
 	}
+}
+
+// dispatchOne invokes a single alert handler with panic isolation: an
+// unrecovered panic in this goroutine would crash the entire process, taking
+// the WAF data plane down with it. AlertHandler is an exported extension
+// point (embedders supply their own callbacks), and every other background
+// loop in the codebase (manager broadcast, ai analyzer, docker watcher, tls
+// certstore) recovers panics for the same reason.
+func (am *AlertManager) dispatchOne(handler AlertHandler, alert *Alert) {
+	defer func() {
+		if r := recover(); r != nil {
+			am.log.Error("alert handler panic recovered", "panic", r, "alert_type", alert.Type, "tenant_id", alert.TenantID)
+		}
+	}()
+	handler(alert)
 }
 
 // Close stops the dispatch loop.
