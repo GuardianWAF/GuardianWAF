@@ -156,7 +156,14 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	if ctx.ClientIP != nil {
 		ip = ctx.ClientIP.String()
 	}
-	reqPath := ctx.Path
+	// Prefer the sanitizer-normalized path: matching and bucket-keying on
+	// the raw wire path let percent-encoding rotation both dodge the rule
+	// globs and split bucket keys, bypassing ip+path-scoped limits. Mirrors
+	// the NormalizedPath||Path dual-view every detection layer uses.
+	reqPath := ctx.NormalizedPath
+	if reqPath == "" {
+		reqPath = ctx.Path
+	}
 
 	// Single lock acquisition: read config.Enabled, tenantID, and rules together.
 	// This reduces lock contention from 2 RLock calls to 1 per request.
