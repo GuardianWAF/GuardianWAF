@@ -78,6 +78,14 @@ func parseTrustedProxyCIDRs(cidrs []string) []*net.IPNet {
 				continue
 			}
 		}
+		// A v4-mapped IPv6 CIDR degenerates under Contains to a
+		// match-everything range, silently breaking XFF processing. Skip it.
+		if cidr.IP.To4() != nil {
+			if _, bits := cidr.Mask.Size(); bits == 128 {
+				engineContextLog.Warn("rejecting v4-mapped IPv6 trusted proxy CIDR — degenerates to matching every client; use the plain IPv4 form", "cidr", s)
+				continue
+			}
+		}
 		parsed = append(parsed, cidr)
 	}
 	return parsed

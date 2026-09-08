@@ -1262,6 +1262,14 @@ func validateTrustedProxies(proxies []string, ve *ValidationError) {
 		}
 		if ip.To4() == nil && bits == 128 && ones < 32 {
 			ve.addError(field, fmt.Sprintf("CIDR %q is too broad for a trusted proxy range; configure the actual proxy or load-balancer subnet", proxy))
+			continue
+		}
+		// A v4-mapped IPv6 CIDR (::ffff:a.b.c.d/n) degenerates under Go's
+		// IPNet.Contains into a match-everything range, silently breaking
+		// X-Forwarded-For processing for real proxies. Require the plain form.
+		if ip.To4() != nil && bits == 128 {
+			ve.addError(field, fmt.Sprintf("v4-mapped IPv6 range %q degenerates to matching every client under Go's CIDR matching; use the plain IPv4 form", proxy))
+			continue
 		}
 	}
 }
