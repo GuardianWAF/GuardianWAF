@@ -197,6 +197,16 @@ func (l *Layer) PostProcess(ctx *engine.RequestContext, success bool) {
 
 	email := l.extractEmail(ctx.BodyString)
 	l.tracker.ClearAttempt(ctx.ClientIP, email)
+
+	// Record the travel state for impossible-travel detection. Without this
+	// write the travel maps are never populated and the feature stays inert
+	// regardless of configuration.
+	if loc := l.getLocation(ctx.ClientIP); loc != nil {
+		l.travelMu.Lock()
+		l.lastLogin[email] = loc
+		l.lastTime[email] = time.Now()
+		l.travelMu.Unlock()
+	}
 }
 
 func (l *Layer) isLoginPath(path string) bool {
