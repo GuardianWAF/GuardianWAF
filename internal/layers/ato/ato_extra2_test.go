@@ -1039,11 +1039,9 @@ func TestLocationDB_IPv4ExactMatchOnly(t *testing.T) {
 func TestLocationDB_IPv4PrefixLookup(t *testing.T) {
 	db := NewLocationDB()
 
-	// The Lookup method builds prefix as string(ip[:3])+".0/24" using raw bytes.
-	// To test the /24 prefix code path, we must add an entry with the raw-byte key format.
-	ip := net.ParseIP("10.0.0.5").To4()
-	prefix := string(ip[:3]) + ".0/24"
-	db.Add(prefix, &GeoLocation{Country: "DE", City: "Berlin", Latitude: 52.5, Longitude: 13.4})
+	// Seed with the same human-readable CIDR form a real caller passes to
+	// Add; Lookup builds its /24 prefix key in dotted decimal.
+	db.Add("10.0.0.0/24", &GeoLocation{Country: "DE", City: "Berlin", Latitude: 52.5, Longitude: 13.4})
 
 	// 10.0.0.99 should match via /24 prefix since exact match fails first
 	loc := db.Lookup(net.ParseIP("10.0.0.99"))

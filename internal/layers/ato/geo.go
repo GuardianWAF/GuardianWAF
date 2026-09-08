@@ -1,6 +1,7 @@
 package ato
 
 import (
+	"fmt"
 	"net"
 	"sync"
 )
@@ -30,7 +31,7 @@ func (db *LocationDB) Lookup(ip net.IP) *GeoLocation {
 
 	// Try /24 prefix for IPv4
 	if ip4 := ip.To4(); ip4 != nil {
-		prefix := string(ip4[:3]) + ".0/24"
+		prefix := fmt.Sprintf("%d.%d.%d.0/24", ip4[0], ip4[1], ip4[2])
 		if loc, ok := db.entries[prefix]; ok {
 			return loc
 		}
