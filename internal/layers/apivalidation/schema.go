@@ -546,23 +546,32 @@ func (v *SchemaValidator) validateObject(data any, schema *Schema, path string, 
 	for key, value := range obj {
 		propPath := fmt.Sprintf("%s.%s", path, key)
 
-		// Check if property is defined
-		if schema.Properties != nil {
-			if propSchema, exists := schema.Properties[key]; exists {
-				propResult := v.Validate(value, propSchema, propPath)
-				if !propResult.Valid {
-					result.Valid = false
-					result.Errors = append(result.Errors, propResult.Errors...)
-				}
-			} else if v.strictMode || (schema.AdditionalProperties != nil && !*schema.AdditionalProperties) {
-				// Unknown field in strict mode or additionalProperties: false
+		var propSchema *Schema
+		defined := schema.Properties != nil
+		if defined {
+			propSchema, defined = schema.Properties[key]
+		}
+
+		if defined {
+			propResult := v.Validate(value, propSchema, propPath)
+			if !propResult.Valid {
 				result.Valid = false
-				result.Errors = append(result.Errors, ValidationError{
-					Field:   propPath,
-					Type:    "additionalProperties",
-					Message: fmt.Sprintf("additional property '%s' is not allowed", key),
-				})
+				result.Errors = append(result.Errors, propResult.Errors...)
 			}
+			continue
+		}
+
+		// Unknown field: rejected in strict mode or when the schema closes
+		// the object. The check must run regardless of whether the schema
+		// declares properties — {type: object, additionalProperties: false}
+		// with no properties map means NO keys are allowed.
+		if v.strictMode || (schema.AdditionalProperties != nil && !*schema.AdditionalProperties) {
+			result.Valid = false
+			result.Errors = append(result.Errors, ValidationError{
+				Field:   propPath,
+				Type:    "additionalProperties",
+				Message: fmt.Sprintf("additional property '%s' is not allowed", key),
+			})
 		}
 	}
 

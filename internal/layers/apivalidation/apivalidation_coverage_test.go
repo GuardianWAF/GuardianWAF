@@ -391,8 +391,14 @@ func TestValidate_ObjectNoProperties(t *testing.T) {
 	schema := &Schema{Type: "object"}
 	data := map[string]any{"key": "value"}
 	result := validator.Validate(data, schema, "obj")
-	if !result.Valid {
-		t.Errorf("Expected valid for object with no properties defined, got errors: %v", result.Errors)
+	// Strict mode flags fields not declared in the spec; a property-less
+	// object schema declares nothing, so every key is an undeclared field
+	// (round-38 contract: the guard previously skipped nil-properties maps).
+	if result.Valid {
+		t.Errorf("Expected invalid in strict mode for object with no properties defined, got none")
+	}
+	if len(result.Errors) == 0 || result.Errors[0].Type != "additionalProperties" {
+		t.Errorf("Expected an additionalProperties error, got %v", result.Errors)
 	}
 }
 
