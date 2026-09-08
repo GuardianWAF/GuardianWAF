@@ -114,8 +114,11 @@ func TestInspectAndForwardForwardsBenignFragmentedMessage(t *testing.T) {
 		return 0, false
 	})
 
-	if len(inspected) != 2 {
-		t.Fatalf("FAIL: expected both fragment payloads inspected, got %v", inspected)
+	// Per-frame scans cover each fragment; the message-level assembly
+	// (RFC 6455 §5.4 anti-evasion) adds one more scan with the concatenated
+	// payload.
+	if len(inspected) != 3 || inspected[0] != "hello " || inspected[1] != "world" || inspected[2] != "hello world" {
+		t.Fatalf("FAIL: expected both fragment payloads inspected plus the assembled message, got %v", inspected)
 	}
 	dataPayloads := []string{}
 	for _, f := range out {

@@ -167,11 +167,14 @@ func (l *Layer) handleWebSocket(w http.ResponseWriter, r *http.Request, next htt
 	}
 	resp.Body.Close() // no body for a 101 response, but close to be safe
 
-	// Any leftover bytes from the bufio.Reader need to go to the backend.
+	// Any leftover bytes from the bufio.Reader are frames the backend sent
+	// immediately after its 101 — they belong to the client. Forwarding them
+	// to the backend drops the client's first frames and echoes the backend's
+	// own output into its input.
 	if backendBR.Buffered() > 0 {
 		leftover := make([]byte, backendBR.Buffered())
 		_, _ = backendBR.Read(leftover)
-		_, _ = backendConn.Write(leftover)
+		_, _ = clientConn.Write(leftover)
 	}
 
 	// Now we have two raw TCP connections. Bidirectionally copy with inspection.
@@ -199,7 +202,13 @@ func (l *Layer) handleWebSocket(w http.ResponseWriter, r *http.Request, next htt
 // inspectAndForward reads frames from src, inspects text payloads, and
 // forwards to dst. Control frames (ping/pong/close) are always forwarded.
 // Data frames with malicious payloads are dropped, and the connection closed.
+// maxAssembledMessageBytes bounds the reassembly buffer for fragmented
+// messages (fail-closed: an over-cap assembled message is refused with 1009).
+const maxAssembledMessageBytes = 8 << 20
+
 func (l *Layer) inspectAndForward(src io.Reader, dst io.Writer, clientIP, path string, masked bool) {
+	var assembly []byte
+	var inMessage bool
 	var fr *FrameReader
 	if masked {
 		fr = NewMaskedFrameReader(src, l.cfg.MaxFrameSize)
@@ -261,6 +270,66 @@ func (l *Layer) inspectAndForward(src io.Reader, dst io.Writer, clientIP, path s
 				}
 				_ = WriteFrame(dst, closeFrame)
 				return
+			}
+		}
+
+		// Message-level inspection (RFC 6455 §5.4): a fragmented message is
+		// OpText (FIN=0) followed by OpContinuation frames, the last with
+		// FIN=1. Per-frame scanning alone lets an attacker split a signature
+		// across fragment boundaries ("' UNION" + " SELECT ...") so neither
+		// fragment matches. Assemble the message and scan it when complete;
+		// the final fragment is withheld until that verdict, so a blocked
+		// assembled message is never delivered. A new text start mid-message
+		// is a framing violation; a continuation without a start keeps the
+		// legacy per-frame path above.
+		if frame.Opcode == OpText || frame.Opcode == OpContinuation {
+			if frame.Opcode == OpText {
+				if inMessage {
+					closeFrame := &Frame{
+						FIN:     true,
+						Opcode:  OpClose,
+						Payload: makeClosePayload(1002, "protocol error"),
+					}
+					_ = WriteFrame(dst, closeFrame)
+					return
+				}
+				if !frame.FIN {
+					inMessage = true
+					assembly = append(assembly[:0], frame.Payload...)
+				}
+			} else if inMessage {
+				assembly = append(assembly, frame.Payload...)
+				if len(assembly) > maxAssembledMessageBytes {
+					closeFrame := &Frame{
+						FIN:     true,
+						Opcode:  OpClose,
+						Payload: makeClosePayload(1009, "message too big"),
+					}
+					_ = WriteFrame(dst, closeFrame)
+					return
+				}
+				if frame.FIN && l.cfg.CheckPayload != nil {
+					score, block := l.cfg.CheckPayload(clientIP, path, assembly)
+					if block {
+						slog.Default().Info("WebSocket message blocked",
+							"client_ip", clientIP,
+							"path", path,
+							"score", score,
+							"payload_len", len(assembly),
+						)
+						closeFrame := &Frame{
+							FIN:     true,
+							Opcode:  OpClose,
+							Payload: makeClosePayload(1008, "policy violation"),
+						}
+						_ = WriteFrame(dst, closeFrame)
+						return
+					}
+				}
+				if frame.FIN {
+					inMessage = false
+					assembly = assembly[:0]
+				}
 			}
 		}
 
