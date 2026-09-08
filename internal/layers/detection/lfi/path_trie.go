@@ -1,6 +1,10 @@
 package lfi
 
-import "github.com/guardianwaf/guardianwaf/internal/engine"
+import (
+	"strings"
+
+	"github.com/guardianwaf/guardianwaf/internal/engine"
+)
 
 // sensitivePathTrie is a prefix tree for O(k) sensitive path detection.
 // Instead of O(n*m) linear scans through 48+ paths, we traverse the trie
@@ -24,6 +28,10 @@ func buildSensitivePathTrie() *sensitivePathTrie {
 	var count int
 
 	addPath := func(path string, score int, desc string) {
+		// The detector lowercases input before trie lookup; normalize the
+		// inserted paths to match, or mixed-case entries (the Windows paths)
+		// are unreachable.
+		path = strings.ToLower(path)
 		node := t.root
 		for i := range path {
 			idx := int(path[i])
