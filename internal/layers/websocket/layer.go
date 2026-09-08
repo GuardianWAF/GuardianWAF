@@ -23,6 +23,14 @@ type Config struct {
 	MaxConcurrentPerIP  int
 	IdleTimeout         time.Duration
 
+	// AllowedBackendHosts constrains which Host headers may be dialed for
+	// websocket upgrades. When empty, upgrades are not hijacked for
+	// inspection: they fall through to the normal proxy path, whose
+	// configured targets cannot be influenced by the client's Host header.
+	// Dialing the client-supplied Host would let an attacker tunnel into
+	// internal services (websocket SSRF).
+	AllowedBackendHosts []string
+
 	// CheckPayload is called for each text frame. If it returns a non-nil
 	// result with a block action, the frame is dropped and the connection
 	// is closed. This is injected by the engine to avoid a circular import.
@@ -64,6 +72,13 @@ func (l *Layer) Wrap(next http.Handler) http.Handler {
 	if !l.cfg.Enabled || !l.cfg.ScanPayloads {
 		return next
 	}
+	if len(l.cfg.AllowedBackendHosts) == 0 {
+		// Without a backend allowlist, hijacking would dial the
+		// client-supplied Host header — an SSRF tunnel into internal
+		// services. Degrade to the un-hijacked proxy path: upgrades are
+		// still proxied by the configured targets, just not inspected.
+		return next
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !IsWebSocketUpgrade(r) {
 			next.ServeHTTP(w, r)
@@ -82,6 +97,14 @@ func (l *Layer) handleWebSocket(w http.ResponseWriter, r *http.Request, next htt
 			http.Error(w, "WebSocket origin not allowed", http.StatusForbidden)
 			return
 		}
+	}
+
+	// Backend allowlist: the dial target must be operator-configured. The
+	// client's Host header is attacker-controlled and must never determine
+	// where the proxy connects (websocket SSRF).
+	if !backendHostAllowed(r.Host, l.cfg.AllowedBackendHosts) {
+		http.Error(w, "WebSocket backend host not allowed", http.StatusForbidden)
+		return
 	}
 
 	// Per-IP concurrent connection limiting.
@@ -303,6 +326,21 @@ func (l *Layer) releaseConn(ip string) {
 func originAllowed(origin string, allowed []string) bool {
 	for _, a := range allowed {
 		if a == "*" || a == origin {
+			return true
+		}
+	}
+	return false
+}
+
+// backendHostAllowed checks the Host header against the operator-configured
+// backend allowlist. An entry may be a bare host (matching any port on that
+// host) or a host:port pair (exact match). Unlisted hosts are rejected.
+func backendHostAllowed(host string, allowed []string) bool {
+	for _, a := range allowed {
+		if a == host {
+			return true
+		}
+		if h, _, err := net.SplitHostPort(host); err == nil && h == a {
 			return true
 		}
 	}
