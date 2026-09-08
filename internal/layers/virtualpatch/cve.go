@@ -3,6 +3,8 @@
 package virtualpatch
 
 import (
+	"log/slog"
+	"regexp"
 	"sync"
 	"time"
 )
@@ -146,6 +148,12 @@ func (db *Database) AddCVE(entry *CVEEntry) {
 
 	for i := range entry.Patches {
 		normalizePatchState(&entry.Patches[i])
+		if bad := invalidRegexPatterns(&entry.Patches[i]); len(bad) > 0 {
+			entry.Patches[i].Enabled = false
+			entry.Patches[i].ReviewStatus = "disabled"
+			slog.Warn("virtual patch disabled: regex pattern(s) do not compile",
+				"cve_id", entry.CVEID, "patch_id", entry.Patches[i].ID, "patterns", bad)
+		}
 	}
 	db.entries[entry.CVEID] = entry
 
@@ -244,6 +252,22 @@ func (db *Database) SetPatchEnabledBy(patchID string, enabled bool, actor string
 		patch.ReviewStatus = "disabled"
 	}
 	return true
+}
+
+// invalidRegexPatterns returns the patch's regex patterns that fail to
+// compile. A pattern that cannot compile can never match, which would leave
+// the patched CVE silently exploitable, so ingestion paths flag such patches
+// for review instead of applying them inertly.
+func invalidRegexPatterns(patch *VirtualPatch) []string {
+	var bad []string
+	for _, p := range patch.Patterns {
+		if p.MatchType == "regex" {
+			if _, err := regexp.Compile(p.Pattern); err != nil {
+				bad = append(bad, p.Pattern)
+			}
+		}
+	}
+	return bad
 }
 
 func normalizePatchState(patch *VirtualPatch) {
