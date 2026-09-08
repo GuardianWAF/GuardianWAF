@@ -3,6 +3,7 @@
 package cors
 
 import (
+	"errors"
 	"regexp"
 	"strings"
 	"sync"
@@ -45,6 +46,12 @@ func NewLayer(cfg *Config) (*Layer, error) {
 		origin = normalizeOrigin(origin)
 		if origin == "" {
 			continue
+		}
+		// An all-origins wildcard plus credentials grants credentialed access
+		// to every site: ACAO is reflected (never the literal "*"), so the
+		// browser honors the combination. Fail closed at construction.
+		if cfg.AllowCredentials && origin == "https://*" {
+			return nil, errors.New("cors: AllowCredentials with the all-origins wildcard grants credentialed access to every site; use an explicit origin allowlist")
 		}
 		if strings.Contains(origin, "*") {
 			// Wildcard pattern: "https://*.example.com"
@@ -405,6 +412,13 @@ func intToStr(n int) string {
 
 // UpdateConfig updates the layer configuration at runtime.
 func (l *Layer) UpdateConfig(cfg Config) error {
+	// Validate before mutating state: a rejected config must not half-apply.
+	for _, origin := range cfg.AllowOrigins {
+		if cfg.AllowCredentials && normalizeOrigin(origin) == "https://*" {
+			return errors.New("cors: AllowCredentials with the all-origins wildcard grants credentialed access to every site; use an explicit origin allowlist")
+		}
+	}
+
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
