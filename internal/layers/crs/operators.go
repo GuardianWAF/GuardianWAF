@@ -3,6 +3,7 @@ package crs
 import (
 	"fmt"
 	"net"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -145,12 +146,13 @@ func (oe *OperatorEvaluator) evaluateOperator(opType, argument, value string) (b
 	case "@pm":
 		return oe.evaluatePm(argument, value)
 	case "@pmf":
-		// Phrase from file - simplified
-		return oe.evaluatePm(argument, value)
+		return oe.evaluatePmFromFile(argument, value)
 	case "@within":
 		return oe.evaluateWithin(argument, value)
 	case "@ipMatch":
 		return oe.evaluateIpMatch(argument, value)
+	case "@ipMatchF":
+		return oe.evaluateIpMatchFromFile(argument, value)
 	case "@validateByteRange":
 		return oe.evaluateByteRange(argument, value)
 	case "@validateUrlEncoding":
@@ -161,6 +163,67 @@ func (oe *OperatorEvaluator) evaluateOperator(opType, argument, value string) (b
 		// Unknown operator - try regex as default
 		return oe.evaluateRx(opType, value)
 	}
+}
+
+// evaluatePmFromFile evaluates the @pmf (phrase match from file) operator.
+// The argument is normally a file path whose non-comment lines contribute
+// phrases; when the path is not a readable file the argument itself is
+// treated as a space-separated inline phrase list (the documented fallback).
+func (oe *OperatorEvaluator) evaluatePmFromFile(argument, value string) (bool, error) {
+	content, err := os.ReadFile(argument)
+	if err != nil {
+		return oe.evaluatePm(argument, value)
+	}
+	for _, phrase := range fileLines(content) {
+		if strings.Contains(value, phrase) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// evaluateIpMatchFromFile evaluates the @ipMatchF (IP match from file)
+// operator. The argument is a file path; each non-comment line is an IP or
+// CIDR network matched against the value.
+func (oe *OperatorEvaluator) evaluateIpMatchFromFile(argument, value string) (bool, error) {
+	content, err := os.ReadFile(argument)
+	if err != nil {
+		return false, fmt.Errorf("ipMatchF: reading IP file: %w", err)
+	}
+	ip := net.ParseIP(value)
+	if ip == nil {
+		return false, nil
+	}
+	for _, entry := range fileLines(content) {
+		if strings.Contains(entry, "/") {
+			_, network, err := net.ParseCIDR(entry)
+			if err != nil {
+				continue
+			}
+			if network.Contains(ip) {
+				return true, nil
+			}
+			continue
+		}
+		if parsed := net.ParseIP(entry); parsed != nil && parsed.String() == ip.String() {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// fileLines returns the non-empty, non-comment lines of a from-file
+// operator's data file.
+func fileLines(content []byte) []string {
+	var lines []string
+	for _, line := range strings.Split(string(content), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	return lines
 }
 
 // evaluateRx evaluates the @rx (regex) operator.

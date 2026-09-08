@@ -1050,7 +1050,7 @@ func TestParser_Operators(t *testing.T) {
 		{"@within GET POST", "@within", false, "GET POST"},
 		{"@streq hello", "@streq", false, "hello"},
 		{"@ipMatch 192.168.0.0/16", "@ipMatch", false, "192.168.0.0/16"},
-		{"@ipMatchF /path/to/ips", "@ipMatch", false, "/path/to/ips"},
+		{"@ipMatchF /path/to/ips", "@ipMatchF", false, "/path/to/ips"},
 		{"@validateByteRange 32-126", "@validateByteRange", false, "32-126"},
 		{"@validateUrlEncoding", "@validateUrlEncoding", false, ""},
 		{"@validateUtf8Encoding", "@validateUtf8Encoding", false, ""},

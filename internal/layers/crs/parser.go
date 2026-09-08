@@ -305,8 +305,10 @@ func (p *Parser) parseOperator(s string) (RuleOperator, error) {
 			op.Type = "@within"
 		case "@streq":
 			op.Type = "@streq"
-		case "@ipMatch", "@ipMatchF":
+		case "@ipMatch":
 			op.Type = "@ipMatch"
+		case "@ipMatchF":
+			op.Type = "@ipMatchF"
 		case "@validateByteRange":
 			op.Type = "@validateByteRange"
 		case "@validateUrlEncoding":
