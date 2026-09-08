@@ -73,7 +73,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 
 	// Check exclusions
 	for _, path := range l.config.Exclusions {
-		if strings.HasPrefix(ctx.Path, path) {
+		if pathMatches(ctx.Path, path) {
 			return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 		}
 	}
@@ -289,11 +289,23 @@ func (l *Layer) shouldInject(path string) bool {
 	}
 
 	for _, protected := range l.config.AgentInjection.ProtectedPaths {
+		// Deliberate bare prefix match (pinned by TestShouldInject_NestedPaths):
+		// protection should widen generously — a sibling like "/checkoutpage" is
+		// a checkout page, and missing it would be a Magecart coverage hole.
 		if strings.HasPrefix(path, protected) {
 			return true
 		}
 	}
 	return false
+}
+
+// pathMatches reports whether path is the prefix path itself or lies within
+// its subtree. Used for EXCLUSIONS only: a bare HasPrefix would match
+// siblings ("/health" would match "/metrics-dashboard"), silently widening
+// what the operator excluded. Protected paths deliberately keep bare prefix
+// matching — widening protection is the documented contract.
+func pathMatches(path, prefix string) bool {
+	return path == prefix || strings.HasPrefix(path, prefix+"/")
 }
 
 // agentMarker is the attribute generateAgentScript embeds in the injected
