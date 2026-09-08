@@ -101,6 +101,17 @@ func (bt *BehaviorTracker) record(path string, isError bool, latency time.Durati
 	b.timings = append(b.timings, latency)
 }
 
+// markError increments the error count in the current bucket. The request
+// itself was already recorded by record(); the layer calls this from its
+// post-process hook once the response outcome is known.
+func (bt *BehaviorTracker) markError() {
+	bt.mu.Lock()
+	defer bt.mu.Unlock()
+
+	bt.advance(time.Now())
+	bt.buckets[bt.current].errors++
+}
+
 // analyze computes behavioral metrics over the full window.
 func (bt *BehaviorTracker) analyze(cfg BehaviorConfig) (score int, findings []string) {
 	bt.mu.Lock()
@@ -225,6 +236,20 @@ func (bm *BehaviorManager) Record(ip, path string, isError bool, latency time.Du
 		return // Map full, skip recording
 	}
 	tracker.record(path, isError, latency)
+}
+
+// MarkError marks the most recently recorded request for the given IP as an
+// error. Process records every request with isError=false (the outcome is
+// unknown at request time); the post-process hook amends the current bucket
+// once the response is known.
+func (bm *BehaviorManager) MarkError(ip string) {
+	bm.mu.RLock()
+	tracker, ok := bm.trackers[ip]
+	bm.mu.RUnlock()
+	if !ok {
+		return
+	}
+	tracker.markError()
 }
 
 // Analyze returns a threat score and findings for the given IP based on behavioral patterns.

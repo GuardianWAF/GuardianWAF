@@ -210,6 +210,26 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 
 // analyzeTLSFingerprint checks the TLS fingerprint against the database.
 // It uses JA4 when full ClientHello data is available, otherwise falls back to JA3.
+// PostProcess amends the behavioral tracker once the response outcome is
+// known: a failed request counts as an error for the error-rate analysis.
+// Process records every request with isError=false because the outcome is
+// unknown at request time; without this amendment the ErrorRateThreshold
+// detection can never fire.
+func (l *Layer) PostProcess(ctx *engine.RequestContext, success bool) {
+	if !l.config.Enabled || !l.config.Behavior.Enabled {
+		return
+	}
+	if ctx.TenantWAFConfig != nil && !ctx.TenantWAFConfig.BotDetection.Enabled {
+		return
+	}
+	if ctx.ClientIP == nil {
+		return
+	}
+	if !success {
+		l.behavior.MarkError(ctx.ClientIP.String())
+	}
+}
+
 func (l *Layer) analyzeTLSFingerprint(ctx *engine.RequestContext) (int, []engine.Finding) {
 	// Try JA4 first if we have full ClientHello data
 	if len(ctx.JA4Ciphers) > 0 {
