@@ -215,11 +215,14 @@ func (h *VirtualPatchHandler) handlePatchDetail(w http.ResponseWriter, r *http.R
 		})
 
 	case http.MethodDelete:
-		// Note: Only custom patches can be deleted
-		writeJSON(w, http.StatusOK, map[string]any{
-			"id":     path,
-			"status": "deleted",
-		})
+		// Deletion is not supported: the NVD sync re-derives CVE patches, so a
+		// removed patch would be resurrected on the next update. Disable is the
+		// supported kill-switch — report it honestly instead of a fake "deleted".
+		if !vpLayer.DisablePatchBy(path, "dashboard") {
+			writeJSON(w, http.StatusNotFound, map[string]any{"id": path, "error": "patch not found"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"id": path, "status": "disabled"})
 
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
