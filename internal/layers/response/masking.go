@@ -34,6 +34,35 @@ func MaskCreditCards(s string) string {
 				i = j
 				continue
 			}
+			if len(digits) > 19 {
+				// Longer than any single card: adjacent cards separated by a
+				// single separator, or concatenated PANs. Such a run fails
+				// the Luhn as a whole, and jumping past it leaked every card
+				// inside. Scan sliding 13-19 windows greedily longest-first;
+				// each Luhn-valid window is masked, then scanning resumes
+				// after it.
+				k := 0
+				for k+13 <= len(digits) {
+					maxLen := len(digits) - k
+					if maxLen > 19 {
+						maxLen = 19
+					}
+					matched := false
+					for ln := maxLen; ln >= 13; ln-- {
+						if luhnCheck(digits[k : k+ln]) {
+							for m := 0; m < ln-4; m++ {
+								result[positions[k+m]] = '*'
+							}
+							k += ln
+							matched = true
+							break
+						}
+					}
+					if !matched {
+						k++
+					}
+				}
+			}
 			// Skip past the entire digit sequence to avoid
 			// re-scanning substrings of the same number.
 			i = j
