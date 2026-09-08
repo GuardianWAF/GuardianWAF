@@ -90,13 +90,15 @@ func (l *Layer) Wrap(next http.Handler) http.Handler {
 
 // handleWebSocket takes over the connection lifecycle for a WS upgrade.
 func (l *Layer) handleWebSocket(w http.ResponseWriter, r *http.Request, next http.Handler) {
-	// Origin validation (CSWSH protection).
-	if len(l.cfg.AllowedOrigins) > 0 {
-		origin := r.Header.Get("Origin")
-		if origin != "" && !originAllowed(origin, l.cfg.AllowedOrigins) {
-			http.Error(w, "WebSocket origin not allowed", http.StatusForbidden)
-			return
-		}
+	// Origin validation (CSWSH protection). An empty AllowedOrigins list
+	// denies all origin-carrying (browser) requests — a zero-value allow-all
+	// would silently disable this protection for deployments that enable
+	// inspection without configuring origins. Non-browser clients (no Origin
+	// header) are unaffected.
+	origin := r.Header.Get("Origin")
+	if origin != "" && !originAllowed(origin, l.cfg.AllowedOrigins) {
+		http.Error(w, "WebSocket origin not allowed", http.StatusForbidden)
+		return
 	}
 
 	// Backend allowlist: the dial target must be operator-configured. The
