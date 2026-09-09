@@ -19,6 +19,9 @@ import (
 var (
 	loadX509KeyPair  = tls.LoadX509KeyPair
 	parseCertificate = x509.ParseCertificate
+	// obtainCertificate is an indirection seam so tests can stub the ACME
+	// obtain path without a live ACME server.
+	obtainCertificate = (*Client).ObtainCertificate
 )
 
 type CertDiskStore struct {
@@ -57,6 +60,15 @@ func (s *CertDiskStore) AddDomains(domains []string) {
 
 // LoadOrObtain loads a cached cert from disk, or obtains a new one via ACME.
 func (s *CertDiskStore) LoadOrObtain(domains []string) (*tls.Certificate, error) {
+	return s.loadOrObtain(domains, false)
+}
+
+// loadOrObtain implements LoadOrObtain. When forceRenew is true the cached
+// (still-valid) certificate is ignored and a fresh certificate is obtained —
+// used by the renewal loop, whose 30-days-before-expiry window otherwise never
+// triggered an actual renewal (LoadOrObtain alone returns the cached cert
+// until it expires).
+func (s *CertDiskStore) loadOrObtain(domains []string, forceRenew bool) (*tls.Certificate, error) {
 	if len(domains) == 0 {
 		return nil, fmt.Errorf("no domains provided")
 	}
@@ -76,8 +88,9 @@ func (s *CertDiskStore) LoadOrObtain(domains []string) (*tls.Certificate, error)
 					return nil, fmt.Errorf("failed to parse certificate leaf for %s", primary)
 				}
 			}
-			// Use cached cert if not expired
-			if cert.Leaf == nil || time.Now().Before(cert.Leaf.NotAfter) {
+			// Use cached cert if not expired (unless a forced renewal is in
+			// progress — see loadOrObtain).
+			if !forceRenew && (cert.Leaf == nil || time.Now().Before(cert.Leaf.NotAfter)) {
 				s.storeCert(domains, &cert)
 				return &cert, nil
 			}
@@ -86,20 +99,48 @@ func (s *CertDiskStore) LoadOrObtain(domains []string) (*tls.Certificate, error)
 	}
 
 	// Obtain new cert
-	certPEM, keyPEM, err := s.client.ObtainCertificate(domains, s.handler)
+	certPEM, keyPEM, err := obtainCertificate(s.client, domains, s.handler)
 	if err != nil {
 		return nil, fmt.Errorf("obtaining cert for %v: %w", domains, err)
 	}
 
-	// Save to disk
+	// Save to disk atomically: stage both files, then rename them into
+	// place. Writing cert then key directly left a MISMATCHED pair on disk
+	// (new cert + old key) whenever the key write failed — bricking runtime
+	// renewal until restart.
 	if mkdirErr := os.MkdirAll(s.cacheDir, 0o700); mkdirErr != nil {
 		return nil, fmt.Errorf("creating cache dir: %w", mkdirErr)
 	}
-	if writeErr := os.WriteFile(certFile, certPEM, 0o600); writeErr != nil {
-		return nil, fmt.Errorf("writing cert: %w", writeErr)
+	oldCert, oldCertErr := os.ReadFile(certFile)
+	oldKey, oldKeyErr := os.ReadFile(keyFile)
+
+	certTmp := certFile + ".tmp"
+	keyTmp := keyFile + ".tmp"
+	if wErr := os.WriteFile(certTmp, certPEM, 0o600); wErr != nil {
+		return nil, fmt.Errorf("staging cert: %w", wErr)
 	}
-	if writeErr := os.WriteFile(keyFile, keyPEM, 0o600); writeErr != nil {
-		return nil, fmt.Errorf("writing key: %w", writeErr)
+	if wErr := os.WriteFile(keyTmp, keyPEM, 0o600); wErr != nil {
+		_ = os.Remove(certTmp)
+		return nil, fmt.Errorf("staging key: %w", wErr)
+	}
+	if rErr := os.Rename(certTmp, certFile); rErr != nil {
+		_ = os.Remove(certTmp)
+		_ = os.Remove(keyTmp)
+		return nil, fmt.Errorf("writing cert: %w", rErr)
+	}
+	if rErr := os.Rename(keyTmp, keyFile); rErr != nil {
+		// Cert already installed: roll it back so the pair stays consistent.
+		if oldCertErr == nil {
+			_ = os.WriteFile(certFile, oldCert, 0o600)
+		} else {
+			_ = os.Remove(certFile)
+		}
+		if oldKeyErr == nil {
+			_ = os.WriteFile(keyFile, oldKey, 0o600)
+		}
+		_ = os.Remove(certTmp)
+		_ = os.Remove(keyTmp)
+		return nil, fmt.Errorf("writing key: %w", rErr)
 	}
 
 	cert, err := loadX509KeyPair(certFile, keyFile)
@@ -252,6 +293,15 @@ func (s *CertDiskStore) renewIfNeeded() {
 	copy(domainGroups, s.domains)
 	s.mu.RUnlock()
 
+	// A nil client means ACME is not configured for this store: the renewal
+	// path must fail gracefully (log + skip) instead of running the obtain
+	// machinery against a nil receiver — reachable from the in-window branch
+	// since forceRenew was introduced.
+	if s.client == nil {
+		s.log.Warn("ACME client not configured; skipping renewal checks")
+		return
+	}
+
 	for _, domains := range domainGroups {
 		if len(domains) == 0 {
 			continue
@@ -261,7 +311,7 @@ func (s *CertDiskStore) renewIfNeeded() {
 
 		if !fileExists(certFile) {
 			// No cert yet, obtain
-			if _, err := s.LoadOrObtain(domains); err != nil {
+			if _, err := s.loadOrObtain(domains, true); err != nil {
 				s.log.Warn("failed to obtain ACME cert", "domain", primary, "err", err)
 			}
 			continue
@@ -285,7 +335,7 @@ func (s *CertDiskStore) renewIfNeeded() {
 			renewAt := cert.Leaf.NotAfter.Add(-30 * 24 * time.Hour) // 30 days before expiry
 			if time.Now().After(renewAt) {
 				// Renew
-				if _, err := s.LoadOrObtain(domains); err != nil {
+				if _, err := s.loadOrObtain(domains, true); err != nil {
 					s.log.Error("failed to renew cert", "domains", domains, "error", err)
 				}
 			}

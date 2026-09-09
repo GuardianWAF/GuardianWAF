@@ -127,6 +127,12 @@ func (c *Client) Init(accountKeyPEM []byte) error {
 		if err != nil {
 			return fmt.Errorf("parsing account key: %w", err)
 		}
+		// The JWS machinery is hardcoded to ES256/P-256 (crv, coordinate
+		// widths, signature buffer); a non-P-256 account key would panic in
+		// signedPost at the first signature. Reject it at the boundary.
+		if key.Curve != elliptic.P256() {
+			return fmt.Errorf("account key must be P-256 (ES256); got %s", key.Curve.Params().Name)
+		}
 		c.accountKey = key
 	} else {
 		key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -500,7 +506,10 @@ func (c *Client) signedPost(url string, payload any, useJWK bool) (*http.Respons
 	// Sign
 	sigInput := headerB64 + "." + payloadB64
 	hash := sha256.Sum256([]byte(sigInput))
-	r, s, _ := ecdsa.Sign(rand.Reader, c.accountKey, hash[:])
+	r, s, err := ecdsa.Sign(rand.Reader, c.accountKey, hash[:])
+	if err != nil {
+		return nil, fmt.Errorf("signing request: %w", err)
+	}
 
 	// Encode signature (R || S, each 32 bytes for P-256)
 	rBytes := r.Bytes()
