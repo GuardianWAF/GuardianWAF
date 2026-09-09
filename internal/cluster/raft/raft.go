@@ -652,6 +652,14 @@ func (r *Raft) handleRequestVote(data []byte) ([]byte, error) {
 		resp.Term = req.Term
 	}
 
+	// §5.2: a stale-term vote must never be granted — granting would also
+	// persist the stale candidate into the current term (SetVotedFor below),
+	// burning this node's vote for the legitimate candidate of that term.
+	if req.Term < r.persist.CurrentTerm() {
+		resp.Term = r.persist.CurrentTerm()
+		return EncodeRequestVoteResp(resp)
+	}
+
 	// §5.4.1: grant vote if:
 	// 1. We haven't voted this term (or already voted for this candidate).
 	// 2. The candidate's log is at least as up-to-date as ours.

@@ -496,6 +496,15 @@ func decodeWALPayload(payload []byte) (WALRecord, error) {
 		off := 10 + int(vfLen)
 		entryCount := binary.BigEndian.Uint32(p[off : off+4])
 		off += 4
+		// Each encoded entry consumes at least 20 bytes; bound entryCount by
+		// the remaining payload before allocating — a corrupt (CRC-valid)
+		// count must fail replay cleanly, never attempt a huge allocation at
+		// startup (the WAL's own oversized-allocation protection, per the
+		// maxWALRecordSize/16 MB payload bounds).
+		remaining := uint64(len(p) - off)
+		if uint64(entryCount) > remaining/20 {
+			return WALRecord{}, fmt.Errorf("wal: snapshot entry count %d exceeds remaining payload (%d bytes)", entryCount, remaining)
+		}
 		rec.Entries = make([]LogEntry, 0, entryCount)
 		for i := uint32(0); i < entryCount; i++ {
 			if len(p) < off+20 {
