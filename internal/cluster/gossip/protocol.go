@@ -217,13 +217,18 @@ func (g *Gossip) UpdateMember(m Member) {
 	if g.stopped.Load() {
 		return
 	}
-	wasNew := !g.members.Contains(m.ID)
+	prev, existed := g.members.Get(m.ID)
+	wasNew := !existed
 	g.members.Add(m)
 	g.enqueuePiggyback(m)
-	if wasNew && m.State == StateAlive && g.onJoin != nil {
+
+	// Transition-based callbacks — see applyPiggyback.
+	cur, _ := g.members.Get(m.ID)
+	applied := wasNew || cur.Incarnation != prev.Incarnation || cur.State != prev.State
+	if g.onJoin != nil && applied && m.State == StateAlive && (wasNew || prev.State != StateAlive) {
 		g.onJoin(m.ID, m.Addr)
 	}
-	if m.State == StateDead && g.onLeave != nil {
+	if g.onLeave != nil && applied && m.State == StateDead && existed && prev.State != StateDead {
 		g.onLeave(m.ID)
 	}
 }
@@ -381,6 +386,13 @@ func (g *Gossip) runGossip(ctx context.Context) {
 // ---------------------------------------------------------------------------
 
 func (g *Gossip) probeCycle() {
+	// Purge dead members — the documented periodic purge point (the prober).
+	// Without this, dead entries accumulate in AllMembers and every push-pull
+	// payload until process restart. Purging before target selection is safe:
+	// dead members are never probe targets, and a pending suspect→dead timer
+	// for a purged member is a no-op (its Get guard fails).
+	g.PurgeDead()
+
 	target, ok := g.members.RandomMember(g.config.NodeID)
 	if !ok {
 		return
@@ -621,16 +633,27 @@ func (g *Gossip) applyPiggyback(payload []byte) {
 			continue
 		}
 
-		wasNew := !g.members.Contains(m.ID)
+		prev, existed := g.members.Get(m.ID)
+		wasNew := !existed
 		accepted := g.members.Add(m)
 		if accepted || wasNew {
 			g.enqueuePiggyback(m)
 		}
 
-		if wasNew && m.State == StateAlive && g.onJoin != nil {
+		// Add reports only inserts; detect a replacement by re-reading and
+		// comparing against the pre-Add snapshot.
+		cur, _ := g.members.Get(m.ID)
+		applied := wasNew || cur.Incarnation != prev.Incarnation || cur.State != prev.State
+
+		// Callbacks fire on membership-view TRANSITIONS, not on every message
+		// receipt: a dead member rejoining under the same ID must re-fire
+		// onJoin (the Raft peer-sync bridge re-adds it to the peer set), and
+		// duplicate or dead-first announcements must not re-fire onLeave.
+		// Rejected updates (stale incarnation/state) fire nothing.
+		if g.onJoin != nil && applied && m.State == StateAlive && (wasNew || prev.State != StateAlive) {
 			g.onJoin(m.ID, m.Addr)
 		}
-		if m.State == StateDead && g.onLeave != nil {
+		if g.onLeave != nil && applied && m.State == StateDead && existed && prev.State != StateDead {
 			g.onLeave(m.ID)
 		}
 	}
