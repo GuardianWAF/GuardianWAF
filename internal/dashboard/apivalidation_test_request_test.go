@@ -13,20 +13,8 @@ package dashboard
 import (
 	"testing"
 
-	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/layers/apivalidation"
 )
-
-type round77MockEventStore struct{}
-
-func (round77MockEventStore) Store(event engine.Event) error { return nil }
-func (round77MockEventStore) Close() error                   { return nil }
-
-type round77MockEventBus struct{}
-
-func (round77MockEventBus) Subscribe(ch chan<- engine.Event) {}
-func (round77MockEventBus) Publish(event engine.Event)       {}
-func (round77MockEventBus) Close()                           {}
 
 func TestAPITestRequestValidates(t *testing.T) {
 	// A real layer with request-validation enabled (the Process gate checks
