@@ -148,10 +148,17 @@ func (h *VirtualPatchHandler) handleAddPatch(w http.ResponseWriter, r *http.Requ
 
 	vpLayer.AddPatch(patch)
 
+	// The layer validates patterns at add time (invalid regexes are stored
+	// disabled with review_status=disabled); reflect the stored state instead
+	// of claiming success.
+	enabled := false
+	if stored := vpLayer.GetPatch(req.ID); stored != nil {
+		enabled = stored.Enabled
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id":      req.ID,
 		"status":  "created",
-		"enabled": true,
+		"enabled": enabled,
 	})
 }
 

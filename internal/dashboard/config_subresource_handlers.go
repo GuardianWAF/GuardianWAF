@@ -42,6 +42,8 @@ func (d *Dashboard) handleUpdateRateLimitConfig(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	// Keep the pre-update copy for the persistence rollback below.
+	oldCfg := deepCopyConfig(d.engine.Config())
 	cfg := deepCopyConfig(d.engine.Config())
 	if body.Enabled != nil {
 		cfg.WAF.RateLimit.Enabled = *body.Enabled
@@ -72,16 +74,34 @@ func (d *Dashboard) handleUpdateRateLimitConfig(w http.ResponseWriter, r *http.R
 		cfg.WAF.RateLimit.Rules[0].Action = body.Action
 	}
 
-	if err := validateRuntimeReloadableConfig(d.engine.Config(), cfg); err != nil {
-		writeError(w, http.StatusConflict, sanitizeErr(err))
-		return
-	}
-
+	// engine.Reload rebuilds the layer pipeline from the updated config (the
+	// same mechanism the CRS and API-validation config handlers rely on), so
+	// the rate-limit rule changes apply at runtime. The former
+	// validateRuntimeReloadableConfig call 409'd this handler's own primary
+	// fields — the rate-limit rules are part of the WAF shape guard — making
+	// the endpoint a dead end for every meaningful update.
 	if err := d.engine.Reload(cfg); err != nil {
 		writeError(w, http.StatusInternalServerError, sanitizeErr(err))
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+
+	// Persist the full config to disk — same contract as handleUpdateConfig.
+	// Without this the rate-limit settings are runtime-only: a restart
+	// silently reverts enabled/limit/burst/action to the last value written
+	// to the config file, disarming the DoS defense the operator just
+	// configured.
+	if d.routingCtrl != nil {
+		if err := d.routingCtrl.Save(); err != nil {
+			if rollbackErr := d.engine.Reload(oldCfg); rollbackErr != nil {
+				dashboardLog.Error("configuration persistence and rollback failed", "save_error", err, "rollback_error", rollbackErr)
+			} else {
+				dashboardLog.Error("configuration persistence failed; runtime rolled back", "error", err)
+			}
+			writeError(w, http.StatusInternalServerError, "configuration persistence failed; previous runtime configuration restored")
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "message": "Rate limit configuration updated and saved"})
 }
 
 func (d *Dashboard) handleGetBotConfig(w http.ResponseWriter, r *http.Request) {
@@ -114,17 +134,36 @@ func (d *Dashboard) handleUpdateBotConfig(w http.ResponseWriter, r *http.Request
 	if !limitedDecodeJSON(w, r, &patch) {
 		return
 	}
+	// Keep the pre-update copy for the persistence rollback below.
+	oldCfg := deepCopyConfig(d.engine.Config())
 	cfg := deepCopyConfig(d.engine.Config())
 	applyWAFPatch(cfg, map[string]any{"bot_detection": patch})
-	if err := validateRuntimeReloadableConfig(d.engine.Config(), cfg); err != nil {
-		writeError(w, http.StatusConflict, sanitizeErr(err))
-		return
-	}
+	// engine.Reload rebuilds the layer pipeline from the updated config (the
+	// same mechanism the CRS, API-validation, and rate-limit config handlers
+	// rely on), so the bot-detection changes apply at runtime. The former
+	// validateRuntimeReloadableConfig call 409'd the handler's own primary
+	// fields — the bot-detection settings are part of the WAF shape guard —
+	// making the endpoint a dead end for every changing update.
 	if err := d.engine.Reload(cfg); err != nil {
 		writeError(w, http.StatusInternalServerError, sanitizeErr(err))
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+
+	// Persist the full config to disk — same contract as handleUpdateConfig.
+	// Without this the bot-detection settings are runtime-only: a restart
+	// silently restores the bot posture the operator just changed.
+	if d.routingCtrl != nil {
+		if err := d.routingCtrl.Save(); err != nil {
+			if rollbackErr := d.engine.Reload(oldCfg); rollbackErr != nil {
+				dashboardLog.Error("configuration persistence and rollback failed", "save_error", err, "rollback_error", rollbackErr)
+			} else {
+				dashboardLog.Error("configuration persistence failed; runtime rolled back", "error", err)
+			}
+			writeError(w, http.StatusInternalServerError, "configuration persistence failed; previous runtime configuration restored")
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "message": "Bot detection configuration updated and saved"})
 }
 
 func (d *Dashboard) handleUploadCertificateCompat(w http.ResponseWriter, r *http.Request) {

@@ -1,10 +1,12 @@
 package dashboard
 
 import (
+	"errors"
 	"net/http"
 	"os"
 	"strings"
 
+	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/layers/apivalidation"
 )
 
@@ -193,7 +195,9 @@ func (h *APIValidationHandler) handleValidationConfig(w http.ResponseWriter, r *
 			return
 		}
 
-		// Get current config and update settings
+		// Get current config and update settings. Keep the pre-update copy
+		// for the persistence rollback below.
+		oldCfg := deepCopyConfig(h.dashboard.engine.Config())
 		newCfg := deepCopyConfig(h.dashboard.engine.Config())
 		if req.ValidateRequest != nil {
 			newCfg.WAF.APIValidation.ValidateRequest = *req.ValidateRequest
@@ -212,6 +216,23 @@ func (h *APIValidationHandler) handleValidationConfig(w http.ResponseWriter, r *
 		if err := h.dashboard.engine.Reload(newCfg); err != nil {
 			http.Error(w, sanitizeErr(err), http.StatusInternalServerError)
 			return
+		}
+
+		// Persist the full config to disk — same contract as
+		// handleUpdateConfig. Without this the settings are runtime-only: a
+		// restart silently reverts block_on_violation and the other
+		// API-validation flags to the last value written to the config file,
+		// disabling blocking the operator believes is active.
+		if h.dashboard.routingCtrl != nil {
+			if err := h.dashboard.routingCtrl.Save(); err != nil {
+				if rollbackErr := h.dashboard.engine.Reload(oldCfg); rollbackErr != nil {
+					dashboardLog.Error("configuration persistence and rollback failed", "save_error", err, "rollback_error", rollbackErr)
+				} else {
+					dashboardLog.Error("configuration persistence failed; runtime rolled back", "error", err)
+				}
+				http.Error(w, "configuration persistence failed; previous runtime configuration restored", http.StatusInternalServerError)
+				return
+			}
 		}
 
 		writeJSON(w, http.StatusOK, map[string]any{
@@ -292,11 +313,49 @@ func (a *apiValidationAdapter) IsEnabled() bool {
 	return a.layer != nil
 }
 
+// schemaName resolves the operator-assigned identity: the name set at
+// upload wins; legacy config-file-loaded specs fall back to their OpenAPI
+// title.
+func schemaName(spec *apivalidation.CompiledSpec) string {
+	if spec.Source.Name != "" {
+		return spec.Source.Name
+	}
+	return spec.Spec.Info.Title
+}
+
+// compiledSpecToInfo maps the layer's compiled spec to the dashboard's
+// schema view. The compiled spec does not retain the raw document, so
+// Content is empty: list/detail show metadata only.
+func compiledSpecToInfo(spec *apivalidation.CompiledSpec) *APISchemaInfo {
+	return &APISchemaInfo{
+		Name:          schemaName(spec),
+		Version:       spec.Spec.Info.Version,
+		Format:        spec.Source.Type,
+		EndpointCount: len(spec.Routes),
+	}
+}
+
 func (a *apiValidationAdapter) GetSchemas() []*APISchemaInfo {
-	return nil // Schema access not directly exposed
+	if a.layer == nil {
+		return nil
+	}
+	specs := a.layer.GetSpecs()
+	schemas := make([]*APISchemaInfo, 0, len(specs))
+	for _, spec := range specs {
+		schemas = append(schemas, compiledSpecToInfo(spec))
+	}
+	return schemas
 }
 
 func (a *apiValidationAdapter) GetSchema(name string) *APISchemaInfo {
+	if a.layer == nil {
+		return nil
+	}
+	for _, spec := range a.layer.GetSpecs() {
+		if schemaName(spec) == name {
+			return compiledSpecToInfo(spec)
+		}
+	}
 	return nil
 }
 
@@ -327,6 +386,7 @@ func (a *apiValidationAdapter) LoadSchema(schema *APISchemaInfo) error {
 	return a.layer.LoadSchema(apivalidation.SchemaSource{
 		Type: format,
 		Path: tmpFile.Name(),
+		Name: schema.Name,
 	})
 }
 
@@ -334,12 +394,44 @@ func (a *apiValidationAdapter) RemoveSchema(name string) error {
 	if a.layer == nil {
 		return nil
 	}
-	a.layer.RemoveSchema(name)
+	// The layer reports found/not-found honestly; map the miss to an error
+	// so the handler's DELETE returns 404 instead of a fake "removed" for
+	// names that never existed.
+	if !a.layer.RemoveSchema(name) {
+		return errors.New("schema not found")
+	}
 	return nil
 }
 
 func (a *apiValidationAdapter) TestRequest(method, path, body string) APIValidationResult {
-	return APIValidationResult{Valid: true, Violations: nil, Endpoint: path}
+	if a.layer == nil {
+		return APIValidationResult{Valid: true, Endpoint: path}
+	}
+
+	// Run the layer's real production validation pipeline — the same path
+	// live traffic takes. The previous stub returned Valid:true
+	// unconditionally, manufacturing pass results for the test endpoint: an
+	// operator could believe their API contracts enforce when nothing was
+	// ever validated.
+	ctx := &engine.RequestContext{
+		Method:      method,
+		Path:        path,
+		Body:        []byte(body),
+		BodyString:  body,
+		ContentType: "application/json",
+	}
+	result := a.layer.Process(ctx)
+
+	valid := len(result.Findings) == 0 && result.Action != engine.ActionBlock
+	violations := make([]string, 0, len(result.Findings))
+	for _, f := range result.Findings {
+		violations = append(violations, f.Description)
+	}
+	return APIValidationResult{
+		Valid:      valid,
+		Violations: violations,
+		Endpoint:   path,
+	}
 }
 
 // APIValidationLayerInterface defines the interface for API validation layer operations

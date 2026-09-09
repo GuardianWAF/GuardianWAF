@@ -35,7 +35,7 @@ var (
 )
 
 // SendEmail sends an alert via SMTP.
-func (m *Manager) SendEmail(target *EmailTarget, event *engine.Event) {
+func (m *Manager) SendEmail(target *EmailTarget, event *engine.Event) error {
 	cfg := target.config
 
 	// Build email body
@@ -72,10 +72,11 @@ func (m *Manager) SendEmail(target *EmailTarget, event *engine.Event) {
 	if err != nil {
 		emailFailed.Add(1)
 		m.log("error", fmt.Sprintf("failed to send email alert: %v", err))
-	} else {
-		emailSent.Add(1)
-		m.log("info", fmt.Sprintf("email alert sent to %s for event %s", strings.Join(cfg.To, ", "), event.ID))
+		return err
 	}
+	emailSent.Add(1)
+	m.log("info", fmt.Sprintf("email alert sent to %s for event %s", strings.Join(cfg.To, ", "), event.ID))
+	return nil
 }
 
 // sendTLS sends email with TLS encryption.

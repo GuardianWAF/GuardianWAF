@@ -769,12 +769,13 @@ func (l *Layer) GetSpecs() []*CompiledSpec {
 	return l.specs
 }
 
-// RemoveSchema removes a loaded schema by source path.
+// RemoveSchema removes a loaded schema by source path or by the
+// operator-assigned name (dashboard uploads pass Name in SchemaSource).
 func (l *Layer) RemoveSchema(name string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	for i, spec := range l.specs {
-		if spec.Source.Path == name {
+		if spec.Source.Path == name || spec.Source.Name == name {
 			l.specs = append(l.specs[:i], l.specs[i+1:]...)
 			return true
 		}

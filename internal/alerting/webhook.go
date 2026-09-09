@@ -247,7 +247,7 @@ func (m *Manager) HandleEvent(event *engine.Event) {
 						m.log("error", fmt.Sprintf("webhook goroutine panic: %v", r))
 					}
 				}()
-				m.send(wc, a)
+				_ = m.send(wc, a) // fire-and-forget by design: alert pipeline must not block on delivery
 			}(&wh.config, &alert)
 		}) {
 		case dispatchFull:
@@ -305,7 +305,7 @@ func (m *Manager) HandleEvent(event *engine.Event) {
 						m.log("error", fmt.Sprintf("email goroutine panic: %v", r))
 					}
 				}()
-				m.SendEmail(et, ev)
+				_ = m.SendEmail(et, ev) // fire-and-forget by design: alert pipeline must not block on delivery
 			}(et, event)
 		}) {
 		case dispatchFull:
@@ -381,7 +381,7 @@ func (m *Manager) Close() error {
 }
 
 // send delivers an alert to a webhook endpoint.
-func (m *Manager) send(wc *WebhookTarget, alert *Alert) {
+func (m *Manager) send(wc *WebhookTarget, alert *Alert) error {
 	var body []byte
 	var marshalErr error
 	switch wc.Type {
@@ -396,7 +396,7 @@ func (m *Manager) send(wc *WebhookTarget, alert *Alert) {
 	}
 	if marshalErr != nil {
 		m.failed.Add(1)
-		return
+		return fmt.Errorf("marshal webhook payload for %s: %w", wc.Name, marshalErr)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -404,7 +404,7 @@ func (m *Manager) send(wc *WebhookTarget, alert *Alert) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, wc.URL, bytes.NewReader(body))
 	if err != nil {
 		m.failed.Add(1)
-		return
+		return fmt.Errorf("build webhook request for %s: %w", wc.Name, err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "GuardianWAF-Alerting/1.0")
@@ -418,7 +418,7 @@ func (m *Manager) send(wc *WebhookTarget, alert *Alert) {
 	if err != nil {
 		m.failed.Add(1)
 		m.log("warn", fmt.Sprintf("Webhook %s failed: %v", wc.Name, err))
-		return
+		return fmt.Errorf("webhook %s delivery failed: %w", wc.Name, err)
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20)) // nolint:errcheck // response body drain after webhook call; error ignored
@@ -426,10 +426,11 @@ func (m *Manager) send(wc *WebhookTarget, alert *Alert) {
 	if resp.StatusCode >= 400 {
 		m.failed.Add(1)
 		m.log("warn", fmt.Sprintf("Webhook %s returned %d", wc.Name, resp.StatusCode))
-		return
+		return fmt.Errorf("webhook %s rejected with status %d", wc.Name, resp.StatusCode)
 	}
 
 	m.sent.Add(1)
+	return nil
 }
 
 func matchesEvent(events []string, action string) bool {
@@ -638,33 +639,47 @@ func (m *Manager) TestAlert(targetName string) error {
 		UserAgent: "GuardianWAF-Test/1.0",
 	}
 
-	// Try webhooks first
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	// Snapshot the event before locking (built from the static test alert).
+	event := engine.Event{
+		ID:        testAlert.EventID,
+		Timestamp: time.Now(),
+		ClientIP:  testAlert.ClientIP,
+		Method:    testAlert.Method,
+		Path:      testAlert.Path,
+		Score:     testAlert.Score,
+		UserAgent: testAlert.UserAgent,
+	}
 
+	// Snapshot the target under the read lock, then deliver OUTSIDE the
+	// lock: a slow or dead target must not stall concurrent config writers
+	// (AddWebhook/AddEmailTarget) for the whole HTTP timeout. Both branches
+	// copy the config so nothing shared escapes the lock.
+	m.mu.RLock()
+	var webhookCfg *WebhookTarget
+	var emailCfg *EmailTarget
 	for i := range m.webhooks {
 		if m.webhooks[i].config.Name == targetName {
 			cfg := m.webhooks[i].config
-			m.send(&cfg, &testAlert)
-			return nil
+			webhookCfg = &cfg
+			break
 		}
 	}
-
-	// Try email targets
-	for _, et := range m.emailTargets {
-		if et.config.Name == targetName {
-			event := engine.Event{
-				ID:        testAlert.EventID,
-				Timestamp: time.Now(),
-				ClientIP:  testAlert.ClientIP,
-				Method:    testAlert.Method,
-				Path:      testAlert.Path,
-				Score:     testAlert.Score,
-				UserAgent: testAlert.UserAgent,
+	if webhookCfg == nil {
+		for _, et := range m.emailTargets {
+			if et.config.Name == targetName {
+				copied := *et // value copy: no shared pointer escapes the lock
+				emailCfg = &copied
+				break
 			}
-			m.SendEmail(et, &event)
-			return nil
 		}
+	}
+	m.mu.RUnlock()
+
+	if webhookCfg != nil {
+		return m.send(webhookCfg, &testAlert)
+	}
+	if emailCfg != nil {
+		return m.SendEmail(emailCfg, &event)
 	}
 
 	return fmt.Errorf("target %s not found", targetName)

@@ -85,12 +85,13 @@ type Dashboard struct {
 	tenantAPIKeys    map[string]string
 	trustedProxyNets []*net.IPNet // Direct proxy CIDRs trusted for forwarded TLS metadata
 	// Dependency interfaces (injected to avoid circular imports)
-	routingCtrl    RoutingController      // rebuild + save routing config
-	upstreamStatus UpstreamStatusProvider // returns upstream health status
-	certProvider   CertificateProvider    // returns SSL cert status
-	ruleStore      RuleStore              // CRUD operations for rules
-	geoLookup      GeoLookup              // IP → (country_code, country_name)
-	alertingStats  AlertingStatsProvider  // returns alerting statistics (optional)
+	routingCtrl    RoutingController             // rebuild + save routing config
+	upstreamStatus UpstreamStatusProvider        // returns upstream health status
+	certProvider   CertificateProvider           // returns SSL cert status
+	ruleStore      RuleStore                     // CRUD operations for rules
+	geoLookup      GeoLookup                     // IP → (country_code, country_name)
+	alertingStats  AlertingStatsProvider         // returns alerting statistics (optional)
+	alertingTestFn func(targetName string) error // sends test alerts through the alerting manager (optional)
 
 	// Existing interfaces (kept as-is)
 	aiAnalyzer       aiAnalyzerInterface    // AI threat analyzer (optional)
@@ -317,6 +318,15 @@ func (d *Dashboard) SetAlertingStatsFn(fn func() any) {
 		return
 	}
 	d.alertingStats = &alertingStatsAdapter{fn: fn}
+}
+
+// SetAlertingTestFn injects the ability to send test alerts through the
+// alerting manager.
+func (d *Dashboard) SetAlertingTestFn(fn func(targetName string) error) {
+	if fn == nil {
+		return
+	}
+	d.alertingTestFn = fn
 }
 
 // SetClusterStatusProvider injects the cluster status provider so dashboard

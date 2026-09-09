@@ -127,7 +127,7 @@ func (d *Dashboard) handleRemoveIPACL(w http.ResponseWriter, r *http.Request) {
 // banLayer is the interface for temp ban operations (avoids circular import).
 type banLayer interface {
 	AddAutoBan(ip string, reason string, ttl time.Duration)
-	RemoveAutoBan(ip string)
+	RemoveAutoBan(ip string) bool
 }
 
 func (d *Dashboard) handleGetBans(w http.ResponseWriter, r *http.Request) {
@@ -213,7 +213,12 @@ func (d *Dashboard) handleRemoveBan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Apply locally (immediate effect on this node; other nodes get it via Raft).
-	bl.RemoveAutoBan(body.IP)
+	// The layer reports whether an active ban existed; an unknown IP gets an
+	// honest 404 instead of a manufactured "ok".
+	if !bl.RemoveAutoBan(body.IP) {
+		writeError(w, http.StatusNotFound, "no active ban for this IP")
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "ip": body.IP, "cluster": d.clusterStatus != nil})
 }
 

@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
-	"strings"
 
 	"github.com/guardianwaf/guardianwaf/internal/layers/dlp"
 )
@@ -129,6 +128,19 @@ func (h *DLPHandler) handleAddPattern(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "id, name, pattern, and action are required", http.StatusBadRequest)
 		return
 	}
+
+	// The DLP architecture has no per-pattern action concept: patterns always
+	// mask on match; blocking is the layer-level block_on_match flag. Reject
+	// anything else honestly instead of silently weakening the operator's
+	// policy to mask.
+	if req.Action != "mask" {
+		http.Error(w, "unsupported action: the DLP layer masks on match; per-pattern blocking is not supported — configure block_on_match at the layer level for blocking", http.StatusBadRequest)
+		return
+	}
+	if req.ID != req.Name {
+		http.Error(w, "id and name must match: the DLP registry keys custom patterns by name, so the id the API returns must equal the registry key", http.StatusBadRequest)
+		return
+	}
 	if len(req.Pattern) > 4096 {
 		http.Error(w, "pattern too long (max 4096 chars)", http.StatusBadRequest)
 		return
@@ -192,14 +204,17 @@ func (h *DLPHandler) handlePatternDetail(w http.ResponseWriter, r *http.Request)
 		})
 
 	case http.MethodDelete:
-		if err := dlpLayer.RemovePattern(path); err != nil {
-			http.Error(w, sanitizeErr(err), http.StatusNotFound)
+		// Removal is not supported by the DLP registry (patterns are keyed by
+		// type and the built-ins are static); disable is the supported
+		// kill-switch — report it honestly instead of a fake "removed".
+		if !dlpLayer.DisablePattern(path) {
+			http.Error(w, "Pattern not found", http.StatusNotFound)
 			return
 		}
 
 		writeJSON(w, http.StatusOK, map[string]any{
 			"id":     path,
-			"status": "removed",
+			"status": "disabled",
 		})
 
 	default:
@@ -230,6 +245,10 @@ func (h *DLPHandler) handleTestPattern(w http.ResponseWriter, r *http.Request) {
 
 	if req.Pattern == "" || req.TestData == "" {
 		http.Error(w, "pattern and test_data are required", http.StatusBadRequest)
+		return
+	}
+	if _, err := regexp.Compile(req.Pattern); err != nil {
+		http.Error(w, "invalid pattern: "+sanitizeErr(err), http.StatusBadRequest)
 		return
 	}
 
@@ -285,10 +304,17 @@ func (a *dlpAdapter) GetPatterns() []*DLPPatternInfo {
 	patterns := registry.GetAllPatterns()
 	result := make([]*DLPPatternInfo, 0, len(patterns))
 	for _, p := range patterns {
+		id := string(p.Type)
+		if p.Type == dlp.PatternCustom {
+			// Custom patterns are keyed by name in the registry; their name is
+			// the only stable identity (all customs share Type "custom").
+			id = p.Name
+		}
 		result = append(result, &DLPPatternInfo{
-			ID:      string(p.Type),
-			Name:    string(p.Type),
+			ID:      id,
+			Name:    id,
 			Pattern: p.Regex.String(),
+			Enabled: p.Enabled,
 		})
 	}
 	return result
@@ -314,7 +340,7 @@ func (a *dlpAdapter) AddPattern(pattern *DLPPatternInfo) error {
 	}
 	a.layer.AddCustomPattern(pattern.Name, &dlp.Pattern{
 		Regex:      regex,
-		Severity:   dlp.SeverityMedium,
+		Severity:   dlp.SeverityMedium, // no severity surface in the DLP API (see round-70)
 		MaskFormat: "****",
 	})
 	return nil
@@ -325,18 +351,43 @@ func (a *dlpAdapter) RemovePattern(id string) error {
 	return nil
 }
 
-func (a *dlpAdapter) TestPattern(pattern, testData string) DLPTestResult {
-	// Simple pattern test without full DLP engine
-	matched := false
-	var matches []string
-	if pattern != "" && testData != "" {
-		// Very basic containment test
-		if strings.Contains(testData, pattern) {
-			matched = true
-			matches = append(matches, pattern)
-		}
+// DisablePattern disables a pattern in the registry. This is the supported
+// kill-switch: the registry has no removal API (patterns are keyed by type
+// and the built-ins are static), so disabling is the honest equivalent of
+// deletion.
+func (a *dlpAdapter) DisablePattern(id string) bool {
+	if a.layer == nil {
+		return false
 	}
-	return DLPTestResult{Matched: matched, Matches: matches}
+	registry := a.layer.GetRegistry()
+	if registry.GetPattern(dlp.PatternType(id)) == nil {
+		return false
+	}
+	registry.SetEnabled(dlp.PatternType(id), false)
+	return true
+}
+
+func (a *dlpAdapter) TestPattern(pattern, testData string) DLPTestResult {
+	// Real regex evaluation — the same primitive the layer's scan pipeline
+	// uses. The previous containment check (strings.Contains on the pattern
+	// source) could never match a real regex, making the test endpoint
+	// useless: operators deployed broken patterns believing they were
+	// validated. The handler pre-validates compilation; this compile is a
+	// defensive fallback. An empty pattern or empty sample is a no-match
+	// (the edge contract TestDLPAdapter_TestPattern pins): regexp.Compile("")
+	// succeeds and zero-width matches would otherwise report a spurious hit.
+	if pattern == "" || testData == "" {
+		return DLPTestResult{Matched: false}
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return DLPTestResult{Matched: false}
+	}
+	matches := re.FindAllString(testData, 10)
+	return DLPTestResult{
+		Matched: len(matches) > 0,
+		Matches: matches,
+	}
 }
 
 // DLPLayerInterface defines the interface for DLP layer operations
@@ -347,6 +398,7 @@ type DLPLayerInterface interface {
 	GetPattern(id string) *DLPPatternInfo
 	AddPattern(pattern *DLPPatternInfo) error
 	RemovePattern(id string) error
+	DisablePattern(id string) bool
 	TestPattern(pattern, testData string) DLPTestResult
 }
 

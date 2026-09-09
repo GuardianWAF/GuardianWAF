@@ -39,6 +39,7 @@ func setupAlertingRuntime(
 
 	if dash != nil {
 		dash.SetAlertingStatsFn(func() any { return alertMgr.GetStats() })
+		dash.SetAlertingTestFn(alertMgr.TestAlert)
 	}
 
 	return alertMgr

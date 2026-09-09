@@ -98,7 +98,9 @@ type ClusterBanInfo struct {
 
 // registerCluster registers cluster health and store inspection routes.
 func (d *Dashboard) registerCluster(mux *http.ServeMux) {
-	// Legacy v0 endpoints (no-auth convenience for backward compatibility)
+	// Legacy v0 endpoints. These were no-auth once; they are all wrapped in
+	// authWrap/authAuditWrap now (reads authenticated, mutations audited), and
+	// cluster mutations are additionally disabled at the handler level.
 	mux.HandleFunc("GET /api/clusters", d.authWrap(d.handleClusterList))
 	mux.HandleFunc("GET /api/clusters/{id}", d.authWrap(d.handleClusterNotFound))
 	mux.HandleFunc("POST /api/clusters", d.authAuditWrap(d.handleClusterMutationDisabled))
@@ -200,8 +202,9 @@ func (d *Dashboard) handleSyncStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"enabled":      true,
-		"syncing":      false,
+		"enabled": true,
+		// No "syncing" field: sync-completion tracking would need a
+		// ClusterStatusProvider extension; a hardcoded false is dead data.
 		"role":         d.clusterStatus.Role(),
 		"leader_id":    d.clusterStatus.LeaderID(),
 		"term":         d.clusterStatus.CurrentTerm(),

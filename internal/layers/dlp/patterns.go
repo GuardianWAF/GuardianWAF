@@ -190,13 +190,19 @@ func (r *PatternRegistry) SetEnabled(t PatternType, enabled bool) {
 	}
 }
 
-// GetAllPatterns returns all built-in patterns.
+// GetAllPatterns returns all patterns, both built-in and custom.
 func (r *PatternRegistry) GetAllPatterns() []*Pattern {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	patterns := make([]*Pattern, 0, len(r.patterns))
+	patterns := make([]*Pattern, 0, len(r.patterns)+len(r.custom))
 	for _, p := range r.patterns {
+		patterns = append(patterns, p)
+	}
+	// Custom patterns live in their own map; without this loop they are
+	// invisible to every reader after AddCustomPattern (list, detail, and
+	// delete never see them).
+	for _, p := range r.custom {
 		patterns = append(patterns, p)
 	}
 	return patterns

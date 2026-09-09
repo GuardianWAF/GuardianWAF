@@ -362,8 +362,8 @@ func TestHandleTestAlert_Success(t *testing.T) {
 	w := httptest.NewRecorder()
 	d.mux.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", w.Code)
+	if w.Code != http.StatusNotImplemented {
+		t.Errorf("expected 501 for unwired alerting test, got %d", w.Code)
 	}
 }
 

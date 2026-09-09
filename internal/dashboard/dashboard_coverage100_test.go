@@ -650,8 +650,8 @@ func TestAPIValidationAdapter_RemoveSchema_WithLayer(t *testing.T) {
 	layer := apivalidation.NewLayer(nil)
 	adapter := &apiValidationAdapter{layer: layer}
 	err := adapter.RemoveSchema("test-schema")
-	if err != nil {
-		t.Errorf("expected nil error, got %v", err)
+	if err == nil {
+		t.Errorf("expected an error for removing a nonexistent schema, got nil")
 	}
 }
 

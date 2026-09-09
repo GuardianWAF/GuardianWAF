@@ -25,8 +25,10 @@ func (f *fakeBanLayer) Process(*engine.RequestContext) engine.LayerResult {
 func (f *fakeBanLayer) AddAutoBan(ip string, reason string, ttl time.Duration) {
 	f.bans[ip] = reason
 }
-func (f *fakeBanLayer) RemoveAutoBan(ip string) {
+func (f *fakeBanLayer) RemoveAutoBan(ip string) bool {
+	_, existed := f.bans[ip]
 	delete(f.bans, ip)
+	return existed
 }
 
 // errMockNotLeader is the sentinel error the mock returns when configured as

@@ -214,16 +214,17 @@ func TestManager_LogNoPanic(t *testing.T) {
 	m.log("info", "test message")
 }
 
-// TestTestAlert_EmailTarget tests TestAlert sends to an email target.
+// TestTestAlert_EmailTarget tests TestAlert relays the delivery result for
+// an email target: a found target whose SMTP delivery fails reports the
+// error instead of manufacturing success (the pre-82 contract discarded it).
 func TestTestAlert_EmailTarget(t *testing.T) {
 	m := NewManagerWithEmail(nil, []config.EmailConfig{
-		{Name: "ops", SMTPHost: "smtp.example.com", SMTPPort: 587, To: []string{"ops@example.com"}},
+		{Name: "ops", SMTPHost: "127.0.0.1", SMTPPort: 2525, To: []string{"ops@example.com"}}, // closed port: delivery fails instantly
 	})
 	err := m.TestAlert("ops")
-	if err != nil {
-		t.Errorf("expected nil error (found target), got: %v", err)
+	if err == nil {
+		t.Errorf("expected delivery failure to be relayed for a found target with a dead SMTP endpoint, got nil")
 	}
-	time.Sleep(100 * time.Millisecond)
 }
 
 // TestTestAlert_NotFound tests TestAlert returns error for unknown target.

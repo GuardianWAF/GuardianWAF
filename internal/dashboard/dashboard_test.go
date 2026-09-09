@@ -649,7 +649,7 @@ func TestConfigSubresourceEndpoints(t *testing.T) {
 		key    string
 	}{
 		{"GET", "/api/v1/config/ratelimit", "", http.StatusOK, "enabled"},
-		{"PUT", "/api/v1/config/ratelimit", `{"enabled":true,"default_limit":100,"window":"1m"}`, http.StatusConflict, "error"},
+		{"PUT", "/api/v1/config/ratelimit", `{"enabled":true,"default_limit":100,"window":"1m"}`, http.StatusOK, "status"},
 		{"GET", "/api/v1/config/bot", "", http.StatusOK, "enabled"},
 		{"PUT", "/api/v1/config/bot", `{"enabled":true,"mode":"monitor"}`, http.StatusOK, "status"},
 		{"POST", "/api/v1/ssl/certificates", `{"name":"bad","cert":"%%%","key":"%%%"} `, http.StatusBadRequest, "error"},

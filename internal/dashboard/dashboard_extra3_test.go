@@ -43,7 +43,7 @@ func (m *errorIPACL) Order() int { return 0 }
 type mockBanNoLister struct{ mockIPACL }
 
 func (m *mockBanNoLister) AddAutoBan(string, string, time.Duration) {}
-func (m *mockBanNoLister) RemoveAutoBan(string)                     {}
+func (m *mockBanNoLister) RemoveAutoBan(string) bool                { return false }
 
 func (m *mockBanNoLister) Order() int { return 0 }
 

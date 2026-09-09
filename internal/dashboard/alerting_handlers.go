@@ -278,9 +278,19 @@ func (d *Dashboard) handleTestAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// This would ideally call the alerting manager's TestAlert method
-	// For now, we just return a success message
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "message": "Test alert functionality requires MCP or direct alerting manager access"})
+	// Delegate to the alerting manager's real test path. The former stub
+	// returned status:"ok" for every target - including ones that don't
+	// exist - so a misconfigured or nonexistent webhook/email could never
+	// be discovered from the dashboard.
+	if d.alertingTestFn == nil {
+		writeError(w, http.StatusNotImplemented, "test alert delivery is not wired to an alerting manager in this deployment")
+		return
+	}
+	if err := d.alertingTestFn(body.Target); err != nil {
+		writeError(w, http.StatusBadGateway, sanitizeErr(err))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "message": "Test alert dispatched to " + body.Target})
 }
 
 // reloadAndPersist applies a config mutation, reloads the engine, and persists

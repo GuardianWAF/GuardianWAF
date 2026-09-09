@@ -179,7 +179,22 @@ func (h *CRSHandler) handleConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Get current config and update CRS settings
+		// CRS paranoia is defined 1-4 (see Rule.ParanoiaLevel); anything outside
+		// gates out every rule at evaluation time, silently disabling the layer
+		// while this PUT reports success. The anomaly threshold must be positive
+		// or the block decision inverts.
+		if req.ParanoiaLevel < 1 || req.ParanoiaLevel > 4 {
+			http.Error(w, "paranoia_level must be between 1 and 4", http.StatusBadRequest)
+			return
+		}
+		if req.AnomalyThreshold < 1 {
+			http.Error(w, "anomaly_threshold must be at least 1", http.StatusBadRequest)
+			return
+		}
+
+		// Get current config and update CRS settings. Keep the pre-update
+		// copy for the persistence rollback below.
+		oldCfg := deepCopyConfig(h.dashboard.engine.Config())
 		newCfg := deepCopyConfig(h.dashboard.engine.Config())
 		newCfg.WAF.CRS.Enabled = req.Enabled
 		newCfg.WAF.CRS.ParanoiaLevel = req.ParanoiaLevel
@@ -197,6 +212,28 @@ func (h *CRSHandler) handleConfig(w http.ResponseWriter, r *http.Request) {
 		// Apply paranoia level if CRS layer exists
 		if crsLayer := h.getCRSLayer(); crsLayer != nil {
 			crsLayer.SetParanoiaLevel(req.ParanoiaLevel)
+		}
+
+		// Persist the full config to disk — same contract as
+		// handleUpdateConfig. Without this the CRS settings are runtime-only:
+		// a restart silently reverts paranoia_level, anomaly_threshold, and
+		// enabled to the last value written to the config file, restoring a
+		// posture the operator believes they changed.
+		if h.dashboard.routingCtrl != nil {
+			if err := h.dashboard.routingCtrl.Save(); err != nil {
+				if rollbackErr := h.dashboard.engine.Reload(oldCfg); rollbackErr != nil {
+					dashboardLog.Error("configuration persistence and rollback failed", "save_error", err, "rollback_error", rollbackErr)
+				} else {
+					// Reload may not reset layer-internal paranoia state (that
+					// is why SetParanoiaLevel exists); revert it explicitly.
+					if crsLayer := h.getCRSLayer(); crsLayer != nil {
+						crsLayer.SetParanoiaLevel(oldCfg.WAF.CRS.ParanoiaLevel)
+					}
+					dashboardLog.Error("configuration persistence failed; runtime rolled back", "error", err)
+				}
+				http.Error(w, "configuration persistence failed; previous runtime configuration restored", http.StatusInternalServerError)
+				return
+			}
 		}
 
 		writeJSON(w, http.StatusOK, map[string]any{

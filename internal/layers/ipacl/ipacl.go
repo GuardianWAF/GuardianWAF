@@ -256,11 +256,14 @@ func (l *Layer) AddAutoBan(ip, reason string, ttl time.Duration) {
 	}
 }
 
-// RemoveAutoBan removes an IP from the auto-ban list.
-func (l *Layer) RemoveAutoBan(ip string) {
+// RemoveAutoBan removes an IP from the auto-ban list. It returns whether an
+// active ban entry existed for the IP.
+func (l *Layer) RemoveAutoBan(ip string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	_, existed := l.autoBan[ip]
 	delete(l.autoBan, ip)
+	return existed
 }
 
 // BanEntry represents an active temporary ban (exported for API).

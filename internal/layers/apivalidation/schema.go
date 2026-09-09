@@ -54,9 +54,10 @@ func DefaultConfig() *Config {
 
 // SchemaSource represents a schema source configuration.
 type SchemaSource struct {
-	Path      string `yaml:"path"`       // File path or URL
-	Type      string `yaml:"type"`       // "openapi", "jsonschema"
-	AutoLearn bool   `yaml:"auto_learn"` // Learn from traffic
+	Path      string `yaml:"path"`           // File path or URL
+	Type      string `yaml:"type"`           // "openapi", "jsonschema"
+	Name      string `yaml:"name,omitempty"` // Operator-assigned identity (dashboard uploads)
+	AutoLearn bool   `yaml:"auto_learn"`     // Learn from traffic
 }
 
 // OpenAPISpec represents an OpenAPI 3.0 specification.

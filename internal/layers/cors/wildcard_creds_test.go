@@ -14,7 +14,7 @@ import (
 func TestWildcardAllWithCredentialsRejected(t *testing.T) {
 	cfg := &Config{
 		Enabled:          true,
-		AllowOrigins:   []string{"https://*"},
+		AllowOrigins:     []string{"https://*"},
 		AllowCredentials: true,
 		AllowMethods:     []string{"GET", "POST"},
 	}
@@ -28,7 +28,7 @@ func TestWildcardAllWithCredentialsRejected(t *testing.T) {
 func TestScopedWildcardWithCredentialsStillAllowed(t *testing.T) {
 	cfg := &Config{
 		Enabled:          true,
-		AllowOrigins:   []string{"https://*.example.com"},
+		AllowOrigins:     []string{"https://*.example.com"},
 		AllowCredentials: true,
 	}
 	l, err := NewLayer(cfg)
@@ -49,7 +49,7 @@ func TestScopedWildcardWithCredentialsStillAllowed(t *testing.T) {
 // style and stays allowed; the origin is reflected without credentials.
 func TestWildcardAllWithoutCredentialsAllowed(t *testing.T) {
 	cfg := &Config{
-		Enabled:        true,
+		Enabled:      true,
 		AllowOrigins: []string{"https://*"},
 	}
 	l, err := NewLayer(cfg)

@@ -67,8 +67,10 @@ type mockBanIPACL struct {
 func (m *mockBanIPACL) AddAutoBan(ip string, reason string, ttl time.Duration) {
 	m.bans[ip] = time.Now().Add(ttl)
 }
-func (m *mockBanIPACL) RemoveAutoBan(ip string) {
+func (m *mockBanIPACL) RemoveAutoBan(ip string) bool {
+	_, existed := m.bans[ip]
 	delete(m.bans, ip)
+	return existed
 }
 func (m *mockBanIPACL) ActiveBansAny() any {
 	result := make([]map[string]any, 0, len(m.bans))

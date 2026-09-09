@@ -645,6 +645,7 @@ GuardianWAF includes a built-in web dashboard accessible on the configured liste
 - Bot detection: mode, scanner blocking, behavioral thresholds
 - IP ACL: add/remove whitelist and blacklist entries in real-time
 - Rate limiting, sanitizer, response protection toggles
+- All configuration changes apply at runtime **and persist to disk automatically** — a failed save rolls the runtime back to the previous state instead of leaving it diverged
 
 **Routing (`/routing`)**
 - **Topology Graph** -- interactive React Flow visualization of the full request path: Clients -> WAF -> VHosts -> Routes -> Upstreams -> Targets, with TLS/SSL indicators, ports, health status, circuit breaker state
@@ -676,6 +677,9 @@ GuardianWAF includes a built-in web dashboard accessible on the configured liste
 | `POST /api/v1/ai/analyze` | Trigger AI analysis |
 | `GET /api/v1/ai/history` | AI analysis history |
 | `GET /api/v1/ai/stats` | AI usage & cost stats |
+| `POST /api/v1/alerting/test` | Send a test alert to a named webhook/email target — the real delivery result is returned, not a manufactured ok |
+| `POST /api/apivalidation/test` | Validate a sample request against loaded API schemas using the production validation pipeline |
+| `POST /api/dlp/test` | Test a DLP regex pattern against sample data with real regex evaluation |
 | `GET /metrics` | Prometheus metrics |
 | `GET /livez` | Liveness probe |
 | `GET /readyz` | Readiness probe |

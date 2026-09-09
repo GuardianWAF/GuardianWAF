@@ -76,7 +76,7 @@ func (d *Dashboard) handleAnalyticsTrends(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, map[string]any{
 		"metric":     firstNonEmpty(r.URL.Query().Get("metric"), "requests"),
 		"interval":   firstNonEmpty(r.URL.Query().Get("interval"), "hour"),
-		"timeseries": analyticsSeries(evts, "hour"),
+		"timeseries": analyticsSeries(evts, firstNonEmpty(r.URL.Query().Get("interval"), "hour")),
 	})
 }
 
@@ -116,6 +116,15 @@ func (d *Dashboard) handleAnalyticsComparison(w http.ResponseWriter, r *http.Req
 	q := r.URL.Query()
 	if t, ok := parseTimeParam(q.Get("previous_from")); ok {
 		previousFilter.Since = t
+	} else {
+		// Default the previous window to the immediately preceding period
+		// of the same length as the current window; without this the
+		// zero-valued filter queries all history while the response calls
+		// it the "previous" period.
+		window := analyticsWindowBounds(r)
+		span := window.Until.Sub(window.Since)
+		previousFilter.Since = window.Since.Add(-span)
+		previousFilter.Until = window.Since
 	}
 	if t, ok := parseTimeParam(q.Get("previous_to")); ok {
 		previousFilter.Until = t
@@ -143,28 +152,48 @@ func (d *Dashboard) handleAnalyticsTimeseries(w http.ResponseWriter, r *http.Req
 	})
 }
 
-func (d *Dashboard) analyticsEvents(r *http.Request, defaultLimit int) ([]engine.Event, int, error) {
+// analyticsWindow is the resolved current analytics window.
+type analyticsWindow struct {
+	Since time.Time
+	Until time.Time
+}
+
+// analyticsWindowBounds resolves the current window from query params:
+// explicit from/to (or start/end) win, then a period offset anchored at
+// the window end, and the fallback is the trailing 24 hours. Until
+// defaults to now.
+func analyticsWindowBounds(r *http.Request) analyticsWindow {
 	q := r.URL.Query()
+	var since time.Time
+	if from := firstNonEmpty(q.Get("from"), q.Get("start")); from != "" {
+		if t, ok := parseTimeParam(from); ok {
+			since = t
+		}
+	}
+	until := time.Now()
+	if to := firstNonEmpty(q.Get("to"), q.Get("end")); to != "" {
+		if t, ok := parseTimeParam(to); ok {
+			until = t
+		}
+	}
+	if since.IsZero() {
+		if period := q.Get("period"); period != "" {
+			since = until.Add(-parsePeriod(period))
+		} else {
+			since = until.Add(-24 * time.Hour)
+		}
+	}
+	return analyticsWindow{Since: since, Until: until}
+}
+
+func (d *Dashboard) analyticsEvents(r *http.Request, defaultLimit int) ([]engine.Event, int, error) {
+	window := analyticsWindowBounds(r)
 	filter := events.EventFilter{
 		Limit:     analyticsLimit(r, defaultLimit),
 		SortBy:    "timestamp",
 		SortOrder: "desc",
-	}
-	if from := firstNonEmpty(q.Get("from"), q.Get("start")); from != "" {
-		if t, ok := parseTimeParam(from); ok {
-			filter.Since = t
-		}
-	}
-	if to := firstNonEmpty(q.Get("to"), q.Get("end")); to != "" {
-		if t, ok := parseTimeParam(to); ok {
-			filter.Until = t
-		}
-	}
-	if filter.Since.IsZero() && q.Get("period") != "" {
-		filter.Since = time.Now().Add(-parsePeriod(q.Get("period")))
-	}
-	if filter.Since.IsZero() {
-		filter.Since = time.Now().Add(-24 * time.Hour)
+		Since:     window.Since,
+		Until:     window.Until,
 	}
 	return d.eventStore.Query(filter)
 }
@@ -269,9 +298,12 @@ func analyticsSeries(evts []engine.Event, interval string) []map[string]any {
 	buckets := make(map[string]int)
 	for _, evt := range evts {
 		t := evt.Timestamp
-		if interval == "day" {
+		switch interval {
+		case "day":
 			t = time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
-		} else {
+		case "minute":
+			t = time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), 0, 0, t.Location())
+		default: // "hour" and any unrecognized interval falls back to hourly buckets
 			t = time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), 0, 0, 0, t.Location())
 		}
 		buckets[t.Format(time.RFC3339)]++
