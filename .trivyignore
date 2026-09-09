@@ -18,3 +18,18 @@
 # this entry is removed — correct once upstream images ship openssl >=
 # 3.5.8-r0 (re-scan to confirm, then delete this file and the mounts).
 CVE-2026-14456
+
+# AVD-KSV-0109 — ConfigMap stores secrets in key(s) or value(s) (HIGH).
+#
+# Why ignored: the finding matches the key NAME "secret" inside the embedded
+# guardianwaf.yaml template in contrib/k8s/cluster-configmap.yaml. The value
+# is a placeholder (${GWAF_CLUSTER_SECRET}) substituted at runtime from the
+# guardianwaf-cluster Secret — the manifest deliberately never inlines the
+# key. This is the documented correct pattern; the check is shape-based.
+#
+# Scope note: .trivyignore entries are ID-scoped, so this suppresses ALL
+# KSV-0109 findings repo-wide. Acceptable while the only finding is this
+# template; re-evaluate if new ConfigMaps appear.
+#
+# EXPIRES: 2026-10-31
+AVD-KSV-0109

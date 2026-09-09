@@ -604,7 +604,7 @@ jobs:
       run: |
         # Gate on HIGH,CRITICAL — same threshold as the base-image scan above.
         # MEDIUM/LOW config findings are best-practice advisories, not build blockers.
-        docker run --rm -v $(pwd):/workspace aquasec/trivy:0.68.1 config /workspace --severity HIGH,CRITICAL --exit-code 1
+        docker run --rm -v $(pwd):/workspace -v $(pwd)/.trivyignore:/.trivyignore aquasec/trivy:0.68.1 config /workspace --severity HIGH,CRITICAL --exit-code 1
 
   lighthouse:
     needs: [build-dashboard]
