@@ -577,15 +577,15 @@ func TestSetupNodeCacheOnlyOnNPMHeavyWorkflowJobs(t *testing.T) {
 func TestPatchedGoToolchainIsAlignedAcrossBuildPaths(t *testing.T) {
 	root := filepath.Join("..", "..")
 	files := map[string][]string{
-		"go.mod":                              {"go 1.26.5"},
-		"tools/deepcopy/go.mod":               {"go 1.26.5"},
-		"Dockerfile":                          {"golang:1.26.5-alpine AS builder"},
-		"docker-compose.yml":                  {"golang:1.26.5-alpine"},
-		"docker-compose.test.yml":             {"golang:1.26.5-alpine"},
-		"examples/sidecar/Dockerfile":         {"golang:1.26.5-alpine AS builder"},
-		"examples/sidecar/docker-compose.yml": {"golang:1.26.5-alpine"},
-		"scripts/check-prereqs.sh":            {`MIN_GO="1.26.5"`},
-		".github/workflows/ci.yml":            {"go-version: ['1.26.5']", "golang:1.26.5-alpine"},
+		"go.mod":                              {"go 1.26.6"},
+		"tools/deepcopy/go.mod":               {"go 1.26.6"},
+		"Dockerfile":                          {"golang:1.26.6-alpine AS builder"},
+		"docker-compose.yml":                  {"golang:1.26.6-alpine"},
+		"docker-compose.test.yml":             {"golang:1.26.6-alpine"},
+		"examples/sidecar/Dockerfile":         {"golang:1.26.6-alpine AS builder"},
+		"examples/sidecar/docker-compose.yml": {"golang:1.26.6-alpine"},
+		"scripts/check-prereqs.sh":            {`MIN_GO="1.26.6"`},
+		".github/workflows/ci.yml":            {"go-version: ['1.26.6']", "golang:1.26.6-alpine"},
 	}
 
 	for name, required := range files {
@@ -1998,7 +1998,7 @@ func TestCleanCheckoutDashboardEmbedContract(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		`MIN_GO="1.26.5"`,
+		`MIN_GO="1.26.6"`,
 		`MIN_NODE="20.19.0"`,
 		"MIN_NPM_MAJOR=10",
 		"Go $MIN_GO or newer is required",
@@ -2015,7 +2015,7 @@ func TestCleanCheckoutDashboardEmbedContract(t *testing.T) {
 		"docs/production-deployment.md": productionDeployment,
 	} {
 		for _, want := range []string{
-			"Go 1.26.5 or newer",
+			"Go 1.26.6 or newer",
 			"Node.js 20.19.0 or newer",
 			"npm 10.x or newer",
 			"./scripts/check-prereqs.sh",

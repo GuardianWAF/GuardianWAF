@@ -516,7 +516,7 @@ docker pull ghcr.io/guardianwaf/guardianwaf:latest
 
 Prerequisites:
 
-- Go 1.26.5 or newer
+- Go 1.26.6 or newer
 - Node.js 20.19.0 or newer
 - npm 10.x or newer
 - `git`

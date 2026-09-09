@@ -59,7 +59,7 @@ with `apiKey.existingSecret`.
 - [ ] SMTP server for alerts (optional)
 - [ ] Webhook endpoints for notifications (optional)
 - [ ] Reverse proxy (nginx/traefik/caddy) - **recommended**
-- [ ] Source builds only: Go 1.26.5 or newer, Node.js 20.19.0 or newer, npm 10.x or newer, and `git`
+- [ ] Source builds only: Go 1.26.6 or newer, Node.js 20.19.0 or newer, npm 10.x or newer, and `git`
 
 For source builds, validate the local toolchain before building:
 
