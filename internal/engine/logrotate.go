@@ -3,9 +3,11 @@ package engine
 import (
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -127,11 +129,9 @@ func (w *RotatingFileWriter) rotate() error {
 	return nil
 }
 
-// removeOldBackups removes rotated files older than maxAge.
+// removeOldBackups removes rotated files older than maxAge (when configured)
+// and always enforces the maxBackups retention count.
 func (w *RotatingFileWriter) removeOldBackups() {
-	if w.maxAge <= 0 {
-		return
-	}
 	cutoff := time.Now().Add(-w.maxAge)
 	pattern := filepath.Base(w.path) + ".*"
 	matches, _ := filepath.Glob(filepath.Join(filepath.Dir(w.path), pattern))
@@ -144,19 +144,38 @@ func (w *RotatingFileWriter) removeOldBackups() {
 		if err != nil {
 			continue
 		}
-		if fi.ModTime().Before(cutoff) {
+		if w.maxAge > 0 && fi.ModTime().Before(cutoff) {
 			os.Remove(m) // #nosec G104 -- best-effort cleanup; error not actionable
-		} else {
-			backups = append(backups, m)
+			continue
 		}
+		backups = append(backups, m)
 	}
-	// If still too many, remove oldest
+	// Enforce the retention count in every configuration. Backups are numbered
+	// by rotation generation (path.1 is newest, path.N oldest), so the prune
+	// must consume the HIGHEST generation first: sort.Strings ordered "log.10"
+	// before "log.2", and ascending numeric order would delete the newest
+	// generations — both lose exactly the oldest backups the count exists to
+	// bound. Unparsable names are not generations and sort first via MaxInt.
+	sort.Slice(backups, func(i, j int) bool {
+		return backupGeneration(backups[i]) > backupGeneration(backups[j])
+	})
 	if len(backups) > w.maxBackups {
-		sort.Strings(backups)
 		for _, b := range backups[:len(backups)-w.maxBackups] {
 			os.Remove(b) // #nosec G104 -- best-effort cleanup; error not actionable
 		}
 	}
+}
+
+// backupGeneration extracts the numeric rotation generation from a backup
+// name (path.12 → 12). Names with an unparsable suffix are not rotation
+// generations; they are reported as the highest prune priority (MaxInt) so
+// the count-based prune deletes them before any numbered generation.
+func backupGeneration(path string) int {
+	n, err := strconv.Atoi(strings.TrimPrefix(filepath.Ext(path), "."))
+	if err != nil || n < 0 {
+		return math.MaxInt
+	}
+	return n
 }
 
 // ParseLogOutput returns an io.Writer for the configured log output.

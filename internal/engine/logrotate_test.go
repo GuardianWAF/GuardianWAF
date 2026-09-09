@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -270,5 +271,53 @@ func TestCleanRotatingLogPath_NULPath(t *testing.T) {
 	_, err := cleanRotatingLogPath("access\x00.log")
 	if err == nil {
 		t.Fatal("expected error for NUL path")
+	}
+}
+
+func TestRotatingFileWriter_RemoveOldBackups_NumericGenerationOrder(t *testing.T) {
+	// rotate() numbers backups by generation (path.1 newest, path.N oldest).
+	// The startup prune must enforce maxBackups in every configuration
+	// (maxAge=0 means "no age limit", not "no retention"), and it must
+	// consume the HIGHEST generation first: lexicographic ordering pruned
+	// "access.log.1" and "access.log.10" while keeping the oldest
+	// "access.log.11"/"access.log.12".
+	for _, maxAgeDays := range []int{0, 1} {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "access.log")
+		for i := 1; i <= 12; i++ {
+			name := fmt.Sprintf("%s.%d", path, i)
+			if err := os.WriteFile(name, []byte(fmt.Sprintf("generation %d", i)), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		// A stray file with an unparsable suffix is not a rotation
+		// generation; the count-based prune must delete it before any
+		// numbered generation.
+		stray := path + ".swp"
+		if err := os.WriteFile(stray, []byte("stray"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		w, err := NewRotatingFileWriter(path, 1, 10, maxAgeDays)
+		if err != nil {
+			t.Fatal(err)
+		}
+		w.Close()
+
+		// 13 candidates (12 generations + stray) over a limit of 10: the
+		// stray and the two oldest generations (.12, .11) go; .1.. .10 stay.
+		for _, gen := range []int{1, 10} {
+			if _, err := os.Stat(fmt.Sprintf("%s.%d", path, gen)); err != nil {
+				t.Errorf("maxAgeDays=%d: newest generation .%d was pruned (must be retained)", maxAgeDays, gen)
+			}
+		}
+		for _, gen := range []int{11, 12} {
+			if _, err := os.Stat(fmt.Sprintf("%s.%d", path, gen)); err == nil {
+				t.Errorf("maxAgeDays=%d: oldest generation .%d survived the prune (must be removed)", maxAgeDays, gen)
+			}
+		}
+		if _, err := os.Stat(stray); err == nil {
+			t.Errorf("maxAgeDays=%d: stray non-generation file survived the prune (must be removed)", maxAgeDays)
+		}
 	}
 }
