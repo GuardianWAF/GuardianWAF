@@ -252,6 +252,7 @@ func cmdServe(args []string) {
 	challengeSvc, err := setupChallengeService(cfg, eng)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating challenge service: %v\n", err)
+		osExit(1)
 		return
 	}
 
@@ -508,6 +509,7 @@ func cmdSidecar(args []string) {
 
 	if _, err := setupChallengeService(cfg, eng); err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating challenge service: %v\n", err)
+		osExit(1)
 		return
 	}
 	cleanupStop, cleanupWG := startPeriodicCleanup(eng, nil, periodicCleanupInterval)

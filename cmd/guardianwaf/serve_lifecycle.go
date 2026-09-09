@@ -75,6 +75,10 @@ func startServeTLSServer(cfg *config.Config, eng *engine.Engine, tlsSrv *http.Se
 		if err := tlsSrv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
 			eng.Logs.Errorf("TLS server error: %v", err)
 			fmt.Fprintf(os.Stderr, "TLS server error: %v\n", err)
+			// Fatal like the plaintext listener: a dead TLS listener leaves
+			// the process "healthy" while serving plaintext-only — a silent
+			// security downgrade.
+			osExit(1)
 		}
 	}()
 }
