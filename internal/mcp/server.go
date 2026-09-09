@@ -147,10 +147,13 @@ func (s *Server) SetAPIKey(key string) {
 }
 
 func (s *Server) isAuthenticated(key string) bool {
-	if s.apiKey == "" {
+	s.mu.Lock()
+	apiKey := s.apiKey
+	s.mu.Unlock()
+	if apiKey == "" {
 		return true // No auth required when no key is set
 	}
-	return subtle.ConstantTimeCompare([]byte(key), []byte(s.apiKey)) == 1
+	return subtle.ConstantTimeCompare([]byte(key), []byte(apiKey)) == 1
 }
 
 func (s *Server) checkAuth() bool {
@@ -302,16 +305,18 @@ func (s *Server) handleInitialize(req JSONRPCRequest) {
 	s.mu.Lock()
 	name := s.serverName
 	ver := s.serverVersion
+	apiKey := s.apiKey
+	authed := s.authenticated
 	s.mu.Unlock()
 
 	// Check if authentication is required
-	if s.apiKey != "" && !s.checkAuth() {
+	if apiKey != "" && !authed {
 		// Try to authenticate from params
 		var initParams map[string]any
 		if req.Params != nil {
 			_ = json.Unmarshal(req.Params, &initParams)
 		}
-		if apiKey, ok := initParams["api_key"].(string); ok && s.isAuthenticated(apiKey) {
+		if presented, ok := initParams["api_key"].(string); ok && s.isAuthenticated(presented) {
 			s.markAuthenticated()
 		} else {
 			s.sendError(req.ID, ErrCodeUnauthorized, "authentication required: provide api_key in initialize params")
@@ -408,7 +413,11 @@ func (s *Server) auditToolCall(name, outcome string, ctx *AuditContext) {
 // handleToolsCall dispatches a tools/call request to the registered handler.
 func (s *Server) handleToolsCall(req JSONRPCRequest) {
 	// Reject tool calls if authentication is required but client is not authenticated
-	if s.apiKey != "" && !s.checkAuth() {
+	s.mu.Lock()
+	apiKey := s.apiKey
+	authed := s.authenticated
+	s.mu.Unlock()
+	if apiKey != "" && !authed {
 		s.sendError(req.ID, ErrCodeUnauthorized, "authentication required: call initialize first with api_key")
 		return
 	}
