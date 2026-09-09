@@ -594,6 +594,7 @@ jobs:
     - name: Run Trivy vulnerability scanner on base image
       run: |
         docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+          -v "$GITHUB_WORKSPACE/.trivyignore":/.trivyignore \
           aquasec/trivy:0.68.1 image \
           --severity HIGH,CRITICAL \
           --exit-code 1 \

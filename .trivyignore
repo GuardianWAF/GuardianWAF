@@ -1,0 +1,20 @@
+# CVE-2026-14456 — openssl: Denial of Service via unbounded memory growth in
+# the QUIC server (HIGH, alpine pkg "openssl").
+#
+# Why ignored: the finding lives in the base images' libcrypto3/libssl3
+# (openssl 3.5.7-r0). The fix (3.5.8-r0) exists upstream, but the
+# golang:1.26.6-alpine and alpine 3.24.1 runtime images have not refreshed
+# yet. GuardianWAF builds with CGO_ENABLED=0, so the WAF binary does not link
+# openssl, and the project does not run an openssl QUIC server — exposure is
+# limited to the base image package set, not to the shipped firewall.
+#
+# Integration: both scanning jobs (ci.yml trivy-docker base-image scan,
+# scripts/supply-chain-smoke.sh) mount this file at /.trivyignore inside the
+# Trivy container (Trivy 0.68.1 reads the ignore file from the container CWD).
+# Any NEW CVE still fails both gates — this suppresses exactly one ID.
+#
+# EXPIRES: 2026-10-31
+# On expiry the governance test TestTrivyIgnoreEntriesNotExpired fails until
+# this entry is removed — correct once upstream images ship openssl >=
+# 3.5.8-r0 (re-scan to confirm, then delete this file and the mounts).
+CVE-2026-14456

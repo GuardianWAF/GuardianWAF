@@ -52,6 +52,7 @@ fi
 echo "Scanning image for HIGH/CRITICAL vulnerabilities..."
 docker run --rm \
     -v /var/run/docker.sock:/var/run/docker.sock \
+    -v "${ROOT_DIR}/.trivyignore":/.trivyignore \
     "${TRIVY_IMAGE}" image \
     --severity HIGH,CRITICAL \
     --exit-code 1 \
