@@ -94,7 +94,28 @@ func (ps *PersistentMemoryStore) Store(event engine.Event) error {
 	}
 
 	if ps.file == nil {
-		return ps.MemoryStore.Store(event)
+		// A previous compaction failure closed the append handle without
+		// reopening (rewriteFile failed after Close). Recover instead of
+		// silently degrading to ring-only persistence until restart: the
+		// original file is intact (the failed rewrite never renamed), so a
+		// plain append-reopen is safe, and the next threshold crossing
+		// retries compaction.
+		if !ps.closed {
+			// #nosec G304 -- event persistence path is operator-selected, NUL-rejected, and cleaned before use.
+			if f, ferr := os.OpenFile(ps.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); ferr == nil {
+				ps.file = f
+				if info, serr := f.Stat(); serr == nil {
+					ps.fileBytes = info.Size()
+				} else {
+					ps.fileBytes = 0
+				}
+			} else {
+				ps.dropped.Add(1)
+			}
+		}
+		if ps.file == nil {
+			return ps.MemoryStore.Store(event)
+		}
 	}
 	if _, werr := ps.file.Write(data); werr != nil {
 		ps.dropped.Add(1)
