@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -3421,6 +3422,39 @@ func TestValidateRoutesExported(t *testing.T) {
 	ValidateRoutesExported(routes, []UpstreamConfig{}, ve)
 	if !ve.HasErrors() {
 		t.Error("expected validation error for empty route path")
+	}
+}
+
+func TestValidateRoutesExported_UnknownUpstreamWithNoUpstreams(t *testing.T) {
+	// A route referencing an unconfigured upstream is unresolvable at runtime
+	// regardless of how many upstreams exist — with ZERO configured upstreams
+	// every named route is unresolvable, and the old len(upstreams) > 0 guard
+	// skipped the check in exactly that case (validateRoutes dead-ended every
+	// route into the no-upstream handler after a "valid" boot).
+	routes := []RouteConfig{
+		{Path: "/", Upstream: "ghost"},
+	}
+	ve := &ValidationError{}
+	ValidateRoutesExported(routes, nil, ve)
+	if !ve.HasErrors() {
+		t.Fatal("expected validation error for unknown upstream with zero upstreams")
+	}
+	if !strings.Contains(ve.Error(), "unknown upstream") {
+		t.Fatalf("expected unknown-upstream error, got: %v", ve.Error())
+	}
+	if !strings.Contains(ve.Error(), "ghost") {
+		t.Fatalf("expected error to name the upstream, got: %v", ve.Error())
+	}
+
+	// The same route with the upstream defined must not be flagged.
+	defined := []UpstreamConfig{{
+		Name:    "ghost",
+		Targets: []TargetConfig{{URL: "http://127.0.0.1:1", Weight: 1}},
+	}}
+	ve = &ValidationError{}
+	ValidateRoutesExported(routes, defined, ve)
+	if strings.Contains(ve.Error(), "unknown upstream") {
+		t.Fatalf("defined upstream flagged as unknown: %v", ve.Error())
 	}
 }
 

@@ -1231,7 +1231,11 @@ func validateRoutes(routes []RouteConfig, upstreams []UpstreamConfig, ve *Valida
 		} else if !strings.HasPrefix(r.Path, "/") {
 			ve.addError(prefix+".path", fmt.Sprintf("must start with '/'; got %q", r.Path))
 		}
-		if r.Upstream != "" && len(upstreams) > 0 && !upstreamNames[r.Upstream] {
+		// No len(upstreams) carve-out: with zero configured upstreams every
+		// named route is unresolvable at runtime (proxy_runtime.go builds
+		// balancers strictly from cfg.Upstreams), so the reference must be
+		// rejected — matching validateVirtualHosts.
+		if r.Upstream != "" && !upstreamNames[r.Upstream] {
 			ve.addError(prefix+".upstream", fmt.Sprintf("references unknown upstream %q", r.Upstream))
 		}
 	}
