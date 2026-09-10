@@ -43,6 +43,10 @@ type OCSPResponse struct {
 // oidAuthorityInfoAccess is the OID for Authority Information Access.
 var oidAuthorityInfoAccess = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 1, 1}
 
+// oidBasicOCSPResponse is id-pkix-ocsp-basic (RFC 6960 §4.2.1) — the only
+// response type whose body carries a certStatus this parser can interpret.
+var oidBasicOCSPResponse = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 1, 1}
+
 // FetchOCSPResponse fetches an OCSP response for the given certificate from its
 // OCSP responder. Returns the raw DER-encoded response suitable for TLS stapling.
 
@@ -99,7 +103,21 @@ func ocspPublicOnlyDialContext(dialer *net.Dialer) func(ctx context.Context, net
 	}
 }
 
+// FetchOCSPResponse fetches an OCSP response for the given certificate and
+// returns the raw DER-encoded bytes suitable for TLS stapling.
 func FetchOCSPResponse(issuer, leaf *x509.Certificate) ([]byte, error) {
+	resp, err := FetchParsedOCSPResponse(issuer, leaf)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Raw, nil
+}
+
+// FetchParsedOCSPResponse fetches an OCSP response for the given certificate
+// and returns the parsed result: certStatus (OCSPGood/OCSPRevoked/OCSPUnknown),
+// the thisUpdate/nextUpdate validity window, and the raw DER-encoded bytes
+// (OCSPResponse.Raw) suitable for TLS stapling.
+func FetchParsedOCSPResponse(issuer, leaf *x509.Certificate) (*OCSPResponse, error) {
 	if len(issuer.Raw) == 0 || len(leaf.Raw) == 0 {
 		return nil, fmt.Errorf("missing certificate data")
 	}
@@ -139,12 +157,8 @@ func FetchOCSPResponse(issuer, leaf *x509.Certificate) ([]byte, error) {
 		return nil, fmt.Errorf("reading OCSP response: %w", err)
 	}
 
-	// Try to decode the response to validate it
-	if _, err := parseBasicOCSPResponse(body); err != nil {
-		return nil, fmt.Errorf("parsing OCSP response: %w", err)
-	}
-
-	return body, nil
+	// Decode the response: envelope, basic-response type, certStatus, window.
+	return parseBasicOCSPResponse(body)
 }
 
 func readOCSPResponse(r io.Reader) ([]byte, error) {
@@ -275,9 +289,11 @@ func buildOCSPRequest(issuer, leaf *x509.Certificate) ([]byte, error) {
 		return nil, err
 	}
 
-	// Wrap in SEQUENCE OF
+	// Wrap in SEQUENCE OF (RFC 6960: TBSRequest.requestList is a SEQUENCE OF
+	// Request — the previous asn1:"set" emitted a SET tag that DER-strict
+	// responders reject).
 	tbsRequest := struct {
-		Requests []asn1.RawValue `asn1:"set"`
+		Requests []asn1.RawValue
 	}{
 		Requests: []asn1.RawValue{
 			{FullBytes: reqBytes},
@@ -332,15 +348,23 @@ func buildCertID(issuer, leaf *x509.Certificate) (*certIDData, error) {
 	}, nil
 }
 
-// parseBasicOCSPResponse does a minimal parse to verify the response is valid.
+// parseBasicOCSPResponse parses the OCSP response envelope, enforces the
+// basic-response type, and extracts the first SingleResponse's certStatus and
+// validity window (RFC 6960 §4.2.1). Signature verification is out of scope
+// (it requires the issuer certificate); the raw bytes are returned for
+// stapling.
+//
+// The [0] EXPLICIT wrapper must be captured as a RawValue: a []byte field
+// with asn1:"tag:0" is left EMPTY for constructed elements, which made every
+// successful response fail with "no response bytes".
 func parseBasicOCSPResponse(data []byte) (*OCSPResponse, error) {
 	// OCSPResponse ::= SEQUENCE {
 	//   responseStatus  ENUMERATED,
 	//   responseBytes   [0] EXPLICIT ResponseBytes OPTIONAL
 	// }
 	var resp struct {
-		Status asn1.Enumerated
-		Bytes  []byte `asn1:"tag:0,optional"`
+		Status    asn1.Enumerated
+		RespBytes asn1.RawValue `asn1:"tag:0,optional"`
 	}
 	if _, err := asn1.Unmarshal(data, &resp); err != nil {
 		return nil, fmt.Errorf("unmarshaling OCSP response: %w", err)
@@ -350,7 +374,7 @@ func parseBasicOCSPResponse(data []byte) (*OCSPResponse, error) {
 		return &OCSPResponse{Status: OCSPUnknown, Raw: data}, nil
 	}
 
-	if len(resp.Bytes) == 0 {
+	if len(resp.RespBytes.Bytes) == 0 {
 		return nil, fmt.Errorf("OCSP response has no response bytes")
 	}
 
@@ -362,15 +386,181 @@ func parseBasicOCSPResponse(data []byte) (*OCSPResponse, error) {
 		Type asn1.ObjectIdentifier
 		Data []byte
 	}
-	if _, err := asn1.Unmarshal(resp.Bytes, &respBytes); err != nil {
+	if _, err := asn1.Unmarshal(resp.RespBytes.Bytes, &respBytes); err != nil {
 		return nil, fmt.Errorf("unmarshaling response bytes: %w", err)
 	}
 
-	// For BasicOCSPResponse, do a minimal check — we primarily need the raw bytes for stapling
-	return &OCSPResponse{
-		Status: OCSPGood,
-		Raw:    data,
-	}, nil
+	if !respBytes.Type.Equal(oidBasicOCSPResponse) {
+		return nil, fmt.Errorf("unsupported OCSP response type %v", respBytes.Type)
+	}
+
+	return parseBasicResponseBody(respBytes.Data, data)
+}
+
+// derSplit splits one DER TLV into its class/constructed/tag header and
+// content octets. High tag numbers (>= 31) do not occur in the OCSP
+// structures parsed here.
+func derSplit(el []byte) (class int, compound bool, tag int, content []byte, err error) {
+	if len(el) < 2 {
+		return 0, false, 0, nil, fmt.Errorf("truncated DER element header")
+	}
+	class = int(el[0] >> 6)
+	compound = el[0]&0x20 != 0
+	tag = int(el[0] & 0x1f)
+	length := int(el[1])
+	hdr := 2
+	if length&0x80 != 0 {
+		n := length & 0x7f
+		if n == 0 || n > 4 || len(el) < hdr+n {
+			return 0, false, 0, nil, fmt.Errorf("invalid DER length")
+		}
+		length = 0
+		for i := 0; i < n; i++ {
+			length = length<<8 | int(el[2+i])
+		}
+		hdr += n
+	}
+	if len(el) < hdr+length {
+		return 0, false, 0, nil, fmt.Errorf("DER element exceeds available data")
+	}
+	return class, compound, tag, el[hdr : hdr+length], nil
+}
+
+// derFirstElement returns the first complete DER TLV in content and the
+// remaining bytes after it.
+func derFirstElement(content []byte) (tlv []byte, rest []byte, err error) {
+	if len(content) < 2 {
+		return nil, nil, fmt.Errorf("truncated DER element header")
+	}
+	length := int(content[1])
+	hdr := 2
+	if length&0x80 != 0 {
+		n := length & 0x7f
+		if n == 0 || n > 4 || len(content) < hdr+n {
+			return nil, nil, fmt.Errorf("invalid DER length")
+		}
+		length = 0
+		for i := 0; i < n; i++ {
+			length = length<<8 | int(content[2+i])
+		}
+		hdr += n
+	}
+	if len(content) < hdr+length {
+		return nil, nil, fmt.Errorf("DER element exceeds available data")
+	}
+	return content[:hdr+length], content[hdr+length:], nil
+}
+
+// derElements splits the content octets of a constructed element into its
+// immediate children (each child kept as a full TLV).
+func derElements(content []byte) ([][]byte, error) {
+	var out [][]byte
+	for len(content) > 0 {
+		el, rest, err := derFirstElement(content)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, el)
+		content = rest
+	}
+	return out, nil
+}
+
+// parseBasicResponseBody walks a BasicOCSPResponse (RFC 6960 §4.2.1):
+//
+//	BasicOCSPResponse ::= SEQUENCE { tbsResponseData ResponseData, signatureAlgorithm AlgorithmIdentifier, signature BIT STRING, certs [0] OPTIONAL }
+//	ResponseData ::= SEQUENCE { version [0] EXPLICIT INTEGER OPTIONAL, responderID ResponderID, producedAt GeneralizedTime, responses SEQUENCE OF SingleResponse, ... }
+//	SingleResponse ::= SEQUENCE { certID CertID, certStatus CertStatus, thisUpdate GeneralizedTime, nextUpdate GeneralizedTime OPTIONAL, ... }
+//
+// The request carries exactly one CertID, so the first SingleResponse is its
+// answer. The walk is manual (element-by-element by tag) because the optional
+// version, the certStatus CHOICE, and the optional nextUpdate do not map
+// cleanly onto fixed structs.
+func parseBasicResponseBody(body []byte, raw []byte) (*OCSPResponse, error) {
+	_, _, _, basicContent, err := derSplit(body)
+	if err != nil {
+		return nil, fmt.Errorf("malformed BasicOCSPResponse: %w", err)
+	}
+	basicElems, err := derElements(basicContent)
+	if err != nil {
+		return nil, fmt.Errorf("malformed BasicOCSPResponse: %w", err)
+	}
+	if len(basicElems) < 3 {
+		return nil, fmt.Errorf("BasicOCSPResponse too short")
+	}
+	_, _, _, tbsContent, err := derSplit(basicElems[0])
+	if err != nil {
+		return nil, fmt.Errorf("malformed tbsResponseData: %w", err)
+	}
+
+	tbsElems, err := derElements(tbsContent)
+	if err != nil {
+		return nil, fmt.Errorf("malformed ResponseData: %w", err)
+	}
+	i := 0
+	if cls, _, tag, _, err := derSplit(tbsElems[i]); err == nil && cls == 2 && tag == 0 {
+		i = 1 // optional [0] EXPLICIT version (DER DEFAULT v1)
+	}
+	if len(tbsElems) < i+3 {
+		return nil, fmt.Errorf("ResponseData too short")
+	}
+	_, _, _, responsesContent, err := derSplit(tbsElems[i+2])
+	if err != nil {
+		return nil, fmt.Errorf("malformed responses: %w", err)
+	}
+	responses, err := derElements(responsesContent)
+	if err != nil {
+		return nil, fmt.Errorf("malformed responses: %w", err)
+	}
+	if len(responses) == 0 {
+		return nil, fmt.Errorf("OCSP response contains no single responses")
+	}
+
+	_, _, _, singleContent, err := derSplit(responses[0])
+	if err != nil {
+		return nil, fmt.Errorf("malformed SingleResponse: %w", err)
+	}
+	singleElems, err := derElements(singleContent)
+	if err != nil {
+		return nil, fmt.Errorf("malformed SingleResponse: %w", err)
+	}
+	if len(singleElems) < 3 {
+		return nil, fmt.Errorf("SingleResponse too short")
+	}
+
+	cls, _, statusTag, _, err := derSplit(singleElems[1])
+	if err != nil {
+		return nil, fmt.Errorf("malformed certStatus: %w", err)
+	}
+
+	out := &OCSPResponse{Raw: raw}
+	switch {
+	case cls == 2 && statusTag == 0:
+		out.Status = OCSPGood
+	case cls == 2 && statusTag == 1:
+		out.Status = OCSPRevoked
+	case cls == 2 && statusTag == 2:
+		out.Status = OCSPUnknown
+	default:
+		return nil, fmt.Errorf("malformed certStatus in OCSP response")
+	}
+
+	var thisUpdate time.Time
+	if _, err := asn1.Unmarshal(singleElems[2], &thisUpdate); err != nil {
+		return nil, fmt.Errorf("unmarshaling thisUpdate: %w", err)
+	}
+	out.ThisUpdate = thisUpdate
+
+	if len(singleElems) > 3 {
+		if cls, _, tag, _, err := derSplit(singleElems[3]); err == nil && cls == 0 && (tag == 23 || tag == 24) {
+			var nextUpdate time.Time
+			if _, err := asn1.Unmarshal(singleElems[3], &nextUpdate); err != nil {
+				return nil, fmt.Errorf("unmarshaling nextUpdate: %w", err)
+			}
+			out.NextUpdate = nextUpdate
+		}
+	}
+	return out, nil
 }
 
 // StapleOCSP fetches and staples OCSP responses for all certificates in the CertStore.
@@ -418,12 +608,25 @@ func (cs *CertStore) stapleOCSPForEntry(entry CertEntry) {
 		issuerCert = cert.Leaf
 	}
 
-	ocspResp, err := FetchOCSPResponse(issuerCert, cert.Leaf)
+	ocspResp, err := FetchParsedOCSPResponse(issuerCert, cert.Leaf)
 	if err != nil {
 		return
 	}
 
-	cert.OCSPStaple = ocspResp
+	// Staple-policy hardening: only staple responses asserting the
+	// certificate is GOOD and still within their validity window — serving a
+	// revoked or expired staple would hand browsers revocation/expiry
+	// evidence for the very certificate we terminate.
+	if ocspResp.Status != OCSPGood {
+		ocspLog.Warn("refusing to staple non-good OCSP response", "status", int(ocspResp.Status))
+		return
+	}
+	if !ocspResp.NextUpdate.IsZero() && time.Now().After(ocspResp.NextUpdate) {
+		ocspLog.Warn("refusing to staple expired OCSP response", "nextUpdate", ocspResp.NextUpdate)
+		return
+	}
+
+	cert.OCSPStaple = ocspResp.Raw
 
 	// Build a lookup set of this entry's domains for targeted update
 	domainSet := make(map[string]bool, len(entry.Domains))

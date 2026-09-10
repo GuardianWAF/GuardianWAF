@@ -127,12 +127,13 @@ func TestPAD_MalformedOID(t *testing.T) {
 // ===========================================================================
 
 func TestPBOR_SuccessWithBytes(t *testing.T) {
+	ca, _ := regGenCA(t)
 	respBytes, _ := asn1.Marshal(struct {
 		Type asn1.ObjectIdentifier
 		Data []byte
 	}{
 		Type: asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 1, 1},
-		Data: []byte("mock"),
+		Data: buildRegBasicBody(t, ca, big.NewInt(0x18), 0, nil, time.Now().Add(-time.Hour), time.Now().Add(time.Hour)),
 	})
 	fullResp, _ := asn1.Marshal(struct {
 		Status asn1.Enumerated

@@ -43,7 +43,7 @@ func TestOCSPHTTPClientDoesNotFollowRedirects(t *testing.T) {
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		targetHits.Add(1)
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(extraBuildValidOCSPResponse())
+		_, _ = w.Write(extraBuildValidOCSPResponse(t))
 	}))
 	defer target.Close()
 
@@ -119,7 +119,7 @@ func TestNewOCSPHTTPClientRejectsPrivateResolvedIPs(t *testing.T) {
 }
 
 func TestReadOCSPResponseRejectsOversizedValidPrefix(t *testing.T) {
-	valid := extraBuildValidOCSPResponse()
+	valid := extraBuildValidOCSPResponse(t)
 	body, err := readOCSPResponse(io.MultiReader(
 		bytes.NewReader(valid),
 		strings.NewReader(strings.Repeat(" ", maxOCSPResponseBytes)),

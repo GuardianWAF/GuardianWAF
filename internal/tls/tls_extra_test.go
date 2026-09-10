@@ -55,24 +55,13 @@ func extraBuildAIADescription(ocspURL string) []byte {
 	return seqBytes
 }
 
-// extraBuildValidOCSPResponse creates a valid DER-encoded OCSP response.
-func extraBuildValidOCSPResponse() []byte {
-	innerData := []byte("mock ocsp response data")
-	respBytes, _ := asn1.Marshal(struct {
-		Type asn1.ObjectIdentifier
-		Data []byte
-	}{
-		Type: asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 1, 1},
-		Data: innerData,
-	})
-	ocspResp, _ := asn1.Marshal(struct {
-		Status asn1.Enumerated
-		Bytes  []byte `asn1:"tag:0,optional"`
-	}{
-		Status: 0,
-		Bytes:  respBytes,
-	})
-	return ocspResp
+// extraBuildValidOCSPResponse builds a well-formed successful OCSP response
+// (a real BasicOCSPResponse body via the regression helpers) for the HTTP
+// round-trip tests.
+func extraBuildValidOCSPResponse(t *testing.T) []byte {
+	t.Helper()
+	ca, _ := regGenCA(t)
+	return buildRegResponse(t, ca, big.NewInt(0x18), 0, nil, time.Now().Add(-time.Hour), time.Now().Add(time.Hour), regOIDBasic)
 }
 
 // extraGenerateCertWithAIA creates a self-signed cert with a manually crafted
@@ -187,7 +176,7 @@ func extraGenerateLeafWithAIA(t *testing.T, ocspURL string, domains ...string) (
 // ---------------------------------------------------------------------------
 
 func TestExtraFetchOCSPResponse_FullHTTPPath(t *testing.T) {
-	validResp := extraBuildValidOCSPResponse()
+	validResp := extraBuildValidOCSPResponse(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
 			t.Errorf("expected POST, got %s", r.Method)
@@ -318,7 +307,7 @@ func TestExtraFetchOCSPResponse_DrainsBodyOnNonOK(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestExtraFetchOCSPResponse_SuccessfulParse(t *testing.T) {
-	validResp := extraBuildValidOCSPResponse()
+	validResp := extraBuildValidOCSPResponse(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write(validResp)
@@ -436,7 +425,7 @@ func TestExtraParseAIAOCSP_MixedAccessMethods(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestExtraStapleOCSPForEntry_ChainWithMockOCSP(t *testing.T) {
-	validResp := extraBuildValidOCSPResponse()
+	validResp := extraBuildValidOCSPResponse(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write(validResp)
@@ -466,7 +455,7 @@ func TestExtraStapleOCSPForEntry_ChainWithMockOCSP(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestExtraStapleOCSPForEntry_SelfSignedCAWithMockOCSP(t *testing.T) {
-	validResp := extraBuildValidOCSPResponse()
+	validResp := extraBuildValidOCSPResponse(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write(validResp)
@@ -496,7 +485,7 @@ func TestExtraStapleOCSPForEntry_SelfSignedCAWithMockOCSP(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestExtraStapleOCSPForEntry_WildcardWithMockOCSP(t *testing.T) {
-	validResp := extraBuildValidOCSPResponse()
+	validResp := extraBuildValidOCSPResponse(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write(validResp)
@@ -578,7 +567,7 @@ func TestExtraStapleOCSPForEntry_InvalidOCSPResponse(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestExtraStapleOCSP_WithAIAEntries(t *testing.T) {
-	validResp := extraBuildValidOCSPResponse()
+	validResp := extraBuildValidOCSPResponse(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write(validResp)
@@ -605,7 +594,7 @@ func TestExtraStapleOCSP_WithAIAEntries(t *testing.T) {
 func TestExtraStartOCSPRefresh_MultipleTicks(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write(extraBuildValidOCSPResponse())
+		w.Write(extraBuildValidOCSPResponse(t))
 	}))
 	defer server.Close()
 
@@ -814,7 +803,7 @@ func TestExtraConcurrentReloadStress(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestExtraConcurrentStapleOCSPAndRead(t *testing.T) {
-	validResp := extraBuildValidOCSPResponse()
+	validResp := extraBuildValidOCSPResponse(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write(validResp)
