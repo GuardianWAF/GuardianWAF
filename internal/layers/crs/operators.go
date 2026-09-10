@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/guardianwaf/guardianwaf/internal/layers/sanitizer"
 	"github.com/guardianwaf/guardianwaf/internal/regexsafe"
 )
 
@@ -467,6 +468,8 @@ func Transform(value string, transformations []string) string {
 			result = strings.ToUpper(result)
 		case "urlDecode", "t:urlDecode":
 			result = urlDecode(result)
+		case "urlDecodeUni", "t:urlDecodeUni":
+			result = urlDecodeUni(result)
 		case "urlEncode", "t:urlEncode":
 			result = urlEncode(result)
 		case "htmlEntityDecode", "t:htmlEntityDecode":
@@ -474,7 +477,11 @@ func Transform(value string, transformations []string) string {
 		case "removeWhitespace", "t:removeWhitespace":
 			result = removeWhitespace(result)
 		case "trim", "t:trim":
-			result = strings.TrimSpace(result)
+			// C-locale whitespace set only (ModSecurity t:trim parity): the
+			// previous strings.TrimSpace stripped the full Unicode set,
+			// silently removing NBSP, em space and similar edge characters
+			// that ModSecurity preserves. Matches removeWhitespace (round 9).
+			result = strings.Trim(result, " \t\n\v\f\r")
 		case "removeNulls", "t:removeNulls":
 			result = strings.ReplaceAll(result, "\x00", "")
 		case "replaceNulls", "t:replaceNulls":
@@ -518,29 +525,110 @@ func hexVal(c byte) (byte, bool) {
 	}
 }
 
-// urlEncode URL-encodes a string.
-func urlEncode(s string) string {
-	// Simple implementation
-	return strings.ReplaceAll(s, " ", "%20")
+// urlDecodeUni decodes percent-encoding including the legacy %uXXXX UTF-16
+// form (ModSecurity's urlDecodeUni): %XX bytes decode as in urlDecode, and
+// %uXXXX code units decode to UTF-8, with a %uD800-%uDBFF high surrogate
+// followed by a %uDC00-%uDFFF low surrogate combining into one astral code
+// point. Only the lowercase-u IE form is honored (%U stays literal); invalid
+// sequences stay literal, matching urlDecode's handling.
+func urlDecodeUni(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] != '%' || i+1 >= len(s) {
+			b.WriteByte(s[i])
+			continue
+		}
+		// Legacy %uXXXX UTF-16 code unit.
+		if s[i+1] == 'u' && i+6 <= len(s) {
+			if r, ok := decodeHexWord(s[i+2 : i+6]); ok {
+				// Combine a UTF-16 surrogate pair: %uD83D%uDE00 → one rune.
+				if r >= 0xD800 && r <= 0xDBFF && i+12 <= len(s) && s[i+6] == '%' && s[i+7] == 'u' {
+					if lo, okLo := decodeHexWord(s[i+8 : i+12]); okLo && lo >= 0xDC00 && lo <= 0xDFFF {
+						b.WriteRune(0x10000 + (r-0xD800)<<10 + (lo - 0xDC00))
+						i += 11
+						continue
+					}
+				}
+				b.WriteRune(r) // unpaired surrogate → U+FFFD (Go WriteRune semantics)
+				i += 5
+				continue
+			}
+		}
+		// Standard %XX.
+		if i+2 < len(s) {
+			hi, okHi := hexVal(s[i+1])
+			lo, okLo := hexVal(s[i+2])
+			if okHi && okLo {
+				b.WriteByte(hi<<4 | lo)
+				i += 2
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
 }
 
-// htmlEntityDecode decodes HTML entities.
+// decodeHexWord parses exactly 4 hex digits into a UTF-16 code unit.
+func decodeHexWord(s string) (rune, bool) {
+	if len(s) != 4 {
+		return 0, false
+	}
+	var v rune
+	for j := 0; j < 4; j++ {
+		h, ok := hexVal(s[j])
+		if !ok {
+			return 0, false
+		}
+		v = v<<4 | rune(h)
+	}
+	return v, true
+}
+
+// urlEncode URL-encodes a string: every byte outside the RFC 3986 unreserved
+// set (alphanumerics, '-', '.', '_', '~') is percent-encoded with uppercase
+// hex, matching ModSecurity's t:urlEncode. The previous implementation only
+// replaced spaces, leaving reserved characters ('/', '"', '%', '<', ...) and
+// non-ASCII bytes raw.
+func urlEncode(s string) string {
+	const hex = "0123456789ABCDEF"
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+			c == '-' || c == '_' || c == '.' || c == '~' {
+			b.WriteByte(c)
+			continue
+		}
+		b.WriteByte('%')
+		b.WriteByte(hex[c>>4])
+		b.WriteByte(hex[c&0x0F])
+	}
+	return b.String()
+}
+
+// htmlEntityDecode decodes HTML entities. It delegates to the sanitizer's
+// canonical decoder so CRS transform chains get the same entity coverage as
+// sanitizer-side normalization: numeric character references (&#x3C; hex,
+// &#60; decimal) and whitespace entities (&Tab;, &NewLine;) in addition to
+// the named entities. The previous 5-replacement stub left
+// "&#x3C;script&#x3E;" and "jav&Tab;ascript:..." undecoded, so CRS rules with
+// t:htmlEntityDecode missed those payloads.
 func htmlEntityDecode(s string) string {
-	// Simple HTML entity decode
-	result := s
-	result = strings.ReplaceAll(result, "&lt;", "<")
-	result = strings.ReplaceAll(result, "&gt;", ">")
-	result = strings.ReplaceAll(result, "&amp;", "&")
-	result = strings.ReplaceAll(result, "&quot;", "\"")
-	result = strings.ReplaceAll(result, "&#x27;", "'")
-	return result
+	return sanitizer.DecodeHTMLEntities(s)
 }
 
 // removeWhitespace removes all whitespace.
 func removeWhitespace(s string) string {
 	var result strings.Builder
 	for _, r := range s {
-		if r != ' ' && r != '\t' && r != '\n' && r != '\r' {
+		// Full C-locale whitespace set (ModSecurity t:removeWhitespace
+		// parity): space, tab, LF, vertical tab, form feed, CR. Leaving \v
+		// or \f in place let VT/FF-obfuscated payloads survive rules that
+		// rely on whitespace removal.
+		if r != ' ' && r != '\t' && r != '\n' && r != '\r' && r != '\v' && r != '\f' {
 			result.WriteRune(r)
 		}
 	}

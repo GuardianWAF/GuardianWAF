@@ -850,7 +850,10 @@ func splitFlowItems(s string) []string {
 			continue
 		}
 
-		if ch == '\\' && (inSingle || inDouble) {
+		// Backslash is an escape only inside double-quoted strings; YAML
+		// single-quoted strings treat it literally, so 'b\' closes the item
+		// and the following comma still delimits.
+		if ch == '\\' && inDouble {
 			current.WriteByte(ch)
 			escaped = true
 			continue
@@ -980,7 +983,10 @@ func stripInlineComment(val string) string {
 			continue
 		}
 
-		if ch == '\\' {
+		// Backslash is an escape only inside double-quoted strings; YAML
+		// single-quoted strings treat it literally, so 'C:\tools\' ends at
+		// the second quote and a following comment is still a comment.
+		if ch == '\\' && inDouble {
 			escaped = true
 			continue
 		}
@@ -1084,6 +1090,50 @@ func unescapeDoubleQuoted(s string) string {
 				buf.WriteByte('\f')
 			case 'v':
 				buf.WriteByte('\v')
+			case 'x', 'u', 'U':
+				// YAML 1.2 §5.7: \xXX, \uXXXX and \UXXXXXXXX decode their hex
+				// digits to a single code point. A \uXXXX high surrogate pairs
+				// with an immediately following \uXXXX low surrogate; anything
+				// malformed stays literal, matching the unknown-escape
+				// handling below. Unpaired surrogates decode to U+FFFD (Go
+				// strings cannot hold surrogates).
+				width := 2
+				switch next {
+				case 'u':
+					width = 4
+				case 'U':
+					width = 8
+				}
+				if i+2+width > len(s) {
+					buf.WriteByte('\\')
+					buf.WriteByte(next)
+					break
+				}
+				// ParseUint (not ParseInt): base 16 never honours a leading
+				// sign, so "%-1"-style literals cannot masquerade as digits.
+				val, err := strconv.ParseUint(s[i+2:i+2+width], 16, 32)
+				if err != nil || val > utf8.MaxRune {
+					buf.WriteByte('\\')
+					buf.WriteByte(next)
+					break
+				}
+				r := rune(val)
+				if next == 'u' && r >= 0xD800 && r <= 0xDBFF &&
+					i+12 <= len(s) && s[i+6] == '\\' && s[i+7] == 'u' {
+					if lo, loErr := strconv.ParseUint(s[i+8:i+12], 16, 32); loErr == nil &&
+						lo >= 0xDC00 && lo <= 0xDFFF {
+						// lo is bounded to the low-surrogate range above, so
+						// the rune conversion is exact. The branch consumes
+						// both escapes (12 bytes); the trailing i++/loop++
+						// pair accounts for 2 of them, hence width+6 here.
+						combined := 0x10000 + (r-0xD800)<<10 + (rune(lo) - 0xDC00)
+						buf.WriteRune(combined)
+						i += width + 6
+						break
+					}
+				}
+				buf.WriteRune(r)
+				i += width
 			default:
 				buf.WriteByte('\\')
 				buf.WriteByte(next)

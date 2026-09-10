@@ -29,6 +29,7 @@
 package websocket
 
 import (
+	"crypto/rand"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -164,11 +165,23 @@ func (fr *FrameReader) ReadFrame() (*Frame, error) {
 	return &Frame{FIN: fin, Opcode: opcode, Payload: payload}, nil
 }
 
-// WriteFrame writes a WebSocket frame to w. If masked is true, a random-ish
-// mask is applied (used for client→backend direction). For simplicity, the
-// mask is all-zeros when called from the inspector (the backend accepts
-// unmasked frames from a proxy).
+// WriteFrame writes an unmasked WebSocket frame to w — the server→client
+// direction (RFC 6455 §5.1: a server MUST NOT mask frames it sends).
 func WriteFrame(w io.Writer, frame *Frame) error {
+	return writeFrame(w, frame, false)
+}
+
+// WriteFrameMasked writes frame to w as a masked frame. RFC 6455 §5.1
+// requires it from the client side of a connection ("a client MUST mask all
+// frames that it sends to the server") — which is what this proxy is toward
+// the backend. Each frame gets a fresh, unpredictable 32-bit masking key
+// (§5.3) from crypto/rand. The payload is XORed onto a copy; the caller's
+// frame is not mutated.
+func WriteFrameMasked(w io.Writer, frame *Frame) error {
+	return writeFrame(w, frame, true)
+}
+
+func writeFrame(w io.Writer, frame *Frame, applyMask bool) error {
 	if frame == nil {
 		return errors.New("websocket: nil frame")
 	}
@@ -183,6 +196,9 @@ func WriteFrame(w io.Writer, frame *Frame) error {
 	default:
 		lenByte = 127
 	}
+	if applyMask {
+		lenByte |= 0x80
+	}
 
 	// First byte: FIN + opcode.
 	hdr0 := byte(0)
@@ -195,7 +211,7 @@ func WriteFrame(w io.Writer, frame *Frame) error {
 	var hdr []byte
 	hdr = append(hdr, hdr0, lenByte)
 
-	switch lenByte {
+	switch lenByte & 0x7F {
 	case 126:
 		ext := make([]byte, 2)
 		binary.BigEndian.PutUint16(ext, lenToUint16(len(frame.Payload)))
@@ -206,11 +222,30 @@ func WriteFrame(w io.Writer, frame *Frame) error {
 		hdr = append(hdr, ext...)
 	}
 
+	// RFC 6455 §5.2: the masking key sits between the extended length and the
+	// payload, and MUST be present whenever MASK=1 (even for empty payloads).
+	var key []byte
+	if applyMask {
+		key = make([]byte, 4)
+		if _, err := rand.Read(key); err != nil {
+			return fmt.Errorf("websocket: masking key: %w", err)
+		}
+		hdr = append(hdr, key...)
+	}
+
 	if _, err := w.Write(hdr); err != nil {
 		return fmt.Errorf("websocket: write header: %w", err)
 	}
 	if len(frame.Payload) > 0 {
-		if _, err := w.Write(frame.Payload); err != nil {
+		payload := frame.Payload
+		if applyMask {
+			payload = make([]byte, len(frame.Payload))
+			copy(payload, frame.Payload)
+			for i := range payload {
+				payload[i] ^= key[i%4]
+			}
+		}
+		if _, err := w.Write(payload); err != nil {
 			return fmt.Errorf("websocket: write payload: %w", err)
 		}
 	}

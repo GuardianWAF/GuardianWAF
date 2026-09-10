@@ -251,15 +251,20 @@ func (d *Detector) checkValue(rawVal, location, reqHost string) *engine.Finding 
 		}
 	}
 
-	// Detect embedded control characters used to spoof the URL parser
-	// (e.g., \r\n to inject a fake Location header).
-	if strings.ContainsAny(val, "\r\n\x00") {
+	// Detect embedded control characters used to spoof the URL parser:
+	// \r\n to inject a fake Location header, and ASCII tab — the WHATWG URL
+	// parser strips tab/LF/CR from URL input, so "jav\tascript:alert(1)" and
+	// "ht\ttps://evil.com" are executable/external in a browser, while
+	// url.Parse rejects the raw form ("invalid control character in URL"),
+	// which would silently pass every check below. Leading/trailing tabs are
+	// already trimmed above; only embedded ones reach this gate.
+	if strings.ContainsAny(val, "\r\n\t\x00") {
 		return &engine.Finding{
 			DetectorName: "openredirect",
 			Category:     "open-redirect",
 			Severity:     engine.SeverityHigh,
 			Score:        70,
-			Description:  "redirect value contains control characters (CRLF or null)",
+			Description:  "redirect value contains control characters (CRLF, tab, or null)",
 			MatchedValue: truncate(val, 200),
 			Location:     location,
 			Confidence:   0.97,

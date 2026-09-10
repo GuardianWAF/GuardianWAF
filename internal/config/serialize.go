@@ -345,6 +345,13 @@ func needsQuoting(s string) bool {
 	if lower == "true" || lower == "false" || lower == "null" || lower == "~" {
 		return true
 	}
+	// The YAML parser also coerces these boolean words to bool nodes
+	// case-insensitively (makeScalar matches on strings.ToLower), so an
+	// unquoted "Off" would reload as a bool-typed "off" — quote them to keep
+	// the save/load round-trip lossless.
+	if lower == "yes" || lower == "no" || lower == "on" || lower == "off" {
+		return true
+	}
 	// Quote if starts with special chars
 	if s[0] == '*' || s[0] == '&' || s[0] == '!' || s[0] == '|' || s[0] == '>' || s[0] == '%' || s[0] == '@' {
 		return true

@@ -204,6 +204,9 @@ func (l *Layer) handleWebSocket(w http.ResponseWriter, r *http.Request, next htt
 // inspectAndForward reads frames from src, inspects text payloads, and
 // forwards to dst. Control frames (ping/pong/close) are always forwarded.
 // Data frames with malicious payloads are dropped, and the connection closed.
+// Frames written toward the backend (masked=true) are re-masked with a fresh
+// per-frame key: RFC 6455 §5.1 requires client-side masking and the frame
+// reader already stripped the client's original key.
 // maxAssembledMessageBytes bounds the reassembly buffer for fragmented
 // messages (fail-closed: an over-cap assembled message is refused with 1009).
 const maxAssembledMessageBytes = 8 << 20
@@ -216,6 +219,15 @@ func (l *Layer) inspectAndForward(src io.Reader, dst io.Writer, clientIP, path s
 		fr = NewMaskedFrameReader(src, l.cfg.MaxFrameSize)
 	} else {
 		fr = NewFrameReader(src, l.cfg.MaxFrameSize)
+	}
+	// RFC 6455 §5.1: toward the backend this proxy is the client, so every
+	// frame it writes there — forwarded, control, or synthesized close — must
+	// be masked with a fresh per-frame key (the reader above already stripped
+	// the client's original key). Toward the client it is the server and MUST
+	// NOT mask.
+	write := WriteFrame
+	if masked {
+		write = WriteFrameMasked
 	}
 
 	for {
@@ -232,7 +244,7 @@ func (l *Layer) inspectAndForward(src io.Reader, dst io.Writer, clientIP, path s
 
 		// Always forward control frames.
 		if frame.Opcode.IsControl() {
-			if err := WriteFrame(dst, frame); err != nil {
+			if err := write(dst, frame); err != nil {
 				return
 			}
 			if frame.Opcode == OpClose {
@@ -248,7 +260,7 @@ func (l *Layer) inspectAndForward(src io.Reader, dst io.Writer, clientIP, path s
 				Opcode:  OpClose,
 				Payload: makeClosePayload(1003, "binary not allowed"),
 			}
-			_ = WriteFrame(dst, closeFrame)
+			_ = write(dst, closeFrame)
 			return
 		}
 
@@ -270,7 +282,7 @@ func (l *Layer) inspectAndForward(src io.Reader, dst io.Writer, clientIP, path s
 					Opcode:  OpClose,
 					Payload: makeClosePayload(1008, "policy violation"),
 				}
-				_ = WriteFrame(dst, closeFrame)
+				_ = write(dst, closeFrame)
 				return
 			}
 		}
@@ -292,7 +304,7 @@ func (l *Layer) inspectAndForward(src io.Reader, dst io.Writer, clientIP, path s
 						Opcode:  OpClose,
 						Payload: makeClosePayload(1002, "protocol error"),
 					}
-					_ = WriteFrame(dst, closeFrame)
+					_ = write(dst, closeFrame)
 					return
 				}
 				if !frame.FIN {
@@ -307,7 +319,7 @@ func (l *Layer) inspectAndForward(src io.Reader, dst io.Writer, clientIP, path s
 						Opcode:  OpClose,
 						Payload: makeClosePayload(1009, "message too big"),
 					}
-					_ = WriteFrame(dst, closeFrame)
+					_ = write(dst, closeFrame)
 					return
 				}
 				if frame.FIN && l.cfg.CheckPayload != nil {
@@ -324,7 +336,7 @@ func (l *Layer) inspectAndForward(src io.Reader, dst io.Writer, clientIP, path s
 							Opcode:  OpClose,
 							Payload: makeClosePayload(1008, "policy violation"),
 						}
-						_ = WriteFrame(dst, closeFrame)
+						_ = write(dst, closeFrame)
 						return
 					}
 				}
@@ -336,7 +348,7 @@ func (l *Layer) inspectAndForward(src io.Reader, dst io.Writer, clientIP, path s
 		}
 
 		// Forward the frame.
-		if err := WriteFrame(dst, frame); err != nil {
+		if err := write(dst, frame); err != nil {
 			return
 		}
 	}

@@ -148,10 +148,18 @@ func (m *maskingResponseWriter) Unwrap() http.ResponseWriter {
 // For streaming responses (SSE, chunked), buffered content is flushed unmasked and
 // subsequent writes switch to passthrough since incremental masking is not possible.
 func (m *maskingResponseWriter) Flush() {
-	if m.capture && !m.direct && m.buf.Len() > 0 {
-		// Cannot mask streaming content incrementally — flush buffered as-is
-		_, _ = m.ResponseWriter.Write(m.buf.Bytes()) // nolint:errcheck // buffered write flush; error ignored
-		m.buf.Reset()
+	// An explicit Flush switches the writer to streaming passthrough even
+	// when the buffer is empty: the common "send headers now" idiom
+	// (WriteHeader + Flush before the first body write) must not leave
+	// subsequent writes buffered — incremental masking is impossible for a
+	// stream, so buffering them would stall SSE/chunked responses until the
+	// handler returns or the 1 MB limit flushes them unmasked anyway.
+	if m.capture && !m.direct {
+		if m.buf.Len() > 0 {
+			// Cannot mask streaming content incrementally — flush buffered as-is
+			_, _ = m.ResponseWriter.Write(m.buf.Bytes()) // nolint:errcheck // buffered write flush; error ignored
+			m.buf.Reset()
+		}
 		m.direct = true // switch to passthrough for subsequent writes
 	}
 	if f, ok := m.ResponseWriter.(http.Flusher); ok {

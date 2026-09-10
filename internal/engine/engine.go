@@ -78,6 +78,11 @@ type Engine struct {
 	closeErr   error
 	closed     atomic.Bool
 
+	// panicEventBroken disables panic-event recording once a panic occurs
+	// inside the recording path itself; the middleware then falls back to
+	// the original bare-500 behavior.
+	panicEventBroken atomic.Bool
+
 	// Cluster store (optional). When non-nil, layers consult it for
 	// cluster-wide bans, rules, and rate counters alongside their local state.
 	clusterStore ClusterStore
@@ -270,7 +275,7 @@ func (e *Engine) ScanPayload(clientIP, path, payload string) (score int, block b
 		Headers:         map[string][]string{},
 		QueryParams:     map[string][]string{},
 		NormalizedQuery: map[string][]string{},
-		Cookies:         map[string]string{},
+		Cookies:         map[string][]string{},
 		Accumulator:     NewScoreAccumulator(int(e.paranoiaLevel.Load())),
 	}
 
@@ -520,6 +525,9 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 		defer func() {
 			if rv := recover(); rv != nil {
 				e.Logs.ErrorWithStack(fmt.Sprintf("PANIC recovered in WAF middleware: %v", rv))
+				// Record a minimal audit event for the crash — attack-induced
+				// panics must not vanish from the event trail (round-12 fix).
+				e.recordPanicEvent(r, rv)
 				// Best-effort error response — may fail if headers already sent
 				http.Error(w, "500 Internal Server Error", http.StatusInternalServerError)
 			}
@@ -650,6 +658,50 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		}
 	})
+}
+
+// recordPanicEvent stores and publishes a minimal event for a request that
+// panicked inside the wrapped handler, so attack-induced crashes leave a
+// trace in the event trail instead of vanishing into a bare 500. It runs
+// from the middleware's recover, after the pooled RequestContext has already
+// been released — the event is therefore built strictly from r, never from
+// ctx. If the recording path itself panics (broken store or bus), the panic
+// is caught once, panicEventBroken disables further attempts, and the
+// middleware falls back to the original bare-500 behavior.
+func (e *Engine) recordPanicEvent(r *http.Request, rv any) {
+	if e.panicEventBroken.Load() {
+		return
+	}
+	defer func() {
+		if recover() != nil {
+			e.panicEventBroken.Store(true)
+		}
+	}()
+
+	event := Event{
+		ID:        generateRequestID(),
+		Timestamp: time.Now(),
+		RequestID: r.Header.Get("X-Correlation-ID"),
+		ClientIP:  e.extractClientIP(r).String(),
+		Method:    r.Method,
+		Path:      r.URL.Path,
+		Query:     redactSensitiveQueryParams(r.URL.RawQuery),
+		Action:    ActionLog,
+		Score:     0,
+		Findings: []Finding{{
+			DetectorName: "panic-recovered",
+			Category:     "internal-error",
+			Severity:     SeverityHigh,
+			Description:  "handler panicked; request aborted with 500 and recovered by the WAF middleware",
+			MatchedValue: fmt.Sprintf("%v", rv),
+			Location:     "handler",
+			Confidence:   1.0,
+		}},
+		StatusCode: http.StatusInternalServerError,
+		UserAgent:  redactSensitiveEvidence(r.UserAgent()),
+		Host:       r.Host,
+	}
+	e.storeAndPublish(event)
 }
 
 // Reload hot-reloads the configuration.
