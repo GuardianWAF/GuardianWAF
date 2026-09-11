@@ -116,10 +116,12 @@ func (d *Dashboard) handleComplianceReport(w http.ResponseWriter, r *http.Reques
 		IPACLActive:        d.engine.Config().WAF.IPACL.Enabled,
 		BotDetectionActive: d.engine.Config().WAF.BotDetection.Enabled,
 	}
-	if m.TotalRequests > 0 {
-		m.WAFUptimePct = 99.99
-		m.LogCompletenessPct = 100.0
-	}
+	// WAFUptimePct and LogCompletenessPct have no telemetry source in this
+	// codebase — leave them at zero rather than inventing passing values.
+	// The controls they feed (pci_dss_6_4_1, pci_dss_10_2_1, gdpr_art32)
+	// fail honestly until real uptime/log-completeness telemetry exists
+	// (the round 6/25 falsifiability convention: criteria must be able to
+	// fail on missing evidence).
 
 	report, err := d.complianceEngine.GenerateReportWithError(framework, "", compliance.Period{From: from, To: to}, m)
 	if err != nil {
