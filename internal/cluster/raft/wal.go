@@ -146,6 +146,12 @@ func (w *WAL) AppendRecord(rec WALRecord) error {
 		return errors.New("wal: file is closed")
 	}
 	data := encodeWALRecord(rec)
+	// Enforce the same record-size bound the replay path enforces. A record
+	// written above maxWALRecordSize would be treated as corruption by Replay
+	// and truncated away on restart (state loss); refuse it at write time.
+	if payloadLen := len(data) - 8; payloadLen > maxWALRecordSize {
+		return fmt.Errorf("wal: record payload %d bytes exceeds maximum %d — compact or raise the limit", payloadLen, maxWALRecordSize)
+	}
 	if _, err := w.file.Write(data); err != nil {
 		return fmt.Errorf("wal: write: %w", err)
 	}
@@ -287,6 +293,12 @@ func (w *WAL) Compact(ps *PersistentState) error {
 		Entries:  entries,
 	}
 	data := encodeWALRecord(rec)
+	// Refuse to write a snapshot record the replay path would reject. Failing
+	// here keeps the live WAL (with all records) intact — the state survives;
+	// writing it would doom the state to truncation on the next restart.
+	if payloadLen := len(data) - 8; payloadLen > maxWALRecordSize {
+		return fmt.Errorf("wal compact: snapshot record payload %d bytes exceeds maximum %d — compact in stages or raise the limit", payloadLen, maxWALRecordSize)
+	}
 
 	// Write the snapshot to a temporary file in the same directory.
 	tmpPath := w.path + ".compact.tmp"
@@ -417,7 +429,12 @@ func decodeWALRecord(r io.Reader) (WALRecord, error) {
 		return WALRecord{}, err
 	}
 	payloadLen := binary.BigEndian.Uint32(lenBuf[:])
-	if payloadLen == 0 || payloadLen > 16*1024*1024 { // sanity: max 16 MB
+	// Same bound as countRecords/AppendRecord/Compact: the WAL never writes a
+	// record above maxWALRecordSize, so anything larger is corruption. The
+	// bounds must stay identical — a size accepted by one side but rejected by
+	// the other made Replay truncate legitimately-written records on restart,
+	// resetting the node's Raft term/vote (state loss).
+	if payloadLen == 0 || payloadLen > maxWALRecordSize {
 		return WALRecord{}, fmt.Errorf("wal: invalid payload length %d", payloadLen)
 	}
 
