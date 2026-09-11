@@ -811,8 +811,10 @@ func TestTenantAdminHandler_HandleBillingDetail_EmptyID(t *testing.T) {
 	req := httptest.NewRequest("GET", "/api/admin/billing/", nil)
 	req.Header.Set("X-API-Key", "admin-key")
 	h.handleBillingDetail(rr, req)
-	if rr.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", rr.Code)
+	// mockTenantManager.BillingManager() returns nil, so the disabled-billing
+	// guard comes first — mirroring handleBilling's 503-first contract.
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected 503, got %d", rr.Code)
 	}
 }
 
@@ -1163,8 +1165,10 @@ func TestTenantAdminHandler_BillingDetail_MethodNotAllowed(t *testing.T) {
 	req := httptest.NewRequest("DELETE", "/api/admin/billing/test-id", nil)
 	req.Header.Set("X-API-Key", "admin-key")
 	h.handleBillingDetail(rr, req)
-	if rr.Code != http.StatusMethodNotAllowed {
-		t.Errorf("expected 405, got %d", rr.Code)
+	// mockTenantManager.BillingManager() returns nil, so the disabled-billing
+	// guard comes first — mirroring handleBilling's 503-first contract.
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected 503, got %d", rr.Code)
 	}
 }
 

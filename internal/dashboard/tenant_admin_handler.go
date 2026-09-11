@@ -390,9 +390,12 @@ func (h *TenantAdminHandler) handleBilling(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *TenantAdminHandler) handleBillingDetail(w http.ResponseWriter, r *http.Request) {
-	if h.manager == nil {
+	// Same guard as handleBilling: multi-tenant mode may be enabled while
+	// billing is disabled (BillingManager() returns nil) — dereferencing it
+	// here would panic the handler goroutine on every billing-detail request.
+	if h.manager == nil || h.manager.BillingManager() == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
-			"error": "multi-tenant mode not enabled",
+			"error": "billing not enabled",
 		})
 		return
 	}
