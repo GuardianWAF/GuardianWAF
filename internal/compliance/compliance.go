@@ -628,7 +628,12 @@ func builtinControls() []Control {
 				{Type: "dlp_events", Description: "DLP blocks present"},
 			},
 			PassingCriteria: []Criterion{
-				{Metric: "dlp_blocks_in_period", Operator: ">=", Threshold: 0},
+				// "DLP blocks present" (the evidence spec above) requires at
+				// least one DLP block in the period. The previous >= 0 criterion
+				// sat on a non-negative counter and could never fail, making the
+				// control unfalsifiable — every report passed it regardless of
+				// evidence.
+				{Metric: "dlp_blocks_in_period", Operator: ">", Threshold: 0},
 			},
 		},
 		{
