@@ -339,8 +339,17 @@ type rotateKeyRequest struct {
 // period. The request must be authenticated with the current dashboard API key
 // (session cookie or X-API-Key header).
 func (d *Dashboard) handleRotateKey(w http.ResponseWriter, r *http.Request) {
+	// The rotation body carries two short keys; cap it like the login form
+	// (maxLoginRequestBody) so an authenticated client cannot force unbounded
+	// allocation on this endpoint with a padded current_key.
+	r.Body = http.MaxBytesReader(w, r.Body, maxLoginRequestBody)
 	var req rotateKeyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
+			return
+		}
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
