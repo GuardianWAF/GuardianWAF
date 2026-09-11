@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/layers/apivalidation"
@@ -224,13 +226,42 @@ func (a *mcpEngineAdapter) UploadAPISchema(name, content, format string, strictM
 	if !ok {
 		return fmt.Errorf("API validation layer type mismatch")
 	}
-	schemaType := "openapi"
-	if format != "" {
-		schemaType = format
+	if name == "" {
+		return fmt.Errorf("schema name is required")
 	}
+	if content == "" {
+		return fmt.Errorf("schema content is required")
+	}
+
+	schemaType := strings.ToLower(format)
+	if schemaType == "" || schemaType == "json" {
+		schemaType = "jsonschema"
+	}
+
+	// The layer compiles schemas from files, and inline content has no
+	// SchemaSource field — mirror the dashboard adapter's convention:
+	// stage the caller's content in a CWD temp file, load from it, and keep
+	// the operator-assigned name as Source.Name so the compiled spec keeps
+	// its identity. strictMode has no per-schema counterpart in the layer
+	// (it is a global config flag), matching the dashboard adapter.
+	tmpFile, err := os.CreateTemp(".", "guardianwaf-mcp-apischema-*.json")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmpFile.Name())
+
+	if _, err := tmpFile.WriteString(content); err != nil {
+		_ = tmpFile.Close()
+		return err
+	}
+	if err := tmpFile.Close(); err != nil {
+		return err
+	}
+
 	return apiLayer.LoadSchema(apivalidation.SchemaSource{
-		Path: name,
 		Type: schemaType,
+		Path: tmpFile.Name(),
+		Name: name,
 	})
 }
 
