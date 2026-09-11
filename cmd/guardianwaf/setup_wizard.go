@@ -309,21 +309,27 @@ func (w *setupWizard) promptCORS() {
 		origins := readLine("*")
 		fmt.Print("  Allowed methods (comma-separated) [GET,POST,PUT,DELETE,OPTIONS]: ")
 		methods := readLine("GET,POST,PUT,DELETE,OPTIONS")
-		w.corsConfig = fmt.Sprintf(`
-  cors:
-  enabled: true
-  allow_origins:
-    - "%s"
-  allow_methods:
-    - %s
-  allow_headers:
-    - "*"
-  max_age_seconds: 86400`, origins, strings.ReplaceAll(methods, ",", "\n    - "))
+		w.corsConfig = corsConfigYAML(origins, methods)
 	} else {
 		w.corsConfig = `
   cors:
-  enabled: false`
+    enabled: false`
 	}
+}
+
+// corsConfigYAML renders the CORS section for the wizard's enabled branch.
+// Kept as a function so tests can assert the generated YAML end-to-end.
+func corsConfigYAML(origins, methods string) string {
+	return fmt.Sprintf(`
+  cors:
+    enabled: true
+    allow_origins:
+      - "%s"
+    allow_methods:
+      - %s
+    allow_headers:
+      - "*"
+    max_age_seconds: 86400`, origins, strings.ReplaceAll(methods, ",", "\n      - "))
 }
 
 func (w *setupWizard) promptATO() {
@@ -338,19 +344,25 @@ func (w *setupWizard) promptATO() {
 		atoWindow := readLine("10m")
 		fmt.Print("  Ban duration (e.g., 30m) [30m]: ")
 		atoBan := readLine("30m")
-		w.atoConfig = fmt.Sprintf(`
-  ato_protection:
-  enabled: true
-  brute_force:
-    enabled: true
-    max_attempts_per_ip: %s
-    window: %s
-    block_duration: %s`, atoMax, atoWindow, atoBan)
+		w.atoConfig = atoConfigYAML(atoMax, atoWindow, atoBan)
 	} else {
 		w.atoConfig = `
   ato_protection:
-  enabled: false`
+    enabled: false`
 	}
+}
+
+// atoConfigYAML renders the ATO protection section for the wizard's enabled
+// branch. Kept as a function so tests can assert the generated YAML.
+func atoConfigYAML(maxAttempts, window, blockDuration string) string {
+	return fmt.Sprintf(`
+  ato_protection:
+    enabled: true
+    brute_force:
+      enabled: true
+      max_attempts_per_ip: %s
+      window: %s
+      block_duration: %s`, maxAttempts, window, blockDuration)
 }
 
 func (w *setupWizard) promptAlerting() {
