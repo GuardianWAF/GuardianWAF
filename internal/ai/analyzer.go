@@ -211,8 +211,17 @@ func (a *Analyzer) loop(eventCh <-chan engine.Event) {
 	defer a.wg.Done()
 	defer func() {
 		if r := recover(); r != nil {
-			// AI analyzer panic recovery — prevent silent failure of threat analysis
+			// AI analyzer panic recovery — prevent silent failure of threat analysis.
+			// Mirror the watcher's restart pattern: honor shutdown and back off, so a
+			// persistently panicking state cannot hot-spin the loop (CPU + log spam).
+			select {
+			case <-a.stopCh:
+				a.log("error", fmt.Sprintf("AI analyzer loop panic during shutdown: %v - not restarting", r))
+				return
+			default:
+			}
 			a.log("error", fmt.Sprintf("AI analyzer loop panic: %v - restarting", r))
+			time.Sleep(time.Second)
 			a.wg.Add(1)
 			go a.loop(eventCh)
 		}
