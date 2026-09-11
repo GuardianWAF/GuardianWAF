@@ -122,30 +122,52 @@ func (l *Layer) runUpdate(ctx context.Context) {
 		return
 	}
 
-	// Search for recent high/critical CVEs
+	// Paginate through the full result set: NVD pages at resultsPerPage and a
+	// 7-day HIGH-severity window regularly exceeds one page — fetching only
+	// the first page silently dropped every later CVE (round 88). Bounded by
+	// maxPages so a misbehaving server cannot loop us forever; ctx is honored
+	// between pages.
 	opts := SearchOptions{
 		ResultsPerPage: 20,
 		PubStartDate:   time.Now().AddDate(0, 0, -7), // Last 7 days
 		Severity:       "HIGH",
 	}
 
-	resp, err := l.nvdClient.SearchWithContext(ctx, opts)
-	if err != nil {
-		l.mu.Lock()
-		l.lastError = err
-		l.mu.Unlock()
-		return
-	}
+	const maxPages = 25 // safety bound: at most 500 CVEs per update run
 
-	for _, item := range resp.Vulnerabilities {
-		entry := convertToCVEEntry(item.CVE)
-		if entry != nil {
-			// Auto-generate patches if enabled
-			if l.config.AutoGenerateRules {
-				patches := l.generatePatchesFromCVE(entry)
-				entry.Patches = append(entry.Patches, patches...)
+	fetched := 0
+	for page := 0; page < maxPages; page++ {
+		if err := ctx.Err(); err != nil {
+			return
+		}
+		opts.StartIndex = fetched
+
+		resp, err := l.nvdClient.SearchWithContext(ctx, opts)
+		if err != nil {
+			l.mu.Lock()
+			l.lastError = err
+			l.mu.Unlock()
+			return
+		}
+
+		for _, item := range resp.Vulnerabilities {
+			entry := convertToCVEEntry(item.CVE)
+			if entry != nil {
+				// Auto-generate patches if enabled
+				if l.config.AutoGenerateRules {
+					patches := l.generatePatchesFromCVE(entry)
+					entry.Patches = append(entry.Patches, patches...)
+				}
+				l.database.AddCVE(entry)
 			}
-			l.database.AddCVE(entry)
+		}
+		fetched += len(resp.Vulnerabilities)
+
+		// Stop when the feed is exhausted: an empty page, or all of
+		// totalResults fetched. A server that under-reports totalResults is
+		// still bounded by maxPages.
+		if len(resp.Vulnerabilities) == 0 || (resp.TotalResults > 0 && fetched >= resp.TotalResults) {
+			break
 		}
 	}
 
@@ -434,86 +456,102 @@ func (l *Layer) matchPatch(ctx *engine.RequestContext, patch *VirtualPatch, dead
 	return false, ""
 }
 
-// matchPattern checks a single pattern.
-// deadline is the per-request regexsafe budget passed through to
-// regex-mode patterns. Non-regex pattern types ignore it.
+// matchPattern checks a single pattern against EVERY transmitted value for
+// its type (headers may repeat — the round-81 multi-value family): any
+// matching value counts.
 func (l *Layer) matchPattern(ctx *engine.RequestContext, pattern PatchPattern, deadline *regexsafe.Deadline) bool {
-	value := l.getValueByType(ctx, pattern.Type, pattern.Key)
+	for _, value := range l.getValueByType(ctx, pattern.Type, pattern.Key) {
+		if value == "" {
+			continue
+		}
 
-	if value == "" {
-		return false
+		switch pattern.MatchType {
+		case "exact":
+			if value == pattern.Pattern {
+				return true
+			}
+		case "contains":
+			if strings.Contains(value, pattern.Pattern) {
+				return true
+			}
+		case "starts_with":
+			if strings.HasPrefix(value, pattern.Pattern) {
+				return true
+			}
+		case "ends_with":
+			if strings.HasSuffix(value, pattern.Pattern) {
+				return true
+			}
+		case "regex":
+			if l.matchRegex(value, pattern.Pattern, deadline) {
+				return true
+			}
+		default:
+			// Default to contains
+			if strings.Contains(value, pattern.Pattern) {
+				return true
+			}
+		}
 	}
 
-	switch pattern.MatchType {
-	case "exact":
-		return value == pattern.Pattern
-	case "contains":
-		return strings.Contains(value, pattern.Pattern)
-	case "starts_with":
-		return strings.HasPrefix(value, pattern.Pattern)
-	case "ends_with":
-		return strings.HasSuffix(value, pattern.Pattern)
-	case "regex":
-		return l.matchRegex(value, pattern.Pattern, deadline)
-	default:
-		// Default to contains
-		return strings.Contains(value, pattern.Pattern)
-	}
+	return false
 }
 
-// getValueByType extracts value from request based on type.
-func (l *Layer) getValueByType(ctx *engine.RequestContext, typ, key string) string {
+// getValueByType extracts ALL values from the request for a pattern type.
+// Headers may repeat (the round-81 multi-value family): every transmitted
+// value must be visible to the matcher, not just the first.
+func (l *Layer) getValueByType(ctx *engine.RequestContext, typ, key string) []string {
 	switch typ {
 	case "path":
-		return ctx.Path
+		return []string{ctx.Path}
 	case "query":
 		if ctx.Request != nil && ctx.Request.URL != nil {
-			return ctx.Request.URL.RawQuery
+			return []string{ctx.Request.URL.RawQuery}
 		}
-		return ""
+		return nil
 	case "header":
 		if ctx.Headers != nil {
-			if vals, ok := ctx.Headers[http.CanonicalHeaderKey(key)]; ok && len(vals) > 0 {
-				return vals[0]
+			if vals, ok := ctx.Headers[http.CanonicalHeaderKey(key)]; ok {
+				return vals
 			}
 		}
-		return ""
+		return nil
 	case "body":
 		if ctx.BodyString != "" {
-			return ctx.BodyString
+			return []string{ctx.BodyString}
 		}
 		if ctx.Body != nil {
-			return string(ctx.Body)
+			return []string{string(ctx.Body)}
 		}
-		return ""
+		return nil
 	case "method":
-		return ctx.Method
+		return []string{ctx.Method}
 	case "user_agent":
 		if ctx.Headers != nil {
-			if vals, ok := ctx.Headers["User-Agent"]; ok && len(vals) > 0 {
-				return vals[0]
+			if vals, ok := ctx.Headers["User-Agent"]; ok {
+				return vals
 			}
 		}
-		return ""
+		return nil
 	case "content_type":
 		if ctx.Headers != nil {
-			if vals, ok := ctx.Headers["Content-Type"]; ok && len(vals) > 0 {
-				return vals[0]
+			if vals, ok := ctx.Headers["Content-Type"]; ok {
+				return vals
 			}
 		}
-		return ""
+		return nil
 	case "uri":
 		if ctx.Request != nil && ctx.Request.URL != nil {
-			return ctx.Request.URL.RequestURI()
+			return []string{ctx.Request.URL.RequestURI()}
 		}
-		return ctx.Path
+		return []string{ctx.Path}
 	case "client_ip":
 		if ctx.ClientIP != nil {
-			return ctx.ClientIP.String()
+			return []string{ctx.ClientIP.String()}
 		}
-		return ""
+		return nil
 	default:
-		return ""
+		return nil
 	}
 }
 
