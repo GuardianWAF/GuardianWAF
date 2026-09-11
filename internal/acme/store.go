@@ -219,31 +219,48 @@ func (s *CertDiskStore) CertStatus() map[string]any {
 	}
 }
 
-// StartRenewal begins a background goroutine that renews certs 30 days before expiry.
+// StartRenewal begins a background goroutine that renews certs 30 days before
+// expiry. The loop survives a panicking renewal attempt: a panic is recovered
+// and the loop restarts after a short backoff, so certificate renewal can
+// never be permanently disabled for the process lifetime (same pattern as
+// internal/docker/watcher.go).
 func (s *CertDiskStore) StartRenewal(checkInterval time.Duration) {
 	if checkInterval <= 0 {
 		checkInterval = 12 * time.Hour
 	}
 	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
-		defer func() {
-			if r := recover(); r != nil {
-				s.log.Error("ACME cert renewal panic recovered", "panic", r)
-			}
-		}()
-		ticker := time.NewTicker(checkInterval)
-		defer ticker.Stop()
+	go s.renewalLoop(checkInterval)
+}
 
-		for {
+func (s *CertDiskStore) renewalLoop(checkInterval time.Duration) {
+	defer s.wg.Done()
+	defer func() {
+		if r := recover(); r != nil {
+			s.log.Error("ACME cert renewal panic recovered", "panic", r)
 			select {
-			case <-ticker.C:
-				s.renewIfNeeded()
 			case <-s.stopCh:
-				return
+				// Shutting down — do not restart; Stop owns the final state.
+			default:
+				// Restart the loop (same pattern as internal/docker/watcher.go)
+				// so a panicking renewal cannot disable certificate renewal for
+				// the process lifetime.
+				time.Sleep(time.Second)
+				s.wg.Add(1)
+				go s.renewalLoop(checkInterval)
 			}
 		}
 	}()
+	ticker := time.NewTicker(checkInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			s.renewIfNeeded()
+		case <-s.stopCh:
+			return
+		}
+	}
 }
 
 // StopRenewal stops the background renewal goroutine.
