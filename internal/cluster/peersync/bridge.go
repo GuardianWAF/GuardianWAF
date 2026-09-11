@@ -66,7 +66,9 @@ func (b *Bridge) onLeave(id string) {
 }
 
 // Sync recomputes the alive peer set from gossip membership and updates Raft.
-// Only members in StateAlive with a non-empty RaftAddr are included.
+// Only members in StateAlive with a non-empty RaftAddr are included. The
+// local node is excluded: raft counts self separately in its quorum math
+// (hasQuorum = (len(Peers)+1)/2+1) and must not see itself in the peer set.
 // This method is safe to call concurrently — it serializes on an internal mutex.
 func (b *Bridge) Sync() {
 	b.mu.Lock()
@@ -78,6 +80,15 @@ func (b *Bridge) Sync() {
 
 	for _, m := range members {
 		if m.State != gossip.StateAlive {
+			continue
+		}
+		if m.ID == b.raft.ID() {
+			// Raft counts this node separately — hasQuorum is
+			// (len(Peers)+1)/2+1 and vote/heartbeat fan-out skips
+			// peer.ID == self. Syncing the local node into the peer set
+			// inflates the majority: a 3-node cluster would need 3/3 votes
+			// (one node down = permanent leaderlessness) and leaderState
+			// would track a phantom matchIndex for self that never updates.
 			continue
 		}
 		if m.RaftAddr == "" {

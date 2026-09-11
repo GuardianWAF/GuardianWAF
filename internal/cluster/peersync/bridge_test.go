@@ -58,13 +58,17 @@ func TestBridge_SyncAddsAlivePeers(t *testing.T) {
 }
 
 func TestBridge_SyncExcludesSelf(t *testing.T) {
-	// Self ID is derived from the Raft node, not gossip. The bridge should
-	// NOT filter self because the gossip member list doesn't include self
-	// (it's queried from the gossip protocol which returns all members
-	// including self). The test verifies that self IS included if present.
+	// Gossip's member list includes the local node (protocol.go registers
+	// self as alive and Members() returns AllMembers), but raft counts self
+	// separately — hasQuorum is (len(Peers)+1)/2+1 and vote/heartbeat
+	// fan-out skips peer.ID == self. The bridge must therefore exclude the
+	// local node from the peer set: including it inflates the majority (a
+	// 3-node cluster would need 3/3 votes — one node down = permanent
+	// leaderlessness) and leaderState would track a phantom matchIndex.
 	fakeML := &fakeMemberList{
 		members: []gossip.Member{
-			{ID: "self", Addr: "127.0.0.1:7946", RaftAddr: "127.0.0.1:9000", State: gossip.StateAlive},
+			{ID: "self", Addr: "127.0.0.1:7946", RaftAddr: "127.0.0.1:9000", State: gossip.StateAlive}, // the local node
+			{ID: "n2", Addr: "10.0.0.2:7946", RaftAddr: "127.0.0.1:9002", State: gossip.StateAlive},
 		},
 	}
 
@@ -77,10 +81,11 @@ func TestBridge_SyncExcludesSelf(t *testing.T) {
 	bridge.Sync()
 
 	peers := r.Peers()
-	// Self is included because the bridge doesn't filter by Raft node ID.
-	// The Raft layer handles self-exclusion internally.
 	if len(peers) != 1 {
-		t.Fatalf("expected 1 peer (self), got %d", len(peers))
+		t.Fatalf("expected 1 peer (n2 only — the local node must be excluded), got %d: %+v", len(peers), peers)
+	}
+	if peers[0].ID != "n2" {
+		t.Errorf("expected the peer set to contain only n2, got %+v", peers)
 	}
 }
 
