@@ -124,13 +124,19 @@ func New(cfg Config, sm StateMachine) (*Raft, error) {
 		persist:       NewPersistentState(),
 		sm:            sm,
 		role:          RoleFollower,
-		stopCh:        make(chan struct{}),
-		roleChangeCh:  make(chan struct{}, 1),
-		doneCh:        make(chan struct{}),
-		votesReceived: make(map[string]bool),
-		leaderID:      "",
-		commitIndex:   0,
-		lastApplied:   0,
+		// Initialize the election-timer baseline so the FIRST election also
+		// waits the randomized [Min, Max] window. A zero electionResetTime
+		// made waitDuration <= 0 on every fresh node — all nodes started a
+		// simultaneous candidacy the instant they joined, bypassing the
+		// randomized tie-breaker entirely.
+		electionResetTime: time.Now(),
+		stopCh:            make(chan struct{}),
+		roleChangeCh:      make(chan struct{}, 1),
+		doneCh:            make(chan struct{}),
+		votesReceived:     make(map[string]bool),
+		leaderID:          "",
+		commitIndex:       0,
+		lastApplied:       0,
 	}
 
 	// If DataDir is set, create/open the WAL and replay persisted state.
