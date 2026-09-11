@@ -23,6 +23,8 @@ type CertEntry struct {
 	KeyFile  string
 	certMod  time.Time // last modification time of cert file
 	keyMod   time.Time // last modification time of key file
+
+	isDefault bool // default/fallback cert (Domains empty); reloadIfChanged updates cs.defaultCert for it
 }
 
 // CertStore manages TLS certificates with SNI-based selection and hot-reload.
@@ -51,14 +53,42 @@ func NewCertStore() *CertStore {
 	}
 }
 
-// LoadDefaultCert loads the default/fallback certificate used when SNI doesn't match.
+// LoadDefaultCert loads the default/fallback certificate used when SNI doesn't
+// match. The fallback cert participates in hot-reload: reloadIfChanged stats
+// its files and serves the renewed certificate automatically.
 func (cs *CertStore) LoadDefaultCert(certFile, keyFile string) error {
 	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
 		return fmt.Errorf("loading default cert: %w", err)
 	}
+	certInfo, _ := os.Stat(certFile)
+	keyInfo, _ := os.Stat(keyFile)
+
+	entry := CertEntry{
+		CertFile:  certFile,
+		KeyFile:   keyFile,
+		isDefault: true,
+	}
+	if certInfo != nil {
+		entry.certMod = certInfo.ModTime()
+	}
+	if keyInfo != nil {
+		entry.keyMod = keyInfo.ModTime()
+	}
+
 	cs.mu.Lock()
 	cs.defaultCert = &cert
+	replaced := false
+	for i := range cs.entries {
+		if cs.entries[i].isDefault {
+			cs.entries[i] = entry // re-load: update the tracked default entry in place
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		cs.entries = append(cs.entries, entry)
+	}
 	cs.mu.Unlock()
 	return nil
 }
@@ -106,9 +136,15 @@ func (cs *CertStore) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificat
 		return cert, nil
 	}
 
-	// 2. Wildcard match
+	// 2. Wildcard match — RFC 6125: "*" matches exactly ONE label, so the
+	// part of the name before the wildcard suffix must itself contain no
+	// dots ("a.b.example.com" must NOT match "*.example.com").
 	for _, wc := range cs.wildcards {
-		if strings.HasSuffix(name, wc.suffix) {
+		if !strings.HasSuffix(name, wc.suffix) {
+			continue
+		}
+		label := name[:len(name)-len(wc.suffix)]
+		if label != "" && !strings.Contains(label, ".") {
 			return wc.cert, nil
 		}
 	}
@@ -272,6 +308,9 @@ func (cs *CertStore) reloadIfChanged() {
 		cs.entries[i].certMod = certInfo.ModTime()
 		cs.entries[i].keyMod = keyInfo.ModTime()
 
+		if entry.isDefault {
+			cs.defaultCert = &cert
+		}
 		for _, domain := range entry.Domains {
 			lower := strings.ToLower(domain)
 			if strings.HasPrefix(lower, "*.") {
