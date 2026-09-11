@@ -255,9 +255,12 @@ func TestAddBan_InvalidDuration(t *testing.T) {
 	req := authenticatedRequest("POST", "/api/v1/bans",
 		`{"ip":"1.2.3.4","duration":"invalid"}`, "key")
 	d.Handler().ServeHTTP(w, req)
-	// Should default to 1 hour and succeed
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", w.Code)
+	// Round 16/25: an invalid duration is rejected with 400 instead of
+	// silently becoming a 1-hour ban — the operator's intended duration must
+	// not be shortened without notice (the sibling CLI and clustersync
+	// reject invalid durations the same way).
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", w.Code)
 	}
 }
 

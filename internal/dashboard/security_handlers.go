@@ -162,9 +162,22 @@ func (d *Dashboard) handleAddBan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "ip is required")
 		return
 	}
-	ttl, err := time.ParseDuration(body.Duration)
-	if err != nil || ttl <= 0 {
-		ttl = 1 * time.Hour // default 1 hour
+	// An omitted duration keeps the documented 1h default; a malformed or
+	// non-positive duration must be rejected — silently substituting the
+	// default shortened the operator's intended ban (e.g. "1d" is not a Go
+	// duration and became 1 hour), fail-open for the protected asset. This
+	// mirrors cluster_ban.go and clustersync's NewBanCommand, which reject
+	// invalid durations.
+	var ttl time.Duration
+	if body.Duration == "" {
+		ttl = 1 * time.Hour
+	} else {
+		parsed, err := time.ParseDuration(body.Duration)
+		if err != nil || parsed <= 0 {
+			writeError(w, http.StatusBadRequest, "duration must be a positive Go duration (e.g. 30m, 1h, 24h)")
+			return
+		}
+		ttl = parsed
 	}
 	if body.Reason == "" {
 		body.Reason = "manual ban from dashboard"
