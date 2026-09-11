@@ -256,27 +256,28 @@ func addDefaultRoute(cfg *config.Config, path, upstream string, strip bool) {
 
 // autoDetectPort tries to find the main exposed port from a container.
 func autoDetectPort(c Container) int {
-	// Prefer exposed ports from port mappings
+	// Prefer the lowest exposed TCP port so the selection is deterministic
+	// regardless of the order ListContainers produced (Docker's ExposedPorts
+	// is a map — its iteration order is randomized per run; picking the first
+	// entry made unlabeled multi-port containers flap between ports on every
+	// sync).
+	minTCP, minAny := 0, 0
 	for _, p := range c.Ports {
-		if p.Type == "tcp" && p.PrivatePort > 0 {
-			return p.PrivatePort
+		if p.PrivatePort <= 0 {
+			continue
+		}
+		if minAny == 0 || p.PrivatePort < minAny {
+			minAny = p.PrivatePort
+		}
+		if p.Type == "tcp" && (minTCP == 0 || p.PrivatePort < minTCP) {
+			minTCP = p.PrivatePort
 		}
 	}
-	// Common web ports
-	commonPorts := []int{80, 8088, 3000, 5000, 8000, 443, 8443}
-	for _, port := range commonPorts {
-		key := fmt.Sprintf("%d/tcp", port)
-		for _, p := range c.Ports {
-			if p.PrivatePort == port {
-				return port
-			}
-		}
-		// Check if port string exists in port list as key
-		_ = key
+	if minTCP != 0 {
+		return minTCP
 	}
-	// Fallback: first exposed port
-	if len(c.Ports) > 0 {
-		return c.Ports[0].PrivatePort
+	if minAny != 0 {
+		return minAny
 	}
 	return 80
 }

@@ -306,8 +306,12 @@ func TestAutoDetectPort(t *testing.T) {
 			{PrivatePort: 443, Type: "tcp"},
 		},
 	}
-	if autoDetectPort(c) != 8088 {
-		t.Errorf("expected 8088, got %d", autoDetectPort(c))
+	// The selection is the LOWEST exposed TCP port (round round5-docker-port-order):
+	// ListContainers feeds ExposedPorts in randomized map order, so the old
+	// first-entry rule made the port flap between syncs for unlabeled
+	// multi-port containers.
+	if autoDetectPort(c) != 443 {
+		t.Errorf("expected 443, got %d", autoDetectPort(c))
 	}
 
 	// No ports → default 80
