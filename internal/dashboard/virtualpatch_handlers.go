@@ -210,10 +210,18 @@ func (h *VirtualPatchHandler) handlePatchDetail(w http.ResponseWriter, r *http.R
 			return
 		}
 
+		// Mirror the DELETE contract (round 63): the layer's bool reports
+		// whether the patch exists — a false must not fake a successful flip.
 		if req.Enabled {
-			vpLayer.EnablePatchBy(path, "dashboard")
+			if !vpLayer.EnablePatchBy(path, "dashboard") {
+				writeJSON(w, http.StatusNotFound, map[string]any{"id": path, "error": "patch not found"})
+				return
+			}
 		} else {
-			vpLayer.DisablePatchBy(path, "dashboard")
+			if !vpLayer.DisablePatchBy(path, "dashboard") {
+				writeJSON(w, http.StatusNotFound, map[string]any{"id": path, "error": "patch not found"})
+				return
+			}
 		}
 
 		writeJSON(w, http.StatusOK, map[string]any{
