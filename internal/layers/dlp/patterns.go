@@ -190,6 +190,18 @@ func (r *PatternRegistry) SetEnabled(t PatternType, enabled bool) {
 	}
 }
 
+// SetCustomEnabled enables or disables a custom pattern by name. Custom
+// patterns are keyed by name in their own map, which SetEnabled (keyed by
+// PatternType) cannot reach — without this the dashboard DELETE kill-switch
+// could disable built-ins but never customs.
+func (r *PatternRegistry) SetCustomEnabled(name string, enabled bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if p, ok := r.custom[name]; ok {
+		p.Enabled = enabled
+	}
+}
+
 // GetAllPatterns returns all patterns, both built-in and custom.
 func (r *PatternRegistry) GetAllPatterns() []*Pattern {
 	r.mu.RLock()

@@ -121,6 +121,15 @@ func (h *CRSHandler) handleRuleDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Existence check (mirrors the GET branch): EnableRule/DisableRule are
+		// void and silently record disabled-state for ANY id, so a typo'd or
+		// stale rule ID must 404 instead of faking a successful toggle — the
+		// operator's emergency enable/kill switch must never silently no-op.
+		if crsLayer.GetRule(path) == nil {
+			http.Error(w, "Rule not found", http.StatusNotFound)
+			return
+		}
+
 		if req.Enabled {
 			crsLayer.EnableRule(path)
 		} else {

@@ -550,7 +550,13 @@ func (g *Gossip) handleMessage(data []byte, from string) {
 	case TypeAck:
 		g.handleAck(msg)
 	case TypePingReq:
-		g.handlePingReq(msg)
+		// Handle OFF the receiver goroutine: handlePingReq blocks for up to
+		// ProbeTimeout*2 waiting for the target's ack, and that ack arrives
+		// on THIS socket — servicing the PingReq inline starved the receiver
+		// of exactly the datagram the wait depends on, so every indirect
+		// probe timed out by construction and one failed direct probe marked
+		// a healthy member suspect (→ dead → Raft peer eviction).
+		go g.handlePingReq(msg, from)
 	case TypeAlive:
 		// State already applied via piggyback processing.
 	case TypeSuspect:
@@ -576,7 +582,7 @@ func (g *Gossip) handleAck(msg *Message) {
 	g.signalAck(msg.Seq)
 }
 
-func (g *Gossip) handlePingReq(msg *Message) {
+func (g *Gossip) handlePingReq(msg *Message, from string) {
 	// Payload starts with the target address, followed by piggyback data.
 	if len(msg.Payload) == 0 {
 		return
@@ -592,7 +598,13 @@ func (g *Gossip) handlePingReq(msg *Message) {
 	// Do a direct probe to the target on behalf of the requester.
 	if g.directProbe(targetAddr) {
 		// Target responded — send an ack back to the original requester.
-		g.send(msg.Source, Message{Seq: msg.Seq, Type: TypeAck, Source: g.config.NodeID})
+		// Ack to `from` (the requester's transport address), NOT msg.Source:
+		// Source is an opaque node ID and is not routable — acking there made
+		// every indirect probe time out, so one failed direct probe marked a
+		// healthy member suspect (and eventually dead, evicting it from the
+		// Raft peer set via the peer-sync bridge). handlePing/handlePushPull
+		// already answer `from`; this handler is now consistent with them.
+		g.send(from, Message{Seq: msg.Seq, Type: TypeAck, Source: g.config.NodeID})
 	}
 }
 

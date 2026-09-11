@@ -187,41 +187,66 @@ func (e *Exporter) formatEvent(ev engine.Event) string {
 	}
 }
 
-// write sends data to the SIEM endpoint, reconnecting if necessary.
-func (e *Exporter) write(data string) error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+// writeWithTimeout writes data to conn, bounding the write by the configured
+// timeout — Timeout is documented as the connect/write timeout, and without
+// the deadline a peer that accepts but never drains (hung collector, NAT
+// half-open) wedges the flush goroutine inside a deadline-less kernel write
+// until process restart. SetWriteDeadline only errors on a closed conn,
+// where the write itself fails anyway; deadline expiry surfaces through the
+// write's error so the normal close-and-reconnect path handles it.
+func (e *Exporter) writeWithTimeout(conn net.Conn, data string) error {
+	_ = conn.SetWriteDeadline(time.Now().Add(e.cfg.Timeout))
+	_, err := io.WriteString(conn, data)
+	return err
+}
 
+// write sends data to the SIEM endpoint, reconnecting if necessary.
+//
+// The conn pointer is read/stored under e.mu, but all I/O runs OUTSIDE the
+// mutex: write() is only ever called from the run goroutine (the conn is
+// goroutine-confined), and holding e.mu across dial/write would block every
+// Export call (RLock) for the full timeout window whenever the peer is slow
+// or dead — violating the documented non-blocking contract (round 27).
+func (e *Exporter) write(data string) error {
 	// Note: we intentionally do NOT check e.closed here. Close() sets the
 	// flag before closing the channel, which triggers the final flush in
 	// run(). Blocking the final flush on closed would discard all pending
 	// events on shutdown.
 
-	// Try writing to existing connection.
-	if e.conn != nil {
-		_, err := io.WriteString(e.conn, data)
-		if err == nil {
+	// Try writing to the existing connection.
+	e.mu.Lock()
+	conn := e.conn
+	e.mu.Unlock()
+
+	if conn != nil {
+		if err := e.writeWithTimeout(conn, data); err == nil {
 			return nil
 		}
 		// Connection is dead — close and reconnect.
-		e.conn.Close()
+		conn.Close()
+		e.mu.Lock()
 		e.conn = nil
+		e.mu.Unlock()
 	}
 
-	// Establish a new connection.
+	// Establish a new connection outside the lifecycle mutex.
 	conn, err := e.dial()
 	if err != nil {
 		return fmt.Errorf("siem connect: %w", err)
 	}
 	e.connects.Add(1)
-	e.conn = conn
 
-	_, err = io.WriteString(e.conn, data)
-	if err != nil {
-		e.conn.Close()
+	if err := e.writeWithTimeout(conn, data); err != nil {
+		conn.Close()
+		e.mu.Lock()
 		e.conn = nil
+		e.mu.Unlock()
 		return fmt.Errorf("siem write: %w", err)
 	}
+
+	e.mu.Lock()
+	e.conn = conn
+	e.mu.Unlock()
 	return nil
 }
 

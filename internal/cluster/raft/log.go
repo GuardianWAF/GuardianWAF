@@ -112,11 +112,17 @@ func (l *LogStore) EntriesFrom(index uint64) []LogEntry {
 // Used by the follower when it receives a conflicting entry from the leader.
 func (l *LogStore) TruncateFrom(index uint64) bool {
 	l.mu.Lock()
-	defer l.mu.Unlock()
 	if index == 0 || index > lenToUint64(len(l.entries)) {
+		l.mu.Unlock()
 		return false
 	}
 	l.entries = l.entries[:index-1]
+	l.mu.Unlock()
+
+	// Persist outside l.mu (mirroring Append): no code path may hold l.mu
+	// while acquiring the WAL mutex — wal.Compact holds w.mu across its
+	// gather (which takes l.mu.RLock), and the reverse order would
+	// self-deadlock.
 	if l.persistTrunc != nil {
 		l.persistTrunc(index)
 	}

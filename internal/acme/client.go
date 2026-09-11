@@ -437,6 +437,14 @@ func (c *Client) getNonce() (string, error) {
 		return n, nil
 	}
 	c.mu.Unlock()
+	return c.fetchFreshNonce()
+}
+
+// fetchFreshNonce obtains a brand-new nonce directly from the newNonce
+// endpoint, bypassing the pool: used when the pool is empty, and by the
+// badNonce recovery path where a pooled nonce has just been rejected by the
+// server.
+func (c *Client) fetchFreshNonce() (string, error) {
 	if err := c.validateEndpoint(c.directory.NewNonce); err != nil {
 		return "", fmt.Errorf("invalid nonce endpoint: %w", err)
 	}
@@ -470,6 +478,13 @@ func (c *Client) saveNonce(resp *http.Response) {
 	}
 }
 
+// signedPost sends a JWS-signed POST to an ACME endpoint (or POST-as-GET
+// when payload is nil). Per RFC 8555 §6.5 a server may reject a nonce with
+// 400 urn:ietf:params:acme:error:badNonce: pooled nonces go stale whenever
+// the process idles past the CA's nonce lifetime — the pool survives for the
+// Client's lifetime while ACME renewals run days apart — so on badNonce the
+// rejected response is discarded, a fresh nonce is fetched from the
+// newNonce endpoint, and the request is replayed exactly once.
 func (c *Client) signedPost(url string, payload any, useJWK bool) (*http.Response, error) {
 	if err := c.validateEndpoint(url); err != nil {
 		return nil, fmt.Errorf("invalid ACME endpoint: %w", err)
@@ -478,7 +493,43 @@ func (c *Client) signedPost(url string, payload any, useJWK bool) (*http.Respons
 	if err != nil {
 		return nil, fmt.Errorf("getting nonce: %w", err)
 	}
+	resp, err := c.postSigned(url, payload, useJWK, nonce)
+	if err != nil {
+		return nil, err
+	}
+	if !isBadNonceResponse(resp) {
+		return resp, nil
+	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxACMEResponseBytes)) //nolint:errcheck // #nosec G104 -- rejected response body is discarded
+	_ = resp.Body.Close()                                                       //nolint:errcheck // #nosec G104 -- error is not actionable
+	nonce, err = c.fetchFreshNonce()
+	if err != nil {
+		return nil, fmt.Errorf("badNonce recovery: %w", err)
+	}
+	return c.postSigned(url, payload, useJWK, nonce)
+}
 
+// isBadNonceResponse reports whether resp is the RFC 8555 §6.5 badNonce
+// problem document. Determining the problem type consumes the body, which is
+// fine: a true return means the caller discards this response and replays.
+func isBadNonceResponse(resp *http.Response) bool {
+	if resp.StatusCode != http.StatusBadRequest {
+		return false
+	}
+	body, err := readACMEResponse(resp.Body)
+	if err != nil {
+		return false
+	}
+	var problem struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(body, &problem) != nil {
+		return false
+	}
+	return problem.Type == "urn:ietf:params:acme:error:badNonce"
+}
+
+func (c *Client) postSigned(url string, payload any, useJWK bool, nonce string) (*http.Response, error) {
 	// Protected header
 	header := map[string]any{
 		"alg":   "ES256",

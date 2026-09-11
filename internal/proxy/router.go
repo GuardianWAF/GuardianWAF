@@ -135,7 +135,17 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		// Send to first target; retry on proxy error (502) if more targets exist.
 		proxyErr := target.ServeHTTP(w, r, stripPrefix)
-		if proxyErr == nil || route.Balancer.Len() <= 1 {
+		if proxyErr == nil {
+			return
+		}
+		if route.Balancer.Len() <= 1 {
+			// Single-target route: there is no retry sibling, so the caller
+			// must see the failure. Target's ErrorHandler writes nothing by
+			// design (its silence keeps multi-target failover retries from
+			// double-writing a committed response), which made this path
+			// return a silent empty 200 on upstream failure — client-visible
+			// success from a dead upstream.
+			http.Error(w, "502 Bad Gateway", http.StatusBadGateway)
 			return
 		}
 

@@ -102,15 +102,20 @@ func (ps *PersistentState) SetWAL(w *WAL) {
 // atomically rotates the WAL file. After compaction, the WAL contains
 // exactly one record instead of thousands of incremental appends.
 //
+// Holds ps.mu for WRITING across the whole compaction: compactLocked reads
+// currentTerm/votedFor directly and requires that no state mutation (each of
+// which appends a WALState record) can interleave between its gather and the
+// rename — such a record would be written to the replaced file and lost on
+// crash-restart.
+//
 // Returns nil if persistence is disabled (no WAL attached).
 func (ps *PersistentState) Snapshot() error {
-	ps.mu.RLock()
-	wal := ps.wal
-	ps.mu.RUnlock()
-	if wal == nil {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	if ps.wal == nil {
 		return nil
 	}
-	return wal.Compact(ps)
+	return ps.wal.compactLocked(ps)
 }
 
 // WALRef returns the attached WAL (nil when persistence is disabled).

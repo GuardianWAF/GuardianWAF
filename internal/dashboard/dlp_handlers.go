@@ -360,11 +360,16 @@ func (a *dlpAdapter) DisablePattern(id string) bool {
 		return false
 	}
 	registry := a.layer.GetRegistry()
-	if registry.GetPattern(dlp.PatternType(id)) == nil {
-		return false
+	// Built-ins are keyed by PatternType; customs are keyed by name (their
+	// only stable identity since round 71). Resolve both — before this, the
+	// DELETE kill-switch worked on built-ins but 404'd every custom pattern
+	// while LIST/GET kept showing it enabled.
+	if registry.GetPattern(dlp.PatternType(id)) != nil {
+		registry.SetEnabled(dlp.PatternType(id), false)
+		return true
 	}
-	registry.SetEnabled(dlp.PatternType(id), false)
-	return true
+	registry.SetCustomEnabled(id, false)
+	return registry.GetCustomPattern(id) != nil
 }
 
 func (a *dlpAdapter) TestPattern(pattern, testData string) DLPTestResult {

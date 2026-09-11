@@ -150,9 +150,19 @@ func LoadCSV(path string) (*DB, error) {
 			if startIP == nil || endIP == nil || len(country) != 2 {
 				continue
 			}
+			// IPv6 is unsupported (Lookup is IPv4-only) — and ipToUint32
+			// returns 0 for non-IPv4, so an unchecked IPv6 row would
+			// materialize as a zero-width phantom range at 0.0.0.0 that
+			// answers lookups for the unspecified address. Skip it,
+			// mirroring the CIDR branch (cidrToRange rejects non-IPv4).
+			startV4 := startIP.To4()
+			endV4 := endIP.To4()
+			if startV4 == nil || endV4 == nil {
+				continue
+			}
 			db.ranges = append(db.ranges, ipRange{
-				start:   ipToUint32(startIP),
-				end:     ipToUint32(endIP),
+				start:   ipToUint32(startV4),
+				end:     ipToUint32(endV4),
 				country: country,
 			})
 		}

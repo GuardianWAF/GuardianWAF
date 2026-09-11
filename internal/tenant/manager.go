@@ -190,12 +190,16 @@ func (m *Manager) LoadTenants() error {
 	return nil
 }
 
-// SaveTenant persists a tenant to storage.
+// SaveTenant persists a tenant to storage. UpdatedAt is stamped under the
+// per-tenant lock so the write is ordered with the tenant.mu readers
+// (sanitizeTenant) even though callers hold only m.mu.
 func (m *Manager) SaveTenant(tenant *Tenant) error {
 	if m.store == nil || tenant == nil {
 		return nil
 	}
+	tenant.mu.Lock()
 	tenant.UpdatedAt = time.Now()
+	tenant.mu.Unlock()
 	return m.store.SaveTenant(tenant)
 }
 
@@ -522,6 +526,11 @@ func (m *Manager) UpdateTenant(id string, updates *TenantUpdate) error {
 		return fmt.Errorf("tenant %s not found", id)
 	}
 
+	// Publish metadata updates under the per-tenant lock: CheckQuota,
+	// GetTenantUsage, and sanitizeTenant read these fields under tenant.mu
+	// on the request path, and m.mu alone establishes no happens-before
+	// edge with those readers (two different mutexes = data race).
+	tenant.mu.Lock()
 	if updates.Name != "" {
 		tenant.Name = updates.Name
 	}
@@ -535,11 +544,9 @@ func (m *Manager) UpdateTenant(id string, updates *TenantUpdate) error {
 		tenant.Quota = *updates.Quota
 	}
 	if updates.Config != nil {
-		// Config update uses its own lock for fine-grained concurrency
-		tenant.mu.Lock()
 		tenant.Config = updates.Config
-		tenant.mu.Unlock()
 	}
+	tenant.mu.Unlock()
 
 	// Update domains — this is part of the same atomic operation under m.mu
 	if len(updates.Domains) > 0 {
@@ -569,14 +576,21 @@ func (m *Manager) UpdateTenant(id string, updates *TenantUpdate) error {
 			delete(m.domains, domainKey(oldDomain))
 		}
 
-		// Set new domains
+		// Set new domains. The slice header is published under tenant.mu
+		// (sanitizeTenant reads tenant.Domains there); m.mu stays held
+		// across delete-old → set-new so index readers (m.mu.RLock) never
+		// observe a gap.
+		tenant.mu.Lock()
 		tenant.Domains = normalizedDomains
+		tenant.mu.Unlock()
 		for _, domain := range normalizedDomains {
 			m.domains[domainKey(domain)] = id
 		}
 	}
 
+	tenant.mu.Lock()
 	tenant.UpdatedAt = time.Now()
+	tenant.mu.Unlock()
 
 	// Persist updated tenant
 	if err := m.SaveTenant(tenant); err != nil {
@@ -658,8 +672,14 @@ func (m *Manager) RegenerateAPIKey(id string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// Publish under the per-tenant lock: UpdatedAt is read under tenant.mu
+	// (sanitizeTenant); APIKeyHash readers hold m.mu, which this mutator
+	// holds too, so the additional section keeps every field's publication
+	// protocol uniform. Lock order m.mu → tenant.mu matches UpdateTenant.
+	tenant.mu.Lock()
 	tenant.APIKeyHash = newHash
 	tenant.UpdatedAt = time.Now()
+	tenant.mu.Unlock()
 	// The old key must stop resolving and the new one must resolve.
 	m.invalidateAPIKeyCache()
 

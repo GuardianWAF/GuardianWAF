@@ -4,6 +4,7 @@
 package docker
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -190,14 +191,23 @@ func (c *Client) ListContainers(labelPrefix string) ([]Container, error) {
 
 	// Inspect all containers in one call
 	args := append([]string{"inspect"}, ids...)
-	inspectOut, err := c.dockerCmd(ctx, args...)
-	if err != nil {
-		return nil, fmt.Errorf("inspecting containers: %w", err)
-	}
+	inspectOut, inspectErr := c.dockerCmd(ctx, args...)
 
 	var details []ContainerDetail
 	if unmarshalErr := json.Unmarshal([]byte(inspectOut), &details); unmarshalErr != nil {
+		if inspectErr != nil {
+			return nil, fmt.Errorf("inspecting containers: %w", inspectErr)
+		}
 		return nil, fmt.Errorf("parsing inspect: %w", unmarshalErr)
+	}
+	// A container destroyed between `docker ps` and `docker inspect` makes
+	// the CLI exit non-zero even though it printed valid inspect data for
+	// the survivors. Prefer the survivors over failing the whole discovery
+	// sync: the churned container is gone anyway, and a failed sync leaves
+	// newly started containers undiscovered (event mode has no poll fallback
+	// while the stream is alive).
+	if len(details) == 0 && inspectErr != nil {
+		return nil, fmt.Errorf("inspecting containers: %w", inspectErr)
 	}
 
 	// Convert to Container format
@@ -352,16 +362,24 @@ func (c *Client) dockerCmd(ctx context.Context, args ...string) (string, error) 
 		}
 	}
 	args = append(baseArgs, args...)
+	// Capture stdout into a buffer (instead of cmd.Output) so a partial
+	// result survives an exit-error: `docker inspect a b` prints valid JSON
+	// for the surviving containers even when one ID has vanished between
+	// `ps` and `inspect`, and ListContainers recovers those survivors
+	// instead of failing the whole discovery sync.
+	var stdout, stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, "docker", args...) // #nosec G204 -- docker is executed without a shell and caller-controlled args are rejected on control/NUL bytes.
-	out, err := cmd.Output()
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err = cmd.Run()
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
-			return "", fmt.Errorf("%w: %s", err, string(exitErr.Stderr))
+			return stdout.String(), fmt.Errorf("%w: %s", err, stderr.String())
 		}
 		return "", err
 	}
-	return string(out), nil
+	return stdout.String(), nil
 }
 
 func (c *Client) dockerCLIBaseArgs() ([]string, error) {

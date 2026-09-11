@@ -171,7 +171,12 @@ func Match(re *regexp.Regexp, s string, d *Deadline) bool {
 	case matched := <-done:
 		return matched
 	case <-afterFunc(per):
-		return false
+		// Per-regex ceiling timeout: fail CLOSED, same as every other
+		// abandonment path. An input that keeps one regex past its ceiling
+		// (oversized body, capture-heavy pattern) must not silently bypass
+		// a security rule — returning false here let attackers disable
+		// virtual patches by forcing slow matches.
+		return true
 	}
 }
 

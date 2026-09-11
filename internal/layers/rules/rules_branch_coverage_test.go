@@ -106,22 +106,22 @@ func TestCoverage_RegexMatchWithTimeout_BudgetClampsPerRegexTimeout(t *testing.T
 		t.Fatalf("remaining %v should be < regexMatchTimeout %v", remaining, regexMatchTimeout)
 	}
 
-	// A pathological backtracking regex that would take well beyond 5ms.
-	re := regexp.MustCompile(`(a+)+$`)
-	input := strings.Repeat("a", 30) + "!"
-
-	// The clamped deadline should kick in well before the full regexMatchTimeout.
-	// Result is false (per-regex timeout, not budget exhaustion — budget exhaustion
-	// returns true from regexMatch, not from regexMatchWithTimeout).
-	start := time.Now()
-	matched := regexMatchWithTimeout(re, input, dl)
-	elapsed := time.Since(start)
-
-	if matched {
-		t.Fatal("expected false (regex timed out on pathological input)")
+	// Force the per-regex timeout immediately (deterministic; no wall-clock
+	// dependence). The clamp above guarantees the ceiling used is the
+	// remaining budget, not the full regexMatchTimeout.
+	oldAfter := regexTimeoutAfter
+	regexTimeoutAfter = func(time.Duration) <-chan time.Time {
+		ch := make(chan time.Time, 1)
+		ch <- time.Time{}
+		return ch
 	}
-	// Must complete in well under the 500ms ceiling — proves clamping works.
-	if elapsed > 200*time.Millisecond {
-		t.Fatalf("elapsed %v too high; per-regex timeout was not clamped to remaining budget", elapsed)
+	t.Cleanup(func() { regexTimeoutAfter = oldAfter })
+
+	// Per-regex abandonment must fail CLOSED (round 29): a rule whose regex
+	// exceeds its ceiling fires, it does not silently vanish. (Budget
+	// exhaustion returns true from regexMatch's pre-check; the per-regex
+	// abandonment here must match that contract.)
+	if !regexMatchWithTimeout(regexp.MustCompile(`a+`), strings.Repeat("a", 64), dl) {
+		t.Fatal("expected true (fail-closed) when the per-regex ceiling times out")
 	}
 }

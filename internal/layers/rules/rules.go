@@ -563,7 +563,11 @@ func regexMatchWithTimeout(re *regexp.Regexp, s string, deadline *regexDeadline)
 	case matched := <-done:
 		return matched
 	case <-regexTimeoutAfter(perRegex):
-		return false
+		// Per-regex ceiling timeout: fail CLOSED, same as the semaphore and
+		// budget branches above. An input that keeps one regex past its
+		// ceiling must not silently bypass a rule condition (returning false
+		// here let oversized/slow inputs evade detection).
+		return true
 	}
 }
 

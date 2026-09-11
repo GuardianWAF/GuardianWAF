@@ -279,12 +279,37 @@ func (w *WAL) ShouldCompact(threshold int) bool {
 //
 // The snapshot captures: currentTerm, votedFor, and all log entries.
 func (w *WAL) Compact(ps *PersistentState) error {
-	// Gather snapshot data under the PersistentState lock.
-	ps.mu.RLock()
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	return w.compactLocked(ps)
+}
+
+// compactLocked performs the compaction. The caller must hold ps.mu for
+// WRITING (PersistentState.Snapshot does), because the state fields are read
+// directly below and because no state mutation (each of which appends a
+// WALState record) may interleave between the gather and the rename — such a
+// record would be written to the replaced file and lost on crash-restart.
+//
+// w.mu is held from before the gather until after the rename+swap, so a
+// concurrent AppendRecord either (a) completes before the gather — its entry
+// is inside the snapshot — or (b) blocks until the swap and lands on the NEW
+// file. Without this, a record fsynced between the gather and the rename was
+// written to the old file and orphaned by the rename: a committed entry
+// vanished from disk on crash-restart.
+func (w *WAL) compactLocked(ps *PersistentState) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.file == nil {
+		return errors.New("wal: file is closed")
+	}
+
+	// Gather snapshot data. ps.currentTerm/votedFor are read directly: the
+	// caller holds ps.mu for writing. AllEntries takes l.mu.RLock — safe here
+	// because no code path holds l.mu while waiting for w.mu (TruncateFrom
+	// persists outside l.mu, mirroring Append), so this cannot self-deadlock.
 	term := ps.currentTerm
 	votedFor := ps.votedFor
 	entries := ps.log.AllEntries()
-	ps.mu.RUnlock()
 
 	rec := WALRecord{
 		Type:     WALSnapshot,
@@ -344,11 +369,11 @@ func (w *WAL) Compact(ps *PersistentState) error {
 		return fmt.Errorf("wal compact: reopen: %w", err)
 	}
 
-	w.mu.Lock()
+	// Swap under the already-held w.mu: queued AppendRecords resume after
+	// this point and write to the new file, after the snapshot record.
 	_ = w.file.Close() // #nosec G104 -- old file is replaced
 	w.file = newFile
 	w.recordCount = 1
-	w.mu.Unlock()
 
 	return nil
 }

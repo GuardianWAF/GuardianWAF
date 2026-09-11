@@ -161,6 +161,11 @@ type PublicTenant struct {
 func sanitizeTenant(t *Tenant) PublicTenant {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
+	// Copy the quota: PublicTenant.Quota escapes this critical section and
+	// the JSON encoder dereferences it after the lock is released, so
+	// returning &t.Quota would re-open the write/read race this view exists
+	// to prevent (UpdateTenant publishes Quota under t.mu).
+	quota := t.Quota
 	return PublicTenant{
 		ID:          t.ID,
 		Name:        t.Name,
@@ -169,7 +174,7 @@ func sanitizeTenant(t *Tenant) PublicTenant {
 		Domains:     t.Domains,
 		CreatedAt:   t.CreatedAt,
 		UpdatedAt:   t.UpdatedAt,
-		Quota:       &t.Quota,
+		Quota:       &quota,
 		WAFConfig:   t.Config,
 	}
 }
@@ -324,8 +329,13 @@ func (h *Handlers) updateTenantWAFConfig(w http.ResponseWriter, r *http.Request,
 	}
 
 	// Merge with existing config - only update WAF section
-	// Copy to avoid mutating shared state between GetTenant and UpdateTenant
-	updatedConfig := tenant.Config
+	// Copy to avoid mutating shared state between GetTenant and UpdateTenant.
+	// The read takes t.mu: UpdateTenant publishes Config under t.mu, and an
+	// unlocked read here would race with a concurrent tenant update.
+	tenant.mu.RLock()
+	currentConfig := tenant.Config
+	tenant.mu.RUnlock()
+	updatedConfig := currentConfig
 	if updatedConfig == nil {
 		updatedConfig = config.DefaultConfig()
 	} else {
