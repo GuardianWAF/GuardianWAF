@@ -297,7 +297,9 @@ func (c *Client) StreamEvents(ctx context.Context, labelPrefix string, ch chan<-
 	}
 
 	decoder := json.NewDecoder(stdout)
+	streamDone := make(chan struct{})
 	go func() {
+		defer close(streamDone)
 		defer func() { _ = cmd.Wait() }()
 		defer func() {
 			if r := recover(); r != nil {
@@ -317,8 +319,21 @@ func (c *Client) StreamEvents(ctx context.Context, labelPrefix string, ch chan<-
 		}
 	}()
 
-	<-ctx.Done()
-	return nil
+	// The decoder goroutine above exits not only when ctx is canceled but
+	// also when the event stream itself dies (daemon restart, CLI exit,
+	// decode error). Return in that case so the watcher's loop can fall
+	// back to polling instead of hanging forever on a dead stream.
+	select {
+	case <-streamDone:
+		// Cancellation wins: if ctx was canceled, the stream death is just
+		// the kill landing — report an orderly stop, not a disconnect.
+		if ctx.Err() != nil {
+			return nil
+		}
+		return fmt.Errorf("docker events stream ended")
+	case <-ctx.Done():
+		return nil
+	}
 }
 
 // dockerCmd executes a docker CLI command and returns stdout.

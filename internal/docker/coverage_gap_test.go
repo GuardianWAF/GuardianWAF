@@ -176,7 +176,10 @@ func TestClientListContainersSkipsUnsafeIDs(t *testing.T) {
 
 func TestClientStreamEventsReceivesEvent(t *testing.T) {
 	dir := writeFakeDocker(t, "#!/bin/sh\necho '{\"Type\":\"container\",\"Action\":\"start\",\"Actor\":{\"ID\":\"abc123\",\"Attributes\":{\"name\":\"svc\"}},\"time\":1}'\nsleep 5\n")
-	t.Setenv("PATH", dir)
+	// Keep the real PATH after the fake-docker dir: the script's `sleep` must
+	// resolve, so the stream stays alive until the test's cancel() — exercising
+	// the orderly-stop path rather than an accidental instant stream death.
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	c := NewClient("")
 	ctx, cancel := context.WithCancel(context.Background())
