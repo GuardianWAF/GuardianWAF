@@ -635,15 +635,25 @@ func (g *Gossip) applyPiggyback(payload []byte) {
 
 		prev, existed := g.members.Get(m.ID)
 		wasNew := !existed
-		accepted := g.members.Add(m)
-		if accepted || wasNew {
-			g.enqueuePiggyback(m)
-		}
+		g.members.Add(m)
 
-		// Add reports only inserts; detect a replacement by re-reading and
-		// comparing against the pre-Add snapshot.
+		// Add reports only inserts; detect an applied replacement (higher
+		// incarnation or advanced state) by re-reading against the pre-Add
+		// snapshot.
 		cur, _ := g.members.Get(m.ID)
 		applied := wasNew || cur.Incarnation != prev.Incarnation || cur.State != prev.State
+
+		// Relay every APPLIED transition, not just inserts: suspect, dead,
+		// and refutation updates must spread beyond the originator's direct
+		// fanout, or nodes outside it keep stale membership views forever
+		// (and a node purged as dead during a partition is never re-learned
+		// when the partition heals — a healthy node emits no transition of
+		// its own). Re-enqueueing is self-terminating: an update relays only
+		// while it advances the local view, and shouldReplace is monotonic,
+		// so it dies out exactly when the cluster has converged.
+		if applied {
+			g.enqueuePiggyback(m)
+		}
 
 		// Callbacks fire on membership-view TRANSITIONS, not on every message
 		// receipt: a dead member rejoining under the same ID must re-fire
