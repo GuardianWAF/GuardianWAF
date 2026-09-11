@@ -5,6 +5,7 @@ package apivalidation
 import (
 	"fmt"
 	"net"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -631,7 +632,11 @@ func (v *SchemaValidator) validateObject(data any, schema *Schema, path string, 
 // validateEnum validates enum constraints.
 func (v *SchemaValidator) validateEnum(data any, enum []any, path string, result *ValidationResult) {
 	for _, allowed := range enum {
-		if data == allowed {
+		// JSON Schema allows objects and arrays as enum values, but decoded
+		// payloads are map[string]any / []any — uncomparable with ==. Use
+		// deep equality so object/array enums match instead of panicking on
+		// the enforcement path.
+		if reflect.DeepEqual(data, allowed) {
 			return
 		}
 	}
