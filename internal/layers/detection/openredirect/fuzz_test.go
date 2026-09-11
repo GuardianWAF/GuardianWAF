@@ -42,7 +42,7 @@ func FuzzOpenRedirectDetector(f *testing.F) {
 			QueryParams:     map[string][]string{"redirect": {target}},
 			NormalizedQuery: map[string][]string{"redirect": {target}},
 			Headers:         map[string][]string{},
-			Cookies:         map[string]string{},
+			Cookies:         map[string][]string{},
 		}
 		result := d.Process(ctx)
 		// Must never panic. Score is 0 or positive.

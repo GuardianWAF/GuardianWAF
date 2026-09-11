@@ -95,28 +95,48 @@ func FuzzMaskUnmask(f *testing.F) {
 		var mask [4]byte
 		copy(mask[:], maskBytes)
 
-		// Build a masked frame.
+		// Build a masked frame using the RFC 6455 §5.2 length encoding:
+		// 7-bit inline below 126, 16-bit BE up to 65535, 64-bit BE above.
+		// The previous construction (0x80|byte(len)) emitted malformed
+		// frames from 126 bytes up — at len==126 it wrote the 126
+		// extended-length marker, so the reader consumed the first two
+		// mask bytes as the length and the assertion compared a 48-byte
+		// payload against the 126-byte input.
 		maskedPayload := make([]byte, len(payload))
 		for i, b := range payload {
 			maskedPayload[i] = b ^ mask[i%4]
 		}
 
-		data := []byte{0x81, 0x80 | byte(len(payload))}
-		data = append(data, mask[:]...)
+		hdr := []byte{0x81, 0x80}
+		plen := len(payload)
+		switch {
+		case plen < 126:
+			hdr[1] = 0x80 | byte(plen)
+		case plen <= 0xFFFF:
+			hdr[1] = 0x80 | 126
+			var ext [2]byte
+			binary.BigEndian.PutUint16(ext[:], uint16(plen))
+			hdr = append(hdr, ext[:]...)
+		default:
+			hdr[1] = 0x80 | 127
+			var ext [8]byte
+			binary.BigEndian.PutUint64(ext[:], uint64(plen))
+			hdr = append(hdr, ext[:]...)
+		}
+
+		data := append(hdr, mask[:]...)
 		data = append(data, maskedPayload...)
 
 		fr := NewMaskedFrameReader(bytes.NewReader(data), 1<<20)
 		frame, err := fr.ReadFrame()
 		if err != nil {
-			// If the payload is small enough, the parse should succeed.
-			if len(payload) < 126 {
-				t.Errorf("ReadFrame failed for small masked frame: %v (data=%v)", err, data)
-			}
+			// A well-formed frame of any size up to the cap must parse.
+			t.Errorf("ReadFrame failed for well-formed masked frame (len=%d): %v", plen, err)
 			return
 		}
 
 		if !bytes.Equal(frame.Payload, payload) {
-			t.Errorf("unmasked payload mismatch: got %v, want %v", frame.Payload, payload)
+			t.Errorf("unmasked payload mismatch (len=%d): got %d bytes", plen, len(frame.Payload))
 		}
 	})
 }

@@ -25,7 +25,7 @@ func makeCtx(host, rawQuery string, headers map[string][]string) *engine.Request
 		QueryParams:     query,
 		NormalizedQuery: query,
 		Headers:         hdrs,
-		Cookies:         map[string]string{},
+		Cookies:         map[string][]string{},
 	}
 }
 
@@ -135,7 +135,7 @@ func TestControlCharBlocked(t *testing.T) {
 		QueryParams:     map[string][]string{"redirect": {"https://evil.com\r\nSet-Cookie:stolen=1"}},
 		NormalizedQuery: map[string][]string{"redirect": {"https://evil.com\r\nSet-Cookie:stolen=1"}},
 		Headers:         map[string][]string{},
-		Cookies:         map[string]string{},
+		Cookies:         map[string][]string{},
 	}
 	result := d.Process(ctx)
 	if len(result.Findings) == 0 {

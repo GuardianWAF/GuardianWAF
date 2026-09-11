@@ -85,7 +85,7 @@ func TestDetector_Integration(t *testing.T) {
 		QueryParams:     map[string][]string{"username[$ne]": {"x"}},
 		NormalizedQuery: map[string][]string{"username[$ne]": {"x"}},
 		Headers:         map[string][]string{},
-		Cookies:         map[string]string{},
+		Cookies:         map[string][]string{},
 	}
 	if r := det.Process(ctx); r.Score < 50 || len(r.Findings) == 0 {
 		t.Errorf("Process did not flag query-key operator injection; score=%d", r.Score)
@@ -101,7 +101,7 @@ func TestDetector_Multiplier(t *testing.T) {
 	ctx := &engine.RequestContext{
 		BodyString: `{"$where":"1"}`,
 		Headers:    map[string][]string{},
-		Cookies:    map[string]string{},
+		Cookies:    map[string][]string{},
 	}
 	base := NewDetector(true, 1.0).Process(ctx).Score
 	doubled := NewDetector(true, 2.0).Process(ctx).Score
@@ -126,7 +126,7 @@ func TestDetector_ProcessCleanEnabledPasses(t *testing.T) {
 	ctx := &engine.RequestContext{
 		Headers:           map[string][]string{},
 		NormalizedHeaders: map[string][]string{},
-		Cookies:           map[string]string{},
+		Cookies:           map[string][]string{},
 	}
 
 	result := det.Process(ctx)
@@ -151,7 +151,7 @@ func TestDetector_ProcessScansCookiesAndRefererWithoutDoubleCountingNormalizedDu
 		NormalizedBody:    payload,
 		Headers:           map[string][]string{"Referer": {payload}},
 		NormalizedHeaders: map[string][]string{"Referer": {payload}},
-		Cookies:           map[string]string{"session": payload},
+		Cookies:           map[string][]string{"session": {payload}},
 	}
 
 	result := det.Process(ctx)
@@ -184,5 +184,35 @@ func TestMakeFinding_TruncatesLongMatchedValue(t *testing.T) {
 	}
 	if !strings.HasSuffix(finding.MatchedValue, "...") {
 		t.Fatalf("MatchedValue = %q, want ellipsis suffix", finding.MatchedValue)
+	}
+}
+
+func TestDetect_SingleQuotedKeyAuthBypass(t *testing.T) {
+	// The closing-key-quote skip after a bypass operator must recognize
+	// single quotes: with a double-quote-only cutset the single-quoted key
+	// form {'$ne': ''} died on the quote and never reached the ':' check,
+	// leaving the "''" value branch unreachable for that notation.
+	attacks := []string{
+		`{'$ne': ''}`,
+		`{'$ne': null}`,
+		`{'username': {'$ne': ''}}`,
+		`{'$gt': ''}`,
+	}
+	for _, a := range attacks {
+		if s := score(Detect(a, "body")); s < 50 {
+			t.Errorf("single-quoted auth bypass not blocked (score %d < 50): %q", s, a)
+		}
+	}
+
+	// Non-empty single-quoted values stay excluded, same policy as the
+	// double-quoted form: only bypass-y literals (null/""/''/true/false).
+	benign := []string{
+		`{"$ne": "somevalue"}`,
+		`{'$ne': 'somevalue'}`,
+	}
+	for _, b := range benign {
+		if f := Detect(b, "body"); len(f) != 0 {
+			t.Errorf("false positive on non-empty value %q: %+v", b, f)
+		}
 	}
 }

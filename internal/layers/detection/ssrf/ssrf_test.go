@@ -102,7 +102,7 @@ func TestProcess_LoopbackSurvivesNormalization(t *testing.T) {
 		// CanonicalizePath collapses the "//".
 		NormalizedQuery: map[string][]string{"url": {"http:/127.0.0.1:22"}},
 		Headers:         map[string][]string{},
-		Cookies:         map[string]string{},
+		Cookies:         map[string][]string{},
 	}
 	if result := det.Process(ctx); result.Score < 50 {
 		t.Errorf("loopback SSRF in raw query not detected; score=%d findings=%d", result.Score, len(result.Findings))
@@ -167,7 +167,7 @@ func TestDetector_Integration(t *testing.T) {
 			"url": {"http://169.254.169.254/latest/meta-data/"},
 		},
 		Headers: map[string][]string{},
-		Cookies: map[string]string{},
+		Cookies: map[string][]string{},
 	}
 
 	result := det.Process(ctx)
@@ -192,7 +192,7 @@ func TestDetector_Disabled(t *testing.T) {
 			"url": {"http://localhost/admin"},
 		},
 		Headers: map[string][]string{},
-		Cookies: map[string]string{},
+		Cookies: map[string][]string{},
 	}
 
 	result := det.Process(ctx)
@@ -212,7 +212,7 @@ func TestDetector_Multiplier(t *testing.T) {
 	ctx1 := &engine.RequestContext{
 		NormalizedQuery: map[string][]string{"url": {input}},
 		Headers:         map[string][]string{},
-		Cookies:         map[string]string{},
+		Cookies:         map[string][]string{},
 	}
 	result1 := det1.Process(ctx1)
 
@@ -220,7 +220,7 @@ func TestDetector_Multiplier(t *testing.T) {
 	ctx2 := &engine.RequestContext{
 		NormalizedQuery: map[string][]string{"url": {input}},
 		Headers:         map[string][]string{},
-		Cookies:         map[string]string{},
+		Cookies:         map[string][]string{},
 	}
 	result2 := det2.Process(ctx2)
 
@@ -513,7 +513,7 @@ func TestDetector_ProcessWithBody(t *testing.T) {
 		NormalizedBody:  "http://10.0.0.1/internal/api",
 		NormalizedQuery: map[string][]string{},
 		Headers:         map[string][]string{},
-		Cookies:         map[string]string{},
+		Cookies:         map[string][]string{},
 	}
 
 	result := det.Process(ctx)
@@ -529,8 +529,8 @@ func TestDetector_ProcessWithCookies(t *testing.T) {
 		NormalizedPath:  "/",
 		NormalizedQuery: map[string][]string{},
 		Headers:         map[string][]string{},
-		Cookies: map[string]string{
-			"redirect": "http://169.254.169.254/latest/meta-data/",
+		Cookies: map[string][]string{
+			"redirect": {"http://169.254.169.254/latest/meta-data/"},
 		},
 	}
 
@@ -549,7 +549,7 @@ func TestDetector_ProcessWithReferer(t *testing.T) {
 		Headers: map[string][]string{
 			"Referer": {"http://127.0.0.1/admin"},
 		},
-		Cookies: map[string]string{},
+		Cookies: map[string][]string{},
 	}
 
 	result := det.Process(ctx)
@@ -565,7 +565,7 @@ func TestDetector_ProcessWithPath(t *testing.T) {
 		NormalizedPath:  "http://127.0.0.1/internal",
 		NormalizedQuery: map[string][]string{},
 		Headers:         map[string][]string{},
-		Cookies:         map[string]string{},
+		Cookies:         map[string][]string{},
 	}
 
 	result := det.Process(ctx)
@@ -751,7 +751,7 @@ func TestDetector_ProcessNoFindings(t *testing.T) {
 		NormalizedPath:  "/api/v1/users",
 		NormalizedQuery: map[string][]string{"page": {"1"}},
 		Headers:         map[string][]string{},
-		Cookies:         map[string]string{},
+		Cookies:         map[string][]string{},
 	}
 
 	result := det.Process(ctx)

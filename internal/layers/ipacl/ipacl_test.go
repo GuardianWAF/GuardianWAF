@@ -454,7 +454,7 @@ func TestIPACL_IPv6Blacklist(t *testing.T) {
 	ctx := &engine.RequestContext{
 		ClientIP: net.ParseIP("2001:db8::1"),
 		Headers:  map[string][]string{},
-		Cookies:  map[string]string{},
+		Cookies:  map[string][]string{},
 	}
 
 	result := layer.Process(ctx)

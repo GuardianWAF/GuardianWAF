@@ -137,14 +137,19 @@ func Detect(input, location string) []engine.Finding {
 	}
 
 	// 4. javascript: protocol outside of tags — score 80
-	if strings.Contains(analysisLower, "javascript:") && !hasFindingDesc(findings, "JavaScript protocol") {
+	// Browsers strip ASCII tab/LF/CR from URLs (WHATWG URL parser), so the
+	// scheme must be matched on the stripped form: "jav\tascript:" and
+	// "jav&#x0a;ascript:" (post-decode) reach the browser as "javascript:".
+	// Spaces are NOT stripped by browsers and stay breaking.
+	protocolLower := stripURLWhitespace(analysisLower)
+	if strings.Contains(protocolLower, "javascript:") && !hasFindingDesc(findings, "JavaScript protocol") {
 		findings = append(findings, makeFinding(80, engine.SeverityHigh,
 			"JavaScript protocol detected",
 			truncateMatch(analysisStr), location, 0.90))
 	}
 
 	// 5. data:text/html outside of tags — score 75
-	if strings.Contains(analysisLower, "data:text/html") && !hasFindingDesc(findings, "Data URI") {
+	if strings.Contains(protocolLower, "data:text/html") && !hasFindingDesc(findings, "Data URI") {
 		findings = append(findings, makeFinding(75, engine.SeverityHigh,
 			"Data URI with text/html detected",
 			truncateMatch(analysisStr), location, 0.85))

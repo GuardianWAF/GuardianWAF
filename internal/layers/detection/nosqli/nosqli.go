@@ -79,8 +79,10 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 	}
 	scan(ctx.BodyString, "body")
 	scan(ctx.NormalizedBody, "body")
-	for _, v := range ctx.Cookies {
-		scan(v, "cookie")
+	for _, vals := range ctx.Cookies {
+		for _, v := range vals {
+			scan(v, "cookie")
+		}
 	}
 	if refs, ok := ctx.Headers["Referer"]; ok {
 		for _, v := range refs {
@@ -180,10 +182,13 @@ func checkAuthBypass(lower, location string) []engine.Finding {
 				break
 			}
 			pos := idx + i + len(op)
-			// Skip a closing key quote and spaces, then require ':' and a
-			// bypass-y value (null / "" / '' / true / false). Arrays/numbers are
-			// excluded so legitimate filters like {"$gt":100} do not match.
-			rest := strings.TrimLeft(lower[pos:], "\" ")
+			// Skip a closing key quote (single or double) and spaces, then
+			// require ':' and a bypass-y value (null / "" / '' / true / false).
+			// Arrays/numbers are excluded so legitimate filters like
+			// {"$gt":100} do not match. Without ' in the cutset the
+			// single-quoted key form {'$ne': ''} died on the quote and the
+			// "''" value check below was unreachable for that notation.
+			rest := strings.TrimLeft(lower[pos:], "\"' ")
 			if strings.HasPrefix(rest, ":") {
 				val := strings.TrimLeft(rest[1:], " ")
 				if strings.HasPrefix(val, "null") || strings.HasPrefix(val, `""`) ||

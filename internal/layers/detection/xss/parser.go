@@ -137,7 +137,10 @@ func hasEventHandler(attrs map[string]string) (string, bool) {
 // "data:text/html" protocol.
 func hasJavaScriptProtocol(attrs map[string]string) (attrName, protocol string, found bool) {
 	for name, val := range attrs {
-		lower := strings.ToLower(val)
+		// Browsers strip ASCII tab/LF/CR from URLs (WHATWG URL parser), so the
+		// scheme is matched on the stripped form; see the top-level check in
+		// Detect for the rationale.
+		lower := stripURLWhitespace(strings.ToLower(val))
 		if strings.Contains(lower, "javascript:") {
 			return name, "javascript:", true
 		}
@@ -146,6 +149,24 @@ func hasJavaScriptProtocol(attrs map[string]string) (attrName, protocol string, 
 		}
 	}
 	return "", "", false
+}
+
+// stripURLWhitespace removes ASCII tab, LF and CR — exactly the characters the
+// WHATWG URL parser removes from input ("remove all ASCII tab or newline").
+// Spaces are left intact: browsers do not strip them, so "java script:" is a
+// different (broken) URL and must not match.
+func stripURLWhitespace(s string) string {
+	if !strings.ContainsAny(s, "\t\n\r") {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] != '\t' && s[i] != '\n' && s[i] != '\r' {
+			b.WriteByte(s[i])
+		}
+	}
+	return b.String()
 }
 
 // detectTemplateInjection scans input for template injection markers with

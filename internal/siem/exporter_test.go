@@ -343,3 +343,45 @@ func TestExporter_FromConfig(t *testing.T) {
 		t.Errorf("batch size: %d", c.BatchSize)
 	}
 }
+
+func TestExporter_ExportAfterCloseAndDuringCloseAreSafe(t *testing.T) {
+	// Close() closes the event channel; the event-bus consumer holding the
+	// Export callback is not stopped by Close, so Export can race or follow
+	// Close during shutdown. It must be a safe no-op — never a send on a
+	// closed channel, which would panic the whole process.
+	exp, err := NewExporter(ExporterConfig{Endpoint: "127.0.0.1:9399", Format: "cef"})
+	if err != nil {
+		t.Fatalf("NewExporter: %v", err)
+	}
+	ev := engine.Event{Action: engine.ActionBlock, Score: 50, Path: "/probe"}
+	if err := exp.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	exp.Export(ev) // must not panic
+
+	for i := 0; i < 20; i++ {
+		exp2, err := NewExporter(ExporterConfig{Endpoint: "127.0.0.1:9399", Format: "cef"})
+		if err != nil {
+			t.Fatalf("NewExporter: %v", err)
+		}
+		var wg sync.WaitGroup
+		stop := make(chan struct{})
+		for g := 0; g < 4; g++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for {
+					select {
+					case <-stop:
+						return
+					default:
+						exp2.Export(ev)
+					}
+				}
+			}()
+		}
+		_ = exp2.Close()
+		close(stop)
+		wg.Wait()
+	}
+}

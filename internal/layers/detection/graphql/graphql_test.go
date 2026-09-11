@@ -20,7 +20,7 @@ func makeCtx(contentType, path, rawQuery, body string) *engine.RequestContext {
 		NormalizedBody: body,
 		QueryParams:    map[string][]string{},
 		Headers:        map[string][]string{},
-		Cookies:        map[string]string{},
+		Cookies:        map[string][]string{},
 	}
 	if rawQuery != "" {
 		vals, _ := url.ParseQuery(rawQuery)

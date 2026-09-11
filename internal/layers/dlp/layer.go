@@ -7,6 +7,7 @@ import (
 	"mime"
 	"mime/multipart"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -319,9 +320,19 @@ func (l *Layer) scanContent(content string) *ScanResult {
 func (l *Layer) maskContent(content string, matches []Match) string {
 	result := content
 
-	// Sort matches by position (descending) to avoid offset issues
-	for i := len(matches) - 1; i >= 0; i-- {
-		m := matches[i]
+	// Substitute from the highest offset downward so earlier offsets stay
+	// valid. PatternRegistry.Scan groups matches by pattern type in map
+	// iteration order, so the slice is NOT position-sorted — the reverse
+	// loop alone did not guarantee that, and a lower-offset match with a
+	// length-changing mask shifted later offsets: the stale bounds check
+	// then silently dropped the higher match and its PII leaked unmasked.
+	sorted := make([]Match, len(matches))
+	copy(sorted, matches)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].Position > sorted[j].Position
+	})
+
+	for _, m := range sorted {
 		if m.Position < len(result) && m.Position+m.Length <= len(result) {
 			result = result[:m.Position] + m.Masked + result[m.Position+m.Length:]
 		}

@@ -94,19 +94,21 @@ func ValidateRequest(ctx *engine.RequestContext, cfg Config) []engine.Finding {
 
 	// Cookie size check (iterate all cookies)
 	if cfg.MaxCookieSize > 0 {
-		for name, value := range ctx.Cookies {
-			cookieSize := len(name) + len(value)
-			if cookieSize > cfg.MaxCookieSize {
-				findings = append(findings, engine.Finding{
-					DetectorName: "sanitizer",
-					Category:     "sanitizer",
-					Severity:     engine.SeverityLow,
-					Score:        20,
-					Description:  fmt.Sprintf("Cookie '%s' size %d exceeds maximum %d", name, cookieSize, cfg.MaxCookieSize),
-					MatchedValue: truncate(value, 200),
-					Location:     "cookie",
-					Confidence:   1.0,
-				})
+		for name, values := range ctx.Cookies {
+			for _, value := range values {
+				cookieSize := len(name) + len(value)
+				if cookieSize > cfg.MaxCookieSize {
+					findings = append(findings, engine.Finding{
+						DetectorName: "sanitizer",
+						Category:     "sanitizer",
+						Severity:     engine.SeverityLow,
+						Score:        20,
+						Description:  fmt.Sprintf("Cookie '%s' size %d exceeds maximum %d", name, cookieSize, cfg.MaxCookieSize),
+						MatchedValue: truncate(value, 200),
+						Location:     "cookie",
+						Confidence:   1.0,
+					})
+				}
 			}
 		}
 	}

@@ -22,7 +22,7 @@ func TestProcess_RawFallbackWhenSanitizerDisabled(t *testing.T) {
 			"q": {"' UNION SELECT password FROM users --"},
 		},
 		Headers: map[string][]string{},
-		Cookies: map[string]string{},
+		Cookies: map[string][]string{},
 	}
 
 	result := det.Process(ctx)
@@ -35,7 +35,7 @@ func TestProcess_RawFallbackWhenSanitizerDisabled(t *testing.T) {
 		Method:     "POST",
 		BodyString: "id=1 OR 1=1; DROP TABLE users",
 		Headers:    map[string][]string{},
-		Cookies:    map[string]string{},
+		Cookies:    map[string][]string{},
 	}
 	if r := det.Process(ctxBody); r.Action == engine.ActionPass && len(r.Findings) == 0 {
 		t.Fatalf("expected SQLi detected via raw body fallback; got action=%v findings=%d", r.Action, len(r.Findings))

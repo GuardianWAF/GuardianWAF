@@ -151,7 +151,7 @@ func TestDetector_Integration(t *testing.T) {
 			"file": {"../../../../etc/passwd"},
 		},
 		Headers: map[string][]string{},
-		Cookies: map[string]string{},
+		Cookies: map[string][]string{},
 	}
 
 	result := det.Process(ctx)
@@ -182,7 +182,7 @@ func TestDetector_TraversalSurvivesCanonicalization(t *testing.T) {
 		// ...but the sanitizer collapsed it (this is what CanonicalizePath does).
 		NormalizedQuery: map[string][]string{"file": {"etc/passwd"}},
 		Headers:         map[string][]string{},
-		Cookies:         map[string]string{},
+		Cookies:         map[string][]string{},
 	}
 
 	result := det.Process(ctx)
@@ -201,7 +201,7 @@ func TestDetector_NoFalsePositiveOnCleanQuery(t *testing.T) {
 		QueryParams:     map[string][]string{"file": {"report.pdf"}},
 		NormalizedQuery: map[string][]string{"file": {"report.pdf"}},
 		Headers:         map[string][]string{},
-		Cookies:         map[string]string{},
+		Cookies:         map[string][]string{},
 	}
 	if result := det.Process(ctx); result.Score != 0 {
 		t.Errorf("clean file param flagged; score=%d findings=%v", result.Score, result.Findings)
@@ -217,7 +217,7 @@ func TestDetector_Disabled(t *testing.T) {
 			"file": {"../../../../etc/passwd"},
 		},
 		Headers: map[string][]string{},
-		Cookies: map[string]string{},
+		Cookies: map[string][]string{},
 	}
 
 	result := det.Process(ctx)
@@ -237,7 +237,7 @@ func TestDetector_Multiplier(t *testing.T) {
 	ctx1 := &engine.RequestContext{
 		NormalizedQuery: map[string][]string{"file": {input}},
 		Headers:         map[string][]string{},
-		Cookies:         map[string]string{},
+		Cookies:         map[string][]string{},
 	}
 	result1 := det1.Process(ctx1)
 
@@ -245,7 +245,7 @@ func TestDetector_Multiplier(t *testing.T) {
 	ctx2 := &engine.RequestContext{
 		NormalizedQuery: map[string][]string{"file": {input}},
 		Headers:         map[string][]string{},
-		Cookies:         map[string]string{},
+		Cookies:         map[string][]string{},
 	}
 	result2 := det2.Process(ctx2)
 
@@ -295,7 +295,7 @@ func TestDetector_Process_BodyCookieReferer(t *testing.T) {
 		NormalizedQuery: map[string][]string{},
 		NormalizedBody:  "../../../../etc/passwd",
 		Headers:         map[string][]string{},
-		Cookies:         map[string]string{},
+		Cookies:         map[string][]string{},
 	}
 	result := det.Process(ctx)
 	if result.Score < 50 {
@@ -316,8 +316,8 @@ func TestDetector_Process_BodyCookieReferer(t *testing.T) {
 		NormalizedPath:  "/safe",
 		NormalizedQuery: map[string][]string{},
 		Headers:         map[string][]string{},
-		Cookies: map[string]string{
-			"session": "../../../../etc/passwd",
+		Cookies: map[string][]string{
+			"session": {"../../../../etc/passwd"},
 		},
 	}
 	result2 := det.Process(ctx2)
@@ -332,7 +332,7 @@ func TestDetector_Process_BodyCookieReferer(t *testing.T) {
 		Headers: map[string][]string{
 			"Referer": {"../../../../etc/passwd"},
 		},
-		Cookies: map[string]string{},
+		Cookies: map[string][]string{},
 	}
 	result3 := det.Process(ctx3)
 	if result3.Score < 50 {
@@ -346,7 +346,7 @@ func TestDetector_Process_NoFindings(t *testing.T) {
 		NormalizedPath:  "/safe/page",
 		NormalizedQuery: map[string][]string{"q": {"hello"}},
 		Headers:         map[string][]string{},
-		Cookies:         map[string]string{},
+		Cookies:         map[string][]string{},
 	}
 	result := det.Process(ctx)
 	if result.Action != engine.ActionPass {

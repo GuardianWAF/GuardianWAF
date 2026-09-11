@@ -81,7 +81,7 @@ func TestCoverage_Process_TenantCustomRules(t *testing.T) {
 		Path:        "/tenant-path",
 		ClientIP:    net.ParseIP("1.2.3.4"),
 		Headers:     map[string][]string{},
-		Cookies:     make(map[string]string),
+		Cookies:     make(map[string][]string),
 		Accumulator: engine.NewScoreAccumulator(2),
 		Metadata:    make(map[string]any),
 		TenantWAFConfig: &config.WAFConfig{

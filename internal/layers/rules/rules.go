@@ -234,8 +234,72 @@ func (l *Layer) matchAll(conditions []Condition, ctx *engine.RequestContext, dea
 }
 
 func (l *Layer) matchCondition(cond Condition, ctx *engine.RequestContext, deadline *regexDeadline) bool {
-	fieldValue := l.getFieldValue(cond.Field, ctx)
+	// Cookie conditions match if ANY transmitted value of the named cookie
+	// satisfies the op: a repeated cookie name carries multiple values and
+	// backend parsers select different ones (Go first-wins, PHP/Python
+	// last-wins), so keying the rule to vals[0] let a trigger value in any
+	// other position evade the rule (round 85). Negated ops therefore fire
+	// when any value differs — fail-closed for deny rules; pass rules become
+	// position-independent whitelists (unexploitable without knowing the
+	// whitelisted value).
+	if strings.HasPrefix(cond.Field, "cookie:") {
+		vals := ctx.Cookies[cond.Field[7:]]
+		if len(vals) == 0 {
+			// Cookie absent: preserve the accessor's empty-value resolution —
+			// conditions like equals "" / not_equals still fire on a missing
+			// cookie exactly as before multi-value support.
+			return l.opMatches(cond, "", ctx, deadline)
+		}
+		for _, v := range vals {
+			if l.opMatches(cond, v, ctx, deadline) {
+				return true
+			}
+		}
+		return false
+	}
 
+	// Header conditions match if ANY transmitted value of the named header
+	// satisfies the op — same multi-value rationale as the cookie branch
+	// above (round 86): a repeated header carries multiple values and backend
+	// parsers select different ones, so keying to vals[0] let a trigger value
+	// in any other position evade the rule. Name canonicalization (RFC 9110
+	// §5.1) is preserved, and an absent header resolves against "" exactly as
+	// before multi-value support.
+	if strings.HasPrefix(cond.Field, "header:") {
+		vals := ctx.Headers[textproto.CanonicalMIMEHeaderKey(cond.Field[7:])]
+		if len(vals) == 0 {
+			return l.opMatches(cond, "", ctx, deadline)
+		}
+		for _, v := range vals {
+			if l.opMatches(cond, v, ctx, deadline) {
+				return true
+			}
+		}
+		return false
+	}
+
+	// user_agent is the dedicated alias for the User-Agent header — same
+	// multi-value rationale as the branches above (round 87): match if ANY
+	// transmitted value satisfies the op. An absent User-Agent resolves
+	// against "" exactly as before multi-value support.
+	if cond.Field == "user_agent" {
+		vals := ctx.Headers["User-Agent"]
+		if len(vals) == 0 {
+			return l.opMatches(cond, "", ctx, deadline)
+		}
+		for _, v := range vals {
+			if l.opMatches(cond, v, ctx, deadline) {
+				return true
+			}
+		}
+		return false
+	}
+
+	return l.opMatches(cond, l.getFieldValue(cond.Field, ctx), ctx, deadline)
+}
+
+// opMatches evaluates a condition against one resolved field value.
+func (l *Layer) opMatches(cond Condition, fieldValue string, ctx *engine.RequestContext, deadline *regexDeadline) bool {
 	switch cond.Op {
 	case "equals":
 		return fieldValue == toString(cond.Value)
@@ -320,8 +384,10 @@ func (l *Layer) getFieldValue(field string, ctx *engine.RequestContext) string {
 		return ""
 	case strings.HasPrefix(field, "cookie:"):
 		cookieName := field[7:]
-		if val, ok := ctx.Cookies[cookieName]; ok {
-			return val
+		// First value — same r.Cookie() view convention as the header case
+		// above; every-value inspection happens in the detection layers.
+		if vals, ok := ctx.Cookies[cookieName]; ok && len(vals) > 0 {
+			return vals[0]
 		}
 		return ""
 	default:

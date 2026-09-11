@@ -146,6 +146,14 @@ func (v *APIKeyValidator) ValidateConstantTime(key, path string) (*APIKeyConfig,
 		return nil, ErrInvalidAPIKey
 	}
 
+	// Check if key is enabled — parity with Validate: a disabled key must not
+	// authenticate through the constant-time path either. AddKey registers
+	// Enabled:false configs verbatim (only the constructor skips them), so
+	// this is reachable for runtime-added keys.
+	if !matched.Enabled {
+		return nil, ErrAPIKeyDisabled
+	}
+
 	// Check path (not constant-time, but after authentication)
 	if len(matched.AllowedPaths) > 0 {
 		if !matchAnyPath(matched.AllowedPaths, path) {

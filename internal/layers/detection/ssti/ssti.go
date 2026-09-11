@@ -76,8 +76,10 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 	}
 	scan(ctx.BodyString, "body")
 	scan(ctx.NormalizedBody, "body")
-	for _, v := range ctx.Cookies {
-		scan(v, "cookie")
+	for _, vals := range ctx.Cookies {
+		for _, v := range vals {
+			scan(v, "cookie")
+		}
 	}
 	if refs, ok := ctx.Headers["Referer"]; ok {
 		for _, v := range refs {
@@ -341,9 +343,14 @@ func hasLiteralMultiplication(s string) bool {
 		if s[i] != '*' {
 			continue
 		}
-		// left of '*': a digit, after optional spaces
+		// left of '*': a digit or quote+digit, after optional spaces —
+		// mirrored from the right side so {{'7'*7}} and {{7*'7'}} (both
+		// canonical Jinja2/Twig evaluation probes) are treated the same.
 		l := i - 1
 		for l >= 0 && s[l] == ' ' {
+			l--
+		}
+		if l >= 0 && (s[l] == '\'' || s[l] == '"') {
 			l--
 		}
 		if l < 0 || s[l] < '0' || s[l] > '9' {

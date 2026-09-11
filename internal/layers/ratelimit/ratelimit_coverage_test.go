@@ -153,7 +153,7 @@ func TestProcess_NilClientIP(t *testing.T) {
 		Path:     "/test",
 		ClientIP: nil,
 		Headers:  map[string][]string{},
-		Cookies:  map[string]string{},
+		Cookies:  map[string][]string{},
 	}
 
 	result := layer.Process(ctx)
@@ -628,7 +628,7 @@ func TestProcess_ClusterRateLimit_AtomicIncrement(t *testing.T) {
 			Path:     "/",
 			ClientIP: net.ParseIP(ip),
 			Headers:  map[string][]string{},
-			Cookies:  map[string]string{},
+			Cookies:  map[string][]string{},
 		}
 	}
 
@@ -668,7 +668,7 @@ func TestProcess_ClusterRateLimit_ConcurrentNoBypass(t *testing.T) {
 			Path:     "/",
 			ClientIP: net.ParseIP(ip),
 			Headers:  map[string][]string{},
-			Cookies:  map[string]string{},
+			Cookies:  map[string][]string{},
 		}
 	}
 

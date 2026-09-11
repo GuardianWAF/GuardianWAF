@@ -151,7 +151,7 @@ func TestRuleMatchHost(t *testing.T) {
 		Path:        "/",
 		ClientIP:    net.ParseIP("1.2.3.4"),
 		Headers:     map[string][]string{},
-		Cookies:     make(map[string]string),
+		Cookies:     make(map[string][]string),
 		Accumulator: engine.NewScoreAccumulator(2),
 		Metadata:    make(map[string]any),
 	}
@@ -195,7 +195,7 @@ func TestRuleMatchQuery(t *testing.T) {
 		Path:        "/",
 		ClientIP:    net.ParseIP("1.2.3.4"),
 		Headers:     map[string][]string{},
-		Cookies:     make(map[string]string),
+		Cookies:     make(map[string][]string),
 		Accumulator: engine.NewScoreAccumulator(2),
 		Metadata:    make(map[string]any),
 	}
@@ -216,13 +216,13 @@ func TestRuleMatchCookie(t *testing.T) {
 	}, nil)
 
 	ctx := testCtx("GET", "/", "1.2.3.4", nil)
-	ctx.Cookies = map[string]string{"role": "admin"}
+	ctx.Cookies = map[string][]string{"role": {"admin"}}
 	if result := layer.Process(ctx); result.Action != engine.ActionLog {
 		t.Errorf("expected log for admin cookie, got %s", result.Action)
 	}
 
 	ctx2 := testCtx("GET", "/", "1.2.3.4", nil)
-	ctx2.Cookies = map[string]string{"role": "user"}
+	ctx2.Cookies = map[string][]string{"role": {"user"}}
 	if result := layer.Process(ctx2); result.Action != engine.ActionPass {
 		t.Errorf("expected pass for user cookie, got %s", result.Action)
 	}
@@ -728,7 +728,7 @@ func TestRuleNilRequest(t *testing.T) {
 		Path:        "/",
 		ClientIP:    net.ParseIP("1.2.3.4"),
 		Headers:     map[string][]string{},
-		Cookies:     make(map[string]string),
+		Cookies:     make(map[string][]string),
 		Accumulator: engine.NewScoreAccumulator(2),
 		Metadata:    make(map[string]any),
 	}
@@ -753,7 +753,7 @@ func TestRuleNilAccumulator(t *testing.T) {
 		Path:        "/",
 		ClientIP:    net.ParseIP("1.2.3.4"),
 		Headers:     map[string][]string{},
-		Cookies:     make(map[string]string),
+		Cookies:     make(map[string][]string),
 		Accumulator: nil,
 		Metadata:    make(map[string]any),
 	}
@@ -800,7 +800,7 @@ func TestRuleEmptyHost(t *testing.T) {
 		Path:        "/",
 		ClientIP:    net.ParseIP("1.2.3.4"),
 		Headers:     map[string][]string{},
-		Cookies:     make(map[string]string),
+		Cookies:     make(map[string][]string),
 		Accumulator: engine.NewScoreAccumulator(2),
 		Metadata:    make(map[string]any),
 	}

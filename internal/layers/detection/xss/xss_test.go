@@ -31,6 +31,11 @@ var attackPayloads = []struct {
 	{"template es6", "${alert(1)}", 55},
 	{"document cookie", "document.cookie", 60},
 	{"dangerous js func", "eval('alert(1)')", 65},
+	// Browsers strip ASCII tab/LF/CR from URL input (WHATWG URL), so these
+	// whitespace-obfuscated schemes are executable and must be detected.
+	{"tab-obfuscated javascript protocol", "<a href=\"java\tscript:alert(1)\">", 80},
+	{"entity-encoded tab javascript protocol", "<a href=\"jav&#x09;ascript:alert(1)\">", 80},
+	{"newline-obfuscated data uri", "<a href=\"data\n:text/html;base64,AA\">", 75},
 }
 
 // --- Benign inputs that must NOT trigger high scores (score < 25) ---
@@ -359,7 +364,7 @@ func TestDetector_Process(t *testing.T) {
 			"q": {"<script>alert(1)</script>"},
 		},
 		Headers: map[string][]string{},
-		Cookies: map[string]string{},
+		Cookies: map[string][]string{},
 	}
 
 	result := det.Process(ctx)
@@ -396,7 +401,7 @@ func TestDetector_Disabled(t *testing.T) {
 			"q": {"<img src=x onerror=alert(1)>"},
 		},
 		Headers: map[string][]string{},
-		Cookies: map[string]string{},
+		Cookies: map[string][]string{},
 	}
 
 	result := det.Process(ctx)
@@ -422,7 +427,7 @@ func TestDetector_Multiplier(t *testing.T) {
 			"q": {input},
 		},
 		Headers: map[string][]string{},
-		Cookies: map[string]string{},
+		Cookies: map[string][]string{},
 	}
 	result1 := det1.Process(ctx1)
 
@@ -433,7 +438,7 @@ func TestDetector_Multiplier(t *testing.T) {
 			"q": {input},
 		},
 		Headers: map[string][]string{},
-		Cookies: map[string]string{},
+		Cookies: map[string][]string{},
 	}
 	result2 := det2.Process(ctx2)
 
@@ -454,7 +459,7 @@ func TestDetector_Multiplier(t *testing.T) {
 			"q": {input},
 		},
 		Headers: map[string][]string{},
-		Cookies: map[string]string{},
+		Cookies: map[string][]string{},
 	}
 	result05 := det05.Process(ctx05)
 
@@ -473,7 +478,7 @@ func TestDetector_ScanLocations(t *testing.T) {
 		NormalizedBody:  payload,
 		NormalizedQuery: map[string][]string{},
 		Headers:         map[string][]string{},
-		Cookies:         map[string]string{},
+		Cookies:         map[string][]string{},
 	}
 	result := det.Process(ctx)
 	if result.Score < 95 {
@@ -493,8 +498,8 @@ func TestDetector_ScanLocations(t *testing.T) {
 	ctx2 := &engine.RequestContext{
 		NormalizedQuery: map[string][]string{},
 		Headers:         map[string][]string{},
-		Cookies: map[string]string{
-			"session": payload,
+		Cookies: map[string][]string{
+			"session": {payload},
 		},
 	}
 	result2 := det.Process(ctx2)
@@ -508,7 +513,7 @@ func TestDetector_ScanLocations(t *testing.T) {
 		Headers: map[string][]string{
 			"Referer": {payload},
 		},
-		Cookies: map[string]string{},
+		Cookies: map[string][]string{},
 	}
 	result3 := det.Process(ctx3)
 	if result3.Score < 95 {
@@ -521,7 +526,7 @@ func TestDetector_ScanLocations(t *testing.T) {
 		Headers: map[string][]string{
 			"User-Agent": {payload},
 		},
-		Cookies: map[string]string{},
+		Cookies: map[string][]string{},
 	}
 	result4 := det.Process(ctx4)
 	if result4.Score >= result.Score {
@@ -1007,7 +1012,7 @@ func TestDetector_ProcessWithFallbackPath(t *testing.T) {
 		NormalizedPath:  "",
 		NormalizedQuery: map[string][]string{},
 		Headers:         map[string][]string{},
-		Cookies:         map[string]string{},
+		Cookies:         map[string][]string{},
 	}
 
 	result := det.Process(ctx)
@@ -1027,7 +1032,7 @@ func TestDetector_ProcessWithFallbackQuery(t *testing.T) {
 			"q": {"<script>alert(1)</script>"},
 		},
 		Headers: map[string][]string{},
-		Cookies: map[string]string{},
+		Cookies: map[string][]string{},
 	}
 
 	result := det.Process(ctx)
@@ -1046,7 +1051,7 @@ func TestDetector_ProcessWithFallbackBody(t *testing.T) {
 		BodyString:      "<script>alert(1)</script>",
 		NormalizedQuery: map[string][]string{},
 		Headers:         map[string][]string{},
-		Cookies:         map[string]string{},
+		Cookies:         map[string][]string{},
 	}
 
 	result := det.Process(ctx)
@@ -1437,5 +1442,49 @@ func TestCoverageGaps(t *testing.T) {
 	}
 	if containsEventHandler("onclickX") {
 		t.Fatal("onsomething without = must not match")
+	}
+}
+
+func TestProcess_ScansBothRawAndNormalizedForms(t *testing.T) {
+	det := NewDetector(true, 1)
+
+	// The raw form carries the entity-encoded tab; the sanitizer-normalized
+	// form has it collapsed to a space. The payload is only visible when
+	// BOTH forms are scanned: Detect decodes the entity in the raw form,
+	// while the normalized form is space-broken for every pattern.
+	ctx := &engine.RequestContext{
+		BodyString:     `<a href="jav&#x09;ascript:alert(1)">`,
+		NormalizedBody: `<a href="java script:alert(1)">`,
+	}
+	res := det.Process(ctx)
+	total := 0
+	sawProtocol := false
+	for _, f := range res.Findings {
+		total += f.Score
+		if strings.Contains(f.Description, "JavaScript protocol") {
+			sawProtocol = true
+		}
+	}
+	if !sawProtocol || total < 80 {
+		t.Fatalf("both-forms scan failed: sawProtocol=%v total=%d findings=%+v", sawProtocol, total, res.Findings)
+	}
+
+	// Identical raw and normalized forms must be scored once (input-level
+	// dedup in scanInputs), preserving pre-existing single-form scores.
+	dup := &engine.RequestContext{
+		BodyString:     `<a href="javascript:alert(1)">`,
+		NormalizedBody: `<a href="javascript:alert(1)">`,
+	}
+	res = det.Process(dup)
+	total = 0
+	protocolFindings := 0
+	for _, f := range res.Findings {
+		total += f.Score
+		if strings.Contains(f.Description, "JavaScript protocol") {
+			protocolFindings++
+		}
+	}
+	if protocolFindings != 1 {
+		t.Fatalf("duplicate forms double-scored: %d protocol finding(s), total=%d findings=%+v", protocolFindings, total, res.Findings)
 	}
 }

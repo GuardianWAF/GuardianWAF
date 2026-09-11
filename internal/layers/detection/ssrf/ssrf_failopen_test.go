@@ -19,7 +19,7 @@ func TestProcess_RawFallbackWhenSanitizerDisabled(t *testing.T) {
 			"url": {"http://169.254.169.254/latest/meta-data/"},
 		},
 		Headers: map[string][]string{},
-		Cookies: map[string]string{},
+		Cookies: map[string][]string{},
 	}
 
 	result := det.Process(ctx)

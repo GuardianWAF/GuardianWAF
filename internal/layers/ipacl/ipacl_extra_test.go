@@ -328,7 +328,7 @@ func TestIPACL_IPv6Whitelist(t *testing.T) {
 	ctx := &engine.RequestContext{
 		ClientIP: net.ParseIP("::1"),
 		Headers:  map[string][]string{},
-		Cookies:  map[string]string{},
+		Cookies:  map[string][]string{},
 	}
 
 	result := layer.Process(ctx)

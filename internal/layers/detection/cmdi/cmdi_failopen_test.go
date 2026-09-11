@@ -19,7 +19,7 @@ func TestProcess_RawFallbackWhenSanitizerDisabled(t *testing.T) {
 			"host": {"127.0.0.1; cat /etc/passwd"},
 		},
 		Headers: map[string][]string{},
-		Cookies: map[string]string{},
+		Cookies: map[string][]string{},
 	}
 
 	result := det.Process(ctx)

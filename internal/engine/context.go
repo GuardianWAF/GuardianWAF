@@ -146,7 +146,7 @@ type RequestContext struct {
 	Path        string // URL path
 	QueryParams map[string][]string
 	Headers     map[string][]string
-	Cookies     map[string]string
+	Cookies     map[string][]string
 	Body        []byte
 	BodyString  string // Lazy: populated on first access via GetBodyString(). Allocated to avoid per-request string([]byte) if no body.
 	ContentType string
@@ -256,11 +256,16 @@ func AcquireContext(r *http.Request, paranoiaLevel int, maxBodySize int64) *Requ
 	// out of inspection by padding the request with junk headers.
 	copyHeaders(ctx, r.Header)
 
-	// Cookies
+	// Cookies — ALL transmitted values per name, in transmission order
+	// (vals[0] == the r.Cookie()/readCookies first-match view Go backends
+	// read). A repeated cookie name transmits multiple values and backend
+	// parsers select different ones (Go first-wins, PHP/Python last-wins),
+	// so the WAF must inspect every value: any single-value view is an
+	// attacker-orderable blind spot.
 	cookies := r.Cookies()
-	ctx.Cookies = make(map[string]string, len(cookies))
+	ctx.Cookies = make(map[string][]string, len(cookies))
 	for _, c := range cookies {
-		ctx.Cookies[c.Name] = c.Value
+		ctx.Cookies[c.Name] = append(ctx.Cookies[c.Name], c.Value)
 	}
 
 	// Content-Type

@@ -18,7 +18,7 @@ func newTestContext(method, uri, path, body string) *engine.RequestContext {
 		Path:        path,
 		QueryParams: make(map[string][]string),
 		Headers:     make(map[string][]string),
-		Cookies:     make(map[string]string),
+		Cookies:     make(map[string][]string),
 		Body:        []byte(body),
 		BodyString:  body,
 		Accumulator: engine.NewScoreAccumulator(2),
@@ -319,7 +319,7 @@ func TestValidateRequest_CookieSize(t *testing.T) {
 	}
 
 	ctx := newTestContext("GET", "/test", "/test", "")
-	ctx.Cookies["session"] = strings.Repeat("a", 50)
+	ctx.Cookies["session"] = []string{strings.Repeat("a", 50)}
 
 	findings := ValidateRequest(ctx, cfg)
 
@@ -413,7 +413,7 @@ func TestSanitizerLayer_LogOnLowScore(t *testing.T) {
 	layer := NewLayer(&cfg)
 
 	ctx := newTestContext("GET", "/test", "/test", "")
-	ctx.Cookies["session"] = strings.Repeat("a", 50)
+	ctx.Cookies["session"] = []string{strings.Repeat("a", 50)}
 
 	result := layer.Process(ctx)
 
@@ -468,7 +468,7 @@ func TestSanitizerLayer_WithRealHTTPRequest(t *testing.T) {
 		Path:        reqURL.Path,
 		QueryParams: reqURL.Query(),
 		Headers:     map[string][]string{"Content-Type": {"text/html"}},
-		Cookies:     make(map[string]string),
+		Cookies:     make(map[string][]string),
 		Body:        nil,
 		BodyString:  "",
 		Accumulator: engine.NewScoreAccumulator(2),

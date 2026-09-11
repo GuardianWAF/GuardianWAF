@@ -19,7 +19,7 @@ func testCtx(method, path string, ip string, headers map[string][]string) *engin
 		Path:        path,
 		ClientIP:    net.ParseIP(ip),
 		Headers:     headers,
-		Cookies:     make(map[string]string),
+		Cookies:     make(map[string][]string),
 		Accumulator: engine.NewScoreAccumulator(2),
 		Metadata:    make(map[string]any),
 	}

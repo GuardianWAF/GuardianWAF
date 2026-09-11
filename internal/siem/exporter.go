@@ -45,7 +45,7 @@ type ExporterStats struct {
 type Exporter struct {
 	cfg ExporterConfig
 
-	mu     sync.Mutex
+	mu     sync.RWMutex
 	conn   net.Conn
 	closed bool
 	wg     sync.WaitGroup
@@ -241,11 +241,21 @@ func (e *Exporter) dial() (net.Conn, error) {
 // Export queues an event for SIEM export. Non-blocking: if the buffer is full,
 // the event is dropped. Only block/challenge events are exported; pass events
 // are silently filtered.
+//
+// Safe to call after or concurrently with Close: the event-bus consumer that
+// holds this callback is not stopped by Close, so the send is guarded by the
+// same mutex that orders close(ch) — a closed-channel panic during shutdown
+// would otherwise crash the whole process.
 func (e *Exporter) Export(ev engine.Event) {
 	if e == nil {
 		return
 	}
 	if ev.Action != engine.ActionBlock && ev.Action != engine.ActionChallenge {
+		return
+	}
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	if e.closed {
 		return
 	}
 	e.eventsQueued.Add(1)
@@ -276,9 +286,12 @@ func (e *Exporter) Close() error {
 		return nil
 	}
 	e.closed = true
+	// Close the channel under the same lock Export sends under: an in-flight
+	// Export holding RLock finishes (or never starts) before the channel is
+	// closed, so the send can never target a closed channel.
+	close(e.ch)
 	e.mu.Unlock()
 
-	close(e.ch)
 	e.wg.Wait()
 	return nil
 }

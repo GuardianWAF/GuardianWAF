@@ -145,10 +145,10 @@ func (l *Layer) LoadSchema(source SchemaSource) error {
 		Routes: make(map[string]*RouteInfo),
 	}
 
-	// Compile routes
-	l.compileRoutes(compiled)
-
+	// Compile routes under the write lock: compileRoutes mutates the shared
+	// path router, which Process/GetRoute/GetStats read under RLock.
 	l.mu.Lock()
+	l.compileRoutes(compiled)
 	l.specs = append(l.specs, compiled)
 	l.mu.Unlock()
 
@@ -416,6 +416,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 
 	l.mu.RLock()
 	specs := l.specs
+	router := l.router
 	l.mu.RUnlock()
 
 	// In strict mode, block if no schemas are loaded
@@ -437,7 +438,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	}
 
 	// Find matching route
-	route := l.router.Match(ctx.Method, ctx.Path)
+	route := router.Match(ctx.Method, ctx.Path)
 	if route == nil {
 		// No schema defined for this route - allow if not in strict mode
 		if l.config.StrictMode {
@@ -472,6 +473,10 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	// Validate headers
 	headerFindings := l.validateHeaders(ctx, route, validator)
 	findings = append(findings, headerFindings...)
+
+	// Validate cookies
+	cookieFindings := l.validateCookieParameters(ctx, route, validator)
+	findings = append(findings, cookieFindings...)
 
 	// Validate request body
 	bodyFindings := l.validateRequestBody(ctx, route, validator)
@@ -601,17 +606,69 @@ func (l *Layer) validateHeaders(ctx *engine.RequestContext, route *RouteInfo, va
 			continue
 		}
 
-		// Validate header value
-		if param.Schema != nil {
-			result := validator.Validate(values[0], param.Schema, "header."+param.Name)
-			if !result.Valid {
-				for _, err := range result.Errors {
-					findings = append(findings, engine.Finding{
-						DetectorName: "apivalidation",
-						Description:  fmt.Sprintf("Header '%s': %s", param.Name, err.Message),
-						Score:        result.Score,
-						MatchedValue: values[0],
-					})
+		// Validate every transmitted value — a repeated header carries all
+		// of them, so checking only values[0] let a schema-violating second
+		// value bypass the declared contract (mirrors the query loop above).
+		for _, value := range values {
+			if param.Schema != nil {
+				result := validator.Validate(value, param.Schema, "header."+param.Name)
+				if !result.Valid {
+					for _, err := range result.Errors {
+						findings = append(findings, engine.Finding{
+							DetectorName: "apivalidation",
+							Description:  fmt.Sprintf("Header '%s': %s", param.Name, err.Message),
+							Score:        result.Score,
+							MatchedValue: value,
+						})
+					}
+				}
+			}
+		}
+	}
+
+	return findings
+}
+
+// validateCookieParameters validates cookie parameters. Cookie params are
+// compiled into route.Parameters but were skipped by every other validator
+// (path/query/header each filter on their own In value), silently
+// unenforcing the declared contract.
+func (l *Layer) validateCookieParameters(ctx *engine.RequestContext, route *RouteInfo, validator *SchemaValidator) []engine.Finding {
+	findings := make([]engine.Finding, 0)
+
+	for _, param := range route.Parameters {
+		if param.In != "cookie" {
+			continue
+		}
+
+		// Cookie names are case-sensitive (RFC 6265) — no canonicalization.
+		// Validate EVERY transmitted value: backend parsers disagree on which
+		// value a repeated name yields (Go first, PHP/Python last), so checking
+		// any single value is attacker-orderable (round 84).
+		values, exists := ctx.Cookies[param.Name]
+		if !exists || len(values) == 0 {
+			if param.Required {
+				findings = append(findings, engine.Finding{
+					DetectorName: "apivalidation",
+					Description:  fmt.Sprintf("Required cookie '%s' is missing", param.Name),
+					Score:        l.config.ViolationScore / 2,
+				})
+			}
+			continue
+		}
+
+		for _, value := range values {
+			if param.Schema != nil {
+				result := validator.Validate(value, param.Schema, "cookie."+param.Name)
+				if !result.Valid {
+					for _, err := range result.Errors {
+						findings = append(findings, engine.Finding{
+							DetectorName: "apivalidation",
+							Description:  fmt.Sprintf("Cookie '%s': %s", param.Name, err.Message),
+							Score:        result.Score,
+							MatchedValue: value,
+						})
+					}
 				}
 			}
 		}
@@ -771,12 +828,20 @@ func (l *Layer) GetSpecs() []*CompiledSpec {
 
 // RemoveSchema removes a loaded schema by source path or by the
 // operator-assigned name (dashboard uploads pass Name in SchemaSource).
+// The path router is rebuilt from the remaining specs: compiled routes live
+// only in the router, so pruning the spec alone left the removed schema's
+// contract enforced indefinitely — the dashboard reported the schema gone
+// while violating requests kept being blocked by its stale routes.
 func (l *Layer) RemoveSchema(name string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	for i, spec := range l.specs {
 		if spec.Source.Path == name || spec.Source.Name == name {
 			l.specs = append(l.specs[:i], l.specs[i+1:]...)
+			l.router = NewPathRouter()
+			for _, s := range l.specs {
+				l.compileRoutes(s)
+			}
 			return true
 		}
 	}
@@ -785,7 +850,10 @@ func (l *Layer) RemoveSchema(name string) bool {
 
 // GetRoute returns route info for a specific path and method.
 func (l *Layer) GetRoute(method, path string) *RouteInfo {
-	return l.router.Match(method, path)
+	l.mu.RLock()
+	router := l.router
+	l.mu.RUnlock()
+	return router.Match(method, path)
 }
 
 // Stats holds API validation statistics.
@@ -799,11 +867,12 @@ type Stats struct {
 func (l *Layer) GetStats() Stats {
 	l.mu.RLock()
 	specsCount := len(l.specs)
+	router := l.router
 	l.mu.RUnlock()
 
 	return Stats{
 		SpecsLoaded:   specsCount,
-		RoutesDefined: len(l.router.routes),
+		RoutesDefined: len(router.routes),
 		CacheSize:     len(l.cache.schemas),
 	}
 }

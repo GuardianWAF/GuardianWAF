@@ -49,8 +49,12 @@ func NewLayer(cfg *Config) (*Layer, error) {
 		}
 		// An all-origins wildcard plus credentials grants credentialed access
 		// to every site: ACAO is reflected (never the literal "*"), so the
-		// browser honors the combination. Fail closed at construction.
-		if cfg.AllowCredentials && origin == "https://*" {
+		// browser honors the combination. Fail closed at construction. The
+		// check is structural (isAllOriginsWildcard) so every scheme spelling
+		// of the all-hosts wildcard is rejected, not just "https://*" — a
+		// spelling like "http://*" or "*://*" normalizes differently but
+		// compiles to the same credentialed every-host regex.
+		if cfg.AllowCredentials && isAllOriginsWildcard(origin) {
 			return nil, errors.New("cors: AllowCredentials with the all-origins wildcard grants credentialed access to every site; use an explicit origin allowlist")
 		}
 		if strings.Contains(origin, "*") {
@@ -109,6 +113,29 @@ func normalizeOrigin(origin string) string {
 		return scheme + "://" + rest
 	}
 	return rest
+}
+
+// isAllOriginsWildcard reports whether the normalized pattern is an
+// all-origins wildcard — the wildcard IS the entire host component — under
+// any scheme spelling: "https://*", "http://*", "*://*", or repeated-star
+// forms like "https://**". compileWildcard turns each of these into a bare
+// `^<scheme>://.+$` regex, so with AllowCredentials the layer would reflect
+// credentialed CORS for every site of that scheme; the scheme spelling must
+// not matter. Scoped patterns ("https://*.example.com") keep a non-star tail
+// and stay allowed.
+func isAllOriginsWildcard(normalized string) bool {
+	idx := strings.Index(normalized, "://")
+	if idx < 0 {
+		return false
+	}
+	scheme, host := normalized[:idx], normalized[idx+3:]
+	if end := strings.IndexAny(host, "/?#"); end >= 0 {
+		host = host[:end]
+	}
+	if host == "" || strings.Trim(host, "*") != "" {
+		return false
+	}
+	return scheme == "http" || scheme == "https" || scheme == "*"
 }
 
 // compileWildcard converts a wildcard pattern to a regex.
@@ -413,8 +440,10 @@ func intToStr(n int) string {
 // UpdateConfig updates the layer configuration at runtime.
 func (l *Layer) UpdateConfig(cfg Config) error {
 	// Validate before mutating state: a rejected config must not half-apply.
+	// Structural check (isAllOriginsWildcard) so every scheme spelling of the
+	// all-hosts wildcard is rejected, matching NewLayer.
 	for _, origin := range cfg.AllowOrigins {
-		if cfg.AllowCredentials && normalizeOrigin(origin) == "https://*" {
+		if cfg.AllowCredentials && isAllOriginsWildcard(normalizeOrigin(origin)) {
 			return errors.New("cors: AllowCredentials with the all-origins wildcard grants credentialed access to every site; use an explicit origin allowlist")
 		}
 	}

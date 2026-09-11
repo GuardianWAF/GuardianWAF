@@ -102,8 +102,10 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 	scan(ctx.NormalizedBody, "body")
 
 	// 4. Cookie values
-	for _, v := range ctx.Cookies {
-		scan(v, "cookie")
+	for _, vals := range ctx.Cookies {
+		for _, v := range vals {
+			scan(v, "cookie")
+		}
 	}
 
 	// 5. Referer header (raw + normalized)

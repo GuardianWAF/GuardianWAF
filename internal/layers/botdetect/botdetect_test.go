@@ -28,7 +28,7 @@ func newTestContext(ua string, clientIP string) *engine.RequestContext {
 		URI:         "/test",
 		Headers:     headers,
 		QueryParams: make(map[string][]string),
-		Cookies:     make(map[string]string),
+		Cookies:     make(map[string][]string),
 		Accumulator: engine.NewScoreAccumulator(2),
 		Metadata:    make(map[string]any),
 		StartTime:   time.Now(),

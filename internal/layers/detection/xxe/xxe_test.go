@@ -123,7 +123,7 @@ func TestDetector_Integration(t *testing.T) {
 		NormalizedBody:  `<?xml version="1.0"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><foo>&xxe;</foo>`,
 		NormalizedQuery: map[string][]string{},
 		Headers:         map[string][]string{},
-		Cookies:         map[string]string{},
+		Cookies:         map[string][]string{},
 	}
 
 	result := det.Process(ctx)
@@ -148,7 +148,7 @@ func TestDetector_NonXMLContentType(t *testing.T) {
 		NormalizedBody:  `<!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>`,
 		NormalizedQuery: map[string][]string{},
 		Headers:         map[string][]string{},
-		Cookies:         map[string]string{},
+		Cookies:         map[string][]string{},
 	}
 
 	result := det.Process(ctx)
@@ -180,7 +180,7 @@ func TestDetector_XMLContentTypes(t *testing.T) {
 				NormalizedBody:  payload,
 				NormalizedQuery: map[string][]string{},
 				Headers:         map[string][]string{},
-				Cookies:         map[string]string{},
+				Cookies:         map[string][]string{},
 			}
 			result := det.Process(ctx)
 			if result.Score < 50 {
@@ -198,7 +198,7 @@ func TestDetector_Disabled(t *testing.T) {
 		NormalizedBody:  `<!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>`,
 		NormalizedQuery: map[string][]string{},
 		Headers:         map[string][]string{},
-		Cookies:         map[string]string{},
+		Cookies:         map[string][]string{},
 	}
 
 	result := det.Process(ctx)
@@ -217,7 +217,7 @@ func TestDetector_Multiplier(t *testing.T) {
 		NormalizedBody:  payload,
 		NormalizedQuery: map[string][]string{},
 		Headers:         map[string][]string{},
-		Cookies:         map[string]string{},
+		Cookies:         map[string][]string{},
 	}
 	result1 := det1.Process(ctx1)
 
@@ -227,7 +227,7 @@ func TestDetector_Multiplier(t *testing.T) {
 		NormalizedBody:  payload,
 		NormalizedQuery: map[string][]string{},
 		Headers:         map[string][]string{},
-		Cookies:         map[string]string{},
+		Cookies:         map[string][]string{},
 	}
 	result2 := det2.Process(ctx2)
 
@@ -507,7 +507,7 @@ func TestDetector_ProcessWithQueryParams(t *testing.T) {
 			"xml": {`<!ENTITY xxe SYSTEM "file:///etc/passwd">`},
 		},
 		Headers: map[string][]string{},
-		Cookies: map[string]string{},
+		Cookies: map[string][]string{},
 	}
 
 	result := det.Process(ctx)
@@ -525,7 +525,7 @@ func TestDetector_ProcessWithBodyString(t *testing.T) {
 		BodyString:      `<!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>`,
 		NormalizedQuery: map[string][]string{},
 		Headers:         map[string][]string{},
-		Cookies:         map[string]string{},
+		Cookies:         map[string][]string{},
 	}
 
 	result := det.Process(ctx)
@@ -543,7 +543,7 @@ func TestDetector_ProcessBodyStringDifferentFromNormalized(t *testing.T) {
 		BodyString:      `<!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>`,
 		NormalizedQuery: map[string][]string{},
 		Headers:         map[string][]string{},
-		Cookies:         map[string]string{},
+		Cookies:         map[string][]string{},
 	}
 
 	result := det.Process(ctx)
@@ -562,7 +562,7 @@ func TestDetector_ProcessBodyStringSameAsNormalized(t *testing.T) {
 		BodyString:      body, // same as NormalizedBody
 		NormalizedQuery: map[string][]string{},
 		Headers:         map[string][]string{},
-		Cookies:         map[string]string{},
+		Cookies:         map[string][]string{},
 	}
 
 	result := det.Process(ctx)

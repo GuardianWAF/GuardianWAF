@@ -19,7 +19,7 @@ func TestProcess_RawFallbackWhenSanitizerDisabled(t *testing.T) {
 			"file": {"../../../../etc/passwd"},
 		},
 		Headers: map[string][]string{},
-		Cookies: map[string]string{},
+		Cookies: map[string][]string{},
 	}
 
 	result := det.Process(ctx)

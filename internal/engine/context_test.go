@@ -360,14 +360,14 @@ func TestCookieExtraction(t *testing.T) {
 	if len(ctx.Cookies) != 3 {
 		t.Errorf("expected 3 cookies, got %d", len(ctx.Cookies))
 	}
-	if ctx.Cookies["session"] != "abc123" {
-		t.Errorf("expected cookie session=abc123, got %s", ctx.Cookies["session"])
+	if got := ctx.Cookies["session"]; len(got) != 1 || got[0] != "abc123" {
+		t.Errorf("expected cookie session=[abc123], got %v", got)
 	}
-	if ctx.Cookies["theme"] != "dark" {
-		t.Errorf("expected cookie theme=dark, got %s", ctx.Cookies["theme"])
+	if got := ctx.Cookies["theme"]; len(got) != 1 || got[0] != "dark" {
+		t.Errorf("expected cookie theme=[dark], got %v", got)
 	}
-	if ctx.Cookies["lang"] != "en" {
-		t.Errorf("expected cookie lang=en, got %s", ctx.Cookies["lang"])
+	if got := ctx.Cookies["lang"]; len(got) != 1 || got[0] != "en" {
+		t.Errorf("expected cookie lang=[en], got %v", got)
 	}
 }
 

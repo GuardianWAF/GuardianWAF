@@ -54,36 +54,44 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 
 	var allFindings []engine.Finding
 
-	// 1. URL path
-	path := ctx.NormalizedPath
-	if path == "" {
-		path = ctx.Path
-	}
-	allFindings = append(allFindings, Detect(path, "path")...)
-
-	// 2. Query parameters (each value separately)
-	qp := ctx.NormalizedQuery
-	if qp == nil {
-		qp = ctx.QueryParams
-	}
-	for _, values := range qp {
-		for _, v := range values {
-			allFindings = append(allFindings, Detect(v, "query")...)
+	// Scan BOTH the raw and the sanitizer-normalized form of every input: the
+	// normalizer decodes evasion encodings, but it can also destroy bytes the
+	// raw form preserves (e.g. a tab collapsed to a space inside
+	// "jav\tascript:"). Mirrors the sibling detectors and their fail-open
+	// guard for a disabled Sanitizer. Identical forms are detected once —
+	// input-level dedup, so multi-tag scores are unaffected.
+	scanInputs := func(location string, forms ...string) {
+		seen := make(map[string]bool, len(forms))
+		for _, form := range forms {
+			if form == "" || seen[form] {
+				continue
+			}
+			seen[form] = true
+			allFindings = append(allFindings, Detect(form, location)...)
 		}
 	}
 
+	// 1. URL path
+	scanInputs("path", ctx.Path, ctx.NormalizedPath)
+
+	// 2. Query parameters (each value separately, both forms)
+	queryForms := make([]string, 0, 8)
+	for _, values := range ctx.QueryParams {
+		queryForms = append(queryForms, values...)
+	}
+	for _, values := range ctx.NormalizedQuery {
+		queryForms = append(queryForms, values...)
+	}
+	scanInputs("query", queryForms...)
+
 	// 3. Body (if present)
-	body := ctx.NormalizedBody
-	if body == "" {
-		body = ctx.BodyString
-	}
-	if body != "" {
-		allFindings = append(allFindings, Detect(body, "body")...)
-	}
+	scanInputs("body", ctx.BodyString, ctx.NormalizedBody)
 
 	// 4. Cookie values
-	for _, v := range ctx.Cookies {
-		allFindings = append(allFindings, Detect(v, "cookie")...)
+	for _, vals := range ctx.Cookies {
+		for _, v := range vals {
+			allFindings = append(allFindings, Detect(v, "cookie")...)
+		}
 	}
 
 	// 5. Referer header

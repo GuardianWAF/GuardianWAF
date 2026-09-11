@@ -484,7 +484,7 @@ func TestDetector_Integration(t *testing.T) {
 			"q": {"' UNION SELECT * FROM users --"},
 		},
 		Headers: map[string][]string{},
-		Cookies: map[string]string{},
+		Cookies: map[string][]string{},
 	}
 
 	result := det.Process(ctx)
@@ -522,7 +522,7 @@ func TestDetector_Disabled(t *testing.T) {
 			"q": {"' OR 1=1 --"},
 		},
 		Headers: map[string][]string{},
-		Cookies: map[string]string{},
+		Cookies: map[string][]string{},
 	}
 
 	result := det.Process(ctx)
@@ -548,7 +548,7 @@ func TestDetector_Multiplier(t *testing.T) {
 			"q": {input},
 		},
 		Headers: map[string][]string{},
-		Cookies: map[string]string{},
+		Cookies: map[string][]string{},
 	}
 	result1 := det1.Process(ctx1)
 
@@ -559,7 +559,7 @@ func TestDetector_Multiplier(t *testing.T) {
 			"q": {input},
 		},
 		Headers: map[string][]string{},
-		Cookies: map[string]string{},
+		Cookies: map[string][]string{},
 	}
 	result2 := det2.Process(ctx2)
 
@@ -581,7 +581,7 @@ func TestDetector_Multiplier(t *testing.T) {
 			"q": {input},
 		},
 		Headers: map[string][]string{},
-		Cookies: map[string]string{},
+		Cookies: map[string][]string{},
 	}
 	result05 := det05.Process(ctx05)
 
@@ -600,7 +600,7 @@ func TestDetector_ScanLocations(t *testing.T) {
 		NormalizedBody:  payload,
 		NormalizedQuery: map[string][]string{},
 		Headers:         map[string][]string{},
-		Cookies:         map[string]string{},
+		Cookies:         map[string][]string{},
 	}
 	result := det.Process(ctx)
 	if result.Score < 90 {
@@ -620,8 +620,8 @@ func TestDetector_ScanLocations(t *testing.T) {
 	ctx2 := &engine.RequestContext{
 		NormalizedQuery: map[string][]string{},
 		Headers:         map[string][]string{},
-		Cookies: map[string]string{
-			"session": payload,
+		Cookies: map[string][]string{
+			"session": {payload},
 		},
 	}
 	result2 := det.Process(ctx2)
@@ -635,7 +635,7 @@ func TestDetector_ScanLocations(t *testing.T) {
 		Headers: map[string][]string{
 			"Referer": {payload},
 		},
-		Cookies: map[string]string{},
+		Cookies: map[string][]string{},
 	}
 	result3 := det.Process(ctx3)
 	if result3.Score < 90 {
@@ -648,7 +648,7 @@ func TestDetector_ScanLocations(t *testing.T) {
 		Headers: map[string][]string{
 			"User-Agent": {payload},
 		},
-		Cookies: map[string]string{},
+		Cookies: map[string][]string{},
 	}
 	result4 := det.Process(ctx4)
 	if result4.Score >= result.Score {

@@ -77,7 +77,7 @@ func TestDetector_Integration(t *testing.T) {
 		QueryParams:     map[string][]string{"tpl": {"{{config.__class__}}"}},
 		NormalizedQuery: map[string][]string{"tpl": {"{{config.__class__}}"}},
 		Headers:         map[string][]string{},
-		Cookies:         map[string]string{},
+		Cookies:         map[string][]string{},
 	}
 	if r := det.Process(ctx); r.Score < 50 || len(r.Findings) == 0 {
 		t.Errorf("Process did not flag SSTI gadget; score=%d findings=%d", r.Score, len(r.Findings))
@@ -94,7 +94,7 @@ func TestDetector_Multiplier(t *testing.T) {
 		QueryParams:     map[string][]string{"q": {"{{7*7}}"}},
 		NormalizedQuery: map[string][]string{"q": {"{{7*7}}"}},
 		Headers:         map[string][]string{},
-		Cookies:         map[string]string{},
+		Cookies:         map[string][]string{},
 	}
 	base := NewDetector(true, 1.0).Process(ctx).Score
 	doubled := NewDetector(true, 2.0).Process(ctx).Score
@@ -110,7 +110,7 @@ func TestDetector_RefererAndCookieScanning(t *testing.T) {
 		NormalizedPath:    "/test",
 		Headers:           map[string][]string{"Referer": {"{{7*7}}"}},
 		NormalizedHeaders: map[string][]string{"Referer": {"{{7*7}}"}},
-		Cookies:           map[string]string{"session": "{{config}}"},
+		Cookies:           map[string][]string{"session": {"{{config}}"}},
 	}
 	r := det.Process(ctx)
 	if r.Score == 0 {
@@ -126,7 +126,7 @@ func TestDetector_SeenDedup(t *testing.T) {
 		QueryParams:     map[string][]string{"q": {"{{7*7}}"}},
 		NormalizedQuery: map[string][]string{"q": {"{{7*7}}"}},
 		Headers:         map[string][]string{},
-		Cookies:         map[string]string{},
+		Cookies:         map[string][]string{},
 	}
 	r := det.Process(ctx)
 	if r.Score == 0 {
@@ -262,4 +262,33 @@ func TestEngineInternalAccess(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestDetect_LeftQuoteProbe(t *testing.T) {
+	// The probe matcher must treat quote-wrapped operands symmetrically:
+	// {{'7'*7}} is the mirror of the already-detected {{7*'7'}} (both are
+	// canonical Jinja2/Twig evaluation probes), but only the right operand
+	// allowed a quote-wrapped literal.
+	attacks := []string{
+		`{{'7'*7}}`,    // Jinja2, quoted left operand
+		`${'7'*7}`,     // JSP/Freemarker probe
+		`<%= '7'*7 %>`, // ERB probe
+	}
+	for _, a := range attacks {
+		total := 0
+		for _, x := range Detect(a, "query") {
+			total += x.Score
+		}
+		if total < 50 {
+			t.Errorf("attack not blocked (score %d < 50): %q", total, a)
+		}
+	}
+
+	// Scope is unchanged: quoted NON-digit operands and variable arithmetic
+	// stay undetected — only numeric literals are probe signatures.
+	for _, b := range []string{`{{'a'*3}}`, `{{price * qty}}`} {
+		if f := Detect(b, "query"); len(f) != 0 {
+			t.Errorf("false positive on benign input %q: %+v", b, f)
+		}
+	}
 }
