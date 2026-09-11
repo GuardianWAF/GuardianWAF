@@ -47,7 +47,7 @@ func TestEncodeCEF(t *testing.T) {
 	if !strings.Contains(line, "cs1=tenant-42") {
 		t.Errorf("missing tenant label: %s", line)
 	}
-	if !strings.Contains(line, "sproc=q=1' OR 1=1") {
+	if !strings.Contains(line, "sproc=q\\=1' OR 1\\=1") {
 		t.Errorf("missing query string: %s", line)
 	}
 	if !strings.Contains(line, "SQL injection pattern detected") {
@@ -96,7 +96,7 @@ func TestEscapeCEF(t *testing.T) {
 		{"hello", "hello"},
 		{"a|b", "a\\|b"},
 		{"a\nb", "a b"},
-		{"a= b", "a= b"}, // = is only special at key boundaries, not in values
+		{"a= b", "a\\= b"}, // '=' is escaped per the CEF spec: spec-compliant SIEMs split extension tokens on the first unescaped '='
 		{"tab\tchar", "tab char"},
 	}
 	for _, tt := range tests {

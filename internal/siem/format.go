@@ -140,6 +140,11 @@ func escapeCEF(s string) string {
 		switch r {
 		case '|':
 			b.WriteString(`\|`)
+		case '=':
+			// CEF extension fields are space-delimited key=value pairs; an
+			// unescaped '=' inside a value lets attacker-controlled input
+			// (query/path/user-agent) forge extension fields on the SIEM.
+			b.WriteString(`\=`)
 		case '\\':
 			b.WriteString(`\\`)
 		case '\n':
