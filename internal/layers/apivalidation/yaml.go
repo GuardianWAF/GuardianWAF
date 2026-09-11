@@ -32,6 +32,9 @@ func parseYAML(data []byte) (any, error) {
 	var indentStack []int
 	var currentKey string
 	var inArray bool
+	var arrayOwner map[string]any // the map the current array hangs under
+	var arrayKey string           // the key currentArray is stored under
+	var lastItemIndent int        // the indent of the most recent "- " array-item line
 
 	lineNum := 0
 	for scanner.Scan() {
@@ -68,27 +71,50 @@ func parseYAML(data []byte) (any, error) {
 
 		if isArrayItem {
 			// Handle array item
+			// This line's indent bounds the item: continuation keys are deeper,
+			// a key at or above this indent exits the item.
+			lastItemIndent = indent
 			if !inArray || currentArray == nil {
 				currentArray = []any{}
 				inArray = true
+				// The array replaces the placeholder map the new-nested branch
+				// stored under currentKey in the PARENT map — so the array's
+				// owner is that parent, not the placeholder itself.
+				if len(stack) > 0 {
+					arrayOwner = stack[len(stack)-1]
+				} else {
+					arrayOwner = currentMap
+				}
+				arrayKey = currentKey
 			}
 
 			if value == "" {
 				// Nested object in array
 				nestedMap := make(map[string]any)
 				currentArray = append(currentArray, nestedMap)
-				if currentMap != nil && currentKey != "" {
-					currentMap[currentKey] = currentArray
+				if arrayOwner != nil && arrayKey != "" {
+					arrayOwner[arrayKey] = currentArray
 				}
 				stack = append(stack, currentMap)
 				indentStack = append(indentStack, indent)
 				currentMap = nestedMap
+			} else if key != "" {
+				// Object array item ("- key: value") — its sibling keys (the
+				// continuation lines at a deeper indent) must land in the same
+				// item object, so append the item and descend into it.
+				itemMap := map[string]any{key: parseYAMLValue(value)}
+				currentArray = append(currentArray, itemMap)
+				if arrayOwner != nil && arrayKey != "" {
+					arrayOwner[arrayKey] = currentArray
+				}
+				stack = append(stack, currentMap)
+				indentStack = append(indentStack, indent)
+				currentMap = itemMap
 			} else {
-				// Simple value in array
 				parsedValue := parseYAMLValue(value)
 				currentArray = append(currentArray, parsedValue)
-				if currentMap != nil && currentKey != "" {
-					currentMap[currentKey] = currentArray
+				if arrayOwner != nil && arrayKey != "" {
+					arrayOwner[arrayKey] = currentArray
 				}
 			}
 		} else if value == "" {
@@ -105,8 +131,15 @@ func parseYAML(data []byte) (any, error) {
 			indentStack = append(indentStack, indent)
 			currentMap = newMap
 			currentKey = key
-			inArray = false
-			currentArray = nil
+			// A nested map inside the current array item (deeper than the item
+			// marker) must not end the item; only a line at or above the item
+			// marker's indent exits it.
+			if inArray && indent <= lastItemIndent {
+				inArray = false
+				currentArray = nil
+				arrayOwner = nil
+				arrayKey = ""
+			}
 		} else {
 			// Key-value pair
 			if currentMap == nil {
@@ -115,8 +148,14 @@ func parseYAML(data []byte) (any, error) {
 			parsedValue := parseYAMLValue(value)
 			currentMap[key] = parsedValue
 			currentKey = key
-			inArray = false
-			currentArray = nil
+			// Same continuation rule as above: deeper-than-item lines are
+			// part of the current array item, not an exit from it.
+			if inArray && indent <= lastItemIndent {
+				inArray = false
+				currentArray = nil
+				arrayOwner = nil
+				arrayKey = ""
+			}
 		}
 	}
 
