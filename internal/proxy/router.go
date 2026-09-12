@@ -159,18 +159,18 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Retry with different targets (skip ones already tried in this request)
-		tried := map[string]bool{target.URL.String(): true}
+		// Retry with different targets. NextExcluding enforces "not already
+		// tried" inside the selector: deterministic strategies (least_conn's
+		// tie-break, ip_hash's same-client hash) would otherwise re-return the
+		// failed target on every call, and skipping after selection consumed
+		// the retry budget while a healthy sibling sat idle.
+		tried := map[*Target]bool{target: true}
 		for attempt := 0; attempt < maxRetries; attempt++ {
-			next := route.Balancer.Next(r)
+			next := route.Balancer.NextExcluding(r, tried)
 			if next == nil {
 				break
 			}
-			nextURL := next.URL.String()
-			if tried[nextURL] {
-				continue // skip already-tried target
-			}
-			tried[nextURL] = true
+			tried[next] = true
 			// Replay the buffered body for this attempt (the previous attempt
 			// consumed the reader).
 			if canReplayBody {

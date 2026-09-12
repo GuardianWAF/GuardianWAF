@@ -39,7 +39,31 @@ func NewBalancer(targets []*Target, strategy string) *Balancer {
 // Next selects the next healthy target based on the load balancing strategy.
 // Returns nil if no healthy targets are available.
 func (b *Balancer) Next(r *http.Request) *Target {
+	return b.NextExcluding(r, nil)
+}
+
+// NextExcluding selects the next healthy target using the balancer strategy,
+// restricted to targets not present in exclude (the targets already tried for
+// this request). Returns nil when every healthy target is excluded.
+//
+// Failover needs the exclusion inside the selector: deterministic strategies
+// otherwise re-select the same already-failed target on every retry call —
+// least_conn tie-breaks to the first healthy target once its active
+// connections drop back to zero, and ip_hash maps the same client IP to the
+// same target — so a retry loop that skips tried targets only after selection
+// starves the healthy siblings and fails requests despite an available
+// backend.
+func (b *Balancer) NextExcluding(r *http.Request, exclude map[*Target]bool) *Target {
 	healthy := b.healthyTargets()
+	if len(exclude) > 0 {
+		filtered := make([]*Target, 0, len(healthy))
+		for _, t := range healthy {
+			if !exclude[t] {
+				filtered = append(filtered, t)
+			}
+		}
+		healthy = filtered
+	}
 	if len(healthy) == 0 {
 		return nil
 	}
