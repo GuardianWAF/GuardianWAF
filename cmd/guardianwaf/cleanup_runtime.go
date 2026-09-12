@@ -41,20 +41,18 @@ func startPeriodicCleanup(eng *engine.Engine, tenantManager any, interval time.D
 	cleanupWG.Add(1)
 	go func() {
 		defer cleanupWG.Done()
-		defer func() {
-			if r := recover(); r != nil {
-				slog.Error("periodic cleanup panic recovered",
-					"panic", r,
-					"stack", string(debug.Stack()))
-			}
-		}()
 
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-ticker.C:
-				runPeriodicCleanup(eng, tenantManager)
+				// Recovery is per-tick, not per-goroutine: a panic in any
+				// layer's cleanup implementation must cost one interval, not
+				// the janitor's lifetime (same restart rationale as the
+				// analyzer/watcher/event-consumer loops; the ticker bounds
+				// the retry rate, so no backoff is needed).
+				runCleanupTick(eng, tenantManager)
 			case <-cleanupStop:
 				return
 			}
@@ -62,6 +60,19 @@ func startPeriodicCleanup(eng *engine.Engine, tenantManager any, interval time.D
 	}()
 
 	return cleanupStop, cleanupWG
+}
+
+// runCleanupTick runs one janitor sweep with panic isolation so the
+// periodic-cleanup goroutine survives a panicking Cleanup implementation.
+func runCleanupTick(eng *engine.Engine, tenantManager any) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("periodic cleanup panic recovered",
+				"panic", r,
+				"stack", string(debug.Stack()))
+		}
+	}()
+	runPeriodicCleanup(eng, tenantManager)
 }
 
 func runPeriodicCleanup(eng *engine.Engine, tenantManager any) {

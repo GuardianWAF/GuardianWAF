@@ -56,6 +56,13 @@ func (a *mcpEngineAdapter) EnableCRSRule(ruleID string, enabled bool) error {
 	if !ok {
 		return fmt.Errorf("CRS layer type mismatch")
 	}
+	// crs.Layer.EnableRule/DisableRule are void and DisableRule records
+	// disabledRules state for ANY id — an unknown or typo'd rule ID must
+	// error here, not report success (same contract as the dashboard's CRS
+	// toggle, bug-hunt round 15).
+	if crsLayer.GetRule(ruleID) == nil {
+		return fmt.Errorf("CRS rule %q not found", ruleID)
+	}
 	if enabled {
 		crsLayer.EnableRule(ruleID)
 	} else {

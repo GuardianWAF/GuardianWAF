@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net"
 
 	"github.com/guardianwaf/guardianwaf/internal/cluster/gossip"
 	"github.com/guardianwaf/guardianwaf/internal/cluster/peersync"
@@ -111,7 +112,7 @@ func setupClusterRuntime(cfg *config.Config, eng *engine.Engine, bctx *layerregi
 			NodeID:        cfg.Cluster.NodeID,
 			Addr:          cfg.Cluster.GossipAddr,
 			RaftAddr:      cfg.Cluster.BindAddr,
-			DashboardAddr: "http://" + cfg.Dashboard.Listen,
+			DashboardAddr: "http://" + clusterDashboardAdvertiseAddr(cfg.Dashboard.Listen, cfg.Cluster.BindAddr),
 			Secret:        clusterSecret,
 		}
 
@@ -152,6 +153,30 @@ func setupClusterRuntime(cfg *config.Config, eng *engine.Engine, bctx *layerregi
 		sm:     sm,
 		api:    api,
 	}, nil
+}
+
+// clusterDashboardAdvertiseAddr returns the host:port other cluster nodes
+// should use to reach this node's dashboard. The dashboard listen address is
+// a BIND address and is typically a wildcard (0.0.0.0/::), which peers cannot
+// dial — a follower's 307 leader-redirect would send clients to their own
+// machine, looping until the client's redirect cap. A wildcard listen
+// therefore falls back to the Raft bind address's host (operators configure a
+// real, routable IP there); an explicit listen host is kept as-is. When both
+// are wildcards no reachable host is derivable and the listen is returned
+// unchanged rather than invented.
+func clusterDashboardAdvertiseAddr(dashboardListen, raftBind string) string {
+	host, port, err := net.SplitHostPort(dashboardListen)
+	if err != nil {
+		return dashboardListen
+	}
+	if host != "" && host != "0.0.0.0" && host != "::" {
+		return net.JoinHostPort(host, port)
+	}
+	rHost, _, rErr := net.SplitHostPort(raftBind)
+	if rErr != nil || rHost == "" || rHost == "0.0.0.0" || rHost == "::" {
+		return net.JoinHostPort(host, port)
+	}
+	return net.JoinHostPort(rHost, port)
 }
 
 // shutdownCluster gracefully stops the cluster subsystem.

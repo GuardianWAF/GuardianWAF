@@ -26,6 +26,16 @@ func wireDashboardRules(dash *dashboard.Dashboard, cfg *config.Config, eng *engi
 			if r.ID == "" {
 				return fmt.Errorf("rule id is required")
 			}
+			// AddRule appends unconditionally, so an existing ID would create a
+			// silent duplicate: Process scores both copies (double score →
+			// false-positive blocks) while Remove/Toggle/Update only touch the
+			// first match, leaving the shadow duplicate live. Updates go through
+			// the PUT route, which honours existence.
+			for _, existing := range rLayer.Rules() {
+				if existing.ID == r.ID {
+					return fmt.Errorf("rule %s already exists", r.ID)
+				}
+			}
 			rLayer.AddRule(r)
 			return nil
 		},
