@@ -1,4 +1,199 @@
-## [Unreleased]
+## [v0.6.0] - 2026-09-12
+
+
+### Features
+
+- **f50ff44** **challenge**: challenge issuance and replay coverage
+- **05704bd** **crs**: SETVAR increment, C3 regression; layer/parser/rule updates
+- **2c9977f** **dlp**: body replay scanning
+- **5f1a71d** **detection**: harden cmdi/lfi/nosqli/sqli/ssrf/xss patterns; openredirect and smuggling coverage
+- **ccfe536** **engine**: pipeline action escalation; response writer and redaction coverage
+- **5ad9206** authenticate gossip and raft peer traffic with HMAC-SHA256
+- **bb8aa6b** **cluster**: add WAL compaction/snapshotting for bounded log growth
+- **e77c470** **raft**: add WAL persistence for cluster restart survival
+- **5da5a8c** **cli**: add 'guardianwaf cluster health' command for scripting
+- **4eaa48c** **cli**: add 'guardianwaf cluster nodes' command
+- **74337b1** **cli**: add `guardianwaf cluster bans` command to list cluster-wide bans
+- **938d5b6** **cluster**: add `cluster ban` and `cluster unban` CLI commands
+- **839497f** **cluster**: add 'cluster status' CLI command for human-readable cluster summary
+- **a181ba0** **cluster**: cluster-aware readiness probe via gossip isolation detection
+- **0b1bf3d** **k8s**: add cluster StatefulSet, headless Service, and PDB manifests for Kubernetes deployment
+- **007d520** **grafana**: add cluster monitoring dashboard with Raft and store metrics
+- **6b53571** **cluster**: propagate DashboardAddr via gossip wire format for leader redirects
+- **bc68c94** **cluster**: leader-redirect for ban/unban requests on followers
+- **2df0d93** **config**: add cluster config validation tests
+- **c8513b7** **metrics**: add cluster Prometheus metrics and test
+- **3b94fdb** **cluster**: wire ProposeBan/ProposeUnban into dashboard ban/unban handlers
+- **cc5001c** integrate gossip membership with Raft for dynamic peer discovery
+- **3900eb0** cluster health dashboard endpoints + status provider wiring
+- **01d12dc** **cluster**: wire clustersync store into WAF request pipeline
+- **0e88f7e** **cluster**: Wire clustersync store into WAF request pipeline
+- **4bf1878** **clustersync**: replicated state store for ban lists, rules, and counters
+- **24e27c4** **cluster**: implement Raft consensus layer with leader election and log replication
+- **bd02f36** **cluster**: SWIM gossip membership protocol
+
+### Bug Fixes
+
+- **e5ab53b** **bug-hunt**: land earlier-series cleanup restart, cluster dashboard advertise-addr, dashboard rules add and CRS toggle MCP fixes
+- **34671ee** **acme**: preserve problem documents, fail fast on challenge rejection, guard nil-client obtain
+- **e99cbce** **docker**: make discovery network fallback deterministic
+- **64c6dfd** **proxy**: retry multi-target failover among untried targets
+- **bb6bf3d** land 25-round audit series — 13 proven defects across 12 packages
+- **4c6c0f4** **bug-hunt**: land earlier-series detection fail-open, header matching, API-key, cookie, CORS and SIEM lifecycle fixes
+- **816b7db** **dashboard**: cap rotate-key request body size
+- **97ddc23** **siem**: escape '=' in CEF extension values to stop log forging
+- **b5edcc2** **virtualpatch**: match every transmitted header value, not just the first
+- **255e51d** **apivalidation**: preserve list-item keys in the YAML schema parser
+- **eebe705** **wizard**: correct CORS/ATO YAML indentation in generated config
+- **90d6165** **apivalidation**: deep-equality enum matching for object and array enums
+- **0a6d877** **dashboard**: reject malformed ban durations instead of silently defaulting to 1h
+- **dde4874** **dashboard**: return 404 for unknown patch IDs in virtual patch updates
+- **4fc2087** **dashboard**: stop fabricating compliance uptime and log-completeness metrics
+- **27f5b81** **ai**: back off analyzer loop restarts after panic
+- **7ece9df** **mcp**: convey inline schema content and strict mode in upload_api_schema
+- **2f2769d** **docker**: return error when the events stream dies instead of hanging forever
+- **50f86dd** **dashboard**: return 503 instead of panicking on disabled billing in tenant billing-detail
+- **eb0c091** **acme**: restart renewal loop with backoff after panic
+- **72bc29b** **compliance**: make GDPR Art.32 DLP control falsifiable
+- **f2e26e4** **docker**: deterministic port selection for unlabeled multi-port containers
+- **a1c7162** **gossip**: harden protocol frame handling and relay path
+- **af8c127** **peersync**: repair peer bridge reconnect loop
+- **123f790** **cluster**: bound Raft startup election timeout
+- **11ce920** **cluster**: close WAL write-path size accounting gap
+- **977669d** **tls**: harden certificate store lifecycle handling
+- **d730578** fix(tls): OCSP response parsing (certStatus/validity window), basic-type enforcement, RFC 6960 request format, and staple policy hardening
+- **b9c6b2d** **bug-hunt**: land twelve-round proof-driven series — detection, parsing, transform, wire-format and lifecycle fixes
+- **84662f8** **config**: reject routes referencing unknown upstreams with zero upstreams
+- **f406c5c** **engine**: prune oldest log generations in numeric order
+- **04fd2ee** **events**: reopen persistence after failed compaction
+- **2ff7ee1** **mcp**: lock apiKey snapshots in stdio handlers (data race)
+- **bb944f8** **cmd**: exit 1 on challenge-init and TLS-listener failures
+- **7e8585c** **acme**: force-renew inside the 30d window; atomic cert/key install; reject non-P-256 keys
+- **064dd04** **gossip**: join/leave callbacks fire on transitions; wire PurgeDead into probeCycle
+- **5df04a3** **raft**: reject stale-term RequestVotes (§5.2); bound WAL snapshot entryCount
+- **bb1232c** **dashboard**: replace stub handler responses with real behavior; persist config mutations with rollback
+- **3ee6aec** **dashboard**: make virtualpatch DELETE disable honestly instead of faking deletion
+- **66f06cd** **websocket**: always run origin gate — empty AllowedOrigins denies browsers (CSWSH)
+- **0a191e8** **config**: reject v4-mapped IPv6 trusted-proxy CIDRs that degenerate to trust-everything
+- **669fa36** **botdetect**: wire error recording through post-process hook
+- **e7e1fb8** **clientside**: match exclusions on path boundary; keep protected paths wide
+- **431a9b1** **ato**: build /24 prefix keys in dotted decimal so subnet entries resolve
+- **8fee0a7** **ato**: record travel state on successful logins
+- **56a45d3** **cors**: reject all-origins wildcard combined with AllowCredentials
+- **a9efecc** **ratelimit**: match and key on normalized path to stop encoding bypass
+- **659f752** **virtualpatch**: flag uncompilable regex patterns at ingestion
+- **3eae4df** **response**: mask adjacent cards inside long digit runs
+- **24a4052** **apivalidation**: enforce additionalProperties and strict mode without properties
+- **ac9f567** **crs**: make from-file operators read their argument files
+- **0b3a3e0** **lfi**: normalize sensitive-path trie entries to lowercase
+- **d31581d** **websocket**: forward takeover leftovers to client; scan assembled continuation messages
+- **fe777fe** **websocket**: never dial client-supplied Host for upgrades
+- **8401f33** **challenge**: reject out-of-range PoW difficulty at construction
+- **0310df8** **docker**: label prefix handling; coverage
+- **fc3bfaf** **regexsafe**: fail-closed regex evaluation with per-regex deadlines
+- **592db7f** **raft**: WAL updates
+- **3f17be0** **dashboard**: auth/session updates
+- **a443591** **proxy**: circuit half-open probe; extra coverage
+- **ffc4567** **ratelimit**: path boundary; coverage
+- **7deb68a** **virtualpatch**: CVE handling; byproduct dedup; C4 regression
+- **9ba38d3** **ato**: form extraction; tracker hardening
+- **12deead** **cors**: origin normalization
+- **0fb5e07** **botdetect**: user-agent scanning; scanner knob coverage
+- **2e530ed** **apisecurity**: api-key hashing and JWT kid claims validation
+- **cd0d8e2** **sanitizer**: encoding-bypass and hop-hop coverage; response masking unicode
+- **f3e9fd5** **proxy**: don't replay consumed bodies on failover of chunked uploads
+- **b81385d** **crs**: strict %-escape validation; count &ARGS values; Go TIME* layouts
+- **f283c75** **dashboard**: clamp audit entries so the persistent log always replays
+- **d23ec35** **mcp**: don't answer JSON-RPC notifications over SSE/JSON transport
+- **7e5d0d7** **raft**: persist candidate self-votes; unstick single-node commits
+- **cfe6245** **ipacl**: validate auto-ban IP inputs
+- **be9e54f** **tenant**: multi-tenant accounting, quota, and lifecycle fixes
+- **1229eec** **gossip**: guard UpdateMember against use-after-shutdown
+- **2fe8ad3** **siem**: honor https scheme prefix on exporter endpoints
+- **8de4b37** **engine**: resume log rotation after a failed rotation cycle
+- **e289fcf** **rules**: canonicalize rule-authored header names for lookups
+- **f33cb04** **threatintel**: enforce DomainRep.BlockMalicious for flagged domains
+- **423cc41** **threatintel**: accumulate CIDR feeds into a union before tree publish
+- **019bf13** resolve proven defects across crs, compliance, geoip, engine, and tenant
+- **54915e0** **crs**: populate ARGS and recognize quoted/negated operators
+- **b4dd220** **crs**: recognize quoted operators - file-loaded rules were inert
+- **92ce3f3** **clustersync**: counter/ban lifecycle and ban duration validation
+- **5e5052d** **mcp**: invalidate authenticated sessions on API-key rotation
+- **198f07f** **tenant**: domain resolution, index consistency, store bootstrap
+- **23c9cc3** cancel gossip suspect timers on Stop so onLeave cannot fire post-shutdown
+- **e94622c** resolve round-3 scan findings (tenant rate window, netutil bare IPv6)
+- **d907f76** resolve round-2 scan findings (ai logger race, email nil panic, SIEM JSON injection, event bus close race, GeoLite2 parsing)
+- **dafbb06** resolve round-1 scan findings (acme race, SMTP MIME, watcher restart)
+- **a51eab8** **config**: enforce strict waf.* key rejection at populate time
+- **b0b1d93** **security**: thread per-request regexsafe deadline through CRS and VirtualPatch
+- **893eb9f** **security**: harden detection engine, auth, rate limiting, and input parsing
+- **af9e2ef** fix WAL filename mismatch and lint warnings
+- **bbfa780** correct WAL filename mismatch (raft.wal not raft-wal.log)
+- **15e28ab** add #nosec G115 annotations for WAL integer conversions
+- **9a3c950** correct #nosec G115 annotation format for gosec
+- **54058a7** **security**: add #nosec G115 annotations for int->uint64 conversions in cluster_status.go
+- **738b674** use errors.Is for errorlint in e2e redirect test
+- **8f47e87** use errors.Is for wrapped error comparison in replication test
+- **b356901** resolve lint shadow warning in cluster_runtime.go
+- **661821a** **virtualpatch**: replace atomic.Value with mutex-protected lastError
+- **9d3d186** check clusterRT.Stop() return value for errcheck lint
+- **ac1f8b8** gofmt + deadcode coverage for cluster integration
+- **4891c59** **clustersync**: remove internal/clustersync from plannedOnlyDirs guard
+- **bdecc1f** **cluster/raft**: fix deadcode findings, stabilize leader election
+- **fb5cba9** **raft**: gosec G115 + lint fixes (conversion helpers, shadow, dead imports)
+- **a79827a** **gossip**: write address bytes in EncodeMembers — addr was length-only
+- **ae83c8b** **gossip**: use correct gosec #nosec G115 directive format
+- **f596093** **cluster/gossip**: fix encoding G115 lint, add public API methods, resolve deadcode
+
+### Documentation
+
+- **065e315** **prod-readiness**: mark B2/B3 transitively closed and verify GH Actions pins
+- **286ea1e** **cmdi**: document M1 checkEncodedNewline FP risk with regression test
+- **46ac14e** **clustering**: comprehensive cluster CLI reference for all 6 subcommands
+- **5670e25** add production readiness checklist to clustering guide
+- **8cbce60** add CLI reference and partition resilience to clustering guide
+- **13582ba** add documentation index page with complete doc links
+- **f6ee73f** add clustering guide and cluster metrics documentation
+- **f0766a7** update ADR index and v0.6.0 roadmap for gossip implementation
+- **e7d715d** v0.6.0 roadmap — cluster sync, canary routing, response cache
+
+### Refactoring
+
+- **f9a0330** **config**: remove inert WAF.MLAnomaly/WAF.APIDiscovery config structs (keep WAF.GraphQL — live)
+- **043742c** **cluster**: use peersync.Bridge, add tests, remove dead bridges
+
+### Tests
+
+- **653b8b2** **dashboard**: drop unused round77 mocks that broke the lint and deadcode gates
+- **f15b9e6** **sqli**: pin documented comment-after-string semantics
+- **2421a9f** **geoip**: extended coverage; remove stale fixture
+- **2befa5a** **websocket**: continuation inspection coverage
+- **7d1e35c** **clientside**: agent dedup and inject index coverage
+- **0a66755** **apivalidation**: content-type bypass, form source, implicit type, JSON detection, ref bypass, schema runes
+- **121fe7e** **config**: ingress exposure, outbound network policy, supply-chain coverage
+- **72d89fe** **gossip**: partition-level failure detection + readiness isolation
+- **0a76cb5** **cluster**: add network partition / split-brain tests
+- **2120bf7** add chaos tests for leader failover during active ban operations
+- **ecf45a3** add 3-node end-to-end cluster flow test (gossip → leader election → ban via follower → 307 redirect → replication)
+- **ee4630e** add cluster ban propagation tests for dashboard handlers
+- **18d87ce** add 3-node cluster integration tests for ban/rule/counter replication
+
+### Chores
+
+- **771ea84** **ci**: suppress AVD-KSV-0109 template false positive and gate the config scan on .trivyignore
+- **2e0e5bc** **ci**: add justified, self-expiring .trivyignore for CVE-2026-14456
+- **4ac3808** **project**: docs reorg, dependabot, release tooling, k8s manifests
+- **a345492** **repo**: clean up repo root and tighten .gitignore
+
+### Other Changes
+
+- **24d9766** upgrade Go toolchain 1.26.5 -> 1.26.6 across all build paths
+- **8ac3434** **dashboard**: bump nanoid to 3.3.18 (GHSA-2v37-7h3g-55p8)
+- **e3da456** **website**: bump browserslist to 4.28.9 (GHSA-c83g-rgw3-j3cx, GHSA-73wf-gq98-2v4g)
+- **a4ea8c9** **website**: bump @humanfs/node to 0.16.8 in lockfile
+- **8b53a15** **pre-commit**: block banned repo-root paths from being tracked
+- **8fb1ca4** fix gofmt in cluster_status.go
+## [v0.5.0] - 2026-08-08
 
 ### Added — v0.5.0 Detection Expansion
 
