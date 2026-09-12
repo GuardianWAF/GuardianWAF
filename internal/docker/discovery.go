@@ -2,6 +2,7 @@ package docker
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 
@@ -122,12 +123,23 @@ func DiscoverFromContainers(containers []Container, prefix, network string) []Di
 		svc.Image = c.Image
 		svc.Status = c.State
 
-		// Get IP from specified network, fallback to any network
+		// Get IP from specified network, fallback to any network. The
+		// fallback sorts network names and takes the first entry with a
+		// non-empty IP: Networks is a map, so ranging it directly made the
+		// chosen IPAddress (and therefore TargetURL and the route the
+		// watcher rebuilds each sync) flip between networks on every call —
+		// the same map-iteration nondeterminism autoDetectPort's port
+		// selection eliminated.
 		if nw, ok := c.NetworkSettings.Networks[network]; ok && nw.IPAddress != "" {
 			svc.IPAddress = nw.IPAddress
 		} else {
-			for _, nw := range c.NetworkSettings.Networks {
-				if nw.IPAddress != "" {
+			names := make([]string, 0, len(c.NetworkSettings.Networks))
+			for name := range c.NetworkSettings.Networks {
+				names = append(names, name)
+			}
+			slices.Sort(names)
+			for _, name := range names {
+				if nw := c.NetworkSettings.Networks[name]; nw.IPAddress != "" {
 					svc.IPAddress = nw.IPAddress
 					break
 				}
