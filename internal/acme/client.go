@@ -306,6 +306,16 @@ func (c *Client) completeAuthorization(authzURL string, handler *HTTP01Handler) 
 		_, _ = io.Copy(io.Discard, io.LimitReader(challengeResp.Body, 1<<20)) //nolint:errcheck // #nosec G104 -- draining body; close error is not actionable
 		_ = challengeResp.Body.Close()                                        //nolint:errcheck // #nosec G104 -- defer close; error is not actionable
 	}()
+	// A non-2xx means the CA refused the challenge trigger (rate limit, order
+	// not ready, rejected identifier). Fail fast with the CA's problem
+	// document: ignoring the status sent the request into the authorization
+	// poll for an authorization that can never turn valid — 60 seconds (the
+	// default poll timeout) ending in a generic timeout instead of the actual
+	// cause. A 2xx proceeds to the poll (normal asynchronous validation).
+	if challengeResp.StatusCode < 200 || challengeResp.StatusCode > 299 {
+		body, _ := readACMEResponse(challengeResp.Body)
+		return fmt.Errorf("challenge request failed (%d) for %s: %s", challengeResp.StatusCode, authz.Identifier.Value, body)
+	}
 
 	// Poll authorization until valid or invalid
 	authzTimeout := c.pollTimeout
@@ -497,29 +507,36 @@ func (c *Client) signedPost(url string, payload any, useJWK bool) (*http.Respons
 	if err != nil {
 		return nil, err
 	}
-	if !isBadNonceResponse(resp) {
+	if resp.StatusCode != http.StatusBadRequest {
 		return resp, nil
 	}
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxACMEResponseBytes)) //nolint:errcheck // #nosec G104 -- rejected response body is discarded
-	_ = resp.Body.Close()                                                       //nolint:errcheck // #nosec G104 -- error is not actionable
-	nonce, err = c.fetchFreshNonce()
+	// A 400 is either a recoverable badNonce or a real problem document.
+	// Either way the body is read exactly once here: badNonce detection needs
+	// the problem type, and the caller still needs the same bytes — handing
+	// back the response with a consumed body destroyed every non-badNonce
+	// 400 detail (callers saw "unexpected end of JSON input" or an empty
+	// detail string instead of the CA's problem document).
+	body, err := readACMEResponse(resp.Body)
+	_ = resp.Body.Close() // #nosec G104 -- close error not actionable
 	if err != nil {
-		return nil, fmt.Errorf("badNonce recovery: %w", err)
+		return nil, fmt.Errorf("reading ACME problem response: %w", err)
 	}
-	return c.postSigned(url, payload, useJWK, nonce)
+	if isBadNonceProblem(body) {
+		nonce, err = c.fetchFreshNonce()
+		if err != nil {
+			return nil, fmt.Errorf("badNonce recovery: %w", err)
+		}
+		return c.postSigned(url, payload, useJWK, nonce)
+	}
+	resp.Body = io.NopCloser(bytes.NewReader(body))
+	resp.ContentLength = int64(len(body))
+	return resp, nil
 }
 
-// isBadNonceResponse reports whether resp is the RFC 8555 §6.5 badNonce
-// problem document. Determining the problem type consumes the body, which is
-// fine: a true return means the caller discards this response and replays.
-func isBadNonceResponse(resp *http.Response) bool {
-	if resp.StatusCode != http.StatusBadRequest {
-		return false
-	}
-	body, err := readACMEResponse(resp.Body)
-	if err != nil {
-		return false
-	}
+// isBadNonceProblem reports whether body is the RFC 8555 §6.5 badNonce
+// problem document. The body is passed in pre-read: badNonce detection must
+// not consume a response the caller still reads when the answer is false.
+func isBadNonceProblem(body []byte) bool {
 	var problem struct {
 		Type string `json:"type"`
 	}

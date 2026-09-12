@@ -98,7 +98,13 @@ func (s *CertDiskStore) loadOrObtain(domains []string, forceRenew bool) (*tls.Ce
 		}
 	}
 
-	// Obtain new cert
+	// Obtain new cert. A nil client means ACME is not configured for this
+	// store (same convention as renewIfNeeded): fail with an explicit error
+	// instead of a nil-receiver panic in the obtain machinery. The cache
+	// branch above still serves valid cached certs when the client is nil.
+	if s.client == nil {
+		return nil, fmt.Errorf("ACME client not configured; cannot obtain certificate for %v", domains)
+	}
 	certPEM, keyPEM, err := obtainCertificate(s.client, domains, s.handler)
 	if err != nil {
 		return nil, fmt.Errorf("obtaining cert for %v: %w", domains, err)
