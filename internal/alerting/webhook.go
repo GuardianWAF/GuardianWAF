@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -259,19 +260,6 @@ func (m *Manager) HandleEvent(event *engine.Event) {
 		}
 	}
 
-	// Prune stale cooldown entries per webhook (keep last 1000)
-	for i := range whooks {
-		wh := &whooks[i]
-		count := 0
-		wh.lastFire.Range(func(key, _ any) bool {
-			count++
-			if count > 1000 {
-				wh.lastFire.Delete(key)
-			}
-			return true
-		})
-	}
-
 	// Process email alerts
 	for _, et := range emails {
 		cfg := et.config
@@ -315,6 +303,58 @@ func (m *Manager) HandleEvent(event *engine.Event) {
 			m.dropped.Add(1)
 			m.failed.Add(1)
 		}
+	}
+
+	// Prune cooldown maps for BOTH target kinds. Expired entries are pure
+	// garbage (the suppression check treats them as absent) and the count
+	// cap keeps the most recent entries by timestamp. The previous prune
+	// covered only webhooks — email maps grew without bound — and evicted by
+	// Go's randomized map iteration order, which could drop fresh suppression
+	// state while retaining expired entries. Running the prune after all
+	// Stores keeps the bounded invariant at return time.
+	for i := range whooks {
+		if cd := whooks[i].cooldown; cd > 0 {
+			pruneCooldownEntries(whooks[i].lastFire, cd, maxCooldownEntries)
+		}
+	}
+	for i := range emails {
+		if cd := emails[i].cooldown; cd > 0 {
+			pruneCooldownEntries(emails[i].lastFire, cd, maxCooldownEntries)
+		}
+	}
+}
+
+// maxCooldownEntries caps per-target cooldown state.
+const maxCooldownEntries = 1000
+
+// pruneCooldownEntries garbage-collects a per-target cooldown map. Entries
+// older than cooldown can never suppress again (the lookup treats them as
+// absent), so they are always deleted; if the map still exceeds max, the
+// OLDEST entries by timestamp are evicted — "keep last N" by recency, not by
+// Go's randomized map iteration order, which could evict fresh suppression
+// state while retaining expired entries.
+func pruneCooldownEntries(m *sync.Map, cooldown time.Duration, max int) {
+	type stamped struct {
+		key any
+		t   time.Time
+	}
+	now := time.Now()
+	live := make([]stamped, 0, 64)
+	m.Range(func(key, val any) bool {
+		t, _ := val.(time.Time)
+		if t.IsZero() || now.Sub(t) >= cooldown {
+			m.Delete(key)
+			return true
+		}
+		live = append(live, stamped{key: key, t: t})
+		return true
+	})
+	if len(live) <= max {
+		return
+	}
+	sort.Slice(live, func(i, j int) bool { return live[i].t.Before(live[j].t) })
+	for _, s := range live[:len(live)-max] {
+		m.Delete(s.key)
 	}
 }
 
