@@ -414,8 +414,14 @@ func checkPrivateIPs(lower, location string) []engine.Finding {
 func checkEncodedIPs(lower, location string) []engine.Finding {
 	var findings []engine.Finding
 
-	// Look for URL-like patterns with potential encoded IPs — scan ALL occurrences
-	urlPrefixes := []string{"http://", "https://"}
+	// Look for URL-like patterns with potential encoded IPs — scan ALL occurrences.
+	// Protocol-relative "//host" URLs are included: a backend fetching a
+	// user-supplied URL relative to its own scheme turns ?url=//2130706433
+	// into https://2130706433, and checkPrivateIPs already scans "//" for
+	// the dotted form. Scheme-tail occurrences (the "//" inside
+	// "http://" / "https://") are skipped so those hosts are not
+	// double-processed.
+	urlPrefixes := []string{"http://", "https://", "//"}
 	for _, prefix := range urlPrefixes {
 		searchFrom := 0
 		for searchFrom < len(lower) {
@@ -424,6 +430,10 @@ func checkEncodedIPs(lower, location string) []engine.Finding {
 				break
 			}
 			idx += searchFrom
+			if prefix == "//" && idx > 0 && lower[idx-1] == ':' {
+				searchFrom = idx + 2
+				continue
+			}
 			hostStart := idx + len(prefix)
 			if hostStart >= len(lower) {
 				break
