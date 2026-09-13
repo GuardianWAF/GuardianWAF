@@ -46,3 +46,25 @@ func TestMCPCRSRuleToggleRejectsUnknownRule(t *testing.T) {
 		t.Fatal("FAIL: unknown rule ID recorded in disabledRules — the fake-success disable wrote phantom toggle state the engine's Process loop consults")
 	}
 }
+
+// Regression (round 74): AddCRSExclusion was the 5th instance of the toggle
+// contract — it called the void crsLayer.DisableRule mutator without an
+// existence check, then appended the raw ruleID to cfg.WAF.CRS.DisabledRules
+// and reloaded: an unknown or typo'd rule ID produced fake success, phantom
+// disabledRules state, and a bogus ID persisting in the live engine config
+// across reloads. Unknown rule IDs must error before any mutation.
+func TestMCPAddCRSExclusionRejectsUnknownRule(t *testing.T) {
+	adapter, crsLayer := newCRSToggleHarness(t)
+
+	if err := adapter.AddCRSExclusion("9.unknown", "/checkout", "card_number", "false positive"); err == nil {
+		t.Fatal("FAIL: AddCRSExclusion returned nil for an unknown rule ID — fake success: DisableRule wrote phantom disabledRules state and the typo'd ID was appended to CRS DisabledRules before the reload")
+	}
+	if !crsLayer.IsRuleEnabled("9.unknown") {
+		t.Fatal("FAIL: unknown rule ID recorded in disabledRules — the fake-success exclusion wrote phantom toggle state the engine's Process loop consults")
+	}
+	for _, id := range adapter.engine.Config().WAF.CRS.DisabledRules {
+		if id == "9.unknown" {
+			t.Fatal("FAIL: unknown rule ID persisted in the live engine config's CRS DisabledRules across the reload")
+		}
+	}
+}

@@ -86,6 +86,14 @@ func (a *mcpEngineAdapter) AddCRSExclusion(ruleID, path, parameter, reason strin
 	if !ok {
 		return fmt.Errorf("CRS layer type mismatch")
 	}
+	// Same toggle contract as EnableCRSRule above (new-series round 3, and
+	// the dashboard's CRS toggle in the prior series' round 15): an unknown
+	// or typo'd rule ID must error here, not fake success — DisableRule
+	// records phantom disabledRules state for any id, and the raw ID would
+	// persist in cfg.WAF.CRS.DisabledRules across reloads.
+	if crsLayer.GetRule(ruleID) == nil {
+		return fmt.Errorf("CRS rule %q not found", ruleID)
+	}
 	crsLayer.DisableRule(ruleID)
 	cfg := a.engine.Config()
 	cfg.WAF.CRS.DisabledRules = append(cfg.WAF.CRS.DisabledRules, ruleID)
