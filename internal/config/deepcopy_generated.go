@@ -427,9 +427,20 @@ func (in *DLPConfig) DeepCopy() *DLPConfig {
 	out.BlockOnMatch = in.BlockOnMatch
 	out.MaskResponse = in.MaskResponse
 	out.MaxBodySize = in.MaxBodySize
+	out.MaxFileSize = in.MaxFileSize
 	if in.Patterns != nil {
 		out.Patterns = make([]string, len(in.Patterns))
 		copy(out.Patterns, in.Patterns)
+	}
+	out.ScanFileUploads = in.ScanFileUploads
+	out.BlockExecutableFiles = in.BlockExecutableFiles
+	out.BlockArchiveFiles = in.BlockArchiveFiles
+	out.BlockDangerousWebExtensions = in.BlockDangerousWebExtensions
+	if in.CustomPatterns != nil {
+		out.CustomPatterns = make(map[string]string, len(in.CustomPatterns))
+		for k, v := range in.CustomPatterns {
+			out.CustomPatterns[k] = v
+		}
 	}
 	return &out
 }

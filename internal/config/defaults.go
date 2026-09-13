@@ -172,13 +172,19 @@ func DefaultConfig() *Config {
 				},
 			},
 			DLP: DLPConfig{
-				Enabled:      false,
-				ScanRequest:  true,
-				ScanResponse: true,
-				BlockOnMatch: false,
-				MaskResponse: true,
-				MaxBodySize:  1024 * 1024, // 1MB
-				Patterns:     []string{"credit_card", "ssn", "api_key", "private_key", "tax_id"},
+				Enabled:                     false,
+				ScanRequest:                 true,
+				ScanResponse:                true,
+				BlockOnMatch:                false,
+				MaskResponse:                true,
+				MaxBodySize:                 1024 * 1024, // 1MB
+				MaxFileSize:                 10 << 20,    // 10MB
+				Patterns:                    []string{"credit_card", "ssn", "api_key", "private_key", "tax_id"},
+				ScanFileUploads:             true,
+				BlockExecutableFiles:        true,
+				BlockArchiveFiles:           false,
+				BlockDangerousWebExtensions: true,
+				CustomPatterns:              map[string]string{},
 			},
 			ZeroTrust: ZeroTrustConfig{
 				Enabled:              false,

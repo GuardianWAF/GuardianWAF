@@ -475,13 +475,19 @@ func buildVirtualPatch(cfg *config.Config) (engine.Layer, error) {
 
 func buildDLP(cfg *config.Config) (engine.Layer, error) {
 	return dlp.NewLayer(&dlp.Config{
-		Enabled:      cfg.WAF.DLP.Enabled,
-		ScanRequest:  cfg.WAF.DLP.ScanRequest,
-		ScanResponse: cfg.WAF.DLP.ScanResponse,
-		BlockOnMatch: cfg.WAF.DLP.BlockOnMatch,
-		MaskResponse: cfg.WAF.DLP.MaskResponse,
-		MaxBodySize:  cfg.WAF.DLP.MaxBodySize,
-		Patterns:     cfg.WAF.DLP.Patterns,
+		Enabled:                     cfg.WAF.DLP.Enabled,
+		ScanRequest:                 cfg.WAF.DLP.ScanRequest,
+		ScanResponse:                cfg.WAF.DLP.ScanResponse,
+		BlockOnMatch:                cfg.WAF.DLP.BlockOnMatch,
+		MaskResponse:                cfg.WAF.DLP.MaskResponse,
+		MaxBodySize:                 cfg.WAF.DLP.MaxBodySize,
+		MaxFileSize:                 cfg.WAF.DLP.MaxFileSize,
+		Patterns:                    cfg.WAF.DLP.Patterns,
+		ScanFileUploads:             cfg.WAF.DLP.ScanFileUploads,
+		BlockExecutableFiles:        cfg.WAF.DLP.BlockExecutableFiles,
+		BlockArchiveFiles:           cfg.WAF.DLP.BlockArchiveFiles,
+		BlockDangerousWebExtensions: cfg.WAF.DLP.BlockDangerousWebExtensions,
+		CustomPatterns:              cfg.WAF.DLP.CustomPatterns,
 	}), nil
 }
 

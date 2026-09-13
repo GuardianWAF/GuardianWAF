@@ -327,13 +327,19 @@ type AIAnalysisConfig struct {
 
 // DLPConfig controls Data Loss Prevention pattern detection.
 type DLPConfig struct {
-	Enabled      bool     `yaml:"enabled"`
-	ScanRequest  bool     `yaml:"scan_request"`
-	ScanResponse bool     `yaml:"scan_response"`
-	BlockOnMatch bool     `yaml:"block_on_match"`
-	MaskResponse bool     `yaml:"mask_response"`
-	MaxBodySize  int      `yaml:"max_body_size"`
-	Patterns     []string `yaml:"patterns"`
+	Enabled                     bool              `yaml:"enabled"`
+	ScanRequest                 bool              `yaml:"scan_request"`
+	ScanResponse                bool              `yaml:"scan_response"`
+	BlockOnMatch                bool              `yaml:"block_on_match"`
+	MaskResponse                bool              `yaml:"mask_response"`
+	MaxBodySize                 int               `yaml:"max_body_size"`
+	MaxFileSize                 int64             `yaml:"max_file_size"`
+	Patterns                    []string          `yaml:"patterns"`
+	ScanFileUploads             bool              `yaml:"scan_file_uploads"`
+	BlockExecutableFiles        bool              `yaml:"block_executable_files"`
+	BlockArchiveFiles           bool              `yaml:"block_archive_files"`
+	BlockDangerousWebExtensions bool              `yaml:"block_dangerous_web_extensions"`
+	CustomPatterns              map[string]string `yaml:"custom_patterns"`
 }
 
 // ZeroTrustConfig controls Zero Trust Network Access settings.
