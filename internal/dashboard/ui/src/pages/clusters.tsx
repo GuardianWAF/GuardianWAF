@@ -28,13 +28,21 @@ export default function ClustersPage() {
         api.getSyncStatus()
       ])
       if (isCancelled()) return
-      setClusters(clustersData)
-      setSyncStats(statsData)
-      setSyncStatus(statusData)
+      // The legacy v0 cluster endpoints (/api/clusters, /api/nodes,
+      // /api/sync/stats, /api/sync/status) answer with wrapper objects
+      // ({clusters:[...]}, {nodes:[...],disabled}, {enabled,message}) rather
+      // than the arrays the lib/api types promise — both when cluster sync is
+      // disabled and enabled. Normalize to the shapes this page renders so a
+      // data load can never crash the page into the error boundary (the
+      // "Cluster Sync" heading vanished whenever the endpoints answered).
+      setClusters(Array.isArray(clustersData) ? clustersData : [])
+      setSyncStats(statsData ?? null)
+      setSyncStatus(statusData ?? null)
 
       // Create nodes lookup map
       const nodesMap: Record<string, { healthy?: boolean; last_seen?: string }> = {}
-      nodesData.forEach(node => {
+      const nodeList = Array.isArray(nodesData) ? nodesData : []
+      nodeList.forEach(node => {
         nodesMap[node.id] = { healthy: node.healthy, last_seen: node.last_seen }
       })
       setNodes(nodesMap)
@@ -90,14 +98,19 @@ export default function ClustersPage() {
   }
 
   const getNodeHealth = (nodeIds: string[]) => {
-    if (nodeIds.length === 0) return { healthy: 0, total: 0 }
+    if (!Array.isArray(nodeIds) || nodeIds.length === 0) return { healthy: 0, total: 0 }
     const healthy = nodeIds.filter(id => nodes[id]?.healthy).length
     return { healthy, total: nodeIds.length }
   }
 
-  const clusterSyncAvailable = clusters.length > 0 || (syncStatus?.nodes.length ?? 0) > 0
+  const clusterSyncAvailable = clusters.length > 0 || (syncStatus?.nodes?.length ?? 0) > 0
 
   const formatNumber = (num: number) => {
+    // The sync-stats endpoint reports no event counters (its payload carries
+    // {enabled,bans,rules,counters} or {enabled,message}), so the fields this
+    // page reads can be absent at runtime. Render an honest 0 instead of
+    // crashing on undefined.toString().
+    if (typeof num !== 'number' || !Number.isFinite(num)) return '0'
     if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M'
     if (num >= 1000) return (num / 1000).toFixed(1) + 'K'
     return num.toString()
@@ -233,7 +246,7 @@ export default function ClustersPage() {
                         </td>
                         <td className="py-3 px-4">
                           <div className="text-sm">
-                            {cluster.nodes.length} node{cluster.nodes.length !== 1 ? 's' : ''}
+                            {health.total} node{health.total !== 1 ? 's' : ''}
                           </div>
                         </td>
                         <td className="py-3 px-4">
@@ -284,7 +297,7 @@ export default function ClustersPage() {
       </Card>
 
       {/* Node Replication Status */}
-      {syncStatus && syncStatus.nodes.length > 0 && (
+      {syncStatus && Array.isArray(syncStatus.nodes) && syncStatus.nodes.length > 0 && (
         <Card>
           <CardHeader>
             <h3 className="text-lg font-semibold">Node Replication Status</h3>
