@@ -340,11 +340,20 @@ func checkPrivateIPs(lower, location string) []engine.Finding {
 			}
 			host := lower[hostStart:hostEnd]
 
-			// Check if host is a private IP
+			// Check if host is a private or loopback IP. Loopback is
+			// classified here rather than skipped: checkLocalhostPatterns
+			// only pins the spellings "http://127.0.0.1" and "http://127.1",
+			// so skipping loopback left every other dotted 127/8 host —
+			// http://127.0.0.2, http://127.8.8.8 — with zero findings, while
+			// the IPv6 branch and the encoded-IP checks flag the same
+			// addresses. 0.0.0.0 stays on the localhost pattern list.
 			ip := ParseIPv4(host)
-			if ip != nil && IsPrivateIP(ip) {
-				// Skip localhost/0.0.0.0 (handled by checkLocalhostPatterns)
-				if !IsLoopback(ip) && !(ip[0] == 0 && ip[1] == 0 && ip[2] == 0 && ip[3] == 0) {
+			if ip != nil {
+				if IsLoopback(ip) {
+					findings = append(findings, makeFinding(65, engine.SeverityHigh,
+						"HTTP request to loopback IP range detected: "+host,
+						extractContext(lower, host), location, 0.80))
+				} else if IsPrivateIP(ip) {
 					findings = append(findings, makeFinding(65, engine.SeverityHigh,
 						"HTTP request to private IP range detected: "+host,
 						extractContext(lower, host), location, 0.80))
