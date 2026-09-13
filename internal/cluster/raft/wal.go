@@ -576,8 +576,20 @@ func decodeWALPayload(payload []byte) (WALRecord, error) {
 
 // appendNoPersist appends an entry to the log WITHOUT triggering the persist
 // callback. Used during WAL replay to avoid recursive writes.
+//
+// A record whose index is already present is SKIPPED. Compaction gathers the
+// in-memory log, and an append whose memory-write landed before the gather but
+// whose WAL persist fired after the snapshot swap writes that entry a second
+// time (a compaction-straddling record): the snapshot is authoritative up to
+// its last entry's index, so replaying the straddler again would duplicate it
+// (the observed 22001-vs-22000 crash-window failure). Indices are dense —
+// Append assigns len+1 — so Index <= len(entries) means already present.
 func (l *LogStore) appendNoPersist(entry LogEntry) {
 	l.mu.Lock()
+	if entry.Index != 0 && entry.Index <= uint64(len(l.entries)) {
+		l.mu.Unlock()
+		return
+	}
 	l.entries = append(l.entries, entry)
 	l.mu.Unlock()
 }
