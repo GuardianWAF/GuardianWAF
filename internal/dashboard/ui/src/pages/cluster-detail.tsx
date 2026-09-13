@@ -29,10 +29,39 @@ export default function ClusterDetailPage() {
         api.getNodes(),
         api.getNodes()
       ])
-      const clusterData = clustersData.find((candidate) => candidate.id === id) ?? null
+      // The legacy v0 cluster endpoints (/api/clusters, /api/nodes) answer
+      // with wrapper objects ({clusters:[...]}, {nodes:[...],disabled})
+      // rather than the arrays the lib/api types promise — both when cluster
+      // sync is disabled and enabled — and the enabled-mode cluster entries
+      // carry no name/nodes/sync_scope. Normalize to the shapes this page
+      // renders so a data load can neither throw into the error toast (every
+      // visit rendered "Cluster not found") nor crash the render into the
+      // error boundary (cluster.nodes.includes on a missing nodes field).
+      const clusterPayload = clustersData as unknown as { clusters?: Cluster[] }
+      const clusterList = Array.isArray(clustersData)
+        ? clustersData
+        : Array.isArray(clusterPayload.clusters)
+          ? clusterPayload.clusters
+          : []
+      const nodesPayload = nodesData as unknown as { nodes?: ClusterNode[] }
+      const nodeList = Array.isArray(nodesData)
+        ? nodesData
+        : Array.isArray(nodesPayload.nodes)
+          ? nodesPayload.nodes
+          : []
+      const knownPayload = allNodesData as unknown as { nodes?: ClusterNode[] }
+      const knownNodes = Array.isArray(allNodesData)
+        ? allNodesData
+        : Array.isArray(knownPayload.nodes)
+          ? knownPayload.nodes
+          : []
+      const candidate = clusterList.find((entry) => entry.id === id) ?? null
+      const clusterData = candidate
+        ? { ...candidate, nodes: Array.isArray(candidate.nodes) ? candidate.nodes : [] }
+        : null
       if (isCancelled()) return
       setCluster(clusterData)
-      setAllNodes(allNodesData)
+      setAllNodes(knownNodes)
       if (!clusterData) {
         setNodes([])
         return
@@ -40,7 +69,7 @@ export default function ClusterDetailPage() {
 
       // Filter nodes that belong to this cluster
       const clusterNodeIds = new Set(clusterData.nodes)
-      const clusterNodes = nodesData.filter(n => clusterNodeIds.has(n.id))
+      const clusterNodes = nodeList.filter(n => clusterNodeIds.has(n.id))
       setNodes(clusterNodes)
     } catch {
       if (!isCancelled()) {
