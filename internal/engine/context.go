@@ -514,9 +514,16 @@ func extractClientIPWithTrustedProxies(r *http.Request, trustedCIDRs []*net.IPNe
 	}
 
 	// Check X-Forwarded-For — walk from right to left, find the rightmost
-	// IP that is NOT a trusted proxy (that's the real client)
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		parts := strings.Split(xff, ",")
+	// IP that is NOT a trusted proxy (that's the real client).
+	// Duplicate X-Forwarded-For header lines are legal and Go preserves them
+	// as separate header-map values; the walk must treat every line as one
+	// list joined in order of appearance, because the rightmost entry
+	// overall is the hop appended last. Reading only the first line let an
+	// attacker-orderable line decide the client IP while the
+	// proxy-appended entry lived in a later line (same family as the
+	// ctx.Cookies / multi-value header capture fixes).
+	if xffLines := r.Header.Values("X-Forwarded-For"); len(xffLines) > 0 {
+		parts := strings.Split(strings.Join(xffLines, ","), ",")
 		for i := len(parts) - 1; i >= 0; i-- {
 			ipStr := strings.TrimSpace(parts[i])
 			ip := net.ParseIP(ipStr)
