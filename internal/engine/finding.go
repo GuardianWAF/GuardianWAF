@@ -1,5 +1,7 @@
 package engine
 
+import "unicode/utf8"
+
 // Severity represents the threat severity level
 type Severity int
 
@@ -46,7 +48,11 @@ func (s Severity) MarshalJSON() ([]byte, error) {
 	return []byte(`"` + s.String() + `"`), nil
 }
 
-// truncateEvidence truncates s if longer than maxLen, appending "..." to indicate truncation
+// truncateEvidence truncates s if longer than maxLen, appending "..." to indicate truncation.
+// The cut point never splits a multi-byte UTF-8 rune: MatchedValue carries
+// attacker-controlled request content that is frequently multi-byte, and a
+// byte-slice at an arbitrary offset would store an invalid final rune in the
+// evidence that flows into events, the dashboard, and traces.
 func truncateEvidence(s string, maxLen int) string {
 	if maxLen <= 0 {
 		return ""
@@ -55,9 +61,17 @@ func truncateEvidence(s string, maxLen int) string {
 		return s
 	}
 	if maxLen <= 3 {
-		return s[:maxLen]
+		cut := maxLen
+		for cut > 0 && !utf8.RuneStart(s[cut]) {
+			cut--
+		}
+		return s[:cut]
 	}
-	return s[:maxLen-3] + "..."
+	cut := maxLen - 3
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "..."
 }
 
 // ApplyMultiplier scales every finding's score by m in place. Detectors use it

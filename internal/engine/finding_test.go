@@ -3,6 +3,7 @@ package engine
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // test helpers for accessing internal state
@@ -36,6 +37,8 @@ func TestTruncateEvidence(t *testing.T) {
 		{"maxLen 2", "hello", 2, "he"},
 		{"maxLen 3", "hello", 3, "hel"},
 		{"maxLen 4 with long input", "hello world", 4, "h..."},
+		{"multi-byte truncated at rune boundary", strings.Repeat("é", 250), 200, strings.Repeat("é", 98) + "..."},
+		{"multi-byte maxLen 1 backs to empty", "éé", 1, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -44,6 +47,28 @@ func TestTruncateEvidence(t *testing.T) {
 				t.Errorf("truncateEvidence(%q, %d) = %q, want %q", tt.input, tt.maxLen, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestTruncateEvidenceValidUTF8 sweeps multi-byte payloads across maxLen
+// values and asserts the truncated evidence is always valid UTF-8 (the cut
+// point must never split a rune) and never exceeds maxLen.
+func TestTruncateEvidenceValidUTF8(t *testing.T) {
+	inputs := []string{
+		strings.Repeat("é", 250),                                      // 2-byte runes
+		strings.Repeat("日", 120),                                      // 3-byte runes
+		"ascii" + strings.Repeat("ü", 150) + strings.Repeat("a", 100), // mixed
+	}
+	for i, in := range inputs {
+		for _, maxLen := range []int{1, 2, 3, 4, 10, 200} {
+			got := truncateEvidence(in, maxLen)
+			if !utf8.ValidString(got) {
+				t.Fatalf("input %d (maxLen %d): truncated evidence is invalid UTF-8: %q", i, maxLen, got)
+			}
+			if len(got) > maxLen {
+				t.Fatalf("input %d (maxLen %d): truncated evidence is %d bytes, exceeds maxLen", i, maxLen, len(got))
+			}
+		}
 	}
 }
 
