@@ -99,8 +99,11 @@ func (ps *PersistentMemoryStore) Store(event engine.Event) error {
 		// silently degrading to ring-only persistence until restart: the
 		// original file is intact (the failed rewrite never renamed), so a
 		// plain append-reopen is safe, and the next threshold crossing
-		// retries compaction.
-		if !ps.closed {
+		// retries compaction. A memory-only store (constructed with an
+		// empty path) has no append handle to recover — OpenFile("") fails
+		// on every call and would count every accepted event as dropped —
+		// so it skips this branch and stores to the ring buffer only.
+		if !ps.closed && ps.path != "" {
 			// #nosec G304 -- event persistence path is operator-selected, NUL-rejected, and cleaned before use.
 			if f, ferr := os.OpenFile(ps.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); ferr == nil {
 				ps.file = f
