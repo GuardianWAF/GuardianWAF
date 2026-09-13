@@ -283,8 +283,31 @@ func (db *DB) StartAutoRefresh(path, downloadURL string, interval time.Duration)
 	return handle.Stop
 }
 
+// runRefreshTick performs one auto-refresh attempt (download + reload).
+// Package-level so tests can inject panics and failures without network
+// access; the refresh loop calls it once per tick.
+var runRefreshTick = func(db *DB, pathErr error, cleanPath, downloadURL string) {
+	if pathErr != nil {
+		geoipLog.Warn("GeoIP refresh path rejected", "err", pathErr)
+		return
+	}
+	// Try to download fresh data
+	if downloadURL != "" {
+		if err := downloadDB(downloadURL, cleanPath); err != nil {
+			geoipLog.Warn("GeoIP download failed", "err", err)
+		} else if err := db.Reload(cleanPath); err != nil {
+			geoipLog.Warn("GeoIP reload after download failed", "err", err)
+		}
+	} else if err := db.Reload(cleanPath); err != nil {
+		geoipLog.Warn("GeoIP reload failed", "err", err)
+	}
+}
+
 // StartAutoRefreshWithContext starts a background refresh goroutine and returns
-// a handle that can stop and wait within a caller-provided context.
+// a handle that can stop and wait within a caller-provided context. The loop
+// restarts after a recovered panic (the ai-analyzer/docker-watcher/
+// acme-renewal convention): a single panicking tick must not permanently kill
+// GeoIP auto-refresh while the handle looks healthy.
 func (db *DB) StartAutoRefreshWithContext(path, downloadURL string, interval time.Duration) *AutoRefreshHandle {
 	cleanPath, pathErr := cleanGeoIPFilePath(path, false)
 	if pathErr != nil {
@@ -299,34 +322,32 @@ func (db *DB) StartAutoRefreshWithContext(path, downloadURL string, interval tim
 	}
 	go func() {
 		defer close(handle.done)
-		defer func() {
-			if r := recover(); r != nil {
-				geoipLog.Error("GeoIP auto-refresh panic recovered", "panic", r)
-			}
-		}()
-		tickerInterval := interval
-		if tickerInterval <= 0 {
-			tickerInterval = 24 * time.Hour
-		}
-		ticker := time.NewTicker(tickerInterval)
-		defer ticker.Stop()
 		for {
-			select {
-			case <-ticker.C:
-				if pathErr != nil {
-					geoipLog.Warn("GeoIP refresh path rejected", "err", pathErr)
-					continue
-				}
-				// Try to download fresh data
-				if downloadURL != "" {
-					if err := downloadDB(downloadURL, cleanPath); err != nil {
-						geoipLog.Warn("GeoIP download failed", "err", err)
-					} else if err := db.Reload(cleanPath); err != nil {
-						geoipLog.Warn("GeoIP reload after download failed", "err", err)
+			// runLoop returns true when the handle was stopped and false when
+			// it exited via a recovered panic (which must restart the loop).
+			stopped := func() (stopped bool) {
+				defer func() {
+					if r := recover(); r != nil {
+						geoipLog.Error("GeoIP auto-refresh panic recovered; restarting refresh loop", "panic", r)
 					}
-				} else if err := db.Reload(cleanPath); err != nil {
-					geoipLog.Warn("GeoIP reload failed", "err", err)
+				}()
+				ticker := time.NewTicker(interval)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-ticker.C:
+						runRefreshTick(db, pathErr, cleanPath, downloadURL)
+					case <-handle.stop:
+						return true
+					}
 				}
+			}()
+			if stopped {
+				return
+			}
+			// Brief, stop-aware backoff before restarting after a panic.
+			select {
+			case <-time.After(geoipRefreshRestartBackoff):
 			case <-handle.stop:
 				return
 			}
@@ -334,6 +355,10 @@ func (db *DB) StartAutoRefreshWithContext(path, downloadURL string, interval tim
 	}()
 	return handle
 }
+
+// geoipRefreshRestartBackoff delays the restart of the refresh loop after a
+// recovered panic so a persistently panicking tick cannot spin the CPU.
+const geoipRefreshRestartBackoff = time.Second
 
 // CountryName returns the full name for a country code.
 func CountryName(code string) string {
