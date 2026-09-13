@@ -7,6 +7,7 @@ import (
 	"mime"
 	"mime/multipart"
 	"net/http"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -79,6 +80,21 @@ func NewLayer(cfg *Config) *Layer {
 
 	// Enable configured patterns only
 	l.configurePatterns(cfg.Patterns)
+
+	// Register operator-configured custom patterns. Config.CustomPatterns is
+	// the documented config surface (yaml: custom_patterns, name -> regex);
+	// without this registration the field was silently ignored and the
+	// registry's custom-pattern capability was unreachable from config.
+	// Invalid regexes are skipped (mirroring configurePatterns' handling of
+	// unknown builtin names); severity is High — operator-defined patterns
+	// are explicit sensitive-data detectors.
+	for name, expr := range cfg.CustomPatterns {
+		re, err := regexp.Compile(expr)
+		if err != nil {
+			continue
+		}
+		l.registry.AddCustomPattern(name, re, SeverityHigh, "***MASKED***")
+	}
 
 	return l
 }
