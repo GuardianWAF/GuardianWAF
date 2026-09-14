@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -299,6 +300,14 @@ func (a *Analyzer) flushBatch() {
 	client := a.client
 	a.mu.Unlock()
 
+	// The batch's own event IPs: the only addresses an AI verdict may ban
+	// (the prompt embeds attacker-influenced event data, so the response is
+	// not trusted to name arbitrary addresses).
+	batchIPs := make(map[string]bool, len(batch))
+	for _, ev := range batch {
+		batchIPs[ev.ClientIP] = true
+	}
+
 	if client == nil {
 		a.log("warn", "AI analyzer: no provider configured, skipping batch")
 		return
@@ -372,14 +381,20 @@ func (a *Analyzer) flushBatch() {
 		len(batch), len(aiResp.Verdicts), usage.TotalTokens, cost))
 
 	// Apply verdicts
-	a.applyVerdicts(aiResp.Verdicts)
+	a.applyVerdicts(aiResp.Verdicts, batchIPs)
 
 	// Store result
 	_ = a.store.AddResult(result)
 }
 
-// applyVerdicts applies AI verdicts (auto-ban for "block" actions).
-func (a *Analyzer) applyVerdicts(verdicts []Verdict) {
+// applyVerdicts applies AI verdicts (auto-ban for "block" actions), but only
+// for IPs the analyzed batch actually contained. The prompt embeds
+// attacker-influenced event data (path, query, user agent), so a manipulated
+// or hallucinating model response must not be able to name an arbitrary
+// address and have the WAF ban it: out-of-batch verdicts are logged and
+// skipped. The AutoBlockEnabled opt-in gate, the 0.7 confidence threshold,
+// and the usage caps remain as configured.
+func (a *Analyzer) applyVerdicts(verdicts []Verdict, batchIPs map[string]bool) {
 	a.mu.RLock()
 	blocker := a.blocker
 	autoBlock := a.config.AutoBlockEnabled
@@ -392,11 +407,36 @@ func (a *Analyzer) applyVerdicts(verdicts []Verdict) {
 
 	for _, v := range verdicts {
 		if v.Action == "block" && v.Confidence >= 0.7 {
+			if !verdictIPInBatch(v.IP, batchIPs) {
+				a.log("warn", "AI verdict for "+v.IP+" rejected: the IP is not part of the analyzed batch")
+				continue
+			}
 			reason := fmt.Sprintf("AI verdict: %s (confidence: %.0f%%)", v.Reason, v.Confidence*100)
 			blocker.AddAutoBan(v.IP, reason, ttl)
 			a.log("info", fmt.Sprintf("AI auto-blocked IP %s: %s", v.IP, v.Reason))
 		}
 	}
+}
+
+// verdictIPInBatch reports whether ip identifies one of the analyzed batch's
+// event IPs: exact match first (the prompt echoes the same ClientIP string
+// the engine recorded), then net.ParseIP-normalized equality so IPv6
+// notation variants of an in-batch address still count while every other
+// address is rejected.
+func verdictIPInBatch(ip string, batchIPs map[string]bool) bool {
+	if batchIPs[ip] {
+		return true
+	}
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return false
+	}
+	for candidate := range batchIPs {
+		if c := net.ParseIP(candidate); c != nil && c.Equal(parsed) {
+			return true
+		}
+	}
+	return false
 }
 
 // ManualAnalyze triggers an immediate analysis with the given events.
@@ -431,6 +471,12 @@ func (a *Analyzer) ManualAnalyze(events []engine.Event) (*AnalysisResult, error)
 			Findings:  findings,
 			TenantID:  ev.TenantID,
 		})
+	}
+
+	// The batch's own event IPs: the only addresses an AI verdict may ban.
+	batchIPs := make(map[string]bool, len(batch))
+	for _, ev := range batch {
+		batchIPs[ev.ClientIP] = true
 	}
 
 	eventsJSON, _ := json.Marshal(batch)
@@ -476,7 +522,7 @@ func (a *Analyzer) ManualAnalyze(events []engine.Event) (*AnalysisResult, error)
 	result.Summary = aiResp.Summary
 	result.ThreatsDetected = aiResp.ThreatsDetected
 
-	a.applyVerdicts(aiResp.Verdicts)
+	a.applyVerdicts(aiResp.Verdicts, batchIPs)
 	_ = a.store.AddResult(*result)
 	return result, nil
 }

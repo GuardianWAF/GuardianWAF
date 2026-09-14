@@ -541,7 +541,7 @@ func TestAnalyzer_ApplyVerdicts_NoBlocker_Cov(t *testing.T) {
 	}, store, "")
 
 	// No blocker set - should be no-op
-	a.applyVerdicts([]Verdict{{IP: "1.2.3.4", Action: "block", Confidence: 0.95}})
+	a.applyVerdicts([]Verdict{{IP: "1.2.3.4", Action: "block", Confidence: 0.95}}, map[string]bool{"1.2.3.4": true})
 	// Should not panic
 }
 
@@ -558,7 +558,7 @@ func TestAnalyzer_ApplyVerdicts_AutoBlockDisabled_Cov(t *testing.T) {
 	var mb mockBlocker
 	a.SetBlocker(&mb)
 
-	a.applyVerdicts([]Verdict{{IP: "1.2.3.4", Action: "block", Confidence: 0.95}})
+	a.applyVerdicts([]Verdict{{IP: "1.2.3.4", Action: "block", Confidence: 0.95}}, map[string]bool{"1.2.3.4": true})
 	if len(mb.calls) != 0 {
 		t.Error("should not block when auto-block disabled")
 	}

@@ -43,7 +43,7 @@ func TestAnalyzer_SetBlocker(t *testing.T) {
 
 	var mb mockBlocker
 	a.SetBlocker(&mb)
-	a.applyVerdicts([]Verdict{{IP: "1.2.3.4", Action: "block", Confidence: 0.85}})
+	a.applyVerdicts([]Verdict{{IP: "1.2.3.4", Action: "block", Confidence: 0.85}}, map[string]bool{"1.2.3.4": true})
 	if len(mb.calls) != 1 || mb.calls[0] != "1.2.3.4" {
 		t.Errorf("expected [1.2.3.4], got %v", mb.calls)
 	}
@@ -289,7 +289,11 @@ func TestAnalyzer_ApplyVerdicts(t *testing.T) {
 		{IP: "9.10.11.12", Action: "monitor", Reason: "watch", Confidence: 0.90}, // not block action
 	}
 
-	a.applyVerdicts(verdicts)
+	// All three verdict IPs belong to the analyzed batch; only the
+	// action/confidence gates decide.
+	batchIPs := map[string]bool{"1.2.3.4": true, "5.6.7.8": true, "9.10.11.12": true}
+
+	a.applyVerdicts(verdicts, batchIPs)
 
 	if len(mb.calls) != 1 || mb.calls[0] != "1.2.3.4" {
 		t.Errorf("expected only 1.2.3.4 blocked, got %v", mb.calls)
