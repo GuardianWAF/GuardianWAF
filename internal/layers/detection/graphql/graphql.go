@@ -450,28 +450,51 @@ func isIdentPart(ch rune) bool {
 // countAliases returns the number of alias definitions (pattern `alias:field`).
 // GraphQL aliasing lets a client request the same field multiple times under
 // different names, forcing the backend to resolve it N times.
+//
+// Aliases exist only inside selection sets: every "ident : ident" pair inside
+// parentheses is a variable definition ($v: Int), a field argument
+// (status: published), or a directive argument (@include(if: true)) — counting
+// those flagged legitimate queries with 11+ variables/arguments as aliasing
+// abuse. Whitespace between the alias name and its colon is also legal
+// GraphQL, so it is skipped rather than allowed to break the match.
 func countAliases(s string) int {
 	count := 0
 	runes := []rune(s)
+	n := len(runes)
 	i := 0
-	for i < len(runes) {
-		// Look for ident:ident pattern (alias syntax).
-		if isIdentStart(runes[i]) {
+	parenDepth := 0
+	for i < n {
+		switch {
+		case runes[i] == '(':
+			parenDepth++
 			i++
-			for i < len(runes) && isIdentPart(runes[i]) {
+		case runes[i] == ')':
+			if parenDepth > 0 {
+				parenDepth--
+			}
+			i++
+		case isIdentStart(runes[i]):
+			i++
+			for i < n && isIdentPart(runes[i]) {
 				i++
 			}
-			if i < len(runes)-1 && runes[i] == ':' && runes[i+1] != ':' {
+			// Whitespace between an alias name and its colon is legal
+			// GraphQL; skip it before testing for the ':'.
+			j := i
+			for j < n && (runes[j] == ' ' || runes[j] == '\t' || runes[j] == '\n' || runes[j] == '\r') {
+				j++
+			}
+			if j < n-1 && runes[j] == ':' && runes[j+1] != ':' {
 				// Skip whitespace after colon.
-				j := i + 1
-				for j < len(runes) && (runes[j] == ' ' || runes[j] == '\t') {
-					j++
+				k := j + 1
+				for k < n && (runes[k] == ' ' || runes[k] == '\t') {
+					k++
 				}
-				if j < len(runes) && isIdentStart(runes[j]) {
+				if parenDepth == 0 && k < n && isIdentStart(runes[k]) {
 					count++
 				}
 			}
-		} else {
+		default:
 			i++
 		}
 	}
