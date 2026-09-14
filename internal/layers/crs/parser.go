@@ -201,6 +201,17 @@ func (p *Parser) parseSecAction(line string) (*Rule, error) {
 func (p *Parser) parseVariables(s string) ([]RuleVariable, error) {
 	vars := []RuleVariable{}
 
+	// splitQuoted keeps each quoted section's surrounding quotes, so a quoted
+	// variables section arrives as "\"ARGS:attack\"". Unquote it BEFORE the
+	// collection/key split — otherwise the collection carries a leading quote
+	// and the key a trailing one, matching no known collection, and the rule
+	// silently resolves nothing (the same family as the operator unquote in
+	// parseOperator).
+	if len(s) >= 2 && strings.HasPrefix(s, "\"") && strings.HasSuffix(s, "\"") {
+		s = s[1 : len(s)-1]
+		s = strings.TrimSpace(s)
+	}
+
 	// Split by | but respect escaped characters
 	parts := splitEscaped(s, '|')
 
