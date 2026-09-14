@@ -172,6 +172,14 @@ func IsLinkLocal(ip IPv4) bool {
 	return ip[0] == 169 && ip[1] == 254
 }
 
+// IsThisNetwork returns true if the IP is in 0.0.0.0/8 (RFC 791 "this
+// network"). Every address in the range dials the local machine on Linux —
+// not just the unspecified address 0.0.0.0 — so the whole range is a local
+// target for SSRF purposes.
+func IsThisNetwork(ip IPv4) bool {
+	return len(ip) == 4 && ip[0] == 0
+}
+
 // IsMetadataEndpoint returns true if the IP matches a known cloud metadata endpoint.
 func IsMetadataEndpoint(ip IPv4) bool {
 	if len(ip) != 4 {

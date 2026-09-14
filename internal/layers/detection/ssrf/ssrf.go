@@ -210,6 +210,8 @@ func checkLocalhostPatterns(lower, location string) []engine.Finding {
 		{"https://127.0.0.1", 80, "HTTPS request to 127.0.0.1 detected"},
 		{"http://0.0.0.0", 85, "HTTP request to 0.0.0.0 detected"},
 		{"https://0.0.0.0", 85, "HTTPS request to 0.0.0.0 detected"},
+		{"http://0", 85, "HTTP request to this-network address 0 detected"},
+		{"https://0", 85, "HTTPS request to this-network address 0 detected"},
 		{"http://[::1]", 85, "HTTP request to IPv6 loopback [::1] detected"},
 		{"https://[::1]", 85, "HTTPS request to IPv6 loopback [::1] detected"},
 		{"http://[0:0:0:0:0:0:0:1]", 85, "HTTP request to IPv6 loopback detected"},
@@ -348,7 +350,8 @@ func checkPrivateIPs(lower, location string) []engine.Finding {
 			}
 			host := lower[hostStart:hostEnd]
 
-			// Check if host is a private, loopback, or link-local IP.
+			// Check if host is a private, loopback, link-local, or
+			// this-network IP.
 			// Loopback is classified here rather than skipped:
 			// checkLocalhostPatterns only pins the spellings
 			// "http://127.0.0.1" and "http://127.1", so skipping loopback
@@ -362,8 +365,12 @@ func checkPrivateIPs(lower, location string) []engine.Finding {
 			// encoded-IP checks flag the encoded spellings — while every
 			// other dotted 169.254/16 host had zero findings, despite
 			// ipcheck.IsLinkLocal existing for exactly this range.
+			// This-network (0/8) is classified here as well:
+			// checkLocalhostPatterns pins only the exact literal 0.0.0.0
+			// (plus the short form "0"), but every address in 0/8 dials the
+			// local machine on Linux — http://0.0.0.2, http://0.13.37.7.
 			ip := ParseIPv4(host)
-			if ip != nil && (IsLoopback(ip) || IsPrivateIP(ip) || IsLinkLocal(ip)) {
+			if ip != nil && (IsLoopback(ip) || IsPrivateIP(ip) || IsLinkLocal(ip) || IsThisNetwork(ip)) {
 				if _, dup := seenHosts[hostStart]; !dup {
 					seenHosts[hostStart] = struct{}{}
 					kind := "private"
@@ -371,6 +378,8 @@ func checkPrivateIPs(lower, location string) []engine.Finding {
 						kind = "loopback"
 					} else if IsLinkLocal(ip) {
 						kind = "link-local"
+					} else if IsThisNetwork(ip) {
+						kind = "this-network"
 					}
 					findings = append(findings, makeFinding(65, engine.SeverityHigh,
 						"HTTP request to "+kind+" IP range detected: "+host,
@@ -415,11 +424,11 @@ func checkPrivateIPs(lower, location string) []engine.Finding {
 			if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
 				ipv6Str := host[1 : len(host)-1]
 				if parsedIP := net.ParseIP(ipv6Str); parsedIP != nil {
-					if parsedIP.IsPrivate() || parsedIP.IsLinkLocalUnicast() || parsedIP.IsLoopback() {
+					if parsedIP.IsPrivate() || parsedIP.IsLinkLocalUnicast() || parsedIP.IsLoopback() || parsedIP.IsUnspecified() {
 						if _, dup := seenV6Hosts[hostStart]; !dup {
 							seenV6Hosts[hostStart] = struct{}{}
 							findings = append(findings, makeFinding(70, engine.SeverityCritical,
-								"HTTP request to IPv6 private/link-local address detected: "+host,
+								"HTTP request to IPv6 private/link-local/unspecified address detected: "+host,
 								extractContext(lower, host), location, 0.85))
 						}
 					}
