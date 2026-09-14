@@ -23,6 +23,8 @@ type Layer struct {
 	scanRequest  bool
 	scanResponse bool
 	mu           sync.RWMutex
+	alerts       []Alert
+	alertSeq     uint64
 }
 
 // Config for DLP layer.
@@ -187,9 +189,12 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 					Location:     "body",
 				})
 			}
+			action := "log"
 			if cfg.BlockOnMatch {
 				result.Action = engine.ActionBlock
+				action = "block"
 			}
+			l.recordAlerts(scanResult.Matches, action, clientIPString(ctx), ctx.Path)
 		}
 	}
 
@@ -285,6 +290,16 @@ func (l *Layer) ScanResponse(body []byte, contentType string) (*ScanResult, []by
 	}
 
 	result := l.scanContent(string(body))
+
+	if len(result.Matches) > 0 {
+		action := "log"
+		if cfg.MaskResponse {
+			action = "mask"
+		}
+		// The response hook has no request context: client and path are
+		// unknown at this seam; the detection itself is still alert-worthy.
+		l.recordAlerts(result.Matches, action, "", "")
+	}
 
 	// Mask response if configured
 	if cfg.MaskResponse && len(result.Matches) > 0 {

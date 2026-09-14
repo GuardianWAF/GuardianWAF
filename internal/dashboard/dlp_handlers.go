@@ -290,7 +290,24 @@ func (a *dlpAdapter) IsEnabled() bool {
 }
 
 func (a *dlpAdapter) GetAlerts(limit int, patternType string) []DLPAlertInfo {
-	return nil // Alert history not exposed in current DLP layer
+	if a.layer == nil {
+		return nil
+	}
+	alerts := a.layer.GetAlerts(limit, patternType)
+	out := make([]DLPAlertInfo, 0, len(alerts))
+	for _, al := range alerts {
+		out = append(out, DLPAlertInfo{
+			ID:           al.ID,
+			Timestamp:    al.Timestamp,
+			PatternType:  al.PatternType,
+			PatternName:  al.PatternName,
+			ClientIP:     al.ClientIP,
+			Path:         al.Path,
+			MatchedValue: al.MatchedValue,
+			Action:       al.Action,
+		})
+	}
+	return out
 }
 
 func (a *dlpAdapter) GetPatterns() []*DLPPatternInfo {
