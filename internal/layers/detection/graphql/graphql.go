@@ -83,14 +83,18 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 		}
 	}
 
-	// Extract the query string from the request.
-	queries := extractQueries(ctx)
+	// Extract the query string from the request. batchOps counts operations
+	// inside a JSON-array body — the only transport that carries multiple
+	// operations. Repeated ?query= parameters, or a query param plus a body,
+	// are ONE ambiguous operation (backends pick first or last), not a
+	// batch: deriving the batch count from len(queries) fired the batch
+	// finding on such requests.
+	queries, batchOps := extractQueries(ctx)
 	if len(queries) == 0 {
 		return engine.LayerResult{}
 	}
 
 	var findings []engine.Finding
-	batchCount := len(queries)
 
 	for _, q := range queries {
 		qFindings := d.analyzeQuery(q)
@@ -98,7 +102,7 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 	}
 
 	// Batch query bomb: multiple operations in one request.
-	if batchCount > 1 {
+	if batchOps > 1 {
 		findings = append(findings, engine.Finding{
 			DetectorName: "graphql",
 			Category:     "graphql-batch-query-bomb",
@@ -125,13 +129,24 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 
 // extractQueries pulls the GraphQL query string(s) from the request, handling
 // three transport formats: raw application/graphql body, JSON-wrapped body,
-// and query parameter.
-func extractQueries(ctx *engine.RequestContext) []string {
+// and query parameter. The second return value counts operations that arrived
+// in a JSON-array body — the only transport carrying multiple operations.
+func extractQueries(ctx *engine.RequestContext) ([]string, int) {
 	var queries []string
+	batchOps := 0
 
-	// 1. Query parameter (GET requests or POST with query in URL).
-	if rawQ, ok := ctx.QueryParams["query"]; ok && len(rawQ) > 0 && strings.TrimSpace(rawQ[0]) != "" {
-		queries = append(queries, rawQ[0])
+	// 1. Query parameter (GET requests or POST with query in URL). EVERY
+	// value must be analyzed: repeated ?query= parameters are legal, and
+	// whether the backend parses first-wins or last-wins is
+	// implementation-dependent — only the attacker knows which value will
+	// execute, so analyzing rawQ[0] alone let the other value carry the
+	// payload past every check.
+	if rawQ, ok := ctx.QueryParams["query"]; ok {
+		for _, q := range rawQ {
+			if strings.TrimSpace(q) != "" {
+				queries = append(queries, q)
+			}
+		}
 	}
 
 	ct := strings.ToLower(ctx.ContentType)
@@ -151,7 +166,7 @@ func extractQueries(ctx *engine.RequestContext) []string {
 				queries = append(queries, body)
 			}
 		}
-		return queries
+		return queries, batchOps
 	}
 
 	// 3. application/json — may contain {"query": "..."} or a batch array.
@@ -162,7 +177,7 @@ func extractQueries(ctx *engine.RequestContext) []string {
 		}
 		body = strings.TrimSpace(body)
 		if body == "" {
-			return queries
+			return queries, batchOps
 		}
 
 		// Try batch first: [{"query":"..."}, ...].
@@ -172,9 +187,10 @@ func extractQueries(ctx *engine.RequestContext) []string {
 				for _, op := range batch {
 					if q, ok := op["query"].(string); ok && strings.TrimSpace(q) != "" {
 						queries = append(queries, q)
+						batchOps++
 					}
 				}
-				return queries
+				return queries, batchOps
 			}
 		}
 
@@ -189,7 +205,7 @@ func extractQueries(ctx *engine.RequestContext) []string {
 		}
 	}
 
-	return queries
+	return queries, batchOps
 }
 
 // tryExtractJSONQuery attempts to parse body as a JSON object and extract the
