@@ -70,9 +70,25 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 		allFindings = append(allFindings, Detect(ctx.BodyString, "body")...)
 	}
 
-	// Check query parameters for XML content
+	// Check query parameters for XML content — the sanitizer-normalized form
+	// plus the raw form whenever the two differ (the body path applies the
+	// same rule to the body). NormalizedQuery is populated only when the
+	// sanitizer layer runs: relying on it alone made query scanning a no-op
+	// whenever the sanitizer was disabled (per-layer toggle or tenant
+	// override), while the raw form is what the engine guarantees every
+	// detector sees.
+	normalizedQuery := make(map[string]struct{}, len(ctx.NormalizedQuery))
 	for _, values := range ctx.NormalizedQuery {
 		for _, v := range values {
+			normalizedQuery[v] = struct{}{}
+			allFindings = append(allFindings, Detect(v, "query")...)
+		}
+	}
+	for _, values := range ctx.QueryParams {
+		for _, v := range values {
+			if _, ok := normalizedQuery[v]; ok {
+				continue
+			}
 			allFindings = append(allFindings, Detect(v, "query")...)
 		}
 	}
