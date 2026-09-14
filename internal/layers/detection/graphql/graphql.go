@@ -600,8 +600,17 @@ func parseFragmentGraph(s string) map[string][]string {
 	i := 0
 
 	for i < n {
-		// Scan for the "fragment" keyword at the start of a token.
-		if i+8 <= n && string(runes[i:i+8]) == "fragment" && (i == 0 || !isIdentPart(runes[i-1])) {
+		// Scan for the "fragment" keyword as a WHOLE token: the character
+		// before it must not continue an identifier (left boundary) and the
+		// character after the 8-char window must not either (right
+		// boundary). Without the right boundary, a legal alias like
+		// "fragmentInfo:" matched the keyword with the phantom name "Info",
+		// and its selection set's spreads were attributed to that phantom —
+		// overwriting the real fragment's adjacency and manufacturing
+		// cycles (85/High) in fully valid queries.
+		if i+8 <= n && string(runes[i:i+8]) == "fragment" &&
+			(i == 0 || !isIdentPart(runes[i-1])) &&
+			(i+8 >= n || !isIdentPart(runes[i+8])) {
 			// Skip "fragment"
 			j := i + 8
 			// Skip whitespace
