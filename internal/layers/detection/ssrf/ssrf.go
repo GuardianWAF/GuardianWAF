@@ -423,7 +423,20 @@ func checkPrivateIPs(lower, location string) []engine.Finding {
 			host := lower[hostStart:hostEnd]
 			if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
 				ipv6Str := host[1 : len(host)-1]
-				if parsedIP := net.ParseIP(ipv6Str); parsedIP != nil {
+				parsedIP := net.ParseIP(ipv6Str)
+				if parsedIP == nil {
+					// Bracketed IPv6 URLs may carry a zone identifier:
+					// "[::1%25eth0]" percent-decodes to "[::1%eth0]" and Go
+					// backends dial bracketed zone forms directly, but
+					// net.ParseIP rejects any zone — which let loopback and
+					// link-local targets behind a zone slip past this branch
+					// unflagged. The zone is opaque to classification: strip
+					// it and re-parse the address part.
+					if i := strings.IndexByte(ipv6Str, '%'); i >= 0 {
+						parsedIP = net.ParseIP(ipv6Str[:i])
+					}
+				}
+				if parsedIP != nil {
 					if parsedIP.IsPrivate() || parsedIP.IsLinkLocalUnicast() || parsedIP.IsLoopback() || parsedIP.IsUnspecified() {
 						if _, dup := seenV6Hosts[hostStart]; !dup {
 							seenV6Hosts[hostStart] = struct{}{}
