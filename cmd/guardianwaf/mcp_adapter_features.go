@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/layers/apivalidation"
 	"github.com/guardianwaf/guardianwaf/internal/layers/clientside"
 	"github.com/guardianwaf/guardianwaf/internal/layers/crs"
@@ -328,9 +329,26 @@ func (a *mcpEngineAdapter) TestAPISchema(method, path, body string) (any, error)
 			"violations": []any{map[string]any{"message": "no route found for " + method + " " + path}},
 		}, nil
 	}
+	// Drive the layer's real production validation pipeline — the same path
+	// live traffic takes, mirroring the dashboard adapter. Route existence
+	// alone said "valid" for ANY body: the body parameter was accepted and
+	// never used, manufacturing pass results for the test tool.
+	ctx := &engine.RequestContext{
+		Method:      method,
+		Path:        path,
+		Body:        []byte(body),
+		BodyString:  body,
+		ContentType: "application/json",
+	}
+	result := apiLayer.Process(ctx)
+	valid := len(result.Findings) == 0 && result.Action != engine.ActionBlock
+	violations := make([]any, 0, len(result.Findings))
+	for _, f := range result.Findings {
+		violations = append(violations, map[string]any{"message": f.Description})
+	}
 	return map[string]any{
-		"valid":      true,
-		"violations": []any{},
+		"valid":      valid,
+		"violations": violations,
 		"route":      route,
 	}, nil
 }
@@ -386,13 +404,30 @@ func (a *mcpEngineAdapter) AddSkimmingDomain(domain string) error {
 }
 
 func (a *mcpEngineAdapter) GetCSPReports(limit int) (any, error) {
-	return map[string]any{"reports": []any{}}, nil
+	cs := clientsideLayerFrom(a.engine)
+	if cs == nil {
+		return map[string]any{"reports": []any{}}, nil
+	}
+	reports := cs.Reports()
+	if limit > 0 && len(reports) > limit {
+		reports = reports[len(reports)-limit:]
+	}
+	return map[string]any{"reports": reports}, nil
 }
 
 func (a *mcpEngineAdapter) GetDLPAlerts(limit int, patternType string) (any, error) {
+	dlpLayer, ok := a.engine.FindLayer("dlp").(*dlp.Layer)
+	if !ok {
+		return map[string]any{
+			"enabled": a.cfg.WAF.DLP.Enabled,
+			"alerts":  []any{},
+		}, nil
+	}
+	alerts := dlpLayer.GetAlerts(limit, patternType)
 	return map[string]any{
-		"enabled": a.cfg.WAF.DLP.Enabled,
-		"alerts":  []any{},
+		"enabled": true,
+		"alerts":  alerts,
+		"count":   len(alerts),
 	}, nil
 }
 

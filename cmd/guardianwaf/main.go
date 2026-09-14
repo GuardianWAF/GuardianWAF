@@ -262,7 +262,7 @@ func cmdServe(args []string) {
 	// Mount challenge verification endpoint
 	registerChallengeHandler(serveMux, challengeSvc)
 
-	registerClientSideReportHandlers(serveMux)
+	registerClientSideReportHandlers(serveMux, clientsideLayerFrom(eng))
 
 	// Mount upstream proxy or default handler
 	var proxyRuntimeMu sync.RWMutex
@@ -516,7 +516,7 @@ func cmdSidecar(args []string) {
 
 	// Build handler with probe and metrics endpoints
 	mux := http.NewServeMux()
-	registerClientSideReportHandlers(mux)
+	registerClientSideReportHandlers(mux, clientsideLayerFrom(eng))
 
 	proxyHandler, sidecarRouter, sidecarHealthCheckers := buildProxyRuntime(cfg, sidecarNoUpstreamHandler())
 	registerMetricsHandlerWithDeps(mux, eng, metricsDependencies{
