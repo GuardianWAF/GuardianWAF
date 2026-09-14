@@ -186,11 +186,16 @@ func (vr *VariableResolver) resolveArgs(key string, keyRegex bool, count bool) (
 
 	// Specific key lookup
 	if keyRegex {
-		// Regex key matching
+		// Regex key matching: /pattern/ selectors parse to KeyRegex with the
+		// pattern as Key. Matched through the bounded regex cache; an invalid
+		// pattern selects nothing (fail-soft, like operator errors).
+		re, err := getCachedRegex(key)
+		if err != nil {
+			return []string{}, nil
+		}
 		var values []string
 		for argKey, vals := range vr.transaction.RequestArgs {
-			// Simple wildcard matching for now
-			if matched, _ := matchWildcard(argKey, key); matched {
+			if re.MatchString(argKey) {
 				values = append(values, vals...)
 			}
 		}
@@ -228,10 +233,15 @@ func (vr *VariableResolver) resolveHeaders(key string, keyRegex bool, headers ma
 	headerKey := http.CanonicalHeaderKey(key)
 
 	if keyRegex {
-		// Regex key matching
+		// Regex key matching (see resolveArgs): bounded cache, fail-soft on
+		// an invalid pattern.
+		re, err := getCachedRegex(key)
+		if err != nil {
+			return []string{}, nil
+		}
 		var values []string
 		for hKey, vals := range headers {
-			if matched, _ := matchWildcard(hKey, key); matched {
+			if re.MatchString(hKey) {
 				values = append(values, vals...)
 			}
 		}
@@ -262,10 +272,15 @@ func (vr *VariableResolver) resolveCookies(key string, keyRegex bool, count bool
 	}
 
 	if keyRegex {
-		// Regex key matching
+		// Regex key matching (see resolveArgs): bounded cache, fail-soft on
+		// an invalid pattern.
+		re, err := getCachedRegex(key)
+		if err != nil {
+			return []string{}, nil
+		}
 		var values []string
 		for cookieKey, val := range vr.transaction.RequestCookies {
-			if matched, _ := matchWildcard(cookieKey, key); matched {
+			if re.MatchString(cookieKey) {
 				values = append(values, val)
 			}
 		}

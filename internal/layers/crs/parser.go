@@ -518,22 +518,20 @@ func (p *Parser) splitQuoted(s string) []string {
 }
 
 // splitEscaped splits a string by separator respecting escaped characters.
+// Only an escaped separator is unescaped ("\|" -> "|"); every other
+// backslash sequence passes through verbatim, so regex key selectors like
+// /^id_\d+$/ survive parsing with their metacharacters intact.
 func splitEscaped(s string, sep byte) []string {
 	var parts []string
 	var current strings.Builder
-	escaped := false
 
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 
-		if escaped {
-			current.WriteByte(c)
-			escaped = false
-			continue
-		}
-
-		if c == '\\' {
-			escaped = true
+		if c == '\\' && i+1 < len(s) && s[i+1] == sep {
+			// Escaped separator: emit the separator, skip the backslash.
+			current.WriteByte(sep)
+			i++
 			continue
 		}
 
