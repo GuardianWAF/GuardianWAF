@@ -179,9 +179,22 @@ func (db *Database) AddCVE(entry *CVEEntry) {
 		}
 	}
 
-	// Index patches
+	// Index patches. The rolling NVD window re-delivers every CVE on every
+	// refresh; re-indexing must not wipe operator state — carry Enabled, the
+	// review/apply metadata, and hit stats from the existing stored patch
+	// onto the fresh copy (fresh feed data updates content, not decisions).
 	for _, patch := range entry.Patches {
 		patchCopy := patch
+		if existing, ok := db.patches[patch.ID]; ok {
+			patchCopy.Enabled = existing.Enabled
+			patchCopy.ReviewStatus = existing.ReviewStatus
+			patchCopy.ReviewedAt = existing.ReviewedAt
+			patchCopy.ReviewedBy = existing.ReviewedBy
+			patchCopy.AppliedAt = existing.AppliedAt
+			patchCopy.AppliedBy = existing.AppliedBy
+			patchCopy.Hits = existing.Hits
+			patchCopy.LastHit = existing.LastHit
+		}
 		db.patches[patch.ID] = &patchCopy
 	}
 }
@@ -248,8 +261,14 @@ func (db *Database) SetPatchEnabledBy(patchID string, enabled bool, actor string
 		patch.ReviewStatus = "applied"
 		patch.AppliedAt = &now
 		patch.AppliedBy = actor
-	} else if patch.ReviewStatus != "pending_review" {
+	} else {
+		// An explicit disable is itself a review decision ("reviewed and
+		// rejected") and must be durably recorded — including on patches
+		// still in pending_review, whose decision otherwise leaves no
+		// metadata for re-ingestion to carry forward.
 		patch.ReviewStatus = "disabled"
+		patch.ReviewedAt = &now
+		patch.ReviewedBy = actor
 	}
 	return true
 }
