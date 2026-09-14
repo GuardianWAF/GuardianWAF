@@ -315,6 +315,14 @@ func checkPrivateIPs(lower, location string) []engine.Finding {
 
 	// Extract URL-like patterns and check for private IPs
 	urlPrefixes := []string{"http://", "https://", "//"}
+	// The prefix list overlaps ("http://" contains "//"), so a scheme-ful
+	// host is reached by its own scheme loop and again by the "//" loop.
+	// Candidates are deduped by absolute host position so each occurrence is
+	// classified at most once — a shape guard ("//" right after ':') cannot
+	// express "already classified": it would also drop non-http(s)
+	// scheme-ful hosts (ssh://10.0.0.5) and nested schemes
+	// (http://http://10.0.0.5) that only the "//" loop reaches.
+	seenHosts := make(map[int]struct{})
 
 	for _, prefix := range urlPrefixes {
 		idx := 0
@@ -348,14 +356,15 @@ func checkPrivateIPs(lower, location string) []engine.Finding {
 			// the IPv6 branch and the encoded-IP checks flag the same
 			// addresses. 0.0.0.0 stays on the localhost pattern list.
 			ip := ParseIPv4(host)
-			if ip != nil {
-				if IsLoopback(ip) {
+			if ip != nil && (IsLoopback(ip) || IsPrivateIP(ip)) {
+				if _, dup := seenHosts[hostStart]; !dup {
+					seenHosts[hostStart] = struct{}{}
+					kind := "private"
+					if IsLoopback(ip) {
+						kind = "loopback"
+					}
 					findings = append(findings, makeFinding(65, engine.SeverityHigh,
-						"HTTP request to loopback IP range detected: "+host,
-						extractContext(lower, host), location, 0.80))
-				} else if IsPrivateIP(ip) {
-					findings = append(findings, makeFinding(65, engine.SeverityHigh,
-						"HTTP request to private IP range detected: "+host,
+						"HTTP request to "+kind+" IP range detected: "+host,
 						extractContext(lower, host), location, 0.80))
 				}
 			}
@@ -365,6 +374,7 @@ func checkPrivateIPs(lower, location string) []engine.Finding {
 	}
 
 	// Check IPv6 private/link-local addresses (handles [fc00::1], [fe80::1], etc.)
+	seenV6Hosts := make(map[int]struct{})
 	for _, prefix := range urlPrefixes {
 		idx := 0
 		for {
@@ -397,9 +407,12 @@ func checkPrivateIPs(lower, location string) []engine.Finding {
 				ipv6Str := host[1 : len(host)-1]
 				if parsedIP := net.ParseIP(ipv6Str); parsedIP != nil {
 					if parsedIP.IsPrivate() || parsedIP.IsLinkLocalUnicast() || parsedIP.IsLoopback() {
-						findings = append(findings, makeFinding(70, engine.SeverityCritical,
-							"HTTP request to IPv6 private/link-local address detected: "+host,
-							extractContext(lower, host), location, 0.85))
+						if _, dup := seenV6Hosts[hostStart]; !dup {
+							seenV6Hosts[hostStart] = struct{}{}
+							findings = append(findings, makeFinding(70, engine.SeverityCritical,
+								"HTTP request to IPv6 private/link-local address detected: "+host,
+								extractContext(lower, host), location, 0.85))
+						}
 					}
 				}
 			}
