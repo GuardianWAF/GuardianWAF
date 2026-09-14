@@ -3,6 +3,7 @@ package clientside
 
 import (
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +18,7 @@ type Layer struct {
 	stats    Stats
 	mu       sync.RWMutex
 	enabled  bool
+	reports  *ReportHandler
 }
 
 // Stats holds client-side protection statistics.
@@ -43,6 +45,7 @@ func NewLayer(cfg *Config) *Layer {
 		config:   cfg,
 		patterns: CompilePatterns(&cfg.MagecartDetection),
 		enabled:  cfg.Enabled,
+		reports:  NewReportHandler(),
 	}
 }
 
@@ -492,6 +495,32 @@ func (l *Layer) AddSkimmingDomain(domain string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.patterns.KnownSkimmingDomains[domain] = true
+}
+
+// ReportHandler returns the layer's report intake. The runtime mounts it at
+// /_guardian/report and /_guardian/csp-report: the layer's own CSP header
+// emits the report-uri directive that makes browsers send these reports, so
+// the layer must own the store they land in — a handler created beside the
+// mux would collect reports no reader could ever reach.
+func (l *Layer) ReportHandler() *ReportHandler { return l.reports }
+
+// Reports returns a copy of all collected client reports.
+func (l *Layer) Reports() []ClientReport { return l.reports.Reports() }
+
+// GetSkimmingDomains returns a sorted copy of the known skimming domains —
+// config-loaded plus runtime-added. The dashboard's skimming-domains list
+// endpoint reads through this getter, so it must observe exactly the state
+// AddSkimmingDomain writes; a copy under the read lock keeps the internal
+// map unreachable and the output deterministic.
+func (l *Layer) GetSkimmingDomains() []string {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	domains := make([]string, 0, len(l.patterns.KnownSkimmingDomains))
+	for domain := range l.patterns.KnownSkimmingDomains {
+		domains = append(domains, domain)
+	}
+	sort.Strings(domains)
+	return domains
 }
 
 func minInt(a, b int) int {

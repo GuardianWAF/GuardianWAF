@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 
@@ -221,6 +222,9 @@ func (a *clientSideAdapter) GetStats() ClientSideStats {
 }
 
 func (a *clientSideAdapter) GetBlockedDomains() []string {
+	if a.layer != nil {
+		return a.layer.GetSkimmingDomains()
+	}
 	return nil
 }
 
@@ -231,7 +235,53 @@ func (a *clientSideAdapter) AddBlockedDomain(domain string) {
 }
 
 func (a *clientSideAdapter) GetCSPReports(limit int) []CSPReportInfo {
-	return nil
+	if a.layer == nil {
+		return nil
+	}
+	reports := a.layer.Reports()
+	out := make([]CSPReportInfo, 0, len(reports))
+	for _, r := range reports {
+		if r.Type != "csp_violation" {
+			continue
+		}
+		out = append(out, cspReportInfoFrom(r))
+	}
+	// The most recent reports are the actionable ones: keep the tail.
+	if limit > 0 && len(out) > limit {
+		out = out[len(out)-limit:]
+	}
+	return out
+}
+
+// cspReportInfoFrom maps a stored client report to the dashboard's CSP
+// shape. ServeCSPReport stores the browser's classic {"csp-report":{...}}
+// body verbatim under Data["raw"], so the fields are parsed back out here;
+// DocumentURI falls back to the ingest-time Referer when the body lacks one.
+func cspReportInfoFrom(r clientside.ClientReport) CSPReportInfo {
+	info := CSPReportInfo{Timestamp: r.TS, DocumentURI: r.URL}
+	raw, _ := r.Data["raw"].(string)
+	var body map[string]any
+	if raw == "" || json.Unmarshal([]byte(raw), &body) != nil {
+		return info
+	}
+	if inner, ok := body["csp-report"].(map[string]any); ok {
+		body = inner
+	}
+	str := func(keys ...string) string {
+		for _, k := range keys {
+			if v, ok := body[k].(string); ok && v != "" {
+				return v
+			}
+		}
+		return ""
+	}
+	if v := str("document-uri"); v != "" {
+		info.DocumentURI = v
+	}
+	info.BlockedURI = str("blocked-uri")
+	info.ViolatedDir = str("violated-directive", "effective-directive")
+	info.SourceFile = str("source-file")
+	return info
 }
 
 // ClientSideLayerInterface defines the interface for client-side protection layer operations
