@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -244,11 +245,24 @@ func (fs *FileStore) checkRotation() {
 		fs.dropped.Add(1)
 	}
 
-	// Rename current file with timestamp
+	// Rename current file with timestamp.
 	ts := time.Now().Format("20060102-150405")
 	ext := filepath.Ext(fp)
 	base := strings.TrimSuffix(fp, ext)
 	rotatedName := base + "-" + ts + ext
+	// Second-granularity names collide when two rotations happen within one
+	// wall-clock second (the single writeLoop goroutine can rotate a small
+	// maxSize file back-to-back), and os.Rename silently REPLACES an existing
+	// regular-file destination — destroying the earlier rotation's events
+	// without any error or dropped-counter increment. Bump a numeric suffix
+	// over occupied names. A directory destination is left untouched so the
+	// rename below still fails into the existing recovery path.
+	for i := 1; ; i++ {
+		if info, err := os.Stat(rotatedName); err != nil || info.IsDir() {
+			break
+		}
+		rotatedName = base + "-" + ts + "-" + strconv.Itoa(i) + ext
+	}
 
 	var newFile *os.File
 	if renameErr := os.Rename(fp, rotatedName); renameErr != nil {
