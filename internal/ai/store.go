@@ -347,7 +347,11 @@ func (s *Store) GetUsage() UsageStats {
 	if now.After(s.data.Usage.DayResetAt) {
 		s.data.Usage.TokensUsedDay = 0
 		s.data.Usage.RequestsDay = 0
-		s.data.Usage.DayResetAt = now.Truncate(24 * time.Hour).Add(24 * time.Hour)
+		// The usage day is the UTC day, independent of the server's local
+		// zone, so quotas roll identically across deployments. time.Truncate
+		// already anchors to UTC midnight (the absolute zero time); .UTC()
+		// states that intent.
+		s.data.Usage.DayResetAt = now.UTC().Truncate(24 * time.Hour).Add(24 * time.Hour)
 	}
 
 	return s.data.Usage
@@ -369,7 +373,11 @@ func (s *Store) TrackUsage(tokens int) {
 	if now.After(s.data.Usage.DayResetAt) {
 		s.data.Usage.TokensUsedDay = 0
 		s.data.Usage.RequestsDay = 0
-		s.data.Usage.DayResetAt = now.Truncate(24 * time.Hour).Add(24 * time.Hour)
+		// The usage day is the UTC day, independent of the server's local
+		// zone, so quotas roll identically across deployments. time.Truncate
+		// already anchors to UTC midnight (the absolute zero time); .UTC()
+		// states that intent.
+		s.data.Usage.DayResetAt = now.UTC().Truncate(24 * time.Hour).Add(24 * time.Hour)
 	}
 
 	s.data.Usage.TokensUsedHour += int64(tokens)

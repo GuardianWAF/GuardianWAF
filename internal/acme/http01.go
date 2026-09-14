@@ -24,6 +24,7 @@ type HTTP01Handler struct {
 const (
 	acmeRateLimit  = 10 // max requests per window per IP
 	acmeRateWindow = 60 * time.Second
+	acmeRateMaxIPs = 4096 // hard cap on tracked IPs — see allow()
 )
 
 // NewHTTP01Handler creates a new HTTP-01 challenge handler.
@@ -127,6 +128,18 @@ func (h *HTTP01Handler) allow(r *http.Request) bool {
 			if !recent {
 				delete(h.rlReqs, k)
 			}
+		}
+	}
+
+	// Hard cap: a wide IP rotation keeps every entry "recent" (the sweep
+	// above deletes nothing) and grows the map with the attacker's IP budget
+	// while every request pays the O(n) sweep. Evict arbitrary entries once
+	// over the cap — losing some rate-limit tracking under a distributed
+	// flood is the correct degradation for a challenge endpoint.
+	for len(h.rlReqs) > acmeRateMaxIPs {
+		for k := range h.rlReqs {
+			delete(h.rlReqs, k)
+			break
 		}
 	}
 

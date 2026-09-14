@@ -176,11 +176,12 @@ func NewEngine(cfg *config.Config, eventStore EventStorer, eventBus EventPublish
 	e.logThreshold.Store(logThreshold)
 
 	// Configure trusted proxies for X-Forwarded-For handling. The engine keeps
-	// an instance-local copy so multiple Engine instances cannot overwrite each
-	// other's client IP trust model through package-global state.
+	// an instance-local copy and publishes ONLY to it: construction and reload
+	// never touch the package-global (SetTrustedProxies is an embedder API), so
+	// one engine's trust model cannot leak into another's per-request context
+	// (Middleware pins ctx.ClientIP to the instance below).
 	proxyCIDRs := parseTrustedProxyCIDRs(cfg.TrustedProxies)
 	e.trustedProxyCIDRs.Store(proxyCIDRs)
-	SetTrustedProxies(cfg.TrustedProxies)
 
 	// Initialize empty pipeline
 	e.pipeline.Store(NewPipeline())
@@ -738,7 +739,6 @@ func (e *Engine) Reload(cfg *config.Config) error {
 	e.maxBodySize.Store(e.cfg.WAF.Sanitizer.MaxBodySize)
 	proxyCIDRs := parseTrustedProxyCIDRs(e.cfg.TrustedProxies)
 	e.trustedProxyCIDRs.Store(proxyCIDRs)
-	SetTrustedProxies(e.cfg.TrustedProxies)
 	if err := e.tracer.Reconfigure(tracingConfig(e.cfg)); err != nil {
 		return fmt.Errorf("configure tracing: %w", err)
 	}

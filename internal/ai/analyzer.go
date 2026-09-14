@@ -10,6 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 )
@@ -591,5 +592,12 @@ func truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
 	}
-	return s[:maxLen] + "..."
+	// Walk the cut back to a rune boundary: a raw byte slice could split a
+	// multi-byte rune and put an invalid sequence into the AI prompt (the
+	// same rationale as engine.truncateEvidence).
+	cut := maxLen
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "..."
 }
