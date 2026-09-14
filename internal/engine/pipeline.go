@@ -48,7 +48,10 @@ func NewPipeline(layers ...OrderedLayer) *Pipeline {
 		layers: make([]OrderedLayer, len(layers)),
 	}
 	copy(p.layers, layers)
-	sort.Slice(p.layers, func(i, j int) bool {
+	// SliceStable (not Slice): with distinct Order values the sort is total,
+	// but an accidental future tie must resolve to ADD ORDER, not to Go's
+	// unstable introsort — the registry display and the runtime must agree.
+	sort.SliceStable(p.layers, func(i, j int) bool {
 		return p.layers[i].Order < p.layers[j].Order
 	})
 	return p
@@ -208,7 +211,10 @@ func (p *Pipeline) AddLayer(ol OrderedLayer) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.layers = append(p.layers, ol)
-	sort.Slice(p.layers, func(i, j int) bool {
+	// SliceStable (not Slice): with distinct Order values the sort is total,
+	// but an accidental future tie must resolve to ADD ORDER, not to Go's
+	// unstable introsort — the registry display and the runtime must agree.
+	sort.SliceStable(p.layers, func(i, j int) bool {
 		return p.layers[i].Order < p.layers[j].Order
 	})
 }

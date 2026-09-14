@@ -324,8 +324,14 @@ func DefaultConfig() *Config {
 			},
 		},
 		Dashboard: DashboardConfig{
+			// Loopback by default: the admin UI has no built-in TLS
+			// termination (dashboard.tls is rejected by the validator —
+			// terminate TLS at an ingress), so binding all interfaces
+			// exposed the secret-gated API and its bearer secret in
+			// cleartext to the local network. Remote access is an explicit
+			// dashboard.listen decision.
 			Enabled: true,
-			Listen:  ":9443",
+			Listen:  "127.0.0.1:9443",
 			TLS:     false,
 		},
 		Docker: DockerConfig{
@@ -694,6 +700,19 @@ func nodeIntField(n *Node, key, parentKey string, field *int, minVal int) error 
 				prefix = parentKey + "." + key
 			}
 			return fmt.Errorf("%s: %w", prefix, err)
+		}
+		// minVal is an inclusive minimum, enforced with a LOUD error rather
+		// than a silent default-keep: this helper runs before the reflective
+		// tagged overlay (populateTaggedValue), which would re-apply the raw
+		// node value, so a silent skip here could never bind. Failing the
+		// populate (and therefore the load) is the same fail-closed posture
+		// as the validate.go range checks.
+		if i < minVal {
+			prefix := key
+			if parentKey != "" {
+				prefix = parentKey + "." + key
+			}
+			return fmt.Errorf("%s: %d is below the minimum %d", prefix, i, minVal)
 		}
 		*field = i
 	}

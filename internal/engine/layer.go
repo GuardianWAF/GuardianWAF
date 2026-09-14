@@ -85,7 +85,7 @@ const (
 	OrderIPACL         = 100
 	OrderThreatIntel   = 125
 	OrderCORS          = 150
-	OrderRules         = 150
+	OrderRules         = 155 // distinct from OrderCORS: the pipeline sorts with an unstable sort, so a tie made CORS-vs-rules runtime order nondeterministic while the registry displayed them alphabetically
 	OrderCanary        = 95
 	OrderCache         = 140 // Caching layer (memory/Redis)
 	OrderReplay        = 145

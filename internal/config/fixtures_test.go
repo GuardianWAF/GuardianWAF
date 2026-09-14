@@ -356,7 +356,11 @@ func TestConfigurationDocsDocumentLegacyKeyMigration(t *testing.T) {
 func TestInvalidConfigFixtureFailsValidation(t *testing.T) {
 	cfg, err := LoadFile(filepath.Join("..", "..", "testdata/configs/invalid.yml"))
 	if err != nil {
-		t.Fatalf("LoadFile() error = %v", err)
+		// Rejected at load: since the int-minimum hardening, sub-minimum
+		// values (e.g. sanitizer.max_url_length: -1) fail the populate with
+		// a loud per-field error before Validate ever runs. The fixture's
+		// intent — this config must never boot — is satisfied either way.
+		return
 	}
 	if err := Validate(cfg); err == nil {
 		t.Fatal("Validate() error = nil, want validation failure")

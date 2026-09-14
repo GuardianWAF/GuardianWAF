@@ -167,8 +167,8 @@ func TestDefaultConfig(t *testing.T) {
 	if !cfg.Dashboard.Enabled {
 		t.Fatal("expected Dashboard enabled")
 	}
-	if cfg.Dashboard.Listen != ":9443" {
-		t.Fatalf("expected Dashboard listen ':9443', got %q", cfg.Dashboard.Listen)
+	if cfg.Dashboard.Listen != "127.0.0.1:9443" {
+		t.Fatalf("expected Dashboard listen '127.0.0.1:9443', got %q", cfg.Dashboard.Listen)
 	}
 	if cfg.Dashboard.TLS {
 		t.Fatal("expected Dashboard TLS false; terminate dashboard TLS at ingress or reverse proxy")

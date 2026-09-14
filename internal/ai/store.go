@@ -3,7 +3,7 @@ package ai
 import (
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/hmac"
+	"crypto/pbkdf2"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -24,6 +24,11 @@ var aiLog = slog.Default().With(slog.String("component", "ai/store"))
 const encKeyFile = "ai_enc_key" // file storing the auto-generated encryption key
 
 const encPrefix = "enc:" // prefix for encrypted API keys on disk
+
+// encKeyIterations is the PBKDF2-HMAC-SHA256 iteration count for the at-rest
+// encryption key derivation (OWASP 2023 guidance), matching the acme
+// client's account-key derivation.
+const encKeyIterations = 600000
 
 const maxHistorySize = 100
 
@@ -156,9 +161,13 @@ func (s *Store) SetEncryptionKey(secret string) {
 		s.mu.Unlock()
 		return
 	}
-	// Salted key derivation with 10k iterations for brute-force resistance
+	// PBKDF2-HMAC-SHA256 at 600k iterations (OWASP 2023 guidance). The
+	// derivation changed in this release: the previous hand-rolled iterated
+	// HMAC was not standard PBKDF2, so API keys encrypted by a previous
+	// release no longer decrypt — re-enter the provider API key once after
+	// upgrading (a failed decrypt leaves the stored ciphertext untouched).
 	salt := []byte("guardianwaf-ai-enc-v1")
-	derived := deriveStoreKey([]byte(secret), salt, 10000)
+	derived := deriveStoreKey([]byte(secret), salt, encKeyIterations)
 	s.mu.Lock()
 	s.encKey = derived
 	// Decrypt API key if it was stored encrypted
@@ -433,22 +442,14 @@ func cleanAIStoreDirPath(dirPath string) (string, error) {
 	return cleanPath, nil
 }
 
-// deriveStoreKey performs PBKDF2-HMAC-SHA256 key derivation for the AI store.
+// deriveStoreKey performs standard PBKDF2-HMAC-SHA256 (RFC 8018) via the
+// crypto/pbkdf2 stdlib package — the same construction as the acme client's
+// account-key derivation.
 func deriveStoreKey(password, salt []byte, iterations int) []byte {
-	mac := hmac.New(sha256.New, password)
-	mac.Write(salt)
-	result := mac.Sum(nil)
-
-	u := make([]byte, len(result))
-	copy(u, result)
-
-	for range iterations - 1 {
-		mac.Reset()
-		mac.Write(u)
-		u = mac.Sum(u[:0])
-		for i := range result {
-			result[i] ^= u[i]
-		}
+	derived, err := pbkdf2.Key(sha256.New, string(password), salt, iterations, 32)
+	if err != nil {
+		// keyLength is the constant 32; pbkdf2.Key only errors on keyLength < 1.
+		panic(fmt.Sprintf("pbkdf2.Key failed unexpectedly: %v", err))
 	}
-	return result
+	return derived
 }
