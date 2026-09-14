@@ -34,10 +34,10 @@ func TestTransformUrlDecodeUni(t *testing.T) {
 // genuinely unknown transform passthrough.
 func TestTransformUrlDecodeUniControlsUnchanged(t *testing.T) {
 	cases := []struct {
-		name         string
-		transform    string
-		in           string
-		want         string
+		name      string
+		transform string
+		in        string
+		want      string
 	}{
 		{"plain urlDecode unaffected", "t:urlDecode", "%20", " "},
 		{"malformed %uZZZZ stays literal", "t:urlDecodeUni", "%uZZZZ", "%uZZZZ"},
