@@ -348,20 +348,29 @@ func checkPrivateIPs(lower, location string) []engine.Finding {
 			}
 			host := lower[hostStart:hostEnd]
 
-			// Check if host is a private or loopback IP. Loopback is
-			// classified here rather than skipped: checkLocalhostPatterns
-			// only pins the spellings "http://127.0.0.1" and "http://127.1",
-			// so skipping loopback left every other dotted 127/8 host —
-			// http://127.0.0.2, http://127.8.8.8 — with zero findings, while
-			// the IPv6 branch and the encoded-IP checks flag the same
-			// addresses. 0.0.0.0 stays on the localhost pattern list.
+			// Check if host is a private, loopback, or link-local IP.
+			// Loopback is classified here rather than skipped:
+			// checkLocalhostPatterns only pins the spellings
+			// "http://127.0.0.1" and "http://127.1", so skipping loopback
+			// left every other dotted 127/8 host — http://127.0.0.2,
+			// http://127.8.8.8 — with zero findings, while the IPv6 branch
+			// and the encoded-IP checks flag the same addresses.
+			// 0.0.0.0 stays on the localhost pattern list. Link-local is
+			// classified here for the same reason: checkMetadataEndpoints
+			// pins only the exact literals 169.254.169.254 / 169.254.170.2,
+			// the IPv6 branch flags the equivalent fe80::/10 range, and the
+			// encoded-IP checks flag the encoded spellings — while every
+			// other dotted 169.254/16 host had zero findings, despite
+			// ipcheck.IsLinkLocal existing for exactly this range.
 			ip := ParseIPv4(host)
-			if ip != nil && (IsLoopback(ip) || IsPrivateIP(ip)) {
+			if ip != nil && (IsLoopback(ip) || IsPrivateIP(ip) || IsLinkLocal(ip)) {
 				if _, dup := seenHosts[hostStart]; !dup {
 					seenHosts[hostStart] = struct{}{}
 					kind := "private"
 					if IsLoopback(ip) {
 						kind = "loopback"
+					} else if IsLinkLocal(ip) {
+						kind = "link-local"
 					}
 					findings = append(findings, makeFinding(65, engine.SeverityHigh,
 						"HTTP request to "+kind+" IP range detected: "+host,
