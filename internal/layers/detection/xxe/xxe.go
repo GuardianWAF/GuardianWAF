@@ -201,34 +201,65 @@ func checkEntity(lower, location string, findings *[]engine.Finding) bool {
 }
 
 // checkSystemProtocols detects SYSTEM keyword with various protocol handlers.
+// XML's ExternalID is "SYSTEM S SystemLiteral" where S is one or more
+// whitespace characters (space, tab, CR, LF — XML 1.0 §2.3), so the keyword
+// must be matched against a whitespace RUN, not exactly one space: fixed
+// single-space patterns missed `SYSTEM\t"http://...` and friends, dropping an
+// external-DTD XXE to 25 (DOCTYPE only) — below the block threshold — and,
+// with the sanitizer layer disabled, missing the protocol finding entirely on
+// the engine-guaranteed raw view.
 func checkSystemProtocols(lower, location string, findings *[]engine.Finding) {
 	if !strings.Contains(lower, "system") {
 		return
 	}
 
 	protocols := []struct {
-		pattern string
-		score   int
-		desc    string
-		sev     engine.Severity
+		scheme string
+		score  int
+		desc   string
+		sev    engine.Severity
 	}{
-		{`system "file://`, 95, "XXE with file:// protocol detected", engine.SeverityCritical},
-		{`system 'file://`, 95, "XXE with file:// protocol detected", engine.SeverityCritical},
-		{`system "http://`, 75, "XXE with http:// protocol detected (SSRF risk)", engine.SeverityHigh},
-		{`system 'http://`, 75, "XXE with http:// protocol detected (SSRF risk)", engine.SeverityHigh},
-		{`system "https://`, 75, "XXE with https:// protocol detected (SSRF risk)", engine.SeverityHigh},
-		{`system 'https://`, 75, "XXE with https:// protocol detected (SSRF risk)", engine.SeverityHigh},
-		{`system "expect://`, 95, "XXE with expect:// protocol detected (RCE risk)", engine.SeverityCritical},
-		{`system 'expect://`, 95, "XXE with expect:// protocol detected (RCE risk)", engine.SeverityCritical},
-		{`system "php://`, 90, "XXE with php:// protocol detected", engine.SeverityCritical},
-		{`system 'php://`, 90, "XXE with php:// protocol detected", engine.SeverityCritical},
+		{"file://", 95, "XXE with file:// protocol detected", engine.SeverityCritical},
+		{"http://", 75, "XXE with http:// protocol detected (SSRF risk)", engine.SeverityHigh},
+		{"https://", 75, "XXE with https:// protocol detected (SSRF risk)", engine.SeverityHigh},
+		{"expect://", 95, "XXE with expect:// protocol detected (RCE risk)", engine.SeverityCritical},
+		{"php://", 90, "XXE with php:// protocol detected", engine.SeverityCritical},
 	}
 
 	for _, p := range protocols {
-		if strings.Contains(lower, p.pattern) {
+		if indexSystemScheme(lower, p.scheme) >= 0 {
 			*findings = append(*findings, makeFinding(p.score, p.sev,
-				p.desc, extractContext(lower, p.pattern), location, 0.95))
+				p.desc, extractContext(lower, "system"), location, 0.95))
 		}
+	}
+}
+
+// xmlSpaceByte reports whether c is an XML whitespace character
+// (XML 1.0 §2.3 S production: space, tab, CR, LF).
+func xmlSpaceByte(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r'
+}
+
+// indexSystemScheme returns the offset of the first "system" keyword that is
+// followed by at least one XML whitespace character and a quoted literal
+// starting with scheme, or -1 when no such occurrence exists.
+func indexSystemScheme(lower, scheme string) int {
+	for start := 0; ; {
+		i := strings.Index(lower[start:], "system")
+		if i < 0 {
+			return -1
+		}
+		i += start
+		j := i + len("system")
+		k := j
+		for k < len(lower) && xmlSpaceByte(lower[k]) {
+			k++
+		}
+		if k > j && k < len(lower) && (lower[k] == '"' || lower[k] == '\'') &&
+			strings.HasPrefix(lower[k+1:], scheme) {
+			return i
+		}
+		start = j
 	}
 }
 
