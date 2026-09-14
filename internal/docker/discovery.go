@@ -166,8 +166,19 @@ func DiscoverFromContainers(containers []Container, prefix, network string) []Di
 // BuildConfig merges discovered services with static config.
 // Discovered upstreams/routes are appended to static ones.
 func BuildConfig(services []DiscoveredService, staticCfg *config.Config) *config.Config {
-	// Deep copy static config
+	// Deep-copy the config slices this merge appends to: addVHostRoute's
+	// existing-vhost branch and the Upstreams/Routes appends write slice
+	// headers that must not alias the operator's static config — the watcher
+	// re-passes the same base config on every sync, so shared backing arrays
+	// accumulated duplicate routes there across syncs.
 	merged := *staticCfg
+	merged.Upstreams = slices.Clone(staticCfg.Upstreams)
+	merged.Routes = slices.Clone(staticCfg.Routes)
+	merged.VirtualHosts = make([]config.VirtualHostConfig, len(staticCfg.VirtualHosts))
+	for i, vh := range staticCfg.VirtualHosts {
+		vh.Routes = slices.Clone(vh.Routes)
+		merged.VirtualHosts[i] = vh
+	}
 
 	// Group services by upstream name
 	groups := make(map[string][]DiscoveredService)
