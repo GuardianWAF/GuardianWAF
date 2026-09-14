@@ -85,8 +85,18 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
+	// Path-based security decisions (skip exemptions, allowed_paths scopes)
+	// must evaluate the canonical path — the form upstreams resolve — not the
+	// raw wire path: dot-segment forms like "/health/../admin" matched raw
+	// prefixes ("/health*", "/api/*") while upstreams served "/admin".
+	// Mirrors the ratelimit layer's NormalizedPath||Path dual view.
+	authPath := ctx.NormalizedPath
+	if authPath == "" {
+		authPath = ctx.Path
+	}
+
 	// Check if path should be skipped
-	if l.shouldSkipPath(ctx.Path) {
+	if l.shouldSkipPath(authPath) {
 		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
@@ -145,7 +155,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	if l.apiKeyValidator != nil {
 		apiKey := l.extractAPIKey(ctx.Headers, ctx.QueryParams)
 		if apiKey != "" {
-			keyConfig, err := l.apiKeyValidator.Validate(apiKey, ctx.Path)
+			keyConfig, err := l.apiKeyValidator.Validate(apiKey, authPath)
 			if err != nil {
 				return engine.LayerResult{
 					Action: engine.ActionBlock,
