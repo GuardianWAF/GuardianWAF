@@ -346,13 +346,17 @@ func AcquireContext(r *http.Request, paranoiaLevel int, maxBodySize int64) *Requ
 const maxInspectedHeaders = 150
 
 // priorityHeaders are always inspected first (in canonical form), so a
-// header-flood cannot evict a header that commonly carries attack payloads.
+// header-flood cannot evict a header that commonly carries attack payloads —
+// including the Content-Length/Transfer-Encoding framing headers the
+// smuggling detector reads.
 var priorityHeaders = []string{
 	"User-Agent",
 	"Referer",
 	"Cookie",
 	"Authorization",
 	"Content-Type",
+	"Content-Length",
+	"Transfer-Encoding",
 	"Content-Disposition",
 	"Origin",
 	"Host",
