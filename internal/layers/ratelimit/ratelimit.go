@@ -439,14 +439,28 @@ func (l *Layer) CleanupExpired(staleDuration time.Duration) {
 	})
 
 	// Also clean up violation counters for IPs whose buckets were evicted.
-	// A violation key has the form "violation:<ruleID>:<tenantID>:<ip>", and the corresponding
-	// bucket key is "<ruleID>:<tenantID>:<ip>". If the bucket is gone, the violation counter is stale.
+	// A violation key has the form "violation:<ruleID>:<tenantID>:<ip>". An
+	// "ip"-scoped rule's bucket key is exactly "<ruleID>:<tenantID>:<ip>", but
+	// an "ip+path" rule keys ONE bucket per <ip, path>
+	// ("<ruleID>:<tenantID>:<ip>:<path>"), so the liveness check must accept
+	// any bucket under the rule+tenant+ip prefix: an exact probe never
+	// matched a per-path bucket, which reset the auto-ban accumulator on
+	// every cleanup run while the attacker was still violating.
 	l.violations.Range(func(key, _ any) bool {
 		k := key.(string)
-		// Strip "violation:" prefix to get the bucket key
+		// Strip "violation:" prefix to get the bucket-key base
 		if len(k) > 10 && k[:10] == "violation:" {
-			bucketKey := k[10:] // "violation:" + rest
-			if _, exists := l.buckets.Load(bucketKey); !exists {
+			baseKey := k[10:] // "<ruleID>:<tenantID>:<ip>"
+			stale := true
+			l.buckets.Range(func(bk, _ any) bool {
+				bs, ok := bk.(string)
+				if ok && (bs == baseKey || strings.HasPrefix(bs, baseKey+":")) {
+					stale = false
+					return false
+				}
+				return true
+			})
+			if stale {
 				l.violations.Delete(key)
 			}
 		}
