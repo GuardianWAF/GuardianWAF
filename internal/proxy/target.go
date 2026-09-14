@@ -459,12 +459,14 @@ func (t *Target) IsHealthy() bool {
 	return t.healthy.Load() && t.circuit.State() != CircuitOpen
 }
 
-// SetHealthy sets the health status.
+// SetHealthy sets the health status. It manages ONLY the health flag: the
+// circuit breaker recovers through its own half-open probe on real traffic
+// (Allow's Open→HalfOpen transition after ResetTimeout), not through health
+// probes. Resetting the circuit here let a passing GET /healthz force-close
+// an open breaker on every health-check cycle while real requests still
+// failed, neutralizing the breaker entirely.
 func (t *Target) SetHealthy(h bool) {
 	t.healthy.Store(h)
-	if h {
-		t.circuit.Reset()
-	}
 }
 
 // ActiveConns returns the number of active connections.

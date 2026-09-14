@@ -814,10 +814,15 @@ func TestTargetHealthyIncludesCircuit(t *testing.T) {
 		t.Error("should be unhealthy when circuit is open")
 	}
 
-	// SetHealthy resets circuit
+	// SetHealthy(true) clears only the health flag; the circuit stays open
+	// until its own half-open probe recovers (hunt round 11/25).
 	target.SetHealthy(true)
+	if target.IsHealthy() {
+		t.Error("should stay unhealthy while the circuit is open, even after SetHealthy(true)")
+	}
+	target.circuit.Reset() // the circuit's own recovery (half-open probe success)
 	if !target.IsHealthy() {
-		t.Error("should be healthy after SetHealthy(true)")
+		t.Error("should be healthy once the circuit recovers")
 	}
 }
 
