@@ -29,6 +29,9 @@ var attackPayloads = []struct {
 	{"meta refresh", `<META HTTP-EQUIV="refresh" CONTENT="0;url=javascript:alert(1)">`, 50},
 	{"template mustache", "{{constructor.constructor('alert(1)')()}}", 55},
 	{"template es6", "${alert(1)}", 55},
+	{"template left-quoted probe", "{{'7'*7}}", 55},
+	{"template left double-quoted probe", `{{"7"*7}}`, 55},
+	{"template spaced left-quoted probe", "{{ '7' * 7 }}", 55},
 	{"document cookie", "document.cookie", 60},
 	{"dangerous js func", "eval('alert(1)')", 65},
 	// Browsers strip ASCII tab/LF/CR from URL input (WHATWG URL), so these
@@ -55,6 +58,7 @@ var benignInputs = []struct {
 	{"mustache variable", "{{ username }}", 0},
 	{"shell variable docs", "${HOME}", 0},
 	{"template placeholders", "{{a}} and ${b}", 0},
+	{"template quoted non-digit operand", "{{'a'*3}}", 0},
 }
 
 func TestDetect_AttackPayloads(t *testing.T) {

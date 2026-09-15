@@ -209,13 +209,20 @@ func hasTemplateArithmeticProbe(s string) bool {
 		if s[i] != '*' {
 			continue
 		}
+		// left of '*': a digit or quote+digit, after optional spaces —
+		// mirrored from the right side so {{'7'*7}} and {{7*'7'}} (both
+		// canonical Jinja2/Twig evaluation probes) are treated the same.
 		l := i - 1
 		for l >= 0 && s[l] == ' ' {
+			l--
+		}
+		if l >= 0 && (s[l] == '\'' || s[l] == '"') {
 			l--
 		}
 		if l < 0 || s[l] < '0' || s[l] > '9' {
 			continue
 		}
+		// right of '*': a digit or quote+digit, after optional spaces
 		r := i + 1
 		for r < len(s) && s[r] == ' ' {
 			r++
