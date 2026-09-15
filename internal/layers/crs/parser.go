@@ -411,6 +411,9 @@ func (p *Parser) parseActions(s string) (RuleActions, error) {
 				varAction := p.parseVarAction(value)
 				actions.SetVar = append(actions.SetVar, varAction)
 			case "t":
+				if !validateTransformation(value) {
+					return actions, fmt.Errorf("unsupported transformation %q: SecLang fails the rule load rather than silently skipping its transforms", value)
+				}
 				actions.Transformations = append(actions.Transformations, value)
 			}
 		} else {

@@ -476,25 +476,54 @@ func isValidUTF8(s string) bool {
 	return utf8.ValidString(s)
 }
 
+// supportedTransformations is the canonical set of SecLang transformation
+// names this engine implements in Transform (below). parseActions rejects
+// any other name at rule load: a rule that silently skips one of its
+// transforms inspects untransformed data — a detection bypass — so SecLang
+// fails the rule load ("Invalid transformation") and this engine fails the
+// same way through Layer.LoadError (serve refuses to start).
+var supportedTransformations = map[string]bool{
+	"none":             true,
+	"lowercase":        true,
+	"uppercase":        true,
+	"urldecode":        true,
+	"urldecodeuni":     true,
+	"urlencode":        true,
+	"htmlentitydecode": true,
+	"removewhitespace": true,
+	"trim":             true,
+	"removenulls":      true,
+	"replacenulls":     true,
+}
+
+// validateTransformation reports whether a SecRule t: transformation name is
+// implemented by Transform. Names are matched case-insensitively.
+func validateTransformation(name string) bool {
+	return supportedTransformations[strings.ToLower(name)]
+}
+
 // Transform applies transformations to a value.
+// Names are matched case-insensitively; the accepted set is enforced at rule
+// load by validateTransformation (parser.go), so an unknown name cannot reach
+// this switch and silently no-op.
 func Transform(value string, transformations []string) string {
 	result := value
 
 	for _, t := range transformations {
-		switch t {
+		switch strings.ToLower(t) {
 		case "lowercase", "t:lowercase":
 			result = strings.ToLower(result)
 		case "uppercase", "t:uppercase":
 			result = strings.ToUpper(result)
-		case "urlDecode", "t:urlDecode":
+		case "urldecode", "t:urldecode":
 			result = urlDecode(result)
-		case "urlDecodeUni", "t:urlDecodeUni":
+		case "urldecodeuni", "t:urldecodeuni":
 			result = urlDecodeUni(result)
-		case "urlEncode", "t:urlEncode":
+		case "urlencode", "t:urlencode":
 			result = urlEncode(result)
-		case "htmlEntityDecode", "t:htmlEntityDecode":
+		case "htmlentitydecode", "t:htmlentitydecode":
 			result = htmlEntityDecode(result)
-		case "removeWhitespace", "t:removeWhitespace":
+		case "removewhitespace", "t:removewhitespace":
 			result = removeWhitespace(result)
 		case "trim", "t:trim":
 			// C-locale whitespace set only (ModSecurity t:trim parity): the
@@ -502,10 +531,14 @@ func Transform(value string, transformations []string) string {
 			// silently removing NBSP, em space and similar edge characters
 			// that ModSecurity preserves. Matches removeWhitespace (round 9).
 			result = strings.Trim(result, " \t\n\v\f\r")
-		case "removeNulls", "t:removeNulls":
+		case "removenulls", "t:removenulls":
 			result = strings.ReplaceAll(result, "\x00", "")
-		case "replaceNulls", "t:replaceNulls":
+		case "replacenulls", "t:replacenulls":
 			result = strings.ReplaceAll(result, "\x00", " ")
+		case "none", "t:none":
+			// t:none resets the transform pipeline in SecLang; this engine
+			// applies a per-rule list, so it is accepted (and validated) as
+			// a no-op.
 		}
 	}
 
