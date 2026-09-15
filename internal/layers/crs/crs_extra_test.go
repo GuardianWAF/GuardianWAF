@@ -323,7 +323,7 @@ func TestLayer_Process_NilHeaders(t *testing.T) {
 			ID:        "nilhdr",
 			Phase:     1,
 			Variables: []RuleVariable{{Name: "REQUEST_METHOD"}},
-			Operator:  RuleOperator{Type: "@eq", Argument: "GET"},
+			Operator:  RuleOperator{Type: "@streq", Argument: "GET"},
 			Actions:   RuleActions{Action: "pass", Severity: "NOTICE"},
 		},
 	}
@@ -470,7 +470,7 @@ func TestLayer_EvaluateRule_ChainWithVariables(t *testing.T) {
 		Phase:     1,
 		Severity:  "ERROR",
 		Variables: []RuleVariable{{Name: "REQUEST_METHOD"}},
-		Operator:  RuleOperator{Type: "@eq", Argument: "POST"},
+		Operator:  RuleOperator{Type: "@streq", Argument: "POST"},
 		Actions:   RuleActions{Severity: "ERROR"},
 		Chain: &Rule{
 			Variables: []RuleVariable{{Collection: "REQUEST_HEADERS", Key: "Content-Type"}},
@@ -734,7 +734,7 @@ func TestLayer_EvaluateRule_FindingDetails(t *testing.T) {
 		Msg:       "Dangerous method",
 		Severity:  "CRITICAL",
 		Variables: []RuleVariable{{Name: "REQUEST_METHOD"}},
-		Operator:  RuleOperator{Type: "@eq", Argument: "DELETE"},
+		Operator:  RuleOperator{Type: "@streq", Argument: "DELETE"},
 		Actions:   RuleActions{Severity: "CRITICAL"},
 	}
 
@@ -779,7 +779,7 @@ func TestLayer_Process_MultipleFindingsAccumulated(t *testing.T) {
 			Msg:       "Phase 1 hit",
 			Severity:  "NOTICE",
 			Variables: []RuleVariable{{Name: "REQUEST_METHOD"}},
-			Operator:  RuleOperator{Type: "@eq", Argument: "POST"},
+			Operator:  RuleOperator{Type: "@streq", Argument: "POST"},
 			Actions:   RuleActions{Action: "pass", Severity: "NOTICE"},
 		},
 		{

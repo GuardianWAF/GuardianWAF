@@ -128,7 +128,13 @@ func (oe *OperatorEvaluator) evaluateOperator(opType, argument, value string) (b
 	case "@rx":
 		return oe.evaluateRx(argument, value)
 	case "@eq":
-		return value == argument, nil
+		// SecLang: @eq is a NUMERICAL comparison ("stands for 'equal to'"),
+		// not string equality — string equality is @streq's operator. The
+		// previous value == argument made rules like `SecRule ARGS "@eq 1"`
+		// miss numerically-equal spellings ("01", "1.0"). Non-numeric
+		// operands return an error, which evaluateRule treats as no-match —
+		// the same fail-soft behavior as the other numeric operators.
+		return oe.compareNumeric(value, argument, "==")
 	case "@streq":
 		return value == argument, nil
 	case "@contains":

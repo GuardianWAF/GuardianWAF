@@ -403,8 +403,10 @@ func TestOperatorEvaluator(t *testing.T) {
 		value    string
 		expected bool
 	}{
-		{"@eq match", "@eq", "test", "test", true},
-		{"@eq no match", "@eq", "test", "other", false},
+		{"@eq numeric match", "@eq", "1", "01", true},
+		{"@eq numeric no match", "@eq", "1", "2", false},
+		{"@streq match", "@streq", "test", "test", true},
+		{"@streq no match", "@streq", "test", "other", false},
 		{"@contains match", "@contains", "script", "<script>", true},
 		{"@contains no match", "@contains", "script", "hello", false},
 		{"@beginsWith match", "@beginsWith", "GET", "GET /path", true},
@@ -439,7 +441,7 @@ func TestOperatorEvaluator_Negated(t *testing.T) {
 	evaluator := NewOperatorEvaluator()
 
 	op := RuleOperator{
-		Type:     "@eq",
+		Type:     "@streq",
 		Argument: "test",
 		Negated:  true,
 	}

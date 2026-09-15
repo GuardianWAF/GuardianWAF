@@ -131,8 +131,10 @@ func TestOperatorEvaluator_AllTypes(t *testing.T) {
 		{"rx no match", "@rx", `^\d+$`, "abc", false},
 
 		// @eq / @streq
-		{"eq match", "@eq", "hello", "hello", true},
-		{"eq no match", "@eq", "hello", "world", false},
+		// @eq (SecLang: NUMERICAL equality — string equality is @streq)
+		{"eq numeric match", "@eq", "1", "01", true},
+		{"eq numeric float form", "@eq", "5", "5.0", true},
+		{"eq numeric no match", "@eq", "1", "2", false},
 		{"streq match", "@streq", "test", "test", true},
 		{"streq no match", "@streq", "test", "TEST", false},
 
@@ -222,6 +224,17 @@ func TestOperatorEvaluator_NumericErrors(t *testing.T) {
 	_, err = eval.Evaluate(RuleOperator{Type: "@gt", Argument: "abc"}, "10")
 	if err == nil {
 		t.Error("expected error for non-numeric argument in @gt")
+	}
+
+	// @eq shares the numeric-comparison contract: non-numeric operands error
+	_, err = eval.Evaluate(RuleOperator{Type: "@eq", Argument: "10"}, "notanumber")
+	if err == nil {
+		t.Error("expected error for non-numeric value in @eq")
+	}
+
+	_, err = eval.Evaluate(RuleOperator{Type: "@eq", Argument: "abc"}, "10")
+	if err == nil {
+		t.Error("expected error for non-numeric argument in @eq")
 	}
 }
 
@@ -1582,7 +1595,7 @@ func TestLayer_Process_BlockOnDeny(t *testing.T) {
 			ID:        "999100",
 			Phase:     1,
 			Variables: []RuleVariable{{Name: "REQUEST_METHOD"}},
-			Operator:  RuleOperator{Type: "@eq", Argument: "CONNECT"},
+			Operator:  RuleOperator{Type: "@streq", Argument: "CONNECT"},
 			Actions:   RuleActions{Action: "deny", Severity: "CRITICAL", Msg: "Bad method"},
 		},
 	}
@@ -1767,7 +1780,7 @@ func TestLayer_Process_ChainRule(t *testing.T) {
 			ID:        "999700",
 			Phase:     1,
 			Variables: []RuleVariable{{Name: "REQUEST_METHOD"}},
-			Operator:  RuleOperator{Type: "@eq", Argument: "POST"},
+			Operator:  RuleOperator{Type: "@streq", Argument: "POST"},
 			Actions:   RuleActions{Action: "deny", Severity: "CRITICAL", Msg: "POST blocked"},
 			Chain: &Rule{
 				Variables: []RuleVariable{{Collection: "REQUEST_HEADERS", Key: "Content-Type"}},
@@ -1850,7 +1863,7 @@ func TestLayer_Process_SetVar(t *testing.T) {
 			ID:        "999900",
 			Phase:     1,
 			Variables: []RuleVariable{{Name: "REQUEST_METHOD"}},
-			Operator:  RuleOperator{Type: "@eq", Argument: "GET"},
+			Operator:  RuleOperator{Type: "@streq", Argument: "GET"},
 			Actions: RuleActions{
 				Action:   "pass",
 				Severity: "NOTICE",
@@ -2226,7 +2239,7 @@ func TestLayer_RuleScoringBySeverity(t *testing.T) {
 					ID:        "score-test",
 					Phase:     1,
 					Variables: []RuleVariable{{Name: "REQUEST_METHOD"}},
-					Operator:  RuleOperator{Type: "@eq", Argument: "GET"},
+					Operator:  RuleOperator{Type: "@streq", Argument: "GET"},
 					Actions:   RuleActions{Action: "pass", Severity: tt.severity, Msg: "test"},
 				},
 			}
