@@ -184,6 +184,7 @@ func parseYAMLLine(line string) (key, value string, isArrayItem bool) {
 			key = ""
 			value = content
 		}
+		key = unquoteYAMLKey(key)
 		return
 	}
 
@@ -195,8 +196,25 @@ func parseYAMLLine(line string) (key, value string, isArrayItem bool) {
 		key = strings.TrimSuffix(line, ":")
 		value = ""
 	}
+	key = unquoteYAMLKey(key)
 
 	return
+}
+
+// unquoteYAMLKey strips one pair of matching surrounding quotes from a YAML
+// key. parseYAMLValue does the same for values; keys need it too — machine
+// written OpenAPI YAML routinely quotes every key, and a quoted path key
+// ("/pets/{id}") kept its quotes as the literal map key, so the compiled
+// route pattern required literal quote characters no request path contains
+// and the route could never match.
+func unquoteYAMLKey(key string) string {
+	if len(key) >= 2 {
+		if (key[0] == '"' && key[len(key)-1] == '"') ||
+			(key[0] == '\'' && key[len(key)-1] == '\'') {
+			return key[1 : len(key)-1]
+		}
+	}
+	return key
 }
 
 // parseYAMLValue parses a YAML value into appropriate Go type.
