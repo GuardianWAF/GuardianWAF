@@ -329,6 +329,64 @@ func (v *SchemaValidator) Validate(data any, schema *Schema, path string) Valida
 		v.validateObject(data, schema, path, &result)
 	}
 
+	// Combinator validation (allOf/anyOf/oneOf). These keywords apply to
+	// EVERY instance shape, not just objects — a top-level oneOf/anyOf is
+	// the standard OpenAPI union-body shape, and keeping the loops inside
+	// validateObject silently skipped the declared contract for string,
+	// number, boolean, and array payloads. (Enum below is hoisted the same
+	// way.)
+	//
+	// Validate allOf (must match all schemas)
+	for i, subSchema := range schema.AllOf {
+		allOfPath := fmt.Sprintf("%s[allOf:%d]", path, i)
+		subResult := v.Validate(data, subSchema, allOfPath)
+		if !subResult.Valid {
+			result.Valid = false
+			result.Errors = append(result.Errors, subResult.Errors...)
+		}
+	}
+
+	// Validate anyOf (must match at least one)
+	if len(schema.AnyOf) > 0 {
+		anyValid := false
+		for i, subSchema := range schema.AnyOf {
+			anyOfPath := fmt.Sprintf("%s[anyOf:%d]", path, i)
+			subResult := v.Validate(data, subSchema, anyOfPath)
+			if subResult.Valid {
+				anyValid = true
+				break
+			}
+		}
+		if !anyValid {
+			result.Valid = false
+			result.Errors = append(result.Errors, ValidationError{
+				Field:   path,
+				Type:    "anyOf",
+				Message: "data does not match any of the required schemas",
+			})
+		}
+	}
+
+	// Validate oneOf (must match exactly one)
+	if len(schema.OneOf) > 0 {
+		matchCount := 0
+		for i, subSchema := range schema.OneOf {
+			oneOfPath := fmt.Sprintf("%s[oneOf:%d]", path, i)
+			subResult := v.Validate(data, subSchema, oneOfPath)
+			if subResult.Valid {
+				matchCount++
+			}
+		}
+		if matchCount != 1 {
+			result.Valid = false
+			result.Errors = append(result.Errors, ValidationError{
+				Field:   path,
+				Type:    "oneOf",
+				Message: fmt.Sprintf("data matches %d schemas, expected exactly 1", matchCount),
+			})
+		}
+	}
+
 	// Enum validation
 	if len(schema.Enum) > 0 {
 		v.validateEnum(data, schema.Enum, path, &result)
@@ -577,56 +635,6 @@ func (v *SchemaValidator) validateObject(data any, schema *Schema, path string, 
 		}
 	}
 
-	// Validate allOf (must match all schemas)
-	for i, subSchema := range schema.AllOf {
-		allOfPath := fmt.Sprintf("%s[allOf:%d]", path, i)
-		subResult := v.Validate(data, subSchema, allOfPath)
-		if !subResult.Valid {
-			result.Valid = false
-			result.Errors = append(result.Errors, subResult.Errors...)
-		}
-	}
-
-	// Validate anyOf (must match at least one)
-	if len(schema.AnyOf) > 0 {
-		anyValid := false
-		for i, subSchema := range schema.AnyOf {
-			anyOfPath := fmt.Sprintf("%s[anyOf:%d]", path, i)
-			subResult := v.Validate(data, subSchema, anyOfPath)
-			if subResult.Valid {
-				anyValid = true
-				break
-			}
-		}
-		if !anyValid {
-			result.Valid = false
-			result.Errors = append(result.Errors, ValidationError{
-				Field:   path,
-				Type:    "anyOf",
-				Message: "data does not match any of the required schemas",
-			})
-		}
-	}
-
-	// Validate oneOf (must match exactly one)
-	if len(schema.OneOf) > 0 {
-		matchCount := 0
-		for i, subSchema := range schema.OneOf {
-			oneOfPath := fmt.Sprintf("%s[oneOf:%d]", path, i)
-			subResult := v.Validate(data, subSchema, oneOfPath)
-			if subResult.Valid {
-				matchCount++
-			}
-		}
-		if matchCount != 1 {
-			result.Valid = false
-			result.Errors = append(result.Errors, ValidationError{
-				Field:   path,
-				Type:    "oneOf",
-				Message: fmt.Sprintf("data matches %d schemas, expected exactly 1", matchCount),
-			})
-		}
-	}
 }
 
 // validateEnum validates enum constraints.
