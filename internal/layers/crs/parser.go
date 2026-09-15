@@ -104,10 +104,16 @@ func (p *Parser) parseSecRule(line string) (*Rule, error) {
 	}
 
 	// First part: variables
-	variables, _ := p.parseVariables(parts[0])
+	variables, err := p.parseVariables(parts[0])
+	if err != nil {
+		return nil, fmt.Errorf("parsing variables: %w", err)
+	}
 
 	// Second part: operator
-	operator, _ := p.parseOperator(parts[1])
+	operator, err := p.parseOperator(parts[1])
+	if err != nil {
+		return nil, fmt.Errorf("parsing operator: %w", err)
+	}
 
 	// Third part: actions
 	actionsStr := parts[2]
@@ -152,10 +158,27 @@ func (p *Parser) parseSecRule(line string) (*Rule, error) {
 
 	// Parse chain if present
 	if actions.Chain && len(parts) >= 6 {
-		chainVars, _ := p.parseVariables(parts[3])
-		chainOp, _ := p.parseOperator(parts[4])
+		chainVars, err := p.parseVariables(parts[3])
+		if err != nil {
+			return nil, fmt.Errorf("parsing chain variables: %w", err)
+		}
+		chainOp, err := p.parseOperator(parts[4])
+		if err != nil {
+			return nil, fmt.Errorf("parsing chain operator: %w", err)
+		}
 
-		chainActions, _ := p.parseActions(parts[5])
+		// parseActions does not strip the surrounding quotes itself (the
+		// starter's actionsStr is unquoted by the caller), so strip them here
+		// — otherwise the LAST action keeps a trailing quote and its name is
+		// corrupted (t:lowercase" is an unknown transform).
+		chainActionsStr := parts[5]
+		if len(chainActionsStr) >= 2 && strings.HasPrefix(chainActionsStr, "\"") && strings.HasSuffix(chainActionsStr, "\"") {
+			chainActionsStr = chainActionsStr[1 : len(chainActionsStr)-1]
+		}
+		chainActions, err := p.parseActions(chainActionsStr)
+		if err != nil {
+			return nil, fmt.Errorf("parsing chain actions: %w", err)
+		}
 
 		rule.Chain = &Rule{
 			Variables: chainVars,
@@ -288,8 +311,10 @@ func (p *Parser) parseOperator(s string) (RuleOperator, error) {
 		s = strings.TrimPrefix(s, operatorName)
 		s = strings.TrimSpace(s)
 
-		// Handle operator types
-		switch operatorName {
+		// Handle operator types — matched case-insensitively so case-variant
+		// spellings (@STREQ, @ValidateByteRange) keep working; op.Type is
+		// normalized to the canonical CamelCase form the evaluator switches on.
+		switch strings.ToLower(operatorName) {
 		case "@rx":
 			op.Type = "@rx"
 		case "@eq":
@@ -304,9 +329,9 @@ func (p *Parser) parseOperator(s string) (RuleOperator, error) {
 			op.Type = "@lt"
 		case "@contains":
 			op.Type = "@contains"
-		case "@beginsWith":
+		case "@beginswith":
 			op.Type = "@beginsWith"
-		case "@endsWith":
+		case "@endswith":
 			op.Type = "@endsWith"
 		case "@pm":
 			op.Type = "@pm"
@@ -316,18 +341,18 @@ func (p *Parser) parseOperator(s string) (RuleOperator, error) {
 			op.Type = "@within"
 		case "@streq":
 			op.Type = "@streq"
-		case "@ipMatch":
+		case "@ipmatch":
 			op.Type = "@ipMatch"
-		case "@ipMatchF":
+		case "@ipmatchf":
 			op.Type = "@ipMatchF"
-		case "@validateByteRange":
+		case "@validatebyterange":
 			op.Type = "@validateByteRange"
-		case "@validateUrlEncoding":
+		case "@validateurlencoding":
 			op.Type = "@validateUrlEncoding"
-		case "@validateUtf8Encoding":
+		case "@validateutf8encoding":
 			op.Type = "@validateUtf8Encoding"
 		default:
-			op.Type = operatorName
+			return RuleOperator{}, fmt.Errorf("unknown operator %q: SecLang fails the rule load on an unrecognized operator", operatorName)
 		}
 	}
 

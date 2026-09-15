@@ -168,8 +168,7 @@ func (oe *OperatorEvaluator) evaluateOperator(opType, argument, value string) (b
 	case "@validateUtf8Encoding":
 		return oe.evaluateUtf8Encoding(value)
 	default:
-		// Unknown operator - try regex as default
-		return oe.evaluateRx(opType, value)
+		return false, fmt.Errorf("unknown operator %q", opType)
 	}
 }
 

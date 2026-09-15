@@ -47,6 +47,14 @@ type WAL struct {
 	path        string
 	dataDir     string
 	recordCount int // incremented on each AppendRecord, reset by Compact
+
+	// snapLastIndex is the highest log index covered by the most recent
+	// snapshot record. A WALLog record at or below it is already contained in
+	// that snapshot (a compaction-straddling persist: the entry's memory-write
+	// landed before the compaction gather, its persist fired after the swap)
+	// and is skipped rather than duplicated. WALTruncate records shrink it so
+	// post-truncation appends (which reuse indices) are never skipped.
+	snapLastIndex uint64
 }
 
 // magicWALHeader identifies the WAL file format.
@@ -145,6 +153,25 @@ func (w *WAL) AppendRecord(rec WALRecord) error {
 	if w.file == nil {
 		return errors.New("wal: file is closed")
 	}
+	switch rec.Type {
+	case WALLog:
+		// A record at or below the snapshot boundary is already contained in
+		// the snapshot record (compaction-straddling persist: the entry's
+		// memory-write landed before the compaction gather, its persist fired
+		// after the swap). Writing it would duplicate the entry on replay —
+		// the observed 22001-vs-22000 crash-window flake; recovery also dedups
+		// by index, this fixes it at the source.
+		if rec.Entry.Index != 0 && rec.Entry.Index <= w.snapLastIndex {
+			return nil
+		}
+	case WALTruncate:
+		// Truncating from index k removes entries k.. — the snapshot boundary
+		// shrinks with them, so post-truncation appends (which reuse indices)
+		// are never skipped as snapshot-covered.
+		if rec.Index > 0 && rec.Index-1 < w.snapLastIndex {
+			w.snapLastIndex = rec.Index - 1
+		}
+	}
 	data := encodeWALRecord(rec)
 	// Enforce the same record-size bound the replay path enforces. A record
 	// written above maxWALRecordSize would be treated as corruption by Replay
@@ -228,6 +255,11 @@ func (w *WAL) Replay(ps *PersistentState) error {
 			ps.log.appendNoPersist(rec.Entry)
 		case WALTruncate:
 			ps.log.truncateNoPersist(rec.Index)
+			// Mirror the write-side boundary shrink so a post-restart
+			// snapshot boundary matches the file's history.
+			if rec.Index > 0 && rec.Index-1 < w.snapLastIndex {
+				w.snapLastIndex = rec.Index - 1
+			}
 		case WALSnapshot:
 			// A snapshot resets all accumulated state. Replace the log
 			// and term/vote with the snapshot contents, then continue
@@ -238,6 +270,12 @@ func (w *WAL) Replay(ps *PersistentState) error {
 			}
 			lastValidTerm = rec.Term
 			lastValidVotedFor = rec.VotedFor
+			// The snapshot is authoritative up to its last entry's index.
+			if n := len(rec.Entries); n > 0 {
+				w.snapLastIndex = rec.Entries[n-1].Index
+			} else {
+				w.snapLastIndex = 0
+			}
 			// Snapshot replaces all prior records — count is managed by
 		// countRecords() in OpenWAL; Replay() only applies state.
 		default:
@@ -374,6 +412,14 @@ func (w *WAL) compactLocked(ps *PersistentState) error {
 	_ = w.file.Close() // #nosec G104 -- old file is replaced
 	w.file = newFile
 	w.recordCount = 1
+
+	// The snapshot is authoritative up to its last entry's index: straddling
+	// persists at or below this boundary are skipped by AppendRecord.
+	if n := len(entries); n > 0 {
+		w.snapLastIndex = entries[n-1].Index
+	} else {
+		w.snapLastIndex = 0
+	}
 
 	return nil
 }

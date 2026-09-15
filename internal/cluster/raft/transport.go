@@ -153,12 +153,16 @@ func (t *TCPTransport) peerLock(addr string) *sync.Mutex {
 func (t *TCPTransport) getConn(addr string) (net.Conn, error) {
 	t.connMu.Lock()
 	conn, ok := t.conns[addr]
+	// Snapshot the dialer under the same lock that protects SetDialer's
+	// write — reading the field after Unlock raced with SetDialer (the
+	// documented runtime partition-simulation entry point).
+	dial := t.dialer
 	t.connMu.Unlock()
 	if ok {
 		return conn, nil
 	}
 
-	conn, err := t.dialer("tcp", addr)
+	conn, err := dial("tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("raft transport: dial %s: %w", addr, err)
 	}
@@ -177,6 +181,26 @@ func (t *TCPTransport) SendRPC(addr string, msgType RPCType, payload []byte) (RP
 	mu.Lock()
 	defer mu.Unlock()
 
+	// A pooled connection may be stale: the server reaps connections idle
+	// past timeout*10, and the client learns that only when the next RPC
+	// fails on it. One attempt on a fresh connection heals the stale pool
+	// without masking real outages — a peer that is still unreachable fails
+	// again and the error is returned. Failures on FRESH connections (the
+	// first dial to a peer) are not retried: they are genuine transport
+	// errors, and re-dialing would double the failure latency of
+	// partitioned peers.
+	pooled := t.hasConn(addr)
+
+	respType, respPayload, err := t.sendRPC(addr, msgType, payload)
+	if err != nil && pooled {
+		respType, respPayload, err = t.sendRPC(addr, msgType, payload)
+	}
+	return respType, respPayload, err
+}
+
+// sendRPC performs one send/response round on the pooled (or freshly dialed)
+// connection to addr.
+func (t *TCPTransport) sendRPC(addr string, msgType RPCType, payload []byte) (RPCType, []byte, error) {
 	conn, err := t.getConn(addr)
 	if err != nil {
 		return 0, nil, err
@@ -202,6 +226,14 @@ func (t *TCPTransport) SendRPC(addr string, msgType RPCType, payload []byte) (RP
 	}
 
 	return respType, respPayload, nil
+}
+
+// hasConn reports whether a pooled connection exists for addr.
+func (t *TCPTransport) hasConn(addr string) bool {
+	t.connMu.Lock()
+	defer t.connMu.Unlock()
+	_, ok := t.conns[addr]
+	return ok
 }
 
 func (t *TCPTransport) dropConn(addr string) {

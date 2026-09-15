@@ -192,9 +192,6 @@ func TestOperatorEvaluator_AllTypes(t *testing.T) {
 		// @validateUtf8Encoding (SecLang: matches on invalid UTF-8)
 		{"utf8 valid no match", "@validateUtf8Encoding", "", "hello world", false},
 		{"utf8 invalid matches", "@validateUtf8Encoding", "", "\xff\xfe", true},
-
-		// unknown operator falls back to regex
-		{"unknown op regex fallback", "test", "test", "test", true},
 	}
 
 	for _, tt := range tests {
@@ -1115,12 +1112,12 @@ func TestParser_Operator_DefaultRx(t *testing.T) {
 
 func TestParser_Operator_UnknownOperator(t *testing.T) {
 	p := NewParser()
-	op, err := p.parseOperator("@customOp value")
-	if err != nil {
-		t.Fatalf("error: %v", err)
+	_, err := p.parseOperator("@customOp value")
+	if err == nil {
+		t.Fatal("unknown operator must fail the parse (SecLang fails the rule load on an unrecognized operator)")
 	}
-	if op.Type != "@customOp" {
-		t.Errorf("Type = %q; want @customOp", op.Type)
+	if !strings.Contains(err.Error(), "@customOp") {
+		t.Errorf("error should name the operator, got: %v", err)
 	}
 }
 
