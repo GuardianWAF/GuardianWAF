@@ -26,6 +26,7 @@ type mockVPLayer struct {
 }
 
 func (m *mockVPLayer) GetActivePatches() []*VirtualPatchInfo { return m.patches }
+func (m *mockVPLayer) GetAllPatches() []*VirtualPatchInfo    { return m.patches }
 func (m *mockVPLayer) GetPatch(id string) *VirtualPatchInfo {
 	for _, p := range m.patches {
 		if p.ID == id {

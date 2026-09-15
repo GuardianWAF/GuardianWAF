@@ -26,6 +26,8 @@ func (s *putRecordingVP) GetActivePatches() []*VirtualPatchInfo { return nil }
 func (s *putRecordingVP) GetPatch(id string) *VirtualPatchInfo  { return nil }
 func (s *putRecordingVP) AddPatch(patch *VirtualPatchInfo)      {}
 func (s *putRecordingVP) EnablePatch(id string) bool            { return s.EnablePatchBy(id, "test") }
+func (s *putRecordingVP) GetAllPatches() []*VirtualPatchInfo    { return nil }
+
 func (s *putRecordingVP) EnablePatchBy(id, actor string) bool {
 	s.enableCalls = append(s.enableCalls, id+"/"+actor)
 	return s.enableOK
