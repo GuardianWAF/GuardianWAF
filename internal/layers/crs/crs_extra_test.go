@@ -634,19 +634,20 @@ func TestEvaluateUrlEncoding_PercentAtEnd(t *testing.T) {
 }
 
 // ============================================================================
-// Coverage for evaluateIpMatch with hostname resolution failure
+// Coverage for evaluateIpMatch with non-IP values
 // ============================================================================
 
-func TestEvaluateIpMatch_HostnameResolution(t *testing.T) {
+func TestEvaluateIpMatch_NonIpValueNoMatch(t *testing.T) {
 	eval := NewOperatorEvaluator()
-	// Value that is not an IP and not resolvable
+	// Non-IP values never match — @ipMatch compares IP literals only
+	// (no hostname resolution in the operator).
 	op := RuleOperator{Type: "@ipMatch", Argument: "192.168.1.0/24"}
 	result, err := eval.Evaluate(op, "not-a-valid-ip.example.invalid")
 	if err != nil {
-		t.Fatalf("Error: %v", err)
+		t.Fatalf("unexpected error: %v", err)
 	}
 	if result {
-		t.Error("Expected false for unresolvable hostname")
+		t.Error("expected false for non-IP value")
 	}
 }
 

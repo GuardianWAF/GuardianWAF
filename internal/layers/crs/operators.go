@@ -299,16 +299,17 @@ func (oe *OperatorEvaluator) evaluateWithin(argument, value string) (bool, error
 }
 
 // evaluateIpMatch evaluates the @ipMatch operator.
+// SecLang: the VALUE is an IP literal (canonically REMOTE_ADDR) matched
+// against the argument's IP/CIDR list; a non-IP value does not match.
+// The previous implementation resolved non-IP values via net.LookupIP in
+// the request path — an attacker-controllable DNS trigger (latency
+// amplification, outbound resolver traffic) that let an attacker-supplied
+// hostname decide a block. DNS lookups belong to @rbl; hostnames reach
+// SecLang pre-resolved via REMOTE_HOST.
 func (oe *OperatorEvaluator) evaluateIpMatch(argument, value string) (bool, error) {
-	// Parse the IP to check
 	ip := net.ParseIP(value)
 	if ip == nil {
-		// Try as hostname - resolve
-		ips, err := net.LookupIP(value)
-		if err != nil || len(ips) == 0 {
-			return false, nil
-		}
-		ip = ips[0]
+		return false, nil
 	}
 
 	// Parse allowed networks

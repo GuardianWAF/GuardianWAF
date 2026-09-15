@@ -57,7 +57,7 @@ func TestParser_ParseActionErrors(t *testing.T) {
 	}
 }
 
-func TestOperatorEvaluator_PmfAndHostnameIPMatch(t *testing.T) {
+func TestOperatorEvaluator_PmfFallback(t *testing.T) {
 	eval := NewOperatorEvaluator()
 
 	pmfResult, err := eval.Evaluate(RuleOperator{Type: "@pmf", Argument: "alpha beta"}, "zz beta yy")
@@ -67,13 +67,37 @@ func TestOperatorEvaluator_PmfAndHostnameIPMatch(t *testing.T) {
 	if !pmfResult {
 		t.Fatal("expected @pmf to match via phrase match fallback")
 	}
+}
 
-	ipMatch, err := eval.Evaluate(RuleOperator{Type: "@ipMatch", Argument: "127.0.0.1 ::1"}, "localhost")
+// TestOperatorEvaluator_IpMatch_IpLiteralOnly pins the @ipMatch SecLang
+// contract: the VALUE is an IP literal matched against the argument's
+// IP/CIDR list, and non-IP values do not match. The previous implementation
+// resolved hostnames via net.LookupIP in the request path — an
+// attacker-controllable DNS trigger (latency amplification, outbound
+// resolver traffic) that let an attacker-supplied hostname decide a block
+// ("localhost" matched an @ipMatch 127.0.0.1 rule). DNS lookups belong to
+// @rbl; hostnames reach SecLang pre-resolved via REMOTE_HOST.
+func TestOperatorEvaluator_IpMatch_IpLiteralOnly(t *testing.T) {
+	eval := NewOperatorEvaluator()
+
+	// IP literals still match.
+	for _, v := range []string{"127.0.0.1", "::1"} {
+		result, err := eval.Evaluate(RuleOperator{Type: "@ipMatch", Argument: "127.0.0.1 ::1"}, v)
+		if err != nil {
+			t.Fatalf("@ipMatch evaluate error for %q: %v", v, err)
+		}
+		if !result {
+			t.Errorf("expected literal %q to match", v)
+		}
+	}
+
+	// Non-IP values never match — no hostname resolution in the operator.
+	result, err := eval.Evaluate(RuleOperator{Type: "@ipMatch", Argument: "127.0.0.1 ::1"}, "localhost")
 	if err != nil {
 		t.Fatalf("@ipMatch evaluate error: %v", err)
 	}
-	if !ipMatch {
-		t.Fatal("expected localhost to resolve to 127.0.0.1 or ::1")
+	if result {
+		t.Fatal("expected hostname value 'localhost' not to match — @ipMatch matches IP literals only")
 	}
 }
 
