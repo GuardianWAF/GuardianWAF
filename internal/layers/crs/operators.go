@@ -10,6 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/guardianwaf/guardianwaf/internal/layers/sanitizer"
 	"github.com/guardianwaf/guardianwaf/internal/regexsafe"
@@ -326,46 +327,57 @@ func (oe *OperatorEvaluator) evaluateIpMatch(argument, value string) (bool, erro
 }
 
 // evaluateByteRange evaluates the @validateByteRange operator.
-// Format: 1-255 or 1-255,32-47
+// Format: 1-255 or 1-255,32-47.
+//
+// SecLang contract (ModSecurity Reference Manual): the operator MATCHES when
+// the inspected value contains any byte OUTSIDE the allowed ranges — the
+// canonical CRS rule "@validateByteRange 1-255" is the NUL-byte detector. A
+// value whose bytes all comply must not match. With no parseable ranges the
+// operator never matches: a malformed argument must not turn the rule into
+// match-everything.
 func (oe *OperatorEvaluator) evaluateByteRange(argument, value string) (bool, error) {
-	// Parse byte ranges
 	ranges := parseByteRanges(argument)
+	if len(ranges) == 0 {
+		return false, nil
+	}
 
-	// Check each byte in value
 	for i := 0; i < len(value); i++ {
 		b := value[i]
-		valid := false
+		inRange := false
 		for _, r := range ranges {
 			if int(b) >= r.min && int(b) <= r.max {
-				valid = true
+				inRange = true
 				break
 			}
 		}
-		if !valid {
-			return false, nil
+		if !inRange {
+			return true, nil // byte outside the allowed ranges — SecLang match
 		}
 	}
 
-	return true, nil
+	return false, nil
 }
 
-// evaluateUrlEncoding validates URL encoding in value.
+// evaluateUrlEncoding evaluates the @validateUrlEncoding operator.
+// SecLang contract: the operator MATCHES when the value contains invalid URL
+// encoding (an incomplete %XX escape or a non-hex digit after '%');
+// well-formed and escape-free values must not match. ModSecurity applies it
+// to raw data (e.g. REQUEST_URI) precisely to detect malformed encoding.
 func (oe *OperatorEvaluator) evaluateUrlEncoding(value string) (bool, error) {
-	// Check for invalid URL encoding
 	for i := 0; i < len(value); i++ {
 		if value[i] == '%' {
 			if i+2 >= len(value) {
-				return false, nil // Incomplete escape
+				return true, nil // incomplete escape — violation
 			}
 			// Check if next two chars are valid hex digits. ParseInt with
 			// base 16 still honours a leading sign ("-1"/"+5"), which would
 			// treat invalid escapes as valid, so verify the digits directly.
 			if !isHexDigit(value[i+1]) || !isHexDigit(value[i+2]) {
-				return false, nil
+				return true, nil // non-hex escape digit — violation
 			}
 		}
 	}
-	return true, nil
+	return false, nil
 }
 
 // isHexDigit reports whether b is an ASCII hexadecimal digit.
@@ -373,10 +385,13 @@ func isHexDigit(b byte) bool {
 	return (b >= '0' && b <= '9') || (b >= 'a' && b <= 'f') || (b >= 'A' && b <= 'F')
 }
 
-// evaluateUtf8Encoding validates UTF-8 encoding in value.
+// evaluateUtf8Encoding evaluates the @validateUtf8Encoding operator.
+// SecLang contract: the operator MATCHES when the value is NOT valid UTF-8.
+// stdlib utf8.ValidString distinguishes genuinely malformed sequences from a
+// legitimate U+FFFD character — a valid encoding the previous RuneError scan
+// misclassified as invalid (which post-inversion would be a false positive).
 func (oe *OperatorEvaluator) evaluateUtf8Encoding(value string) (bool, error) {
-	// Check if value is valid UTF-8
-	return isValidUTF8(value), nil
+	return !utf8.ValidString(value), nil
 }
 
 // compareNumeric compares numeric values.
@@ -446,14 +461,12 @@ func parseByteRanges(s string) []byteRange {
 	return ranges
 }
 
-// isValidUTF8 checks if a string is valid UTF-8.
+// isValidUTF8 reports whether s is valid UTF-8. Thin wrapper over stdlib
+// utf8.ValidString, kept as a named seam (tests call it directly); unlike the
+// previous RuneError scan it does not misclassify a legitimate U+FFFD
+// character as invalid.
 func isValidUTF8(s string) bool {
-	for _, r := range s {
-		if r == 0xFFFD { // Replacement character
-			return false
-		}
-	}
-	return true
+	return utf8.ValidString(s)
 }
 
 // Transform applies transformations to a value.

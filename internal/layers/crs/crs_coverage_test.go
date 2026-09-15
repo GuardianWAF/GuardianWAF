@@ -177,18 +177,19 @@ func TestOperatorEvaluator_AllTypes(t *testing.T) {
 		{"ipMatch single ip", "@ipMatch", "127.0.0.1", "127.0.0.1", true},
 		{"ipMatch single ip no match", "@ipMatch", "127.0.0.1", "127.0.0.2", false},
 
-		// @validateByteRange
-		{"byteRange valid", "@validateByteRange", "32-126", "hello world!", true},
-		{"byteRange invalid", "@validateByteRange", "48-57", "abc", false},
+		// @validateByteRange (SecLang: matches on a byte OUTSIDE the ranges)
+		{"byteRange compliant no match", "@validateByteRange", "32-126", "hello world!", false},
+		{"byteRange violation matches", "@validateByteRange", "48-57", "abc", true},
 
-		// @validateUrlEncoding
-		{"urlEncoding valid", "@validateUrlEncoding", "", "hello%20world", true},
-		{"urlEncoding incomplete", "@validateUrlEncoding", "", "hello%", false},
-		{"urlEncoding bad hex", "@validateUrlEncoding", "", "hello%GG", false},
-		{"urlEncoding no escapes", "@validateUrlEncoding", "", "hello", true},
+		// @validateUrlEncoding (SecLang: matches on invalid encoding)
+		{"urlEncoding valid no match", "@validateUrlEncoding", "", "hello%20world", false},
+		{"urlEncoding incomplete matches", "@validateUrlEncoding", "", "hello%", true},
+		{"urlEncoding bad hex matches", "@validateUrlEncoding", "", "hello%GG", true},
+		{"urlEncoding no escapes no match", "@validateUrlEncoding", "", "hello", false},
 
-		// @validateUtf8Encoding
-		{"utf8 valid", "@validateUtf8Encoding", "", "hello world", true},
+		// @validateUtf8Encoding (SecLang: matches on invalid UTF-8)
+		{"utf8 valid no match", "@validateUtf8Encoding", "", "hello world", false},
+		{"utf8 invalid matches", "@validateUtf8Encoding", "", "\xff\xfe", true},
 
 		// unknown operator falls back to regex
 		{"unknown op regex fallback", "test", "test", "test", true},
@@ -298,16 +299,16 @@ func TestOperatorEvaluator_ByteRange_SingleByte(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
-	if !result {
-		t.Error("expected 'A' (byte 65) to match byte range 65")
+	if result {
+		t.Error("expected compliant 'A' (byte 65) not to match byte range 65")
 	}
 
 	result, err = eval.Evaluate(op, "B")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
-	if result {
-		t.Error("expected 'B' (byte 66) not to match byte range 65")
+	if !result {
+		t.Error("expected 'B' (byte 66, outside range 65) to match — SecLang detects the violation")
 	}
 }
 
@@ -318,20 +319,20 @@ func TestOperatorEvaluator_ByteRange_MultipleRanges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
-	if !result {
-		t.Error("expected 'A1B2' to match byte range 48-57,65-90")
+	if result {
+		t.Error("expected compliant 'A1B2' not to match byte range 48-57,65-90")
 	}
 
 	result, err = eval.Evaluate(op, "a1b2")
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
-	if result {
-		t.Error("expected 'a1b2' (lowercase) not to match byte range 48-57,65-90")
+	if !result {
+		t.Error("expected 'a1b2' (lowercase outside ranges) to match — SecLang detects the violation")
 	}
 }
 
-func TestOperatorEvaluator_Utf8Encoding_Invalid(t *testing.T) {
+func TestOperatorEvaluator_Utf8Encoding_InvalidMatches(t *testing.T) {
 	eval := NewOperatorEvaluator()
 	op := RuleOperator{Type: "@validateUtf8Encoding", Argument: ""}
 	invalid := string([]byte{0xff, 0xfe, 0xfd})
@@ -339,8 +340,13 @@ func TestOperatorEvaluator_Utf8Encoding_Invalid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
-	if result {
-		t.Error("expected invalid UTF-8 to return false")
+	if !result {
+		t.Error("expected invalid UTF-8 to match — SecLang: the operator detects violations")
+	}
+
+	// A genuine U+FFFD character is valid UTF-8 and must not match.
+	if result, err := eval.Evaluate(op, string([]byte{0xEF, 0xBF, 0xBD})); err != nil || result {
+		t.Errorf("expected legitimate U+FFFD (valid UTF-8) not to match, got result=%v err=%v", result, err)
 	}
 }
 
@@ -377,6 +383,11 @@ func TestIsValidUTF8(t *testing.T) {
 	}
 	if isValidUTF8(string([]byte{0xff})) {
 		t.Error("expected invalid UTF-8")
+	}
+	// A genuine U+FFFD character (EF BF BD) is VALID UTF-8; the old
+	// RuneError-based scan misclassified it as invalid.
+	if !isValidUTF8(string([]byte{0xEF, 0xBF, 0xBD})) {
+		t.Error("expected legitimate U+FFFD to be valid UTF-8")
 	}
 }
 
@@ -2282,8 +2293,8 @@ func TestOperatorEvaluator_UrlEncoding_EdgeCases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
-	if result {
-		t.Error("expected false for incomplete pct encoding at boundary")
+	if !result {
+		t.Error("expected incomplete pct encoding at boundary to match — SecLang detects the violation")
 	}
 }
 

@@ -619,8 +619,8 @@ func TestEvaluateUrlEncoding_PercentAtEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Error: %v", err)
 	}
-	if result {
-		t.Error("Expected false for incomplete % at end of string")
+	if !result {
+		t.Error("Expected match for incomplete % at end of string")
 	}
 
 	// String with % followed by only one char
@@ -628,8 +628,8 @@ func TestEvaluateUrlEncoding_PercentAtEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Error: %v", err)
 	}
-	if result {
-		t.Error("Expected false for incomplete pct encoding with only one hex char")
+	if !result {
+		t.Error("Expected match for incomplete pct encoding with only one hex char")
 	}
 }
 
