@@ -231,10 +231,17 @@ func marshalInlineField(b *strings.Builder, key string, fv reflect.Value, indent
 		}
 		elemKind := fv.Type().Elem().Kind()
 		if elemKind == reflect.String {
-			// flow style [a, b, c]
+			// Flow style [a, b, c]. Items go through needsQuoting like every
+			// other String emission: a comma inside a flow list splits into a
+			// separate entry on reload, so such values must be quoted.
 			var items []string
 			for i := range fv.Len() {
-				items = append(items, fv.Index(i).String())
+				s := fv.Index(i).String()
+				if needsQuoting(s) {
+					items = append(items, fmt.Sprintf("%q", s))
+				} else {
+					items = append(items, s)
+				}
 			}
 			fmt.Fprintf(b, "%s: [%s]\n", key, strings.Join(items, ", "))
 		} else if elemKind == reflect.Struct {
@@ -352,8 +359,10 @@ func needsQuoting(s string) bool {
 	if lower == "yes" || lower == "no" || lower == "on" || lower == "off" {
 		return true
 	}
-	// Quote if starts with special chars
-	if s[0] == '*' || s[0] == '&' || s[0] == '!' || s[0] == '|' || s[0] == '>' || s[0] == '%' || s[0] == '@' {
+	// Quote if starts with special chars. "-" is included: a leading dash on a
+	// block-sequence item ("- - x") or after "key: " parses as a nested
+	// sequence, not a string.
+	if s[0] == '*' || s[0] == '&' || s[0] == '!' || s[0] == '|' || s[0] == '>' || s[0] == '%' || s[0] == '@' || s[0] == '-' {
 		return true
 	}
 	return false
