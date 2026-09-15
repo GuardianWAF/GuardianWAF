@@ -210,7 +210,18 @@ func (d *Detector) checkValue(rawVal, location, reqHost string) *engine.Finding 
 			if idx := strings.IndexAny(host, "/?#"); idx >= 0 {
 				host = host[:idx]
 			}
-			if host != "" && hostname(host) != "" {
+			// The rewrite is dangerous only when it produces an *external*
+			// authority. A backslash after an established same-origin
+			// authority is just a path separator to a browser
+			// ("https://app/settings\profile" → "/settings/profile"), so
+			// same-host and subdomain targets fall through to the ordinary
+			// URL classification below instead of being reported as
+			// "external hosts". Comparison mirrors the http/https branch:
+			// case-insensitive host, exact or "."+reqHost suffix.
+			hostName := hostname(host)
+			if host != "" && hostName != "" &&
+				!strings.EqualFold(hostName, reqHost) &&
+				!strings.HasSuffix(strings.ToLower(hostName), "."+strings.ToLower(reqHost)) {
 				return &engine.Finding{
 					DetectorName: "openredirect",
 					Category:     "open-redirect",

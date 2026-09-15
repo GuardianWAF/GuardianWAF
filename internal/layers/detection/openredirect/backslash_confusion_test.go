@@ -46,6 +46,7 @@ func TestBackslash_AuthorityForms_StillFlagged(t *testing.T) {
 		`/\evil.com`,
 		`https:\\evil.com`,
 		`http:\\evil.com\steal`,
+		`https:\\app.example.com.evil.com\share`, // absolute form, external host
 	} {
 		ctx := makeCtx("app.example.com", "next="+url.QueryEscape(target), nil)
 		result := d.Process(ctx)
@@ -54,6 +55,34 @@ func TestBackslash_AuthorityForms_StillFlagged(t *testing.T) {
 		}
 		if result.Action != engine.ActionBlock {
 			t.Fatalf("backslash authority payload %q should block, got %v", target, result.Action)
+		}
+	}
+}
+
+// TestBackslash_AbsoluteSameOriginURL_NotFlagged pins the absolute-URL form of
+// the same false-positive family. A backslash after an ESTABLISHED same-origin
+// authority is a path separator to a browser ("https://app/settings\profile"
+// -> "/settings/profile"); the rewrite produces no new authority, so the
+// target must pass and the request's own host must never be reported as an
+// "external host". Same-origin comparison mirrors the http/https branch:
+// case-insensitive exact match or "."+reqHost subdomain suffix.
+func TestBackslash_AbsoluteSameOriginURL_NotFlagged(t *testing.T) {
+	d := NewDetector(true, 1.0)
+	for _, target := range []string{
+		`https://app.example.com/settings\profile`,
+		`https://app.example.com/search?q=a\b`,
+		`http://app.example.com:8080/files\C:\docs`,   // host compared port-stripped
+		`https://APP.example.com/settings\profile`,    // case-insensitive host
+		`https://cdn.app.example.com/assets\logo.svg`, // subdomain suffix
+	} {
+		ctx := makeCtx("app.example.com", "next="+url.QueryEscape(target), nil)
+		result := d.Process(ctx)
+		if len(result.Findings) != 0 {
+			t.Fatalf("same-origin absolute target %q should not trigger, got %d findings: %+v",
+				target, len(result.Findings), result.Findings)
+		}
+		if result.Action != engine.ActionPass {
+			t.Fatalf("same-origin absolute target %q should pass, got %v", target, result.Action)
 		}
 	}
 }
