@@ -510,7 +510,12 @@ func TestCRSAdapter_Stats(t *testing.T) {
 }
 
 func TestCRSAdapter_Process(t *testing.T) {
-	adapter := &crsAdapter{}
+	// Real layer: Process now runs the layer's evaluation pipeline (the
+	// previous hardcoded-pass stub never touched the layer, which is why a
+	// nil-layer adapter used to pass this test). A benign request with no
+	// rules loaded must still evaluate to pass/0/no findings.
+	layer := crs.NewLayer(nil)
+	adapter := &crsAdapter{layer: layer}
 	ctx := &TestRequestContext{
 		Method:  "GET",
 		Path:    "/test",
@@ -524,8 +529,8 @@ func TestCRSAdapter_Process(t *testing.T) {
 	if string(result.Action) != "pass" {
 		t.Errorf("expected action pass, got %s", result.Action)
 	}
-	if result.Findings != nil {
-		t.Errorf("expected nil findings, got %v", result.Findings)
+	if len(result.Findings) != 0 {
+		t.Errorf("expected no findings, got %v", result.Findings)
 	}
 }
 

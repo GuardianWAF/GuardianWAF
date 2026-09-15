@@ -3,7 +3,9 @@ package dashboard
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
+	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/layers/crs"
 )
 
@@ -381,7 +383,51 @@ func (a *crsAdapter) SetParanoiaLevel(level int)   { a.layer.SetParanoiaLevel(le
 func (a *crsAdapter) Stats() map[string]int        { return a.layer.Stats() }
 
 func (a *crsAdapter) Process(ctx *TestRequestContext) CRSResult {
-	return CRSResult{Score: 0, Action: ActionType("pass"), Findings: nil}
+	// Run the layer's real evaluation pipeline — the same path live traffic
+	// takes. The previous hardcoded pass stub manufactured a clean result for
+	// every request, so the operator's CRS test endpoint could never surface
+	// a rule hit (an operator could believe CRS enforces when nothing was
+	// ever evaluated).
+	method := ctx.Method
+	if method == "" {
+		method = http.MethodGet
+	}
+	target := ctx.Path
+	if target == "" {
+		target = "/"
+	}
+	req, err := http.NewRequest(method, target, strings.NewReader(ctx.Body))
+	if err != nil {
+		// Unparseable target — nothing to evaluate.
+		return CRSResult{Score: 0, Action: ActionType("pass"), Findings: nil}
+	}
+	for k, v := range ctx.Headers {
+		req.Header.Set(k, v)
+	}
+	engineCtx := &engine.RequestContext{
+		Method:      req.Method,
+		Path:        req.URL.Path,
+		QueryParams: req.URL.Query(),
+		Headers:     req.Header,
+		Request:     req,
+		Body:        []byte(ctx.Body),
+		BodyString:  ctx.Body,
+	}
+	result := a.layer.Process(engineCtx)
+	findings := make([]FindingInfo, 0, len(result.Findings))
+	for _, f := range result.Findings {
+		findings = append(findings, FindingInfo{
+			DetectorName: f.DetectorName,
+			Category:     f.Category,
+			Description:  f.Description,
+			Score:        f.Score,
+		})
+	}
+	return CRSResult{
+		Score:    result.Score,
+		Action:   ActionType(strings.ToLower(result.Action.String())),
+		Findings: findings,
+	}
 }
 
 // CRSLayerInterface defines the interface for CRS layer operations
