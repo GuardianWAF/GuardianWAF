@@ -100,6 +100,7 @@ func buildReverseProxyWithMode(cfg *config.Config, strict bool) (http.Handler, [
 		}
 		defaultRoutes = append(defaultRoutes, proxy.Route{
 			PathPrefix:  route.Path,
+			Upstream:    route.Upstream,
 			Balancer:    lb,
 			StripPrefix: route.StripPrefix,
 		})
@@ -117,6 +118,7 @@ func buildReverseProxyWithMode(cfg *config.Config, strict bool) (http.Handler, [
 				}
 				vhRoutes = append(vhRoutes, proxy.Route{
 					PathPrefix:  route.Path,
+					Upstream:    route.Upstream,
 					Balancer:    lb,
 					StripPrefix: route.StripPrefix,
 				})

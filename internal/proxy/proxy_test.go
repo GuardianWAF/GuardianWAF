@@ -973,6 +973,43 @@ func TestRouter_AllUpstreamStatus_VHosts(t *testing.T) {
 	}
 }
 
+// TestRouter_AllUpstreamStatus_UsesRouteUpstreamName pins the upstream
+// identity contract: a route's Upstream name (set by the config route
+// builder) is the status identity; routers built without names keep the
+// PathPrefix fallback; and one balancer behind several routes still yields a
+// single status instead of one series per route.
+func TestRouter_AllUpstreamStatus_UsesRouteUpstreamName(t *testing.T) {
+	newRouter := func(routes ...Route) *Router {
+		target, _ := NewTarget("http://localhost:3000", 1)
+		balancer := NewBalancer([]*Target{target}, StrategyRoundRobin)
+		for i := range routes {
+			routes[i].Balancer = balancer
+		}
+		return NewRouter(routes)
+	}
+
+	router := newRouter(Route{PathPrefix: "/api", Upstream: "payments-api"})
+	statuses := router.AllUpstreamStatus()
+	if len(statuses) != 1 || statuses[0].Name != "payments-api" {
+		t.Fatalf("statuses = %+v, want exactly one named \"payments-api\"", statuses)
+	}
+
+	router = newRouter(Route{PathPrefix: "/api"})
+	statuses = router.AllUpstreamStatus()
+	if len(statuses) != 1 || statuses[0].Name != "/api" {
+		t.Fatalf("statuses = %+v, want exactly one named \"/api\" (PathPrefix fallback)", statuses)
+	}
+
+	router = newRouter(
+		Route{PathPrefix: "/api", Upstream: "payments-api"},
+		Route{PathPrefix: "/web", Upstream: "payments-api"},
+	)
+	statuses = router.AllUpstreamStatus()
+	if len(statuses) != 1 || statuses[0].Name != "payments-api" {
+		t.Fatalf("statuses = %+v, want one balancer behind two routes collapsed to a single \"payments-api\" status", statuses)
+	}
+}
+
 func TestRouterCloseClosesUniqueTargetsAcrossRoutes(t *testing.T) {
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)

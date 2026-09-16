@@ -21,7 +21,12 @@ const maxRetryBodyBytes = 1 << 20 // 1 MiB
 
 // Route maps a path prefix to a load balancer with optional prefix stripping.
 type Route struct {
-	PathPrefix  string
+	PathPrefix string
+	// Upstream is the operator-configured name of the upstream group this
+	// route dispatches to (config upstreams[].name). It is the identity
+	// status reporters surface; empty for routers built programmatically
+	// without a config, where they fall back to PathPrefix.
+	Upstream    string
 	Balancer    *Balancer
 	StripPrefix bool
 }
@@ -263,8 +268,17 @@ func (rt *Router) AllUpstreamStatus() []UpstreamStatus {
 					Weight:       t.Weight,
 				}
 			}
+			// Surface the operator-configured upstream identity, not the
+			// route path: several routes (or several vhosts sharing a path
+			// prefix) can dispatch to the same balancer, and distinct
+			// upstreams can share a prefix — a PathPrefix label would
+			// misattribute traffic and collide Prometheus series.
+			name := route.Upstream
+			if name == "" {
+				name = route.PathPrefix
+			}
 			result = append(result, UpstreamStatus{
-				Name:         route.PathPrefix,
+				Name:         name,
 				Strategy:     route.Balancer.Strategy(),
 				Targets:      ts,
 				HealthyCount: healthyCount,
