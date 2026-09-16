@@ -245,10 +245,12 @@ func (g *Gossip) Leave() {
 	inc := g.incarnation.Add(1)
 	g.members.MarkDead(g.config.NodeID)
 	g.enqueuePiggyback(Member{
-		ID:          g.config.NodeID,
-		Addr:        g.transport.LocalAddr(),
-		Incarnation: inc,
-		State:       StateDead,
+		ID:            g.config.NodeID,
+		Addr:          g.transport.LocalAddr(),
+		RaftAddr:      g.config.RaftAddr,
+		DashboardAddr: g.config.DashboardAddr,
+		Incarnation:   inc,
+		State:         StateDead,
 	})
 }
 
@@ -632,11 +634,18 @@ func (g *Gossip) applyPiggyback(payload []byte) {
 			if m.State != StateAlive && m.Incarnation >= g.incarnation.Load() {
 				newInc := m.Incarnation + 1
 				g.incarnation.Store(newInc)
+				// The refutation must carry the node's full advertised identity:
+				// Add full-replaces the local entry (shouldReplace prefers the
+				// higher incarnation), and this record is what every future
+				// dissemination spreads — omitting the addresses would
+				// permanently strip them from all views of this node.
 				refutation := Member{
-					ID:          g.config.NodeID,
-					Addr:        g.transport.LocalAddr(),
-					Incarnation: newInc,
-					State:       StateAlive,
+					ID:            g.config.NodeID,
+					Addr:          g.transport.LocalAddr(),
+					RaftAddr:      g.config.RaftAddr,
+					DashboardAddr: g.config.DashboardAddr,
+					Incarnation:   newInc,
+					State:         StateAlive,
 				}
 				g.members.Add(refutation)
 				g.enqueuePiggyback(refutation)
