@@ -64,13 +64,19 @@ func (p *Parser) ParseFile(content string) ([]*Rule, error) {
 					// tail of depth-3+ chains as a standalone top-level rule
 					// (evaluated both outside the chain's AND-condition and
 					// with the chain firing without the tail condition).
-					if rule.Actions.Chain {
+					// A single-line chained rule (6-part form) already links
+					// its complete inline chain into rule.Chain: pend only when
+					// the chain truly continues, else the next unrelated
+					// SecRule line overwrites the inline condition and is
+					// demoted out of the top-level ruleset.
+					if rule.Actions.Chain && (rule.Chain == nil || rule.Chain.Actions.Chain) {
 						pendingChainRule = rule
 					}
 				} else {
 					p.rules = append(p.rules, rule)
-					// Check if this rule has chain flag
-					if rule.Actions.Chain {
+					// Check if this rule has chain flag (same guard as above:
+					// an already-linked single-line chain is complete).
+					if rule.Actions.Chain && (rule.Chain == nil || rule.Chain.Actions.Chain) {
 						pendingChainRule = rule
 					}
 				}
