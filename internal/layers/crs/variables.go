@@ -164,10 +164,27 @@ func (vr *VariableResolver) Resolve(rv RuleVariable) ([]string, error) {
 // resolveArgs resolves ARGS variable.
 func (vr *VariableResolver) resolveArgs(key string, keyRegex bool, count bool) ([]string, error) {
 	if count {
-		// ModSecurity &ARGS counts every name=value pair, including repeated
-		// parameter names, so count-based rules can detect parameter
-		// pollution. Mirror resolveHeaders' total-value counting rather than
-		// counting distinct keys.
+		// ModSecurity &ARGS counts every name=value pair (total), while
+		// &ARGS:key counts only that key's values and &ARGS:/re/ counts the
+		// values across matching keys — keyed counts are the parameter-
+		// pollution detection idiom (&ARGS:password "@eq 2") and must not
+		// fall back to the whole-collection total.
+		if keyRegex {
+			re, err := getCachedRegex(key)
+			if err != nil {
+				return []string{"0"}, nil
+			}
+			total := 0
+			for argKey, vals := range vr.transaction.RequestArgs {
+				if re.MatchString(argKey) {
+					total += len(vals)
+				}
+			}
+			return []string{strconv.Itoa(total)}, nil
+		}
+		if key != "" {
+			return []string{strconv.Itoa(len(vr.transaction.RequestArgs[key]))}, nil
+		}
 		total := 0
 		for _, vals := range vr.transaction.RequestArgs {
 			total += len(vals)
@@ -213,6 +230,26 @@ func (vr *VariableResolver) resolveArgs(key string, keyRegex bool, count bool) (
 // resolveHeaders resolves header variables.
 func (vr *VariableResolver) resolveHeaders(key string, keyRegex bool, headers map[string][]string, count bool) ([]string, error) {
 	if count {
+		// Keyed counts mirror resolveArgs: &REQUEST_HEADERS:key counts that
+		// header's values (canonical-key lookup) and &REQUEST_HEADERS:/re/
+		// counts values across matching headers; only the keyless form is
+		// the whole-collection total.
+		if keyRegex {
+			re, err := getCachedRegex(key)
+			if err != nil {
+				return []string{"0"}, nil
+			}
+			total := 0
+			for hKey, vals := range headers {
+				if re.MatchString(hKey) {
+					total += len(vals)
+				}
+			}
+			return []string{strconv.Itoa(total)}, nil
+		}
+		if key != "" {
+			return []string{strconv.Itoa(len(headers[http.CanonicalHeaderKey(key)]))}, nil
+		}
 		count := 0
 		for _, vals := range headers {
 			count += len(vals)
@@ -259,6 +296,28 @@ func (vr *VariableResolver) resolveHeaders(key string, keyRegex bool, headers ma
 // resolveCookies resolves cookie variables.
 func (vr *VariableResolver) resolveCookies(key string, keyRegex bool, count bool) ([]string, error) {
 	if count {
+		// Keyed counts mirror resolveArgs: &REQUEST_COOKIES:key counts that
+		// cookie's values (1 or 0 — the store keeps one value per name);
+		// only the keyless form is the whole-collection total.
+		if keyRegex {
+			re, err := getCachedRegex(key)
+			if err != nil {
+				return []string{"0"}, nil
+			}
+			total := 0
+			for cookieKey := range vr.transaction.RequestCookies {
+				if re.MatchString(cookieKey) {
+					total++
+				}
+			}
+			return []string{strconv.Itoa(total)}, nil
+		}
+		if key != "" {
+			if _, ok := vr.transaction.RequestCookies[key]; ok {
+				return []string{"1"}, nil
+			}
+			return []string{"0"}, nil
+		}
 		return []string{strconv.Itoa(len(vr.transaction.RequestCookies))}, nil
 	}
 
