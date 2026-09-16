@@ -515,15 +515,29 @@ func (p *Parser) parseVarAction(s string) VarAction {
 }
 
 // splitQuoted splits a string by whitespace but respects quoted sections.
+// A backslash-escaped quote (or backslash) inside a quoted section is kept
+// verbatim and does NOT close the section — parseOperator unescapes \" after
+// the split, so the escape must survive it intact. Without this, a rule like
+// SecRule ARGS "@rx val\"ue more" closed the section at the escaped quote and
+// the following unquoted space split the rule mid-token: the operator
+// argument was truncated and the real actions section shifted into the
+// unused chain position (the rule loaded without error but was inert).
 func (p *Parser) splitQuoted(s string) []string {
 	var parts []string
 	var current strings.Builder
 	inQuotes := false
 	quoteChar := rune(0)
 
-	for _, r := range s {
-		switch r {
-		case '"', '\'':
+	runes := []rune(s)
+	for i := 0; i < len(runes); i++ {
+		r := runes[i]
+		switch {
+		case inQuotes && r == '\\' && i+1 < len(runes) && (runes[i+1] == quoteChar || runes[i+1] == '\\'):
+			// Escaped quote/backslash: emit the pair, skip the state toggle.
+			current.WriteRune(r)
+			current.WriteRune(runes[i+1])
+			i++
+		case r == '"' || r == '\'':
 			if !inQuotes {
 				inQuotes = true
 				quoteChar = r
@@ -535,7 +549,7 @@ func (p *Parser) splitQuoted(s string) []string {
 			} else {
 				current.WriteRune(r)
 			}
-		case ' ', '\t':
+		case r == ' ' || r == '\t':
 			if inQuotes {
 				current.WriteRune(r)
 			} else {
@@ -591,15 +605,24 @@ func splitEscaped(s string, sep byte) []string {
 }
 
 // splitActions splits actions by comma but respects quoted strings.
+// A backslash-escaped quote (or backslash) inside a quoted value (e.g.
+// msg:'don\'t') stays verbatim and does not close the value's quote.
 func splitActions(s string) []string {
 	var parts []string
 	var current strings.Builder
 	inQuotes := false
 	quoteChar := rune(0)
 
-	for _, r := range s {
-		switch r {
-		case '\'':
+	runes := []rune(s)
+	for i := 0; i < len(runes); i++ {
+		r := runes[i]
+		switch {
+		case inQuotes && r == '\\' && i+1 < len(runes) && (runes[i+1] == quoteChar || runes[i+1] == '\\'):
+			// Escaped quote/backslash: emit the pair, skip the state toggle.
+			current.WriteRune(r)
+			current.WriteRune(runes[i+1])
+			i++
+		case r == '\'':
 			if !inQuotes {
 				inQuotes = true
 				quoteChar = r
@@ -608,7 +631,7 @@ func splitActions(s string) []string {
 				quoteChar = 0
 			}
 			current.WriteRune(r)
-		case ',':
+		case r == ',':
 			if inQuotes {
 				current.WriteRune(r)
 			} else {
