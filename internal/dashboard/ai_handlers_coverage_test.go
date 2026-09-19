@@ -376,10 +376,14 @@ func TestHandleAISetConfig_UpdateError(t *testing.T) {
 		},
 	}
 
-	// Use a URL that passes SSRF check but updateFn returns error
+	// Use a URL that passes the front-door validation (HTTPS + public IP) so
+	// the request reaches UpdateProvider, whose error surfaces as 500.
+	// Realigned (round 2026-09-18-r3): the previous http://8.8.8.8 URL relied
+	// on the front door accepting cleartext HTTP that the AI layer refuses —
+	// that scheme is now rejected with 400 before any write path.
 	// 8.8.8.8 is a public DNS server, not private
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest("PUT", "/api/ai/config", strings.NewReader(`{"api_key":"key","base_url":"http://8.8.8.8:8080"}`))
+	req := httptest.NewRequest("PUT", "/api/ai/config", strings.NewReader(`{"api_key":"key","base_url":"https://8.8.8.8:8080"}`))
 	d.handleAISetConfig(rr, req)
 
 	if rr.Code != http.StatusInternalServerError {
