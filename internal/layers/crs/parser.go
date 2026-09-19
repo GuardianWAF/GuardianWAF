@@ -87,7 +87,25 @@ func (p *Parser) ParseFile(content string) ([]*Rule, error) {
 				return nil, fmt.Errorf("line %d: %w", p.lineNum, err)
 			}
 			if rule != nil {
-				p.rules = append(p.rules, rule)
+				// SecAction participates in rule chains per SecLang ("The
+				// following directives can be used in rule chains: SecAction,
+				// SecRule, SecRuleScript" — Coraza SecLang reference).
+				// Previously every SecAction was appended standalone: a
+				// chained SecAction starter's actions (e.g. deny) fired
+				// unconditionally and its continuation was demoted to a
+				// standalone rule, losing the chain's AND-gate.
+				if pendingChainRule != nil {
+					pendingChainRule.Chain = rule
+					pendingChainRule = nil
+				} else {
+					p.rules = append(p.rules, rule)
+				}
+				// SecAction has no inline 6-part form, so Actions.Chain
+				// alone signals that the chain continues on the next
+				// directive line.
+				if rule.Actions.Chain {
+					pendingChainRule = rule
+				}
 			}
 		}
 	}
@@ -137,6 +155,7 @@ func (p *Parser) parseSecRule(line string) (*Rule, error) {
 		Operator:      operator,
 		Actions:       actions,
 		ParanoiaLevel: 1, // Default
+		Phase:         2, // SecLang default: a rule without a phase action runs in phase 2
 	}
 
 	// Extract ID from actions
@@ -213,9 +232,15 @@ func (p *Parser) parseSecAction(line string) (*Rule, error) {
 	}
 
 	rule := &Rule{
-		Variables: []RuleVariable{}, // Empty variables = unconditional
-		Actions:   actions,
-		Phase:     actions.Phase,
+		Variables:     []RuleVariable{}, // Empty variables = unconditional
+		Actions:       actions,
+		Phase:         2,    // SecLang default: a rule without a phase action runs in phase 2
+		Unconditional: true, // SecLang: SecAction unconditionally processes its action list
+	}
+
+	// An explicit phase action overrides the SecLang default.
+	if actions.Phase > 0 {
+		rule.Phase = actions.Phase
 	}
 
 	if actions.ID != "" {
@@ -412,6 +437,9 @@ func (p *Parser) parseActions(s string) (RuleActions, error) {
 				n, err := strconv.Atoi(value)
 				if err != nil {
 					return actions, fmt.Errorf("invalid phase %q: %w", value, err)
+				}
+				if n < 1 || n > 5 {
+					return actions, fmt.Errorf("invalid phase %d: SecLang defines phases 1-5 only, failing the rule load rather than registering a rule that can never run", n)
 				}
 				actions.Phase = n
 			case "status":

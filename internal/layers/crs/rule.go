@@ -42,6 +42,12 @@ type Rule struct {
 	Operator  RuleOperator   // Matching operator (e.g., @rx, @eq)
 	Actions   RuleActions    // Actions to execute on match
 
+	// Unconditional marks a SecAction directive: SecLang "unconditionally
+	// processes the action list it receives as the first and only parameter"
+	// (ModSecurity Reference Manual) — no variables/operator to match, the
+	// actions run on every request in the rule's phase.
+	Unconditional bool
+
 	// Chaining
 	Chain     *Rule  // Next rule in chain (AND)
 	ChainType string // "and" (default) or "or"

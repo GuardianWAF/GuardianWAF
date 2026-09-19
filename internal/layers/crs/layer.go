@@ -390,6 +390,30 @@ func (l *Layer) evaluateRule(rule *Rule, tx *Transaction) (bool, int, *engine.Fi
 	resolver.transaction = tx
 	evaluator.captureGroups = evaluator.captureGroups[:0]
 
+	// SecAction rules are unconditional (SecLang: "unconditionally processes
+	// the action list it receives as the first and only parameter"). They
+	// carry no variables/operator, so the variable match loop below can
+	// never set matched for them — previously every parsed SecAction fell
+	// through the `if !matched` early return and silently did nothing
+	// (setvar/initcol/deny never ran). Execute the action list on every
+	// request, but do not report a detection: no finding and no anomaly
+	// score (a default-severity point per setup SecAction would push every
+	// request over the block threshold). The true return still lets Process
+	// honor explicit deny/block actions via shouldBlock.
+	if rule.Unconditional {
+		// A SecAction can be a chain node (SecLang allows SecAction in rule
+		// chains) — its own continuation must still gate it (AND), or a
+		// deeper chained condition would be bypassed.
+		if rule.Chain != nil {
+			chainMatched, _, _ := l.evaluateRule(rule.Chain, tx)
+			if !chainMatched {
+				return false, 0, nil
+			}
+		}
+		applyVarActions(rule, tx)
+		return true, 0, nil
+	}
+
 	// Evaluate variables. Exclusion targets (!VAR) remove their resolved
 	// values from the included result set (ModSecurity negation semantics —
 	// CRS exclusions suppress matches on specific fields). A rule with only
@@ -501,6 +525,16 @@ func (l *Layer) evaluateRule(rule *Rule, tx *Transaction) (bool, int, *engine.Fi
 	}
 
 	// Set transaction variables if specified
+	applyVarActions(rule, tx)
+
+	return true, score, finding
+}
+
+// applyVarActions executes a rule's setvar actions against the transaction.
+// "=" assigns; "+=" and "-=" apply ModSecurity arithmetic semantics on the
+// variable's current value (empty/unparseable values act as 0). Shared by
+// the normal matched-rule path and the unconditional SecAction path.
+func applyVarActions(rule *Rule, tx *Transaction) {
 	for _, varAction := range rule.Actions.SetVar {
 		switch varAction.Operation {
 		case "=":
@@ -526,8 +560,6 @@ func (l *Layer) evaluateRule(rule *Rule, tx *Transaction) (bool, int, *engine.Fi
 			tx.SetVar(varAction.Variable, strconv.Itoa(current+delta))
 		}
 	}
-
-	return true, score, finding
 }
 
 // shouldBlock determines if rule actions should cause immediate blocking.
@@ -605,19 +637,23 @@ type RuleSet struct {
 	Rules []*Rule
 }
 
-// Stats returns statistics about loaded rules.
+// Stats returns statistics about loaded rules. Phase keys distinguish what
+// Process actually evaluates from what is merely parsed: phases 1 and 2 are
+// evaluated by Process (request headers / request body), while phases 3, 4,
+// and 5 are parsed and registered but never iterated by this engine, so their
+// counts carry the _parsed suffix.
 func (l *Layer) Stats() map[string]int {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 
 	stats := map[string]int{
-		"total":    len(l.rules),
-		"phase_1":  len(l.rulesByPhase[1]),
-		"phase_2":  len(l.rulesByPhase[2]),
-		"phase_3":  len(l.rulesByPhase[3]),
-		"phase_4":  len(l.rulesByPhase[4]),
-		"phase_5":  len(l.rulesByPhase[5]),
-		"disabled": len(l.disabledRules),
+		"total":          len(l.rules),
+		"phase_1":        len(l.rulesByPhase[1]),
+		"phase_2":        len(l.rulesByPhase[2]),
+		"phase_3_parsed": len(l.rulesByPhase[3]),
+		"phase_4_parsed": len(l.rulesByPhase[4]),
+		"phase_5_parsed": len(l.rulesByPhase[5]),
+		"disabled":       len(l.disabledRules),
 	}
 
 	return stats

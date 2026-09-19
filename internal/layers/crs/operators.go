@@ -181,8 +181,12 @@ func (oe *OperatorEvaluator) evaluatePmFromFile(argument, value string) (bool, e
 	if err != nil {
 		return oe.evaluatePm(argument, value)
 	}
+	// Case-insensitive phrase matching — the SecLang @pm contract covers
+	// @pmFromFile (same Aho-Corasick machinery, phrases read from file).
+	// See evaluatePm.
+	valueLower := strings.ToLower(value)
 	for _, phrase := range fileLines(content) {
-		if strings.Contains(value, phrase) {
+		if phrase != "" && strings.Contains(valueLower, strings.ToLower(phrase)) {
 			return true, nil
 		}
 	}
@@ -257,7 +261,11 @@ func (oe *OperatorEvaluator) evaluateRx(pattern, value string) (bool, error) {
 }
 
 // evaluatePm evaluates the @pm (phrase match) operator.
-// Argument is space-separated phrases to match
+// Argument is space-separated phrases to match.
+// SecLang contract (ModSecurity Reference Manual): @pm performs a
+// case-insensitive match of the phrases against the value (Aho-Corasick
+// normalizes case) — case-sensitive matching let mixed-case payloads
+// ("SeLeCt") evade phrase-list rules.
 func (oe *OperatorEvaluator) evaluatePm(argument, value string) (bool, error) {
 	// Split argument into phrases
 	phrases := strings.Fields(argument)
@@ -265,11 +273,13 @@ func (oe *OperatorEvaluator) evaluatePm(argument, value string) (bool, error) {
 		return false, nil
 	}
 
+	valueLower := strings.ToLower(value)
+
 	// Try to match any phrase
 	for _, phrase := range phrases {
 		// Remove quotes if present
 		phrase = strings.Trim(phrase, "\"'")
-		if strings.Contains(value, phrase) {
+		if phrase != "" && strings.Contains(valueLower, strings.ToLower(phrase)) {
 			return true, nil
 		}
 	}
