@@ -291,9 +291,12 @@ func detectEncodedLT(input string) bool {
 //   - \xHH (JS hex escapes)
 //   - \uHHHH (JS unicode escapes)
 //   - %HH (URL encoding)
-//   - &#DD; / &#xHH; (HTML entities)
+//   - &#DD; / &#xHH; (HTML numeric entities)
+//   - &lt; &gt; &quot; &apos; &amp; (HTML named entities — the family
+//     html.EscapeString emits and XML bodies carry natively)
 //
 // It returns the decoded string. Non-decodable sequences are left as-is.
+// Decoding is single-pass: &amp;lt; becomes &lt;, never <.
 func decodeCommonEncodings(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
@@ -365,10 +368,48 @@ func decodeCommonEncodings(s string) string {
 				continue
 			}
 		}
+		// HTML named entities: &lt; &gt; &quot; &apos; &amp — the most
+		// common HTML encoding family (html.EscapeString emits exactly
+		// these; XML bodies carry them natively). Matched case-
+		// insensitively (HTML5 defines the &LT;/&GT;/&QUOT; aliases),
+		// semicolon optional. Without decoding them, a payload encoded
+		// entirely as named entities evaded the decode-then-scan pipeline
+		// while its numeric-entity twin was classified.
+		if i+2 < len(s) && s[i] == '&' && s[i+1] != '#' {
+			if rep, next, ok := matchNamedEntity(s, i); ok {
+				b.WriteString(rep)
+				i = next
+				continue
+			}
+		}
 		b.WriteByte(s[i])
 		i++
 	}
 	return b.String()
+}
+
+// matchNamedEntity matches an HTML named entity (&lt; &gt; &quot; &apos;
+// &amp — case-insensitive per the HTML5 &LT;/&GT;/&QUOT; aliases, semicolon
+// optional) at s[i:], returning the replacement and the offset past the
+// entity, or ok=false when s[i:] does not begin with a known one.
+func matchNamedEntity(s string, i int) (string, int, bool) {
+	end := i + 7
+	if end > len(s) {
+		end = len(s)
+	}
+	head := strings.ToLower(s[i+1 : end])
+	for _, ent := range [][2]string{
+		{"quot", "\""}, {"apos", "'"}, {"amp", "&"}, {"lt", "<"}, {"gt", ">"},
+	} {
+		if strings.HasPrefix(head, ent[0]) {
+			j := i + 1 + len(ent[0])
+			if j < len(s) && s[j] == ';' {
+				j++
+			}
+			return ent[1], j, true
+		}
+	}
+	return "", i, false
 }
 
 // hexVal returns the numeric value of a hex digit, or -1 if not a hex digit.
