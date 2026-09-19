@@ -18,7 +18,14 @@ type trieNode struct {
 	// Higher score = higher severity.
 	score       int
 	description string
+	path        string         // the full inserted path (for evidence extraction)
 	children    [256]*trieNode // ASCII children only; inputs are lowercased ASCII
+	// fail is the Aho-Corasick failure link: the longest proper suffix of
+	// this node's path that is also a trie node. On divergence the walk
+	// follows fail links instead of restarting from root at the NEXT
+	// position, so embedded matches (e.g. /etc/passwd inside
+	// /private/etc/passwd) are found regardless of shared prefixes.
+	fail *trieNode
 }
 
 // buildSensitivePathTrie constructs a trie from the embedded path lists.
@@ -45,6 +52,7 @@ func buildSensitivePathTrie() *sensitivePathTrie {
 		}
 		node.score = score
 		node.description = desc
+		node.path = path
 	}
 
 	// Critical paths (highest severity)
@@ -120,7 +128,12 @@ func buildSensitivePathTrie() *sensitivePathTrie {
 		addPath(p, 65, "Access to sensitive Windows path: "+p)
 	}
 
-	// macOS paths
+	// macOS paths. The /private/etc/* forms of /etc/* need no separate
+	// entries: the restart-at-root walk finds the embedded /etc/* suffix and
+	// fires the Linux classification. These seven have no reachable embedded
+	// suffix anywhere in the trie, so they are inserted explicitly
+	// (round-2026-09-18-r15): the log tier mirrors the /var/log Linux
+	// entries, the config/directory tier mirrors the Linux config entries.
 	macosPaths := []string{
 		"/etc/resolv.conf",
 		"/etc/hosts",
@@ -130,62 +143,95 @@ func buildSensitivePathTrie() *sensitivePathTrie {
 	for _, p := range macosPaths {
 		addPath(p, 55, "Access to sensitive macOS path: "+p)
 	}
+	addPath("/private/var/log/system.log", 60, "Access to /private/var/log/system.log detected")
+	addPath("/private/var/log/asl", 60, "Access to /private/var/log/asl detected")
+	addPath("/var/log/system.log", 60, "Access to /var/log/system.log detected")
+	addPath("/var/log/install.log", 60, "Access to /var/log/install.log detected")
+	addPath("/Library/Logs/DiagnosticReports", 60, "Access to /Library/Logs/DiagnosticReports detected")
+	addPath("/Library/Preferences/SystemConfiguration/com.apple.airport.preferences.plist", 55, "Access to /Library/Preferences/SystemConfiguration/com.apple.airport.preferences.plist detected")
+	addPath("/Users/Shared", 55, "Access to /Users/Shared detected")
+
+	// Failure links must be computed over the final trie; the trie is built
+	// once at init and never mutated afterwards.
+	t.buildFailureLinks()
 
 	return t
+}
+
+// buildFailureLinks computes the Aho-Corasick failure links breadth-first.
+// A depth-1 node fails to the root; a deeper node's fail link is the longest
+// proper suffix of its path that is also a trie node, derived from the
+// parent's already-computed link (BFS order guarantees parents are done
+// first). Without these links a divergence mid-trie loses every embedded
+// match starting at the intermediate positions — the naive restart skips
+// them, which is exactly how inserting /private/var/log/system.log briefly
+// broke the embedded /etc/passwd detection in /private/etc/passwd.
+func (t *sensitivePathTrie) buildFailureLinks() {
+	t.root.fail = t.root
+	queue := []*trieNode{}
+	for i := range t.root.children {
+		if c := t.root.children[i]; c != nil {
+			c.fail = t.root
+			queue = append(queue, c)
+		}
+	}
+	for len(queue) > 0 {
+		n := queue[0]
+		queue = queue[1:]
+		for i := range n.children {
+			c := n.children[i]
+			if c == nil {
+				continue
+			}
+			f := n.fail
+			for f != t.root && f.children[i] == nil {
+				f = f.fail
+			}
+			c.fail = f.children[i]
+			if c.fail == nil || c.fail == c {
+				c.fail = t.root
+			}
+			queue = append(queue, c)
+		}
+	}
 }
 
 // global trie — built once at init.
 var sensitiveTrie = buildSensitivePathTrie()
 
-// checkWithTrie traverses the trie once through the input string.
-// When it lands on a terminal node, it records a finding.
-// This is O(k) where k = len(input), vs the old O(n*m) linear scan.
-// Each character causes a single array lookup (O(1)).
+// checkWithTrie walks the input once through the trie, following failure
+// links on divergence (Aho-Corasick). Each position consumes one input byte;
+// on mismatch the walk falls back to the longest proper suffix that is still
+// a trie node and retries the SAME byte, so embedded matches survive shared
+// prefixes. O(k) amortized. Terminals are reported when the walk lands on
+// them; patterns that are proper suffixes of a longer matched pattern would
+// additionally require dictionary-chain following, and no such pair exists
+// in the inserted path set.
 func (t *sensitivePathTrie) checkWithTrie(input, location string) []engine.Finding {
 	var findings []engine.Finding
 	node := t.root
 
-	// Traverse as far as possible in the trie for each character.
-	// When we reach a non-terminal, continue from root but remember the longest match.
-	var lastMatch *trieNode
-	var lastMatchEnd int
-
 	for i := 0; i < len(input); i++ {
 		idx := int(input[i])
-		child := node.children[idx]
-		if child == nil {
-			// No further match; record the best match so far and restart from root.
-			if lastMatch != nil {
-				findings = append(findings, makeFinding(lastMatch.score, engine.SeverityHigh,
-					lastMatch.description,
-					extractContext(input, input[max(0, lastMatchEnd-len(lastMatch.description)):lastMatchEnd]),
-					location, 0.75))
-				lastMatch = nil
+		for node != t.root && node.children[idx] == nil {
+			if node.fail == nil {
+				// Hand-built tries without failure links: fall back to the
+				// legacy restart-at-root behavior so the walk stays usable
+				// on any trie, not only ones that ran buildFailureLinks.
+				node = t.root
+				break
 			}
-			node = t.root
-			// Try a fresh match starting at this character.
-			if t.root.children[idx] != nil {
-				node = t.root.children[idx]
-				if node.score > 0 {
-					lastMatch = node
-					lastMatchEnd = i + 1
-				}
-			}
-		} else {
-			node = child
-			if node.score > 0 {
-				lastMatch = node
-				lastMatchEnd = i + 1
-			}
+			node = node.fail
 		}
-	}
-
-	// Final match at end of string.
-	if lastMatch != nil {
-		findings = append(findings, makeFinding(lastMatch.score, engine.SeverityHigh,
-			lastMatch.description,
-			extractContext(input, input[max(0, lastMatchEnd-len(lastMatch.description)):lastMatchEnd]),
-			location, 0.75))
+		if child := node.children[idx]; child != nil {
+			node = child
+		}
+		if node.score > 0 {
+			findings = append(findings, makeFinding(node.score, engine.SeverityHigh,
+				node.description,
+				extractContext(input, node.path),
+				location, 0.75))
+		}
 	}
 
 	return findings
