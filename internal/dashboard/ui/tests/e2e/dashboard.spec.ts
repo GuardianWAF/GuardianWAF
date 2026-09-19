@@ -27,6 +27,29 @@ test('dashboard health API is public and protected APIs require auth', async ({ 
   expect(stats.status()).toBe(401)
 })
 
+test('metrics exposition requires the dashboard admin key', async ({ request }) => {
+  const unauthenticated = await request.get('/metrics')
+  expect(unauthenticated.status()).toBe(401)
+
+  const dashboardKey = await request.get('/metrics', {
+    headers: {
+      'X-API-Key': apiKey,
+    },
+  })
+  expect(dashboardKey.status()).toBe(401)
+
+  const adminKeyed = await request.get('/metrics', {
+    headers: {
+      'X-API-Key': adminKey,
+    },
+  })
+  expect(adminKeyed.status()).toBe(200)
+  expect(adminKeyed.headers()['content-type']).toContain('text/plain; version=0.0.4')
+  const exposition = await adminKeyed.text()
+  expect(exposition).toContain('# HELP')
+  expect(exposition).toContain('guardianwaf_requests_total')
+})
+
 test('tenant admin UI requires the separate dashboard admin key', async ({ page, request }) => {
   const dashboardKeyResp = await request.get('/api/admin/tenants', {
     headers: {
