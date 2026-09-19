@@ -116,13 +116,16 @@ func normalizeOrigin(origin string) string {
 }
 
 // isAllOriginsWildcard reports whether the normalized pattern is an
-// all-origins wildcard — the wildcard IS the entire host component — under
-// any scheme spelling: "https://*", "http://*", "*://*", or repeated-star
-// forms like "https://**". compileWildcard turns each of these into a bare
-// `^<scheme>://.+$` regex, so with AllowCredentials the layer would reflect
-// credentialed CORS for every site of that scheme; the scheme spelling must
-// not matter. Scoped patterns ("https://*.example.com") keep a non-star tail
-// and stay allowed.
+// all-origins wildcard — the host component contains no literal host-label
+// characters, only '*' wildcards and '.' separators. Every such shape ("*",
+// "**", "*.", "*.*", "*..") compiles via compileWildcard to a match-broad
+// regex (`.+`, `.+\.+`, …) that reflects credentialed CORS for arbitrary
+// sites of the scheme, while a scoped pattern ("https://*.example.com") or a
+// TLD-wide one ("https://*.com") always carries literal label characters and
+// stays allowed. The check is structural so every spelling of the all-hosts
+// family is rejected, not just "https://*" — a spelling like "http://*",
+// "*://*", "https://**", or "https://*." normalizes differently but compiles
+// to the same match-broad regex.
 func isAllOriginsWildcard(normalized string) bool {
 	idx := strings.Index(normalized, "://")
 	if idx < 0 {
@@ -132,7 +135,7 @@ func isAllOriginsWildcard(normalized string) bool {
 	if end := strings.IndexAny(host, "/?#"); end >= 0 {
 		host = host[:end]
 	}
-	if host == "" || strings.Trim(host, "*") != "" {
+	if host == "" || strings.Trim(host, "*.") != "" {
 		return false
 	}
 	return scheme == "http" || scheme == "https" || scheme == "*"
