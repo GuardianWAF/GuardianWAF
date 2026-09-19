@@ -257,8 +257,17 @@ func (l *Layer) checkCredentialStuffing(ctx *engine.RequestContext, email string
 func (l *Layer) checkPasswordSpray(ctx *engine.RequestContext, password string) engine.LayerResult {
 	cfg := l.config.PasswordSpray
 
-	// Check how many times this password has been used
-	useCount := l.tracker.GetPasswordUseCount(password)
+	// Count only the uses inside the operator's spray window. The previous
+	// check compared the ALL-TIME Count, so a password whose count crossed
+	// the threshold at any point in the past kept blocking every later
+	// source IP that submitted it — and the configured Window was silently
+	// ignored. An unset window (<= 0) keeps the legacy all-time behavior.
+	var useCount int
+	if cfg.Window > 0 {
+		useCount = l.tracker.GetPasswordUsesInWindow(password, cfg.Window)
+	} else {
+		useCount = l.tracker.GetPasswordUseCount(password)
+	}
 	if useCount >= cfg.Threshold {
 		// Block the IP
 		l.tracker.BlockIP(ctx.ClientIP, time.Now().Add(cfg.BlockDuration), "password_spray")

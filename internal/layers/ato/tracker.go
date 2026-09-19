@@ -35,6 +35,7 @@ type AttemptRecord struct {
 type PasswordRecord struct {
 	mu         sync.RWMutex
 	Count      int
+	Uses       []time.Time // per-use timestamps; windowed spray detection counts these
 	FirstSeen  time.Time
 	LastSeen   time.Time
 	SourceIPs  map[string]bool
@@ -241,6 +242,10 @@ func (t *AttemptTracker) RecordAttempt(attempt *LoginAttempt) {
 			}
 			pwRec.mu.Lock()
 			pwRec.Count++
+			pwRec.Uses = append(pwRec.Uses, now)
+			if len(pwRec.Uses) > 1000 {
+				pwRec.Uses = pwRec.Uses[len(pwRec.Uses)-500:]
+			}
 			pwRec.LastSeen = now
 			if t.maxInnerEntries <= 0 || pwRec.SourceIPs[ip] || len(pwRec.SourceIPs) < t.maxInnerEntries {
 				pwRec.SourceIPs[ip] = true
@@ -326,6 +331,34 @@ func (t *AttemptTracker) GetPasswordUseCount(password string) int {
 	rec.mu.RLock()
 	defer rec.mu.RUnlock()
 	return rec.Count
+}
+
+// GetPasswordUsesInWindow returns how many times a password was used within
+// the window. Spray detection counts these rather than the all-time Count so
+// the configured PasswordSpray.Window actually bounds detection.
+func (t *AttemptTracker) GetPasswordUsesInWindow(password string, window time.Duration) int {
+	hash := hashPassword(password)
+
+	t.mu.RLock()
+	rec, ok := t.passwordHashes[hash]
+	t.mu.RUnlock()
+
+	if !ok {
+		return 0
+	}
+
+	rec.mu.RLock()
+	defer rec.mu.RUnlock()
+
+	now := time.Now()
+	cutoff := now.Add(-window)
+	count := 0
+	for _, use := range rec.Uses {
+		if use.After(cutoff) {
+			count++
+		}
+	}
+	return count
 }
 
 // BlockIP blocks an IP until the specified time.
