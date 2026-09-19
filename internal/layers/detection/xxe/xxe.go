@@ -201,16 +201,21 @@ func checkEntity(lower, location string, findings *[]engine.Finding) bool {
 	return false
 }
 
-// checkSystemProtocols detects SYSTEM keyword with various protocol handlers.
-// XML's ExternalID is "SYSTEM S SystemLiteral" where S is one or more
-// whitespace characters (space, tab, CR, LF — XML 1.0 §2.3), so the keyword
-// must be matched against a whitespace RUN, not exactly one space: fixed
-// single-space patterns missed `SYSTEM\t"http://...` and friends, dropping an
-// external-DTD XXE to 25 (DOCTYPE only) — below the block threshold — and,
-// with the sanitizer layer disabled, missing the protocol finding entirely on
-// the engine-guaranteed raw view.
+// checkSystemProtocols detects SYSTEM and PUBLIC keywords with various
+// protocol handlers. XML's ExternalID has two productions (XML 1.0 §4.2.2):
+// "SYSTEM S SystemLiteral" and "PUBLIC S PubidLiteral S SystemLiteral" — the
+// fetch target lives in the SystemLiteral, which under the PUBLIC form is the
+// SECOND quoted literal, so the classification must scan both keywords:
+// keying on `system` alone let the PUBLIC form `<!DOCTYPE r PUBLIC "-//B/A/EN"
+// "file:///etc/passwd">` score doctype-only (25) — below the block threshold.
+// Within either production, S is one or more whitespace characters (space,
+// tab, CR, LF — XML 1.0 §2.3), so keywords must be matched against
+// whitespace RUNS, not exactly one space: fixed single-space patterns missed
+// `SYSTEM\t"http://...` and friends, dropping an external-DTD XXE to 25
+// (DOCTYPE only) and, with the sanitizer layer disabled, missing the protocol
+// finding entirely on the engine-guaranteed raw view.
 func checkSystemProtocols(lower, location string, findings *[]engine.Finding) {
-	if !strings.Contains(lower, "system") {
+	if !strings.Contains(lower, "system") && !strings.Contains(lower, "public") {
 		return
 	}
 
@@ -228,9 +233,15 @@ func checkSystemProtocols(lower, location string, findings *[]engine.Finding) {
 	}
 
 	for _, p := range protocols {
-		if indexSystemScheme(lower, p.scheme) >= 0 {
+		anchor := "system"
+		idx := indexSystemScheme(lower, p.scheme)
+		if idx < 0 {
+			idx = indexPublicScheme(lower, p.scheme)
+			anchor = "public"
+		}
+		if idx >= 0 {
 			*findings = append(*findings, makeFinding(p.score, p.sev,
-				p.desc, extractContext(lower, "system"), location, 0.95))
+				p.desc, extractContext(lower, anchor), location, 0.95))
 		}
 	}
 }
@@ -257,6 +268,48 @@ func indexSystemScheme(lower, scheme string) int {
 			k++
 		}
 		if k > j && k < len(lower) && (lower[k] == '"' || lower[k] == '\'') &&
+			strings.HasPrefix(lower[k+1:], scheme) {
+			return i
+		}
+		start = j
+	}
+}
+
+// indexPublicScheme returns the offset of the first "public" keyword whose
+// ExternalID continues with the paired production: at least one XML
+// whitespace character, a quoted PubidLiteral (same quote char, may be
+// empty), another whitespace run, and a quoted literal starting with scheme —
+// or -1 when no such occurrence exists.
+func indexPublicScheme(lower, scheme string) int {
+	for start := 0; ; {
+		i := strings.Index(lower[start:], "public")
+		if i < 0 {
+			return -1
+		}
+		i += start
+		j := i + len("public")
+		k := j
+		for k < len(lower) && xmlSpaceByte(lower[k]) {
+			k++
+		}
+		// PubidLiteral: quoted string (same quote char); may be empty.
+		if k >= len(lower) || (lower[k] != '"' && lower[k] != '\'') {
+			start = j
+			continue
+		}
+		q := lower[k]
+		k++
+		for k < len(lower) && lower[k] != q {
+			k++
+		}
+		if k >= len(lower) {
+			return -1 // unterminated PubidLiteral
+		}
+		k++ // past the closing quote
+		for k < len(lower) && xmlSpaceByte(lower[k]) {
+			k++
+		}
+		if k < len(lower) && (lower[k] == '"' || lower[k] == '\'') &&
 			strings.HasPrefix(lower[k+1:], scheme) {
 			return i
 		}
