@@ -339,16 +339,17 @@ func checkPrivateIPs(lower, location string) []engine.Finding {
 				break
 			}
 
-			// Extract host portion (up to /, :, ?, #, or end)
+			// Extract host portion (up to /, ?, #, or end; the port ':' and
+			// any userinfo are split by authorityHost below).
 			hostEnd := hostStart
 			for hostEnd < len(lower) {
 				c := lower[hostEnd]
-				if c == '/' || c == ':' || c == '?' || c == '#' || c == ' ' {
+				if c == '/' || c == '?' || c == '#' || c == ' ' {
 					break
 				}
 				hostEnd++
 			}
-			host := lower[hostStart:hostEnd]
+			host := authorityHost(lower[hostStart:hostEnd])
 
 			// Check if host is a private, loopback, link-local, or
 			// this-network IP.
@@ -411,16 +412,9 @@ func checkPrivateIPs(lower, location string) []engine.Finding {
 				if c == '/' || c == '?' || c == '#' || c == ' ' {
 					break
 				}
-				if c == ']' {
-					hostEnd++
-					break
-				}
-				if c == ':' && lower[hostStart] != '[' {
-					break
-				}
 				hostEnd++
 			}
-			host := lower[hostStart:hostEnd]
+			host := authorityHost(lower[hostStart:hostEnd])
 			if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
 				ipv6Str := host[1 : len(host)-1]
 				parsedIP := net.ParseIP(ipv6Str)
@@ -487,12 +481,12 @@ func checkEncodedIPs(lower, location string) []engine.Finding {
 			hostEnd := hostStart
 			for hostEnd < len(lower) {
 				c := lower[hostEnd]
-				if c == '/' || c == ':' || c == '?' || c == '#' || c == ' ' {
+				if c == '/' || c == '?' || c == '#' || c == ' ' {
 					break
 				}
 				hostEnd++
 			}
-			host := lower[hostStart:hostEnd]
+			host := authorityHost(lower[hostStart:hostEnd])
 			searchFrom = hostEnd // advance past this URL for next iteration
 
 			// Check for decimal IP (single large number like 2130706433)
@@ -680,4 +674,27 @@ func authorityEnd(s string) int {
 		}
 	}
 	return len(s)
+}
+
+// authorityHost returns the host portion of an extracted URL authority.
+// RFC 3986 splits userinfo at the LAST '@' — everything before it is
+// credentials, not the host ("http://a@10.0.0.5/" dials 10.0.0.5) — so the
+// host is what follows it. A bracketed host ([::1] or [::1%eth0]) ends at
+// ']' (any port suffix is dropped); a bare host ends at ':' (port).
+// Without the userinfo split, "a@10.0.0.5" failed every IP parse and the
+// private-range classification never fired for userinfo URLs.
+func authorityHost(authority string) string {
+	if at := strings.LastIndexByte(authority, '@'); at >= 0 {
+		authority = authority[at+1:]
+	}
+	if strings.HasPrefix(authority, "[") {
+		if end := strings.IndexByte(authority, ']'); end >= 0 {
+			return authority[:end+1]
+		}
+		return authority
+	}
+	if colon := strings.IndexByte(authority, ':'); colon >= 0 {
+		return authority[:colon]
+	}
+	return authority
 }
