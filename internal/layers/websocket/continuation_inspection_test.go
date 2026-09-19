@@ -21,7 +21,9 @@ func (w *recordingWriter) Write(p []byte) (int, error) {
 
 func parseFrames(t *testing.T, data []byte) []*Frame {
 	t.Helper()
-	fr := NewFrameReader(bytes.NewReader(data), MaxPayloadSize)
+	// The relayed frames on this leg are client-to-server direction, so they
+	// are masked (RFC 6455 §5.1) — parse them with the masked reader.
+	fr := NewMaskedFrameReader(bytes.NewReader(data), MaxPayloadSize)
 	var frames []*Frame
 	for data != nil {
 		f, err := fr.ReadFrame()
@@ -40,8 +42,10 @@ func runInspector(t *testing.T, srcFrames []*Frame, check func(payload string) (
 
 	var srcBuf bytes.Buffer
 	for _, f := range srcFrames {
-		if err := WriteFrame(&srcBuf, f); err != nil {
-			t.Fatalf("WriteFrame(src): %v", err)
+		// Client-leg frames MUST be masked (RFC 6455 §5.1) — the relay's
+		// masked reader rejects MASK=0 client frames.
+		if err := WriteFrameMasked(&srcBuf, f); err != nil {
+			t.Fatalf("WriteFrameMasked(src): %v", err)
 		}
 	}
 

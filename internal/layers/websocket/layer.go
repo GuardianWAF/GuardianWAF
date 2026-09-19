@@ -211,6 +211,22 @@ func (l *Layer) handleWebSocket(w http.ResponseWriter, r *http.Request, next htt
 // messages (fail-closed: an over-cap assembled message is refused with 1009).
 const maxAssembledMessageBytes = 8 << 20
 
+// teardownConns closes both legs of the proxied connection. The refuse
+// paths below (block / framing violation / over-cap) must call it: the two
+// relay goroutines join only at wg.Wait() and the deferred connection
+// closes fire only after BOTH directions exit, so a lone return leaves the
+// sibling relaying and the per-IP slot held until the REMOTE peer happens
+// to close — a zombie connection for the blocked side (Config's contract is
+// "the frame is dropped and the connection is closed").
+func teardownConns(src io.Reader, dst io.Writer) {
+	if c, ok := src.(io.Closer); ok {
+		_ = c.Close()
+	}
+	if c, ok := dst.(io.Closer); ok {
+		_ = c.Close()
+	}
+}
+
 func (l *Layer) inspectAndForward(src io.Reader, dst io.Writer, clientIP, path string, masked bool) {
 	var assembly []byte
 	var inMessage bool
@@ -239,6 +255,14 @@ func (l *Layer) inspectAndForward(src io.Reader, dst io.Writer, clientIP, path s
 
 		frame, err := fr.ReadFrame()
 		if err != nil {
+			if errors.Is(err, ErrMaskViolation) {
+				// RFC 6455 §5.1 MUST violation (an unmasked client frame or a
+				// masked backend frame): refuse with a protocol-error close
+				// and tear both legs down — the same refuse-path model as the
+				// other protocol violations below.
+				_ = write(dst, &Frame{FIN: true, Opcode: OpClose, Payload: makeClosePayload(1002, "protocol error")})
+				teardownConns(src, dst)
+			}
 			return
 		}
 
@@ -261,6 +285,7 @@ func (l *Layer) inspectAndForward(src io.Reader, dst io.Writer, clientIP, path s
 				Payload: makeClosePayload(1003, "binary not allowed"),
 			}
 			_ = write(dst, closeFrame)
+			teardownConns(src, dst)
 			return
 		}
 
@@ -283,6 +308,7 @@ func (l *Layer) inspectAndForward(src io.Reader, dst io.Writer, clientIP, path s
 					Payload: makeClosePayload(1008, "policy violation"),
 				}
 				_ = write(dst, closeFrame)
+				teardownConns(src, dst)
 				return
 			}
 		}
@@ -305,6 +331,7 @@ func (l *Layer) inspectAndForward(src io.Reader, dst io.Writer, clientIP, path s
 						Payload: makeClosePayload(1002, "protocol error"),
 					}
 					_ = write(dst, closeFrame)
+					teardownConns(src, dst)
 					return
 				}
 				if !frame.FIN {
@@ -320,6 +347,7 @@ func (l *Layer) inspectAndForward(src io.Reader, dst io.Writer, clientIP, path s
 						Payload: makeClosePayload(1009, "message too big"),
 					}
 					_ = write(dst, closeFrame)
+					teardownConns(src, dst)
 					return
 				}
 				if frame.FIN && l.cfg.CheckPayload != nil {
@@ -337,6 +365,7 @@ func (l *Layer) inspectAndForward(src io.Reader, dst io.Writer, clientIP, path s
 							Payload: makeClosePayload(1008, "policy violation"),
 						}
 						_ = write(dst, closeFrame)
+						teardownConns(src, dst)
 						return
 					}
 				}

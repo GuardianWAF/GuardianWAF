@@ -58,6 +58,13 @@ func (o Opcode) IsData() bool    { return o == OpText || o == OpBinary || o == O
 // Big) close frame.
 var ErrFrameTooLarge = errors.New("websocket: frame payload exceeds maximum size")
 
+// ErrMaskViolation is returned when a frame's MASK bit violates the RFC 6455
+// §5.1 direction: MASK=0 on the masked reader (client-to-server frames MUST
+// be masked) or MASK=1 on the unmasked reader (server-to-client frames MUST
+// NOT be masked). The relay refuses the connection with a 1002
+// protocol-error close.
+var ErrMaskViolation = errors.New("websocket: frame mask bit violates RFC 6455 §5.1 direction")
+
 // MaxPayloadSize is the absolute ceiling for a single frame payload.
 const MaxPayloadSize = 1 << 24 // 16 MiB
 
@@ -106,10 +113,13 @@ func (fr *FrameReader) ReadFrame() (*Frame, error) {
 	opcode := Opcode(hdr[0] & 0x0F)
 	masked := hdr[1]&0x80 != 0
 
-	// If this is a masked direction, the frame must have a mask.
-	// (The server may also send masked frames, though it's not standard.)
-	if fr.masked && !masked {
-		masked = false // tolerate unmasked in masked direction
+	// RFC 6455 §5.1: client-to-server frames MUST be masked and
+	// server-to-client frames MUST NOT be. The reader's direction is the
+	// contract — a mismatch is a protocol error, and the previous silent
+	// tolerance (accepting MASK=0 client frames and MASK=1 server frames)
+	// once let a relay masking bug pass the package's own tests.
+	if fr.masked != masked {
+		return nil, ErrMaskViolation
 	}
 
 	// Decode payload length.
