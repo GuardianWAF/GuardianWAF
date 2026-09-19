@@ -597,13 +597,22 @@ func redirectionTargetLooksLikeFileOrFD(rest string) bool {
 	return strings.ContainsAny(word, "/\\") || strings.Contains(word, ".")
 }
 
-// extractFirstWord returns the first whitespace-delimited word from s.
+// extractFirstWord returns the first word from s, delimited by whitespace OR
+// a shell redirection character. The shell treats < and > as word boundaries
+// (`cat</etc/passwd` runs cat with stdin redirected), so a no-space
+// redirection must split the command from its target: splitting on
+// whitespace alone extracted "cat</etc/passwd" as the command name, which
+// matched nothing in commandDatabase's exact-match lookups and let the
+// no-space input-redirection bypass (`;cat</etc/passwd`) score zero while
+// the whitespace twin was classified. Callers only reach this after an
+// attack-context prefix (separator, substitution, encoded newline), so
+// prose comparisons (a<b) never reach extraction.
 func extractFirstWord(s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return ""
 	}
-	idx := strings.IndexAny(s, " \t\r\n")
+	idx := strings.IndexAny(s, " \t\r\n<>")
 	if idx < 0 {
 		return s
 	}
