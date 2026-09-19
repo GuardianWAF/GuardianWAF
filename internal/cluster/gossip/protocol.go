@@ -433,6 +433,14 @@ func (g *Gossip) indirectProbe(target Member) {
 	}
 
 	seq := g.nextSeq()
+	// Register the ack channel BEFORE the first PingReq hits the wire:
+	// signalAck drops an ack whose seq has no registered channel, so an ack
+	// that arrives inside the send loop (a fast peer chain, or a transport
+	// that delivers synchronously) would otherwise be lost — the probe
+	// would burn the full timeout and mark a healthy member suspect.
+	// Register-before-send mirrors directProbe.
+	ackCh := g.registerAck(seq)
+	defer g.unregisterAck(seq)
 	// PingReq payload is just the target address — piggyback state is
 	// disseminated by the separate disseminate() goroutine to avoid
 	// corrupting the address with member-encoded bytes.
@@ -443,8 +451,6 @@ func (g *Gossip) indirectProbe(target Member) {
 	}
 
 	// Wait for an indirect ack with a bounded timeout.
-	ackCh := g.registerAck(seq)
-	defer g.unregisterAck(seq)
 	select {
 	case <-ackCh:
 		// Indirect probe succeeded — node is alive.

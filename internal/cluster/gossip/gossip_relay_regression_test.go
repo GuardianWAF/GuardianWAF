@@ -19,10 +19,13 @@ import (
 
 type regGossipTransport struct{}
 
-func (regGossipTransport) Send(addr string, data []byte) error                 { return nil }
-func (regGossipTransport) Receive(ctx context.Context) ([]byte, string, error) { <-ctx.Done(); return nil, "", ctx.Err() }
-func (regGossipTransport) LocalAddr() string                                   { return "127.0.0.1:7998" }
-func (regGossipTransport) Close() error                                        { return nil }
+func (regGossipTransport) Send(addr string, data []byte) error { return nil }
+func (regGossipTransport) Receive(ctx context.Context) ([]byte, string, error) {
+	<-ctx.Done()
+	return nil, "", ctx.Err()
+}
+func (regGossipTransport) LocalAddr() string { return "127.0.0.1:7998" }
+func (regGossipTransport) Close() error      { return nil }
 
 func newRegGossip(t *testing.T) *Gossip {
 	t.Helper()
@@ -91,9 +94,9 @@ func TestRelayIsSelfTerminating(t *testing.T) {
 	g := newRegGossip(t)
 
 	suspect := EncodeMembers([]Member{{ID: "node-b", Addr: "10.0.0.2:7946", RaftAddr: "10.0.0.2:7947", Incarnation: 1, State: StateSuspect}})
-	g.applyPiggyback(suspect)          // first application: applied + relayed
-	g.takePiggyback()                  // drain
-	g.applyPiggyback(suspect)          // duplicate: no advance → must NOT relay
+	g.applyPiggyback(suspect) // first application: applied + relayed
+	g.takePiggyback()         // drain
+	g.applyPiggyback(suspect) // duplicate: no advance → must NOT relay
 	if relayed := g.takePiggyback(); len(relayed) != 0 {
 		t.Fatalf("duplicate Suspect(node-b) was re-relayed: % x", relayed)
 	}
