@@ -222,7 +222,11 @@ func (d *Dashboard) writeEventsCSV(w http.ResponseWriter, evts []engine.Event) {
 			findings[i] = f.DetectorName + ":" + f.Description
 		}
 		findingsStr := strings.Join(findings, "; ")
-		line := fmt.Sprintf("%s,%s,%s,%s,%s,%s,%d,\"%s\",\"%s\"\n",
+		// escapeCSV owns quoting: plain values stay bare; values containing
+		// , " \n \r get exactly one RFC-4180 quoted wrapper with doubled inner
+		// quotes. Do NOT pre-wrap fields in the format string — that produced
+		// double-wrapped exports (""a,b"") that strict CSV parsers reject.
+		line := fmt.Sprintf("%s,%s,%s,%s,%s,%s,%d,%s,%s\n",
 			e.Timestamp.Format(time.RFC3339),
 			e.ID,
 			e.ClientIP,
