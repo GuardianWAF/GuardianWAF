@@ -85,14 +85,21 @@ func (r *PathRouter) Match(method, path string) *RouteInfo {
 		return route
 	}
 
-	// Try pattern matching
+	// Try pattern matching. The synthetic "/*" catch-all (the jsonschema
+	// wrapper's wildcard path) is the last resort: a specific pattern must
+	// win deterministically, regardless of map iteration order.
+	var wildcard *RouteInfo
 	for _, route := range methodRoutes {
 		if route.Pattern != nil && route.Pattern.MatchString(path) {
+			if route.Path == "/*" {
+				wildcard = route
+				continue
+			}
 			return route
 		}
 	}
 
-	return nil
+	return wildcard
 }
 
 // NewLayer creates a new API validation layer.
@@ -285,6 +292,15 @@ func (l *Layer) compileRoutes(spec *CompiledSpec) {
 
 // compilePathPattern converts an OpenAPI path to a regex pattern.
 func (l *Layer) compilePathPattern(path string) *regexp.Regexp {
+	// The synthetic JSON-schema wrapper (loadJSONSchema) uses the literal
+	// path "/*" as a catch-all for every request path. QuoteMeta would
+	// escape the star into ^/\*$, which matches only a request path equal
+	// to "/*" and silently disabled jsonschema-type validation for every
+	// real request (non-strict: no validation at all; strict: everything
+	// blocked as "no schema defined").
+	if path == "/*" {
+		return regexp.MustCompile("^/.*$")
+	}
 	// Convert /users/{id} to /users/([^/]+)
 	// First replace {param} patterns, then escape special chars
 	pattern := rePathParam.ReplaceAllString(path, `([^/]+)`)
