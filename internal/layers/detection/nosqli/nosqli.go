@@ -206,15 +206,21 @@ func checkAuthBypass(lower, location string) []engine.Finding {
 
 // injectionOperators are operators that, in user input, indicate injection but
 // also occasionally appear in legitimate filter APIs — scored to log/contribute
-// rather than block on their own.
-var injectionOperators = []string{"\"$regex\"", "\"$expr\"", "\"$jsonschema\"", "\"$text\"", "\"$mod\""}
+// rather than block on their own. Names are stored bare and matched in BOTH
+// quote styles: JSON uses double quotes, but the single-quoted Python-dict /
+// JS-object notation is a real transport (checkAuthBypass has handled
+// {'$ne': ”} since round 7/25), so {'$regex': ...} must score like
+// {"$regex": ...}. Bare unquoted mentions still never match.
+var injectionOperators = []string{"$regex", "$expr", "$jsonschema", "$text", "$mod"}
 
 func checkInjectionOperators(lower, location string) []engine.Finding {
 	var findings []engine.Finding
 	for _, op := range injectionOperators {
-		if strings.Contains(lower, op) {
+		dq := "\"" + op + "\""
+		sq := "'" + op + "'"
+		if strings.Contains(lower, dq) || strings.Contains(lower, sq) {
 			findings = append(findings, makeFinding(40, engine.SeverityMedium,
-				"NoSQL query operator in user input", strings.Trim(op, "\""), location, 0.60))
+				"NoSQL query operator in user input", op, location, 0.60))
 			break
 		}
 	}
