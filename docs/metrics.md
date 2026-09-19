@@ -1,6 +1,6 @@
 # Metrics Contract
 
-GuardianWAF exposes Prometheus-compatible text metrics at `/metrics` on the **dashboard (admin) listener** (default `:9443`). The endpoint requires the system admin API key (`dashboard.admin_key`) sent as the `X-API-Key` header; unauthenticated requests are rejected with 401, and when no admin key is configured the endpoint returns 401 for everyone (fail closed). The proxy (data-plane) listener and sidecar mode do not serve `/metrics`. See [Configuration](configuration.md) for `dashboard.admin_key`.
+GuardianWAF exposes Prometheus-compatible text metrics at `/metrics` on the **dashboard (admin) listener** (default `:9443`). The endpoint requires the system admin API key (`dashboard.admin_key`) sent as the `X-API-Key` header; unauthenticated requests are rejected with 401, and when no admin key is configured the endpoint returns 401 for everyone (fail closed). The proxy (data-plane) listener and sidecar mode do not serve `/metrics`. This endpoint is intended for internal monitoring systems — do not expose it directly to the public internet. See [Configuration](configuration.md) for `dashboard.admin_key`.
 
 ## Stable Metrics
 
