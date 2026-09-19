@@ -1,6 +1,6 @@
 # Metrics Contract
 
-GuardianWAF exposes Prometheus-compatible text metrics at `GET /metrics` on the proxy listener. The endpoint is intended for internal scraping only; do not expose it directly to the public internet.
+GuardianWAF exposes Prometheus-compatible text metrics at `/metrics` on the **dashboard (admin) listener** (default `:9443`). The endpoint requires the system admin API key (`dashboard.admin_key`) sent as the `X-API-Key` header; unauthenticated requests are rejected with 401, and when no admin key is configured the endpoint returns 401 for everyone (fail closed). The proxy (data-plane) listener and sidecar mode do not serve `/metrics`. See [Configuration](configuration.md) for `dashboard.admin_key`.
 
 ## Stable Metrics
 
@@ -72,14 +72,22 @@ The baseline exporter avoids unbounded labels. The request-duration and layer-du
 
 ## Prometheus Scrape
 
+Scrape the dashboard listener and send the admin API key as the `X-API-Key` header (requires Prometheus 3.0+ for `http_headers`):
+
 ```yaml
 scrape_configs:
   - job_name: guardianwaf
     metrics_path: /metrics
+    scheme: http
     static_configs:
       - targets:
-          - guardianwaf:8088
+          - guardianwaf:9443
+    http_headers:
+      X-API-Key:
+        values: ["<dashboard admin key>"]
 ```
+
+The `/metrics` endpoint is not served on the proxy (data-plane) listener or in sidecar mode — a scrape against those ports no longer returns GuardianWAF metrics; it is handled like any other request (proxied to the upstream when one is configured, or answered by the standalone no-upstream response when none is). Pre-3.0 Prometheus scrape configs cannot set arbitrary headers; upgrade the scraper or front the dashboard listener with an authenticating reverse proxy that injects the `X-API-Key` header. For production values prefer the `secrets`/`files` variants of `http_headers` over inline literals.
 
 ## Useful Queries
 

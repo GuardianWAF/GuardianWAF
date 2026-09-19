@@ -366,7 +366,7 @@ For Kubernetes ingress controllers, use the ingress controller pod/node CIDR tha
 dashboard:
   listen: "127.0.0.1:9443"
   api_key: "${GWAF_DASHBOARD_API_KEY}"      # From env var
-  admin_key: "${GWAF_DASHBOARD_ADMIN_KEY}"  # Required only for tenant-admin endpoints
+  admin_key: "${GWAF_DASHBOARD_ADMIN_KEY}"  # Required for tenant-admin endpoints and /metrics scraping
 
 # Generate strong key
 # openssl rand -base64 32

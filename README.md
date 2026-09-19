@@ -106,7 +106,7 @@ GuardianWAF is a production-grade Web Application Firewall written in pure Go wi
 - Upstream health panel -- live backend status, circuit breaker state, active connections
 - Event detail view -- click any event to see full findings, matched patterns, scores
 - REST API for programmatic control (stats, events, config, routing, IP ACL, AI, Docker)
-- Prometheus-compatible `/metrics` endpoint for Grafana/monitoring integration
+- Prometheus-compatible `/metrics` endpoint for Grafana/monitoring integration (dashboard listener; requires the admin API key)
 - Structured access logging (JSON or text) with configurable levels
 - Hot-reload of configuration with persistence to disk
 - `/livez`, `/readyz`, and legacy `/healthz` endpoints for Kubernetes and load balancer probes
@@ -680,7 +680,7 @@ GuardianWAF includes a built-in web dashboard accessible on the configured liste
 | `POST /api/v1/alerting/test` | Send a test alert to a named webhook/email target — the real delivery result is returned, not a manufactured ok |
 | `POST /api/apivalidation/test` | Validate a sample request against loaded API schemas using the production validation pipeline |
 | `POST /api/dlp/test` | Test a DLP regex pattern against sample data with real regex evaluation |
-| `GET /metrics` | Prometheus metrics |
+| `GET /metrics` | Prometheus metrics (dashboard listener; admin API key required) |
 | `GET /livez` | Liveness probe |
 | `GET /readyz` | Readiness probe |
 | `GET /healthz` | Legacy liveness-style health probe |

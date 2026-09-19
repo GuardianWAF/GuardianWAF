@@ -49,4 +49,4 @@ For production rollouts, classify each change before applying it:
 1. Use dashboard/API endpoints for request-policy tuning and routing changes listed as supported without restart.
 2. Use a rolling restart for listener, storage, background service, or layer-topology changes.
 3. After a live routing update, verify `/readyz` and upstream metrics before shifting additional traffic.
-4. After a restart-required change, verify `/livez`, `/readyz`, `/metrics`, alert delivery, and dashboard health before considering the rollout complete.
+4. After a restart-required change, verify `/livez`, `/readyz`, `/metrics` (admin API key required), alert delivery, and dashboard health before considering the rollout complete.

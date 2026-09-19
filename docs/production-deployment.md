@@ -413,7 +413,7 @@ ufw enable
 dashboard:
   listen: "127.0.0.1:9443"
   api_key: "${GWAF_DASHBOARD_API_KEY}"      # Strong random string
-  admin_key: "${GWAF_DASHBOARD_ADMIN_KEY}"  # Required only for tenant-admin endpoints
+  admin_key: "${GWAF_DASHBOARD_ADMIN_KEY}"  # Required for tenant-admin endpoints and /metrics scraping
 ```
 
 Access via SSH tunnel:
@@ -465,15 +465,18 @@ chown guardianwaf:guardianwaf /var/lib/guardianwaf
 ### Prometheus Metrics
 
 ```yaml
-# prometheus.yml
+# prometheus.yml — scrape the dashboard listener with the admin API key
 scrape_configs:
   - job_name: 'guardianwaf'
     static_configs:
-      - targets: ['guardianwaf:8080']
+      - targets: ['guardianwaf:9443']
     metrics_path: '/metrics'
+    http_headers:                  # Prometheus 3.0+
+      X-API-Key:
+        values: ['<dashboard admin key>']
 ```
 
-See [Metrics Contract](metrics.md) for stable metric names, types, and baseline PromQL queries.
+The `/metrics` endpoint is served on the dashboard listener only; the proxy (data-plane) listener and sidecar mode do not serve it. See [Metrics Contract](metrics.md) for stable metric names, types, and baseline PromQL queries.
 
 ### Health Checks
 

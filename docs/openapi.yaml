@@ -21,7 +21,7 @@ tags:
   - name: Auth
     description: Authentication and session management
   - name: Health
-    description: Health checks and metrics (public)
+    description: Health checks (public) and authenticated metrics
   - name: Stats
     description: WAF engine statistics
   - name: Events
@@ -155,13 +155,17 @@ paths:
   /metrics:
     get:
       tags: [Health]
-      summary: Prometheus metrics endpoint
-      security: []
+      summary: Prometheus metrics endpoint (admin API key required)
+      description: >
+        Served on the dashboard listener only; requires the system admin API key
+        via the X-API-Key header. Not available on the proxy listener or in sidecar mode.
       responses:
         '200':
           description: Prometheus text format metrics
           content:
             text/plain: {}
+        '401':
+          description: Missing or invalid admin API key
 
   /api/v1/version:
     get:

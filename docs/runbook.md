@@ -10,7 +10,7 @@ curl -s http://localhost:9443/livez | jq .
 curl -s http://localhost:9443/readyz | jq .
 
 # Check metrics
-curl -s http://localhost:9443/metrics | grep guardianwaf_
+curl -s -H "X-API-Key: $GWAF_DASHBOARD_ADMIN_KEY" http://localhost:9443/metrics | grep guardianwaf_
 
 # View recent logs
 kubectl logs -l app=guardianwaf --tail=100
@@ -219,7 +219,7 @@ grep dashboard guardianwaf.yaml
 **Diagnosis**:
 ```bash
 # Check average WAF processing latency
-curl -s http://localhost:9443/metrics | grep guardianwaf_latency_avg_microseconds
+curl -s -H "X-API-Key: $GWAF_DASHBOARD_ADMIN_KEY" http://localhost:9443/metrics | grep guardianwaf_latency_avg_microseconds
 
 # Check per-layer timing
 curl -s http://localhost:9443/debug/pprof/profile?seconds=10 > cpu.pprof
@@ -247,7 +247,7 @@ go tool pprof cpu.pprof
 **Diagnosis**:
 ```bash
 # Compare block rate to total request rate
-curl -s http://localhost:9443/metrics | egrep 'guardianwaf_requests_(total|blocked)_total'
+curl -s -H "X-API-Key: $GWAF_DASHBOARD_ADMIN_KEY" http://localhost:9443/metrics | egrep 'guardianwaf_requests_(total|blocked)_total'
 
 # Inspect recent blocked events
 curl -s "http://localhost:9443/api/v1/events?action=block&limit=50" \
@@ -313,7 +313,7 @@ guardianwaf validate -config /etc/guardianwaf/guardianwaf.yaml
 curl -s http://localhost:9443/api/v1/stats -H "Authorization: Bearer $GWAF_DASHBOARD_API_KEY" | jq '.events_stored'
 
 # Check bounded overload signals
-curl -s http://localhost:8088/metrics | grep -E 'guardianwaf_event_store_dropped_total|guardianwaf_event_bus_dropped_total|guardianwaf_event_bus_rejected_subscriptions_total|guardianwaf_alert_manager_dropped_total|guardianwaf_ai_pending_events'
+curl -s -H "X-API-Key: $GWAF_DASHBOARD_ADMIN_KEY" http://localhost:9443/metrics | grep -E 'guardianwaf_event_store_dropped_total|guardianwaf_event_bus_dropped_total|guardianwaf_event_bus_rejected_subscriptions_total|guardianwaf_alert_manager_dropped_total|guardianwaf_ai_pending_events'
 
 # Check disk usage for file-backed events
 df -h /var/log/guardianwaf
@@ -419,7 +419,7 @@ curl -s "http://localhost:9443/api/v1/events?limit=100" \
 mkdir -p incident-export
 
 # Metrics snapshot
-curl -s http://localhost:9443/metrics > incident-export/metrics.prom
+curl -s -H "X-API-Key: $GWAF_DASHBOARD_ADMIN_KEY" http://localhost:9443/metrics > incident-export/metrics.prom
 
 # Event export
 curl -s "http://localhost:9443/api/v1/events?limit=1000" \
@@ -471,7 +471,7 @@ Restore procedure and exact paths are in [State Persistence](state-persistence.m
 **Owners:** primary GuardianWAF on-call pages the service owner/security incident lead because management evidence may be incomplete.
 
 ```bash
-curl -s http://127.0.0.1:8088/metrics | grep guardianwaf_dashboard_audit_persistence_failures_total
+curl -s -H "X-API-Key: $GWAF_DASHBOARD_ADMIN_KEY" http://127.0.0.1:9443/metrics | grep guardianwaf_dashboard_audit_persistence_failures_total
 grep -n 'audit_path' /etc/guardianwaf/guardianwaf.yaml
 df -h /var/lib/guardianwaf
 namei -l /var/lib/guardianwaf/audit/dashboard.jsonl
@@ -490,7 +490,7 @@ systemctl status guardianwaf --no-pager
 journalctl -u guardianwaf --since '15 minutes ago'
 curl --fail http://127.0.0.1:8088/livez
 curl --fail http://127.0.0.1:8088/readyz
-curl --fail http://127.0.0.1:8088/metrics >/dev/null
+curl --fail -H "X-API-Key: $GWAF_DASHBOARD_ADMIN_KEY" http://127.0.0.1:9443/metrics >/dev/null
 ```
 
 Distinguish process failure from scrape-path failure: if local health and metrics pass, inspect Prometheus target discovery, Service/NetworkPolicy, TLS/auth, and DNS. If the process is unhealthy, validate the active config, check disk/memory pressure and recent deployment changes, then roll back to the last known-good image/config when repair cannot fit the error budget. Confirm all intended instances are `up == 1` and burn alerts resolve before closing the incident.
@@ -502,7 +502,7 @@ Distinguish process failure from scrape-path failure: if local health and metric
 **Owners:** GuardianWAF on-call plus the notification-system owner. Treat the interval as degraded incident detection and use the secondary paging path.
 
 ```bash
-curl -s http://127.0.0.1:8088/metrics | grep -E 'guardianwaf_alert_(manager|email)_(failed|dropped)_total'
+curl -s -H "X-API-Key: $GWAF_DASHBOARD_ADMIN_KEY" http://127.0.0.1:9443/metrics | grep -E 'guardianwaf_alert_(manager|email)_(failed|dropped)_total'
 journalctl -u guardianwaf --since '15 minutes ago' | grep -i alert
 /usr/local/bin/guardianwaf test-alert -c /etc/guardianwaf/guardianwaf.yaml
 ```

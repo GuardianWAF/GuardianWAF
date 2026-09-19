@@ -225,7 +225,7 @@ When gossip is **not** active (static peer config only), the follower returns a 
 
 ### Prometheus Metrics
 
-Cluster metrics are exposed at `/metrics` when cluster mode is active. See [Metrics Reference](metrics.md#cluster-metrics) for the full list.
+Cluster metrics are exposed at `/metrics` (dashboard listener, admin API key required) when cluster mode is active. See [Metrics Reference](metrics.md#cluster-metrics) for the full list.
 
 Key metrics to monitor:
 

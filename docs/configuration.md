@@ -245,7 +245,7 @@ dashboard:
   enabled: true                  # Default: true
   listen: ":9443"                # Default: :9443
   api_key: ""                    # Empty generates a strong random key at startup
-  admin_key: ""                  # Required for tenant-admin endpoints; empty disables them
+  admin_key: ""                  # Required for tenant-admin endpoints and /metrics scraping; empty disables both
   tls: false                     # Dashboard TLS is not terminated in-process; use ingress/reverse proxy TLS
 
 # ─────────────────────────────────────────────────────────────────────────────

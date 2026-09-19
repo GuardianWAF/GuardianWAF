@@ -57,7 +57,7 @@
 
 3. **Monitor** — Track block rate:
    ```bash
-   curl -s http://localhost:9443/metrics | grep guardianwaf_requests_blocked
+   curl -s -H "X-API-Key: $GWAF_DASHBOARD_ADMIN_KEY" http://localhost:9443/metrics | grep guardianwaf_requests_blocked
    ```
 
 ### False Positive Surge
@@ -117,7 +117,7 @@ curl -s http://localhost:9443/api/v1/bans > autobans.json
 curl -s http://localhost:9443/api/v1/stats > stats.json
 
 # 5. Metrics snapshot
-curl -s http://localhost:9443/metrics > metrics.txt
+curl -s -H "X-API-Key: $GWAF_DASHBOARD_ADMIN_KEY" http://localhost:9443/metrics > metrics.txt
 
 # 6. Application logs
 kubectl logs -l app=guardianwaf --since=1h > guardianwaf.log
