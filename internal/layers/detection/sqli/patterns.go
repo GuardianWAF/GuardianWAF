@@ -127,7 +127,11 @@ func checkUnionSelect(tokens []Token, location string) (engine.Finding, bool) {
 					continue
 				}
 				upper := tokenUpperValue(tokens[j])
-				if tokens[j].Type == TokenKeyword && upper == "ALL" {
+				// SQL's union grammar is `UNION [ALL | DISTINCT] SELECT` — skip
+				// BOTH interlude keywords. DISTINCT breaking the lookahead let
+				// `1 UNION DISTINCT SELECT ...` miss the union classification
+				// entirely, scoring only isolated-keyword crumbs.
+				if tokens[j].Type == TokenKeyword && (upper == "ALL" || upper == "DISTINCT") {
 					continue
 				}
 				if tokens[j].Type == TokenKeyword && upper == "SELECT" {

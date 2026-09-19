@@ -52,34 +52,41 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 
 	var allFindings []engine.Finding
 
-	// 1. URL path. Fall back to the raw path when the Sanitizer layer is
-	// disabled (it populates the Normalized* fields); otherwise this detector
-	// would scan nothing and silently fail open. Mirrors xss/xxe.
-	path := ctx.NormalizedPath
-	if path == "" {
-		path = ctx.Path
-	}
-	allFindings = append(allFindings, Detect(path, "path")...)
-
-	// 2. Query parameters (each value separately)
-	qp := ctx.NormalizedQuery
-	if qp == nil {
-		qp = ctx.QueryParams
-	}
-	for _, values := range qp {
-		for _, v := range values {
-			allFindings = append(allFindings, Detect(v, "query")...)
+	// scanInputs runs Detect over every distinct form of an input — the raw
+	// bytes the upstream receives AND the sanitizer's normalized view — with
+	// input-level dedup so an unchanged form is scanned exactly once. Judging
+	// only the normalized form let any payload whose SQL signature the
+	// sanitizer's normalization alters (NormalizeWhitespace/NormalizeUnicode/
+	// NormalizeBackslashes rewrite bytes) reach the SQL parser un-inspected;
+	// this mirrors the round-9/25 both-forms convention in xss (and cmdi,
+	// nosqli, ssti, ssrf).
+	scanInputs := func(location string, forms ...string) {
+		seen := make(map[string]bool, len(forms))
+		for _, form := range forms {
+			if form == "" || seen[form] {
+				continue
+			}
+			seen[form] = true
+			allFindings = append(allFindings, Detect(form, location)...)
 		}
 	}
 
+	// 1. URL path — both the raw path and the sanitizer's normalized view
+	// (the Normalized* fields are empty when the Sanitizer layer is disabled).
+	scanInputs("path", ctx.Path, ctx.NormalizedPath)
+
+	// 2. Query parameters (each value separately, both forms)
+	queryForms := make([]string, 0, 8)
+	for _, values := range ctx.QueryParams {
+		queryForms = append(queryForms, values...)
+	}
+	for _, values := range ctx.NormalizedQuery {
+		queryForms = append(queryForms, values...)
+	}
+	scanInputs("query", queryForms...)
+
 	// 3. Body (if present)
-	body := ctx.NormalizedBody
-	if body == "" {
-		body = ctx.BodyString
-	}
-	if body != "" {
-		allFindings = append(allFindings, Detect(body, "body")...)
-	}
+	scanInputs("body", ctx.BodyString, ctx.NormalizedBody)
 
 	// 4. Cookie values (elevated scrutiny — cookies often carry auth tokens/sessions
 	// that are seldom intentionally SQL-shaped; catch delimiter-less injection)

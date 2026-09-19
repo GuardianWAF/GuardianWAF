@@ -165,9 +165,25 @@ func Tokenize(input string) []Token {
 			continue
 		}
 
-		// /* multi-line comment */
+		// /* multi-line comment */ — EXCEPT MySQL's executable version-comment
+		// form `/*! ... */`: MySQL parses version-comment content as SQL when
+		// the server version meets the embedded minimum (in practice always),
+		// so `/*!50000UNION*/` EXECUTES the union while a plain-comment
+		// classification hid every keyword from the token-level checks (the
+		// canonical MySQL WAF bypass). Emit the `/*!<digits>` prefix as the
+		// comment token and let the content tokenize normally; the closing
+		// `*/` is then stray residue handled in the Wildcard branch below.
 		if ch == '/' && i+1 < n && input[i+1] == '*' {
 			start := i
+			if i+2 < n && input[i+2] == '!' {
+				i += 2 // consume "/*"
+				i++    // consume "!"
+				for i < n && isDigit(input[i]) {
+					i++ // the version minimum stays inside the comment token
+				}
+				tokens = append(tokens, Token{Type: TokenComment, Value: input[start:i], Pos: start})
+				continue
+			}
 			i += 2
 			for i+1 < n {
 				if input[i] == '*' && input[i+1] == '/' {
@@ -273,6 +289,15 @@ func Tokenize(input string) []Token {
 			continue
 		}
 		if ch == '*' {
+			if i+1 < n && input[i+1] == '/' {
+				// Stray closing `*/` (e.g. the tail of a MySQL version
+				// comment) — comment residue: emit as a Comment token so
+				// keyword adjacency survives per-keyword block splits
+				// (every lookahead already skips Comment tokens).
+				tokens = append(tokens, Token{Type: TokenComment, Value: "*/", Pos: i})
+				i += 2
+				continue
+			}
 			tokens = append(tokens, Token{Type: TokenWildcard, Value: "*", Pos: i})
 			i++
 			continue
