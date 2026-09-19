@@ -99,15 +99,31 @@ func (p *clusterStatusProvider) BannedIPs() []dashboard.ClusterBanInfo {
 	return result
 }
 
+// errClusterSyncUnavailable is returned by the write operations on a provider
+// constructed read-only (api == nil, documented by NewClusterStatusProvider).
+// It is deliberately NOT clustersync.ErrRaftNotLeader: the dashboard maps that
+// error to a 307 leader-redirect, and a read-only node has no leader to
+// redirect to — a generic error (→ 503) is the honest response.
+var errClusterSyncUnavailable = errors.New("cluster sync API is not available on this node")
+
 // ProposeBan proposes banning an IP cluster-wide via the Raft consensus layer.
-// Returns clustersync.ErrRaftNotLeader if this node is not the leader.
+// Returns clustersync.ErrRaftNotLeader if this node is not the leader, or
+// errClusterSyncUnavailable when the provider was constructed read-only
+// (api == nil) and no cluster write can be proposed.
 func (p *clusterStatusProvider) ProposeBan(ip string, duration time.Duration) error {
+	if p.api == nil {
+		return errClusterSyncUnavailable
+	}
 	return p.api.ProposeBan(ip, duration)
 }
 
 // ProposeUnban proposes removing an IP from the cluster-wide ban list.
-// Returns clustersync.ErrRaftNotLeader if this node is not the leader.
+// Returns clustersync.ErrRaftNotLeader if this node is not the leader, or
+// errClusterSyncUnavailable when the provider was constructed read-only.
 func (p *clusterStatusProvider) ProposeUnban(ip string) error {
+	if p.api == nil {
+		return errClusterSyncUnavailable
+	}
 	return p.api.ProposeUnban(ip)
 }
 
