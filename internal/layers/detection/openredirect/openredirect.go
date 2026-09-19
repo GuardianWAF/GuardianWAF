@@ -98,13 +98,23 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 
 	reqHost := hostname(ctx2Host(ctx))
 
-	// Check query parameters (both raw and normalized forms).
+	// Check query parameters (both raw and normalized forms). Identical
+	// (param, value) pairs are checked once (dedup) so an unchanged input
+	// isn't double-counted — mirroring the lfi/cmdi/xss/sqli convention; the
+	// "nquery:" label therefore only appears for values unique to the
+	// sanitized view.
+	seenQ := make(map[string]struct{}, len(ctx.QueryParams)+len(ctx.NormalizedQuery))
 	for param, values := range ctx.QueryParams {
 		normParam := strings.ToLower(sanitizer.NormalizeAll(param))
 		if !redirectParamNames[normParam] {
 			continue
 		}
 		for _, val := range values {
+			key := param + "\x00" + val
+			if _, ok := seenQ[key]; ok {
+				continue
+			}
+			seenQ[key] = struct{}{}
 			if f := d.checkValue(val, "query:"+param, reqHost); f != nil {
 				findings = append(findings, *f)
 			}
@@ -116,6 +126,11 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 			continue
 		}
 		for _, val := range values {
+			key := param + "\x00" + val
+			if _, ok := seenQ[key]; ok {
+				continue
+			}
+			seenQ[key] = struct{}{}
 			if f := d.checkValue(val, "nquery:"+param, reqHost); f != nil {
 				findings = append(findings, *f)
 			}
