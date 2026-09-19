@@ -175,6 +175,7 @@ var templateDirectives = []string{
 	"{% import",
 	"{%import",
 	"{% include",
+	"{%include", // no-space spelling: Jinja2/Twig make whitespace after "{%" optional
 	"<#assign",
 	"#set($",
 	"${@",  // OGNL/SpEL static access
