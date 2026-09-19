@@ -253,15 +253,18 @@ func (d *Dashboard) handleAITest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "message": "Connection successful"})
 }
 
-// validateAIEndpointURL rejects URLs pointing to private, loopback, or reserved
-// IP addresses to prevent SSRF via the AI provider base_url configuration.
+// validateAIEndpointURL enforces the same endpoint contract the AI layer
+// applies to persisted configuration (Analyzer.UpdateProvider →
+// ai.NewClientValidated): the scheme must be HTTPS — the API key is sent as a
+// Bearer token and must never travel in cleartext — and the host must not
+// resolve to private, loopback, or reserved IP addresses (SSRF prevention).
 func validateAIEndpointURL(rawURL string) error {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return fmt.Errorf("invalid URL: %w", err)
 	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return fmt.Errorf("URL scheme must be http or https")
+	if u.Scheme != "https" {
+		return fmt.Errorf("AI endpoint URL must use HTTPS: the API key is sent as a Bearer token and would travel in cleartext over %q", u.Scheme)
 	}
 	host := u.Hostname()
 	if strings.EqualFold(host, "localhost") {
