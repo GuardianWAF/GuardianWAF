@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"reflect"
 	"strconv"
@@ -790,6 +791,17 @@ func parseRateLimitRule(n *Node) (RateLimitRule, error) {
 	}
 	if paths := n.Get("paths"); paths != nil {
 		r.Paths = nodeStringSlice(paths)
+		for _, pattern := range r.Paths {
+			// path.Match surfaces ErrPattern only opportunistically while
+			// matching; probing with the pattern as its own subject walks the
+			// full syntax (every chunk is validated even on mismatch). A
+			// malformed glob otherwise loads cleanly and silently disables
+			// the rule: matchPath maps the syntax error to "no match", so the
+			// rate limit never applies.
+			if _, err := path.Match(pattern, pattern); err != nil {
+				return r, fmt.Errorf("rate limit rule %q: invalid path pattern %q: %w", r.ID, pattern, err)
+			}
+		}
 	}
 	if limit := n.Get("limit"); limit != nil {
 		i, err := limit.Int()
