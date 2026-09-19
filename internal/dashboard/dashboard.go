@@ -79,9 +79,10 @@ type Dashboard struct {
 	mux              *http.ServeMux
 	apiKey           atomic.Value // stores *apiKeyHolder
 	buildInfo        map[string]string
-	adminKey         string       // Separate key for system admin operations (tenant management, billing, stats)
-	pprofKey         string       // Separate key for pprof debug endpoints (more restrictive than apiKey)
-	tenantAPIKeysMu  sync.RWMutex // protects tenantAPIKeys during authentication and admin mutations
+	adminKey         string           // Separate key for system admin operations (tenant management, billing, stats)
+	pprofKey         string           // Separate key for pprof debug endpoints (more restrictive than apiKey)
+	metricsHandler   http.HandlerFunc // GET /metrics content; nil = legacy stats-only exposition (route is always admin-gated)
+	tenantAPIKeysMu  sync.RWMutex     // protects tenantAPIKeys during authentication and admin mutations
 	tenantAPIKeys    map[string]string
 	trustedProxyNets []*net.IPNet // Direct proxy CIDRs trusted for forwarded TLS metadata
 	// Dependency interfaces (injected to avoid circular imports)
@@ -190,6 +191,23 @@ func (d *Dashboard) CurrentAPIKey() string {
 // If not set, admin endpoints are inaccessible.
 func (d *Dashboard) SetAdminKey(key string) {
 	d.adminKey = key
+}
+
+// SetMetricsHandler installs h as the content served at /metrics (all
+// methods). The route itself is always mounted on the dashboard (admin)
+// listener behind the system admin API key — the Prometheus exposition
+// carries cluster-wide operational intelligence (traffic volumes, upstream
+// labels, target health and circuit states, AI usage/cost; in cluster mode
+// also Raft and replicated store state), so unauthenticated requests are
+// rejected with 401 and scraping requires the admin key (X-API-Key header).
+// When h is nil (never installed), /metrics serves the legacy stats-only
+// exposition, equally admin-gated. The handler is never exposed on the
+// public data plane.
+func (d *Dashboard) SetMetricsHandler(h http.HandlerFunc) {
+	if h == nil {
+		return
+	}
+	d.metricsHandler = h
 }
 
 // SetPprofKey sets the pprof debug key. When set, pprof endpoints require this

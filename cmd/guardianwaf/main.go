@@ -271,7 +271,10 @@ func cmdServe(args []string) {
 	var tenantMWPtr atomic.Pointer[tenant.Middleware]
 	var aiAnalyzerPtr atomic.Pointer[ai.Analyzer]
 	upstream, proxyRouter, proxyHealthCheckers := buildProxyRuntime(cfg, standaloneNoUpstreamHandler())
-	registerMetricsHandlerWithDeps(serveMux, eng, metricsDependencies{
+	// Metrics exposure was removed from the public data-plane mux (round-13/25
+	// finding): the exposition now lives on the dashboard admin listener behind
+	// the admin API key, wired after the dashboard starts below.
+	metricsDeps := metricsDependencies{
 		Router: func() *proxy.Router {
 			proxyRuntimeMu.RLock()
 			defer proxyRuntimeMu.RUnlock()
@@ -286,7 +289,13 @@ func cmdServe(args []string) {
 			return cfg.WAF.AIAnalysis.Enabled
 		},
 		AIAnalyzer: aiAnalyzerPtr.Load,
-	})
+		ClusterStatus: func() clusterMetricsSource {
+			if clusterRT == nil {
+				return nil
+			}
+			return NewClusterStatusProvider(clusterRT.raft, clusterRT.store, clusterRT.api, clusterRT.gossip)
+		},
+	}
 	var dashboardReady atomic.Bool
 	registerProbeHandlersWithDeps(serveMux, cfg, eng, probeDependencies{
 		Router: func() *proxy.Router {
@@ -332,6 +341,10 @@ func cmdServe(args []string) {
 		dashboardReady.Store(dashSrv != nil && dash != nil)
 		wireDashboardProxyControls(dash, cfg, eng, loadedConfigPath, &proxyRouter, &proxyHealthCheckers, &proxyRuntimeMu, &upstreamHandler, &tenantMWPtr, diskStore)
 		wireDashboardRules(dash, cfg, eng, layerResources)
+
+		// Metrics exposition: served from the dashboard (admin) listener behind
+		// the admin API key instead of the unauthenticated data-plane mux.
+		dash.SetMetricsHandler(metricsHandlerFunc(eng, metricsDeps))
 
 		if clusterRT != nil {
 			csp := NewClusterStatusProvider(clusterRT.raft, clusterRT.store, clusterRT.api, clusterRT.gossip)
@@ -519,11 +532,10 @@ func cmdSidecar(args []string) {
 	registerClientSideReportHandlers(mux, clientsideLayerFrom(eng))
 
 	proxyHandler, sidecarRouter, sidecarHealthCheckers := buildProxyRuntime(cfg, sidecarNoUpstreamHandler())
-	registerMetricsHandlerWithDeps(mux, eng, metricsDependencies{
-		Router: func() *proxy.Router {
-			return sidecarRouter
-		},
-	})
+	// No /metrics on the sidecar data plane: the sidecar runs no admin
+	// listener, so the exposition is unavailable rather than unauthenticated
+	// (round-13/25 finding). Probe endpoints (/livez, /healthz, /readyz)
+	// remain for orchestration.
 	registerProbeHandlers(mux, cfg, eng, func() *proxy.Router {
 		return sidecarRouter
 	})

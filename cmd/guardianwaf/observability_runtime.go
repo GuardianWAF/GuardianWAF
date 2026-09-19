@@ -103,6 +103,20 @@ var prometheusMetricsContract = []prometheusMetric{
 	},
 }
 
+// clusterMetricsSource is the slice of dashboard.ClusterStatusProvider the
+// metrics exposition consumes. A narrow interface keeps the test stub small
+// and documents exactly what the exposition reads; the production provider
+// satisfies it structurally.
+type clusterMetricsSource interface {
+	Role() string
+	Peers() []dashboard.ClusterPeerInfo
+	StoreStats() dashboard.ClusterStoreStats
+	CurrentTerm() uint64
+	CommitIndex() uint64
+	LastApplied() uint64
+	LogLength() uint64
+}
+
 type metricsDependencies struct {
 	Router        func() *proxy.Router
 	AlertManager  func() *alerting.Manager
@@ -110,6 +124,7 @@ type metricsDependencies struct {
 	DockerWatcher func() *dkr.Watcher
 	AIEnabled     func() bool
 	AIAnalyzer    func() *ai.Analyzer
+	ClusterStatus func() clusterMetricsSource // nil when cluster mode is off
 }
 
 func setupAccessLogging(eng *engine.Engine, cfg *config.Config) {
@@ -171,7 +186,15 @@ func registerMetricsHandler(mux *http.ServeMux, eng *engine.Engine) {
 }
 
 func registerMetricsHandlerWithDeps(mux *http.ServeMux, eng *engine.Engine, deps metricsDependencies) {
-	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("/metrics", metricsHandlerFunc(eng, deps))
+}
+
+// metricsHandlerFunc builds the Prometheus exposition handler. Authentication
+// is the mount's responsibility: the production mount is the dashboard admin
+// plane (Dashboard.SetMetricsHandler, which requires the admin API key); the
+// register* wrappers serve tests on unauthenticated muxes.
+func metricsHandlerFunc(eng *engine.Engine, deps metricsDependencies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 		s := eng.Stats()
 		for _, metric := range prometheusMetricsContract {
@@ -212,7 +235,60 @@ func registerMetricsHandlerWithDeps(mux *http.ServeMux, eng *engine.Engine, deps
 			aiAnalyzer = deps.AIAnalyzer()
 		}
 		writeAIMetrics(w, aiEnabled, aiAnalyzer)
-	})
+		if deps.ClusterStatus != nil {
+			if cs := deps.ClusterStatus(); cs != nil {
+				writeClusterMetrics(w, cs)
+			}
+		}
+	}
+}
+
+// writeClusterMetrics emits the cluster_* series (member count, Raft
+// leadership/progress, replicated store sizes) when a cluster status source
+// is available — the same series the legacy dashboard /metrics handler served.
+func writeClusterMetrics(w http.ResponseWriter, cs clusterMetricsSource) {
+	isLeader := 0
+	if cs.Role() == "leader" {
+		isLeader = 1
+	}
+	memberCount := len(cs.Peers()) + 1 // peers + self
+	storeStats := cs.StoreStats()
+
+	fmt.Fprintln(w, "# HELP guardianwaf_cluster_member_count Number of nodes in the cluster (peers + self).")
+	fmt.Fprintln(w, "# TYPE guardianwaf_cluster_member_count gauge")
+	fmt.Fprintf(w, "guardianwaf_cluster_member_count %d\n", memberCount)
+
+	fmt.Fprintln(w, "# HELP guardianwaf_cluster_is_leader 1 if this node is the Raft leader, 0 otherwise.")
+	fmt.Fprintln(w, "# TYPE guardianwaf_cluster_is_leader gauge")
+	fmt.Fprintf(w, "guardianwaf_cluster_is_leader %d\n", isLeader)
+
+	fmt.Fprintln(w, "# HELP guardianwaf_cluster_raft_term Current Raft term.")
+	fmt.Fprintln(w, "# TYPE guardianwaf_cluster_raft_term gauge")
+	fmt.Fprintf(w, "guardianwaf_cluster_raft_term %d\n", cs.CurrentTerm())
+
+	fmt.Fprintln(w, "# HELP guardianwaf_cluster_raft_commit_index Index of the highest log entry known to be committed.")
+	fmt.Fprintln(w, "# TYPE guardianwaf_cluster_raft_commit_index gauge")
+	fmt.Fprintf(w, "guardianwaf_cluster_raft_commit_index %d\n", cs.CommitIndex())
+
+	fmt.Fprintln(w, "# HELP guardianwaf_cluster_raft_last_applied Index of the highest log entry applied to the state machine.")
+	fmt.Fprintln(w, "# TYPE guardianwaf_cluster_raft_last_applied gauge")
+	fmt.Fprintf(w, "guardianwaf_cluster_raft_last_applied %d\n", cs.LastApplied())
+
+	fmt.Fprintln(w, "# HELP guardianwaf_cluster_raft_log_length Number of entries in the Raft log.")
+	fmt.Fprintln(w, "# TYPE guardianwaf_cluster_raft_log_length gauge")
+	fmt.Fprintf(w, "guardianwaf_cluster_raft_log_length %d\n", cs.LogLength())
+
+	fmt.Fprintln(w, "# HELP guardianwaf_cluster_store_bans Number of active bans in the replicated store.")
+	fmt.Fprintln(w, "# TYPE guardianwaf_cluster_store_bans gauge")
+	fmt.Fprintf(w, "guardianwaf_cluster_store_bans %d\n", storeStats.Bans)
+
+	fmt.Fprintln(w, "# HELP guardianwaf_cluster_store_rules Number of rules in the replicated store.")
+	fmt.Fprintln(w, "# TYPE guardianwaf_cluster_store_rules gauge")
+	fmt.Fprintf(w, "guardianwaf_cluster_store_rules %d\n", storeStats.Rules)
+
+	fmt.Fprintln(w, "# HELP guardianwaf_cluster_store_counters Number of rate-limit counters in the replicated store.")
+	fmt.Fprintln(w, "# TYPE guardianwaf_cluster_store_counters gauge")
+	fmt.Fprintf(w, "guardianwaf_cluster_store_counters %d\n", storeStats.Counters)
 }
 
 func writeLatencyHistogram(w http.ResponseWriter, s engine.Stats) {

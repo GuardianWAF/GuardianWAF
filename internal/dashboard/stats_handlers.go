@@ -7,7 +7,14 @@ import (
 
 // registerStats registers stats and events routes.
 func (d *Dashboard) registerStats(mux *http.ServeMux) {
-	mux.HandleFunc("GET /metrics", d.handleMetrics)
+	// /metrics is admin-gated for EVERY method: the exposition carries traffic
+	// volumes and — in cluster mode — Raft/leadership and replicated-store
+	// state, so it must never be served unauthenticated (round-13/25 finding),
+	// and registering without a method keeps the admin gate from being
+	// bypassed by the SPA catch-all on non-GET requests. SetMetricsHandler
+	// installs the full-exposition handler; without it the legacy stats-only
+	// exposition below is served, equally gated.
+	mux.Handle("/metrics", d.adminAuthWrap(d.handleMetricsRoute))
 	mux.HandleFunc("GET /api/v1/stats", d.authWrap(d.handleGetStats))
 	mux.HandleFunc("OPTIONS /api/v1/stats", handleCORS)
 	mux.HandleFunc("GET /api/v1/events", d.authWrap(d.handleGetEvents))
@@ -21,6 +28,17 @@ func (d *Dashboard) registerStats(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/logs", d.authWrap(d.handleGetLogs))
 	mux.HandleFunc("GET /api/v1/sse", d.authWrap(d.handleSSE))
 	mux.HandleFunc("GET /api/v1/events/stream", d.authWrap(d.handleSSE))
+}
+
+// handleMetricsRoute dispatches GET /metrics to the installed
+// full-exposition handler when present, falling back to the legacy
+// stats-only exposition. Both variants are admin-gated at the mount.
+func (d *Dashboard) handleMetricsRoute(w http.ResponseWriter, r *http.Request) {
+	if d.metricsHandler != nil {
+		d.metricsHandler(w, r)
+		return
+	}
+	d.handleMetrics(w, r)
 }
 
 func (d *Dashboard) handleMetrics(w http.ResponseWriter, r *http.Request) {
