@@ -156,11 +156,19 @@ func (am *AlertManager) CheckQuotaAlert(tenant *Tenant, currentRPM int64) {
 		return
 	}
 
-	if tenant.Quota.MaxRequestsPerMinute <= 0 {
+	// Snapshot the quota under the publication lock: UpdateTenant writes
+	// tenant.Quota under tenant.mu (the round-26 lock protocol) while this
+	// runs on the hot request path — reading without the lock is a data race
+	// against dashboard quota updates. tenant.ID is immutable after creation.
+	tenant.mu.RLock()
+	limitRPM := tenant.Quota.MaxRequestsPerMinute
+	tenant.mu.RUnlock()
+
+	if limitRPM <= 0 {
 		return // Unlimited
 	}
 
-	percentage := float64(currentRPM) / float64(tenant.Quota.MaxRequestsPerMinute) * 100
+	percentage := float64(currentRPM) / float64(limitRPM) * 100
 
 	if percentage >= 100 {
 		am.TriggerAlert(
@@ -168,10 +176,10 @@ func (am *AlertManager) CheckQuotaAlert(tenant *Tenant, currentRPM int64) {
 			AlertQuotaExceeded,
 			AlertCritical,
 			"Quota Exceeded",
-			fmt.Sprintf("Request rate limit exceeded: %d/%d requests per minute", currentRPM, tenant.Quota.MaxRequestsPerMinute),
+			fmt.Sprintf("Request rate limit exceeded: %d/%d requests per minute", currentRPM, limitRPM),
 			map[string]any{
 				"current_rpm": currentRPM,
-				"limit_rpm":   tenant.Quota.MaxRequestsPerMinute,
+				"limit_rpm":   limitRPM,
 				"percentage":  percentage,
 			},
 		)
@@ -181,10 +189,10 @@ func (am *AlertManager) CheckQuotaAlert(tenant *Tenant, currentRPM int64) {
 			AlertQuotaWarning,
 			AlertWarning,
 			"Approaching Quota Limit",
-			fmt.Sprintf("Request rate at %.0f%% of limit: %d/%d requests per minute", percentage, currentRPM, tenant.Quota.MaxRequestsPerMinute),
+			fmt.Sprintf("Request rate at %.0f%% of limit: %d/%d requests per minute", percentage, currentRPM, limitRPM),
 			map[string]any{
 				"current_rpm": currentRPM,
-				"limit_rpm":   tenant.Quota.MaxRequestsPerMinute,
+				"limit_rpm":   limitRPM,
 				"percentage":  percentage,
 			},
 		)
