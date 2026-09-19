@@ -275,7 +275,21 @@ func matchPath(pattern, path string) bool {
 	if strings.Contains(pattern, "/*/") {
 		parts := strings.Split(pattern, "/*/")
 		if len(parts) == 2 {
-			return strings.HasPrefix(path, parts[0]+"/") && strings.HasSuffix(path, parts[1])
+			prefix := parts[0] + "/"
+			suffix := "/" + parts[1]
+			if len(path) < len(prefix)+len(suffix) ||
+				!strings.HasPrefix(path, prefix) ||
+				!strings.HasSuffix(path, suffix) {
+				return false
+			}
+			// The wildcard stands for exactly ONE segment: the midpoint
+			// between the anchored prefix and suffix must be a non-empty
+			// segment containing no further "/". Without this, "/api/*/users"
+			// also matched "/api/admin/reset_users" (suffix-only) and
+			// "/api/v1/admin/users" (multi-segment), expanding the key's
+			// allowed-path scope beyond the documented single segment.
+			mid := path[len(prefix) : len(path)-len(suffix)]
+			return mid != "" && !strings.Contains(mid, "/")
 		}
 	}
 
