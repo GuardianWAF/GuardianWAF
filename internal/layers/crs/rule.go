@@ -81,7 +81,10 @@ type RuleActions struct {
 	Phase int    `json:"phase"`
 
 	// Primary action
-	Action string // deny, pass, block, drop, redirect, proxy, log, auditlog, nolog
+	// deny, pass, block, drop, redirect, proxy. The logging flags
+	// log/nolog/auditlog are non-disruptive and never land here — writing
+	// them clobbered the disruptive action (deny,log parsed as "log").
+	Action string
 
 	// Status and redirect
 	Status   int    // HTTP status code

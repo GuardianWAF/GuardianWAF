@@ -948,9 +948,11 @@ func TestParser_SecAction(t *testing.T) {
 	if r.Phase != 5 {
 		t.Errorf("Phase = %d; want 5", r.Phase)
 	}
-	// "nolog" comes after "pass" and overwrites Action
-	if r.Actions.Action != "nolog" {
-		t.Errorf("Action = %q; want nolog", r.Actions.Action)
+	// Logging flags never land in Action (round 2026-09-24-crs-denylog-
+	// action-collapse): nolog is a non-disruptive logging flag, and the old
+	// last-token-wins write let it clobber the primary "pass" action.
+	if r.Actions.Action != "pass" {
+		t.Errorf("Action = %q; want pass (nolog must not clobber the primary action)", r.Actions.Action)
 	}
 }
 
@@ -1185,7 +1187,11 @@ func TestParser_Actions_All(t *testing.T) {
 func TestParser_Actions_StandaloneActions(t *testing.T) {
 	p := NewParser()
 
-	standalone := []string{"deny", "pass", "block", "drop", "allow", "proxy", "log", "nolog"}
+	// Primary actions map onto Action; the logging flags log/nolog are
+	// non-disruptive and must never occupy it (they used to overwrite the
+	// primary action via last-token-wins — round
+	// 2026-09-24-crs-denylog-action-collapse).
+	standalone := []string{"deny", "pass", "block", "drop", "allow", "proxy"}
 	for _, action := range standalone {
 		t.Run(action, func(t *testing.T) {
 			actions, err := p.parseActions(action)
@@ -1194,6 +1200,17 @@ func TestParser_Actions_StandaloneActions(t *testing.T) {
 			}
 			if actions.Action != action {
 				t.Errorf("Action = %q; want %q", actions.Action, action)
+			}
+		})
+	}
+	for _, flag := range []string{"log", "nolog"} {
+		t.Run(flag+"/leaves-action-empty", func(t *testing.T) {
+			actions, err := p.parseActions(flag)
+			if err != nil {
+				t.Fatalf("error: %v", err)
+			}
+			if actions.Action != "" {
+				t.Errorf("Action = %q; logging flags must not set the primary action", actions.Action)
 			}
 		})
 	}

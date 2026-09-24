@@ -490,12 +490,16 @@ func (p *Parser) parseActions(s string) (RuleActions, error) {
 				actions.Action = "allow"
 			case "proxy":
 				actions.Action = "proxy"
-			case "log":
-				actions.Action = "log"
-			case "nolog":
-				actions.Action = "nolog"
-			case "auditlog":
-				// Audit logging flag
+			case "log", "nolog", "auditlog":
+				// Logging flags, not the primary action (SecLang: log/nolog
+				// toggle per-rule audit logging; all three are
+				// non-disruptive). Writing them into RuleActions.Action with
+				// last-token-wins made the canonical spelling "deny,log"
+				// parse as Action="log", and shouldBlock — which blocks only
+				// on block|deny|drop — silently lost the explicit deny,
+				// degrading a blocking rule to log-only.
+				// Nothing consumes a logging-flag value on Action, so the
+				// primary action is left untouched.
 			case "chain":
 				actions.Chain = true
 			case "capture":
