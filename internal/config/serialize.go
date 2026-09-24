@@ -273,6 +273,35 @@ func marshalInlineField(b *strings.Builder, key string, fv reflect.Value, indent
 				}
 			}
 		}
+	case reflect.Map:
+		// Round-16 fix (r16-inline-map-drop): the switch had no Map case,
+		// so a map field inside a sequence-item struct (e.g. WebhookConfig
+		// Headers) was silently skipped — nothing emitted, no error — and
+		// the reload left it nil (silent data loss on every save). Emit
+		// flow style; the parser routes "{...}" values to parseFlowMap.
+		// Keys AND values go through needsQuoting: an unquoted colon+space
+		// or padding splits flow entries on reload (the round-15/12
+		// lessons).
+		if fv.Len() == 0 {
+			return
+		}
+		var items []string
+		for _, mk := range fv.MapKeys() {
+			k := fmt.Sprintf("%v", mk.Interface())
+			if needsQuoting(k) {
+				k = fmt.Sprintf("%q", k)
+			}
+			mv := fv.MapIndex(mk)
+			if mv.Kind() == reflect.Interface {
+				mv = mv.Elem()
+			}
+			s := fmt.Sprintf("%v", mv.Interface())
+			if needsQuoting(s) {
+				s = fmt.Sprintf("%q", s)
+			}
+			items = append(items, k+": "+s)
+		}
+		fmt.Fprintf(b, "%s: {%s}\n", key, strings.Join(items, ", "))
 	case reflect.Struct:
 		fmt.Fprintf(b, "%s:\n", key)
 		marshalStruct(b, fv, fv.Type(), indent+1)
@@ -292,6 +321,14 @@ func marshalMap(b *strings.Builder, fv reflect.Value, indent int) {
 	prefix := strings.Repeat("  ", indent)
 	for _, mk := range fv.MapKeys() {
 		key := fmt.Sprintf("%v", mk.Interface())
+		// Map keys sit on their own line and must survive the key/value
+		// split (parseKeyValue). Free-form user keys (Metadata, Fields,
+		// CustomPatterns, Headers) can contain colon+space or whitespace
+		// padding — quote them like every other String emission
+		// (over-quoting harmless; unquoteKey strips them back).
+		if needsQuoting(key) {
+			key = fmt.Sprintf("%q", key)
+		}
 		mv := fv.MapIndex(mk)
 
 		if mv.Kind() == reflect.Interface {
@@ -339,6 +376,14 @@ func isZeroValue(v reflect.Value) bool {
 
 func needsQuoting(s string) bool {
 	if s == "" {
+		return true
+	}
+	// Whitespace padding: the parser's makeScalar TrimSpaces every scalar
+	// before classification, so " x", "x " and a spaces-only value reload
+	// stripped (a spaces-only value even degrades to null). Quote them to
+	// keep the save/load round-trip lossless (the round-5/12 boolean-word
+	// precedent: over-quoting is harmless).
+	if strings.TrimSpace(s) != s {
 		return true
 	}
 	// Quote if contains special YAML characters
