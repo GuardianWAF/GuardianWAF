@@ -465,9 +465,17 @@ func checkCharConcat(tokens []Token, location string) (engine.Finding, bool) {
 		if tokens[i].Type == TokenFunction {
 			upper := tokenUpperValue(tokens[i])
 			if upper == "CHAR" || upper == "CONCAT" {
-				// Look for opening paren
-				if i+1 < len(tokens) && tokens[i+1].Type == TokenParenOpen {
-					matched := extractRange(tokens, i, min(len(tokens)-1, i+5))
+				// Look for opening paren. Comments are whitespace to the SQL
+				// parser (CHAR/**/(65) executes — the canonical sqlmap
+				// between-tamper), so skip them like every other lookahead;
+				// the pre-fix immediate i+1 check dropped this finding for
+				// CHAR/**/(...)/CONCAT/**/(...).
+				j := i + 1
+				for j < len(tokens) && tokens[j].Type == TokenComment {
+					j++
+				}
+				if j < len(tokens) && tokens[j].Type == TokenParenOpen {
+					matched := extractRange(tokens, i, min(len(tokens)-1, j+5))
 					return makeFinding(50, engine.SeverityMedium,
 						"Potential SQL injection obfuscation using "+upper+"()",
 						matched, location, 0.70), true
@@ -544,13 +552,19 @@ func checkMultipleDangerousKeywords(tokens []Token, location string) (engine.Fin
 func checkSubquery(tokens []Token, location string) (engine.Finding, bool) {
 	for i := 0; i < len(tokens); i++ {
 		if tokens[i].Type == TokenParenOpen {
-			// Look for SELECT immediately after open paren
-			if i+1 < len(tokens) && tokens[i+1].Type == TokenKeyword && tokenUpperValue(tokens[i+1]) == "SELECT" {
+			// Look for SELECT after open paren — comments are whitespace to
+			// the SQL parser ((/**/SELECT ...) executes), so skip them like
+			// every other lookahead.
+			j := i + 1
+			for j < len(tokens) && tokens[j].Type == TokenComment {
+				j++
+			}
+			if j < len(tokens) && tokens[j].Type == TokenKeyword && tokenUpperValue(tokens[j]) == "SELECT" {
 				// Find the matching close paren
 				end := min(len(tokens)-1, i+10)
-				for j := i + 2; j < len(tokens); j++ {
-					if tokens[j].Type == TokenParenClose {
-						end = j
+				for k := j + 1; k < len(tokens); k++ {
+					if tokens[k].Type == TokenParenClose {
+						end = k
 						break
 					}
 				}
