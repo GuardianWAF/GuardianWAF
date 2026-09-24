@@ -118,13 +118,57 @@ func (vr *VariableResolver) Resolve(rv RuleVariable) ([]string, error) {
 		return []string{vr.transaction.Timestamp.Format("05")}, nil
 
 	// Transaction variables
+	//
+	// Count and regex selection mirror the other keyed collections
+	// (resolveArgs/resolveCookies): &TX:key counts that variable (1/0 — an
+	// empty value counts as absent, mirroring the value form below),
+	// &TX:/re/ counts variables with matching names, &TX counts the
+	// collection, and TX:/re/ selects the values of matching names. The
+	// pre-fix branch ignored Count and KeyRegex entirely, so &TX:key leaked
+	// the key's VALUE (anomaly_score "5" instead of "1") and TX:/re/ looked
+	// the pattern up as a literal key name (always empty — every
+	// regex-selected TX rule went inert).
 	case "TX":
 		if rv.Key != "" {
+			if rv.KeyRegex {
+				re, err := getCachedRegex(rv.Key)
+				if err != nil {
+					if rv.Count {
+						return []string{"0"}, nil
+					}
+					return []string{}, nil
+				}
+				var values []string
+				for txKey, val := range vr.transaction.Variables {
+					if re.MatchString(txKey) && val != "" {
+						values = append(values, val)
+					}
+				}
+				if rv.Count {
+					return []string{strconv.Itoa(len(values))}, nil
+				}
+				return values, nil
+			}
 			val := vr.transaction.GetVar(rv.Key)
+			if rv.Count {
+				if val != "" {
+					return []string{"1"}, nil
+				}
+				return []string{"0"}, nil
+			}
 			if val != "" {
 				return []string{val}, nil
 			}
 			return []string{}, nil
+		}
+		if rv.Count {
+			total := 0
+			for _, val := range vr.transaction.Variables {
+				if val != "" {
+					total++
+				}
+			}
+			return []string{strconv.Itoa(total)}, nil
 		}
 		return vr.getAllTXVars(), nil
 
