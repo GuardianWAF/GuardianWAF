@@ -3,6 +3,7 @@
 package crs
 
 import (
+	"strings"
 	"sync"
 	"time"
 )
@@ -194,9 +195,22 @@ func (tx *Transaction) SetVar(name, value string) {
 	tx.Variables[name] = value
 }
 
-// GetVar gets a transaction variable.
+// GetVar gets a transaction variable. Variable names resolve
+// case-insensitively: ModSecurity stores TX variables in a case-insensitive
+// table (apr_table), and CRS actions write lowercase names
+// ("tx.anomaly_score") that rules read uppercase ("TX:ANOMALY_SCORE") —
+// exact-key lookups silently missed them.
 func (tx *Transaction) GetVar(name string) string {
-	return tx.Variables[name]
+	if v, ok := tx.Variables[name]; ok {
+		return v
+	}
+	upper := strings.ToUpper(name)
+	for k, v := range tx.Variables {
+		if strings.ToUpper(k) == upper {
+			return v
+		}
+	}
+	return ""
 }
 
 // AddAnomalyScore adds to the anomaly score.
