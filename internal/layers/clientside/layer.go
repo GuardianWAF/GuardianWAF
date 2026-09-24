@@ -276,9 +276,12 @@ func (l *Layer) analyzeResponseBody(body []byte) DetectionResult {
 }
 
 // isKnownSkimmingDomain checks if the text contains a known skimming domain.
+// The escalation is case-insensitive to mirror the (?i) SkimmingPatterns
+// matching: a known domain embedded with mixed case must still escalate.
 func (l *Layer) isKnownSkimmingDomain(text string) bool {
+	lower := strings.ToLower(text)
 	for domain := range l.patterns.KnownSkimmingDomains {
-		if strings.Contains(text, domain) {
+		if strings.Contains(lower, strings.ToLower(domain)) {
 			return true
 		}
 	}
