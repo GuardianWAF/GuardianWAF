@@ -4,21 +4,38 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
 // TenantAdminHandler handles multi-tenant management API.
 type TenantAdminHandler struct {
 	dashboard *Dashboard
-	manager   tenantManagerInterface
+	// Atomic: published post-start via Dashboard.SetTenantManager, so admin
+	// request goroutines read it concurrently with the setter.
+	manager atomic.Pointer[tenantManagerInterface]
 }
 
 // NewTenantAdminHandler creates a new tenant admin handler.
 func NewTenantAdminHandler(d *Dashboard, manager tenantManagerInterface) *TenantAdminHandler {
-	return &TenantAdminHandler{
-		dashboard: d,
-		manager:   manager,
+	h := &TenantAdminHandler{dashboard: d}
+	h.setManager(manager)
+	return h
+}
+
+// setManager publishes the tenant manager atomically. Safe for concurrent
+// use with the admin request handlers.
+func (h *TenantAdminHandler) setManager(manager tenantManagerInterface) {
+	h.manager.Store(&manager)
+}
+
+// getManager returns the injected tenant manager, or nil when unset. Safe
+// for concurrent use with setManager.
+func (h *TenantAdminHandler) getManager() tenantManagerInterface {
+	if m := h.manager.Load(); m != nil {
+		return *m
 	}
+	return nil
 }
 
 // RegisterRoutes registers tenant admin routes.
@@ -83,7 +100,7 @@ func (h *TenantAdminHandler) handleTenantDetail(w http.ResponseWriter, r *http.R
 }
 
 func (h *TenantAdminHandler) listTenants(w http.ResponseWriter, r *http.Request) {
-	if h.manager == nil {
+	if h.getManager() == nil {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"tenants": []any{},
 			"count":   0,
@@ -92,7 +109,7 @@ func (h *TenantAdminHandler) listTenants(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	tenants := h.manager.ListTenants()
+	tenants := h.getManager().ListTenants()
 	publicTenants := make([]any, len(tenants))
 	for i, tenant := range tenants {
 		publicTenants[i] = sanitizeTenantResponse(tenant)
@@ -104,7 +121,7 @@ func (h *TenantAdminHandler) listTenants(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *TenantAdminHandler) createTenant(w http.ResponseWriter, r *http.Request) {
-	if h.manager == nil {
+	if h.getManager() == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"error": "multi-tenant mode not enabled",
 		})
@@ -132,7 +149,7 @@ func (h *TenantAdminHandler) createTenant(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	tenant, err := h.manager.CreateTenant(req.Name, req.Description, req.Domains, req.Quota)
+	tenant, err := h.getManager().CreateTenant(req.Name, req.Description, req.Domains, req.Quota)
 	if err != nil {
 		writeError(w, http.StatusConflict, sanitizeErr(err))
 		return
@@ -146,12 +163,12 @@ func (h *TenantAdminHandler) createTenant(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	apiKey, err := h.manager.RegenerateAPIKey(record.ID)
+	apiKey, err := h.getManager().RegenerateAPIKey(record.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "tenant created but API key provisioning failed")
 		return
 	}
-	h.dashboard.syncTenantAPIKeys(h.manager)
+	h.dashboard.syncTenantAPIKeys(h.getManager())
 
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"tenant":  sanitizeTenantResponse(tenant),
@@ -160,12 +177,12 @@ func (h *TenantAdminHandler) createTenant(w http.ResponseWriter, r *http.Request
 }
 
 func (h *TenantAdminHandler) getTenant(w http.ResponseWriter, r *http.Request, tenantID string) {
-	if h.manager == nil {
+	if h.getManager() == nil {
 		writeError(w, http.StatusServiceUnavailable, "multi-tenant mode not enabled")
 		return
 	}
 
-	tenant := h.manager.GetTenant(tenantID)
+	tenant := h.getManager().GetTenant(tenantID)
 	if tenant == nil {
 		writeError(w, http.StatusNotFound, "tenant not found")
 		return
@@ -175,7 +192,7 @@ func (h *TenantAdminHandler) getTenant(w http.ResponseWriter, r *http.Request, t
 }
 
 func (h *TenantAdminHandler) updateTenant(w http.ResponseWriter, r *http.Request, tenantID string) {
-	if h.manager == nil {
+	if h.getManager() == nil {
 		writeError(w, http.StatusServiceUnavailable, "multi-tenant mode not enabled")
 		return
 	}
@@ -201,22 +218,22 @@ func (h *TenantAdminHandler) updateTenant(w http.ResponseWriter, r *http.Request
 	}
 	update = normalizeTenantAdminUpdate(update)
 
-	if err := h.manager.UpdateTenant(tenantID, update); err != nil {
+	if err := h.getManager().UpdateTenant(tenantID, update); err != nil {
 		writeError(w, http.StatusNotFound, sanitizeErr(err))
 		return
 	}
 
-	tenant := h.manager.GetTenant(tenantID)
+	tenant := h.getManager().GetTenant(tenantID)
 	writeJSON(w, http.StatusOK, sanitizeTenantResponse(tenant))
 }
 
 func (h *TenantAdminHandler) deleteTenant(w http.ResponseWriter, r *http.Request, tenantID string) {
-	if h.manager == nil {
+	if h.getManager() == nil {
 		writeError(w, http.StatusServiceUnavailable, "multi-tenant mode not enabled")
 		return
 	}
 
-	if err := h.manager.DeleteTenant(tenantID); err != nil {
+	if err := h.getManager().DeleteTenant(tenantID); err != nil {
 		writeError(w, http.StatusNotFound, sanitizeErr(err))
 		return
 	}
@@ -335,12 +352,12 @@ func tenantNumber(m map[string]any, keys ...string) int64 {
 }
 
 func (h *TenantAdminHandler) regenerateAPIKey(w http.ResponseWriter, r *http.Request, tenantID string) {
-	if h.manager == nil {
+	if h.getManager() == nil {
 		writeError(w, http.StatusServiceUnavailable, "multi-tenant mode not enabled")
 		return
 	}
 
-	apiKey, err := h.manager.RegenerateAPIKey(tenantID)
+	apiKey, err := h.getManager().RegenerateAPIKey(tenantID)
 	if err != nil {
 		writeError(w, http.StatusNotFound, sanitizeErr(err))
 		return
@@ -348,13 +365,13 @@ func (h *TenantAdminHandler) regenerateAPIKey(w http.ResponseWriter, r *http.Req
 	// Replace the complete snapshot so the old hash is removed and the new hash
 	// becomes effective immediately. Production managers expose current records
 	// through ListTenants; lightweight adapters without records remain compatible.
-	h.dashboard.syncTenantAPIKeys(h.manager)
+	h.dashboard.syncTenantAPIKeys(h.getManager())
 
 	writeJSON(w, http.StatusOK, map[string]any{"api_key": apiKey})
 }
 
 func (h *TenantAdminHandler) handleStats(w http.ResponseWriter, r *http.Request) {
-	if h.manager == nil {
+	if h.getManager() == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"error":   "multi-tenant mode not enabled",
 			"enabled": false,
@@ -362,7 +379,7 @@ func (h *TenantAdminHandler) handleStats(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	stats := h.manager.Stats()
+	stats := h.getManager().Stats()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"enabled": true,
 		"stats":   stats,
@@ -370,7 +387,7 @@ func (h *TenantAdminHandler) handleStats(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *TenantAdminHandler) handleBilling(w http.ResponseWriter, r *http.Request) {
-	if h.manager == nil || h.manager.BillingManager() == nil {
+	if h.getManager() == nil || h.getManager().BillingManager() == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"error": "billing not enabled",
 		})
@@ -379,7 +396,7 @@ func (h *TenantAdminHandler) handleBilling(w http.ResponseWriter, r *http.Reques
 
 	// GET - List all invoices
 	if r.Method == http.MethodGet {
-		invoices := h.manager.BillingManager().GetAllInvoices()
+		invoices := h.getManager().BillingManager().GetAllInvoices()
 		writeJSON(w, http.StatusOK, map[string]any{
 			"invoices": invoices,
 		})
@@ -393,7 +410,7 @@ func (h *TenantAdminHandler) handleBillingDetail(w http.ResponseWriter, r *http.
 	// Same guard as handleBilling: multi-tenant mode may be enabled while
 	// billing is disabled (BillingManager() returns nil) — dereferencing it
 	// here would panic the handler goroutine on every billing-detail request.
-	if h.manager == nil || h.manager.BillingManager() == nil {
+	if h.getManager() == nil || h.getManager().BillingManager() == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"error": "billing not enabled",
 		})
@@ -411,8 +428,8 @@ func (h *TenantAdminHandler) handleBillingDetail(w http.ResponseWriter, r *http.
 
 	// GET - Get tenant invoices and current usage
 	if r.Method == http.MethodGet {
-		invoices := h.manager.BillingManager().GetInvoices(tenantID)
-		usage := h.manager.BillingManager().GetCurrentUsage(tenantID)
+		invoices := h.getManager().BillingManager().GetInvoices(tenantID)
+		usage := h.getManager().BillingManager().GetCurrentUsage(tenantID)
 
 		writeJSON(w, http.StatusOK, map[string]any{
 			"tenant_id":     tenantID,
@@ -424,7 +441,7 @@ func (h *TenantAdminHandler) handleBillingDetail(w http.ResponseWriter, r *http.
 
 	// POST - Generate new invoice
 	if r.Method == http.MethodPost {
-		tenant := h.manager.GetTenant(tenantID)
+		tenant := h.getManager().GetTenant(tenantID)
 		if tenant == nil {
 			writeError(w, http.StatusNotFound, "tenant not found")
 			return
@@ -445,7 +462,7 @@ func (h *TenantAdminHandler) handleBillingDetail(w http.ResponseWriter, r *http.
 
 		tenantName, _ := tenantMap["name"].(string)
 
-		invoice, err := h.manager.BillingManager().GenerateInvoice(
+		invoice, err := h.getManager().BillingManager().GenerateInvoice(
 			tenantID,
 			tenantName,
 			plan,
@@ -465,7 +482,7 @@ func (h *TenantAdminHandler) handleBillingDetail(w http.ResponseWriter, r *http.
 }
 
 func (h *TenantAdminHandler) handleAllUsage(w http.ResponseWriter, r *http.Request) {
-	if h.manager == nil {
+	if h.getManager() == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"error": "multi-tenant mode not enabled",
 		})
@@ -474,7 +491,7 @@ func (h *TenantAdminHandler) handleAllUsage(w http.ResponseWriter, r *http.Reque
 
 	// GET - Get usage for all tenants
 	if r.Method == http.MethodGet {
-		usage := h.manager.GetAllUsage()
+		usage := h.getManager().GetAllUsage()
 		writeJSON(w, http.StatusOK, map[string]any{
 			"tenants": usage,
 			"count":   len(usage),
@@ -486,7 +503,7 @@ func (h *TenantAdminHandler) handleAllUsage(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *TenantAdminHandler) handleUsageDetail(w http.ResponseWriter, r *http.Request) {
-	if h.manager == nil {
+	if h.getManager() == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"error": "multi-tenant mode not enabled",
 		})
@@ -503,7 +520,7 @@ func (h *TenantAdminHandler) handleUsageDetail(w http.ResponseWriter, r *http.Re
 
 	// GET - Get usage for specific tenant
 	if r.Method == http.MethodGet {
-		usage := h.manager.GetTenantUsage(tenantID)
+		usage := h.getManager().GetTenantUsage(tenantID)
 		if usage == nil {
 			writeError(w, http.StatusNotFound, "tenant not found")
 			return
@@ -516,7 +533,7 @@ func (h *TenantAdminHandler) handleUsageDetail(w http.ResponseWriter, r *http.Re
 }
 
 func (h *TenantAdminHandler) handleAlerts(w http.ResponseWriter, r *http.Request) {
-	if h.manager == nil || h.manager.AlertManager() == nil {
+	if h.getManager() == nil || h.getManager().AlertManager() == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"error": "alerts not enabled",
 		})
@@ -526,7 +543,7 @@ func (h *TenantAdminHandler) handleAlerts(w http.ResponseWriter, r *http.Request
 	// GET - Get recent alerts
 	if r.Method == http.MethodGet {
 		since := 24 * time.Hour
-		alerts := h.manager.AlertManager().GetRecentAlerts(since)
+		alerts := h.getManager().AlertManager().GetRecentAlerts(since)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"alerts": alerts,
 			"count":  len(alerts),
@@ -538,7 +555,7 @@ func (h *TenantAdminHandler) handleAlerts(w http.ResponseWriter, r *http.Request
 }
 
 func (h *TenantAdminHandler) handleTenantRules(w http.ResponseWriter, r *http.Request) {
-	if h.manager == nil {
+	if h.getManager() == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"error": "multi-tenant mode not enabled",
 		})
@@ -553,7 +570,7 @@ func (h *TenantAdminHandler) handleTenantRules(w http.ResponseWriter, r *http.Re
 			writeError(w, http.StatusBadRequest, "tenant_id query parameter required")
 			return
 		}
-		rules := h.manager.GetTenantRules(tenantID)
+		rules := h.getManager().GetTenantRules(tenantID)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"tenant_id": tenantID,
 			"rules":     rules,
@@ -572,7 +589,7 @@ func (h *TenantAdminHandler) handleTenantRules(w http.ResponseWriter, r *http.Re
 			writeError(w, http.StatusBadRequest, "tenant_id is required")
 			return
 		}
-		if err := h.manager.AddTenantRule(req.TenantID, req.Rule); err != nil {
+		if err := h.getManager().AddTenantRule(req.TenantID, req.Rule); err != nil {
 			writeError(w, http.StatusBadRequest, sanitizeErr(err))
 			return
 		}
@@ -583,7 +600,7 @@ func (h *TenantAdminHandler) handleTenantRules(w http.ResponseWriter, r *http.Re
 }
 
 func (h *TenantAdminHandler) handleTenantRuleDetail(w http.ResponseWriter, r *http.Request) {
-	if h.manager == nil {
+	if h.getManager() == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"error": "multi-tenant mode not enabled",
 		})
@@ -607,7 +624,7 @@ func (h *TenantAdminHandler) handleTenantRuleDetail(w http.ResponseWriter, r *ht
 
 	switch r.Method {
 	case http.MethodGet:
-		rule := h.manager.GetTenantRule(tenantID, ruleID)
+		rule := h.getManager().GetTenantRule(tenantID, ruleID)
 		if rule == nil {
 			writeError(w, http.StatusNotFound, "rule not found")
 			return
@@ -618,13 +635,13 @@ func (h *TenantAdminHandler) handleTenantRuleDetail(w http.ResponseWriter, r *ht
 		if !limitedDecodeJSON(w, r, &rule) {
 			return
 		}
-		if err := h.manager.UpdateTenantRule(tenantID, rule); err != nil {
+		if err := h.getManager().UpdateTenantRule(tenantID, rule); err != nil {
 			writeError(w, http.StatusNotFound, sanitizeErr(err))
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 	case http.MethodDelete:
-		if err := h.manager.RemoveTenantRule(tenantID, ruleID); err != nil {
+		if err := h.getManager().RemoveTenantRule(tenantID, ruleID); err != nil {
 			writeError(w, http.StatusNotFound, sanitizeErr(err))
 			return
 		}
@@ -637,7 +654,7 @@ func (h *TenantAdminHandler) handleTenantRuleDetail(w http.ResponseWriter, r *ht
 		if !limitedDecodeJSON(w, r, &req) {
 			return
 		}
-		if err := h.manager.ToggleTenantRule(tenantID, ruleID, req.Enabled); err != nil {
+		if err := h.getManager().ToggleTenantRule(tenantID, ruleID, req.Enabled); err != nil {
 			writeError(w, http.StatusNotFound, sanitizeErr(err))
 			return
 		}

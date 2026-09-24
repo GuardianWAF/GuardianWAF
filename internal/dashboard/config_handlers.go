@@ -295,8 +295,8 @@ func (d *Dashboard) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Persist to disk
-	if d.routingCtrl != nil {
-		if err := d.routingCtrl.Save(); err != nil {
+	if d.getRoutingCtrl() != nil {
+		if err := d.getRoutingCtrl().Save(); err != nil {
 			if rollbackErr := d.engine.Reload(oldCfg); rollbackErr != nil {
 				dashboardLog.Error("configuration persistence and rollback failed", "save_error", err, "rollback_error", rollbackErr)
 			} else {
@@ -320,8 +320,8 @@ func (d *Dashboard) handleReloadConfig(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, sanitizeErr(err))
 		return
 	}
-	if d.routingCtrl != nil {
-		if err := d.routingCtrl.Rebuild(); err != nil {
+	if d.getRoutingCtrl() != nil {
+		if err := d.getRoutingCtrl().Rebuild(); err != nil {
 			writeError(w, http.StatusInternalServerError, "proxy rebuild failed")
 			return
 		}

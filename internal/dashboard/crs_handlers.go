@@ -230,8 +230,8 @@ func (h *CRSHandler) handleConfig(w http.ResponseWriter, r *http.Request) {
 		// a restart silently reverts paranoia_level, anomaly_threshold, and
 		// enabled to the last value written to the config file, restoring a
 		// posture the operator believes they changed.
-		if h.dashboard.routingCtrl != nil {
-			if err := h.dashboard.routingCtrl.Save(); err != nil {
+		if h.dashboard.getRoutingCtrl() != nil {
+			if err := h.dashboard.getRoutingCtrl().Save(); err != nil {
 				if rollbackErr := h.dashboard.engine.Reload(oldCfg); rollbackErr != nil {
 					dashboardLog.Error("configuration persistence and rollback failed", "save_error", err, "rollback_error", rollbackErr)
 				} else {

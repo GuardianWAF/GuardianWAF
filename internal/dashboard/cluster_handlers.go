@@ -123,7 +123,7 @@ func (d *Dashboard) registerCluster(mux *http.ServeMux) {
 // --- Legacy v0 handlers ---
 
 func (d *Dashboard) handleClusterList(w http.ResponseWriter, r *http.Request) {
-	if d.clusterStatus == nil {
+	if d.getClusterStatus() == nil {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"clusters": []any{},
 			"message":  "cluster mode is not configured",
@@ -132,10 +132,10 @@ func (d *Dashboard) handleClusterList(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"clusters": []map[string]any{{
-			"id":        d.clusterStatus.NodeID(),
-			"role":      d.clusterStatus.Role(),
-			"leader_id": d.clusterStatus.LeaderID(),
-			"peers":     len(d.clusterStatus.Peers()),
+			"id":        d.getClusterStatus().NodeID(),
+			"role":      d.getClusterStatus().Role(),
+			"leader_id": d.getClusterStatus().LeaderID(),
+			"peers":     len(d.getClusterStatus().Peers()),
 		}},
 	})
 }
@@ -154,14 +154,14 @@ func (d *Dashboard) handleClusterMutationDisabled(w http.ResponseWriter, r *http
 }
 
 func (d *Dashboard) handleClusterNodesLegacy(w http.ResponseWriter, r *http.Request) {
-	if d.clusterStatus == nil {
+	if d.getClusterStatus() == nil {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"nodes":    []any{},
 			"disabled": true,
 		})
 		return
 	}
-	peers := d.clusterStatus.Peers()
+	peers := d.getClusterStatus().Peers()
 	nodes := make([]map[string]any, len(peers))
 	for i, p := range peers {
 		nodes[i] = map[string]any{
@@ -176,14 +176,14 @@ func (d *Dashboard) handleClusterNodesLegacy(w http.ResponseWriter, r *http.Requ
 }
 
 func (d *Dashboard) handleSyncStats(w http.ResponseWriter, r *http.Request) {
-	if d.clusterStatus == nil {
+	if d.getClusterStatus() == nil {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"enabled": false,
 			"message": "cluster sync is not configured",
 		})
 		return
 	}
-	stats := d.clusterStatus.StoreStats()
+	stats := d.getClusterStatus().StoreStats()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"enabled":  true,
 		"bans":     stats.Bans,
@@ -193,7 +193,7 @@ func (d *Dashboard) handleSyncStats(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *Dashboard) handleSyncStatus(w http.ResponseWriter, r *http.Request) {
-	if d.clusterStatus == nil {
+	if d.getClusterStatus() == nil {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"enabled": false,
 			"syncing": false,
@@ -205,10 +205,10 @@ func (d *Dashboard) handleSyncStatus(w http.ResponseWriter, r *http.Request) {
 		"enabled": true,
 		// No "syncing" field: sync-completion tracking would need a
 		// ClusterStatusProvider extension; a hardcoded false is dead data.
-		"role":         d.clusterStatus.Role(),
-		"leader_id":    d.clusterStatus.LeaderID(),
-		"term":         d.clusterStatus.CurrentTerm(),
-		"commit_index": d.clusterStatus.CommitIndex(),
+		"role":         d.getClusterStatus().Role(),
+		"leader_id":    d.getClusterStatus().LeaderID(),
+		"term":         d.getClusterStatus().CurrentTerm(),
+		"commit_index": d.getClusterStatus().CommitIndex(),
 	})
 }
 
@@ -217,26 +217,26 @@ func (d *Dashboard) handleSyncStatus(w http.ResponseWriter, r *http.Request) {
 // handleClusterNodes returns the list of cluster peer nodes with their
 // role and address. The local node is included.
 func (d *Dashboard) handleClusterNodes(w http.ResponseWriter, r *http.Request) {
-	if d.clusterStatus == nil {
+	if d.getClusterStatus() == nil {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"enabled": false,
 			"nodes":   []any{},
 		})
 		return
 	}
-	peers := d.clusterStatus.Peers()
+	peers := d.getClusterStatus().Peers()
 	nodes := make([]map[string]any, 0, len(peers)+1)
 	// Include self
 	nodes = append(nodes, map[string]any{
-		"id":        d.clusterStatus.NodeID(),
-		"role":      d.clusterStatus.Role(),
-		"is_leader": d.clusterStatus.LeaderID() == d.clusterStatus.NodeID(),
+		"id":        d.getClusterStatus().NodeID(),
+		"role":      d.getClusterStatus().Role(),
+		"is_leader": d.getClusterStatus().LeaderID() == d.getClusterStatus().NodeID(),
 	})
 	for _, p := range peers {
 		nodes = append(nodes, map[string]any{
 			"id":        p.ID,
 			"addr":      p.Addr,
-			"is_leader": p.ID == d.clusterStatus.LeaderID(),
+			"is_leader": p.ID == d.getClusterStatus().LeaderID(),
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -248,41 +248,41 @@ func (d *Dashboard) handleClusterNodes(w http.ResponseWriter, r *http.Request) {
 // handleClusterHealth returns a simplified health check for load balancers
 // and orchestrators. Returns 200 with role=leader/follower.
 func (d *Dashboard) handleClusterHealth(w http.ResponseWriter, r *http.Request) {
-	if d.clusterStatus == nil {
+	if d.getClusterStatus() == nil {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"status":  "single-node",
 			"healthy": true,
 		})
 		return
 	}
-	role := d.clusterStatus.Role()
+	role := d.getClusterStatus().Role()
 	healthy := role != ""
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":    role,
 		"healthy":   healthy,
-		"leader_id": d.clusterStatus.LeaderID(),
-		"term":      d.clusterStatus.CurrentTerm(),
+		"leader_id": d.getClusterStatus().LeaderID(),
+		"term":      d.getClusterStatus().CurrentTerm(),
 	})
 }
 
 // handleClusterNodeStats returns per-node Raft and store statistics for
 // observability dashboards.
 func (d *Dashboard) handleClusterNodeStats(w http.ResponseWriter, r *http.Request) {
-	if d.clusterStatus == nil {
+	if d.getClusterStatus() == nil {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"enabled": false,
 		})
 		return
 	}
-	stats := d.clusterStatus.StoreStats()
+	stats := d.getClusterStatus().StoreStats()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"enabled":      true,
-		"node_id":      d.clusterStatus.NodeID(),
-		"role":         d.clusterStatus.Role(),
-		"term":         d.clusterStatus.CurrentTerm(),
-		"commit_index": d.clusterStatus.CommitIndex(),
-		"last_applied": d.clusterStatus.LastApplied(),
-		"log_length":   d.clusterStatus.LogLength(),
+		"node_id":      d.getClusterStatus().NodeID(),
+		"role":         d.getClusterStatus().Role(),
+		"term":         d.getClusterStatus().CurrentTerm(),
+		"commit_index": d.getClusterStatus().CommitIndex(),
+		"last_applied": d.getClusterStatus().LastApplied(),
+		"log_length":   d.getClusterStatus().LogLength(),
 		"store": map[string]any{
 			"bans":     stats.Bans,
 			"rules":    stats.Rules,
@@ -295,20 +295,20 @@ func (d *Dashboard) handleClusterNodeStats(w http.ResponseWriter, r *http.Reques
 // debugging. Sensitive data (addresses) is included since the endpoint
 // requires authentication.
 func (d *Dashboard) handleClusterConfig(w http.ResponseWriter, r *http.Request) {
-	if d.clusterStatus == nil {
+	if d.getClusterStatus() == nil {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"enabled": false,
 		})
 		return
 	}
-	peers := d.clusterStatus.Peers()
+	peers := d.getClusterStatus().Peers()
 	peerList := make([]map[string]any, len(peers))
 	for i, p := range peers {
 		peerList[i] = map[string]any{"id": p.ID, "addr": p.Addr}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"enabled": true,
-		"node_id": d.clusterStatus.NodeID(),
+		"node_id": d.getClusterStatus().NodeID(),
 		"peers":   peerList,
 	})
 }
@@ -316,7 +316,7 @@ func (d *Dashboard) handleClusterConfig(w http.ResponseWriter, r *http.Request) 
 // handleClusterStatus returns cluster health: role, leader, term, commit index,
 // and peer list. When clustering is disabled, returns enabled=false.
 func (d *Dashboard) handleClusterStatus(w http.ResponseWriter, r *http.Request) {
-	if d.clusterStatus == nil {
+	if d.getClusterStatus() == nil {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"enabled": false,
 			"message": "cluster mode is not configured",
@@ -324,7 +324,7 @@ func (d *Dashboard) handleClusterStatus(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	cs := d.clusterStatus
+	cs := d.getClusterStatus()
 	peers := cs.Peers()
 	peerList := make([]map[string]any, len(peers))
 	for i, p := range peers {
@@ -348,14 +348,14 @@ func (d *Dashboard) handleClusterStatus(w http.ResponseWriter, r *http.Request) 
 // handleClusterStore returns a snapshot of the replicated store: ban count,
 // rule count, and counter count.
 func (d *Dashboard) handleClusterStore(w http.ResponseWriter, r *http.Request) {
-	if d.clusterStatus == nil {
+	if d.getClusterStatus() == nil {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"enabled": false,
 		})
 		return
 	}
 
-	stats := d.clusterStatus.StoreStats()
+	stats := d.getClusterStatus().StoreStats()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"enabled":  true,
 		"bans":     stats.Bans,
@@ -367,7 +367,7 @@ func (d *Dashboard) handleClusterStore(w http.ResponseWriter, r *http.Request) {
 // handleClusterBans returns the full list of non-expired banned IPs from the
 // replicated store. When clustering is disabled, returns an empty list.
 func (d *Dashboard) handleClusterBans(w http.ResponseWriter, r *http.Request) {
-	if d.clusterStatus == nil {
+	if d.getClusterStatus() == nil {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"enabled": false,
 			"bans":    []any{},
@@ -375,7 +375,7 @@ func (d *Dashboard) handleClusterBans(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bans := d.clusterStatus.BannedIPs()
+	bans := d.getClusterStatus().BannedIPs()
 	banList := make([]map[string]any, len(bans))
 	for i, b := range bans {
 		entry := map[string]any{

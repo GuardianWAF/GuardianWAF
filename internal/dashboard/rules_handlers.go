@@ -33,16 +33,39 @@ func (d *Dashboard) SetRulesFns(
 	toggleRule func(string, bool) bool,
 	geoLookup func(string) (string, string),
 ) {
-	d.ruleStore = &ruleStoreAdapter{
+	// Atomic publication: the dashboard server may already be serving rules
+	// endpoints when this runs (the production wiring happens after
+	// startDashboard returns).
+	var rs RuleStore = &ruleStoreAdapter{
 		getRules:   getRules,
 		addRule:    addRule,
 		updateRule: updateRule,
 		deleteRule: deleteRule,
 		toggleRule: toggleRule,
 	}
+	d.ruleStore.Store(&rs)
 	if geoLookup != nil {
-		d.geoLookup = &geoLookupAdapter{fn: geoLookup}
+		var gl GeoLookup = &geoLookupAdapter{fn: geoLookup}
+		d.geoLookup.Store(&gl)
 	}
+}
+
+// getRuleStore returns the injected rule store, or nil when unset. Safe for
+// concurrent use with SetRulesFns.
+func (d *Dashboard) getRuleStore() RuleStore {
+	if p := d.ruleStore.Load(); p != nil {
+		return *p
+	}
+	return nil
+}
+
+// getGeoLookup returns the injected geo lookup provider, or nil when unset.
+// Safe for concurrent use with SetRulesFns.
+func (d *Dashboard) getGeoLookup() GeoLookup {
+	if p := d.geoLookup.Load(); p != nil {
+		return *p
+	}
+	return nil
 }
 
 // ruleStoreAdapter wraps closure-based rule accessors as a RuleStore interface.
@@ -68,11 +91,11 @@ type geoLookupAdapter struct{ fn func(string) (string, string) }
 func (g *geoLookupAdapter) Lookup(ip string) (string, string) { return g.fn(ip) }
 
 func (d *Dashboard) handleGetRules(w http.ResponseWriter, r *http.Request) {
-	if d.ruleStore == nil {
+	if d.getRuleStore() == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"rules": []any{}})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"rules": filterRuleList(d.ruleStore.GetRules(), r.URL.Query())})
+	writeJSON(w, http.StatusOK, map[string]any{"rules": filterRuleList(d.getRuleStore().GetRules(), r.URL.Query())})
 }
 
 func filterRuleList(raw any, query url.Values) any {
@@ -165,7 +188,7 @@ func ruleMatchesSearch(rule map[string]any, search string) bool {
 }
 
 func (d *Dashboard) handleAddRule(w http.ResponseWriter, r *http.Request) {
-	if d.ruleStore == nil {
+	if d.getRuleStore() == nil {
 		writeError(w, http.StatusNotImplemented, "rules not configured")
 		return
 	}
@@ -173,7 +196,7 @@ func (d *Dashboard) handleAddRule(w http.ResponseWriter, r *http.Request) {
 	if !limitedDecodeJSON(w, r, &rule) {
 		return
 	}
-	if err := d.ruleStore.AddRule(rule); err != nil {
+	if err := d.getRuleStore().AddRule(rule); err != nil {
 		writeError(w, http.StatusBadRequest, sanitizeErr(err))
 		return
 	}
@@ -182,7 +205,7 @@ func (d *Dashboard) handleAddRule(w http.ResponseWriter, r *http.Request) {
 
 func (d *Dashboard) handleUpdateRule(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if d.ruleStore == nil {
+	if d.getRuleStore() == nil {
 		writeError(w, http.StatusNotImplemented, "rules not configured")
 		return
 	}
@@ -190,7 +213,7 @@ func (d *Dashboard) handleUpdateRule(w http.ResponseWriter, r *http.Request) {
 	if !limitedDecodeJSON(w, r, &rule) {
 		return
 	}
-	if err := d.ruleStore.UpdateRule(id, rule); err != nil {
+	if err := d.getRuleStore().UpdateRule(id, rule); err != nil {
 		writeError(w, http.StatusBadRequest, sanitizeErr(err))
 		return
 	}
@@ -199,7 +222,7 @@ func (d *Dashboard) handleUpdateRule(w http.ResponseWriter, r *http.Request) {
 
 func (d *Dashboard) handlePatchRule(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if d.ruleStore == nil {
+	if d.getRuleStore() == nil {
 		writeError(w, http.StatusNotImplemented, "rules not configured")
 		return
 	}
@@ -212,7 +235,7 @@ func (d *Dashboard) handlePatchRule(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "enabled boolean is required")
 		return
 	}
-	if !d.ruleStore.ToggleRule(id, enabled) {
+	if !d.getRuleStore().ToggleRule(id, enabled) {
 		writeError(w, http.StatusNotFound, "rule not found")
 		return
 	}
@@ -221,7 +244,7 @@ func (d *Dashboard) handlePatchRule(w http.ResponseWriter, r *http.Request) {
 
 func (d *Dashboard) handleDeleteRule(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if d.ruleStore == nil || !d.ruleStore.RemoveRule(id) {
+	if d.getRuleStore() == nil || !d.getRuleStore().RemoveRule(id) {
 		writeError(w, http.StatusNotFound, "rule not found")
 		return
 	}
@@ -239,11 +262,11 @@ func (d *Dashboard) handleGeoIPLookup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid ip address")
 		return
 	}
-	if d.geoLookup == nil {
+	if d.getGeoLookup() == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"ip": ip, "country": "", "name": "GeoIP not configured"})
 		return
 	}
-	code, name := d.geoLookup.Lookup(ip)
+	code, name := d.getGeoLookup().Lookup(ip)
 	writeJSON(w, http.StatusOK, map[string]any{"ip": ip, "country": code, "name": name})
 }
 
@@ -268,10 +291,10 @@ func (d *Dashboard) handleGeoIPLookupPost(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "invalid ip address")
 		return
 	}
-	if d.geoLookup == nil {
+	if d.getGeoLookup() == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"ip": req.IP, "country": "", "name": "GeoIP not configured"})
 		return
 	}
-	code, name := d.geoLookup.Lookup(req.IP)
+	code, name := d.getGeoLookup().Lookup(req.IP)
 	writeJSON(w, http.StatusOK, map[string]any{"ip": req.IP, "country": code, "name": name})
 }

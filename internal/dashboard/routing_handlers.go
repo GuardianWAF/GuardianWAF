@@ -33,7 +33,19 @@ func (r routingControllerAdapter) Save() error {
 // optional upstream/certificate status providers. This is the preferred wiring
 // method; the individual setters below remain for backward compatibility.
 func (d *Dashboard) SetRoutingController(routingCtrl RoutingController) {
-	d.routingCtrl = routingCtrl
+	// Atomic publication: the dashboard server may already be serving routing
+	// endpoints when this runs (the production wiring happens after
+	// startDashboard returns).
+	d.routingCtrl.Store(&routingCtrl)
+}
+
+// getRoutingCtrl returns the injected routing controller, or nil when unset.
+// Safe for concurrent use with SetRoutingController.
+func (d *Dashboard) getRoutingCtrl() RoutingController {
+	if p := d.routingCtrl.Load(); p != nil {
+		return *p
+	}
+	return nil
 }
 
 // SetUpstreamsFn wires the upstream health status provider (implements UpstreamStatusProvider).
@@ -41,7 +53,19 @@ func (d *Dashboard) SetUpstreamsFn(fn func() any) {
 	if fn == nil {
 		return
 	}
-	d.upstreamStatus = &upstreamStatusAdapter{fn: fn}
+	// Atomic publication: the dashboard server may already be serving when
+	// this runs (the production wiring happens after startDashboard returns).
+	var p UpstreamStatusProvider = &upstreamStatusAdapter{fn: fn}
+	d.upstreamStatus.Store(&p)
+}
+
+// getUpstreamStatus returns the injected upstream status provider, or nil
+// when unset. Safe for concurrent use with SetUpstreamsFn.
+func (d *Dashboard) getUpstreamStatus() UpstreamStatusProvider {
+	if p := d.upstreamStatus.Load(); p != nil {
+		return *p
+	}
+	return nil
 }
 
 // SetCertFn wires the SSL certificate status provider (implements CertificateProvider).
@@ -49,33 +73,41 @@ func (d *Dashboard) SetCertFn(fn func() any) {
 	if fn == nil {
 		return
 	}
-	d.certProvider = &certProviderAdapter{fn: fn}
+	// Atomic publication: the dashboard server may already be serving when
+	// this runs (the production wiring happens after startDashboard returns).
+	var p CertificateProvider = &certProviderAdapter{fn: fn}
+	d.certProvider.Store(&p)
+}
+
+// getCertProvider returns the injected certificate status provider, or nil
+// when unset. Safe for concurrent use with SetCertFn.
+func (d *Dashboard) getCertProvider() CertificateProvider {
+	if p := d.certProvider.Load(); p != nil {
+		return *p
+	}
+	return nil
 }
 
 // SetRebuildFn and SetSaveFn remain for backward compatibility with existing tests
 // and cmd/guardianwaf code that uses the individual setters. Internally they
 // wrap into routingControllerAdapter to satisfy RoutingController.
 func (d *Dashboard) SetRebuildFn(fn func() error) {
-	if d.routingCtrl == nil {
-		d.routingCtrl = &routingControllerAdapter{}
-	}
-	if adapter, ok := d.routingCtrl.(*routingControllerAdapter); ok {
+	if adapter, ok := d.getRoutingCtrl().(*routingControllerAdapter); ok {
 		adapter.rebuildFn = fn
-	} else {
-		// routingCtrl was set via SetRoutingController; replace it
-		d.routingCtrl = &routingControllerAdapter{rebuildFn: fn}
+		return
 	}
+	// routingCtrl unset or set via SetRoutingController; publish a fresh adapter
+	var p RoutingController = &routingControllerAdapter{rebuildFn: fn}
+	d.routingCtrl.Store(&p)
 }
 
 func (d *Dashboard) SetSaveFn(fn func() error) {
-	if d.routingCtrl == nil {
-		d.routingCtrl = &routingControllerAdapter{}
-	}
-	if adapter, ok := d.routingCtrl.(*routingControllerAdapter); ok {
+	if adapter, ok := d.getRoutingCtrl().(*routingControllerAdapter); ok {
 		adapter.saveFn = fn
-	} else {
-		d.routingCtrl = &routingControllerAdapter{saveFn: fn}
+		return
 	}
+	var p RoutingController = &routingControllerAdapter{saveFn: fn}
+	d.routingCtrl.Store(&p)
 }
 
 // upstreamStatusAdapter wraps a func() any as an UpstreamStatusProvider.
@@ -290,7 +322,7 @@ func (d *Dashboard) handleUpdateRouting(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, sanitizeErr(ve))
 		return
 	}
-	if atomicController, ok := d.routingCtrl.(AtomicRoutingController); ok {
+	if atomicController, ok := d.getRoutingCtrl().(AtomicRoutingController); ok {
 		if err := atomicController.Apply(oldCfg, cfg); err != nil {
 			dashboardLog.Error("atomic routing update failed", "error", err)
 			writeError(w, http.StatusInternalServerError, "routing update failed; previous routing remains active")
@@ -309,8 +341,8 @@ func (d *Dashboard) handleUpdateRouting(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Rebuild proxy
-	if d.routingCtrl != nil {
-		if err := d.routingCtrl.Rebuild(); err != nil {
+	if d.getRoutingCtrl() != nil {
+		if err := d.getRoutingCtrl().Rebuild(); err != nil {
 			rollbackErr := d.rollbackRoutingUpdate(oldCfg, false)
 			dashboardLog.Error("proxy rebuild failed during routing update", "error", err, "rollback_error", rollbackErr)
 			writeError(w, http.StatusInternalServerError, "proxy rebuild failed")
@@ -319,8 +351,8 @@ func (d *Dashboard) handleUpdateRouting(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Persist to disk
-	if d.routingCtrl != nil {
-		if err := d.routingCtrl.Save(); err != nil {
+	if d.getRoutingCtrl() != nil {
+		if err := d.getRoutingCtrl().Save(); err != nil {
 			rollbackErr := d.rollbackRoutingUpdate(oldCfg, true)
 			dashboardLog.Error("routing persistence failed", "error", err, "rollback_error", rollbackErr)
 			writeError(w, http.StatusInternalServerError, "routing persistence failed; previous routing restored")
@@ -336,12 +368,12 @@ func (d *Dashboard) rollbackRoutingUpdate(oldCfg *config.Config, persist bool) e
 	if err := d.engine.Reload(oldCfg); err != nil {
 		rollbackErrs = append(rollbackErrs, fmt.Errorf("reload previous engine config: %w", err))
 	}
-	if d.routingCtrl != nil {
-		if err := d.routingCtrl.Rebuild(); err != nil {
+	if d.getRoutingCtrl() != nil {
+		if err := d.getRoutingCtrl().Rebuild(); err != nil {
 			rollbackErrs = append(rollbackErrs, fmt.Errorf("rebuild previous proxy: %w", err))
 		}
 		if persist {
-			if err := d.routingCtrl.Save(); err != nil {
+			if err := d.getRoutingCtrl().Save(); err != nil {
 				rollbackErrs = append(rollbackErrs, fmt.Errorf("restore previous persisted config: %w", err))
 			}
 		}
@@ -369,22 +401,22 @@ func (d *Dashboard) registerRouting(mux *http.ServeMux) {
 }
 
 func (d *Dashboard) handleGetUpstreams(w http.ResponseWriter, r *http.Request) {
-	if d.upstreamStatus == nil {
+	if d.getUpstreamStatus() == nil {
 		writeJSON(w, http.StatusOK, []any{})
 		return
 	}
-	writeJSON(w, http.StatusOK, d.upstreamStatus.GetUpstreamStatus())
+	writeJSON(w, http.StatusOK, d.getUpstreamStatus().GetUpstreamStatus())
 }
 
 // --- SSL Certs ---
 
 func (d *Dashboard) handleGetCerts(w http.ResponseWriter, r *http.Request) {
-	if d.certProvider == nil {
+	if d.getCertProvider() == nil {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"enabled": false,
 			"certs":   []any{},
 		})
 		return
 	}
-	writeJSON(w, http.StatusOK, d.certProvider.GetCertificateStatus())
+	writeJSON(w, http.StatusOK, d.getCertProvider().GetCertificateStatus())
 }

@@ -14,16 +14,28 @@ type dockerWatcherInterface interface {
 
 // SetDockerWatcher injects the Docker watcher for dashboard API access.
 func (d *Dashboard) SetDockerWatcher(w dockerWatcherInterface) {
-	d.dockerWatcher = w
+	// Atomic publication: the dashboard server may already be serving when
+	// this runs (setupDockerRuntime wires it after startDashboard returns).
+	d.dockerWatcher.Store(&w)
+}
+
+// getDockerWatcher returns the injected Docker watcher, or nil when unset.
+// Safe for concurrent use with SetDockerWatcher.
+func (d *Dashboard) getDockerWatcher() dockerWatcherInterface {
+	if p := d.dockerWatcher.Load(); p != nil {
+		return *p
+	}
+	return nil
 }
 
 // handleDockerServices returns discovered Docker containers.
 func (d *Dashboard) handleDockerServices(w http.ResponseWriter, r *http.Request) {
-	if d.dockerWatcher == nil {
+	watcher := d.getDockerWatcher()
+	if watcher == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"enabled": false, "services": []any{}})
 		return
 	}
-	services := d.dockerWatcher.Services()
+	services := watcher.Services()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"enabled":  true,
 		"count":    len(services),
@@ -32,11 +44,12 @@ func (d *Dashboard) handleDockerServices(w http.ResponseWriter, r *http.Request)
 }
 
 func (d *Dashboard) handleDockerContainers(w http.ResponseWriter, r *http.Request) {
-	if d.dockerWatcher == nil {
+	watcher := d.getDockerWatcher()
+	if watcher == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"enabled": false, "containers": []any{}})
 		return
 	}
-	services := docker.ServiceSummary(d.dockerWatcher.Services())
+	services := docker.ServiceSummary(watcher.Services())
 	writeJSON(w, http.StatusOK, map[string]any{
 		"enabled":    true,
 		"count":      len(services),
@@ -46,7 +59,7 @@ func (d *Dashboard) handleDockerContainers(w http.ResponseWriter, r *http.Reques
 
 func (d *Dashboard) handleDockerEvents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"enabled": d.dockerWatcher != nil,
+		"enabled": d.getDockerWatcher() != nil,
 		"events":  []any{},
 	})
 }

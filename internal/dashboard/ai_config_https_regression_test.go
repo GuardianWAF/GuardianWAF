@@ -56,7 +56,7 @@ func (r *recordingAIAnalyzer) ManualAnalyze(evts []engine.Event) (*ai.AnalysisRe
 func TestAISetConfig_CleartextHTTPRejectedAtFrontDoor(t *testing.T) {
 	stub := &recordingAIAnalyzer{updateErr: fmt.Errorf("AI endpoint must use HTTPS (the API key would be sent in cleartext over %q); set allow_private_endpoint to override for local testing", "http://1.2.3.4/v1")}
 	d := &Dashboard{}
-	d.aiAnalyzer = stub
+	d.SetAIAnalyzer(stub)
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest("PUT", "/api/ai/config", strings.NewReader(`{"api_key":"key","base_url":"http://1.2.3.4/v1"}`))
@@ -79,7 +79,7 @@ func TestAISetConfig_CleartextHTTPRejectedAtFrontDoor(t *testing.T) {
 func TestAISetConfig_ValidHTTPSReachesLayer(t *testing.T) {
 	stub := &recordingAIAnalyzer{}
 	d := &Dashboard{}
-	d.aiAnalyzer = stub
+	d.SetAIAnalyzer(stub)
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest("PUT", "/api/ai/config", strings.NewReader(`{"api_key":"key","base_url":"https://1.1.1.1/v1"}`))

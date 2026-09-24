@@ -116,14 +116,14 @@ func TestSetRoutingController(t *testing.T) {
 		SaveFn:    func() error { return nil },
 	}
 	d.SetRoutingController(rc)
-	if d.routingCtrl == nil {
+	if d.getRoutingCtrl() == nil {
 		t.Fatal("expected routingCtrl to be set")
 	}
 	// Verify it's the same object
-	if err := d.routingCtrl.Rebuild(); err != nil {
+	if err := d.getRoutingCtrl().Rebuild(); err != nil {
 		t.Errorf("expected nil error from Rebuild, got %v", err)
 	}
-	if err := d.routingCtrl.Save(); err != nil {
+	if err := d.getRoutingCtrl().Save(); err != nil {
 		t.Errorf("expected nil error from Save, got %v", err)
 	}
 }

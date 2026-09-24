@@ -21,7 +21,8 @@ func (s *billingNilStub) BillingManager() BillingManagerInterface { return nil }
 func (s *billingNilStub) AlertManager() AlertManagerInterface     { return nil }
 
 func TestTenantBillingDetailNilBillingManager(t *testing.T) {
-	h := &TenantAdminHandler{dashboard: &Dashboard{}, manager: &billingNilStub{}}
+	h := &TenantAdminHandler{dashboard: &Dashboard{}}
+	h.setManager(&billingNilStub{})
 
 	// Sibling control: handleBilling answers the disabled-billing state with 503.
 	rec := httptest.NewRecorder()

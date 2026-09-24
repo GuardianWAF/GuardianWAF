@@ -23,8 +23,8 @@ func (d *Dashboard) handleGetStats(w http.ResponseWriter, r *http.Request) {
 		"event_store_errors":  stats.EventStoreErrors,
 		"avg_latency_us":      stats.AvgLatencyUs,
 	}
-	if d.alertingStats != nil {
-		result["alerting"] = d.alertingStats.GetAlertingStats()
+	if as := d.getAlertingStats(); as != nil {
+		result["alerting"] = as.GetAlertingStats()
 	}
 	d.extraStatsMu.RLock()
 	for k, fn := range d.extraStats {

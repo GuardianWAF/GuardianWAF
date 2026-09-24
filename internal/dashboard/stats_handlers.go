@@ -34,8 +34,8 @@ func (d *Dashboard) registerStats(mux *http.ServeMux) {
 // full-exposition handler when present, falling back to the legacy
 // stats-only exposition. Both variants are admin-gated at the mount.
 func (d *Dashboard) handleMetricsRoute(w http.ResponseWriter, r *http.Request) {
-	if d.metricsHandler != nil {
-		d.metricsHandler(w, r)
+	if h := d.metricsHandler.Load(); h != nil {
+		(*h)(w, r)
 		return
 	}
 	d.handleMetrics(w, r)
@@ -64,7 +64,7 @@ func (d *Dashboard) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "guardianwaf_latency_avg_microseconds %d\n", s.AvgLatencyUs)
 
 	// Cluster metrics — emitted only when cluster mode is active.
-	if cs := d.clusterStatus; cs != nil {
+	if cs := d.getClusterStatus(); cs != nil {
 		isLeader := 0
 		if cs.Role() == "leader" {
 			isLeader = 1

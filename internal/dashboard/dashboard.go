@@ -73,32 +73,39 @@ type AlertManagerInterface interface {
 
 // Dashboard is the web dashboard server.
 type Dashboard struct {
-	engine           *engine.Engine
-	eventStore       events.EventStore
-	sse              *SSEBroadcaster
-	mux              *http.ServeMux
-	apiKey           atomic.Value // stores *apiKeyHolder
-	buildInfo        map[string]string
-	adminKey         string           // Separate key for system admin operations (tenant management, billing, stats)
-	pprofKey         string           // Separate key for pprof debug endpoints (more restrictive than apiKey)
-	metricsHandler   http.HandlerFunc // GET /metrics content; nil = legacy stats-only exposition (route is always admin-gated)
-	tenantAPIKeysMu  sync.RWMutex     // protects tenantAPIKeys during authentication and admin mutations
+	engine     *engine.Engine
+	eventStore events.EventStore
+	sse        *SSEBroadcaster
+	mux        *http.ServeMux
+	apiKey     atomic.Value // stores *apiKeyHolder
+	buildInfo  map[string]string
+	adminKey   string // Separate key for system admin operations (tenant management, billing, stats)
+	pprofKey   string // Separate key for pprof debug endpoints (more restrictive than apiKey)
+	// Atomic: production publishes the handler after the dashboard server has
+	// begun serving (main.go wires it post-startDashboard), so request
+	// goroutines read it concurrently with the setter.
+	metricsHandler   atomic.Pointer[http.HandlerFunc] // GET /metrics content; nil = legacy stats-only exposition (route is always admin-gated)
+	tenantAPIKeysMu  sync.RWMutex                     // protects tenantAPIKeys during authentication and admin mutations
 	tenantAPIKeys    map[string]string
 	trustedProxyNets []*net.IPNet // Direct proxy CIDRs trusted for forwarded TLS metadata
-	// Dependency interfaces (injected to avoid circular imports)
-	routingCtrl    RoutingController             // rebuild + save routing config
-	upstreamStatus UpstreamStatusProvider        // returns upstream health status
-	certProvider   CertificateProvider           // returns SSL cert status
-	ruleStore      RuleStore                     // CRUD operations for rules
-	geoLookup      GeoLookup                     // IP → (country_code, country_name)
-	alertingStats  AlertingStatsProvider         // returns alerting statistics (optional)
-	alertingTestFn func(targetName string) error // sends test alerts through the alerting manager (optional)
+	// Dependency interfaces (injected to avoid circular imports). Atomic:
+	// production publishes these after the dashboard server has begun serving
+	// (main.go wires them post-startDashboard), so request goroutines read
+	// them concurrently with the setters.
+	routingCtrl    atomic.Pointer[RoutingController]             // rebuild + save routing config
+	upstreamStatus atomic.Pointer[UpstreamStatusProvider]        // returns upstream health status
+	certProvider   atomic.Pointer[CertificateProvider]           // returns SSL cert status
+	ruleStore      atomic.Pointer[RuleStore]                     // CRUD operations for rules
+	geoLookup      atomic.Pointer[GeoLookup]                     // IP → (country_code, country_name)
+	alertingStats  atomic.Pointer[AlertingStatsProvider]         // returns alerting statistics (optional). Atomic: published post-start (setupAlertingRuntime).
+	alertingTestFn atomic.Pointer[func(targetName string) error] // sends test alerts through the alerting manager (optional). Atomic: published post-start.
 
-	// Existing interfaces (kept as-is)
-	aiAnalyzer       aiAnalyzerInterface    // AI threat analyzer (optional)
-	dockerWatcher    dockerWatcherInterface // Docker auto-discovery (optional)
-	tenantManager    tenantManagerInterface // Multi-tenant manager (optional)
-	complianceEngine *compliance.Engine     // Compliance reporting engine (optional)
+	// Existing interfaces (kept as-is). Atomic for the same reason —
+	// published post-start (setupTenantRuntime/setupAIRuntime).
+	aiAnalyzer       atomic.Pointer[aiAnalyzerInterface]    // AI threat analyzer (optional)
+	dockerWatcher    atomic.Pointer[dockerWatcherInterface] // Docker auto-discovery (optional). Atomic: published post-start (setupDockerRuntime).
+	tenantManager    atomic.Pointer[tenantManagerInterface] // Multi-tenant manager (optional)
+	complianceEngine *compliance.Engine                     // Compliance reporting engine (optional)
 
 	// Login rate limiting: per-IP token buckets
 	loginBuckets sync.Map // map[string]*loginBucket
@@ -129,12 +136,16 @@ type Dashboard struct {
 	extraStatsMu sync.RWMutex
 	extraStats   map[string]func() any
 
-	// Cluster status provider (nil when cluster mode is disabled)
-	clusterStatus ClusterStatusProvider
+	// Cluster status provider (nil when cluster mode is disabled). Atomic:
+	// production publishes it after the dashboard server has begun serving
+	// (main.go wires it post-startDashboard), so request goroutines read it
+	// concurrently with the setter.
+	clusterStatus atomic.Pointer[ClusterStatusProvider]
 
 	// Cluster isolation checker (nil when cluster mode is disabled).
 	// Used by /readyz to report not-ready when the node can't reach peers.
-	isolationChecker ClusterIsolationChecker
+	// Atomic for the same reason — published post-start.
+	isolationChecker atomic.Pointer[ClusterIsolationChecker]
 }
 
 const (
@@ -207,7 +218,10 @@ func (d *Dashboard) SetMetricsHandler(h http.HandlerFunc) {
 	if h == nil {
 		return
 	}
-	d.metricsHandler = h
+	// Atomic publication: the dashboard server may already be serving /metrics
+	// when this runs (the production wiring happens after startDashboard
+	// returns), so request goroutines read this field concurrently.
+	d.metricsHandler.Store(&h)
 }
 
 // SetPprofKey sets the pprof debug key. When set, pprof endpoints require this
@@ -335,7 +349,20 @@ func (d *Dashboard) SetAlertingStatsFn(fn func() any) {
 	if fn == nil {
 		return
 	}
-	d.alertingStats = &alertingStatsAdapter{fn: fn}
+	// Atomic publication: the dashboard server may already be serving stats
+	// endpoints when this runs (the production wiring happens after
+	// startDashboard returns).
+	var p AlertingStatsProvider = &alertingStatsAdapter{fn: fn}
+	d.alertingStats.Store(&p)
+}
+
+// getAlertingStats returns the injected alerting stats provider, or nil when
+// unset. Safe for concurrent use with SetAlertingStatsFn.
+func (d *Dashboard) getAlertingStats() AlertingStatsProvider {
+	if p := d.alertingStats.Load(); p != nil {
+		return *p
+	}
+	return nil
 }
 
 // SetAlertingTestFn injects the ability to send test alerts through the
@@ -344,21 +371,56 @@ func (d *Dashboard) SetAlertingTestFn(fn func(targetName string) error) {
 	if fn == nil {
 		return
 	}
-	d.alertingTestFn = fn
+	// Atomic publication: the dashboard server may already be serving when
+	// this runs (the production wiring happens after startDashboard returns).
+	d.alertingTestFn.Store(&fn)
+}
+
+// getAlertingTestFn returns the injected test-alert fn, or nil when unset.
+// Safe for concurrent use with SetAlertingTestFn.
+func (d *Dashboard) getAlertingTestFn() func(targetName string) error {
+	if p := d.alertingTestFn.Load(); p != nil {
+		return *p
+	}
+	return nil
 }
 
 // SetClusterStatusProvider injects the cluster status provider so dashboard
 // cluster endpoints return real data. When nil (single-node mode), the
 // endpoints report "cluster mode disabled".
 func (d *Dashboard) SetClusterStatusProvider(p ClusterStatusProvider) {
-	d.clusterStatus = p
+	// Atomic publication: the dashboard server may already be serving cluster
+	// endpoints when this runs (the production wiring happens after
+	// startDashboard returns).
+	d.clusterStatus.Store(&p)
+}
+
+// getClusterStatus returns the injected cluster status provider, or nil when
+// unset (single-node mode). Safe for concurrent use with
+// SetClusterStatusProvider.
+func (d *Dashboard) getClusterStatus() ClusterStatusProvider {
+	if p := d.clusterStatus.Load(); p != nil {
+		return *p
+	}
+	return nil
 }
 
 // SetClusterIsolationChecker injects a checker that reports whether this node
 // is isolated from the gossip mesh. When set, /readyz returns 503 if the node
 // can't see enough peers for a healthy Raft quorum.
 func (d *Dashboard) SetClusterIsolationChecker(c ClusterIsolationChecker) {
-	d.isolationChecker = c
+	// Atomic publication: /readyz may already be serving when this runs (the
+	// production wiring happens after startDashboard returns).
+	d.isolationChecker.Store(&c)
+}
+
+// getIsolationChecker returns the injected isolation checker, or nil when
+// unset. Safe for concurrent use with SetClusterIsolationChecker.
+func (d *Dashboard) getIsolationChecker() ClusterIsolationChecker {
+	if c := d.isolationChecker.Load(); c != nil {
+		return *c
+	}
+	return nil
 }
 
 // SetSIEMStatsFn injects SIEM exporter stats for the /api/stats endpoint.
@@ -388,13 +450,25 @@ func (d *Dashboard) SetComplianceEngine(e *compliance.Engine) {
 }
 
 func (d *Dashboard) SetTenantManager(manager tenantManagerInterface) {
-	d.tenantManager = manager
+	// Atomic publication: the dashboard server may already be serving tenant
+	// endpoints when this runs (the production wiring happens after
+	// startDashboard returns).
+	d.tenantManager.Store(&manager)
 	if d.tenantAdminHandler != nil {
-		d.tenantAdminHandler.manager = manager
+		d.tenantAdminHandler.setManager(manager)
 	}
 
 	// Sync existing tenant API keys into dashboard for per-tenant auth
 	d.syncTenantAPIKeys(manager)
+}
+
+// getTenantManager returns the injected tenant manager, or nil when unset.
+// Safe for concurrent use with SetTenantManager.
+func (d *Dashboard) getTenantManager() tenantManagerInterface {
+	if m := d.tenantManager.Load(); m != nil {
+		return *m
+	}
+	return nil
 }
 
 type tenantAPIKeySnapshotProvider interface {
@@ -510,13 +584,13 @@ func (d *Dashboard) handleReady(w http.ResponseWriter, r *http.Request) {
 	// Cluster isolation check: when cluster mode is active and this node
 	// can't reach enough peers for quorum, report not-ready so the load
 	// balancer removes it from rotation.
-	if d.isolationChecker != nil && d.isolationChecker.IsIsolated() {
+	if ic := d.getIsolationChecker(); ic != nil && ic.IsIsolated() {
 		status = "not ready"
 		components["cluster"] = "isolated"
 		httpStatus = http.StatusServiceUnavailable
-	} else if d.isolationChecker != nil {
+	} else if ic != nil {
 		components["cluster"] = "ready"
-		components["cluster_members"] = fmt.Sprintf("%d", d.isolationChecker.MemberCount())
+		components["cluster_members"] = fmt.Sprintf("%d", ic.MemberCount())
 	}
 
 	writeJSON(w, httpStatus, map[string]any{

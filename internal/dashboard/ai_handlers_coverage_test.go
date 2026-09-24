@@ -29,11 +29,11 @@ func TestHandleAIProviders_NilAnalyzer(t *testing.T) {
 // --- handleAIProviders: with analyzer returning error ---
 func TestHandleAIProviders_WithAnalyzerError(t *testing.T) {
 	d := &Dashboard{}
-	d.aiAnalyzer = &mockAIAnalyzerForCoverage{
+	d.SetAIAnalyzer(&mockAIAnalyzerForCoverage{
 		catalogFn: func() ([]ai.ProviderSummary, error) {
 			return nil, errors.New("connection reset")
 		},
-	}
+	})
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/api/ai/providers", nil)
@@ -57,12 +57,12 @@ func TestHandleAIAnalyze_ClassifiesStateErrors(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			store := ai.NewStore(t.TempDir())
 			d := &Dashboard{
-				aiAnalyzer: &mockAIAnalyzerForCoverage{
-					storeFn:  func() *ai.Store { return store },
-					manualFn: func([]engine.Event) (*ai.AnalysisResult, error) { return nil, test.err },
-				},
 				eventStore: newMockEventStoreForAI([]engine.Event{{ID: "evt-1", Score: 50}}, nil),
 			}
+			d.SetAIAnalyzer(&mockAIAnalyzerForCoverage{
+				storeFn:  func() *ai.Store { return store },
+				manualFn: func([]engine.Event) (*ai.AnalysisResult, error) { return nil, test.err },
+			})
 
 			rr := httptest.NewRecorder()
 			d.handleAIAnalyze(rr, httptest.NewRequest(http.MethodPost, "/api/v1/ai/analyze", nil))
@@ -76,14 +76,14 @@ func TestHandleAIAnalyze_ClassifiesStateErrors(t *testing.T) {
 // --- handleAIProviders: with analyzer returning providers ---
 func TestHandleAIProviders_WithAnalyzerSuccess(t *testing.T) {
 	d := &Dashboard{}
-	d.aiAnalyzer = &mockAIAnalyzerForCoverage{
+	d.SetAIAnalyzer(&mockAIAnalyzerForCoverage{
 		catalogFn: func() ([]ai.ProviderSummary, error) {
 			return []ai.ProviderSummary{
 				{ID: "openai", Name: "OpenAI"},
 				{ID: "anthropic", Name: "Anthropic"},
 			}, nil
 		},
-	}
+	})
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/api/ai/providers", nil)
@@ -126,9 +126,9 @@ func TestHandleAIGetConfig_WithAnalyzer(t *testing.T) {
 	})
 
 	d := &Dashboard{}
-	d.aiAnalyzer = &mockAIAnalyzerForCoverage{
+	d.SetAIAnalyzer(&mockAIAnalyzerForCoverage{
 		storeFn: func() *ai.Store { return store },
-	}
+	})
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/api/ai/config", nil)
@@ -148,7 +148,7 @@ func TestHandleAIGetConfig_WithAnalyzer(t *testing.T) {
 
 func TestHandleAIGetConfig_NilStore(t *testing.T) {
 	d := &Dashboard{}
-	d.aiAnalyzer = &mockAIAnalyzerForCoverage{}
+	d.SetAIAnalyzer(&mockAIAnalyzerForCoverage{})
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/api/ai/config", nil)
@@ -179,9 +179,9 @@ func TestHandleAISetConfig_NilAnalyzer(t *testing.T) {
 func TestHandleAISetConfig_MissingFields(t *testing.T) {
 	store := ai.NewStore(t.TempDir())
 	d := &Dashboard{}
-	d.aiAnalyzer = &mockAIAnalyzerForCoverage{
+	d.SetAIAnalyzer(&mockAIAnalyzerForCoverage{
 		storeFn: func() *ai.Store { return store },
-	}
+	})
 
 	// Missing both
 	rr := httptest.NewRecorder()
@@ -197,9 +197,9 @@ func TestHandleAISetConfig_MissingFields(t *testing.T) {
 func TestHandleAISetConfig_MissingBaseURL(t *testing.T) {
 	store := ai.NewStore(t.TempDir())
 	d := &Dashboard{}
-	d.aiAnalyzer = &mockAIAnalyzerForCoverage{
+	d.SetAIAnalyzer(&mockAIAnalyzerForCoverage{
 		storeFn: func() *ai.Store { return store },
-	}
+	})
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest("PUT", "/api/ai/config", strings.NewReader(`{"api_key":"key","base_url":""}`))
@@ -214,9 +214,9 @@ func TestHandleAISetConfig_MissingBaseURL(t *testing.T) {
 func TestHandleAISetConfig_SSRF_Localhost(t *testing.T) {
 	store := ai.NewStore(t.TempDir())
 	d := &Dashboard{}
-	d.aiAnalyzer = &mockAIAnalyzerForCoverage{
+	d.SetAIAnalyzer(&mockAIAnalyzerForCoverage{
 		storeFn: func() *ai.Store { return store },
-	}
+	})
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest("PUT", "/api/ai/config", strings.NewReader(`{"api_key":"key","base_url":"http://localhost:8080"}`))
@@ -231,9 +231,9 @@ func TestHandleAISetConfig_SSRF_Localhost(t *testing.T) {
 func TestHandleAISetConfig_SSRF_LoopbackIP(t *testing.T) {
 	store := ai.NewStore(t.TempDir())
 	d := &Dashboard{}
-	d.aiAnalyzer = &mockAIAnalyzerForCoverage{
+	d.SetAIAnalyzer(&mockAIAnalyzerForCoverage{
 		storeFn: func() *ai.Store { return store },
-	}
+	})
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest("PUT", "/api/ai/config", strings.NewReader(`{"api_key":"key","base_url":"http://127.0.0.1:8080"}`))
@@ -248,9 +248,9 @@ func TestHandleAISetConfig_SSRF_LoopbackIP(t *testing.T) {
 func TestHandleAISetConfig_SSRF_PrivateIP10(t *testing.T) {
 	store := ai.NewStore(t.TempDir())
 	d := &Dashboard{}
-	d.aiAnalyzer = &mockAIAnalyzerForCoverage{
+	d.SetAIAnalyzer(&mockAIAnalyzerForCoverage{
 		storeFn: func() *ai.Store { return store },
-	}
+	})
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest("PUT", "/api/ai/config", strings.NewReader(`{"api_key":"key","base_url":"http://10.0.0.1:8080"}`))
@@ -265,9 +265,9 @@ func TestHandleAISetConfig_SSRF_PrivateIP10(t *testing.T) {
 func TestHandleAISetConfig_SSRF_PrivateIP172(t *testing.T) {
 	store := ai.NewStore(t.TempDir())
 	d := &Dashboard{}
-	d.aiAnalyzer = &mockAIAnalyzerForCoverage{
+	d.SetAIAnalyzer(&mockAIAnalyzerForCoverage{
 		storeFn: func() *ai.Store { return store },
-	}
+	})
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest("PUT", "/api/ai/config", strings.NewReader(`{"api_key":"key","base_url":"http://172.16.0.1:8080"}`))
@@ -282,9 +282,9 @@ func TestHandleAISetConfig_SSRF_PrivateIP172(t *testing.T) {
 func TestHandleAISetConfig_SSRF_PrivateIP192(t *testing.T) {
 	store := ai.NewStore(t.TempDir())
 	d := &Dashboard{}
-	d.aiAnalyzer = &mockAIAnalyzerForCoverage{
+	d.SetAIAnalyzer(&mockAIAnalyzerForCoverage{
 		storeFn: func() *ai.Store { return store },
-	}
+	})
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest("PUT", "/api/ai/config", strings.NewReader(`{"api_key":"key","base_url":"http://192.168.1.1:8080"}`))
@@ -299,9 +299,9 @@ func TestHandleAISetConfig_SSRF_PrivateIP192(t *testing.T) {
 func TestHandleAISetConfig_SSRF_LinkLocal(t *testing.T) {
 	store := ai.NewStore(t.TempDir())
 	d := &Dashboard{}
-	d.aiAnalyzer = &mockAIAnalyzerForCoverage{
+	d.SetAIAnalyzer(&mockAIAnalyzerForCoverage{
 		storeFn: func() *ai.Store { return store },
-	}
+	})
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest("PUT", "/api/ai/config", strings.NewReader(`{"api_key":"key","base_url":"http://169.254.169.254/latest/meta-data"}`))
@@ -316,9 +316,9 @@ func TestHandleAISetConfig_SSRF_LinkLocal(t *testing.T) {
 func TestHandleAISetConfig_SSRF_PrivateHostname(t *testing.T) {
 	store := ai.NewStore(t.TempDir())
 	d := &Dashboard{}
-	d.aiAnalyzer = &mockAIAnalyzerForCoverage{
+	d.SetAIAnalyzer(&mockAIAnalyzerForCoverage{
 		storeFn: func() *ai.Store { return store },
-	}
+	})
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest("PUT", "/api/ai/config", strings.NewReader(`{"api_key":"key","base_url":"http://database.herd.test:8080"}`))
@@ -332,9 +332,9 @@ func TestHandleAISetConfig_SSRF_PrivateHostname(t *testing.T) {
 func TestHandleAISetConfig_InvalidJSON(t *testing.T) {
 	store := ai.NewStore(t.TempDir())
 	d := &Dashboard{}
-	d.aiAnalyzer = &mockAIAnalyzerForCoverage{
+	d.SetAIAnalyzer(&mockAIAnalyzerForCoverage{
 		storeFn: func() *ai.Store { return store },
-	}
+	})
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest("PUT", "/api/ai/config", strings.NewReader(`{invalid`))
@@ -349,12 +349,12 @@ func TestHandleAISetConfig_InvalidJSON(t *testing.T) {
 func TestHandleAISetConfig_Success(t *testing.T) {
 	store := ai.NewStore(t.TempDir())
 	d := &Dashboard{}
-	d.aiAnalyzer = &mockAIAnalyzerForCoverage{
+	d.SetAIAnalyzer(&mockAIAnalyzerForCoverage{
 		storeFn: func() *ai.Store { return store },
 		updateFn: func(cfg ai.ProviderConfig) error {
 			return nil
 		},
-	}
+	})
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest("PUT", "/api/ai/config", strings.NewReader(`{"provider_id":"openai","provider_name":"OpenAI","model_id":"gpt-4","model_name":"GPT-4","api_key":"sk-xxx","base_url":"https://api.openai.com"}`))
@@ -369,12 +369,12 @@ func TestHandleAISetConfig_Success(t *testing.T) {
 func TestHandleAISetConfig_UpdateError(t *testing.T) {
 	store := ai.NewStore(t.TempDir())
 	d := &Dashboard{}
-	d.aiAnalyzer = &mockAIAnalyzerForCoverage{
+	d.SetAIAnalyzer(&mockAIAnalyzerForCoverage{
 		storeFn: func() *ai.Store { return store },
 		updateFn: func(cfg ai.ProviderConfig) error {
 			return errors.New("update failed")
 		},
-	}
+	})
 
 	// Use a URL that passes the front-door validation (HTTPS + public IP) so
 	// the request reaches UpdateProvider, whose error surfaces as 500.
@@ -410,9 +410,9 @@ func TestHandleAIHistory_NilAnalyzer(t *testing.T) {
 // --- handleAIHistory: with analyzer, store returns nil ---
 func TestHandleAIHistory_StoreNil(t *testing.T) {
 	d := &Dashboard{}
-	d.aiAnalyzer = &mockAIAnalyzerForCoverage{
+	d.SetAIAnalyzer(&mockAIAnalyzerForCoverage{
 		storeFn: func() *ai.Store { return nil },
-	}
+	})
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/api/ai/history", nil)
@@ -432,9 +432,9 @@ func TestHandleAIHistory_WithLimit(t *testing.T) {
 	store.AddResult(ai.AnalysisResult{ID: "test-1", EventCount: 5})
 
 	d := &Dashboard{}
-	d.aiAnalyzer = &mockAIAnalyzerForCoverage{
+	d.SetAIAnalyzer(&mockAIAnalyzerForCoverage{
 		storeFn: func() *ai.Store { return store },
-	}
+	})
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/api/ai/history?limit=10", nil)
@@ -449,9 +449,9 @@ func TestHandleAIHistory_WithLimit(t *testing.T) {
 func TestHandleAIHistory_InvalidLimit(t *testing.T) {
 	store := ai.NewStore(t.TempDir())
 	d := &Dashboard{}
-	d.aiAnalyzer = &mockAIAnalyzerForCoverage{
+	d.SetAIAnalyzer(&mockAIAnalyzerForCoverage{
 		storeFn: func() *ai.Store { return store },
-	}
+	})
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/api/ai/history?limit=-5", nil)
@@ -466,9 +466,9 @@ func TestHandleAIHistory_InvalidLimit(t *testing.T) {
 func TestHandleAIHistory_LimitCapped(t *testing.T) {
 	store := ai.NewStore(t.TempDir())
 	d := &Dashboard{}
-	d.aiAnalyzer = &mockAIAnalyzerForCoverage{
+	d.SetAIAnalyzer(&mockAIAnalyzerForCoverage{
 		storeFn: func() *ai.Store { return store },
-	}
+	})
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/api/ai/history?limit=5000", nil)
@@ -498,9 +498,9 @@ func TestHandleAIStats_NilAnalyzer(t *testing.T) {
 // --- handleAIStats: store nil returns enabled:false ---
 func TestHandleAIStats_StoreNil(t *testing.T) {
 	d := &Dashboard{}
-	d.aiAnalyzer = &mockAIAnalyzerForCoverage{
+	d.SetAIAnalyzer(&mockAIAnalyzerForCoverage{
 		storeFn: func() *ai.Store { return nil },
-	}
+	})
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/api/ai/stats", nil)
@@ -518,9 +518,9 @@ func TestHandleAIStats_StoreNil(t *testing.T) {
 func TestHandleAIStats_WithUsage(t *testing.T) {
 	store := ai.NewStore(t.TempDir())
 	d := &Dashboard{}
-	d.aiAnalyzer = &mockAIAnalyzerForCoverage{
+	d.SetAIAnalyzer(&mockAIAnalyzerForCoverage{
 		storeFn: func() *ai.Store { return store },
-	}
+	})
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/api/ai/stats", nil)
@@ -551,9 +551,9 @@ func TestHandleAIAnalyze_NilAnalyzer(t *testing.T) {
 func TestHandleAIAnalyze_NoEvents(t *testing.T) {
 	store := ai.NewStore(t.TempDir())
 	d := &Dashboard{}
-	d.aiAnalyzer = &mockAIAnalyzerForCoverage{
+	d.SetAIAnalyzer(&mockAIAnalyzerForCoverage{
 		storeFn: func() *ai.Store { return store },
-	}
+	})
 	d.eventStore = newMockEventStoreForAI(nil, nil) // no events
 
 	rr := httptest.NewRecorder()
@@ -571,9 +571,9 @@ func TestHandleAIAnalyze_NoEvents(t *testing.T) {
 func TestHandleAIAnalyze_NilEventStore(t *testing.T) {
 	store := ai.NewStore(t.TempDir())
 	d := &Dashboard{}
-	d.aiAnalyzer = &mockAIAnalyzerForCoverage{
+	d.SetAIAnalyzer(&mockAIAnalyzerForCoverage{
 		storeFn: func() *ai.Store { return store },
-	}
+	})
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest("POST", "/api/ai/analyze", nil)
@@ -591,7 +591,7 @@ func TestHandleAIAnalyze_NilEventStore(t *testing.T) {
 func TestHandleAIAnalyze_WithEventsSuccess(t *testing.T) {
 	store := ai.NewStore(t.TempDir())
 	d := &Dashboard{}
-	d.aiAnalyzer = &mockAIAnalyzerForCoverage{
+	d.SetAIAnalyzer(&mockAIAnalyzerForCoverage{
 		storeFn: func() *ai.Store { return store },
 		manualFn: func(evts []engine.Event) (*ai.AnalysisResult, error) {
 			return &ai.AnalysisResult{
@@ -608,7 +608,7 @@ func TestHandleAIAnalyze_WithEventsSuccess(t *testing.T) {
 				Model:           "gpt-4",
 			}, nil
 		},
-	}
+	})
 	evts := []engine.Event{
 		{ID: "evt-1", Timestamp: time.Now(), ClientIP: "1.2.3.4", Method: "GET", Path: "/test", Score: 50},
 	}
@@ -627,9 +627,9 @@ func TestHandleAIAnalyze_WithEventsSuccess(t *testing.T) {
 func TestHandleAIAnalyze_QueryError(t *testing.T) {
 	store := ai.NewStore(t.TempDir())
 	d := &Dashboard{}
-	d.aiAnalyzer = &mockAIAnalyzerForCoverage{
+	d.SetAIAnalyzer(&mockAIAnalyzerForCoverage{
 		storeFn: func() *ai.Store { return store },
-	}
+	})
 	d.eventStore = newMockEventStoreForAI(nil, errors.New("query error"))
 
 	rr := httptest.NewRecorder()
@@ -645,12 +645,12 @@ func TestHandleAIAnalyze_QueryError(t *testing.T) {
 func TestHandleAIAnalyze_ManualAnalyzeError(t *testing.T) {
 	store := ai.NewStore(t.TempDir())
 	d := &Dashboard{}
-	d.aiAnalyzer = &mockAIAnalyzerForCoverage{
+	d.SetAIAnalyzer(&mockAIAnalyzerForCoverage{
 		storeFn: func() *ai.Store { return store },
 		manualFn: func(evts []engine.Event) (*ai.AnalysisResult, error) {
 			return nil, errors.New("analyze failed")
 		},
-	}
+	})
 	evts := []engine.Event{
 		{ID: "evt-1", Timestamp: time.Now(), ClientIP: "1.2.3.4", Method: "GET", Path: "/test", Score: 50},
 	}
@@ -681,9 +681,9 @@ func TestHandleAITest_NilAnalyzer(t *testing.T) {
 // --- handleAITest: connection success ---
 func TestHandleAITest_ConnectionSuccess(t *testing.T) {
 	d := &Dashboard{}
-	d.aiAnalyzer = &mockAIAnalyzerForCoverage{
+	d.SetAIAnalyzer(&mockAIAnalyzerForCoverage{
 		testConnFn: func() error { return nil },
-	}
+	})
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/api/ai/test", nil)
@@ -700,9 +700,9 @@ func TestHandleAITest_ConnectionSuccess(t *testing.T) {
 // --- handleAITest: connection error returns ok but error status ---
 func TestHandleAITest_ConnectionError(t *testing.T) {
 	d := &Dashboard{}
-	d.aiAnalyzer = &mockAIAnalyzerForCoverage{
+	d.SetAIAnalyzer(&mockAIAnalyzerForCoverage{
 		testConnFn: func() error { return errors.New("connection refused") },
-	}
+	})
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/api/ai/test", nil)

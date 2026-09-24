@@ -188,12 +188,12 @@ func TestGenerateSessionSecretFailsClosedOnShortRead(t *testing.T) {
 
 func TestSetAIAnalyzer(t *testing.T) {
 	d := newTestDashboard(t, "k")
-	if d.aiAnalyzer != nil {
+	if d.getAIAnalyzer() != nil {
 		t.Error("expected nil aiAnalyzer initially")
 	}
 	analyzer := newMockAIAnalyzer(t)
 	d.SetAIAnalyzer(analyzer)
-	if d.aiAnalyzer == nil {
+	if d.getAIAnalyzer() == nil {
 		t.Error("expected aiAnalyzer to be set")
 	}
 }
@@ -701,12 +701,12 @@ func TestAITest_ConnectionError(t *testing.T) {
 
 func TestSetDockerWatcher(t *testing.T) {
 	d := newTestDashboard(t, "k")
-	if d.dockerWatcher != nil {
+	if d.getDockerWatcher() != nil {
 		t.Error("expected nil dockerWatcher initially")
 	}
 	watcher := &mockDockerWatcher{}
 	d.SetDockerWatcher(watcher)
-	if d.dockerWatcher == nil {
+	if d.getDockerWatcher() == nil {
 		t.Error("expected dockerWatcher to be set")
 	}
 }

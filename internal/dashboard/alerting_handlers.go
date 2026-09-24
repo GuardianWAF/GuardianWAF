@@ -47,8 +47,8 @@ func (d *Dashboard) handleAlertingStatus(w http.ResponseWriter, r *http.Request)
 		"emails":        emails,
 	}
 
-	if d.alertingStats != nil {
-		stats := d.alertingStats.GetAlertingStats()
+	if as := d.getAlertingStats(); as != nil {
+		stats := as.GetAlertingStats()
 		if s, ok := stats.(map[string]any); ok {
 			result["sent"] = s["sent"]
 			result["failed"] = s["failed"]
@@ -282,11 +282,12 @@ func (d *Dashboard) handleTestAlert(w http.ResponseWriter, r *http.Request) {
 	// returned status:"ok" for every target - including ones that don't
 	// exist - so a misconfigured or nonexistent webhook/email could never
 	// be discovered from the dashboard.
-	if d.alertingTestFn == nil {
+	testFn := d.getAlertingTestFn()
+	if testFn == nil {
 		writeError(w, http.StatusNotImplemented, "test alert delivery is not wired to an alerting manager in this deployment")
 		return
 	}
-	if err := d.alertingTestFn(body.Target); err != nil {
+	if err := testFn(body.Target); err != nil {
 		writeError(w, http.StatusBadGateway, sanitizeErr(err))
 		return
 	}
@@ -306,8 +307,8 @@ func (d *Dashboard) reloadAndPersist(w http.ResponseWriter, mutate func(cfg *con
 		return false
 	}
 
-	if d.routingCtrl != nil {
-		if err := d.routingCtrl.Save(); err != nil {
+	if d.getRoutingCtrl() != nil {
+		if err := d.getRoutingCtrl().Save(); err != nil {
 			if rollbackErr := d.engine.Reload(oldCfg); rollbackErr != nil {
 				dashboardLog.Error("configuration mutation persistence and rollback failed", "save_error", err, "rollback_error", rollbackErr)
 			} else {

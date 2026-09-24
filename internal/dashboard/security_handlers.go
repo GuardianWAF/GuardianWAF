@@ -185,8 +185,8 @@ func (d *Dashboard) handleAddBan(w http.ResponseWriter, r *http.Request) {
 
 	// When cluster mode is active, propose the ban via Raft so it replicates
 	// to all nodes. Also apply locally for immediate enforcement on this node.
-	if d.clusterStatus != nil {
-		if err := d.clusterStatus.ProposeBan(body.IP, ttl); err != nil {
+	if d.getClusterStatus() != nil {
+		if err := d.getClusterStatus().ProposeBan(body.IP, ttl); err != nil {
 			d.handleClusterRedirect(w, r, err, body.IP, "ban")
 			return
 		}
@@ -199,7 +199,7 @@ func (d *Dashboard) handleAddBan(w http.ResponseWriter, r *http.Request) {
 		"status":   "ok",
 		"ip":       body.IP,
 		"duration": ttl.String(),
-		"cluster":  d.clusterStatus != nil,
+		"cluster":  d.getClusterStatus() != nil,
 	})
 }
 
@@ -218,8 +218,8 @@ func (d *Dashboard) handleRemoveBan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// When cluster mode is active, propose the unban via Raft so it replicates.
-	if d.clusterStatus != nil {
-		if err := d.clusterStatus.ProposeUnban(body.IP); err != nil {
+	if d.getClusterStatus() != nil {
+		if err := d.getClusterStatus().ProposeUnban(body.IP); err != nil {
 			d.handleClusterRedirect(w, r, err, body.IP, "unban")
 			return
 		}
@@ -232,7 +232,7 @@ func (d *Dashboard) handleRemoveBan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "no active ban for this IP")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "ip": body.IP, "cluster": d.clusterStatus != nil})
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "ip": body.IP, "cluster": d.getClusterStatus() != nil})
 }
 
 func (d *Dashboard) getBanLayer() banLayer {
@@ -256,7 +256,7 @@ func (d *Dashboard) getBanLayer() banLayer {
 // enables automatic redirect for HTTP clients and the dashboard frontend.
 func (d *Dashboard) handleClusterRedirect(w http.ResponseWriter, r *http.Request, err error, ip, action string) {
 	// Not a "not leader" error — return generic 503.
-	if !d.clusterStatus.IsNotLeader(err) {
+	if !d.getClusterStatus().IsNotLeader(err) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"error":  err.Error(),
 			"ip":     ip,
@@ -265,11 +265,11 @@ func (d *Dashboard) handleClusterRedirect(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	leaderID := d.clusterStatus.LeaderID()
+	leaderID := d.getClusterStatus().LeaderID()
 	leaderURL := ""
 
 	// Look up the leader's dashboard URL from the peer list.
-	for _, peer := range d.clusterStatus.Peers() {
+	for _, peer := range d.getClusterStatus().Peers() {
 		if peer.ID == leaderID && peer.DashboardURL != "" {
 			leaderURL = peer.DashboardURL
 			break

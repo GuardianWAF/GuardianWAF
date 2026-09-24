@@ -90,8 +90,8 @@ func (d *Dashboard) handleUpdateRateLimitConfig(w http.ResponseWriter, r *http.R
 	// silently reverts enabled/limit/burst/action to the last value written
 	// to the config file, disarming the DoS defense the operator just
 	// configured.
-	if d.routingCtrl != nil {
-		if err := d.routingCtrl.Save(); err != nil {
+	if d.getRoutingCtrl() != nil {
+		if err := d.getRoutingCtrl().Save(); err != nil {
 			if rollbackErr := d.engine.Reload(oldCfg); rollbackErr != nil {
 				dashboardLog.Error("configuration persistence and rollback failed", "save_error", err, "rollback_error", rollbackErr)
 			} else {
@@ -152,8 +152,8 @@ func (d *Dashboard) handleUpdateBotConfig(w http.ResponseWriter, r *http.Request
 	// Persist the full config to disk — same contract as handleUpdateConfig.
 	// Without this the bot-detection settings are runtime-only: a restart
 	// silently restores the bot posture the operator just changed.
-	if d.routingCtrl != nil {
-		if err := d.routingCtrl.Save(); err != nil {
+	if d.getRoutingCtrl() != nil {
+		if err := d.getRoutingCtrl().Save(); err != nil {
 			if rollbackErr := d.engine.Reload(oldCfg); rollbackErr != nil {
 				dashboardLog.Error("configuration persistence and rollback failed", "save_error", err, "rollback_error", rollbackErr)
 			} else {

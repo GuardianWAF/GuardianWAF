@@ -3,11 +3,11 @@ package dashboard
 import "net/http"
 
 func (d *Dashboard) handleTenantListCompat(w http.ResponseWriter, r *http.Request) {
-	if d.tenantManager == nil {
+	if d.getTenantManager() == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"tenants": []any{}, "count": 0, "enabled": false})
 		return
 	}
-	tenants := d.tenantManager.ListTenants()
+	tenants := d.getTenantManager().ListTenants()
 	items := make([]any, len(tenants))
 	for i, tenant := range tenants {
 		items[i] = sanitizeTenantResponse(tenant)
@@ -16,7 +16,7 @@ func (d *Dashboard) handleTenantListCompat(w http.ResponseWriter, r *http.Reques
 }
 
 func (d *Dashboard) handleTenantCreateCompat(w http.ResponseWriter, r *http.Request) {
-	if d.tenantManager == nil {
+	if d.getTenantManager() == nil {
 		writeTenantDisabled(w)
 		return
 	}
@@ -43,7 +43,7 @@ func (d *Dashboard) handleTenantCreateCompat(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusBadRequest, "at least one domain is required")
 		return
 	}
-	tenant, err := d.tenantManager.CreateTenant(req.Name, req.Description, req.Domains, req.Quota)
+	tenant, err := d.getTenantManager().CreateTenant(req.Name, req.Description, req.Domains, req.Quota)
 	if err != nil {
 		writeError(w, http.StatusConflict, sanitizeErr(err))
 		return
@@ -60,7 +60,7 @@ func (d *Dashboard) handleTenantGetCompat(w http.ResponseWriter, r *http.Request
 }
 
 func (d *Dashboard) handleTenantUpdateCompat(w http.ResponseWriter, r *http.Request) {
-	if d.tenantManager == nil {
+	if d.getTenantManager() == nil {
 		writeTenantDisabled(w)
 		return
 	}
@@ -69,19 +69,19 @@ func (d *Dashboard) handleTenantUpdateCompat(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	id := r.PathValue("id")
-	if err := d.tenantManager.UpdateTenant(id, update); err != nil {
+	if err := d.getTenantManager().UpdateTenant(id, update); err != nil {
 		writeError(w, http.StatusNotFound, sanitizeErr(err))
 		return
 	}
-	writeJSON(w, http.StatusOK, sanitizeTenantResponse(d.tenantManager.GetTenant(id)))
+	writeJSON(w, http.StatusOK, sanitizeTenantResponse(d.getTenantManager().GetTenant(id)))
 }
 
 func (d *Dashboard) handleTenantDeleteCompat(w http.ResponseWriter, r *http.Request) {
-	if d.tenantManager == nil {
+	if d.getTenantManager() == nil {
 		writeTenantDisabled(w)
 		return
 	}
-	if err := d.tenantManager.DeleteTenant(r.PathValue("id")); err != nil {
+	if err := d.getTenantManager().DeleteTenant(r.PathValue("id")); err != nil {
 		writeError(w, http.StatusNotFound, sanitizeErr(err))
 		return
 	}
@@ -103,7 +103,7 @@ func (d *Dashboard) handleTenantConfigCompat(w http.ResponseWriter, r *http.Requ
 }
 
 func (d *Dashboard) handleTenantConfigUpdateCompat(w http.ResponseWriter, r *http.Request) {
-	if d.tenantManager == nil {
+	if d.getTenantManager() == nil {
 		writeTenantDisabled(w)
 		return
 	}
@@ -112,7 +112,7 @@ func (d *Dashboard) handleTenantConfigUpdateCompat(w http.ResponseWriter, r *htt
 		return
 	}
 	id := r.PathValue("id")
-	if err := d.tenantManager.UpdateTenant(id, map[string]any{"waf_config": cfg}); err != nil {
+	if err := d.getTenantManager().UpdateTenant(id, map[string]any{"waf_config": cfg}); err != nil {
 		writeError(w, http.StatusNotFound, sanitizeErr(err))
 		return
 	}
@@ -120,11 +120,11 @@ func (d *Dashboard) handleTenantConfigUpdateCompat(w http.ResponseWriter, r *htt
 }
 
 func (d *Dashboard) handleTenantStatsCompat(w http.ResponseWriter, r *http.Request) {
-	if d.tenantManager == nil {
+	if d.getTenantManager() == nil {
 		writeTenantDisabled(w)
 		return
 	}
-	usage := d.tenantManager.GetTenantUsage(r.PathValue("id"))
+	usage := d.getTenantManager().GetTenantUsage(r.PathValue("id"))
 	if usage == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"requests": 0, "blocks": 0})
 		return
@@ -133,11 +133,11 @@ func (d *Dashboard) handleTenantStatsCompat(w http.ResponseWriter, r *http.Reque
 }
 
 func (d *Dashboard) handleTenantUsageCompat(w http.ResponseWriter, r *http.Request) {
-	if d.tenantManager == nil {
+	if d.getTenantManager() == nil {
 		writeTenantDisabled(w)
 		return
 	}
-	usage := d.tenantManager.GetTenantUsage(r.PathValue("id"))
+	usage := d.getTenantManager().GetTenantUsage(r.PathValue("id"))
 	if usage == nil {
 		writeJSON(w, http.StatusOK, map[string]any{})
 		return
@@ -146,19 +146,19 @@ func (d *Dashboard) handleTenantUsageCompat(w http.ResponseWriter, r *http.Reque
 }
 
 func (d *Dashboard) handleTenantAllUsageCompat(w http.ResponseWriter, r *http.Request) {
-	if d.tenantManager == nil {
+	if d.getTenantManager() == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"usage": []any{}, "enabled": false})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"usage": d.tenantManager.GetAllUsage(), "enabled": true})
+	writeJSON(w, http.StatusOK, map[string]any{"usage": d.getTenantManager().GetAllUsage(), "enabled": true})
 }
 
 func (d *Dashboard) handleTenantAPIKeyCompat(w http.ResponseWriter, r *http.Request) {
-	if d.tenantManager == nil {
+	if d.getTenantManager() == nil {
 		writeTenantDisabled(w)
 		return
 	}
-	apiKey, err := d.tenantManager.RegenerateAPIKey(r.PathValue("id"))
+	apiKey, err := d.getTenantManager().RegenerateAPIKey(r.PathValue("id"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, sanitizeErr(err))
 		return
@@ -167,11 +167,11 @@ func (d *Dashboard) handleTenantAPIKeyCompat(w http.ResponseWriter, r *http.Requ
 }
 
 func (d *Dashboard) compatTenant(w http.ResponseWriter, id string) (any, bool) {
-	if d.tenantManager == nil {
+	if d.getTenantManager() == nil {
 		writeTenantDisabled(w)
 		return nil, false
 	}
-	tenant := d.tenantManager.GetTenant(id)
+	tenant := d.getTenantManager().GetTenant(id)
 	if tenant == nil {
 		writeError(w, http.StatusNotFound, "tenant not found")
 		return nil, false

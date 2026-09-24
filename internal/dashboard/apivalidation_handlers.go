@@ -223,8 +223,8 @@ func (h *APIValidationHandler) handleValidationConfig(w http.ResponseWriter, r *
 		// restart silently reverts block_on_violation and the other
 		// API-validation flags to the last value written to the config file,
 		// disabling blocking the operator believes is active.
-		if h.dashboard.routingCtrl != nil {
-			if err := h.dashboard.routingCtrl.Save(); err != nil {
+		if h.dashboard.getRoutingCtrl() != nil {
+			if err := h.dashboard.getRoutingCtrl().Save(); err != nil {
 				if rollbackErr := h.dashboard.engine.Reload(oldCfg); rollbackErr != nil {
 					dashboardLog.Error("configuration persistence and rollback failed", "save_error", err, "rollback_error", rollbackErr)
 				} else {

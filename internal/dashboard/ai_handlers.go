@@ -26,7 +26,19 @@ type aiAnalyzerInterface interface {
 
 // SetAIAnalyzer injects the AI analyzer for dashboard API access.
 func (d *Dashboard) SetAIAnalyzer(analyzer aiAnalyzerInterface) {
-	d.aiAnalyzer = analyzer
+	// Atomic publication: the dashboard server may already be serving AI
+	// endpoints when this runs (the production wiring happens after
+	// startDashboard returns).
+	d.aiAnalyzer.Store(&analyzer)
+}
+
+// getAIAnalyzer returns the injected AI analyzer, or nil when unset. Safe
+// for concurrent use with SetAIAnalyzer.
+func (d *Dashboard) getAIAnalyzer() aiAnalyzerInterface {
+	if p := d.aiAnalyzer.Load(); p != nil {
+		return *p
+	}
+	return nil
 }
 
 // catalogCache is a standalone catalog cache for the providers endpoint.
@@ -41,9 +53,9 @@ func init() {
 // Always works — doesn't require AI analyzer to be enabled.
 func (d *Dashboard) handleAIProviders(w http.ResponseWriter, r *http.Request) {
 	// Use analyzer's catalog if available, otherwise standalone cache
-	if d.aiAnalyzer != nil {
+	if d.getAIAnalyzer() != nil {
 		// Get from analyzer (shares cache)
-		providers, err := d.aiAnalyzer.GetCatalog()
+		providers, err := d.getAIAnalyzer().GetCatalog()
 		if err != nil {
 			writeError(w, http.StatusBadGateway, "failed to fetch providers")
 			return
@@ -63,11 +75,11 @@ func (d *Dashboard) handleAIProviders(w http.ResponseWriter, r *http.Request) {
 
 // handleAIGetConfig returns the current AI provider configuration.
 func (d *Dashboard) handleAIGetConfig(w http.ResponseWriter, r *http.Request) {
-	if d.aiAnalyzer == nil {
+	if d.getAIAnalyzer() == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"enabled": false})
 		return
 	}
-	store := d.aiAnalyzer.GetStore()
+	store := d.getAIAnalyzer().GetStore()
 	if store == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"enabled": false})
 		return
@@ -92,7 +104,7 @@ func (d *Dashboard) handleAIGetConfig(w http.ResponseWriter, r *http.Request) {
 
 // handleAISetConfig updates the AI provider configuration.
 func (d *Dashboard) handleAISetConfig(w http.ResponseWriter, r *http.Request) {
-	if d.aiAnalyzer == nil {
+	if d.getAIAnalyzer() == nil {
 		writeError(w, http.StatusBadRequest, "AI analysis not enabled")
 		return
 	}
@@ -129,7 +141,7 @@ func (d *Dashboard) handleAISetConfig(w http.ResponseWriter, r *http.Request) {
 		BaseURL:      body.BaseURL,
 	}
 
-	if err := d.aiAnalyzer.UpdateProvider(cfg); err != nil {
+	if err := d.getAIAnalyzer().UpdateProvider(cfg); err != nil {
 		writeError(w, http.StatusInternalServerError, sanitizeErr(err))
 		return
 	}
@@ -139,7 +151,7 @@ func (d *Dashboard) handleAISetConfig(w http.ResponseWriter, r *http.Request) {
 
 // handleAIHistory returns recent AI analysis results.
 func (d *Dashboard) handleAIHistory(w http.ResponseWriter, r *http.Request) {
-	if d.aiAnalyzer == nil {
+	if d.getAIAnalyzer() == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"history": []any{}})
 		return
 	}
@@ -151,7 +163,7 @@ func (d *Dashboard) handleAIHistory(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	store := d.aiAnalyzer.GetStore()
+	store := d.getAIAnalyzer().GetStore()
 	if store == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"history": []any{}, "count": 0})
 		return
@@ -162,12 +174,12 @@ func (d *Dashboard) handleAIHistory(w http.ResponseWriter, r *http.Request) {
 
 // handleAIStats returns AI usage statistics.
 func (d *Dashboard) handleAIStats(w http.ResponseWriter, r *http.Request) {
-	if d.aiAnalyzer == nil {
+	if d.getAIAnalyzer() == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"enabled": false})
 		return
 	}
 
-	store := d.aiAnalyzer.GetStore()
+	store := d.getAIAnalyzer().GetStore()
 	if store == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"enabled": false})
 		return
@@ -189,7 +201,7 @@ func (d *Dashboard) handleAIStats(w http.ResponseWriter, r *http.Request) {
 
 // handleAIAnalyze triggers a manual AI analysis of recent suspicious events.
 func (d *Dashboard) handleAIAnalyze(w http.ResponseWriter, r *http.Request) {
-	if d.aiAnalyzer == nil {
+	if d.getAIAnalyzer() == nil {
 		writeError(w, http.StatusBadRequest, "AI analysis not enabled")
 		return
 	}
@@ -222,7 +234,7 @@ func (d *Dashboard) handleAIAnalyze(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := d.aiAnalyzer.ManualAnalyze(evts)
+	result, err := d.getAIAnalyzer().ManualAnalyze(evts)
 	if err != nil {
 		status := http.StatusBadGateway
 		switch {
@@ -240,12 +252,12 @@ func (d *Dashboard) handleAIAnalyze(w http.ResponseWriter, r *http.Request) {
 
 // handleAITest tests the AI provider connection.
 func (d *Dashboard) handleAITest(w http.ResponseWriter, r *http.Request) {
-	if d.aiAnalyzer == nil {
+	if d.getAIAnalyzer() == nil {
 		writeError(w, http.StatusBadRequest, "AI analysis not enabled")
 		return
 	}
 
-	if err := d.aiAnalyzer.TestConnection(); err != nil {
+	if err := d.getAIAnalyzer().TestConnection(); err != nil {
 		writeJSON(w, http.StatusOK, map[string]any{"status": "error", "message": sanitizeErr(err)})
 		return
 	}
