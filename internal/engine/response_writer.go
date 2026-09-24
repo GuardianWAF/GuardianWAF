@@ -132,7 +132,11 @@ func (m *maskingResponseWriter) shouldCapture() bool {
 	}
 	ct = strings.TrimSpace(ct)
 
+	// application/javascript is captured to match the clientside scanner's
+	// own contract (layer.go isJS): standalone .js responses are the
+	// stage-2 Magecart payload shape and must reach the response hooks.
 	return strings.HasPrefix(ct, "text/") ||
+		ct == "application/javascript" ||
 		ct == "application/json" ||
 		ct == "application/xml" ||
 		strings.HasSuffix(ct, "+json") ||
