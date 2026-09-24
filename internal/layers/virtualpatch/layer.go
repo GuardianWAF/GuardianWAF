@@ -505,10 +505,22 @@ func (l *Layer) getValueByType(ctx *engine.RequestContext, typ, key string) []st
 	case "path":
 		return []string{ctx.Path}
 	case "query":
+		var vals []string
 		if ctx.Request != nil && ctx.Request.URL != nil {
-			return []string{ctx.Request.URL.RawQuery}
+			vals = append(vals, ctx.Request.URL.RawQuery)
 		}
-		return nil
+		// The attacker picks the percent-encoding of the same payload:
+		// "${jndi:" rides as %24%7Bjndi%3A and "class.module" as
+		// "class%2Emodule". RawQuery alone is one representation; the
+		// engine's decoded map (which also recovers the params
+		// net/url.Query() drops on ';') is the other. The any-match loop
+		// in matchPattern inspects every returned value (the round-20
+		// multi-value family, extended to representations).
+		for k, vs := range ctx.QueryParams {
+			vals = append(vals, k)
+			vals = append(vals, vs...)
+		}
+		return vals
 	case "header":
 		if ctx.Headers != nil {
 			if vals, ok := ctx.Headers[http.CanonicalHeaderKey(key)]; ok {
