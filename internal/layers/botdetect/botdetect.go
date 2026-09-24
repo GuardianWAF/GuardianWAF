@@ -295,47 +295,60 @@ func (l *Layer) analyzeTLSFingerprint(ctx *engine.RequestContext) (int, []engine
 }
 
 // analyzeUA runs User-Agent analysis and returns score and findings.
+// The engine preserves EVERY transmitted User-Agent value, and backend
+// parsers disagree on which one they surface (Go first-wins, PHP/Python
+// last-wins) — scoring only vals[0] lets the attacker pick which UA the
+// WAF sees by header ordering (the round-20/81 multi-value family). Any
+// value that scores counts; the suppression filters apply per value.
 func (l *Layer) analyzeUA(ctx *engine.RequestContext) (int, []engine.Finding) {
-	ua := ""
-	if vals, ok := ctx.Headers["User-Agent"]; ok && len(vals) > 0 {
-		ua = vals[0]
-	}
-
-	score, desc := AnalyzeUserAgent(ua)
-	if score == 0 {
-		return 0, nil
-	}
-
-	// Apply config filters
 	cfg := l.snapshotConfig()
-	if ua == "" && !cfg.UserAgent.BlockEmpty {
-		return 0, nil
+	var uas []string
+	if vals, ok := ctx.Headers["User-Agent"]; ok {
+		uas = append(uas, vals...)
 	}
-	if !cfg.UserAgent.BlockKnownScanners {
-		if _, isScanner := matchKnownScanner(strings.ToLower(ua)); isScanner {
-			// block_known_scanners: false — scanner UAs are detected but not
-			// escalated to the block-tier score.
-			return 0, nil
+	if len(uas) == 0 {
+		// No User-Agent header at all: the server-side view is an empty
+		// UA — keep scoring it so BlockEmpty still fires for missing
+		// headers (the pre-fix semantic).
+		uas = append(uas, "")
+	}
+
+	for _, ua := range uas {
+		score, desc := AnalyzeUserAgent(ua)
+		if score == 0 {
+			continue
 		}
+		if ua == "" && !cfg.UserAgent.BlockEmpty {
+			continue
+		}
+		if !cfg.UserAgent.BlockKnownScanners {
+			if _, isScanner := matchKnownScanner(strings.ToLower(ua)); isScanner {
+				// block_known_scanners: false — scanner UAs are detected but not
+				// escalated to the block-tier score.
+				continue
+			}
+		}
+
+		severity := engine.SeverityLow
+		if score >= 80 {
+			severity = engine.SeverityHigh
+		} else if score >= 40 {
+			severity = engine.SeverityMedium
+		}
+
+		return score, []engine.Finding{{
+			DetectorName: "botdetect-ua",
+			Category:     "bot",
+			Severity:     severity,
+			Score:        score,
+			Description:  desc,
+			MatchedValue: truncateUA(ua, 200),
+			Location:     "header",
+			Confidence:   0.6,
+		}}
 	}
 
-	severity := engine.SeverityLow
-	if score >= 80 {
-		severity = engine.SeverityHigh
-	} else if score >= 40 {
-		severity = engine.SeverityMedium
-	}
-
-	return score, []engine.Finding{{
-		DetectorName: "botdetect-ua",
-		Category:     "bot",
-		Severity:     severity,
-		Score:        score,
-		Description:  desc,
-		MatchedValue: truncateUA(ua, 200),
-		Location:     "header",
-		Confidence:   0.6,
-	}}
+	return 0, nil
 }
 
 // truncateUA truncates a user-agent string for finding evidence.
