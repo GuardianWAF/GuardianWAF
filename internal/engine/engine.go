@@ -586,11 +586,26 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 			maskFn = ctx.ResponseMaskFn
 		}
 
-		// Extract client-side response body transform (Magecart/agent-injection)
-		// before releasing context. The closure captures only value copies.
+		// Extract response body transforms (clientside Magecart/agent +
+		// DLP masking) before releasing context. The closures capture only
+		// value copies. Composed clientside-first so the DLP mask applies
+		// to the final body.
 		var bodyXform func([]byte, string) ([]byte, bool)
 		if ctx.ClientsideBodyXform != nil {
 			bodyXform = ctx.ClientsideBodyXform
+		}
+		if ctx.DLPBodyXform != nil {
+			if bodyXform == nil {
+				bodyXform = ctx.DLPBodyXform
+			} else {
+				prev := bodyXform
+				dlpXform := ctx.DLPBodyXform
+				bodyXform = func(b []byte, ct string) ([]byte, bool) {
+					mid, m1 := prev(b, ct)
+					out, m2 := dlpXform(mid, ct)
+					return out, m1 || m2
+				}
+			}
 		}
 
 		// Capture tenant ID before releasing context (pool resets all fields)

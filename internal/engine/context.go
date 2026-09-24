@@ -195,6 +195,7 @@ type RequestContext struct {
 	ResponseMaskFn      func(string) string                 // response body masking (response layer)
 	ClientsideCSPHook   func(http.ResponseWriter)           // CSP headers (clientside layer)
 	ClientsideBodyXform func([]byte, string) ([]byte, bool) // body transform (clientside layer)
+	DLPBodyXform        func([]byte, string) ([]byte, bool) // body transform (dlp layer)
 
 	// CORS headers — set by CORS layer during Process(), consumed post-pipeline
 	CORSHeaders          map[string]string
@@ -468,6 +469,7 @@ func ReleaseContext(ctx *RequestContext) {
 	ctx.ResponseMaskFn = nil
 	ctx.ClientsideCSPHook = nil
 	ctx.ClientsideBodyXform = nil
+	ctx.DLPBodyXform = nil
 	ctx.CORSHeaders = nil
 	ctx.CORSPreflightHeaders = nil
 	ctx.CORSExposeHeaders = ""

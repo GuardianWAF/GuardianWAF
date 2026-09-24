@@ -198,6 +198,17 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		}
 	}
 
+	// Register the response-body hook when response scanning is enabled.
+	// ScanResponse applies maskContent (sorted-substitution masking) and
+	// records alerts; the closure captures only the layer pointer, so it
+	// stays valid after the request context returns to the pool.
+	if cfg.ScanResponse {
+		ctx.DLPBodyXform = func(body []byte, contentType string) ([]byte, bool) {
+			_, masked := l.ScanResponse(body, contentType)
+			return masked, !bytes.Equal(body, masked)
+		}
+	}
+
 	return result
 }
 
