@@ -643,34 +643,46 @@ func splitEscaped(s string, sep byte) []string {
 }
 
 // splitActions splits actions by comma but respects quoted strings.
-// A backslash-escaped quote (or backslash) inside a quoted value (e.g.
-// msg:'don\'t') stays verbatim and does not close the value's quote.
+// Values are quoted either with single quotes (msg:'a, b') or, per SecLang's
+// outer-double-quote grammar, with escaped double quotes (msg:\"a, b\"): the
+// \" pairs toggle an escaped-double-quote span at top level and commas
+// inside it do not split. Backslash escape pairs are consumed verbatim
+// everywhere — inside single quotes a \" pair stays inert (the value keeps
+// it literally, pinned by splitquote_escape_regression_test), and an escaped
+// comma or backslash is never a separator. Bare double quotes (invalid
+// SecLang — a literal " must be escaped as \") stay plain characters, so
+// TestSplitActions' documented 5-part split for a,b,"c,d",e is preserved.
+// Previously only single-quote state was tracked, so the comma inside
+// msg:\"a, b\" split the action list mid-value: the value truncated at the
+// comma and the tail became a stray, silently-dropped token
+// (round 2026-09-24-r2-crs-splitactions-dq-comma).
 func splitActions(s string) []string {
 	var parts []string
 	var current strings.Builder
-	inQuotes := false
-	quoteChar := rune(0)
+	inSingle := false // '...' value spelling
+	inDouble := false // \"...\" escaped-double-quote value spelling
 
 	runes := []rune(s)
 	for i := 0; i < len(runes); i++ {
 		r := runes[i]
 		switch {
-		case inQuotes && r == '\\' && i+1 < len(runes) && (runes[i+1] == quoteChar || runes[i+1] == '\\'):
-			// Escaped quote/backslash: emit the pair, skip the state toggle.
+		case r == '\\' && i+1 < len(runes):
+			// Backslash escape pair: emit verbatim. A top-level \" pair
+			// toggles the escaped-double-quote span; inside single quotes it
+			// stays inert, and a pair is never an action separator.
+			if !inSingle && runes[i+1] == '"' {
+				inDouble = !inDouble
+			}
 			current.WriteRune(r)
 			current.WriteRune(runes[i+1])
 			i++
 		case r == '\'':
-			if !inQuotes {
-				inQuotes = true
-				quoteChar = r
-			} else if r == quoteChar {
-				inQuotes = false
-				quoteChar = 0
+			if !inDouble {
+				inSingle = !inSingle
 			}
 			current.WriteRune(r)
 		case r == ',':
-			if inQuotes {
+			if inSingle || inDouble {
 				current.WriteRune(r)
 			} else {
 				parts = append(parts, current.String())
