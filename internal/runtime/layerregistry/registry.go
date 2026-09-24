@@ -525,6 +525,7 @@ func buildClientSide(cfg *config.Config) (engine.Layer, error) {
 			DetectSuspiciousDomains: cfg.WAF.ClientSide.MagecartDetection.DetectSuspiciousDomains,
 			DetectFormExfiltration:  cfg.WAF.ClientSide.MagecartDetection.DetectFormExfiltration,
 			DetectKeyloggers:        cfg.WAF.ClientSide.MagecartDetection.DetectKeyloggers,
+			SuspiciousPatterns:      cfg.WAF.ClientSide.MagecartDetection.SuspiciousPatterns,
 			KnownSkimmingDomains:    cfg.WAF.ClientSide.MagecartDetection.KnownSkimmingDomains,
 			BlockScore:              cfg.WAF.ClientSide.MagecartDetection.BlockScore,
 			AlertScore:              cfg.WAF.ClientSide.MagecartDetection.AlertScore,

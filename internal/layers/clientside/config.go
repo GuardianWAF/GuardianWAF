@@ -182,6 +182,15 @@ func CompilePatterns(cfg *MagecartConfig) *CompiledPatterns {
 			regexp.MustCompile(`(?i)document\.(forms?|querySelector)\s*\([^)]*(?:login|password|card|cvv|ssn)`),
 			regexp.MustCompile(`(?i)(?:credit.?card|payment|billing).{0,50}(?:input|field|form)`),
 		}
+		// Operator-supplied suspicious patterns (magecart_detection.
+		// suspicious_patterns). Compiled with Compile (not MustCompile):
+		// these come from operator config, and a malformed pattern must
+		// never panic the layer at startup — invalid entries are skipped.
+		for _, raw := range cfg.SuspiciousPatterns {
+			if re, err := regexp.Compile(raw); err == nil {
+				cp.SkimmingPatterns = append(cp.SkimmingPatterns, re)
+			}
+		}
 	}
 
 	// Keylogger patterns

@@ -652,6 +652,7 @@ type MagecartDetectionConfig struct {
 	DetectSuspiciousDomains bool     `yaml:"detect_suspicious_domains"`
 	DetectFormExfiltration  bool     `yaml:"detect_form_exfiltration"`
 	DetectKeyloggers        bool     `yaml:"detect_keyloggers"`
+	SuspiciousPatterns      []string `yaml:"suspicious_patterns"`
 	KnownSkimmingDomains    []string `yaml:"known_skimming_domains"`
 	BlockScore              int      `yaml:"block_score"`
 	AlertScore              int      `yaml:"alert_score"`

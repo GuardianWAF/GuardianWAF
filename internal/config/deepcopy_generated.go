@@ -987,6 +987,10 @@ func (in *MagecartDetectionConfig) DeepCopy() *MagecartDetectionConfig {
 	out.DetectSuspiciousDomains = in.DetectSuspiciousDomains
 	out.DetectFormExfiltration = in.DetectFormExfiltration
 	out.DetectKeyloggers = in.DetectKeyloggers
+	if in.SuspiciousPatterns != nil {
+		out.SuspiciousPatterns = make([]string, len(in.SuspiciousPatterns))
+		copy(out.SuspiciousPatterns, in.SuspiciousPatterns)
+	}
 	if in.KnownSkimmingDomains != nil {
 		out.KnownSkimmingDomains = make([]string, len(in.KnownSkimmingDomains))
 		copy(out.KnownSkimmingDomains, in.KnownSkimmingDomains)

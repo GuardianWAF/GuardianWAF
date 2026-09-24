@@ -1284,6 +1284,9 @@ func populateClientSide(cs *ClientSideConfig, n *Node) error {
 		if v := sub.Get("known_skimming_domains"); v != nil && v.Kind == SequenceNode {
 			cs.MagecartDetection.KnownSkimmingDomains = nodeStringSlice(v)
 		}
+		if v := sub.Get("suspicious_patterns"); v != nil && v.Kind == SequenceNode {
+			cs.MagecartDetection.SuspiciousPatterns = nodeStringSlice(v)
+		}
 	}
 	if sub := n.Get("agent_injection"); sub != nil && sub.Kind == MapNode {
 		fe.boolField(sub, "enabled", "agent_injection", &cs.AgentInjection.Enabled)
