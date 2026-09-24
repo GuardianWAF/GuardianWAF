@@ -260,10 +260,19 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	defer l.mu.RUnlock()
 
 	// Phase 1: Request headers (after receiving request headers)
+	// SecLang skip:N: a matched rule skips the next N rules in this phase
+	// (each phase carries its own window). Disabled rules are not evaluated
+	// and do not consume the window. Pre-fix the parsed Skip action was
+	// never read, so skipped rules were evaluated anyway.
+	skipCount := 0
 	for _, rule := range l.rulesByPhase[1] {
 		// Runtime disable (DisableRule/dashboard) must take effect without a
 		// reload: loadRuleFile applies config DisabledRules at load time only.
 		if rule.ID != "" && l.disabledRules[rule.ID] {
+			continue
+		}
+		if skipCount > 0 {
+			skipCount--
 			continue
 		}
 		matched, score, finding := l.evaluateRule(rule, tx)
@@ -274,6 +283,11 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 			}
 			if finding != nil {
 				findings = append(findings, *finding)
+			}
+
+			// skip:N takes effect on match (SecLang actions run on match).
+			if rule.Actions.Skip > 0 {
+				skipCount = rule.Actions.Skip
 			}
 
 			// Execute actions
@@ -287,9 +301,15 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		}
 	}
 
-	// Phase 2: Request body (after receiving request body)
+	// Phase 2: Request body (after receiving request body) — independent
+	// skip window (see phase 1).
+	skipCount = 0
 	for _, rule := range l.rulesByPhase[2] {
 		if rule.ID != "" && l.disabledRules[rule.ID] {
+			continue
+		}
+		if skipCount > 0 {
+			skipCount--
 			continue
 		}
 		matched, score, finding := l.evaluateRule(rule, tx)
@@ -300,6 +320,11 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 			}
 			if finding != nil {
 				findings = append(findings, *finding)
+			}
+
+			// skip:N takes effect on match (SecLang actions run on match).
+			if rule.Actions.Skip > 0 {
+				skipCount = rule.Actions.Skip
 			}
 
 			if l.shouldBlock(rule, anomalyScore, blockingScore) {
