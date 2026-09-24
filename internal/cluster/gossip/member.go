@@ -63,7 +63,6 @@ type Member struct {
 // memberEntry is the internal bookkeeping record.
 type memberEntry struct {
 	Member
-	failureTimer int64 // unix timestamp when suspicion started (0 = not suspected)
 }
 
 // MemberList manages the local view of cluster membership.
@@ -92,7 +91,6 @@ func (ml *MemberList) Add(m Member) bool {
 	if existing, ok := ml.members[m.ID]; ok {
 		if shouldReplace(existing.Member, m) {
 			existing.Member = m
-			existing.failureTimer = 0
 			return false
 		}
 		return false
@@ -159,7 +157,7 @@ func (ml *MemberList) RandomMember(localID string) (Member, bool) {
 	return pick.Member, true
 }
 
-// MarkSuspect transitions a member to Suspect, bumping its failure timer.
+// MarkSuspect transitions a member to Suspect.
 func (ml *MemberList) MarkSuspect(id string) bool {
 	ml.mu.Lock()
 	defer ml.mu.Unlock()
@@ -170,10 +168,8 @@ func (ml *MemberList) MarkSuspect(id string) bool {
 	}
 	if e.State == StateAlive {
 		e.State = StateSuspect
-		e.failureTimer++
 		return true
 	}
-	e.failureTimer++
 	return false
 }
 

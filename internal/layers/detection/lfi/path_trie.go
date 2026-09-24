@@ -32,7 +32,6 @@ type trieNode struct {
 // Called once at init time, not per-request.
 func buildSensitivePathTrie() *sensitivePathTrie {
 	t := &sensitivePathTrie{root: &trieNode{}}
-	var count int
 
 	addPath := func(path string, score int, desc string) {
 		// The detector lowercases input before trie lookup; normalize the
@@ -46,9 +45,6 @@ func buildSensitivePathTrie() *sensitivePathTrie {
 				node.children[idx] = &trieNode{}
 			}
 			node = node.children[idx]
-		}
-		if node.score == 0 {
-			count++
 		}
 		node.score = score
 		node.description = desc
@@ -204,9 +200,11 @@ var sensitiveTrie = buildSensitivePathTrie()
 // on mismatch the walk falls back to the longest proper suffix that is still
 // a trie node and retries the SAME byte, so embedded matches survive shared
 // prefixes. O(k) amortized. Terminals are reported when the walk lands on
-// them; patterns that are proper suffixes of a longer matched pattern would
-// additionally require dictionary-chain following, and no such pair exists
-// in the inserted path set.
+// them; a pattern that is a proper suffix of a longer matched pattern would
+// additionally require dictionary-chain following. Exactly one such pair
+// exists (/var/log/system.log inside /private/var/log/system.log, both score
+// 60): the shorter match is under-reported, dropping only a redundant
+// same-score finding — detection is unaffected.
 func (t *sensitivePathTrie) checkWithTrie(input, location string) []engine.Finding {
 	var findings []engine.Finding
 	node := t.root

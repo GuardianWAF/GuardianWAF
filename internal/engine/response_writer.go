@@ -13,13 +13,12 @@ const maxMaskingBufferSize = 1 << 20 // 1 MB — larger responses stream unmaske
 // the underlying writer. Non-text responses pass through with zero overhead.
 type maskingResponseWriter struct {
 	http.ResponseWriter
-	buf        bytes.Buffer
-	maskFn     func(string) string
-	bodyXform  func([]byte, string) ([]byte, bool) // client-side body transform (Magecart/agent-injection)
-	statusCode int
-	capture    bool // true once we decide to buffer
-	decided    bool // true once capture mode is set
-	direct     bool // true if body exceeded buffer limit — switch to passthrough
+	buf       bytes.Buffer
+	maskFn    func(string) string
+	bodyXform func([]byte, string) ([]byte, bool) // client-side body transform (Magecart/agent-injection)
+	capture   bool                                // true once we decide to buffer
+	decided   bool                                // true once capture mode is set
+	direct    bool                                // true if body exceeded buffer limit — switch to passthrough
 }
 
 // newMaskingResponseWriter creates a response writer that applies an optional
@@ -39,7 +38,6 @@ func newMaskingResponseWriter(w http.ResponseWriter, maskFn func(string) string,
 // lines), so the declared length can no longer be honored — a stale
 // Content-Length would make clients see truncated responses.
 func (m *maskingResponseWriter) WriteHeader(code int) {
-	m.statusCode = code
 	if !m.decided {
 		m.decided = true
 		m.capture = m.shouldCapture()
