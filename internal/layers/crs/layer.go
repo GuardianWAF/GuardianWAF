@@ -485,8 +485,14 @@ func (l *Layer) evaluateRule(rule *Rule, tx *Transaction) (bool, int, *engine.Fi
 
 			transformed := Transform(value, rule.Actions.Transformations)
 
-			// Evaluate operator
-			result, err := evaluator.Evaluate(rule.Operator, transformed)
+			// Evaluate operator. SecLang expands %{...} macros in operator
+			// arguments against the transaction (e.g.
+			// "@ge %{tx.inbound_anomaly_score_threshold}" — CRS-native
+			// threshold rules); pre-fix the literal "%{...}" text was
+			// evaluated and never matched.
+			op := rule.Operator
+			op.Argument = expandMacros(tx, op.Argument)
+			result, err := evaluator.Evaluate(op, transformed)
 			if err != nil {
 				continue
 			}
@@ -561,9 +567,14 @@ func (l *Layer) evaluateRule(rule *Rule, tx *Transaction) (bool, int, *engine.Fi
 // the normal matched-rule path and the unconditional SecAction path.
 func applyVarActions(rule *Rule, tx *Transaction) {
 	for _, varAction := range rule.Actions.SetVar {
+		// SecLang expands %{...} macros in setvar values against the
+		// transaction (e.g. tx.anomaly_score=+%{tx.critical_anomaly_score} —
+		// the core of CRS anomaly scoring). Pre-fix the literal text was
+		// stored/added as-is, so macro-driven arithmetic computed 0.
+		value := expandMacros(tx, varAction.Value)
 		switch varAction.Operation {
 		case "=":
-			tx.SetVar(varAction.Variable, varAction.Value)
+			tx.SetVar(varAction.Variable, value)
 		case "+=", "-=":
 			// ModSecurity semantics: arithmetic add/subtract of the authored
 			// numeric value on the variable's current value (empty/unparseable
@@ -572,7 +583,7 @@ func applyVarActions(rule *Rule, tx *Transaction) {
 				break // malformed action: no target variable
 			}
 			delta := 0
-			if v, err := strconv.Atoi(strings.TrimSpace(varAction.Value)); err == nil {
+			if v, err := strconv.Atoi(strings.TrimSpace(value)); err == nil {
 				delta = v
 			}
 			if varAction.Operation == "-=" {
@@ -585,6 +596,50 @@ func applyVarActions(rule *Rule, tx *Transaction) {
 			tx.SetVar(varAction.Variable, strconv.Itoa(current+delta))
 		}
 	}
+}
+
+// expandMacros expands SecLang %{...} macro references against the
+// transaction. ModSecurity expands %{TX.name} (and the bare-name form CRS
+// uses, %{tx.name}) to the variable's value; unknown or missing names expand
+// to the empty string. Inputs without "%{" return unchanged.
+func expandMacros(tx *Transaction, s string) string {
+	if !strings.Contains(s, "%{") {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); {
+		if s[i] != '%' || i+1 >= len(s) || s[i+1] != '{' {
+			b.WriteByte(s[i])
+			i++
+			continue
+		}
+		end := strings.IndexByte(s[i+2:], '}')
+		if end < 0 {
+			b.WriteByte(s[i])
+			i++
+			continue
+		}
+		name := s[i+2 : i+2+end]
+		if dot := strings.IndexByte(name, '.'); dot >= 0 {
+			name = name[dot+1:]
+		}
+		v, ok := tx.Variables[name]
+		if !ok {
+			upperName := strings.ToUpper(name)
+			for k, kv := range tx.Variables {
+				if strings.ToUpper(k) == upperName {
+					v, ok = kv, true
+					break
+				}
+			}
+		}
+		if ok {
+			b.WriteString(v)
+		}
+		i = i + 2 + end + 1
+	}
+	return b.String()
 }
 
 // shouldBlock determines if rule actions should cause immediate blocking.
