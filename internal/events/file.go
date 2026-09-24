@@ -21,6 +21,10 @@ const (
 	fileChannelBufSize = 1024
 	flushInterval      = time.Second
 	flushEventCount    = 100
+
+	// rotatedTimeLayout is the second-granularity timestamp embedded in
+	// rotated file names (see rotateLocked and parseRotatedName).
+	rotatedTimeLayout = "20060102-150405"
 )
 
 // FileStore writes events as JSONL (one JSON object per line) to a file.
@@ -246,7 +250,7 @@ func (fs *FileStore) checkRotation() {
 	}
 
 	// Rename current file with timestamp.
-	ts := time.Now().Format("20060102-150405")
+	ts := time.Now().Format(rotatedTimeLayout)
 	ext := filepath.Ext(fp)
 	base := strings.TrimSuffix(fp, ext)
 	rotatedName := base + "-" + ts + ext
@@ -326,7 +330,12 @@ func (fs *FileStore) closeAfterRotationFailure() {
 }
 
 // cleanupRotated removes old rotated files, keeping only the most recent ones.
-// Must be called with fs.rotateMu held.
+// Only names following the rotation naming contract
+// base-<YYYYMMDD>-<HHMMSS>[-N].ext (see parseRotatedName) participate: they
+// are ordered newest rotation timestamp first, then highest same-second
+// collision suffix. Anything else in the directory — operator files that
+// merely share the prefix — is never a retention candidate. Must be called
+// with fs.rotateMu held.
 func (fs *FileStore) cleanupRotated(base, ext string) {
 	dir := filepath.Dir(base)
 	base = filepath.Base(base)
@@ -338,25 +347,68 @@ func (fs *FileStore) cleanupRotated(base, ext string) {
 	}
 
 	prefix := base + "-"
-	var rotated []string
+	type rotatedKey struct {
+		ts     time.Time
+		suffix int
+		name   string
+	}
+	var keys []rotatedKey
 	for _, e := range entries {
 		if e.IsDir() {
 			continue
 		}
-		if strings.HasPrefix(e.Name(), prefix) && strings.HasSuffix(e.Name(), ext) {
-			rotated = append(rotated, e.Name())
+		name := e.Name()
+		if !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, ext) {
+			continue
 		}
+		// Participation requires the rotation naming contract: a catch-all
+		// prefix match would make operator files that merely share the prefix
+		// retention candidates — pruned first under newest-first ordering.
+		ts, suffix, ok := parseRotatedName(name, prefix, ext)
+		if !ok {
+			continue
+		}
+		keys = append(keys, rotatedKey{ts: ts, suffix: suffix, name: name})
 	}
 
-	// Sort descending (newest first)
-	sort.Sort(sort.Reverse(sort.StringSlice(rotated)))
+	// Sort newest first (timestamp, then highest same-second suffix).
+	sort.Slice(keys, func(i, j int) bool {
+		ki, kj := &keys[i], &keys[j]
+		if !ki.ts.Equal(kj.ts) {
+			return ki.ts.After(kj.ts)
+		}
+		if ki.suffix != kj.suffix {
+			return ki.suffix > kj.suffix
+		}
+		return ki.name > kj.name
+	})
 
 	// Remove files beyond retention limit
-	for i := defaultMaxRotated; i < len(rotated); i++ {
-		if err := os.Remove(filepath.Join(dir, rotated[i])); err != nil {
+	for i := defaultMaxRotated; i < len(keys); i++ {
+		if err := os.Remove(filepath.Join(dir, keys[i].name)); err != nil {
 			fs.dropped.Add(1)
 		}
 	}
+}
+
+// parseRotatedName splits a rotated file name into its rotation timestamp and
+// same-second collision suffix per the rotation naming contract
+// base-<YYYYMMDD>-<HHMMSS>[-N].ext. ok is false for names outside the
+// contract.
+func parseRotatedName(name, prefix, ext string) (ts time.Time, suffix int, ok bool) {
+	stem := strings.TrimSuffix(strings.TrimPrefix(name, prefix), ext)
+	if idx := strings.LastIndex(stem, "-"); idx >= 0 {
+		if n, nerr := strconv.Atoi(stem[idx+1:]); nerr == nil {
+			if parsed, perr := time.Parse(rotatedTimeLayout, stem[:idx]); perr == nil {
+				return parsed, n, true
+			}
+		}
+	}
+	parsed, err := time.Parse(rotatedTimeLayout, stem)
+	if err != nil {
+		return time.Time{}, 0, false
+	}
+	return parsed, 0, true
 }
 
 // marshalEventJSON manually builds a JSON string for an Event without encoding/json.

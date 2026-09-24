@@ -2,6 +2,7 @@ package events
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"log/slog"
 	"math"
@@ -2665,7 +2666,9 @@ func TestCleanupRotatedRecordsRemoveError(t *testing.T) {
 	dir := t.TempDir()
 	base := filepath.Join(dir, "events")
 	for i := range defaultMaxRotated + 1 {
-		name := filepath.Join(dir, "events-20250101-0000"+intToStr(i)+".jsonl")
+		// Contract-compliant names — parseRotatedName must accept them for
+		// the sweep to prune one.
+		name := filepath.Join(dir, fmt.Sprintf("events-20250101-0000%02d.jsonl", i))
 		if err := os.WriteFile(name, []byte("old\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
