@@ -934,19 +934,19 @@ func TestNewRotatingFileWriter_DirCreateError(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestTruncateEvidence_ZeroMaxLen(t *testing.T) {
-	if got := truncateEvidence("test", 0); got != "" {
+	if got := TruncateEvidence("test", 0); got != "" {
 		t.Errorf("expected empty for maxLen=0, got %q", got)
 	}
 }
 
 func TestTruncateEvidence_NegativeMaxLen(t *testing.T) {
-	if got := truncateEvidence("test", -1); got != "" {
+	if got := TruncateEvidence("test", -1); got != "" {
 		t.Errorf("expected empty for maxLen=-1, got %q", got)
 	}
 }
 
 func TestTruncateEvidence_ShortMaxLen(t *testing.T) {
-	if got := truncateEvidence("hello", 2); got != "he" {
+	if got := TruncateEvidence("hello", 2); got != "he" {
 		t.Errorf("expected 'he', got %q", got)
 	}
 }

@@ -42,9 +42,9 @@ func TestTruncateEvidence(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := truncateEvidence(tt.input, tt.maxLen)
+			got := TruncateEvidence(tt.input, tt.maxLen)
 			if got != tt.want {
-				t.Errorf("truncateEvidence(%q, %d) = %q, want %q", tt.input, tt.maxLen, got, tt.want)
+				t.Errorf("TruncateEvidence(%q, %d) = %q, want %q", tt.input, tt.maxLen, got, tt.want)
 			}
 		})
 	}
@@ -61,7 +61,7 @@ func TestTruncateEvidenceValidUTF8(t *testing.T) {
 	}
 	for i, in := range inputs {
 		for _, maxLen := range []int{1, 2, 3, 4, 10, 200} {
-			got := truncateEvidence(in, maxLen)
+			got := TruncateEvidence(in, maxLen)
 			if !utf8.ValidString(got) {
 				t.Fatalf("input %d (maxLen %d): truncated evidence is invalid UTF-8: %q", i, maxLen, got)
 			}

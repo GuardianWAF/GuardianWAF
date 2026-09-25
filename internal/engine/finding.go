@@ -48,12 +48,14 @@ func (s Severity) MarshalJSON() ([]byte, error) {
 	return []byte(`"` + s.String() + `"`), nil
 }
 
-// truncateEvidence truncates s if longer than maxLen, appending "..." to indicate truncation.
+// TruncateEvidence truncates s if longer than maxLen, appending "..." to indicate truncation.
 // The cut point never splits a multi-byte UTF-8 rune: MatchedValue carries
 // attacker-controlled request content that is frequently multi-byte, and a
 // byte-slice at an arbitrary offset would store an invalid final rune in the
 // evidence that flows into events, the dashboard, and traces.
-func truncateEvidence(s string, maxLen int) string {
+// Exported so every layer that truncates evidence (sanitizer findings, event
+// payloads) shares this one implementation instead of re-deriving it.
+func TruncateEvidence(s string, maxLen int) string {
 	if maxLen <= 0 {
 		return ""
 	}
@@ -118,7 +120,7 @@ func (sa *ScoreAccumulator) Add(f *Finding) {
 	if f.Score < 0 {
 		f.Score = 0
 	}
-	f.MatchedValue = truncateEvidence(f.MatchedValue, 200)
+	f.MatchedValue = TruncateEvidence(f.MatchedValue, 200)
 	sa.findings = append(sa.findings, *f)
 	sa.totalScore += f.Score
 }
