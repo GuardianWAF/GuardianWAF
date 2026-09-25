@@ -1656,7 +1656,13 @@ func validateVirtualHosts(vhosts []VirtualHostConfig, upstreams []UpstreamConfig
 		upstreamNames[u.Name] = true
 	}
 
-	seenDomains := make(map[string]int) // domain -> vhost index
+	// Duplicate detection must use the router's own normalization: vhost
+	// domains are registered and matched case-insensitively
+	// (exactHosts[strings.ToLower(domain)], Host lowercased before lookup),
+	// so case-variant duplicates collapse to one runtime entry and the
+	// later-registered vhost silently replaces the earlier one. Key by the
+	// lowercased domain; report the original spelling.
+	seenDomains := make(map[string]int) // lowercased domain -> vhost index
 
 	for i, vh := range vhosts {
 		prefix := fmt.Sprintf("virtual_hosts[%d]", i)
@@ -1670,10 +1676,11 @@ func validateVirtualHosts(vhosts []VirtualHostConfig, upstreams []UpstreamConfig
 				ve.addError(prefix+".domains", "domain must not be empty")
 				continue
 			}
-			if prev, dup := seenDomains[domain]; dup {
+			key := strings.ToLower(domain)
+			if prev, dup := seenDomains[key]; dup {
 				ve.addError(prefix+".domains", fmt.Sprintf("domain %q is already defined in virtual_hosts[%d]", domain, prev))
 			}
-			seenDomains[domain] = i
+			seenDomains[key] = i
 		}
 
 		for j, route := range vh.Routes {
