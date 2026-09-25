@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -178,13 +179,40 @@ func (e *Exporter) flushBatch(batch []engine.Event) {
 }
 
 // formatEvent renders an event in the configured format (CEF or JSON).
+// Configured static enrichment fields (siem.fields, ExporterConfig.ExtraFields)
+// are appended to both formats — ADR 0025 documents them as injected into
+// every exported event for SIEM correlation.
 func (e *Exporter) formatEvent(ev engine.Event) string {
 	switch e.cfg.Format {
 	case "json":
-		return formatJSON(ev)
+		return formatJSON(ev, e.cfg.ExtraFields)
 	default:
-		return EncodeCEF(ev, "GuardianWAF", version)
+		return EncodeCEF(ev, "GuardianWAF", version) + formatExtraCEF(e.cfg.ExtraFields)
 	}
+}
+
+// formatExtraCEF renders static enrichment fields as CEF extension pairs
+// (" k1=v1 k2=v2", leading space included) appended to the encoded record.
+// Keys and values are escaped like any other CEF value, and keys are sorted
+// so an unchanged configuration produces byte-identical records. Returns ""
+// when nothing is configured.
+func formatExtraCEF(extra map[string]string) string {
+	if len(extra) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(extra))
+	for k := range extra {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for _, k := range keys {
+		b.WriteByte(' ')
+		b.WriteString(escapeCEF(k))
+		b.WriteByte('=')
+		b.WriteString(escapeCEF(extra[k]))
+	}
+	return b.String()
 }
 
 // writeWithTimeout writes data to conn, bounding the write by the configured
@@ -346,8 +374,11 @@ func ExporterConfigFromSIEM(cfg config.SIEMConfig) ExporterConfig {
 // formatJSON renders an event as a compact JSON string for SIEM ingestion.
 // encoding/json guarantees escaping of attacker-controlled fields (query,
 // user_agent, path, ...) — the previous hand-rolled concatenation allowed
-// log injection and emitted structurally invalid JSON.
-func formatJSON(ev engine.Event) string {
+// log injection and emitted structurally invalid JSON. Configured static
+// enrichment fields (siem.fields) are nested under "extra" and omitted when
+// none are configured, so existing record shapes stay byte-identical —
+// nesting also cannot shadow the fixed event keys above.
+func formatJSON(ev engine.Event, extra map[string]string) string {
 	payload := struct {
 		Timestamp   string `json:"timestamp"`
 		ID          string `json:"id"`
@@ -385,7 +416,26 @@ func formatJSON(ev engine.Event) string {
 	if err != nil {
 		return ""
 	}
-	return string(data)
+	if len(extra) == 0 {
+		return string(data)
+	}
+	// Merge the configured static enrichment fields under a dedicated
+	// "extra" object; encoding/json sorts map keys, so records stay
+	// deterministic, and nesting cannot shadow the fixed event keys.
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		return string(data) // unreachable for the struct above
+	}
+	extraMap := make(map[string]string, len(extra))
+	for k, v := range extra {
+		extraMap[k] = v
+	}
+	m["extra"] = extraMap
+	merged, err := json.Marshal(m)
+	if err != nil {
+		return string(data)
+	}
+	return string(merged)
 }
 
 // version is the SIEM product version (set at link time or build time).
