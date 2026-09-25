@@ -243,8 +243,14 @@ func (l *Layer) checkBruteForce(ctx *engine.RequestContext, email string) engine
 func (l *Layer) checkCredentialStuffing(ctx *engine.RequestContext, email string) engine.LayerResult {
 	cfg := l.config.CredStuffing
 
-	// Check how many different IPs have tried this email
-	uniqueIPs := l.tracker.GetUniqueIPsForEmail(email)
+	// Count only source IPs whose last attempt falls inside the operator's
+	// window. The previous check compared the ALL-TIME unique-IP set, so an
+	// email that had ever been tried from DistributedThreshold distinct IPs
+	// (legitimate mobility, NAT egress, shared accounts) kept blocking every
+	// later login attempt from any IP — hours or days after any actual
+	// distributed attack — and the configured Window was silently ignored.
+	// An unset window (<= 0) keeps the legacy all-time behavior.
+	uniqueIPs := l.tracker.GetUniqueIPsForEmail(email, cfg.Window)
 	if uniqueIPs >= cfg.DistributedThreshold {
 		// Block the email
 		l.tracker.BlockEmail(email, time.Now().Add(cfg.BlockDuration), "credential_stuffing")

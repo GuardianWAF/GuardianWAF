@@ -13,13 +13,13 @@ import (
 // AttemptTracker tracks login attempts per IP and per email.
 type AttemptTracker struct {
 	mu              sync.RWMutex
-	ipAttempts      map[string]*AttemptRecord  // IP -> attempts
-	emailAttempts   map[string]*AttemptRecord  // Email -> attempts
-	ipToEmails      map[string]map[string]bool // IP -> set of emails tried
-	emailToIPs      map[string]map[string]bool // Email -> set of IPs used
-	passwordHashes  map[string]*PasswordRecord // Password hash -> record
-	maxEntries      int                        // max entries per outer map (0 = unlimited)
-	maxInnerEntries int                        // max entries per inner map/set (0 = unlimited)
+	ipAttempts      map[string]*AttemptRecord       // IP -> attempts
+	emailAttempts   map[string]*AttemptRecord       // Email -> attempts
+	ipToEmails      map[string]map[string]bool      // IP -> set of emails tried
+	emailToIPs      map[string]map[string]time.Time // Email -> IP -> last attempt seen (windowed stuffing detection)
+	passwordHashes  map[string]*PasswordRecord      // Password hash -> record
+	maxEntries      int                             // max entries per outer map (0 = unlimited)
+	maxInnerEntries int                             // max entries per inner map/set (0 = unlimited)
 }
 
 // AttemptRecord tracks failed login attempts.
@@ -66,7 +66,7 @@ func NewAttemptTracker() *AttemptTracker {
 		ipAttempts:      make(map[string]*AttemptRecord),
 		emailAttempts:   make(map[string]*AttemptRecord),
 		ipToEmails:      make(map[string]map[string]bool),
-		emailToIPs:      make(map[string]map[string]bool),
+		emailToIPs:      make(map[string]map[string]time.Time),
 		passwordHashes:  make(map[string]*PasswordRecord),
 		maxEntries:      100000, // Cap outer maps at 100K entries to prevent OOM
 		maxInnerEntries: 1000,   // Cap inner sets at 1K entries (IPs per email, emails per IP, IPs per password)
@@ -131,12 +131,12 @@ func (t *AttemptTracker) evictOldestPassword() {
 	}
 }
 
-// evictOldestSimpleMap removes the stalest key from a simple map[string]map[string]bool
+// evictOldestSimpleMap removes the stalest key from a simple map[string]map[string]V
 // by evicting the key whose inner set was last accessed earliest (approximated by
 // iterating inner set entries). Since simple maps have no per-key timestamp, we use
 // the outer key that has the fewest inner entries as a proxy (least useful).
 // Must be called with t.mu held.
-func (t *AttemptTracker) evictOldestSimpleMap(m map[string]map[string]bool) {
+func evictOldestSimpleMap[V any](m map[string]map[string]V) {
 	if len(m) == 0 {
 		return
 	}
@@ -205,7 +205,7 @@ func (t *AttemptTracker) RecordAttempt(attempt *LoginAttempt) {
 		// Track IP->Email mapping for credential stuffing
 		if t.ipToEmails[ip] == nil {
 			if t.maxEntries > 0 && len(t.ipToEmails) >= t.maxEntries {
-				t.evictOldestSimpleMap(t.ipToEmails)
+				evictOldestSimpleMap(t.ipToEmails)
 			}
 			t.ipToEmails[ip] = make(map[string]bool)
 		}
@@ -213,16 +213,36 @@ func (t *AttemptTracker) RecordAttempt(attempt *LoginAttempt) {
 			t.ipToEmails[ip][attempt.Email] = true
 		}
 
-		// Track Email->IP mapping
+		// Track Email->IP mapping — IP -> last attempt time, so stuffing
+		// detection can count only the IPs inside the operator's window.
 		if t.emailToIPs[attempt.Email] == nil {
 			if t.maxEntries > 0 && len(t.emailToIPs) >= t.maxEntries {
-				t.evictOldestSimpleMap(t.emailToIPs)
+				evictOldestSimpleMap(t.emailToIPs)
 			}
-			t.emailToIPs[attempt.Email] = make(map[string]bool)
+			t.emailToIPs[attempt.Email] = make(map[string]time.Time)
 		}
-		if t.maxInnerEntries <= 0 || t.emailToIPs[attempt.Email][ip] || len(t.emailToIPs[attempt.Email]) < t.maxInnerEntries {
-			t.emailToIPs[attempt.Email][ip] = true
+		inner := t.emailToIPs[attempt.Email]
+		if _, exists := inner[ip]; !exists && t.maxInnerEntries > 0 && len(inner) >= t.maxInnerEntries {
+			// Bounded-cache admission, matching every outer map's
+			// oldest-eviction policy: at capacity, admit the fresh IP by
+			// evicting the least-recently-seen member. Silently dropping the
+			// newcomer instead let one attack wave saturate the set with
+			// entries that later aged out of the detection window — every
+			// later fresh attacker IP was rejected at the cap, the windowed
+			// count stayed 0, and stuffing detection stayed permanently
+			// blinded for that email while ongoing attempts kept it warm
+			// against Cleanup eviction.
+			oldestIP := ""
+			var oldest time.Time
+			first := true
+			for member, lastSeen := range inner {
+				if first || lastSeen.Before(oldest) {
+					oldestIP, oldest, first = member, lastSeen, false
+				}
+			}
+			delete(inner, oldestIP)
 		}
+		inner[ip] = now
 	}
 
 	// Record password hash for spray detection (evict oldest if at capacity)
@@ -305,15 +325,28 @@ func (t *AttemptTracker) GetEmailAttempts(email string, window time.Duration) in
 }
 
 // GetUniqueIPsForEmail returns the number of unique IPs that tried an email.
-func (t *AttemptTracker) GetUniqueIPsForEmail(email string) int {
+// With window > 0 only IPs whose last recorded attempt falls inside the
+// window count, mirroring the windowed GetIPAttempts/GetEmailAttempts
+// checks; an unset window (<= 0) keeps the legacy all-time behavior.
+func (t *AttemptTracker) GetUniqueIPsForEmail(email string, window time.Duration) int {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
 	ips := t.emailToIPs[email]
-	if ips == nil {
+	if len(ips) == 0 {
 		return 0
 	}
-	return len(ips)
+	if window <= 0 {
+		return len(ips)
+	}
+	cutoff := time.Now().Add(-window)
+	count := 0
+	for _, lastSeen := range ips {
+		if lastSeen.After(cutoff) {
+			count++
+		}
+	}
+	return count
 }
 
 // GetPasswordUseCount returns how many times a password has been used.
