@@ -654,16 +654,14 @@ func TestParse_MappingSequenceItemBreak(t *testing.T) {
 	}
 }
 
-func TestParse_MappingNonKVBreak(t *testing.T) {
-	node, err := Parse([]byte("a: 1\nnotkv\nb: 2"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if node.Get("a") == nil {
-		t.Error("expected key a")
-	}
-	if node.Get("b") != nil {
-		t.Error("expected mapping to stop before b")
+func TestParse_MappingNonKVError(t *testing.T) {
+	// A non "key: value" line at a mapping's own indent (e.g. a colon-typo'd
+	// key at column 0) must error rather than silently truncate the rest of
+	// the document — the same fail-open hazard the over-indent check below
+	// guards against.
+	_, err := Parse([]byte("a: 1\nnotkv\nb: 2"))
+	if err == nil {
+		t.Fatal("expected error for non key: value line")
 	}
 }
 

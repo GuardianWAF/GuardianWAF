@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // SaveFile serializes the config to YAML and writes it to the given path.
@@ -80,7 +81,7 @@ func marshalStruct(b *strings.Builder, v reflect.Value, t reflect.Type, indent i
 func marshalField(b *strings.Builder, prefix, key string, fv reflect.Value, indent int) {
 	switch fv.Kind() {
 	case reflect.String:
-		s := fv.String()
+		s := escapeEnvDollars(fv.String())
 		if s == "" {
 			return
 		}
@@ -157,7 +158,7 @@ func marshalSlice(b *strings.Builder, prefix, key string, fv reflect.Value, inde
 	case reflect.String:
 		fmt.Fprintf(b, "%s%s:\n", prefix, key)
 		for i := range fv.Len() {
-			s := fv.Index(i).String()
+			s := escapeEnvDollars(fv.Index(i).String())
 			if needsQuoting(s) {
 				fmt.Fprintf(b, "%s- %q\n", childPrefix, s)
 			} else {
@@ -204,7 +205,7 @@ func marshalSlice(b *strings.Builder, prefix, key string, fv reflect.Value, inde
 func marshalInlineField(b *strings.Builder, key string, fv reflect.Value, indent int) {
 	switch fv.Kind() {
 	case reflect.String:
-		s := fv.String()
+		s := escapeEnvDollars(fv.String())
 		if needsQuoting(s) {
 			fmt.Fprintf(b, "%s: %q\n", key, s)
 		} else {
@@ -236,7 +237,7 @@ func marshalInlineField(b *strings.Builder, key string, fv reflect.Value, indent
 			// separate entry on reload, so such values must be quoted.
 			var items []string
 			for i := range fv.Len() {
-				s := fv.Index(i).String()
+				s := escapeEnvDollars(fv.Index(i).String())
 				if needsQuoting(s) {
 					items = append(items, fmt.Sprintf("%q", s))
 				} else {
@@ -295,7 +296,7 @@ func marshalInlineField(b *strings.Builder, key string, fv reflect.Value, indent
 			if mv.Kind() == reflect.Interface {
 				mv = mv.Elem()
 			}
-			s := fmt.Sprintf("%v", mv.Interface())
+			s := escapeEnvDollars(fmt.Sprintf("%v", mv.Interface()))
 			if needsQuoting(s) {
 				s = fmt.Sprintf("%q", s)
 			}
@@ -374,8 +375,28 @@ func isZeroValue(v reflect.Value) bool {
 	return false
 }
 
+// escapeEnvDollars doubles every $ so the parser's expandEnvVars (which
+// collapses $$ to a literal $ and expands ${VAR:-default}) reloads the exact
+// value on every scalar form — plain, double-quoted, and single-quoted all
+// pass through expandEnvVars (yaml.go makeScalar). Values only: keys parse
+// through unquoteKey, which never expands, so doubling keys would corrupt
+// them.
+func escapeEnvDollars(s string) string {
+	return strings.ReplaceAll(s, "$", "$$")
+}
+
 func needsQuoting(s string) bool {
 	if s == "" {
+		return true
+	}
+	// Invalid UTF-8: YAML 1.2 requires the character stream itself to be
+	// valid UTF-8 (Parse fails closed on utf8.Valid), so raw invalid bytes
+	// must never reach the output — a library-built Config holding one would
+	// produce a config file that fails the next boot. The quoted path escapes
+	// them as \xNN, which the parser's double-quoted scalar decoder accepts;
+	// byte-exact preservation is impossible in a text format, reparseability
+	// is the contract.
+	if !utf8.ValidString(s) {
 		return true
 	}
 	// Whitespace padding: the parser's makeScalar TrimSpaces every scalar
@@ -386,15 +407,30 @@ func needsQuoting(s string) bool {
 	if strings.TrimSpace(s) != s {
 		return true
 	}
-	// Quote if contains special YAML characters
+	// Quote if contains special YAML characters. Control characters are
+	// included (the earlier rule covered only \n): any raw C0 control or DEL
+	// corrupts the emitted document — \r breaks the line structure mid-scalar
+	// ("invalid flow sequence") — while the %q path escapes them all in forms
+	// unescapeDoubleQuoted decodes (\a \b \f \n \r \t \v \xNN \uNNNN).
+	// Backslash is included: parseKeyValue's colon scanner is escape-aware, so
+	// a RAW backslash in an unquoted key makes it consume the separator
+	// ("trailing\: true" — the colon vanishes and the document fails to
+	// reparse); the %q path doubles it and unquoteKey decodes it back.
 	for _, c := range s {
-		if c == ':' || c == '#' || c == '[' || c == ']' || c == '{' || c == '}' || c == ',' || c == '\n' || c == '"' || c == '\'' {
+		if c == ':' || c == '#' || c == '[' || c == ']' || c == '{' || c == '}' || c == ',' || c == '"' || c == '\'' || c == '\\' || c < 0x20 || c == 0x7f {
 			return true
 		}
 	}
 	// Quote if looks like a number, bool, or null
 	lower := strings.ToLower(s)
 	if lower == "true" || lower == "false" || lower == "null" || lower == "~" {
+		return true
+	}
+	// "<<" is the YAML merge-key marker: as a BARE key the parser rejects the
+	// document outright ("merge keys are not supported"), so a map keyed << in
+	// a saved config would fail the next boot. The parser accepts the QUOTED
+	// spelling as a plain literal key, and quoting is lossless for values.
+	if s == "<<" {
 		return true
 	}
 	// The YAML parser also coerces these boolean words to bool nodes

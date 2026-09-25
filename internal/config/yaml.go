@@ -276,9 +276,22 @@ func (p *parser) parseMapping(indent, depth int) (*Node, error) {
 
 			key, val, isKV := parseKeyValue(trimmed)
 			if !isKV {
-				break
+				// A non "key: value" line at the mapping's own indent is
+				// malformed YAML (a plain scalar cannot appear inside a
+				// block mapping). Breaking here silently truncated the rest
+				// of the document — every following section was dropped and
+				// replaced by defaults, the same fail-open the over-indent
+				// error below was written to prevent.
+				return nil, &ParseError{
+					Line:    p.lineNum(),
+					Message: fmt.Sprintf("expected 'key: value' pair at indentation %d; this line does not contain a colon-separated key and would silently end the mapping", indent),
+				}
 			}
-			if key == "<<" {
+			// A merge key is the BARE "<<" spelling: a quoted "<<" is a plain
+			// literal key (YAML semantics), which the serializer emits so map
+			// keys spelled << can round-trip. parseKeyValue already stripped
+			// the quotes, so distinguish via the line's first character.
+			if key == "<<" && !strings.HasPrefix(trimmed, "\"") && !strings.HasPrefix(trimmed, "'") {
 				return nil, &ParseError{Line: p.lineNum(), Message: "YAML merge keys ('<<') are not supported; copy the fields explicitly"}
 			}
 
@@ -960,8 +973,15 @@ func parseKeyValue(line string) (key, value string, ok bool) {
 // unquoteKey removes surrounding quotes from a key.
 func unquoteKey(key string) string {
 	if len(key) >= 2 {
-		if (key[0] == '"' && key[len(key)-1] == '"') ||
-			(key[0] == '\'' && key[len(key)-1] == '\'') {
+		if key[0] == '"' && key[len(key)-1] == '"' {
+			// Double-quoted keys carry the same %q escapes as double-quoted
+			// scalar values (the serializer quotes control chars, backslashes
+			// and invalid UTF-8) — decode exactly as makeScalar does for
+			// values, minus env expansion: keys are never env-expanded.
+			return unescapeDoubleQuoted(key[1 : len(key)-1])
+		}
+		if key[0] == '\'' && key[len(key)-1] == '\'' {
+			// Single-quoted YAML scalars treat backslashes literally.
 			return key[1 : len(key)-1]
 		}
 	}

@@ -143,7 +143,20 @@ func marshalYAMLWithPlaceholderPreservation(cfg *Config) string {
 	}
 	restorePlaceholdersRecursive(reflect.ValueOf(clone).Elem(), reflect.TypeOf(clone).Elem(), "", bindings)
 	clone.SetPlaceholderBindings(nil)
-	return MarshalYAML(clone)
+	out := MarshalYAML(clone)
+	// The emitters dollar-double every scalar value (escapeEnvDollars) so
+	// ordinary literals survive the parser's expandEnvVars. Placeholder
+	// Originals must appear in the file VERBATIM instead — their single-$
+	// form is the reload contract (the next boot re-expands them from the
+	// environment; the doubled form would reload as the literal placeholder
+	// string and the secret would never resolve). Undo the doubling for
+	// exactly the substituted texts: any occurrence of the doubled form is
+	// by construction a value equal to the Original, so the restore is
+	// value-faithful everywhere it matches.
+	for _, b := range bindings {
+		out = strings.ReplaceAll(out, escapeEnvDollars(b.Original), b.Original)
+	}
+	return out
 }
 
 func restorePlaceholdersRecursive(v reflect.Value, t reflect.Type, path string, bindings map[string]PlaceholderBinding) {
