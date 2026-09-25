@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -108,10 +109,14 @@ func TestAppendTenantsFromDir_InvalidYAML(t *testing.T) {
 	}
 }
 
-func TestAppendTenantsFromDir_SkipNoID(t *testing.T) {
+// Round 2026-09-25-r8: a tenants.d file without an id is an ERROR, not a
+// silent skip — the old silent-skip contract let an operator's tenant
+// definition vanish from cfg.Tenant.Tenants (and the runtime tenant manager)
+// with no signal. parseTenantDefinition now follows parseRateLimitRule's
+// missing-required-id convention.
+func TestAppendTenantsFromDir_MissingIDIsAnError(t *testing.T) {
 	dir := t.TempDir()
 
-	// Tenant with no id field — should be silently skipped
 	noID := `name: No ID Tenant
 active: true
 domains:
@@ -122,12 +127,12 @@ domains:
 	}
 
 	cfg := DefaultConfig()
-	if err := appendTenantsFromDir(dir, cfg); err != nil {
-		t.Fatalf("appendTenantsFromDir returned error: %v", err)
+	err := appendTenantsFromDir(dir, cfg)
+	if err == nil {
+		t.Fatal("expected error for tenant without id, got nil")
 	}
-
-	if len(cfg.Tenant.Tenants) != 0 {
-		t.Fatalf("expected 0 tenants when no ID provided, got %d", len(cfg.Tenant.Tenants))
+	if !strings.Contains(err.Error(), "id") {
+		t.Fatalf("error lacks the missing-id marker: %v", err)
 	}
 }
 

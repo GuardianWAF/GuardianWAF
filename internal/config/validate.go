@@ -677,20 +677,23 @@ func appendTenantsFromDir(dir string, cfg *Config) error {
 		if err != nil {
 			return fmt.Errorf("parse tenant file %s: %w", name, err)
 		}
-		if td.ID != "" {
-			cfg.Tenant.Tenants = append(cfg.Tenant.Tenants, td)
-		}
+		cfg.Tenant.Tenants = append(cfg.Tenant.Tenants, td)
 	}
 
 	return nil
 }
 
 // parseTenantDefinition parses a TenantDefinition from a YAML node. A malformed
-// "active" value is an error (rather than silently deactivating the tenant).
+// "active" value is an error (rather than silently deactivating the tenant),
+// and a missing "id" is an error (rather than silently dropping the tenant at
+// the caller — the same convention as parseRateLimitRule's required id).
 func parseTenantDefinition(n *Node) (TenantDefinition, error) {
 	td := TenantDefinition{Active: true}
 	if id := n.Get("id"); id != nil {
 		td.ID = id.String()
+	}
+	if td.ID == "" {
+		return td, fmt.Errorf("tenant definition missing required field: id")
 	}
 	if name := n.Get("name"); name != nil {
 		td.Name = name.String()
