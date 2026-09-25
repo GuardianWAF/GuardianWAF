@@ -554,7 +554,20 @@ func (l *Layer) getValueByType(ctx *engine.RequestContext, typ, key string) []st
 		return nil
 	case "uri":
 		if ctx.Request != nil && ctx.Request.URL != nil {
-			return []string{ctx.Request.URL.RequestURI()}
+			// Same attacker-chosen-encoding family as the query scope above:
+			// RequestURI() is the raw, still-percent-encoded path+query, so a
+			// payload riding as class%2Emodule or %24%7Bjndi%3A evades a
+			// contains-pattern written against the decoded form. The decoded
+			// path (URL.Path) and the engine's decoded query values are the
+			// other representations; the any-match loop in matchPattern
+			// inspects every returned value (round-20 multi-value family,
+			// extended to representations).
+			vals := []string{ctx.Request.URL.RequestURI(), ctx.Request.URL.Path}
+			for k, vs := range ctx.QueryParams {
+				vals = append(vals, k)
+				vals = append(vals, vs...)
+			}
+			return vals
 		}
 		return []string{ctx.Path}
 	case "client_ip":
