@@ -2,10 +2,13 @@ package config
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"reflect"
 	"sort"
 	"strings"
+	"time"
 )
 
 func capturePlaceholderBindings(raw []byte, node *Node) map[string]PlaceholderBinding {
@@ -141,22 +144,47 @@ func marshalYAMLWithPlaceholderPreservation(cfg *Config) string {
 	if len(bindings) == 0 {
 		return MarshalYAML(clone)
 	}
+	// Collision-free nonce per binding (chimera round-25 review): a $-free
+	// random token is substituted instead of the Original text, so the
+	// emitters' dollar-doubling never touches placeholder output and the
+	// post-marshal restore rewrites only the substituted placeholder fields.
+	// The previous whole-output ReplaceAll on the doubled Original also
+	// un-doubled ORDINARY values that merely embedded a placeholder's text
+	// as a substring, silently corrupting them on reload.
+	restores := make(map[string]string, len(bindings))
+	for path, b := range bindings {
+		nonce := placeholderNonce(len(restores))
+		restores[nonce] = b.Original
+		b.Original = nonce
+		bindings[path] = b
+	}
 	restorePlaceholdersRecursive(reflect.ValueOf(clone).Elem(), reflect.TypeOf(clone).Elem(), "", bindings)
 	clone.SetPlaceholderBindings(nil)
 	out := MarshalYAML(clone)
-	// The emitters dollar-double every scalar value (escapeEnvDollars) so
-	// ordinary literals survive the parser's expandEnvVars. Placeholder
-	// Originals must appear in the file VERBATIM instead — their single-$
+	// Placeholder Originals must appear in the file VERBATIM — their single-$
 	// form is the reload contract (the next boot re-expands them from the
-	// environment; the doubled form would reload as the literal placeholder
-	// string and the secret would never resolve). Undo the doubling for
-	// exactly the substituted texts: any occurrence of the doubled form is
-	// by construction a value equal to the Original, so the restore is
-	// value-faithful everywhere it matches.
-	for _, b := range bindings {
-		out = strings.ReplaceAll(out, escapeEnvDollars(b.Original), b.Original)
+	// environment). Each nonce occurs only at its own substituted field, so
+	// this restore is value-faithful everywhere it matches. The nonce is
+	// emitted unquoted, so an Original that needs YAML quoting is spliced
+	// back in its quoted form (${...} would otherwise parse as a flow map).
+	for nonce, original := range restores {
+		if needsQuoting(original) {
+			original = `"` + original + `"`
+		}
+		out = strings.ReplaceAll(out, nonce, original)
 	}
 	return out
+}
+
+// placeholderNonce returns a random "$"-free token unique within this marshal
+// call. The emitters pass it through byte-exact (no "$" to escape), and its
+// randomness makes a collision with ordinary configuration values negligible.
+func placeholderNonce(i int) string {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return fmt.Sprintf("GWAF_PH_%d_%d", i, time.Now().UnixNano())
+	}
+	return fmt.Sprintf("GWAF_PH_%d_%s", i, hex.EncodeToString(b[:]))
 }
 
 func restorePlaceholdersRecursive(v reflect.Value, t reflect.Type, path string, bindings map[string]PlaceholderBinding) {
