@@ -251,27 +251,40 @@ func (d *Detector) checkValue(rawVal, location, reqHost string) *engine.Finding 
 		}
 	}
 
-	// Detect scheme-without-slash (e.g., "https:evil.com"). Browsers
-	// resolve this to https://evil.com, bypassing checks that look for
-	// "://". url.Parse sets scheme but leaves host empty (opaque).
+	// Detect scheme-without-slash (e.g., "https:evil.com") and, more
+	// generally, every NON-CANONICAL slash run after a special scheme —
+	// "https:/evil.com" (one slash), "https:///evil.com" (three). Browsers
+	// (WHATWG URL parser) collapse any slash count into the two-slash
+	// authority form, so all of these redirect to https://evil.com. Go's
+	// url.Parse follows RFC 3986 instead: only the exact "://" spelling
+	// populates Host — the other slash counts parse as scheme + path with
+	// Host empty and silently passed the same-host classification below.
+	// The canonical two-slash form is left to that classification; the
+	// zero-slash form keeps its original unconditional flag (a same-host
+	// non-canonical spelling is attacker-shaped, never produced by
+	// legitimate clients).
 	if idx := strings.Index(val, ":"); idx > 0 && idx < 15 {
 		prefix := strings.ToLower(val[:idx])
-		if (prefix == "http" || prefix == "https") && idx+1 < len(val) && val[idx+1] != '/' {
-			rest := strings.TrimLeft(val[idx+1:], "/")
-			restHost := rest
-			if idx2 := strings.IndexAny(rest, "/?#"); idx2 >= 0 {
-				restHost = rest[:idx2]
-			}
-			if restHost != "" {
-				return &engine.Finding{
-					DetectorName: "openredirect",
-					Category:     "open-redirect",
-					Severity:     engine.SeverityHigh,
-					Score:        65,
-					Description:  "scheme-without-slash redirect to external host: " + truncate(restHost, 100),
-					MatchedValue: truncate(val, 200),
-					Location:     location,
-					Confidence:   0.85,
+		if prefix == "http" || prefix == "https" {
+			rest0 := val[idx+1:]
+			slashes := len(rest0) - len(strings.TrimLeft(rest0, "/"))
+			if rest0 != "" && slashes != 2 {
+				rest := strings.TrimLeft(rest0, "/")
+				restHost := rest
+				if idx2 := strings.IndexAny(rest, "/?#"); idx2 >= 0 {
+					restHost = rest[:idx2]
+				}
+				if restHost != "" {
+					return &engine.Finding{
+						DetectorName: "openredirect",
+						Category:     "open-redirect",
+						Severity:     engine.SeverityHigh,
+						Score:        65,
+						Description:  "scheme-without-slash redirect to external host: " + truncate(restHost, 100),
+						MatchedValue: truncate(val, 200),
+						Location:     location,
+						Confidence:   0.85,
+					}
 				}
 			}
 		}
