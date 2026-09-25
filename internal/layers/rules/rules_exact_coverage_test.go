@@ -17,7 +17,7 @@ func TestRegexMatchWithTimeout_Timeout(t *testing.T) {
 
 	// Per-regex ceiling timeout must fail CLOSED (round 29): a rule whose
 	// regex exceeds its ceiling fires, it does not silently vanish.
-	if !regexMatchWithTimeout(regexp.MustCompile(`a`), "a", nil) {
+	if !regexMatchWithTimeout(regexp.MustCompile(`a`), "a", nil, true) {
 		t.Fatal("expected forced timeout to fail closed (return true)")
 	}
 }

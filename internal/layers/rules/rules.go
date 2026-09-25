@@ -180,9 +180,13 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 			continue
 		}
 
-		if l.matchAll(rule.Conditions, ctx, deadline) {
-			action := parseAction(rule.Action)
-
+		// The rule's action decides the SAFE failure direction for regex
+		// evaluation: deny actions fail closed (an unevaluable regex still
+		// matches, so the rule enforces), pass rules fail safe (a whitelist
+		// must never fire because evaluation could not complete — that
+		// would bypass the WAF for the request).
+		action := parseAction(rule.Action)
+		if l.matchAll(rule.Conditions, ctx, deadline, action) {
 			findings = append(findings, engine.Finding{
 				DetectorName: "rule:" + rule.ID,
 				Category:     "custom-rule",
@@ -224,16 +228,16 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 
 // --- Condition Evaluation ---
 
-func (l *Layer) matchAll(conditions []Condition, ctx *engine.RequestContext, deadline *regexDeadline) bool {
+func (l *Layer) matchAll(conditions []Condition, ctx *engine.RequestContext, deadline *regexDeadline, action engine.Action) bool {
 	for _, cond := range conditions {
-		if !l.matchCondition(cond, ctx, deadline) {
+		if !l.matchCondition(cond, ctx, deadline, action) {
 			return false
 		}
 	}
 	return true
 }
 
-func (l *Layer) matchCondition(cond Condition, ctx *engine.RequestContext, deadline *regexDeadline) bool {
+func (l *Layer) matchCondition(cond Condition, ctx *engine.RequestContext, deadline *regexDeadline, action engine.Action) bool {
 	// Cookie conditions match if ANY transmitted value of the named cookie
 	// satisfies the op: a repeated cookie name carries multiple values and
 	// backend parsers select different ones (Go first-wins, PHP/Python
@@ -248,10 +252,10 @@ func (l *Layer) matchCondition(cond Condition, ctx *engine.RequestContext, deadl
 			// Cookie absent: preserve the accessor's empty-value resolution —
 			// conditions like equals "" / not_equals still fire on a missing
 			// cookie exactly as before multi-value support.
-			return l.opMatches(cond, "", ctx, deadline)
+			return l.opMatches(cond, "", ctx, deadline, action)
 		}
 		for _, v := range vals {
-			if l.opMatches(cond, v, ctx, deadline) {
+			if l.opMatches(cond, v, ctx, deadline, action) {
 				return true
 			}
 		}
@@ -268,10 +272,10 @@ func (l *Layer) matchCondition(cond Condition, ctx *engine.RequestContext, deadl
 	if strings.HasPrefix(cond.Field, "header:") {
 		vals := ctx.Headers[textproto.CanonicalMIMEHeaderKey(cond.Field[7:])]
 		if len(vals) == 0 {
-			return l.opMatches(cond, "", ctx, deadline)
+			return l.opMatches(cond, "", ctx, deadline, action)
 		}
 		for _, v := range vals {
-			if l.opMatches(cond, v, ctx, deadline) {
+			if l.opMatches(cond, v, ctx, deadline, action) {
 				return true
 			}
 		}
@@ -285,21 +289,21 @@ func (l *Layer) matchCondition(cond Condition, ctx *engine.RequestContext, deadl
 	if cond.Field == "user_agent" {
 		vals := ctx.Headers["User-Agent"]
 		if len(vals) == 0 {
-			return l.opMatches(cond, "", ctx, deadline)
+			return l.opMatches(cond, "", ctx, deadline, action)
 		}
 		for _, v := range vals {
-			if l.opMatches(cond, v, ctx, deadline) {
+			if l.opMatches(cond, v, ctx, deadline, action) {
 				return true
 			}
 		}
 		return false
 	}
 
-	return l.opMatches(cond, l.getFieldValue(cond.Field, ctx), ctx, deadline)
+	return l.opMatches(cond, l.getFieldValue(cond.Field, ctx), ctx, deadline, action)
 }
 
 // opMatches evaluates a condition against one resolved field value.
-func (l *Layer) opMatches(cond Condition, fieldValue string, ctx *engine.RequestContext, deadline *regexDeadline) bool {
+func (l *Layer) opMatches(cond Condition, fieldValue string, ctx *engine.RequestContext, deadline *regexDeadline, action engine.Action) bool {
 	switch cond.Op {
 	case "equals":
 		return fieldValue == toString(cond.Value)
@@ -314,7 +318,7 @@ func (l *Layer) opMatches(cond Condition, fieldValue string, ctx *engine.Request
 	case "ends_with":
 		return strings.HasSuffix(fieldValue, toString(cond.Value))
 	case "matches":
-		return l.regexMatch(toString(cond.Value), fieldValue, deadline)
+		return l.regexMatch(toString(cond.Value), fieldValue, deadline, action)
 	case "in":
 		return l.inList(cond.Value, fieldValue)
 	case "not_in":
@@ -478,11 +482,17 @@ func isRegexSafe(pattern string) error {
 	return nil
 }
 
-func (l *Layer) regexMatch(pattern, value string, deadline *regexDeadline) bool {
-	// If the per-request regex budget is already exhausted, fail closed
-	// instead of spawning more uncancellable goroutines.
+func (l *Layer) regexMatch(pattern, value string, deadline *regexDeadline, action engine.Action) bool {
+	// The failure direction depends on the rule's action: deny actions fail
+	// closed (an unevaluable regex still matches, so the rule enforces),
+	// pass rules fail safe (a whitelist that could not be evaluated must
+	// never fire — that would bypass the WAF for the request).
+	failValue := action != engine.ActionPass
+
+	// If the per-request regex budget is already exhausted, fail in the
+	// rule's safe direction instead of spawning more uncancellable goroutines.
 	if deadline.exhausted() {
-		return true
+		return failValue
 	}
 
 	l.mu.RLock()
@@ -511,7 +521,7 @@ func (l *Layer) regexMatch(pattern, value string, deadline *regexDeadline) bool 
 		l.mu.Unlock()
 	}
 
-	return regexMatchWithTimeout(re, value, deadline)
+	return regexMatchWithTimeout(re, value, deadline, failValue)
 }
 
 // regexMatchWithTimeout runs re.MatchString in a goroutine with a timeout.
@@ -522,11 +532,16 @@ func (l *Layer) regexMatch(pattern, value string, deadline *regexDeadline) bool 
 // and the per-regex execution timeout. When the budget is exhausted the
 // caller (regexMatch) already fails closed without calling this function;
 // the clamping here ensures the last regex within budget doesn't overrun.
-func regexMatchWithTimeout(re *regexp.Regexp, s string, deadline *regexDeadline) bool {
+func regexMatchWithTimeout(re *regexp.Regexp, s string, deadline *regexDeadline, failValue bool) bool {
+	// failValue is the rule's SAFE failure direction: deny actions fail
+	// closed (true — an unevaluable regex still matches, so the rule
+	// enforces), pass rules fail safe (false — a whitelist must not fire
+	// when the evaluation could not complete).
+
 	// Clamp the semaphore-wait timeout to the remaining per-request budget.
 	semWait := deadline.remaining()
 	if semWait == 0 {
-		return true // budget exhausted while waiting
+		return failValue // budget exhausted while waiting
 	}
 
 	// Acquire a semaphore slot, queueing if necessary.
@@ -540,8 +555,9 @@ func regexMatchWithTimeout(re *regexp.Regexp, s string, deadline *regexDeadline)
 			defer func() { <-regexSem }()
 		case <-regexTimeoutAfter(semWait):
 			// Extreme overload: every slot is held by a long-running regex.
-			// Failing open would let attackers disable detection by flooding.
-			return true
+			// Fail in the rule's safe direction: flooding the semaphore must
+			// not disable deny rules, and must not fire pass whitelists.
+			return failValue
 		}
 	}
 
@@ -552,7 +568,7 @@ func regexMatchWithTimeout(re *regexp.Regexp, s string, deadline *regexDeadline)
 		perRegex = remaining
 	}
 	if perRegex == 0 {
-		return true // budget exhausted after acquiring slot
+		return failValue // budget exhausted after acquiring slot
 	}
 
 	done := make(chan bool, 1)
@@ -563,11 +579,11 @@ func regexMatchWithTimeout(re *regexp.Regexp, s string, deadline *regexDeadline)
 	case matched := <-done:
 		return matched
 	case <-regexTimeoutAfter(perRegex):
-		// Per-regex ceiling timeout: fail CLOSED, same as the semaphore and
-		// budget branches above. An input that keeps one regex past its
-		// ceiling must not silently bypass a rule condition (returning false
-		// here let oversized/slow inputs evade detection).
-		return true
+		// Per-regex ceiling timeout: fail in the rule's safe direction, same
+		// as the semaphore and budget branches above. Deny rules must still
+		// enforce (an input that keeps one regex past its ceiling must not
+		// silently bypass the condition), and pass rules must not whitelist.
+		return failValue
 	}
 }
 

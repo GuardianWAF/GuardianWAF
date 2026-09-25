@@ -22,7 +22,7 @@ func TestCoverage_RegexMatch_CacheEvictionWithUniquePatterns(t *testing.T) {
 
 	for i := range 10001 {
 		pattern := "^a" + strconv.Itoa(i) + "$"
-		layer.regexMatch(pattern, "miss", nil)
+		layer.regexMatch(pattern, "miss", nil, engine.ActionBlock)
 	}
 
 	layer.mu.RLock()
@@ -41,7 +41,7 @@ func TestCoverage_RegexMatch_CacheEvictionWithUniquePatterns(t *testing.T) {
 func TestCoverage_RegexMatch_RejectsUnsafePattern(t *testing.T) {
 	layer := NewLayer(&Config{Enabled: true}, nil)
 
-	if matched := layer.regexMatch("(((((((a)))))))", "a", nil); matched {
+	if matched := layer.regexMatch("(((((((a)))))))", "a", nil, engine.ActionBlock); matched {
 		t.Fatal("expected false for unsafe regex pattern")
 	}
 
@@ -79,7 +79,7 @@ func TestCoverage_RegexMatchWithTimeout_ConcurrencyLimit(t *testing.T) {
 
 	// Under overload the function must fail CLOSED (return true) so the
 	// security rule condition matches and the request is treated as suspicious.
-	if matched := regexMatchWithTimeout(regexp.MustCompile(`.`), "x", nil); !matched {
+	if matched := regexMatchWithTimeout(regexp.MustCompile(`.`), "x", nil, true); !matched {
 		t.Fatal("expected true (fail-closed) when regex concurrency limit is saturated")
 	}
 }
@@ -94,7 +94,7 @@ func TestCoverage_RegexMatch_BudgetExhausted(t *testing.T) {
 	}
 
 	// Must fail closed (return true) without spawning a goroutine.
-	if matched := layer.regexMatch("a", "a", dl); !matched {
+	if matched := layer.regexMatch("a", "a", dl, engine.ActionBlock); !matched {
 		t.Fatal("expected true (fail-closed) when per-request regex budget is exhausted")
 	}
 }
@@ -121,7 +121,7 @@ func TestCoverage_RegexMatchWithTimeout_BudgetClampsPerRegexTimeout(t *testing.T
 	// exceeds its ceiling fires, it does not silently vanish. (Budget
 	// exhaustion returns true from regexMatch's pre-check; the per-regex
 	// abandonment here must match that contract.)
-	if !regexMatchWithTimeout(regexp.MustCompile(`a+`), strings.Repeat("a", 64), dl) {
+	if !regexMatchWithTimeout(regexp.MustCompile(`a+`), strings.Repeat("a", 64), dl, true) {
 		t.Fatal("expected true (fail-closed) when the per-regex ceiling times out")
 	}
 }

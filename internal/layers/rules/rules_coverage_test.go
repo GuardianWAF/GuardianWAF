@@ -149,7 +149,7 @@ func TestCoverage_RegexMatch_CacheEviction(t *testing.T) {
 	// Fill cache beyond limit
 	for i := range 10001 {
 		pattern := "^" + strings.Repeat("a", i%10) + "$"
-		layer.regexMatch(pattern, "test", nil)
+		layer.regexMatch(pattern, "test", nil, engine.ActionBlock)
 	}
 
 	// Cache should not exceed 10000 entries
