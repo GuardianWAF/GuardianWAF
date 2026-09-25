@@ -4,6 +4,7 @@ import (
 	"net"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 )
@@ -641,21 +642,44 @@ func checkURLCredential(lower, location string) []engine.Finding {
 }
 
 // extractContext extracts a context window around the matched pattern.
+// Truncation points and window edges are rune-safe: multi-byte UTF-8 runes
+// are never split, so MatchedValue stays valid UTF-8 (mirrors xxe's landed
+// fix, commit 10201ce).
 func extractContext(input, pattern string) string {
 	idx := strings.Index(input, pattern)
 	if idx < 0 {
 		if len(input) > 100 {
-			return input[:100]
+			return safeTruncate(input, 100)
 		}
 		return input
 	}
 	start := max(idx-20, 0)
 	end := min(idx+len(pattern)+20, len(input))
+	// Align the window edges onto rune starts so multi-byte runes at the
+	// edges are never split mid-sequence.
+	for start < end && !utf8.RuneStart(input[start]) {
+		start++
+	}
+	for end > start && end < len(input) && !utf8.RuneStart(input[end]) {
+		end--
+	}
 	result := input[start:end]
 	if len(result) > 200 {
-		result = result[:197] + "..."
+		return safeTruncate(result, 197) + "..."
 	}
 	return result
+}
+
+// safeTruncate truncates a string to at most maxBytes bytes without splitting
+// a multi-byte UTF-8 rune. If truncation occurs, it returns the valid prefix.
+func safeTruncate(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	for maxBytes > 0 && s[maxBytes]&0xC0 == 0x80 {
+		maxBytes--
+	}
+	return s[:maxBytes]
 }
 
 // authorityEnd returns the length of the leading URL authority in s.
