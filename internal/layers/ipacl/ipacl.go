@@ -228,9 +228,14 @@ func (l *Layer) AddAutoBan(ip, reason string, ttl time.Duration) {
 	// Auto-ban keys come from AI verdicts (free-text model output influenced by
 	// request content); a non-IP string can never match a client address and
 	// would pollute the ban store, its persistence file, and the dashboard API.
-	if net.ParseIP(ip) == nil {
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
 		return
 	}
+	// Store under the canonical form: enforcement (isAutoBanned) looks up
+	// ip.String() of the engine-resolved client, so a ban keyed under a
+	// non-canonical spelling (e.g. "2001:0DB8::1") would never block.
+	key := parsed.String()
 
 	if l.config.AutoBan.MaxTTL > 0 && ttl > l.config.AutoBan.MaxTTL {
 		ttl = l.config.AutoBan.MaxTTL
@@ -239,7 +244,7 @@ func (l *Layer) AddAutoBan(ip, reason string, ttl time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	entry, exists := l.autoBan[ip]
+	entry, exists := l.autoBan[key]
 	if exists {
 		entry.Count++
 		entry.ExpiresAt = time.Now().Add(ttl)
@@ -248,7 +253,7 @@ func (l *Layer) AddAutoBan(ip, reason string, ttl time.Duration) {
 		if l.config.AutoBan.MaxAutoBanEntries > 0 && len(l.autoBan) >= l.config.AutoBan.MaxAutoBanEntries {
 			return
 		}
-		l.autoBan[ip] = &autoBanEntry{
+		l.autoBan[key] = &autoBanEntry{
 			ExpiresAt: time.Now().Add(ttl),
 			Reason:    reason,
 			Count:     1,
@@ -259,10 +264,17 @@ func (l *Layer) AddAutoBan(ip, reason string, ttl time.Duration) {
 // RemoveAutoBan removes an IP from the auto-ban list. It returns whether an
 // active ban entry existed for the IP.
 func (l *Layer) RemoveAutoBan(ip string) bool {
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return false
+	}
+	// Delete by canonical form: AddAutoBan stores canonical keys, and the
+	// engine-resolved client stringifies canonically.
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	_, existed := l.autoBan[ip]
-	delete(l.autoBan, ip)
+	key := parsed.String()
+	_, existed := l.autoBan[key]
+	delete(l.autoBan, key)
 	return existed
 }
 
@@ -465,7 +477,11 @@ func (l *Layer) LoadBans(path string) {
 		if now.After(b.ExpiresAt) {
 			continue
 		}
-		l.autoBan[b.IP] = &autoBanEntry{
+		parsed := net.ParseIP(b.IP)
+		if parsed == nil {
+			continue // legacy files may hold pre-validation garbage
+		}
+		l.autoBan[parsed.String()] = &autoBanEntry{
 			ExpiresAt: b.ExpiresAt,
 			Reason:    b.Reason,
 			Count:     b.Count,
