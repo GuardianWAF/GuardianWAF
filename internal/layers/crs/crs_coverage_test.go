@@ -172,6 +172,8 @@ func TestOperatorEvaluator_AllTypes(t *testing.T) {
 		{"within match", "@within", "GET POST PUT", "POST", true},
 		{"within no match", "@within", "GET POST PUT", "DELETE", false},
 		{"within empty arg", "@within", "", "anything", false},
+		{"within case-insensitive", "@within", "GET POST PUT", "post", true},
+		{"within substring", "@within", "GET POST PUT", "PO", true},
 
 		// @ipMatch
 		{"ipMatch cidr", "@ipMatch", "192.168.1.0/24", "192.168.1.100", true},
@@ -360,12 +362,38 @@ func TestOperatorEvaluator_Utf8Encoding_InvalidMatches(t *testing.T) {
 	}
 }
 
+func TestOperatorEvaluator_ByteRange_MalformedArguments(t *testing.T) {
+	oe := NewOperatorEvaluator()
+
+	// Control: the canonical NUL-byte detector still matches a NUL.
+	op := RuleOperator{Type: "@validateByteRange", Argument: "1-255"}
+	if got, err := oe.Evaluate(op, "\x00"); err != nil || !got {
+		t.Fatalf("canonical NUL detector: got %v err %v, want match", got, err)
+	}
+
+	// A typo'd bound must not silently widen the allowed set to {0,255} —
+	// that would quietly kill the NUL detector (the swallowed-Atoi defect).
+	opTypo := RuleOperator{Type: "@validateByteRange", Argument: "1x-255"}
+	if _, err := oe.Evaluate(opTypo, "\x00"); err == nil {
+		t.Fatal("expected error for malformed byte range argument")
+	}
+
+	// An inverted range must not match every value.
+	opInverted := RuleOperator{Type: "@validateByteRange", Argument: "5-"}
+	if _, err := oe.Evaluate(opInverted, "anything"); err == nil {
+		t.Fatal("expected error for inverted byte range")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // ParseByteRanges
 // ---------------------------------------------------------------------------
 
 func TestParseByteRanges(t *testing.T) {
-	ranges := parseByteRanges("48-57, 65, 97-122")
+	ranges, err := parseByteRanges("48-57, 65, 97-122")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if len(ranges) != 3 {
 		t.Fatalf("expected 3 ranges, got %d", len(ranges))
 	}
@@ -381,7 +409,10 @@ func TestParseByteRanges(t *testing.T) {
 }
 
 func TestParseByteRanges_EmptyParts(t *testing.T) {
-	ranges := parseByteRanges(",,48-57,,")
+	ranges, err := parseByteRanges(",,48-57,,")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if len(ranges) != 1 {
 		t.Fatalf("expected 1 range, got %d", len(ranges))
 	}
@@ -831,8 +862,9 @@ func TestVariableResolver_ArgsCombinedSize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error: %v", err)
 	}
-	// "alice" (5) + "30" (2) = 7
-	if len(vals) != 1 || vals[0] != "7" {
+	// SecLang contract (ModSecurity v3 transaction.cc addArgs): names +
+	// values per occurrence — "name"(4)+"alice"(5) + "age"(3)+"30"(2) = 14
+	if len(vals) != 1 || vals[0] != "14" {
 		t.Errorf("ARGS_COMBINED_SIZE = %v", vals)
 	}
 }

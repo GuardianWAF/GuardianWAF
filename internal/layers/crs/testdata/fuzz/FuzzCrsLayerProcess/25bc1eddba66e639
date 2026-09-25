@@ -1,0 +1,8 @@
+go test fuzz v1
+string("SecRule 0:/ 0 0")
+string("0")
+string("0")
+string("0")
+string("0")
+string("0")
+string("0")

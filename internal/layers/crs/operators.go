@@ -288,23 +288,15 @@ func (oe *OperatorEvaluator) evaluatePm(argument, value string) (bool, error) {
 }
 
 // evaluateWithin evaluates the @within operator.
-// Argument is space-separated values, value must be one of them
+// SecLang contract (ModSecurity Reference Manual): @within performs a
+// case-insensitive search to determine if the parameter value is WITHIN
+// the operator value — substring containment of the value in the
+// argument, not space-split token membership. The previous exact-token
+// comparison missed case variants and substrings ("post" vs "GET POST",
+// "PO" vs "GET POST"), the same deliberate-divergence class as the
+// realigned @eq above.
 func (oe *OperatorEvaluator) evaluateWithin(argument, value string) (bool, error) {
-	// Split argument into allowed values
-	allowed := strings.Fields(argument)
-	if len(allowed) == 0 {
-		return false, nil
-	}
-
-	// Check if value is in allowed list
-	for _, allowedVal := range allowed {
-		allowedVal = strings.Trim(allowedVal, "\"'")
-		if value == allowedVal {
-			return true, nil
-		}
-	}
-
-	return false, nil
+	return strings.Contains(strings.ToLower(argument), strings.ToLower(value)), nil
 }
 
 // evaluateIpMatch evaluates the @ipMatch operator.
@@ -352,7 +344,10 @@ func (oe *OperatorEvaluator) evaluateIpMatch(argument, value string) (bool, erro
 // operator never matches: a malformed argument must not turn the rule into
 // match-everything.
 func (oe *OperatorEvaluator) evaluateByteRange(argument, value string) (bool, error) {
-	ranges := parseByteRanges(argument)
+	ranges, err := parseByteRanges(argument)
+	if err != nil {
+		return false, err
+	}
 	if len(ranges) == 0 {
 		return false, nil
 	}
@@ -451,8 +446,14 @@ type byteRange struct {
 	max int
 }
 
-// parseByteRanges parses byte range specifications.
-func parseByteRanges(s string) []byteRange {
+// parseByteRanges parses byte range specifications. Malformed parts are
+// rejected: the previous swallowed-Atoi parse silently widened a range
+// ("1x-255" parsed as {0,255} — the NUL-byte detector quietly died) or
+// inverted it ("5-" parsed as {5,0} — every byte became "outside" and the
+// rule matched everything). SecLang fails the rule on a malformed argument;
+// this engine errors the same way, and evaluateRule treats the error as
+// no-match per the documented operator-error convention.
+func parseByteRanges(s string) ([]byteRange, error) {
 	ranges := []byteRange{}
 
 	parts := strings.Split(s, ",")
@@ -464,17 +465,29 @@ func parseByteRanges(s string) []byteRange {
 
 		// Parse range (e.g., "1-255" or "32")
 		if idx := strings.Index(part, "-"); idx > 0 {
-			min, _ := strconv.Atoi(part[:idx])
-			max, _ := strconv.Atoi(part[idx+1:])
+			min, err := strconv.Atoi(part[:idx])
+			if err != nil {
+				return nil, fmt.Errorf("invalid byte range %q: %w", part, err)
+			}
+			max, err := strconv.Atoi(part[idx+1:])
+			if err != nil {
+				return nil, fmt.Errorf("invalid byte range %q: %w", part, err)
+			}
+			if min > max {
+				return nil, fmt.Errorf("invalid byte range %q: min %d exceeds max %d", part, min, max)
+			}
 			ranges = append(ranges, byteRange{min: min, max: max})
 		} else {
 			// Single byte
-			val, _ := strconv.Atoi(part)
+			val, err := strconv.Atoi(part)
+			if err != nil {
+				return nil, fmt.Errorf("invalid byte range %q: %w", part, err)
+			}
 			ranges = append(ranges, byteRange{min: val, max: val})
 		}
 	}
 
-	return ranges
+	return ranges, nil
 }
 
 // isValidUTF8 reports whether s is valid UTF-8. Thin wrapper over stdlib

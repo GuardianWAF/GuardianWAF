@@ -142,7 +142,12 @@ func (p *Parser) parseSecRule(line string) (*Rule, error) {
 	// Third part: actions
 	actionsStr := parts[2]
 	// Remove surrounding quotes
-	if strings.HasPrefix(actionsStr, "\"") && strings.HasSuffix(actionsStr, "\"") {
+	// Remove surrounding quotes. The length guard is required: a 1-byte
+	// string consisting of just a quote satisfies both HasPrefix and
+	// HasSuffix, and stripping it would slice [1:0] and panic (found by
+	// FuzzCrsParse — a SecRule line whose actions section is a lone
+	// unterminated quote crashed rule loading instead of erroring).
+	if len(actionsStr) >= 2 && strings.HasPrefix(actionsStr, "\"") && strings.HasSuffix(actionsStr, "\"") {
 		actionsStr = actionsStr[1 : len(actionsStr)-1]
 	}
 	actions, err := p.parseActions(actionsStr)
@@ -221,8 +226,10 @@ func (p *Parser) parseSecAction(line string) (*Rule, error) {
 	content := strings.TrimPrefix(line, "SecAction")
 	content = strings.TrimSpace(content)
 
-	// Remove quotes
-	if strings.HasPrefix(content, "\"") && strings.HasSuffix(content, "\"") {
+	// Remove quotes — with the same length guard as parseSecRule: a lone
+	// quote character satisfies both HasPrefix and HasSuffix and would
+	// slice [1:0].
+	if len(content) >= 2 && strings.HasPrefix(content, "\"") && strings.HasSuffix(content, "\"") {
 		content = content[1 : len(content)-1]
 	}
 
@@ -294,8 +301,11 @@ func (p *Parser) parseVariables(s string) ([]RuleVariable, error) {
 			rv.Collection = part[:idx]
 			rv.Key = part[idx+1:]
 
-			// Check if key is regex (/pattern/)
-			if strings.HasPrefix(rv.Key, "/") && strings.HasSuffix(rv.Key, "/") {
+			// Check if key is regex (/pattern/) — length-guarded: a lone
+			// slash key (from a spec like ARGS:/) is its own prefix and
+			// suffix and would slice [1:0] and panic rule loading (found
+			// by FuzzCrsLayerProcess).
+			if len(rv.Key) >= 2 && strings.HasPrefix(rv.Key, "/") && strings.HasSuffix(rv.Key, "/") {
 				rv.KeyRegex = true
 				rv.Key = rv.Key[1 : len(rv.Key)-1]
 			}
@@ -423,10 +433,12 @@ func (p *Parser) parseActions(s string) (RuleActions, error) {
 			value := strings.TrimSpace(action[idx+1:])
 
 			// Remove quotes
-			if strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'") {
+			// Remove quotes — length-guarded: a single quote character is
+			// its own prefix and suffix and would slice [1:0].
+			if len(value) >= 2 && strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'") {
 				value = value[1 : len(value)-1]
 			}
-			if strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"") {
+			if len(value) >= 2 && strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"") {
 				value = value[1 : len(value)-1]
 			}
 

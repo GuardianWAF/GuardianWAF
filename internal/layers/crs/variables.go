@@ -174,10 +174,15 @@ func (vr *VariableResolver) Resolve(rv RuleVariable) ([]string, error) {
 
 	// Special variables
 	case "ARGS_COMBINED_SIZE":
+		// SecLang contract (ModSecurity v3 transaction.cc, addArgs):
+		// m_ARGScombinedSizeDouble += key.length() + value.length() —
+		// per occurrence, so a repeated parameter counts its name each
+		// time. The values-only sum undercounted every rule threshold
+		// evaluated against this variable.
 		size := 0
-		for _, vals := range vr.transaction.RequestArgs {
+		for argKey, vals := range vr.transaction.RequestArgs {
 			for _, val := range vals {
-				size += len(val)
+				size += len(argKey) + len(val)
 			}
 		}
 		return []string{strconv.Itoa(size)}, nil
