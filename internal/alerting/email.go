@@ -3,7 +3,9 @@ package alerting
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
+	"net"
 	"net/smtp"
 	"strings"
 	"sync"
@@ -32,6 +34,16 @@ type EmailStats struct {
 var (
 	emailSent   atomic.Int64
 	emailFailed atomic.Int64
+)
+
+// Deadline bounds for SMTP email delivery, mirroring the webhook HTTP
+// client (10s dial, 15s overall). Without them a stalled SMTP server
+// blocks its delivery goroutine forever, wedging one of the
+// maxAlertDispatchConcurrency dispatch slots shared with webhooks and
+// silently starving the whole alert pipeline. Vars so tests can shorten.
+var (
+	emailDialTimeout    = 10 * time.Second
+	emailSessionTimeout = 15 * time.Second
 )
 
 // SendEmail sends an alert via SMTP.
@@ -66,7 +78,7 @@ func (m *Manager) SendEmail(target *EmailTarget, event *engine.Event) error {
 	if cfg.UseTLS {
 		err = m.sendTLS(addr, auth, cfg.From, cfg.To, msg)
 	} else {
-		err = smtp.SendMail(addr, auth, cfg.From, cfg.To, msg)
+		err = m.sendMailWithDeadline(addr, auth, cfg.From, cfg.To, msg)
 	}
 
 	if err != nil {
@@ -79,15 +91,88 @@ func (m *Manager) SendEmail(target *EmailTarget, event *engine.Event) error {
 	return nil
 }
 
+// sendMailWithDeadline is net/smtp.SendMail with deadline bounds. SendMail
+// dials without a timeout and its textproto session has no read/write
+// deadlines, so a server that accepts and then stays silent blocks the
+// caller — and with it one of the shared alert-dispatch slots — forever.
+// The flow mirrors SendMail: opportunistic STARTTLS (only when the server
+// advertises it) and AUTH only when advertised; smtp.PlainAuth's own refusal
+// to send credentials over plaintext is preserved because Auth still runs
+// after any STARTTLS upgrade. "localhost" is the EHLO name where SendMail
+// used the OS hostname — servers treat both the same.
+func (m *Manager) sendMailWithDeadline(addr string, auth smtp.Auth, from string, to []string, msg []byte) error {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fmt.Errorf("invalid SMTP address %q: %w", addr, err)
+	}
+	conn, err := (&net.Dialer{Timeout: emailDialTimeout}).Dial("tcp", addr)
+	if err != nil {
+		return err
+	}
+	if derr := conn.SetDeadline(time.Now().Add(emailSessionTimeout)); derr != nil {
+		conn.Close()
+		return derr
+	}
+	c, err := smtp.NewClient(conn, host)
+	if err != nil {
+		conn.Close()
+		return err
+	}
+	defer c.Close()
+
+	if err := c.Hello("localhost"); err != nil {
+		return err
+	}
+	if ok, _ := c.Extension("STARTTLS"); ok {
+		if terr := c.StartTLS(&tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}); terr != nil {
+			return terr
+		}
+	}
+	if auth != nil {
+		if ok, _ := c.Extension("AUTH"); !ok {
+			return errors.New("smtp: server doesn't support AUTH")
+		}
+		if aerr := c.Auth(auth); aerr != nil {
+			return aerr
+		}
+	}
+	if err := c.Mail(from); err != nil {
+		return err
+	}
+	for _, rcpt := range to {
+		if err := c.Rcpt(rcpt); err != nil {
+			return err
+		}
+	}
+	w, err := c.Data()
+	if err != nil {
+		return err
+	}
+	if _, werr := w.Write(msg); werr != nil {
+		w.Close()
+		return werr
+	}
+	if err := w.Close(); err != nil {
+		return err
+	}
+	return c.Quit()
+}
+
 // sendTLS sends email with TLS encryption.
 func (m *Manager) sendTLS(addr string, auth smtp.Auth, from string, to []string, msg []byte) error {
-	conn, err := tls.Dial("tcp", addr, &tls.Config{ServerName: addr[:strings.LastIndex(addr, ":")], MinVersion: tls.VersionTLS12})
+	host := addr[:strings.LastIndex(addr, ":")]
+	// DialWithDialer bounds dial+handshake; the deadline below bounds the
+	// SMTP session itself (DialWithDialer clears its deadline on success).
+	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: emailDialTimeout}, "tcp", addr, &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12})
 	if err != nil {
 		return fmt.Errorf("TLS dial failed: %w", err)
 	}
 	defer conn.Close()
+	if derr := conn.SetDeadline(time.Now().Add(emailSessionTimeout)); derr != nil {
+		return fmt.Errorf("TLS session deadline: %w", derr)
+	}
 
-	client, err := smtp.NewClient(conn, addr[:strings.LastIndex(addr, ":")])
+	client, err := smtp.NewClient(conn, host)
 	if err != nil {
 		return fmt.Errorf("SMTP client creation failed: %w", err)
 	}
