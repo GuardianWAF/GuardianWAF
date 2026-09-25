@@ -7,24 +7,11 @@ import (
 )
 
 // Generator generates virtual patches from CVE data.
-type Generator struct {
-	// Pattern templates for different attack types
-	templates map[string]AttackPattern
-}
-
-// AttackPattern defines patterns for an attack type.
-type AttackPattern struct {
-	Name        string
-	Description string
-	Patterns    []PatchPattern
-	Indicators  []string // Keywords that trigger this pattern
-}
+type Generator struct{}
 
 // NewGenerator creates a new patch generator.
 func NewGenerator() *Generator {
-	return &Generator{
-		templates: defaultTemplates(),
-	}
+	return &Generator{}
 }
 
 // Generate creates a virtual patch from a CVE entry.
@@ -114,24 +101,30 @@ func (g *Generator) isWebAttack(cve *CVEEntry) bool {
 func (g *Generator) detectAttackType(cve *CVEEntry) string {
 	desc := strings.ToLower(cve.Description)
 
-	// Check for specific attack types
-	attackTypes := map[string][]string{
-		"jndi":            {"jndi", "log4j", "log4shell"},
-		"deserialization": {"deserialization", "unserialize", "object injection"},
-		"sqli":            {"sql injection", "sqli", "blind sql"},
-		"xss":             {"cross-site scripting", "xss", "script injection"},
-		"rce":             {"remote code execution", "rce", "command execution", "shell"},
-		"lfi":             {"local file inclusion", "lfi", "path traversal", "../"},
-		"ssrf":            {"server-side request forgery", "ssrf"},
-		"upload":          {"file upload", "unrestricted upload", "arbitrary file"},
-		"header":          {"header injection", "http header", "host header"},
-		"xxe":             {"xml external entity", "xxe"},
+	// Check for specific attack types. A fixed priority slice, not a map:
+	// map iteration order is random per run, so a description matching
+	// several attack types (SQLi->RCE chains are common in CVE text)
+	// produced a different pattern set on every feed refresh.
+	attackTypes := []struct {
+		name     string
+		keywords []string
+	}{
+		{"jndi", []string{"jndi", "log4j", "log4shell"}},
+		{"deserialization", []string{"deserialization", "unserialize", "object injection"}},
+		{"sqli", []string{"sql injection", "sqli", "blind sql"}},
+		{"xss", []string{"cross-site scripting", "xss", "script injection"}},
+		{"rce", []string{"remote code execution", "rce", "command execution", "shell"}},
+		{"lfi", []string{"local file inclusion", "lfi", "path traversal", "../"}},
+		{"ssrf", []string{"server-side request forgery", "ssrf"}},
+		{"upload", []string{"file upload", "unrestricted upload", "arbitrary file"}},
+		{"header", []string{"header injection", "http header", "host header"}},
+		{"xxe", []string{"xml external entity", "xxe"}},
 	}
 
-	for attackType, keywords := range attackTypes {
-		for _, kw := range keywords {
+	for _, at := range attackTypes {
+		for _, kw := range at.keywords {
 			if strings.Contains(desc, kw) {
-				return attackType
+				return at.name
 			}
 		}
 	}
@@ -334,36 +327,4 @@ func generatePatchName(cve *CVEEntry) string {
 	}
 
 	return name
-}
-
-// defaultTemplates returns default attack pattern templates.
-func defaultTemplates() map[string]AttackPattern {
-	return map[string]AttackPattern{
-		"log4shell": {
-			Name:        "Log4Shell",
-			Description: "Log4j JNDI injection",
-			Indicators:  []string{"jndi", "log4j", "ldap", "rmi", "dns"},
-			Patterns: []PatchPattern{
-				{Type: "body", Pattern: "${jndi:", MatchType: "contains"},
-				{Type: "header", Key: "User-Agent", Pattern: "${jndi:", MatchType: "contains"},
-			},
-		},
-		"spring4shell": {
-			Name:        "Spring4Shell",
-			Description: "Spring Data Binding RCE",
-			Indicators:  []string{"spring", "class.module", "classLoader"},
-			Patterns: []PatchPattern{
-				{Type: "query", Pattern: "class.module", MatchType: "contains"},
-				{Type: "body", Pattern: "class.module", MatchType: "contains"},
-			},
-		},
-		"shellshock": {
-			Name:        "Shellshock",
-			Description: "Bash environment variable RCE",
-			Indicators:  []string{"bash", "shellshock", "() { :; }"},
-			Patterns: []PatchPattern{
-				{Type: "header", Key: "User-Agent", Pattern: "() { :; }", MatchType: "contains"},
-			},
-		},
-	}
 }

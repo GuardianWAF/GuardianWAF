@@ -366,7 +366,8 @@ func (db *Database) GetAllPatches() []VirtualPatch {
 	return all
 }
 
-// GetPatchesForProduct returns patches affecting a product.
+// GetPatchesForProduct returns copies of the patches affecting a product
+// (safe for concurrent use — the copies do not alias the stored entries).
 func (db *Database) GetPatchesForProduct(cpe string) []*VirtualPatch {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
@@ -377,7 +378,8 @@ func (db *Database) GetPatchesForProduct(cpe string) []*VirtualPatch {
 		if entry, ok := db.entries[cveID]; ok {
 			for _, patch := range entry.Patches {
 				if patch.Enabled {
-					patches = append(patches, &patch)
+					patchCopy := patch
+					patches = append(patches, &patchCopy)
 				}
 			}
 		}

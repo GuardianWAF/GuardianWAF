@@ -335,8 +335,20 @@ func (c *NVDClient) SearchWithContext(ctx context.Context, opts SearchOptions) (
 		q.Set("pubEndDate", opts.PubEndDate.Format(time.RFC3339))
 	}
 
+	if !opts.ModStartDate.IsZero() {
+		q.Set("lastModStartDate", opts.ModStartDate.Format(time.RFC3339))
+	}
+
+	if !opts.ModEndDate.IsZero() {
+		q.Set("lastModEndDate", opts.ModEndDate.Format(time.RFC3339))
+	}
+
 	if opts.Severity != "" {
 		q.Set("cvssV3Severity", opts.Severity)
+	}
+
+	if opts.CWEID != "" {
+		q.Set("cweId", opts.CWEID)
 	}
 
 	u.RawQuery = q.Encode()
