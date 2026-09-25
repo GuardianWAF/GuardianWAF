@@ -277,7 +277,7 @@ events:
   max_events: 100000             # Default: 100000
   file_path: /var/log/guardianwaf/events.jsonl  # Persistent JSONL when storage is "file"
 
-`memory` keeps only an in-process ring buffer. `file` keeps the same queryable ring buffer, replays the JSONL file on startup, and appends new events to `file_path`; startup fails if the configured file cannot be opened.
+# `memory` keeps only an in-process ring buffer. `file` keeps the same queryable ring buffer, replays the JSONL file on startup, and appends new events to `file_path`; startup fails if the configured file cannot be opened.
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Alerting (Webhooks & Email)
