@@ -205,13 +205,11 @@ func containsNullByte(s string) bool {
 	return false
 }
 
-// truncate truncates a string to maxLen characters.
+// truncate truncates evidence to maxLen bytes without splitting multi-byte
+// UTF-8 runes, delegating to the canonical engine implementation (the
+// round-76 fix): MatchedValue carries attacker-controlled content that flows
+// into events, the dashboard, and traces, and the previous local byte-slice
+// stored an invalid final rune whenever the cut landed inside a rune.
 func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	if maxLen <= 3 {
-		return s[:maxLen]
-	}
-	return s[:maxLen-3] + "..."
+	return engine.TruncateEvidence(s, maxLen)
 }
