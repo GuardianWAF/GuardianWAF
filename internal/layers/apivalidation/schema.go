@@ -570,6 +570,28 @@ func (v *SchemaValidator) validateArray(data any, schema *Schema, path string, r
 		})
 	}
 
+	// UniqueItems
+	if schema.UniqueItems {
+		for i := 0; i < len(arr); i++ {
+			for j := i + 1; j < len(arr); j++ {
+				// JSON Schema uniqueness is deep equality — decoded payloads
+				// are map[string]any / []any, uncomparable with == (the same
+				// constraint that made validateEnum panic before its
+				// reflect.DeepEqual fix).
+				if reflect.DeepEqual(arr[i], arr[j]) {
+					result.Valid = false
+					result.Errors = append(result.Errors, ValidationError{
+						Field:   path,
+						Type:    "uniqueItems",
+						Message: fmt.Sprintf("array items %d and %d are identical", i, j),
+					})
+					i = len(arr)
+					break
+				}
+			}
+		}
+	}
+
 	// Validate items
 	if schema.Items != nil {
 		for i, item := range arr {

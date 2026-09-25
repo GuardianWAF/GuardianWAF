@@ -330,29 +330,46 @@ func (l *Layer) compileOperation(spec *CompiledSpec, path, method string, op *Op
 		})
 	}
 
-	// Compile request body schema
+	// Compile request body schema. The selection must be deterministic:
+	// validateRequestBody normalizes every non-form request to
+	// application/json and validates against route.BodySchema.Schema, so
+	// the spec's application/json entry is the enforced contract. The
+	// previous "first map iteration with a schema" pick made
+	// multi-content-type requestBodies boot-dependent — one restart
+	// enforced the JSON schema, the next an XML variant.
 	var bodySchema *CompiledBodySchema
 	if op.RequestBody != nil {
-		for contentType, mediaType := range op.RequestBody.Content {
-			if mediaType.Schema != nil {
-				resolved := l.resolveSchemaRefs(mediaType.Schema, spec.Spec, 0)
-				bodySchema = &CompiledBodySchema{
-					Required:             op.RequestBody.Required,
-					Schema:               resolved,
-					AdditionalProperties: l.getAdditionalProperties(resolved),
+		chosen := ""
+		if mt, ok := op.RequestBody.Content["application/json"]; ok && mt.Schema != nil {
+			chosen = "application/json"
+		} else {
+			for ct, mt := range op.RequestBody.Content {
+				if mt.Schema == nil {
+					continue
 				}
-				// Cache the compiled schema
-				cacheKey := fmt.Sprintf("%s:%s:%s", spec.Source.Path, method, path)
-				l.cache.Put(cacheKey+":"+contentType, &CompiledSchema{
-					Path:        path,
-					Method:      method,
-					ContentType: contentType,
-					Parameters:  compiledParams,
-					BodySchema:  bodySchema,
-					StrictMode:  l.config.StrictMode,
-				})
-				break // Use first content type
+				if chosen == "" || ct < chosen {
+					chosen = ct
+				}
 			}
+		}
+		if chosen != "" {
+			mediaType := op.RequestBody.Content[chosen]
+			resolved := l.resolveSchemaRefs(mediaType.Schema, spec.Spec, 0)
+			bodySchema = &CompiledBodySchema{
+				Required:             op.RequestBody.Required,
+				Schema:               resolved,
+				AdditionalProperties: l.getAdditionalProperties(resolved),
+			}
+			// Cache the compiled schema
+			cacheKey := fmt.Sprintf("%s:%s:%s", spec.Source.Path, method, path)
+			l.cache.Put(cacheKey+":"+chosen, &CompiledSchema{
+				Path:        path,
+				Method:      method,
+				ContentType: chosen,
+				Parameters:  compiledParams,
+				BodySchema:  bodySchema,
+				StrictMode:  l.config.StrictMode,
+			})
 		}
 	}
 
