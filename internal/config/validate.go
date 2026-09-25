@@ -1,7 +1,9 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"math"
 	"net"
 	"net/url"
@@ -318,10 +320,14 @@ func LoadDir(dir string) (*Config, error) {
 	// Load main config file
 	mainPath := filepath.Join(dir, "guardianwaf.yaml")
 	cfg, err := LoadFile(mainPath)
-	if err != nil && !os.IsNotExist(err) {
+	// errors.Is unwraps LoadFile's %w chain down to the underlying
+	// *fs.PathError; os.IsNotExist does not follow wrapped errors, which made
+	// this fallback dead code — a directory with only subdirectory configs
+	// failed instead of starting from defaults.
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, fmt.Errorf("loading main config: %w", err)
 	}
-	if os.IsNotExist(err) {
+	if errors.Is(err, fs.ErrNotExist) {
 		// No main config, start with defaults
 		cfg = DefaultConfig()
 	}
