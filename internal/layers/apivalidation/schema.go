@@ -56,6 +56,7 @@ func DefaultConfig() *Config {
 // SchemaSource represents a schema source configuration.
 type SchemaSource struct {
 	Path      string `yaml:"path"`           // File path or URL
+	Content   string `yaml:"-"`              // Inline schema document (dashboard/MCP uploads); takes precedence over Path
 	Type      string `yaml:"type"`           // "openapi", "jsonschema"
 	Name      string `yaml:"name,omitempty"` // Operator-assigned identity (dashboard uploads)
 	AutoLearn bool   `yaml:"auto_learn"`     // Learn from traffic

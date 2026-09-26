@@ -3,7 +3,6 @@ package dashboard
 import (
 	"errors"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
@@ -369,24 +368,13 @@ func (a *apiValidationAdapter) LoadSchema(schema *APISchemaInfo) error {
 		format = "jsonschema"
 	}
 
-	tmpFile, err := os.CreateTemp(".", "guardianwaf-apivalidation-*.json")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmpFile.Name())
-
-	if _, err := tmpFile.WriteString(schema.Content); err != nil {
-		_ = tmpFile.Close()
-		return err
-	}
-	if err := tmpFile.Close(); err != nil {
-		return err
-	}
-
+	// Inline content: no filesystem staging — uploads are CWD-independent
+	// and never interact with the working-directory confinement in the
+	// layer's readFile.
 	return a.layer.LoadSchema(apivalidation.SchemaSource{
-		Type: format,
-		Path: tmpFile.Name(),
-		Name: schema.Name,
+		Type:    format,
+		Content: schema.Content,
+		Name:    schema.Name,
 	})
 }
 

@@ -133,17 +133,36 @@ func (l *Layer) LoadSchema(source SchemaSource) error {
 	var spec *OpenAPISpec
 	var err error
 
-	switch source.Type {
-	case "openapi":
-		spec, err = l.loadOpenAPISpec(source.Path)
-	case "jsonschema":
-		spec, err = l.loadJSONSchema(source.Path)
+	switch {
+	case source.Content != "":
+		// Inline content (dashboard/MCP uploads): parsed directly — no
+		// filesystem staging, no interaction with the working-directory
+		// confinement in readFile.
+		switch source.Type {
+		case "openapi":
+			spec, err = loadOpenAPISpecFromData([]byte(source.Content))
+		case "jsonschema":
+			spec, err = loadJSONSchemaFromData([]byte(source.Content))
+		default:
+			return fmt.Errorf("unknown schema type: %s", source.Type)
+		}
 	default:
-		return fmt.Errorf("unknown schema type: %s", source.Type)
+		switch source.Type {
+		case "openapi":
+			spec, err = l.loadOpenAPISpec(source.Path)
+		case "jsonschema":
+			spec, err = l.loadJSONSchema(source.Path)
+		default:
+			return fmt.Errorf("unknown schema type: %s", source.Type)
+		}
 	}
 
 	if err != nil {
-		return fmt.Errorf("failed to load schema from %s: %w", source.Path, err)
+		label := source.Path
+		if label == "" {
+			label = source.Name
+		}
+		return fmt.Errorf("failed to load schema from %s: %w", label, err)
 	}
 
 	compiled := &CompiledSpec{
@@ -168,7 +187,11 @@ func (l *Layer) loadOpenAPISpec(path string) (*OpenAPISpec, error) {
 	if err != nil {
 		return nil, err
 	}
+	return loadOpenAPISpecFromData(data)
+}
 
+// loadOpenAPISpecFromData parses an OpenAPI 3.0 document (JSON or YAML).
+func loadOpenAPISpecFromData(data []byte) (*OpenAPISpec, error) {
 	// Check if it's YAML
 	if IsYAML(data) {
 		return LoadYAMLSpec(data)
@@ -190,7 +213,12 @@ func (l *Layer) loadJSONSchema(path string) (*OpenAPISpec, error) {
 	if err != nil {
 		return nil, err
 	}
+	return loadJSONSchemaFromData(data)
+}
 
+// loadJSONSchemaFromData wraps a raw JSON Schema document in a synthetic
+// OpenAPI-like structure with a wildcard path.
+func loadJSONSchemaFromData(data []byte) (*OpenAPISpec, error) {
 	var schema Schema
 	if err := json.Unmarshal(data, &schema); err != nil {
 		return nil, fmt.Errorf("failed to parse JSON schema: %w", err)
