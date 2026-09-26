@@ -79,7 +79,9 @@ func (h *ClientSideHandler) handleConfig(w http.ResponseWriter, r *http.Request)
 			return
 		}
 
-		// Get current config and update settings
+		// Get current config and update settings. Keep the pre-update copy
+		// for the persistence rollback below.
+		oldCfg := deepCopyConfig(h.dashboard.engine.Config())
 		newCfg := deepCopyConfig(h.dashboard.engine.Config())
 		if req.Mode != nil {
 			newCfg.WAF.ClientSide.Mode = *req.Mode
@@ -98,6 +100,21 @@ func (h *ClientSideHandler) handleConfig(w http.ResponseWriter, r *http.Request)
 		if err := h.dashboard.engine.Reload(newCfg); err != nil {
 			http.Error(w, sanitizeErr(err), http.StatusInternalServerError)
 			return
+		}
+
+		// Persist the full config to disk — same contract as handleUpdateConfig.
+		// Without this the client-side settings are runtime-only: a restart
+		// silently restores the Magecart/CSP posture the operator just changed.
+		if h.dashboard.getRoutingCtrl() != nil {
+			if err := h.dashboard.getRoutingCtrl().Save(); err != nil {
+				if rollbackErr := h.dashboard.engine.Reload(oldCfg); rollbackErr != nil {
+					dashboardLog.Error("configuration persistence and rollback failed", "save_error", err, "rollback_error", rollbackErr)
+				} else {
+					dashboardLog.Error("configuration persistence failed; runtime rolled back", "error", err)
+				}
+				http.Error(w, "configuration persistence failed; previous runtime configuration restored", http.StatusInternalServerError)
+				return
+			}
 		}
 
 		writeJSON(w, http.StatusOK, map[string]any{
