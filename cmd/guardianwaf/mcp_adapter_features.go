@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -73,9 +72,13 @@ func (a *mcpEngineAdapter) EnableCRSRule(ruleID string, enabled bool) error {
 }
 
 func (a *mcpEngineAdapter) SetParanoiaLevel(level int) error {
+	oldCfg := a.engine.Config()
 	cfg := a.engine.Config()
 	cfg.WAF.CRS.ParanoiaLevel = level
-	return a.engine.Reload(cfg)
+	if err := a.engine.Reload(cfg); err != nil {
+		return err
+	}
+	return a.persistConfig(oldCfg)
 }
 
 func (a *mcpEngineAdapter) AddCRSExclusion(ruleID, path, parameter, reason string) error {
@@ -95,10 +98,24 @@ func (a *mcpEngineAdapter) AddCRSExclusion(ruleID, path, parameter, reason strin
 	if crsLayer.GetRule(ruleID) == nil {
 		return fmt.Errorf("CRS rule %q not found", ruleID)
 	}
+	// Track the layer-side state this call mutates: the persistence rollback
+	// below reloads the config but cannot undo DisableRule (layer-internal
+	// state), so it is reverted explicitly when persistence fails.
+	wasEnabled := crsLayer.IsRuleEnabled(ruleID)
 	crsLayer.DisableRule(ruleID)
+	oldCfg := a.engine.Config()
 	cfg := a.engine.Config()
 	cfg.WAF.CRS.DisabledRules = append(cfg.WAF.CRS.DisabledRules, ruleID)
-	return a.engine.Reload(cfg)
+	if err := a.engine.Reload(cfg); err != nil {
+		return err
+	}
+	if err := a.persistConfig(oldCfg); err != nil {
+		if wasEnabled {
+			crsLayer.EnableRule(ruleID)
+		}
+		return err
+	}
+	return nil
 }
 
 func (a *mcpEngineAdapter) GetVirtualPatches(severity string, activeOnly bool) (any, error) {
@@ -254,30 +271,14 @@ func (a *mcpEngineAdapter) UploadAPISchema(name, content, format string, strictM
 		schemaType = "jsonschema"
 	}
 
-	// The layer compiles schemas from files, and inline content has no
-	// SchemaSource field — mirror the dashboard adapter's convention:
-	// stage the caller's content in a CWD temp file, load from it, and keep
-	// the operator-assigned name as Source.Name so the compiled spec keeps
-	// its identity. strictMode has no per-schema counterpart in the layer
-	// (it is a global config flag), matching the dashboard adapter.
-	tmpFile, err := os.CreateTemp(".", "guardianwaf-mcp-apischema-*.json")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmpFile.Name())
-
-	if _, err := tmpFile.WriteString(content); err != nil {
-		_ = tmpFile.Close()
-		return err
-	}
-	if err := tmpFile.Close(); err != nil {
-		return err
-	}
-
+	// Inline content: no filesystem staging — uploads are CWD-independent
+	// and never interact with the working-directory confinement in the
+	// layer's readFile. strictMode has no per-schema counterpart in the
+	// layer (it is a global config flag).
 	return apiLayer.LoadSchema(apivalidation.SchemaSource{
-		Type: schemaType,
-		Path: tmpFile.Name(),
-		Name: name,
+		Type:    schemaType,
+		Content: content,
+		Name:    name,
 	})
 }
 
@@ -297,6 +298,7 @@ func (a *mcpEngineAdapter) RemoveAPISchema(name string) error {
 }
 
 func (a *mcpEngineAdapter) SetAPIValidationMode(validateRequest, validateResponse, strictMode, blockOnViolation *bool) error {
+	oldCfg := a.engine.Config()
 	cfg := a.engine.Config()
 	if validateRequest != nil {
 		cfg.WAF.APIValidation.ValidateRequest = *validateRequest
@@ -310,7 +312,10 @@ func (a *mcpEngineAdapter) SetAPIValidationMode(validateRequest, validateRespons
 	if blockOnViolation != nil {
 		cfg.WAF.APIValidation.BlockOnViolation = *blockOnViolation
 	}
-	return a.engine.Reload(cfg)
+	if err := a.engine.Reload(cfg); err != nil {
+		return err
+	}
+	return a.persistConfig(oldCfg)
 }
 
 func (a *mcpEngineAdapter) TestAPISchema(method, path, body string) (any, error) {
@@ -376,6 +381,7 @@ func (a *mcpEngineAdapter) GetClientSideStats() (any, error) {
 }
 
 func (a *mcpEngineAdapter) SetClientSideMode(mode string, magecartDetection, agentInjection, cspEnabled *bool) error {
+	oldCfg := a.engine.Config()
 	cfg := a.engine.Config()
 	cfg.WAF.ClientSide.Mode = mode
 	if magecartDetection != nil {
@@ -387,7 +393,10 @@ func (a *mcpEngineAdapter) SetClientSideMode(mode string, magecartDetection, age
 	if cspEnabled != nil {
 		cfg.WAF.ClientSide.CSP.Enabled = *cspEnabled
 	}
-	return a.engine.Reload(cfg)
+	if err := a.engine.Reload(cfg); err != nil {
+		return err
+	}
+	return a.persistConfig(oldCfg)
 }
 
 func (a *mcpEngineAdapter) AddSkimmingDomain(domain string) error {

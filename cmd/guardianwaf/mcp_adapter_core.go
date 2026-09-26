@@ -24,6 +24,31 @@ type mcpEngineAdapter struct {
 	cfg        *config.Config
 	eventStore events.EventStore
 	alertMgr   *alerting.Manager
+
+	// persistFn durably persists the engine's current configuration
+	// (production: config.SaveFile(cfgPath, eng.Config())). Config-mutating
+	// adapter methods call it after a successful Reload so an operator's
+	// MCP-applied posture survives a restart; nil (bare adapters) skips
+	// persistence, matching the pre-fix behavior.
+	persistFn func() error
+}
+
+// persistConfig applies the round-74 persistence contract shared by every
+// config-mutating surface: after the engine accepted the new configuration,
+// persist it durably; if persistence fails, roll the runtime back to oldCfg
+// and return an error instead of reporting success for a posture a restart
+// would silently revert.
+func (a *mcpEngineAdapter) persistConfig(oldCfg *config.Config) error {
+	if a.persistFn == nil {
+		return nil
+	}
+	if err := a.persistFn(); err != nil {
+		if rollbackErr := a.engine.Reload(oldCfg); rollbackErr != nil {
+			return fmt.Errorf("configuration persistence failed (%v) and rollback failed (%v)", err, rollbackErr)
+		}
+		return fmt.Errorf("configuration persistence failed; previous runtime configuration restored: %w", err)
+	}
+	return nil
 }
 
 func (a *mcpEngineAdapter) GetStats() any {
@@ -68,9 +93,13 @@ func (a *mcpEngineAdapter) GetMode() string {
 }
 
 func (a *mcpEngineAdapter) SetMode(mode string) error {
+	oldCfg := a.engine.Config()
 	cfg := a.engine.Config()
 	cfg.Mode = mode
-	return a.engine.Reload(cfg)
+	if err := a.engine.Reload(cfg); err != nil {
+		return err
+	}
+	return a.persistConfig(oldCfg)
 }
 
 func (a *mcpEngineAdapter) AddWhitelist(ip string) error {

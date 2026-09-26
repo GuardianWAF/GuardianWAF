@@ -25,7 +25,7 @@ func TestMCPSSEUsesLiveDashboardKeyAfterRotation(t *testing.T) {
 
 	dash := dashboard.New(eng, store, cfg.Dashboard.APIKey)
 	defer dash.Close()
-	mcpSSE := buildMCPSSEHandler(eng, cfg, store, nil, dash.CurrentAPIKey)
+	mcpSSE := buildMCPSSEHandler(eng, cfg, store, nil, "", dash.CurrentAPIKey)
 	mcpMux := http.NewServeMux()
 	mcpSSE.RegisterRoutes(mcpMux)
 

@@ -794,7 +794,7 @@ func TestStartMCPServer_WithCustomIO(t *testing.T) {
 	w.Close() // Close immediately so Run() sees EOF
 
 	var output strings.Builder
-	startMCPServer(eng, cfg, store, nil, r, &output)
+	startMCPServer(eng, cfg, store, nil, r, &output, "")
 	// If we get here without hanging, the server exited cleanly
 }
 

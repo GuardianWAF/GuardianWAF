@@ -335,7 +335,7 @@ func TestStartMCPServer(t *testing.T) {
 		bus := events.NewEventBus()
 		eng, _ := engine.NewEngine(cfg, store, bus)
 		defer eng.Close()
-		startMCPServer(eng, cfg, store, nil, r, io.Discard)
+		startMCPServer(eng, cfg, store, nil, r, io.Discard, "")
 	}()
 
 	select {

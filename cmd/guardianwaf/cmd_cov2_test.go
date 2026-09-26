@@ -596,7 +596,7 @@ func TestMCPSSEUsesGeneratedDashboardAPIKey(t *testing.T) {
 		t.Fatal("expected dashboard startup to generate API key")
 	}
 
-	mcpSSE := buildMCPSSEHandler(eng, cfg, store, nil)
+	mcpSSE := buildMCPSSEHandler(eng, cfg, store, nil, "")
 	mcpSSE.RegisterRoutes(dash.Mux())
 
 	req, err := http.NewRequest(http.MethodPost, "http://"+cfg.Dashboard.Listen+"/mcp/message", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`))
@@ -644,7 +644,7 @@ func TestStartMCPServer_NilIO(t *testing.T) {
 	w.Close()
 
 	var output strings.Builder
-	startMCPServer(eng, cfg, store, nil, r, &output)
+	startMCPServer(eng, cfg, store, nil, r, &output, "")
 	_ = r.Close()
 }
 
@@ -664,7 +664,7 @@ func TestStartMCPServer_WithAlertMgr(t *testing.T) {
 
 	var output strings.Builder
 	alertMgr := alerting.NewManager(nil)
-	startMCPServer(eng, cfg, store, alertMgr, r, &output)
+	startMCPServer(eng, cfg, store, alertMgr, r, &output, "")
 	_ = r.Close()
 }
 
@@ -689,7 +689,7 @@ func TestStartMCPStdioRuntimeStartsWithoutAlerting(t *testing.T) {
 	_ = w.Close()
 	defer r.Close()
 
-	if !startMCPStdioRuntime(eng, cfg, store, nil, r, io.Discard) {
+	if !startMCPStdioRuntime(eng, cfg, store, nil, r, io.Discard, "") {
 		t.Fatal("expected MCP stdio runtime to start independently of alerting")
 	}
 }
@@ -707,7 +707,7 @@ func TestStartMCPStdioRuntimeSkipsNonStdioTransport(t *testing.T) {
 	}
 	defer eng.Close()
 
-	if startMCPStdioRuntime(eng, cfg, store, nil, strings.NewReader(""), io.Discard) {
+	if startMCPStdioRuntime(eng, cfg, store, nil, strings.NewReader(""), io.Discard, "") {
 		t.Fatal("expected MCP stdio runtime to skip non-stdio transport")
 	}
 }

@@ -170,7 +170,7 @@ func TestStartMCPServer_Probe(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		startMCPServer(eng, cfg, store, nil, strings.NewReader(""), io.Discard)
+		startMCPServer(eng, cfg, store, nil, strings.NewReader(""), io.Discard, "")
 	}()
 
 	select {
