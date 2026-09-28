@@ -174,6 +174,32 @@ func (l *Layer) LoadSchema(source SchemaSource) error {
 	// Compile routes under the write lock: compileRoutes mutates the shared
 	// path router, which Process/GetRoute/GetStats read under RLock.
 	l.mu.Lock()
+	// Identity: a re-upload under the same operator-assigned Source.Name
+	// REPLACES the prior spec (and its compiled routes) instead of appending
+	// a duplicate — otherwise paths removed from the updated spec stayed
+	// enforced by stale routes (the shared router is rebuilt only here and
+	// by RemoveSchema) and every re-upload grew l.specs by one, each entry
+	// retaining the full uploaded document. Name is the upload identity
+	// (dashboard/MCP adapters always set it); config-file sources keep
+	// append semantics and are reloaded fresh by engine.Reload.
+	if source.Name != "" {
+		replaced := false
+		filtered := l.specs[:0]
+		for _, s := range l.specs {
+			if s.Source.Name == source.Name {
+				replaced = true
+				continue
+			}
+			filtered = append(filtered, s)
+		}
+		if replaced {
+			l.specs = filtered
+			l.router = NewPathRouter()
+			for _, s := range l.specs {
+				l.compileRoutes(s)
+			}
+		}
+	}
 	l.compileRoutes(compiled)
 	l.specs = append(l.specs, compiled)
 	l.mu.Unlock()
