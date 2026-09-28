@@ -117,8 +117,13 @@ func (s *CertDiskStore) loadOrObtain(domains []string, forceRenew bool) (*tls.Ce
 	if mkdirErr := os.MkdirAll(s.cacheDir, 0o700); mkdirErr != nil {
 		return nil, fmt.Errorf("creating cache dir: %w", mkdirErr)
 	}
-	oldCert, oldCertErr := os.ReadFile(certFile)
-	oldKey, oldKeyErr := os.ReadFile(keyFile)
+	// The rollback reads/writes below carry #nosec because certFile/keyFile are
+	// built from sanitizeDomain-allowlisted domains: separators, ".." and ":"
+	// are rewritten, then an allowlist pass keeps only [a-z0-9._-] — the path
+	// cannot escape cacheDir. gosec's taint analyzer does not model the
+	// sanitizer, so G304/G703 are suppressed here with that justification.
+	oldCert, oldCertErr := os.ReadFile(certFile) // #nosec G304 -- sanitizeDomain-allowlisted path
+	oldKey, oldKeyErr := os.ReadFile(keyFile)    // #nosec G304 -- sanitizeDomain-allowlisted path
 
 	certTmp := certFile + ".tmp"
 	keyTmp := keyFile + ".tmp"
@@ -137,12 +142,12 @@ func (s *CertDiskStore) loadOrObtain(domains []string, forceRenew bool) (*tls.Ce
 	if rErr := os.Rename(keyTmp, keyFile); rErr != nil {
 		// Cert already installed: roll it back so the pair stays consistent.
 		if oldCertErr == nil {
-			_ = os.WriteFile(certFile, oldCert, 0o600)
+			_ = os.WriteFile(certFile, oldCert, 0o600) // #nosec G703 -- sanitizeDomain-allowlisted path
 		} else {
 			_ = os.Remove(certFile)
 		}
 		if oldKeyErr == nil {
-			_ = os.WriteFile(keyFile, oldKey, 0o600)
+			_ = os.WriteFile(keyFile, oldKey, 0o600) // #nosec G703 -- sanitizeDomain-allowlisted path
 		}
 		_ = os.Remove(certTmp)
 		_ = os.Remove(keyTmp)
