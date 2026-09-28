@@ -87,8 +87,7 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 
 	// --- Vector 2: Duplicate Content-Length with different values ---
 	if len(cl) > 1 {
-		distinct := distinctInts(cl)
-		if len(distinct) > 1 {
+		if distinctIntCount(cl) > 1 {
 			findings = append(findings, engine.Finding{
 				DetectorName: "smuggling",
 				Category:     "http-request-smuggling",
@@ -186,17 +185,24 @@ func isExactChunked(v string) bool {
 // distinctInts returns the count of distinct integer values in a header slice.
 // Invalid values are treated as distinct from each other (they signal
 // malformed framing).
-func distinctInts(vals []string) []int {
-	var result []int
+// distinctIntCount returns the number of distinct values in a header slice.
+// Values that parse as integers compare numerically after trimming; invalid
+// values are treated as distinct from each other by their literal text (they
+// signal malformed framing) and can never collide with a parseable value. The
+// previous single -1 sentinel did both wrong: every malformed header collapsed
+// into one "value", so two different malformed Content-Length headers were not
+// reported as distinct, and a literal "Content-Length: -1" collided with it.
+func distinctIntCount(vals []string) int {
+	var seen []string
 	for _, v := range vals {
-		n, err := strconv.Atoi(strings.TrimSpace(v))
-		if err != nil {
-			// Malformed CL value — treat as unique to force a finding
-			n = -1
+		trimmed := strings.TrimSpace(v)
+		canonical := "raw:" + trimmed
+		if n, err := strconv.Atoi(trimmed); err == nil {
+			canonical = "int:" + strconv.Itoa(n)
 		}
-		if !slices.Contains(result, n) {
-			result = append(result, n)
+		if !slices.Contains(seen, canonical) {
+			seen = append(seen, canonical)
 		}
 	}
-	return result
+	return len(seen)
 }
