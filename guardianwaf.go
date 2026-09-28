@@ -352,19 +352,29 @@ func (e *Engine) Check(r *http.Request) Result {
 
 // OnEvent registers a callback for WAF events.
 // The callback runs in a separate goroutine to avoid blocking the pipeline.
+// A panicking callback is recovered per event, so the pump survives and
+// subsequent events keep flowing — a goroutine-scope recover here let one
+// panic end the pump permanently, silently dropping every later event for
+// the subscriber (the bus drops on full channels).
 func (e *Engine) OnEvent(fn func(Event)) {
 	ch := make(chan engine.Event, 64)
 	e.internal.EventBus().Subscribe(ch)
 	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				slog.Default().Error("GuardianWAF event callback panic recovered", "panic", r)
-			}
-		}()
 		for event := range ch {
-			fn(event)
+			invokeEventCallback(fn, event)
 		}
 	}()
+}
+
+// invokeEventCallback calls fn with per-invocation panic isolation: a panic
+// in user callback code must end neither the pump nor event delivery.
+func invokeEventCallback(fn func(Event), event Event) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Default().Error("GuardianWAF event callback panic recovered", "panic", r)
+		}
+	}()
+	fn(event)
 }
 
 // Stats returns runtime statistics.
