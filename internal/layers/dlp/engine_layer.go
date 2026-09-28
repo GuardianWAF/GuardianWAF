@@ -25,7 +25,8 @@ func NewEngineLayer(cfg *Config) *EngineLayer {
 // processes the request context and adds findings if PII is detected.
 func (el *EngineLayer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	start := time.Now()
-	if !el.config.Enabled {
+	cfg := el.snapshotConfig()
+	if !cfg.Enabled {
 		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 	if ctx.TenantWAFConfig != nil && !ctx.TenantWAFConfig.DLP.Enabled {
@@ -62,7 +63,12 @@ func (el *EngineLayer) Process(ctx *engine.RequestContext) engine.LayerResult {
 }
 
 // handleScanResult processes scan results and returns appropriate LayerResult.
+// Both engine-context scan paths (file upload, body) funnel here, so the alert
+// recording mirrors Layer.Process: every unsafe scan is recorded with the
+// action the layer decided, with client/path from the engine context.
 func (el *EngineLayer) handleScanResult(ctx *engine.RequestContext, result *ScanResult, location string) engine.LayerResult {
+	cfg := el.snapshotConfig()
+
 	// Add findings to context
 	for _, match := range result.Matches {
 		severity := el.convertSeverity(match.Severity)
@@ -78,23 +84,28 @@ func (el *EngineLayer) handleScanResult(ctx *engine.RequestContext, result *Scan
 		ctx.Accumulator.Add(finding)
 	}
 
+	// Record the alert before the threshold branches: every unsafe scan is
+	// alert-worthy (the r90-era alerts contract applies to this path too).
+	action := "log"
+	res := engine.LayerResult{Action: engine.ActionPass}
+
 	// Block if configured
-	if el.config.BlockOnMatch && result.RiskScore >= 50 {
-		return engine.LayerResult{
+	if cfg.BlockOnMatch && result.RiskScore >= 50 {
+		action = "block"
+		res = engine.LayerResult{
 			Action: engine.ActionBlock,
 			Score:  result.RiskScore,
 		}
-	}
-
-	// Log if significant risk
-	if result.RiskScore >= 25 {
-		return engine.LayerResult{
+	} else if result.RiskScore >= 25 {
+		// Log if significant risk
+		res = engine.LayerResult{
 			Action: engine.ActionLog,
 			Score:  result.RiskScore,
 		}
 	}
+	el.recordAlerts(result.Matches, action, clientIPString(ctx), ctx.Path)
 
-	return engine.LayerResult{Action: engine.ActionPass}
+	return res
 }
 
 // convertSeverity converts DLP severity to engine severity.
