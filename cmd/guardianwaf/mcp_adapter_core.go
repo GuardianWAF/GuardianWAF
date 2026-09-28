@@ -44,7 +44,7 @@ func (a *mcpEngineAdapter) persistConfig(oldCfg *config.Config) error {
 	}
 	if err := a.persistFn(); err != nil {
 		if rollbackErr := a.engine.Reload(oldCfg); rollbackErr != nil {
-			return fmt.Errorf("configuration persistence failed (%v) and rollback failed (%v)", err, rollbackErr)
+			return fmt.Errorf("configuration persistence failed (%w) and rollback failed (%w)", err, rollbackErr)
 		}
 		return fmt.Errorf("configuration persistence failed; previous runtime configuration restored: %w", err)
 	}

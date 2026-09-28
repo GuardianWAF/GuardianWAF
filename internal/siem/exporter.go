@@ -423,7 +423,7 @@ func formatJSON(ev engine.Event, extra map[string]string) string {
 	// "extra" object; encoding/json sorts map keys, so records stay
 	// deterministic, and nesting cannot shadow the fixed event keys.
 	var m map[string]any
-	if err := json.Unmarshal(data, &m); err != nil {
+	if unmarshalErr := json.Unmarshal(data, &m); unmarshalErr != nil {
 		return string(data) // unreachable for the struct above
 	}
 	extraMap := make(map[string]string, len(extra))

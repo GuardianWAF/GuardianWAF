@@ -119,11 +119,11 @@ func New(cfg Config, sm StateMachine) (*Raft, error) {
 	}
 
 	r := &Raft{
-		config:        cfg,
-		transport:     tr,
-		persist:       NewPersistentState(),
-		sm:            sm,
-		role:          RoleFollower,
+		config:    cfg,
+		transport: tr,
+		persist:   NewPersistentState(),
+		sm:        sm,
+		role:      RoleFollower,
 		// Initialize the election-timer baseline so the FIRST election also
 		// waits the randomized [Min, Max] window. A zero electionResetTime
 		// made waitDuration <= 0 on every fresh node — all nodes started a

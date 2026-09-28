@@ -120,8 +120,8 @@ func (m *Manager) sendMailWithDeadline(addr string, auth smtp.Auth, from string,
 	}
 	defer c.Close()
 
-	if err := c.Hello("localhost"); err != nil {
-		return err
+	if helloErr := c.Hello("localhost"); helloErr != nil {
+		return helloErr
 	}
 	if ok, _ := c.Extension("STARTTLS"); ok {
 		if terr := c.StartTLS(&tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}); terr != nil {
@@ -136,12 +136,12 @@ func (m *Manager) sendMailWithDeadline(addr string, auth smtp.Auth, from string,
 			return aerr
 		}
 	}
-	if err := c.Mail(from); err != nil {
-		return err
+	if mailErr := c.Mail(from); mailErr != nil {
+		return mailErr
 	}
 	for _, rcpt := range to {
-		if err := c.Rcpt(rcpt); err != nil {
-			return err
+		if rcptErr := c.Rcpt(rcpt); rcptErr != nil {
+			return rcptErr
 		}
 	}
 	w, err := c.Data()

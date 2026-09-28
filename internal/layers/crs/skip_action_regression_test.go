@@ -11,6 +11,7 @@ package crs
 // remains parsed-but-unsupported (marker semantics; out of scope here).
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
@@ -38,10 +39,7 @@ SecRule REQUEST_METHOD "@streq POST" "id:1003,phase:%s,pass,nolog"
 
 func TestProcess_SkipActionSkipsNextRules(t *testing.T) {
 	// Phase 1 trio: 1001 matches (skip:1), 1002 skipped, 1003 still matches.
-	trio1 := `SecRule REQUEST_METHOD "@streq POST" "id:1001,phase:1,pass,nolog,skip:1"
-SecRule REQUEST_METHOD "@streq POST" "id:1002,phase:1,pass,nolog"
-SecRule REQUEST_METHOD "@streq POST" "id:1003,phase:1,pass,nolog"
-`
+	trio1 := fmt.Sprintf(skipTrioTmpl, "1", "1", "1")
 	res := skipRuleLayer(t, trio1, nil).Process(&engine.RequestContext{Method: "POST"})
 	if len(res.Findings) != 2 || res.Findings[0].Category != "1001" || res.Findings[1].Category != "1003" {
 		t.Fatalf("phase 1 findings = %v, want [1001 1003]", categories(res.Findings))
@@ -51,10 +49,7 @@ SecRule REQUEST_METHOD "@streq POST" "id:1003,phase:1,pass,nolog"
 	}
 
 	// Phase 2 carries an independent window.
-	trio2 := `SecRule REQUEST_METHOD "@streq POST" "id:1001,phase:2,pass,nolog,skip:1"
-SecRule REQUEST_METHOD "@streq POST" "id:1002,phase:2,pass,nolog"
-SecRule REQUEST_METHOD "@streq POST" "id:1003,phase:2,pass,nolog"
-`
+	trio2 := fmt.Sprintf(skipTrioTmpl, "2", "2", "2")
 	res2 := skipRuleLayer(t, trio2, nil).Process(&engine.RequestContext{Method: "POST"})
 	if len(res2.Findings) != 2 || res2.Findings[0].Category != "1001" || res2.Findings[1].Category != "1003" {
 		t.Fatalf("phase 2 findings = %v, want [1001 1003]", categories(res2.Findings))

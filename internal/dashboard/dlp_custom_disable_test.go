@@ -27,10 +27,7 @@ func TestDLPPatternDeleteDisablesCustomPattern(t *testing.T) {
 
 	// Add a custom pattern through the API adapter (the round-71 identity path).
 	adapter := &dlpAdapter{layer: layer}
-	re, err := regexp.Compile("noisy-[0-9]+")
-	if err != nil {
-		t.Fatalf("compile: %v", err)
-	}
+	re := regexp.MustCompile("noisy-[0-9]+")
 	if err := adapter.AddPattern(&DLPPatternInfo{
 		ID:      "noisy-ptr",
 		Name:    "noisy-ptr",

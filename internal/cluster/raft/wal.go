@@ -589,7 +589,7 @@ func decodeWALPayload(payload []byte) (WALRecord, error) {
 		// count must fail replay cleanly, never attempt a huge allocation at
 		// startup (the WAL's own oversized-allocation protection, per the
 		// maxWALRecordSize/16 MB payload bounds).
-		remaining := uint64(len(p) - off)
+		remaining := uint64(len(p) - off) // #nosec G115 -- len(p)-off >= 0: off is bounds-validated above
 		if uint64(entryCount) > remaining/20 {
 			return WALRecord{}, fmt.Errorf("wal: snapshot entry count %d exceeds remaining payload (%d bytes)", entryCount, remaining)
 		}

@@ -498,7 +498,7 @@ func parseBasicResponseBody(body []byte, raw []byte) (*OCSPResponse, error) {
 		return nil, fmt.Errorf("malformed ResponseData: %w", err)
 	}
 	i := 0
-	if cls, _, tag, _, err := derSplit(tbsElems[i]); err == nil && cls == 2 && tag == 0 {
+	if cls, _, tag, _, splitErr := derSplit(tbsElems[i]); splitErr == nil && cls == 2 && tag == 0 {
 		i = 1 // optional [0] EXPLICIT version (DER DEFAULT v1)
 	}
 	if len(tbsElems) < i+3 {
