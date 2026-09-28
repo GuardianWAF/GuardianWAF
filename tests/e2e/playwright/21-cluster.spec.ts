@@ -33,6 +33,11 @@ test.describe('Cluster Mode', () => {
     expect([200, 429]).toContain(resp.status())
     if (resp.status() === 429) return
     const body = await resp.json()
+    // Disabled runtimes answer {"enabled":false,"message":"..."} — skip
+    // instead of failing on the cluster-enabled shape.
+    if (body.enabled === false) {
+      test.skip(true, 'clustering is not enabled in this runtime')
+    }
     expect('nodes' in body || 'cluster' in body).toBe(true)
   })
 
@@ -69,6 +74,11 @@ test.describe('Cluster Mode', () => {
     expect([200, 429]).toContain(resp.status())
     if (resp.status() === 429) return
     const body = await resp.json()
+    // Disabled runtimes answer {"enabled":false} — skip instead of failing
+    // on the cluster-enabled shape.
+    if (body.enabled === false) {
+      test.skip(true, 'clustering is not enabled in this runtime')
+    }
     expect('requests' in body || 'cpu' in body).toBe(true)
   })
 

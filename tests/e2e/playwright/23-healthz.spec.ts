@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 
 const BASE_URL = process.env.E2E_BASE_URL || 'http://localhost:9443'
-const API_KEY = process.env.E2E_API_KEY || 'test-api-key'
+const ADMIN_KEY = process.env.E2E_ADMIN_KEY || 'guardianwaf-full-e2e-admin-key'
 
 test.describe('Health & Metrics', () => {
   test('healthz endpoint returns 200', async ({ request }) => {
@@ -17,7 +17,10 @@ test.describe('Health & Metrics', () => {
   })
 
   test('metrics endpoint returns Prometheus format', async ({ request }) => {
-    const resp = await request.get(`${BASE_URL}/metrics`)
+    // /metrics is served only behind the dashboard admin key (4cbfbac).
+    const resp = await request.get(`${BASE_URL}/metrics`, {
+      headers: { 'X-API-Key': ADMIN_KEY },
+    })
     expect(resp.status()).toBe(200)
     const body = await resp.text()
     // Prometheus metrics should contain gauge/counter/histogram
@@ -49,7 +52,10 @@ test.describe('Health & Metrics', () => {
   })
 
   test('prometheus metrics contain key WAF indicators', async ({ request }) => {
-    const resp = await request.get(`${BASE_URL}/metrics`)
+    // /metrics is served only behind the dashboard admin key (4cbfbac).
+    const resp = await request.get(`${BASE_URL}/metrics`, {
+      headers: { 'X-API-Key': ADMIN_KEY },
+    })
     expect(resp.status()).toBe(200)
     const body = await resp.text()
 
@@ -57,10 +63,11 @@ test.describe('Health & Metrics', () => {
     expect(body.includes('waf_requests_total') || body.includes('guardianwaf_requests')).toBe(true)
   })
 
-  test('metrics require no auth', async ({ request }) => {
-    // Metrics should be public for Prometheus scraping
+  test('metrics require auth', async ({ request }) => {
+    // 4cbfbac: /metrics is served only behind the dashboard admin key —
+    // unauthenticated scraping must get 401, not the exposition.
     const resp = await request.get(`${BASE_URL}/metrics`)
-    expect(resp.status()).toBe(200)
+    expect(resp.status()).toBe(401)
   })
 
   test('health endpoints require no auth', async ({ request }) => {
