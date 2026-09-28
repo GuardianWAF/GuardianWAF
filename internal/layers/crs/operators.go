@@ -177,7 +177,7 @@ func (oe *OperatorEvaluator) evaluateOperator(opType, argument, value string) (b
 // phrases; when the path is not a readable file the argument itself is
 // treated as a space-separated inline phrase list (the documented fallback).
 func (oe *OperatorEvaluator) evaluatePmFromFile(argument, value string) (bool, error) {
-	content, err := os.ReadFile(argument)
+	content, err := os.ReadFile(argument) // #nosec G304 -- SecLang operator argument: file paths come from operator-authored CRS rule files (same trust origin as the layer's own rule loading); unreadable paths fall back to the documented inline phrase list.
 	if err != nil {
 		return oe.evaluatePm(argument, value)
 	}
@@ -197,7 +197,7 @@ func (oe *OperatorEvaluator) evaluatePmFromFile(argument, value string) (bool, e
 // operator. The argument is a file path; each non-comment line is an IP or
 // CIDR network matched against the value.
 func (oe *OperatorEvaluator) evaluateIpMatchFromFile(argument, value string) (bool, error) {
-	content, err := os.ReadFile(argument)
+	content, err := os.ReadFile(argument) // #nosec G304 -- SecLang operator argument: file paths come from operator-authored CRS rule files (same trust origin as the layer's own rule loading).
 	if err != nil {
 		return false, fmt.Errorf("ipMatchF: reading IP file: %w", err)
 	}
