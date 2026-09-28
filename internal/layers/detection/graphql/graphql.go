@@ -154,12 +154,28 @@ func extractQueries(ctx *engine.RequestContext) ([]string, int) {
 	// 2. application/graphql — raw query in body. Some clients send the
 	// query wrapped in a JSON object even with this content-type, so if
 	// the body parses as JSON with a "query" field, extract that instead.
+	// A JSON-array body is a batch: EVERY operation is analyzed and
+	// batchOps counts them, exactly like the application/json branch —
+	// analyzing only batch[0] let ops >= 1 carry depth/introspection
+	// payloads past every check and silenced the batch finding.
 	if strings.Contains(ct, "application/graphql") {
 		body := strings.TrimSpace(ctx.BodyString)
 		if body == "" {
 			body = strings.TrimSpace(ctx.NormalizedBody)
 		}
 		if body != "" {
+			if body[0] == '[' {
+				var batch []map[string]any
+				if json.Unmarshal([]byte(body), &batch) == nil {
+					for _, op := range batch {
+						if q, ok := op["query"].(string); ok && strings.TrimSpace(q) != "" {
+							queries = append(queries, q)
+							batchOps++
+						}
+					}
+					return queries, batchOps
+				}
+			}
 			if q := tryExtractJSONQuery(body); q != "" {
 				queries = append(queries, q)
 			} else {
@@ -210,23 +226,16 @@ func extractQueries(ctx *engine.RequestContext) ([]string, int) {
 
 // tryExtractJSONQuery attempts to parse body as a JSON object and extract the
 // "query" field. Returns empty string if body is not valid JSON or has no
-// "query" field.
+// "query" field. Batch arrays are handled by the caller (extractQueries), so
+// only object bodies reach here.
 func tryExtractJSONQuery(body string) string {
 	body = strings.TrimSpace(body)
-	if body == "" || (body[0] != '{' && body[0] != '[') {
+	if body == "" || body[0] != '{' {
 		return ""
 	}
-	// Single operation.
 	var op map[string]any
 	if json.Unmarshal([]byte(body), &op) == nil {
 		if q, ok := op["query"].(string); ok {
-			return q
-		}
-	}
-	// Batch operation.
-	var batch []map[string]any
-	if json.Unmarshal([]byte(body), &batch) == nil && len(batch) > 0 {
-		if q, ok := batch[0]["query"].(string); ok {
 			return q
 		}
 	}
