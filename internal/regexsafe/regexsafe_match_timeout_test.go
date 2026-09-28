@@ -19,14 +19,17 @@ import (
 // FindSubmatch intentionally stays fail-open (CRS match-then-act predicates)
 // and is pinned here to keep the two contracts distinct.
 //
-// Determinism: SetTestDeadline clamps the per-regex ceiling to 3ms; a 32MB
-// scan needs ≥10ms on any hardware (more under -race), so the timeout branch
-// fires on every run with an order-of-magnitude margin.
+// Determinism: SetTestDeadline clamps the per-regex ceiling to 3ms, and the
+// anchored pattern "a$" forces RE2 to scan the full 32MB before matching at
+// the final byte — a plain "a" pattern matches at position 0 instantly and
+// wins the race on fast runners (the CI flake). A full 32MB scan needs ≥10ms
+// on any hardware (more under -race), so the timeout branch fires on every
+// run with an order-of-magnitude margin.
 
 func TestMatch_FailClosedOnPerRegexTimeout(t *testing.T) {
 	d := NewDeadline()
 	d.SetTestDeadline(3 * time.Millisecond) // ceiling clamps to the remaining budget
-	re := regexp.MustCompile("a")
+	re := regexp.MustCompile("a$")
 	big := strings.Repeat("a", 32<<20)
 
 	if !Match(re, big, d) {
@@ -37,7 +40,7 @@ func TestMatch_FailClosedOnPerRegexTimeout(t *testing.T) {
 func TestFindSubmatch_StaysFailOpenOnPerRegexTimeout(t *testing.T) {
 	d := NewDeadline()
 	d.SetTestDeadline(3 * time.Millisecond)
-	re := regexp.MustCompile("a")
+	re := regexp.MustCompile("a$")
 	big := strings.Repeat("a", 32<<20)
 
 	if got := FindSubmatch(re, big, d); got != nil {
