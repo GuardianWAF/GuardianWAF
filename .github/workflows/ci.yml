@@ -115,6 +115,32 @@ jobs:
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
 
+  # Cross-platform vet: go build skips test files, so Linux-only syscalls in
+  # untagged test files (see compliance_coverage_test.go history) only surface
+  # under a non-Linux vet. Both commands are green as of the round-20 fix
+  # (newline_write_linux_test.go carries the //go:build linux guard).
+  vet-cross-platform:
+    needs: [build-dashboard]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Download dashboard assets
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: dashboard-dist
+          path: internal/dashboard/dist/
+
+      - name: Vet (windows)
+        run: GOOS=windows go vet ./...
+
+      - name: Vet (darwin)
+        run: GOOS=darwin go vet ./...
+
   dashboard-e2e:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
