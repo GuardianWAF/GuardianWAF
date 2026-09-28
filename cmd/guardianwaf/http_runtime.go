@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/guardianwaf/guardianwaf/internal/config"
+	"github.com/guardianwaf/guardianwaf/internal/netutil"
 )
 
 func buildHTTPHandler(cfg *config.Config, serveMux *http.ServeMux, handler http.Handler) http.Handler {
@@ -35,9 +36,10 @@ func buildHTTPHandler(cfg *config.Config, serveMux *http.ServeMux, handler http.
 }
 
 func sanitizeHTTPRedirectHost(host string) string {
-	if idx := strings.LastIndex(host, ":"); idx > 0 {
-		host = host[:idx]
-	}
+	// netutil.StripPort is bracket-aware: a bare bracketed IPv6 Host (clients
+	// omit the default port) survives whole — a LastIndex cut would mangle
+	// "[::1]" into "[::" and produce a malformed redirect Location.
+	host = netutil.StripPort(host)
 	if host == "" || strings.ContainsAny(host, "@/\\") {
 		return ""
 	}

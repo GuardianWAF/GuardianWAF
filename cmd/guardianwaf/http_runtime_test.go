@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/guardianwaf/guardianwaf/internal/config"
@@ -115,6 +116,8 @@ func TestSanitizeHTTPRedirectHost(t *testing.T) {
 		{name: "hostname", host: "example.com", want: "example.com"},
 		{name: "hostname port", host: "example.com:8080", want: "example.com"},
 		{name: "ipv6 port", host: "[2001:db8::1]:8080", want: "[2001:db8::1]"},
+		{name: "ipv6 bare", host: "[::1]", want: "[::1]"},
+		{name: "ipv6 bare multi-group", host: "[2001:db8::1]", want: "[2001:db8::1]"},
 		{name: "empty", host: "", want: ""},
 		{name: "userinfo", host: "example.com@evil.test", want: ""},
 		{name: "slash", host: "example.com/evil", want: ""},
@@ -129,5 +132,26 @@ func TestSanitizeHTTPRedirectHost(t *testing.T) {
 				t.Fatalf("sanitizeHTTPRedirectHost(%q) = %q, want %q", tt.host, got, tt.want)
 			}
 		})
+	}
+}
+
+// A bare bracketed IPv6 Host (browsers omit the default port) must survive
+// sanitization whole: the redirect target must stay a well-formed URL.
+func TestBuildHTTPHandlerRedirectsBareIPv6Host(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.TLS.Enabled = true
+	cfg.TLS.HTTPRedirect = true
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "http://[::1]/admin", nil)
+	req.Host = "[::1]"
+	buildHTTPHandler(cfg, http.NewServeMux(), http.NotFoundHandler()).ServeHTTP(rr, req)
+
+	loc := rr.Header().Get("Location")
+	if _, err := url.Parse(loc); err != nil {
+		t.Fatalf("Location %q is not a parseable URL: %v", loc, err)
+	}
+	if want := "https://[::1]/admin"; loc != want {
+		t.Fatalf("expected Location %q, got %q", want, loc)
 	}
 }
