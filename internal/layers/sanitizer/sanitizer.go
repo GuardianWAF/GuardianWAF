@@ -48,45 +48,68 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
-	// Step 1: Normalize all inputs
-	ctx.NormalizedPath = NormalizeAll(ctx.Path)
-
-	// Normalize query params
-	ctx.NormalizedQuery = make(map[string][]string, len(ctx.QueryParams))
-	for k, vs := range ctx.QueryParams {
-		normalized := make([]string, len(vs))
-		for i, v := range vs {
-			normalized[i] = NormalizeAll(v)
-		}
-		ctx.NormalizedQuery[k] = normalized
-	}
-
-	// Normalize body.
+	// Step 1: Normalize all inputs — gated by skip_normalization (the
+	// layer view of normalize_encoding: false).
 	//
-	// NOTE (measured): NormalizeAll is a multi-pass decoder allocating ~17x its
-	// input — 1 MiB of "/" costs 12.3 ms and 17.8 MB (BenchmarkNormalizeAllLarge).
-	// The engine reads up to waf.max_body_size (10 MiB default) while the
-	// sanitizer's own max_body_size defaults to 1 MiB, so a 10 MiB body of "/"
-	// costs roughly 123 ms and 178 MB here before ValidateRequest below ever
-	// checks the size.
-	//
-	// Skipping normalization for over-limit bodies was tried and reverted: an
-	// oversized body scores 40, which is under the block threshold, so it is
-	// only logged and still proxied. Not normalizing it would leave
-	// NormalizedBody empty and blind every detector that reads it for bodies
-	// between the two limits — trading a capacity problem for a detection gap.
-	// Closing this properly needs a policy decision (block on oversize, or
-	// lower the engine's read cap), not a silent change here.
-	ctx.NormalizedBody = NormalizeAll(ctx.BodyString)
+	// With the gate on (normalize_encoding: false) the Normalized* fields
+	// carry the RAW values unchanged — raw passthrough, never empty: ctx
+	// fields are the shared detector view, and leaving them empty would
+	// blind every downstream detector that reads them (the round-30
+	// hop-by-hop lesson). Identical raw values dedup in the detectors'
+	// both-forms scans, so coverage of unencoded payloads is unchanged;
+	// percent/unicode-encoded payloads are accepted as-is — the documented
+	// operator trade-off of the gate.
+	if !l.config.SkipNormalization {
+		ctx.NormalizedPath = NormalizeAll(ctx.Path)
 
-	// Normalize headers
-	ctx.NormalizedHeaders = make(map[string][]string, len(ctx.Headers))
-	for k, vs := range ctx.Headers {
-		normalized := make([]string, len(vs))
-		for i, v := range vs {
-			normalized[i] = NormalizeAll(v)
+		// Normalize query params
+		ctx.NormalizedQuery = make(map[string][]string, len(ctx.QueryParams))
+		for k, vs := range ctx.QueryParams {
+			normalized := make([]string, len(vs))
+			for i, v := range vs {
+				normalized[i] = NormalizeAll(v)
+			}
+			ctx.NormalizedQuery[k] = normalized
 		}
-		ctx.NormalizedHeaders[k] = normalized
+
+		// Normalize body.
+		//
+		// NOTE (measured): NormalizeAll is a multi-pass decoder allocating ~17x its
+		// input — 1 MiB of "/" costs 12.3 ms and 17.8 MB (BenchmarkNormalizeAllLarge).
+		// The engine reads up to waf.max_body_size (10 MiB default) while the
+		// sanitizer's own max_body_size defaults to 1 MiB, so a 10 MiB body of "/"
+		// costs roughly 123 ms and 178 MB here before ValidateRequest below ever
+		// checks the size.
+		//
+		// Skipping normalization for over-limit bodies was tried and reverted: an
+		// oversized body scores 40, which is under the block threshold, so it is
+		// only logged and still proxied. Not normalizing it would leave
+		// NormalizedBody empty and blind every detector that reads it for bodies
+		// between the two limits — trading a capacity problem for a detection gap.
+		// Closing this properly needs a policy decision (block on oversize, or
+		// lower the engine's read cap), not a silent change here.
+		ctx.NormalizedBody = NormalizeAll(ctx.BodyString)
+
+		// Normalize headers
+		ctx.NormalizedHeaders = make(map[string][]string, len(ctx.Headers))
+		for k, vs := range ctx.Headers {
+			normalized := make([]string, len(vs))
+			for i, v := range vs {
+				normalized[i] = NormalizeAll(v)
+			}
+			ctx.NormalizedHeaders[k] = normalized
+		}
+	} else {
+		ctx.NormalizedPath = ctx.Path
+		ctx.NormalizedQuery = make(map[string][]string, len(ctx.QueryParams))
+		for k, vs := range ctx.QueryParams {
+			ctx.NormalizedQuery[k] = append([]string(nil), vs...)
+		}
+		ctx.NormalizedBody = ctx.BodyString
+		ctx.NormalizedHeaders = make(map[string][]string, len(ctx.Headers))
+		for k, vs := range ctx.Headers {
+			ctx.NormalizedHeaders[k] = append([]string(nil), vs...)
+		}
 	}
 
 	// Step 2: Validate

@@ -17,6 +17,41 @@ type Config struct {
 	AllowedMethods []string
 	BlockNullBytes bool
 	StripHopByHop  bool
+	// SkipNormalization gates the multi-pass input decoding in
+	// Layer.Process. The zero value normalizes (every direct construction
+	// site — tests, library users — keeps the always-decode behavior);
+	// config.DefaultConfig leaves it false as well, and buildSanitizer
+	// sets it from !normalize_encoding. When true, the Normalized* context
+	// fields carry the RAW values unchanged — raw passthrough, never
+	// empty — so downstream detectors keep both-forms coverage (identical
+	// strings dedup) while percent/unicode-encoded payloads are no longer
+	// decoded for them: the documented operator trade-off of
+	// normalize_encoding: false.
+	SkipNormalization bool
+	// PathOverrides customises MaxBodySize per request-path prefix
+	// (longest matching prefix wins; no match falls back to MaxBodySize).
+	PathOverrides []PathOverride
+}
+
+// PathOverride allows per-path customisation of sanitiser limits. It
+// mirrors config.PathOverride at the layer boundary.
+type PathOverride struct {
+	Path        string
+	MaxBodySize int64
+}
+
+// effectiveMaxBodySize returns the body-size limit for a request path: the
+// longest matching PathOverrides prefix wins, falling back to MaxBodySize.
+func (cfg Config) effectiveMaxBodySize(path string) int64 {
+	best := cfg.MaxBodySize
+	bestLen := 0
+	for _, po := range cfg.PathOverrides {
+		if po.Path != "" && strings.HasPrefix(path, po.Path) && len(po.Path) > bestLen {
+			best = po.MaxBodySize
+			bestLen = len(po.Path)
+		}
+	}
+	return best
 }
 
 // hopByHopHeaders are headers that should be stripped when proxying.
@@ -79,14 +114,15 @@ func ValidateRequest(ctx *engine.RequestContext, cfg Config) []engine.Finding {
 		}
 	}
 
-	// Body size check
-	if cfg.MaxBodySize > 0 && int64(len(ctx.Body)) > cfg.MaxBodySize {
+	// Body size check (per-path overrides take precedence over the global
+	// limit: longest matching prefix wins)
+	if maxBody := cfg.effectiveMaxBodySize(ctx.NormalizedPath); maxBody > 0 && int64(len(ctx.Body)) > maxBody {
 		findings = append(findings, engine.Finding{
 			DetectorName: "sanitizer",
 			Category:     "sanitizer",
 			Severity:     engine.SeverityHigh,
 			Score:        40,
-			Description:  fmt.Sprintf("Body size %d exceeds maximum %d", len(ctx.Body), cfg.MaxBodySize),
+			Description:  fmt.Sprintf("Body size %d exceeds maximum %d", len(ctx.Body), maxBody),
 			Location:     "body",
 			Confidence:   1.0,
 		})

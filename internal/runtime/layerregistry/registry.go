@@ -179,9 +179,12 @@ func buildIPACL(ctx *BuildContext, cfg *config.Config) (engine.Layer, error) {
 		Whitelist: cfg.WAF.IPACL.Whitelist,
 		Blacklist: cfg.WAF.IPACL.Blacklist,
 		AutoBan: ipacl.AutoBanConfig{
-			Enabled:    cfg.WAF.IPACL.AutoBan.Enabled,
-			DefaultTTL: cfg.WAF.IPACL.AutoBan.DefaultTTL,
-			MaxTTL:     cfg.WAF.IPACL.AutoBan.MaxTTL,
+			Enabled:           cfg.WAF.IPACL.AutoBan.Enabled,
+			DefaultTTL:        cfg.WAF.IPACL.AutoBan.DefaultTTL,
+			MaxTTL:            cfg.WAF.IPACL.AutoBan.MaxTTL,
+			MaxAutoBanEntries: cfg.WAF.IPACL.AutoBan.MaxAutoBanEntries,
+			PersistPath:       cfg.WAF.IPACL.AutoBan.PersistPath,
+			PersistInterval:   cfg.WAF.IPACL.AutoBan.PersistInterval,
 		},
 	})
 	if err != nil {
@@ -300,15 +303,21 @@ func buildCustomRules(ctx *BuildContext, cfg *config.Config) (engine.Layer, erro
 }
 
 func buildSanitizer(cfg *config.Config) (engine.Layer, error) {
+	overrides := make([]sanitizer.PathOverride, 0, len(cfg.WAF.Sanitizer.PathOverrides))
+	for _, po := range cfg.WAF.Sanitizer.PathOverrides {
+		overrides = append(overrides, sanitizer.PathOverride{Path: po.Path, MaxBodySize: po.MaxBodySize})
+	}
 	return sanitizer.NewLayer(&sanitizer.Config{
-		MaxURLLength:   cfg.WAF.Sanitizer.MaxURLLength,
-		MaxHeaderSize:  cfg.WAF.Sanitizer.MaxHeaderSize,
-		MaxHeaderCount: cfg.WAF.Sanitizer.MaxHeaderCount,
-		MaxBodySize:    cfg.WAF.Sanitizer.MaxBodySize,
-		MaxCookieSize:  cfg.WAF.Sanitizer.MaxCookieSize,
-		AllowedMethods: cfg.WAF.Sanitizer.AllowedMethods,
-		BlockNullBytes: cfg.WAF.Sanitizer.BlockNullBytes,
-		StripHopByHop:  cfg.WAF.Sanitizer.StripHopByHop,
+		MaxURLLength:      cfg.WAF.Sanitizer.MaxURLLength,
+		MaxHeaderSize:     cfg.WAF.Sanitizer.MaxHeaderSize,
+		MaxHeaderCount:    cfg.WAF.Sanitizer.MaxHeaderCount,
+		MaxBodySize:       cfg.WAF.Sanitizer.MaxBodySize,
+		MaxCookieSize:     cfg.WAF.Sanitizer.MaxCookieSize,
+		AllowedMethods:    cfg.WAF.Sanitizer.AllowedMethods,
+		BlockNullBytes:    cfg.WAF.Sanitizer.BlockNullBytes,
+		StripHopByHop:     cfg.WAF.Sanitizer.StripHopByHop,
+		SkipNormalization: !cfg.WAF.Sanitizer.NormalizeEncoding,
+		PathOverrides:     overrides,
 	}), nil
 }
 
