@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net"
+	"strings"
 
 	"github.com/guardianwaf/guardianwaf/internal/cluster/gossip"
 	"github.com/guardianwaf/guardianwaf/internal/cluster/peersync"
@@ -45,6 +46,23 @@ func setupClusterRuntime(cfg *config.Config, eng *engine.Engine, bctx *layerregi
 	}
 	if cfg.Cluster.BindAddr == "" {
 		return nil, fmt.Errorf("cluster.enabled is true but cluster.bind_addr is empty")
+	}
+	// Fail closed on a wildcard bind address. RaftAddr is ADVERTISED to every
+	// peer via gossip piggyback (gossip/protocol.go:134), collected by the
+	// peersync bridge (peersync/bridge.go:102 -> raft.Peer{Addr: m.RaftAddr}),
+	// and then DIALED by raft.SendRPC (raft.go:391, :528). A bind wildcard
+	// ("0.0.0.0:7947" — the documented example) is not a dialable destination:
+	// a peer that learns it dials 0.0.0.0, which on Linux connects to ITSELF,
+	// not this node. Replication to every gossip-discovered peer would then
+	// silently target the wrong host and the cluster would never form quorum.
+	// Unlike the dashboard address there is no second address to fall back to,
+	// so a cluster node must be given an explicitly routable bind address.
+	if isUnspecifiedBindHost(cfg.Cluster.BindAddr) {
+		return nil, fmt.Errorf(
+			"cluster.enabled is true but cluster.bind_addr host is a wildcard (%s); "+
+				"it is advertised to peers as the Raft address and dialing a wildcard "+
+				"reaches the dialing host, not this node — set cluster.bind_addr to "+
+				"this node's routable IP (e.g. 10.0.0.2:7947)", cfg.Cluster.BindAddr)
 	}
 	if cfg.Cluster.GossipAddr == "" {
 		return nil, fmt.Errorf("cluster.enabled is true but cluster.gossip_addr is empty")
@@ -108,13 +126,17 @@ func setupClusterRuntime(cfg *config.Config, eng *engine.Engine, bctx *layerregi
 	var g *gossip.Gossip
 	var peerBridge *peersync.Bridge
 	if cfg.Cluster.GossipAddr != "" {
-		gossipCfg := gossip.Config{
-			NodeID:        cfg.Cluster.NodeID,
-			Addr:          cfg.Cluster.GossipAddr,
-			RaftAddr:      cfg.Cluster.BindAddr,
-			DashboardAddr: "http://" + clusterDashboardAdvertiseAddr(cfg.Dashboard.Listen, cfg.Cluster.BindAddr),
-			Secret:        clusterSecret,
-		}
+		// Start from DefaultConfig so the timing fields (ProbeInterval,
+		// GossipInterval, ProbeTimeout, SuspicionTimeout, IndirectChecks,
+		// GossipFanout) get the package's own production values. A hand-rolled
+		// Config literal left them all zero, and gossip.Start launches runProber
+		// and runGossip, which each call time.NewTicker(<interval>) — a
+		// non-positive interval panics inside those unrecovered goroutines, so
+		// enabling cluster.enabled crashed the whole process at startup.
+		gossipCfg := gossip.DefaultConfig(cfg.Cluster.NodeID, cfg.Cluster.GossipAddr)
+		gossipCfg.RaftAddr = cfg.Cluster.BindAddr
+		gossipCfg.DashboardAddr = "http://" + clusterDashboardAdvertiseAddr(cfg.Dashboard.Listen, cfg.Cluster.BindAddr)
+		gossipCfg.Secret = clusterSecret
 
 		g, err = gossip.New(gossipCfg)
 		if err != nil {
@@ -125,7 +147,17 @@ func setupClusterRuntime(cfg *config.Config, eng *engine.Engine, bctx *layerregi
 		peerBridge = peersync.NewBridge(g, r, nil)
 		onJoin, onLeave := peerBridge.Callbacks()
 		g.SetCallbacks(onJoin, onLeave)
-		peerBridge.Sync()
+		// Do NOT Sync() here. At this point gossip has only ever seen itself
+		// (gossip.New registers only the local member), and Bridge.Sync
+		// EXCLUDES self when it builds the Raft peer set. Calling it before
+		// g.Start() therefore computed an EMPTY peer list, and
+		// raft.UpdatePeers is a full replace — wiping the operator's
+		// cluster.peers seed list that raft.New was just seeded with. With
+		// zero peers hasQuorum counts total=1, majority=1, so the node
+		// self-elects on a cluster configured for N. The onJoin/onLeave
+		// callbacks above already call Sync() whenever gossip actually
+		// discovers a peer, which is when the peer set is legitimately
+		// recomputed from real membership.
 
 		if err := g.Start(); err != nil {
 			g.Stop()
@@ -133,12 +165,21 @@ func setupClusterRuntime(cfg *config.Config, eng *engine.Engine, bctx *layerregi
 			return nil, fmt.Errorf("start gossip node: %w", err)
 		}
 
-		// Bootstrap: contact known peers so gossip discovers them.
-		// The YAML peers list contains Raft TCP addresses; gossip uses
-		// its own UDP addresses. For single-bootstrap deployments, nodes
-		// discover each other via UDP multicast/seed lists at the gossip
-		// layer. Here we just log — gossip probes will find peers once
-		// their UDP addresses are known.
+		// Bootstrap gossip membership. gossip.Join is the ONLY bootstrap API:
+		// it push-pulls with each address so this node learns who else exists.
+		// Without it, membership stays at the single self-member registered by
+		// gossip.New, and every discovery path is inert — RandomMember and
+		// randomPeers both exclude self, so the prober has no target and
+		// dissemination has no recipient. The peersync bridge would then never
+		// activate in a real deployment. Nothing else calls Join: every test
+		// that forms a gossip cluster calls it explicitly, which is why the
+		// suite was green while production discovery was dead.
+		if seeds := gossipBootstrapAddrs(cfg.Cluster.Peers, cfg.Cluster.GossipAddr); len(seeds) > 0 {
+			if n := g.Join(seeds); n > 0 {
+				eng.Logs.Infof("Gossip bootstrap: contacted %d/%d seed gossip addresses",
+					n, len(seeds))
+			}
+		}
 		eng.Logs.Infof("Gossip membership started: node=%s gossip=%s raft=%s",
 			cfg.Cluster.NodeID, cfg.Cluster.GossipAddr, cfg.Cluster.BindAddr)
 	}
@@ -153,6 +194,56 @@ func setupClusterRuntime(cfg *config.Config, eng *engine.Engine, bctx *layerregi
 		sm:     sm,
 		api:    api,
 	}, nil
+}
+
+// isUnspecifiedBindHost reports whether a bind address's host is a wildcard /
+// unspecified address (0.0.0.0, ::, or empty) — i.e. a listen target that is
+// not a valid dialable destination. Such an address must never be advertised to
+// cluster peers. IPv6 brackets are handled by net.SplitHostPort, so "[::]:port"
+// yields the bare "::" host.
+func isUnspecifiedBindHost(bindAddr string) bool {
+	host, _, err := net.SplitHostPort(bindAddr)
+	if err != nil {
+		// Not a host:port pair; fall back to the whole string so a bare
+		// "0.0.0.0" is still caught.
+		host = bindAddr
+	}
+	host = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
+	return host == "" || host == "0.0.0.0" || host == "::" || host == "[::]"
+}
+
+// gossipBootstrapAddrs derives gossip bootstrap addresses from the configured
+// cluster peers. cfg.Cluster.Peers carries each peer's RAFT TCP address (that
+// is what the seed list feeds raft.New), but gossip rides its own UDP port, so
+// the port is swapped for this node's configured gossip port while the host —
+// the part operators actually configure to be routable — is preserved.
+//
+// When the gossip address has no parsable port there is nothing to derive, and
+// the peer addresses are returned unchanged rather than guessed at.
+func gossipBootstrapAddrs(peers []config.ClusterPeer, gossipAddr string) []string {
+	if len(peers) == 0 {
+		return nil
+	}
+	_, gossipPort, err := net.SplitHostPort(gossipAddr)
+	if err != nil || gossipPort == "" {
+		out := make([]string, 0, len(peers))
+		for _, p := range peers {
+			out = append(out, p.Addr)
+		}
+		return out
+	}
+	out := make([]string, 0, len(peers))
+	for _, p := range peers {
+		host, _, err := net.SplitHostPort(p.Addr)
+		if err != nil || host == "" {
+			// Not a host:port pair (e.g. a bare host); pass it through and let
+			// gossip report the failure rather than dropping the peer silently.
+			out = append(out, p.Addr)
+			continue
+		}
+		out = append(out, net.JoinHostPort(host, gossipPort))
+	}
+	return out
 }
 
 // clusterDashboardAdvertiseAddr returns the host:port other cluster nodes
