@@ -894,9 +894,17 @@ func (l *Layer) extractPathParam(requestPath, routePath, paramName string) strin
 		}
 	}
 
-	// Now extract the parameter
+	// Now extract the parameter. The placeholder must match the whole
+	// segment: a substring test let a longer name capture a shorter one, so
+	// for /users/{user_id}/posts/{id} the "id" parameter matched {user_id}
+	// first and returned the user_id SEGMENT value. The id's own schema was
+	// then applied to the wrong field — a value violating the id schema
+	// passed silently, and a legitimate user_id value was reported against
+	// "id". Placeholders are whole segments by construction here (compilePath
+	// Pattern turns each {name} into one capture group), so equality against
+	// the brace-wrapped name is exact and sufficient.
 	for i, part := range routeParts {
-		if part == "{"+paramName+"}" || (strings.HasPrefix(part, "{") && strings.Contains(part, paramName)) {
+		if part == "{"+paramName+"}" {
 			if i < len(requestParts) {
 				return requestParts[i]
 			}
