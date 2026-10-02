@@ -102,9 +102,15 @@ func tokenUpperValue(t Token) string {
 
 // makeFinding creates a Finding with standard fields filled in.
 func makeFinding(score int, severity engine.Severity, desc, matched, location string, confidence float64) engine.Finding {
-	if len(matched) > 200 {
-		matched = matched[:197] + "..."
-	}
+	// MatchedValue carries attacker-controlled request content into events,
+	// the dashboard, and traces. Truncate with the canonical rune-safe
+	// helper: the previous `matched[:197] + "..."` byte slice split any
+	// multi-byte rune straddling the cut and stored an invalid final
+	// sequence. The engine's ScoreAccumulator.Add re-truncation could not
+	// repair it — TruncateEvidence returns early once len <= 200, and the
+	// byte slice lands at exactly 200. Same fix as engine/finding.go,
+	// xxe.go, ai/analyzer.go, LFI, ssrf, sanitizer/validate.go, and xss.
+	matched = engine.TruncateEvidence(matched, 200)
 	return engine.Finding{
 		DetectorName: "sqli",
 		Category:     "sqli",
@@ -444,7 +450,17 @@ func checkExecString(tokens []Token, location string) (engine.Finding, bool) {
 					if tokens[j].Type == TokenComment {
 						continue
 					}
-					// EXEC followed by anything useful (string, identifier, function)
+					// EXEC followed by anything useful (string, identifier, function).
+					// An opening paren is not a terminator: SQL Server parses
+					// EXEC('cmd') and EXEC 'cmd' as the same statement, and the
+					// paren only delimits the argument list. The previous
+					// unconditional break dropped the 80-score finding for the
+					// bare `EXEC('...')` spelling, which is the form sqlmap and
+					// friends emit — the argument was still right behind the
+					// paren, so the lookahead must step over it and keep looking.
+					if tokens[j].Type == TokenParenOpen {
+						continue
+					}
 					if tokens[j].Type == TokenStringLiteral || tokens[j].Type == TokenOther || tokens[j].Type == TokenFunction {
 						matched := extractRange(tokens, i, min(len(tokens)-1, j+2))
 						return makeFinding(80, engine.SeverityHigh,
