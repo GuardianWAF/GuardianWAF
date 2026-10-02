@@ -583,10 +583,20 @@ func buildResponse(cfg *config.Config) (engine.Layer, error) {
 	}
 	if cfg.WAF.Response.SecurityHeaders.Enabled {
 		respCfg.Headers = response.SecurityHeaders{
-			XContentTypeOptions: "nosniff",
-			XFrameOptions:       cfg.WAF.Response.SecurityHeaders.XFrameOptions,
-			ReferrerPolicy:      cfg.WAF.Response.SecurityHeaders.ReferrerPolicy,
-			PermissionsPolicy:   cfg.WAF.Response.SecurityHeaders.PermissionsPolicy,
+			XFrameOptions:     cfg.WAF.Response.SecurityHeaders.XFrameOptions,
+			ReferrerPolicy:    cfg.WAF.Response.SecurityHeaders.ReferrerPolicy,
+			PermissionsPolicy: cfg.WAF.Response.SecurityHeaders.PermissionsPolicy,
+		}
+		// The header value must follow the configured knob. This was
+		// hardcoded to "nosniff", so `x_content_type_options: false` was
+		// silently ignored — the dashboard read the knob back as false while
+		// the header kept being emitted (the buildIPACL/buildDLP
+		// "config knob never reaches the layer" family). The layer already
+		// models this correctly: SecurityHeaders fields are plain strings and
+		// Apply skips empty values, so leaving it empty when the knob is off
+		// suppresses the header as configured.
+		if cfg.WAF.Response.SecurityHeaders.XContentTypeOptions {
+			respCfg.Headers.XContentTypeOptions = "nosniff"
 		}
 		if cfg.WAF.Response.SecurityHeaders.HSTS.Enabled {
 			hsts := fmt.Sprintf("max-age=%d", cfg.WAF.Response.SecurityHeaders.HSTS.MaxAge)

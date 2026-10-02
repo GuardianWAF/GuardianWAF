@@ -93,15 +93,28 @@ func (h *APIValidationHandler) handleUploadSchema(w http.ResponseWriter, r *http
 		return
 	}
 
+	// strict_mode is a GLOBAL waf.api_validation.strict_mode setting: the
+	// layer has no per-schema counterpart (apivalidation.SchemaSource carries
+	// no such field, and every enforcement decision reads l.config.StrictMode).
+	// It used to be parsed here and silently dropped by the adapter, so an
+	// operator uploading strict_mode:true got non-strict validation while both
+	// this endpoint and the schema list/detail read-backs advertised the field.
+	// Reject it explicitly instead of accepting a security-relevant setting
+	// that does nothing.
+	if req.StrictMode {
+		writeError(w, http.StatusBadRequest,
+			"strict_mode is a global setting (waf.api_validation.strict_mode); per-schema strict_mode is not supported — remove it from this request")
+		return
+	}
+
 	if req.Format == "" {
 		req.Format = "json"
 	}
 
 	schema := &APISchemaInfo{
-		Name:       req.Name,
-		Content:    req.Content,
-		Format:     req.Format,
-		StrictMode: req.StrictMode,
+		Name:    req.Name,
+		Content: req.Content,
+		Format:  req.Format,
 	}
 
 	if err := apiLayer.LoadSchema(schema); err != nil {

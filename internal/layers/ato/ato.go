@@ -179,11 +179,22 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		}
 	}
 
-	// Record the attempt
+	// Record the attempt.
+	//
+	// Password MUST be carried here: checkPasswordSpray above reads the
+	// tracker's passwordHashes map (via GetPasswordUsesInWindow /
+	// GetPasswordUseCount), and that map is only ever written by
+	// RecordAttempt when LoginAttempt.Password is non-empty. Omitting it
+	// left the map permanently empty, so the windowed count was always 0 and
+	// password_spray.enabled could never reach its configured threshold —
+	// the detector was dead in serve mode regardless of operator config.
+	// The plaintext is not stored: tracker hashes it (sha256) on arrival.
+	password := l.extractPassword(ctx.BodyString)
 	l.tracker.RecordAttempt(&LoginAttempt{
-		IP:    ctx.ClientIP,
-		Email: email,
-		Time:  time.Now(),
+		IP:       ctx.ClientIP,
+		Email:    email,
+		Password: password,
+		Time:     time.Now(),
 	})
 
 	return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}

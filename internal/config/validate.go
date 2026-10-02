@@ -1567,6 +1567,18 @@ func validateIPACL(acl *IPACLConfig, ve *ValidationError) {
 				fmt.Sprintf("invalid IP or CIDR: %q", entry))
 		}
 	}
+	// An auto-ban TTL of 0 or less makes ipacl.AddAutoBan store an entry whose
+	// ExpiresAt is already in the past. The ban is then recorded, consumes a
+	// MaxAutoBanEntries slot and is filtered out of the dashboard's ban list,
+	// but never blocks a request — so the rate-limit auto-ban control is
+	// silently inert while the config still reads as configured. Every
+	// comparable bound guards this: validateAIAnalysis rejects auto_block_ttl
+	// < 0, the AI analyzer self-defaults AutoBlockTTL<=0 to an hour, and the
+	// dashboard rejects a non-positive ban duration outright.
+	if acl.AutoBan.Enabled && acl.AutoBan.DefaultTTL <= 0 {
+		ve.addError("waf.ip_acl.auto_ban.default_ttl",
+			fmt.Sprintf("must be > 0; got %v — a zero or negative TTL stores an already-expired ban that never blocks", acl.AutoBan.DefaultTTL))
+	}
 }
 
 func validateSanitizer(san *SanitizerConfig, ve *ValidationError) {

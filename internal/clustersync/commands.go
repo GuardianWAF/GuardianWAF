@@ -3,6 +3,7 @@ package clustersync
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"time"
 )
 
@@ -96,7 +97,20 @@ func NewBanCommand(ip string, duration time.Duration) (Command, error) {
 	if duration < 0 {
 		return Command{}, fmt.Errorf("clustersync: invalid ban duration %s (0 = permanent)", duration)
 	}
-	payload, err := json.Marshal(BanIPPayload{IP: ip, Duration: duration})
+	// Canonicalize the ban key. ReplicatedStore is keyed by the raw string on
+	// write but read with ip.String() by the WAF pipeline
+	// (internal/layers/ipacl/ipacl.go), so a non-canonical spelling — an
+	// expanded IPv6 literal, an IPv4-mapped "::ffff:a.b.c.d", or an uppercase
+	// form — produced a ban that was accepted, replicated to every node, shown
+	// as active, and never matched a single request. An unparseable address
+	// could never match either, since the read side derives the key from a
+	// parsed net.IP. Reject those outright so the operator gets an error rather
+	// than a silently inert ban.
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return Command{}, fmt.Errorf("clustersync: invalid ban IP %q", ip)
+	}
+	payload, err := json.Marshal(BanIPPayload{IP: parsed.String(), Duration: duration})
 	if err != nil {
 		return Command{}, err
 	}
@@ -105,7 +119,15 @@ func NewBanCommand(ip string, duration time.Duration) (Command, error) {
 
 // NewUnbanCommand creates an unban command.
 func NewUnbanCommand(ip string) (Command, error) {
-	payload, err := json.Marshal(UnbanIPPayload{IP: ip})
+	// Canonicalize exactly as NewBanCommand does. Bans are stored under
+	// net.IP.String(), so an unban carrying any other spelling ("::ffff:a.b.c.d",
+	// an expanded IPv6 literal) would delete a key that is not present and leave
+	// the ban in force — the operator gets a success and the IP stays blocked.
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return Command{}, fmt.Errorf("clustersync: invalid unban IP %q", ip)
+	}
+	payload, err := json.Marshal(UnbanIPPayload{IP: parsed.String()})
 	if err != nil {
 		return Command{}, err
 	}

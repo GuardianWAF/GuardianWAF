@@ -758,9 +758,19 @@ func (fe *fieldErrs) floatField(n *Node, key string, field *float64, minVal floa
 			fe.errs = append(fe.errs, fmt.Errorf("%s: %w", key, err))
 			return
 		}
-		if f > minVal {
-			*field = f
+		// minVal is an inclusive minimum enforced with a LOUD error, matching
+		// nodeIntField. The previous `if f > minVal { *field = f }` silent skip
+		// could never hold: this helper runs before the reflective tagged
+		// overlay (populateTaggedValue, called last in PopulateFromNode), which
+		// re-applies the raw yaml-tagged value, so a skipped value was bound
+		// anyway. A non-positive ATO impossible-travel threshold then made
+		// `timeDiff <= cfg.MaxTimeHours` unsatisfiable in the layer, silently
+		// disabling impossible-travel detection.
+		if f < minVal {
+			fe.errs = append(fe.errs, fmt.Errorf("%s: %v is below the minimum %v", key, f, minVal))
+			return
 		}
+		*field = f
 	}
 }
 

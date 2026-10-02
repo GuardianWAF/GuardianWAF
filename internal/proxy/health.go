@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -197,8 +196,19 @@ func (hc *HealthChecker) checkAll(ctx context.Context) {
 
 // check performs a single health check against a target.
 func (hc *HealthChecker) check(ctx context.Context, t *Target) bool {
-	checkURL := fmt.Sprintf("%s://%s%s", t.URL.Scheme, t.URL.Host, hc.path)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, checkURL, http.NoBody)
+	// Join the target's base path with the probe path, exactly as the reverse
+	// proxy does: t.proxy.Rewrite calls pr.SetURL(u), which prepends t.URL.Path
+	// to the forwarded request. Building the probe from Host + hc.path alone
+	// skipped that prefix, so an upstream configured as "http://backend:8080/api"
+	// was probed at "/healthz" instead of "/api/healthz". A backend mounting its
+	// app under /api answered 404, check() returned false, checkAll called
+	// SetHealthy(false), and the target was dropped from every load-balancing
+	// pass — a healthy upstream permanently out of rotation, serving 503s for
+	// traffic it was handling correctly. Upstream URLs with a path are accepted
+	// by validateUpstreamTargetURL (it checks only scheme and host), so this is
+	// reachable configuration.
+	probeURL := t.URL.JoinPath(hc.path)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, probeURL.String(), http.NoBody)
 	if err != nil {
 		return false
 	}

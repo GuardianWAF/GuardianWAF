@@ -14,6 +14,12 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/layers/virtualpatch"
 )
 
+// cspViolationReportType is the ClientReport.Type the clientside layer stamps
+// on browser CSP violations. It is the discriminator every CSP-reporting
+// reader must filter on: the same store also holds the agent's routine
+// telemetry (one entry per fetch/XHR/form submit).
+const cspViolationReportType = "csp_violation"
+
 func (a *mcpEngineAdapter) GetCRSRules(phase int, severity string) (any, error) {
 	layer := a.engine.FindLayer("crs")
 	if layer == nil {
@@ -417,7 +423,21 @@ func (a *mcpEngineAdapter) GetCSPReports(limit int) (any, error) {
 	if cs == nil {
 		return map[string]any{"reports": []any{}}, nil
 	}
-	reports := cs.Reports()
+	// Filter to CSP violations BEFORE applying the limit. The store also holds
+	// the agent's routine telemetry (one entry per fetch/XHR/form submit), and
+	// that volume is unbounded relative to actual violations. Serving the
+	// unfiltered list answered a "what CSP violations occurred?" question with
+	// telemetry noise, and because the tail-slice was applied to that mixed
+	// list, ordinary page traffic could push every recorded violation out of
+	// the window — a false all-clear while violations were stored. The
+	// dashboard's identically-named reader already filtered; this matches it.
+	reports := make([]clientside.ClientReport, 0, 16)
+	for _, r := range cs.Reports() {
+		if r.Type != cspViolationReportType {
+			continue
+		}
+		reports = append(reports, r)
+	}
 	if limit > 0 && len(reports) > limit {
 		reports = reports[len(reports)-limit:]
 	}

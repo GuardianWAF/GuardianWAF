@@ -24,6 +24,12 @@ type Config struct {
 	AutoBan   AutoBanConfig
 }
 
+// defaultAutoBanTTL is the fallback ban duration used when a caller supplies a
+// non-positive TTL and the layer has no configured default either. It matches
+// the shipped config default (internal/config/defaults.go) and the AI
+// analyzer's own AutoBlockTTL fallback.
+const defaultAutoBanTTL = time.Hour
+
 // AutoBanConfig configures the auto-ban feature.
 type AutoBanConfig struct {
 	Enabled           bool
@@ -239,6 +245,20 @@ func (l *Layer) AddAutoBan(ip, reason string, ttl time.Duration) {
 
 	if l.config.AutoBan.MaxTTL > 0 && ttl > l.config.AutoBan.MaxTTL {
 		ttl = l.config.AutoBan.MaxTTL
+	}
+
+	// A non-positive TTL would store an entry whose ExpiresAt is already in the
+	// past: the ban is recorded, consumes a MaxAutoBanEntries slot, is filtered
+	// out of the dashboard's ban list, and never blocks a request — a ban that
+	// is silently inert. Fall back to the configured default, then to the
+	// shipped default, so no caller can produce a ban that does not exist.
+	// Config validation (validateIPACL) rejects a non-positive default_ttl, so
+	// this is defence in depth for library callers and runtime wiring.
+	if ttl <= 0 {
+		ttl = l.config.AutoBan.DefaultTTL
+	}
+	if ttl <= 0 {
+		ttl = defaultAutoBanTTL
 	}
 
 	l.mu.Lock()

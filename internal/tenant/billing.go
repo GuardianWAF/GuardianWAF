@@ -1,6 +1,8 @@
 package tenant
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -411,11 +413,35 @@ func (bm *BillingManager) load() error {
 	return nil
 }
 
+// generateInvoiceID builds a tenant-scoped invoice identifier.
+//
+// The previous form encoded seconds + a MILLISECOND field, so any two
+// GenerateInvoice calls inside the same millisecond produced byte-identical
+// IDs. GenerateInvoice holds bm.mu across bm.save(), but that write is tens of
+// microseconds on tmpfs/overlayfs — far under 1ms — so collisions were routine,
+// not theoretical (measured: 300 invoices produced 45 duplicate IDs).
+//
+// The damage is data corruption, not a cosmetic duplicate: UpdateInvoiceStatus
+// searches bm.invoices by ID alone and mutates the FIRST match, so with two
+// invoices sharing an ID an operator's status change landed on an arbitrary
+// record and the other became permanently unreachable by ID.
+//
+// A random suffix — the same scheme generateAlertID uses in this package —
+// keeps the human-readable INV-<tenant>-<timestamp> shape while making the ID
+// unique. The timestamp is retained for sortability and operator recognition.
 func generateInvoiceID(tenantID string) string {
 	prefix := tenantID
 	if len(prefix) > 8 {
 		prefix = prefix[:8]
 	}
 	now := time.Now()
-	return fmt.Sprintf("INV-%s-%d%03d", prefix, now.Unix(), now.Nanosecond()/1e6)
+	stamp := fmt.Sprintf("%d%03d", now.Unix(), now.Nanosecond()/1e6)
+	var b [6]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// rand failure is not expected; fall back to a strictly finer clock
+		// (nanoseconds) which is still far coarser than the ID's real
+		// uniqueness requirement but cannot repeat within a call.
+		return fmt.Sprintf("INV-%s-%s-%d", prefix, stamp, now.UnixNano())
+	}
+	return fmt.Sprintf("INV-%s-%s-%s", prefix, stamp, hex.EncodeToString(b[:]))
 }

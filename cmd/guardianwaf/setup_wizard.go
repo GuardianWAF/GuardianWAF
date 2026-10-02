@@ -421,9 +421,17 @@ docker:
 }
 
 func (w *setupWizard) promptDashboard() {
-	fmt.Println("\n━━━ Dashboard ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Print("Dashboard port [0.0.0.0:9443]: ")
-	w.dashboardListen = readLine(":9443")
+	fmt.Println("\n━━━ Dashboard ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	// Default to loopback, matching DefaultConfig (Dashboard.Listen =
+	// "127.0.0.1:9443"). The admin dashboard has no TLS — dashboard.tls is
+	// rejected by the validator ("terminate TLS at an ingress") — so the
+	// listen address is the only posture control, and the generated API key
+	// would otherwise cross the network in cleartext. This prompt used to
+	// default to ":9443" while advertising "0.0.0.0:9443", so an operator
+	// accepting the default bound the admin UI to every interface. Remote
+	// exposure stays available, but only as a deliberate typed choice.
+	fmt.Print("Dashboard listen [127.0.0.1:9443] (loopback; type 0.0.0.0:9443 to expose): ")
+	w.dashboardListen = readLine("127.0.0.1:9443")
 }
 
 func (w *setupWizard) printSummary() {
