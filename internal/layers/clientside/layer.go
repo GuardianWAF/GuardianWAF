@@ -278,8 +278,19 @@ func (l *Layer) analyzeResponseBody(body []byte) DetectionResult {
 // isKnownSkimmingDomain checks if the text contains a known skimming domain.
 // The escalation is case-insensitive to mirror the (?i) SkimmingPatterns
 // matching: a known domain embedded with mixed case must still escalate.
+//
+// The read lock is required, not optional: this runs on the per-response
+// Magecart scan (processResponse -> analyzeResponseBody), which executes
+// concurrently for every in-flight request, while AddSkimmingDomain writes
+// the same map from the dashboard and MCP handlers. The getter
+// (GetSkimmingDomains) already took l.mu.RLock; without it here the two
+// accesses to one map were unsynchronised and the Go runtime could throw the
+// fatal, unrecoverable "concurrent map read and map write" — killing the
+// whole WAF process, not just the request.
 func (l *Layer) isKnownSkimmingDomain(text string) bool {
 	lower := strings.ToLower(text)
+	l.mu.RLock()
+	defer l.mu.RUnlock()
 	for domain := range l.patterns.KnownSkimmingDomains {
 		if strings.Contains(lower, strings.ToLower(domain)) {
 			return true
