@@ -314,9 +314,15 @@ func hasFindingDesc(findings []engine.Finding, substr string) bool {
 
 // makeFinding creates a Finding with standard XSS fields.
 func makeFinding(score int, severity engine.Severity, desc, matched, location string, confidence float64) engine.Finding {
-	if len(matched) > 200 {
-		matched = matched[:197] + "..."
-	}
+	// MatchedValue carries attacker-controlled input into events, the
+	// dashboard, and traces. Truncate via the canonical rune-safe helper:
+	// the previous `matched[:197] + "..."` byte slice split any multi-byte
+	// rune straddling the cut and stored an invalid final sequence. The
+	// engine's ScoreAccumulator.Add re-truncation could not repair it
+	// (TruncateEvidence returns early once len <= 200, and the byte slice
+	// lands at exactly 200). Same fix as engine/finding.go, xxe.go,
+	// ai/analyzer.go, LFI, ssrf, and sanitizer/validate.go.
+	matched = engine.TruncateEvidence(matched, 200)
 	return engine.Finding{
 		DetectorName: "xss",
 		Category:     "xss",
@@ -330,11 +336,11 @@ func makeFinding(score int, severity engine.Severity, desc, matched, location st
 }
 
 // truncateMatch truncates the matched value to at most 200 characters.
+// Rune-safe: the previous `s[:197] + "..."` byte slice split any multi-byte
+// rune on the cut boundary, and every caller feeds its result into
+// makeFinding's MatchedValue.
 func truncateMatch(s string) string {
-	if len(s) > 200 {
-		return s[:197] + "..."
-	}
-	return s
+	return engine.TruncateEvidence(s, 200)
 }
 
 // isFollowedBy reports whether name occurs in lower followed — after optional
