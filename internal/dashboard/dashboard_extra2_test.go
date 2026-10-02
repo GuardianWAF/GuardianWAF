@@ -239,14 +239,25 @@ func TestAIProviders_WithAnalyzerError(t *testing.T) {
 }
 
 func TestAIProviders_NilAnalyzer(t *testing.T) {
+	// aiAnalyzer is nil — the request must fall through to the standalone
+	// catalogCache path rather than dereferencing the absent analyzer. The
+	// catalog URL is pointed at an unreachable port so the outcome does not
+	// depend on outbound internet: the standalone path answers 502 when the
+	// optional models.dev catalog cannot be fetched, which is the behaviour
+	// pinned by TestAIProviders_StandaloneCacheError. Receiving that 502 is
+	// what proves the standalone branch ran. The previous version asserted
+	// 200 against the real catalog, so it only passed with network access.
+	oldCache := catalogCache
+	catalogCache = ai.NewCatalogCache("http://127.0.0.1:1/bad.json")
+	defer func() { catalogCache = oldCache }()
+
 	d := newTestDashboard(t, "k")
-	// aiAnalyzer is nil — should use catalogCache fallback
 	w := httptest.NewRecorder()
 	req := authenticatedRequest("GET", "/api/v1/ai/providers", "", "k")
 	d.Handler().ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusBadGateway {
+		t.Errorf("expected 502 (standalone catalog path with fetch unavailable), got %d: %s", w.Code, w.Body.String())
 	}
 }
 

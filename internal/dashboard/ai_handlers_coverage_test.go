@@ -14,15 +14,29 @@ import (
 )
 
 // --- handleAIProviders: nil analyzer (uses standalone cache) ---
+//
+// A nil analyzer must route to the standalone catalogCache path instead of
+// dereferencing the absent analyzer. The catalog URL is pointed at an
+// unreachable port so the result is deterministic: the standalone path
+// answers 502 when the (optional) models.dev catalog cannot be fetched — a
+// contract pinned by TestAIProviders_StandaloneCacheError. Receiving that 502
+// is what proves this request took the standalone branch; the analyzer branch
+// would have produced a different status. The previous version asserted 200
+// against the real models.dev catalog, so it only passed where outbound
+// internet was available.
 func TestHandleAIProviders_NilAnalyzer(t *testing.T) {
+	oldCache := catalogCache
+	catalogCache = ai.NewCatalogCache("http://127.0.0.1:1/bad.json")
+	defer func() { catalogCache = oldCache }()
+
 	d := &Dashboard{}
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/api/ai/providers", nil)
 	d.handleAIProviders(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", rr.Code)
+	if rr.Code != http.StatusBadGateway {
+		t.Errorf("expected 502 (standalone catalog path with fetch unavailable), got %d", rr.Code)
 	}
 }
 
