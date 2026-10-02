@@ -237,6 +237,16 @@ func containsNullByte(s string) bool {
 		if s[i] == '%' && i+2 < len(s) && s[i+1] == '0' && s[i+2] == '0' {
 			return true
 		}
+		// Backslash-zero (\0): the third form this function's contract
+		// names, and the one the sibling normalizer already strips
+		// (RemoveNullBytes, normalize.go:124). The two disagreed — the
+		// normalizer treated \0 as a null byte while the validator did
+		// not — so with block_null_bytes on (the shipped default) the
+		// operator's null-byte block was bypassed by using the one
+		// spelling the package had already agreed was a null byte.
+		if s[i] == '\\' && i+1 < len(s) && s[i+1] == '0' {
+			return true
+		}
 	}
 	return false
 }
