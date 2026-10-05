@@ -273,7 +273,10 @@ func (d *Dashboard) handleTestAlert(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Target string `json:"target"`
 	}
-	if !limitedDecodeJSON(w, r, &body) || body.Target == "" {
+	if !limitedDecodeJSON(w, r, &body) {
+		return
+	}
+	if body.Target == "" {
 		writeError(w, http.StatusBadRequest, "target is required")
 		return
 	}

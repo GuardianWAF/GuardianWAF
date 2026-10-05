@@ -35,7 +35,7 @@ func (d *Dashboard) handleUpdateRateLimitConfig(w http.ResponseWriter, r *http.R
 		Enabled      *bool  `json:"enabled"`
 		DefaultLimit int    `json:"default_limit"`
 		Window       string `json:"window"`
-		Burst        int    `json:"burst"`
+		Burst        *int   `json:"burst"`
 		Action       string `json:"action"`
 	}
 	if !limitedDecodeJSON(w, r, &body) {
@@ -52,9 +52,9 @@ func (d *Dashboard) handleUpdateRateLimitConfig(w http.ResponseWriter, r *http.R
 		ensureDefaultRateLimitRule(cfg)
 		cfg.WAF.RateLimit.Rules[0].Limit = clampInt(body.DefaultLimit, 1, 1000000)
 	}
-	if body.Burst > 0 {
+	if body.Burst != nil && *body.Burst >= 0 {
 		ensureDefaultRateLimitRule(cfg)
-		cfg.WAF.RateLimit.Rules[0].Burst = clampInt(body.Burst, 1, 1000000)
+		cfg.WAF.RateLimit.Rules[0].Burst = clampInt(*body.Burst, 0, 1000000)
 	}
 	if body.Window != "" {
 		window, err := time.ParseDuration(body.Window)
