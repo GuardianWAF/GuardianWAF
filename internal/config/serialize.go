@@ -64,13 +64,13 @@ func marshalStruct(b *strings.Builder, v reflect.Value, t reflect.Type, indent i
 		field := t.Field(i)
 		fv := v.Field(i)
 
-		tag := field.Tag.Get("yaml")
+		tag := yamlFieldName(field)
 		if tag == "" || tag == "-" {
 			continue
 		}
 
 		// Skip zero-value optional fields at top level to keep output clean
-		if isZeroValue(fv) && indent > 0 {
+		if omitYAMLValue(fv) && indent > 0 {
 			continue
 		}
 
@@ -125,7 +125,7 @@ func marshalField(b *strings.Builder, prefix, key string, fv reflect.Value, inde
 		marshalMap(b, fv, indent+1)
 
 	case reflect.Struct:
-		if isZeroValue(fv) {
+		if omitYAMLValue(fv) {
 			return
 		}
 		fmt.Fprintf(b, "%s%s:\n", prefix, key)
@@ -175,12 +175,12 @@ func marshalSlice(b *strings.Builder, prefix, key string, fv reflect.Value, inde
 			first := true
 			for j := range et.NumField() {
 				field := et.Field(j)
-				tag := field.Tag.Get("yaml")
+				tag := yamlFieldName(field)
 				if tag == "" || tag == "-" {
 					continue
 				}
 				fieldVal := elem.Field(j)
-				if isZeroValue(fieldVal) {
+				if omitYAMLValue(fieldVal) {
 					continue
 				}
 				if first {
@@ -255,12 +255,12 @@ func marshalInlineField(b *strings.Builder, key string, fv reflect.Value, indent
 				first := true
 				for j := range et.NumField() {
 					field := et.Field(j)
-					ftag := field.Tag.Get("yaml")
+					ftag := yamlFieldName(field)
 					if ftag == "" || ftag == "-" {
 						continue
 					}
 					fieldVal := elem.Field(j)
-					if isZeroValue(fieldVal) {
+					if omitYAMLValue(fieldVal) {
 						continue
 					}
 					if first {
@@ -343,6 +343,25 @@ func marshalMap(b *strings.Builder, fv reflect.Value, indent int) {
 			marshalField(b, prefix, key, mv, indent)
 		}
 	}
+}
+
+// False overrides a true default on reload, so retain booleans and their
+// containing sections even when every field has its zero value.
+func omitYAMLValue(v reflect.Value) bool {
+	if v.Kind() == reflect.Bool {
+		return false
+	}
+	if v.Kind() == reflect.Struct {
+		t := v.Type()
+		for i := range t.NumField() {
+			tag := yamlFieldName(t.Field(i))
+			if tag != "" && tag != "-" && !omitYAMLValue(v.Field(i)) {
+				return false
+			}
+		}
+		return true
+	}
+	return isZeroValue(v)
 }
 
 func isZeroValue(v reflect.Value) bool {
