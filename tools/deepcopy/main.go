@@ -68,7 +68,7 @@ func generateDeepCopy(typeName string, st *ast.StructType) string {
 	}
 
 	var bodyLines []string
-	bodyLines = append(bodyLines, fmt.Sprintf("func (in *%s) DeepCopy() %s {", typeName, typeName))
+	bodyLines = append(bodyLines, fmt.Sprintf("func (in *%s) DeepCopy() *%s {", typeName, typeName))
 	bodyLines = append(bodyLines, "\tif in == nil {")
 	bodyLines = append(bodyLines, "\t\treturn nil")
 	bodyLines = append(bodyLines, "\t}")
@@ -116,7 +116,7 @@ func typeString(e ast.Expr) string {
 	case *ast.Ident:
 		return t.Name
 	case *ast.StarExpr:
-		return typeString(t.X) + "*"
+		return "*" + typeString(t.X)
 	case *ast.ArrayType:
 		return "[]" + typeString(t.Elt)
 	case *ast.MapType:

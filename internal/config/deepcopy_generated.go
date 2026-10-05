@@ -13,6 +13,8 @@
 
 package config
 
+import "slices"
+
 func (in *Config) DeepCopy() *Config {
 	if in == nil {
 		return nil
@@ -340,6 +342,12 @@ func (in *RuleCondition) DeepCopy() *RuleCondition {
 	out.Field = in.Field
 	out.Op = in.Op
 	out.Value = in.Value
+	switch value := in.Value.(type) {
+	case []string:
+		out.Value = slices.Clone(value)
+	case []any:
+		out.Value = slices.Clone(value)
+	}
 	return &out
 }
 
@@ -632,17 +640,16 @@ func (in *ClusterConfig) DeepCopy() *ClusterConfig {
 	if in == nil {
 		return nil
 	}
-	out := &ClusterConfig{}
+	out := *in
 	out.Enabled = in.Enabled
 	out.NodeID = in.NodeID
 	out.BindAddr = in.BindAddr
 	out.GossipAddr = in.GossipAddr
-	out.Peers = make([]ClusterPeer, len(in.Peers))
-	copy(out.Peers, in.Peers)
+	out.Peers = slices.Clone(in.Peers)
 	out.ElectionTimeoutMin = in.ElectionTimeoutMin
 	out.ElectionTimeoutMax = in.ElectionTimeoutMax
 	out.HeartbeatInterval = in.HeartbeatInterval
-	return out
+	return &out
 }
 
 func (in *ClusterMembership) DeepCopy() *ClusterMembership {
@@ -1671,6 +1678,7 @@ func (in *ValidationError) DeepCopy() *ValidationError {
 		return nil
 	}
 	out := *in // shallow copy of scalar fields
+	out.Errors = slices.Clone(in.Errors)
 	return &out
 }
 
@@ -1687,6 +1695,19 @@ func (in *Node) DeepCopy() *Node {
 		return nil
 	}
 	out := *in // shallow copy of scalar fields
+	out.MapKeys = slices.Clone(in.MapKeys)
+	if in.MapItems != nil {
+		out.MapItems = make(map[string]*Node, len(in.MapItems))
+		for key, value := range in.MapItems {
+			out.MapItems[key] = value.DeepCopy()
+		}
+	}
+	if in.Items != nil {
+		out.Items = make([]*Node, len(in.Items))
+		for i, value := range in.Items {
+			out.Items[i] = value.DeepCopy()
+		}
+	}
 	return &out
 }
 
@@ -1703,5 +1724,6 @@ func (in *parser) DeepCopy() *parser {
 		return nil
 	}
 	out := *in // shallow copy of scalar fields
+	out.lines = slices.Clone(in.lines)
 	return &out
 }

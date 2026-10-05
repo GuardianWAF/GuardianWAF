@@ -1051,6 +1051,12 @@ func FindVirtualHost(vhosts []VirtualHostConfig, host string) *VirtualHostConfig
 			if domain == host {
 				return vh
 			}
+		}
+	}
+
+	for i := range vhosts {
+		vh := &vhosts[i]
+		for _, domain := range vh.Domains {
 			// Check wildcard match
 			if len(domain) > 0 && domain[0] == '*' {
 				suffix := domain[1:] // Remove leading *
