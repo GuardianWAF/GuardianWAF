@@ -51,6 +51,11 @@ func (eb *EventBus) Subscribe(ch chan<- engine.Event) {
 		eb.rejectedSubscriptions.Add(1)
 		return
 	}
+	for _, sub := range eb.subscribers {
+		if sub == ch {
+			return
+		}
+	}
 	if eb.maxSubscribers < 1 {
 		eb.maxSubscribers = defaultMaxEventBusSubscribers
 	}

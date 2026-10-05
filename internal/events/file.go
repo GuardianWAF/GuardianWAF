@@ -467,6 +467,23 @@ func marshalEventJSON(ev engine.Event) string {
 	writeJSONString(&b, ev.Referer)
 	b.WriteString(`,"host":`)
 	writeJSONString(&b, ev.Host)
+	for _, field := range []struct{ name, value string }{
+		{"country_code", ev.CountryCode},
+		{"country_name", ev.CountryName},
+		{"tenant_id", ev.TenantID},
+		{"tls_version", ev.TLSVersion},
+		{"tls_cipher", ev.TLSCipherSuite},
+		{"ja3_hash", ev.JA3Hash},
+		{"ja4_fingerprint", ev.JA4Fingerprint},
+		{"sni", ev.ServerName},
+	} {
+		if field.value != "" {
+			b.WriteByte(',')
+			writeJSONString(&b, field.name)
+			b.WriteByte(':')
+			writeJSONString(&b, field.value)
+		}
+	}
 	b.WriteByte('}')
 
 	return b.String()
@@ -542,26 +559,7 @@ func writeJSONInt(b *strings.Builder, n int) {
 
 // writeJSONInt64 writes an int64 as a decimal string.
 func writeJSONInt64(b *strings.Builder, n int64) {
-	if n == 0 {
-		b.WriteByte('0')
-		return
-	}
-	if n < 0 {
-		b.WriteByte('-')
-		n = -n
-	}
-	// Write digits in reverse, then reverse
-	var digits [20]byte
-	i := 0
-	for n > 0 {
-		digits[i] = byte(n%10) + '0'
-		n /= 10
-		i++
-	}
-	for i > 0 {
-		i--
-		b.WriteByte(digits[i])
-	}
+	b.WriteString(strconv.FormatInt(n, 10))
 }
 
 // writeJSONFloat writes a float64 with up to 6 decimal places.

@@ -122,7 +122,9 @@ func (sa *ScoreAccumulator) Add(f *Finding) {
 	}
 	f.MatchedValue = TruncateEvidence(f.MatchedValue, 200)
 	sa.findings = append(sa.findings, *f)
-	sa.totalScore += f.Score
+	// The smallest paranoia multiplier is 0.5, so raw totals beyond 20000
+	// cannot change Total. Saturate before addition to avoid integer overflow.
+	sa.totalScore += min(f.Score, 20000-sa.totalScore)
 }
 
 // AddMultiple adds multiple findings

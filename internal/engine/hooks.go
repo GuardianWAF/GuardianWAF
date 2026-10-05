@@ -2,6 +2,7 @@ package engine
 
 import (
 	"net/http"
+	"strings"
 )
 
 // applyResponseHook calls the response hook functions stored on the
@@ -29,7 +30,7 @@ func applyResponseHook(w http.ResponseWriter, ctx *RequestContext) {
 func applyCORSHook(w http.ResponseWriter, ctx *RequestContext) {
 	// Preflight headers take precedence if set (handled by CORS layer directly)
 	if ctx.CORSPreflightHeaders != nil {
-		w.Header().Set("Vary", "Origin")
+		addVaryOrigin(w.Header())
 		for k, v := range ctx.CORSPreflightHeaders {
 			w.Header().Set(k, v)
 		}
@@ -37,7 +38,7 @@ func applyCORSHook(w http.ResponseWriter, ctx *RequestContext) {
 	}
 	// Regular CORS headers from the CORS layer's Process()
 	if ctx.CORSHeaders != nil {
-		w.Header().Set("Vary", "Origin")
+		addVaryOrigin(w.Header())
 		for k, v := range ctx.CORSHeaders {
 			w.Header().Set(k, v)
 		}
@@ -45,4 +46,16 @@ func applyCORSHook(w http.ResponseWriter, ctx *RequestContext) {
 			w.Header().Set("Access-Control-Expose-Headers", ctx.CORSExposeHeaders)
 		}
 	}
+}
+
+func addVaryOrigin(header http.Header) {
+	for _, value := range header.Values("Vary") {
+		for _, field := range strings.Split(value, ",") {
+			field = strings.TrimSpace(field)
+			if field == "*" || strings.EqualFold(field, "Origin") {
+				return
+			}
+		}
+	}
+	header.Add("Vary", "Origin")
 }

@@ -133,13 +133,15 @@ func (w *RotatingFileWriter) rotate() error {
 // and always enforces the maxBackups retention count.
 func (w *RotatingFileWriter) removeOldBackups() {
 	cutoff := time.Now().Add(-w.maxAge)
-	pattern := filepath.Base(w.path) + ".*"
-	matches, _ := filepath.Glob(filepath.Join(filepath.Dir(w.path), pattern))
+	dir := filepath.Dir(w.path)
+	prefix := filepath.Base(w.path) + "."
+	entries, _ := os.ReadDir(dir)
 	var backups []string
-	for _, m := range matches {
-		if m == w.path {
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), prefix) {
 			continue
 		}
+		m := filepath.Join(dir, entry.Name())
 		fi, err := os.Stat(m)
 		if err != nil {
 			continue
