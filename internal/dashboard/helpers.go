@@ -149,25 +149,30 @@ var pathPrefixes = []string{
 
 func redactFilePaths(msg string) string {
 	for _, prefix := range pathPrefixes {
-		if idx := strings.Index(msg, prefix); idx >= 0 {
+		for searchFrom := 0; searchFrom < len(msg); {
+			idx := strings.Index(msg[searchFrom:], prefix)
+			if idx < 0 {
+				break
+			}
+			idx += searchFrom
 			// Find the end of the path (next space or end of string)
 			end := idx + len(prefix)
 			for end < len(msg) && msg[end] != ' ' && msg[end] != '"' && msg[end] != '\'' {
 				end++
 			}
 			msg = msg[:idx] + "<redacted>" + msg[end:]
+			searchFrom = idx + len("<redacted>")
 		}
 	}
 	// Windows paths: C:\... D:\... etc.
-	if len(msg) >= 3 && msg[1] == ':' && (msg[2] == '\\' || msg[2] == '/') {
-		for i := 0; i < len(msg)-3; i++ {
-			if i > 0 && msg[i-1] == ' ' && isASCIILetter(msg[i]) && msg[i+1] == ':' && (msg[i+2] == '\\' || msg[i+2] == '/') {
-				end := i + 3
-				for end < len(msg) && msg[end] != ' ' && msg[end] != '"' && msg[end] != '\'' {
-					end++
-				}
-				msg = msg[:i] + "<redacted>" + msg[end:]
+	for i := 0; i+2 < len(msg); i++ {
+		if (i == 0 || msg[i-1] == ' ' || msg[i-1] == '"' || msg[i-1] == '\'') && isASCIILetter(msg[i]) && msg[i+1] == ':' && (msg[i+2] == '\\' || msg[i+2] == '/') {
+			end := i + 3
+			for end < len(msg) && msg[end] != ' ' && msg[end] != '"' && msg[end] != '\'' {
+				end++
 			}
+			msg = msg[:i] + "<redacted>" + msg[end:]
+			i += len("<redacted>") - 1
 		}
 	}
 	return msg

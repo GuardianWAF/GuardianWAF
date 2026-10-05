@@ -308,7 +308,16 @@ func analyticsSeries(evts []engine.Event, interval string) []map[string]any {
 		}
 		buckets[t.Format(time.RFC3339)]++
 	}
-	return countMapToRows(buckets, 1000)
+	rows := countMapToRows(buckets, 1000)
+	sort.Slice(rows, func(i, j int) bool {
+		a, _ := time.Parse(time.RFC3339, rows[i]["key"].(string))
+		b, _ := time.Parse(time.RFC3339, rows[j]["key"].(string))
+		if a.Equal(b) {
+			return rows[i]["key"].(string) < rows[j]["key"].(string)
+		}
+		return a.Before(b)
+	})
+	return rows
 }
 
 func countMapToRows(values map[string]int, limit int) []map[string]any {

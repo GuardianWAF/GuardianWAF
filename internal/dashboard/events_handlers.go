@@ -228,9 +228,9 @@ func (d *Dashboard) writeEventsCSV(w http.ResponseWriter, evts []engine.Event) {
 		// double-wrapped exports (""a,b"") that strict CSV parsers reject.
 		line := fmt.Sprintf("%s,%s,%s,%s,%s,%s,%d,%s,%s\n",
 			e.Timestamp.Format(time.RFC3339),
-			e.ID,
-			e.ClientIP,
-			e.Method,
+			escapeCSV(e.ID),
+			escapeCSV(e.ClientIP),
+			escapeCSV(e.Method),
 			escapeCSV(e.Path),
 			e.Action.String(),
 			e.Score,
