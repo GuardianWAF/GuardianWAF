@@ -23,6 +23,9 @@ type TCPTransport struct {
 	localID  string
 	timeout  time.Duration
 
+	generation uint64
+	closed     bool
+
 	// handler is called for every incoming RPC. It runs in the reader
 	// goroutine of the connection, so it must not block.
 	handler func(msgType RPCType, payload []byte) ([]byte, error)
@@ -63,6 +66,7 @@ func NewTCPTransport(addr, localID string, timeout time.Duration, secret []byte)
 // network partitions by swapping in a dialer that refuses certain peers).
 func (t *TCPTransport) SetDialer(d Dialer) {
 	t.connMu.Lock()
+	t.generation++
 	for _, conn := range t.conns {
 		conn.Close()
 	}
@@ -152,11 +156,16 @@ func (t *TCPTransport) peerLock(addr string) *sync.Mutex {
 // getConn returns (and lazily creates) a pooled connection to a peer.
 func (t *TCPTransport) getConn(addr string) (net.Conn, error) {
 	t.connMu.Lock()
+	if t.closed {
+		t.connMu.Unlock()
+		return nil, net.ErrClosed
+	}
 	conn, ok := t.conns[addr]
 	// Snapshot the dialer under the same lock that protects SetDialer's
 	// write — reading the field after Unlock raced with SetDialer (the
 	// documented runtime partition-simulation entry point).
 	dial := t.dialer
+	generation := t.generation
 	t.connMu.Unlock()
 	if ok {
 		return conn, nil
@@ -168,6 +177,11 @@ func (t *TCPTransport) getConn(addr string) (net.Conn, error) {
 	}
 
 	t.connMu.Lock()
+	if t.closed || generation != t.generation {
+		t.connMu.Unlock()
+		_ = conn.Close()
+		return nil, net.ErrClosed
+	}
 	t.conns[addr] = conn
 	t.connMu.Unlock()
 
@@ -251,6 +265,8 @@ func (t *TCPTransport) Close() error {
 		t.listener.Close()
 	}
 	t.connMu.Lock()
+	t.closed = true
+	t.generation++
 	for _, conn := range t.conns {
 		conn.Close()
 	}

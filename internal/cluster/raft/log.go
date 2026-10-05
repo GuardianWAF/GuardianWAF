@@ -1,5 +1,7 @@
 package raft
 
+import "bytes"
+
 // resetNoPersist clears all entries without invoking persist callbacks.
 // Used during WAL replay when a snapshot record resets the log.
 func (l *LogStore) resetNoPersist() {
@@ -23,25 +25,26 @@ func (l *LogStore) Append(term uint64, command []byte) uint64 {
 	entry := LogEntry{
 		Term:    term,
 		Index:   idx,
-		Command: command,
+		Command: bytes.Clone(command),
 	}
 	l.entries = append(l.entries, entry)
 	persist := l.persistEntry
 	l.mu.Unlock()
 	if persist != nil {
-		persist(entry)
+		persist(cloneLogEntry(entry))
 	}
 	return idx
 }
 
 // AppendEntry adds a pre-constructed LogEntry to the log.
 func (l *LogStore) AppendEntry(entry LogEntry) uint64 {
+	entry = cloneLogEntry(entry)
 	l.mu.Lock()
 	l.entries = append(l.entries, entry)
 	persist := l.persistEntry
 	l.mu.Unlock()
 	if persist != nil {
-		persist(entry)
+		persist(cloneLogEntry(entry))
 	}
 	return entry.Index
 }
@@ -54,7 +57,7 @@ func (l *LogStore) Get(index uint64) (LogEntry, bool) {
 	if index == 0 || index > lenToUint64(len(l.entries)) {
 		return LogEntry{}, false
 	}
-	return l.entries[index-1], true
+	return cloneLogEntry(l.entries[index-1]), true
 }
 
 // LastIndex returns the index of the last entry, or 0 if the log is empty.
@@ -104,7 +107,9 @@ func (l *LogStore) EntriesFrom(index uint64) []LogEntry {
 	}
 	start := uint64ToInt(index - 1)
 	result := make([]LogEntry, len(l.entries)-start)
-	copy(result, l.entries[start:])
+	for i, entry := range l.entries[start:] {
+		result[i] = cloneLogEntry(entry)
+	}
 	return result
 }
 
@@ -181,7 +186,9 @@ func (l *LogStore) AllEntries() []LogEntry {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	result := make([]LogEntry, len(l.entries))
-	copy(result, l.entries)
+	for i, entry := range l.entries {
+		result[i] = cloneLogEntry(entry)
+	}
 	return result
 }
 
@@ -208,6 +215,13 @@ func (l *LogStore) Slice(start, end uint64) []LogEntry {
 	s := uint64ToInt(start - 1)
 	e := uint64ToInt(end)
 	result := make([]LogEntry, e-s)
-	copy(result, l.entries[s:e])
+	for i, entry := range l.entries[s:e] {
+		result[i] = cloneLogEntry(entry)
+	}
 	return result
+}
+
+func cloneLogEntry(entry LogEntry) LogEntry {
+	entry.Command = bytes.Clone(entry.Command)
+	return entry
 }

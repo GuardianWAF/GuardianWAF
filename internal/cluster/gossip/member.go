@@ -10,6 +10,7 @@ package gossip
 import (
 	"fmt"
 	"math/rand/v2"
+	"slices"
 	"sync"
 )
 
@@ -90,13 +91,13 @@ func (ml *MemberList) Add(m Member) bool {
 
 	if existing, ok := ml.members[m.ID]; ok {
 		if shouldReplace(existing.Member, m) {
-			existing.Member = m
+			existing.Member = cloneMember(m)
 			return false
 		}
 		return false
 	}
 
-	ml.members[m.ID] = &memberEntry{Member: m}
+	ml.members[m.ID] = &memberEntry{Member: cloneMember(m)}
 	return true
 }
 
@@ -109,7 +110,7 @@ func (ml *MemberList) Get(id string) (Member, bool) {
 	if !ok {
 		return Member{}, false
 	}
-	return e.Member, true
+	return cloneMember(e.Member), true
 }
 
 // AliveMembers returns IDs of all non-dead members (alive + suspect).
@@ -133,7 +134,7 @@ func (ml *MemberList) AllMembers() []Member {
 
 	result := make([]Member, 0, len(ml.members))
 	for _, e := range ml.members {
-		result = append(result, e.Member)
+		result = append(result, cloneMember(e.Member))
 	}
 	return result
 }
@@ -154,7 +155,12 @@ func (ml *MemberList) RandomMember(localID string) (Member, bool) {
 		return Member{}, false
 	}
 	pick := candidates[randIntN(len(candidates))]
-	return pick.Member, true
+	return cloneMember(pick.Member), true
+}
+
+func cloneMember(m Member) Member {
+	m.Tags = slices.Clone(m.Tags)
+	return m
 }
 
 // MarkSuspect transitions a member to Suspect.

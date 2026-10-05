@@ -220,10 +220,6 @@ func (w *WAL) Replay(ps *PersistentState) error {
 	// Read and validate magic header.
 	header := make([]byte, len(magicWALHeader))
 	if _, err := io.ReadFull(w.file, header); err != nil {
-		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-			// Empty or brand-new file — nothing to replay.
-			return nil
-		}
 		return fmt.Errorf("wal: read header: %w", err)
 	}
 	if string(header) != magicWALHeader {

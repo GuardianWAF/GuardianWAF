@@ -285,15 +285,14 @@ func AcquireContext(r *http.Request, paranoiaLevel int, maxBodySize int64) *Requ
 		}
 		limited := io.LimitReader(r.Body, inspectLimit+1)
 		rawData, err := io.ReadAll(limited)
-		if err == nil {
-			// Restore original body for proxying (always raw/compressed).
-			// If the read stopped at the inspection limit, append the
-			// unread portion of the original body instead of dropping it.
-			r.Body = &replayReadCloser{
-				Reader: io.MultiReader(bytes.NewReader(rawData), r.Body),
-				Closer: r.Body,
-			}
+		// A failed read can still consume bytes. Replay them along with the
+		// unread portion so inspection never discards downstream body data.
+		r.Body = &replayReadCloser{
+			Reader: io.MultiReader(bytes.NewReader(rawData), r.Body),
+			Closer: r.Body,
+		}
 
+		if err == nil {
 			// Decompress for WAF inspection based on Content-Encoding.
 			// Rejects decompression bombs (ratio > 100:1).
 			inspectData := rawData

@@ -94,6 +94,8 @@ func (ps *PersistentState) SetWAL(w *WAL) {
 			func(e LogEntry) { _ = w.AppendRecord(WALRecord{Type: WALLog, Entry: e}) },
 			func(index uint64) { _ = w.AppendRecord(WALRecord{Type: WALTruncate, Index: index}) },
 		)
+	} else {
+		ps.log.SetPersistence(nil, nil)
 	}
 }
 

@@ -177,7 +177,8 @@ func DecodeMessageBytes(data []byte) (*Message, error) {
 func EncodeMembers(members []Member) []byte {
 	var buf []byte
 	for _, m := range members {
-		if len(m.ID) > maxSourceIDLen {
+		if len(m.ID) > maxSourceIDLen || len(m.Addr) > maxSourceIDLen ||
+			len(m.RaftAddr) > maxSourceIDLen || len(m.DashboardAddr) > maxSourceIDLen {
 			continue
 		}
 		// incarnation
