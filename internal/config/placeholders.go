@@ -54,6 +54,11 @@ func collectBindingsFromNode(node *Node, path string, lines []string, bindings m
 		}
 		for _, original := range placeholderCandidates(lines[node.Line-1]) {
 			resolved := expandEnvVars(original)
+			if resolved != node.Value {
+				// Saved quoted scalars escape their defaults before expansion.
+				original = unescapeDoubleQuoted(original)
+				resolved = expandEnvVars(original)
+			}
 			if resolved == node.Value {
 				bindings[path] = PlaceholderBinding{Original: original, Resolved: resolved}
 				return
@@ -169,7 +174,7 @@ func marshalYAMLWithPlaceholderPreservation(cfg *Config) string {
 	// back in its quoted form (${...} would otherwise parse as a flow map).
 	for nonce, original := range restores {
 		if needsQuoting(original) {
-			original = `"` + original + `"`
+			original = fmt.Sprintf("%q", original)
 		}
 		out = strings.ReplaceAll(out, nonce, original)
 	}

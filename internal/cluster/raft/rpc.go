@@ -17,6 +17,9 @@ const maxFrameSize = 16 * 1024 * 1024 // 16 MiB safety cap
 // payload must be nil, a []byte already encoded by the caller, or a value
 // that json.Marshal can handle. For clarity, callers should pass []byte.
 func EncodeRequest(w io.Writer, msgType RPCType, payload []byte) error {
+	if len(payload) > maxFrameSize {
+		return fmt.Errorf("raft rpc: frame too large: %d > %d", len(payload), maxFrameSize)
+	}
 	var buf [5]byte
 	buf[0] = byte(msgType)                                     // #nosec G115 -- RPCType is uint8, fits in byte
 	binary.BigEndian.PutUint32(buf[1:5], uint32(len(payload))) // #nosec G115 -- len fits in uint32 (checked by maxFrameSize)
