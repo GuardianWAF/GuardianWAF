@@ -159,6 +159,10 @@ func parseYAML(data []byte) (any, error) {
 		}
 	}
 
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
 	// If root is empty but we have a simple value, return that
 	if len(root) == 0 {
 		return nil, fmt.Errorf("empty YAML document")

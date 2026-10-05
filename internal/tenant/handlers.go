@@ -485,6 +485,8 @@ func (h *Handlers) GetTenantUsage(w http.ResponseWriter, r *http.Request, tenant
 	tenant.mu.RLock()
 	stats := UsageStats{
 		TenantID:          tenantID,
+		Name:              tenant.Name,
+		Active:            tenant.Active,
 		RequestsPerMinute: requestsPerMinute,
 		TotalRequests:     tenant.RequestCount,
 		BlockedRequests:   tenant.BlockedCount,

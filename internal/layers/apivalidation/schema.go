@@ -4,6 +4,7 @@ package apivalidation
 
 import (
 	"fmt"
+	"math"
 	"net"
 	"reflect"
 	"regexp"
@@ -734,7 +735,7 @@ func isInteger(data any) bool {
 	case int, int64:
 		return true
 	case float64:
-		return v == float64(int64(v))
+		return !math.IsNaN(v) && !math.IsInf(v, 0) && v == math.Trunc(v)
 	default:
 		return false
 	}
