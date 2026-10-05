@@ -493,11 +493,11 @@ func parseInt(s string) (int, error) {
 		if c < '0' || c > '9' {
 			return 0, fmt.Errorf("invalid integer")
 		}
-		next := n*10 + int(c-'0')
-		if next < n {
+		digit := int(c - '0')
+		if n > (int(^uint(0)>>1)-digit)/10 {
 			return 0, fmt.Errorf("integer overflow")
 		}
-		n = next
+		n = n*10 + digit
 	}
 	if neg {
 		n = -n

@@ -81,7 +81,8 @@ func (bt *BehaviorTracker) advance(now time.Time) {
 		bt.buckets[bt.current].timings = bt.buckets[bt.current].timings[:0]
 		bt.buckets[bt.current].timestamp = now
 	}
-	bt.lastTick = now
+	// Keep the partial second so repeated advances do not drift the window.
+	bt.lastTick = now.Add(-(elapsed % time.Second))
 }
 
 // record adds a request to the current bucket.
