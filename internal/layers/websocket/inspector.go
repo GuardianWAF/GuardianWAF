@@ -65,8 +65,24 @@ var ErrFrameTooLarge = errors.New("websocket: frame payload exceeds maximum size
 // protocol-error close.
 var ErrMaskViolation = errors.New("websocket: frame mask bit violates RFC 6455 §5.1 direction")
 
+// ErrControlFrameViolation is returned when a control frame breaks RFC 6455
+// §5.5: control frames MUST carry at most 125 bytes and MUST NOT be
+// fragmented. The relay refuses the connection with a 1002 protocol-error
+// close, exactly as it does for the §5.1 direction violation above.
+//
+// Without this check the relay forwards every IsControl() frame without
+// inspecting its payload (layer.go), so an unvalidated ceiling widens that
+// deliberately-uninspected channel from the spec's 125 bytes to
+// cfg.MaxFrameSize — 1 MiB by default — and accepts fragmented control frames
+// that a conforming endpoint must reject.
+var ErrControlFrameViolation = errors.New("websocket: control frame violates RFC 6455 §5.5")
+
 // MaxPayloadSize is the absolute ceiling for a single frame payload.
 const MaxPayloadSize = 1 << 24 // 16 MiB
+
+// maxControlFramePayload is the RFC 6455 §5.5 ceiling for control frames:
+// "All control frames MUST have a payload length of 125 bytes or less."
+const maxControlFramePayload = 125
 
 // Frame represents a parsed WebSocket data frame.
 type Frame struct {
@@ -147,6 +163,21 @@ func (fr *FrameReader) ReadFrame() (*Frame, error) {
 
 	if payloadLen > fr.maxSize {
 		return nil, ErrFrameTooLarge
+	}
+
+	// RFC 6455 §5.5: "All control frames MUST have a payload length of 125
+	// bytes or less and MUST NOT be fragmented." Both are MUST-level, and a
+	// conforming endpoint fails the connection on either. The relay forwards
+	// every IsControl() frame without inspecting its payload, so enforcing them
+	// here is what keeps that uninspected channel at the spec's 125-byte
+	// ceiling instead of cfg.MaxFrameSize (1 MiB by default).
+	if opcode.IsControl() {
+		if payloadLen > maxControlFramePayload {
+			return nil, ErrControlFrameViolation
+		}
+		if !fin {
+			return nil, ErrControlFrameViolation
+		}
 	}
 
 	// Read masking key (if present).

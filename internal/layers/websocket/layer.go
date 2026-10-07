@@ -18,10 +18,14 @@ type Config struct {
 	Enabled             bool
 	MaxFrameSize        int64
 	BlockBinaryMessages bool
-	ScanPayloads        bool
-	AllowedOrigins      []string
-	MaxConcurrentPerIP  int
-	IdleTimeout         time.Duration
+	// BlockEmptyMessages rejects data frames with an empty payload
+	// (`waf.websocket.block_empty_messages`, documented in
+	// docs/configuration.md § WebSocket Inspection as "Block empty payloads").
+	BlockEmptyMessages bool
+	ScanPayloads       bool
+	AllowedOrigins     []string
+	MaxConcurrentPerIP int
+	IdleTimeout        time.Duration
 
 	// AllowedBackendHosts constrains which Host headers may be dialed for
 	// websocket upgrades. When empty, upgrades are not hijacked for
@@ -169,15 +173,8 @@ func (l *Layer) handleWebSocket(w http.ResponseWriter, r *http.Request, next htt
 	}
 	resp.Body.Close() // no body for a 101 response, but close to be safe
 
-	// Any leftover bytes from the bufio.Reader are frames the backend sent
-	// immediately after its 101 — they belong to the client. Forwarding them
-	// to the backend drops the client's first frames and echoes the backend's
-	// own output into its input.
-	if backendBR.Buffered() > 0 {
-		leftover := make([]byte, backendBR.Buffered())
-		_, _ = backendBR.Read(leftover)
-		_, _ = clientConn.Write(leftover)
-	}
+	// Preserve read-ahead frames from the handshake for normal inspection.
+	backendConn = &bufferedConn{Conn: backendConn, reader: backendBR}
 
 	// Now we have two raw TCP connections. Bidirectionally copy with inspection.
 	l.activeConns.Add(1)
@@ -210,6 +207,15 @@ func (l *Layer) handleWebSocket(w http.ResponseWriter, r *http.Request, next htt
 // maxAssembledMessageBytes bounds the reassembly buffer for fragmented
 // messages (fail-closed: an over-cap assembled message is refused with 1009).
 const maxAssembledMessageBytes = 8 << 20
+
+type bufferedConn struct {
+	net.Conn
+	reader *bufio.Reader
+}
+
+func (c *bufferedConn) Read(p []byte) (int, error) {
+	return c.reader.Read(p)
+}
 
 // teardownConns closes both legs of the proxied connection. The refuse
 // paths below (block / framing violation / over-cap) must call it: the two
@@ -262,6 +268,15 @@ func (l *Layer) inspectAndForward(src io.Reader, dst io.Writer, clientIP, path s
 				// other protocol violations below.
 				_ = write(dst, &Frame{FIN: true, Opcode: OpClose, Payload: makeClosePayload(1002, "protocol error")})
 				teardownConns(src, dst)
+			} else if errors.Is(err, ErrFrameTooLarge) {
+				_ = write(dst, &Frame{FIN: true, Opcode: OpClose, Payload: makeClosePayload(1009, "message too big")})
+				teardownConns(src, dst)
+			} else if errors.Is(err, ErrControlFrameViolation) {
+				// RFC 6455 §5.5 MUST violations (a control frame over 125 bytes,
+				// or a fragmented one): refuse with a protocol-error close and
+				// tear both legs down, matching the §5.1 and size refuse paths.
+				_ = write(dst, &Frame{FIN: true, Opcode: OpClose, Payload: makeClosePayload(1002, "protocol error")})
+				teardownConns(src, dst)
 			}
 			return
 		}
@@ -283,6 +298,22 @@ func (l *Layer) inspectAndForward(src io.Reader, dst io.Writer, clientIP, path s
 				FIN:     true,
 				Opcode:  OpClose,
 				Payload: makeClosePayload(1003, "binary not allowed"),
+			}
+			_ = write(dst, closeFrame)
+			teardownConns(src, dst)
+			return
+		}
+
+		// Block empty data frames if configured (`waf.websocket.block_empty_messages`
+		// — "Block empty payloads"). Control frames returned above and are never
+		// affected: an empty ping/pong or close is legitimate protocol traffic.
+		// An empty data frame carries nothing to inspect, so it is refused rather
+		// than forwarded, matching the binary-message policy above.
+		if l.cfg.BlockEmptyMessages && len(frame.Payload) == 0 {
+			closeFrame := &Frame{
+				FIN:     true,
+				Opcode:  OpClose,
+				Payload: makeClosePayload(1008, "empty message not allowed"),
 			}
 			_ = write(dst, closeFrame)
 			teardownConns(src, dst)
