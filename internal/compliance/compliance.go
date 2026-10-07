@@ -4,6 +4,7 @@ package compliance
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -205,17 +206,21 @@ func (e *Engine) replayChain(path string) {
 	}
 	defer f.Close()
 
-	scanner := bufio.NewScanner(f)
-	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 1024*1024)
-
-	for scanner.Scan() {
-		var entry ChainEntry
-		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
-			continue
+	reader := bufio.NewReader(f)
+	for {
+		line, readErr := reader.ReadBytes('\n')
+		if len(line) > 0 {
+			var entry ChainEntry
+			decoder := json.NewDecoder(bytes.NewReader(line))
+			decoder.UseNumber()
+			if err := decoder.Decode(&entry); err == nil && decoder.Decode(new(any)) == io.EOF {
+				e.chain = append(e.chain, entry)
+				e.lastHash = entry.Hash
+			}
 		}
-		e.chain = append(e.chain, entry)
-		e.lastHash = entry.Hash
+		if readErr != nil {
+			break
+		}
 	}
 }
 
@@ -391,7 +396,9 @@ func (e *Engine) AppendChainWithError(entryType string, data any) (ChainEntry, e
 	fmt.Fprintf(hasher, "%d|%s|%s|", entry.Index, entry.Time.Format(time.RFC3339Nano), entry.Type)
 	if dataBytes, err := json.Marshal(data); err == nil {
 		var canonical any
-		if json.Unmarshal(dataBytes, &canonical) == nil {
+		decoder := json.NewDecoder(bytes.NewReader(dataBytes))
+		decoder.UseNumber()
+		if decoder.Decode(&canonical) == nil {
 			if canonicalBytes, cerr := json.Marshal(canonical); cerr == nil {
 				entry.Data = canonical
 				dataBytes = canonicalBytes
@@ -593,7 +600,16 @@ func builtinControls() []Control {
 				{Type: "block_events", Description: "Attacks detected and blocked"},
 			},
 			PassingCriteria: []Criterion{
-				{Metric: "total_requests", Operator: ">", Threshold: 0},
+				// Req 6.4.2 is attack detection and PREVENTION, so the
+				// criterion must test that attacks were blocked. It previously
+				// read {total_requests > 0}, which only asserts the WAF served
+				// some traffic: a WAF with detection and prevention entirely
+				// inert (any number of requests, blocked_requests == 0) graded
+				// this control PASSING and inflated the attestation, even
+				// though collectEvidence already surfaces blocked_requests
+				// for this very evidence spec. Same falsifiability contract the
+				// gdpr_art32_dlp criterion documents below.
+				{Metric: "blocked_requests", Operator: ">", Threshold: 0},
 			},
 		},
 		{
