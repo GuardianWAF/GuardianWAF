@@ -117,11 +117,30 @@ func (w *tenantResponseWriter) WriteHeader(statusCode int) {
 	if w.wroteHeader {
 		return
 	}
+	if statusCode >= 100 && statusCode < 200 && statusCode != http.StatusSwitchingProtocols {
+		w.ResponseWriter.WriteHeader(statusCode)
+		return
+	}
 	w.wroteHeader = true
 	w.ResponseWriter.WriteHeader(statusCode)
 
-	// Record blocked requests
-	if statusCode >= 400 {
+	// Record blocked requests.
+	//
+	// Only the WAF's own block status counts. ActionBlock (and the challenge
+	// service's no-service fallback) both emit 403 Forbidden — engine.go:660
+	// and :671 — and the engine keeps its own precise blockedRequests counter
+	// for exactly this event. Matching on ">= 400" instead conflated every
+	// origin application error (404 not found, 400 bad request, 500) with an
+	// attack, so RecordBlocked billed PerBlockedAttackCost for ordinary
+	// upstream failures: billing.go:33 documents that cost as "security
+	// value" and BlockedAttacks is surfaced to the dashboard as
+	// BlockedRequests.
+	//
+	// Residual: an upstream that legitimately answers 403 (its own auth) is
+	// still counted, since the status is the only signal reaching this
+	// wrapper. That is narrower than the previous behaviour and matches the
+	// engine's block status.
+	if statusCode == http.StatusForbidden {
 		w.manager.RecordBlocked(w.tenant)
 	}
 }
