@@ -124,17 +124,17 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
-	// Extract credentials from body
-	email := l.extractEmail(ctx.BodyString)
-	if email == "" {
-		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
-	}
-
 	// Check if IP is already blocked
 	if blocked, reason := l.tracker.IsIPBlocked(ctx.ClientIP); blocked {
 		result := l.blockResult(ctx, "ip_blocked", reason, 100)
 		result.Duration = time.Since(start)
 		return result
+	}
+
+	// Extract credentials from body
+	email := l.extractEmail(ctx.BodyString)
+	if email == "" {
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
 	// Check if email is already blocked
