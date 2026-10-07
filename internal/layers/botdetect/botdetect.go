@@ -158,6 +158,15 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 			// Record this request
 			l.behavior.Record(ip, ctx.Path, false, time.Since(ctx.StartTime))
 
+			// Register the post-response outcome hook: the outcome is unknown
+			// here — every request is recorded as a non-error — so a failed
+			// request is amended once the upstream status is known (see
+			// markRequestOutcome). The closure captures the IP, never ctx: the
+			// context returns to the pool before the upstream call.
+			ctx.PostResponseHook = func(success bool) {
+				l.markRequestOutcome(ip, success)
+			}
+
 			behaviorScore, behaviorDescs := l.behavior.Analyze(ip)
 			if behaviorScore > 0 {
 				totalScore += behaviorScore
@@ -225,9 +234,18 @@ func (l *Layer) PostProcess(ctx *engine.RequestContext, success bool) {
 	if ctx.ClientIP == nil {
 		return
 	}
-	if !success {
-		l.behavior.MarkError(ctx.ClientIP.String())
+	l.markRequestOutcome(ctx.ClientIP.String(), success)
+}
+
+// markRequestOutcome counts a failed request for the error-rate analysis. It is
+// the single implementation behind both PostProcess (embedder API) and the
+// RequestContext.PostResponseHook that Process registers, so the live path and
+// the exported method cannot drift apart.
+func (l *Layer) markRequestOutcome(ip string, success bool) {
+	if success || ip == "" {
+		return
 	}
+	l.behavior.MarkError(ip)
 }
 
 func (l *Layer) analyzeTLSFingerprint(ctx *engine.RequestContext) (int, []engine.Finding) {
@@ -298,8 +316,8 @@ func (l *Layer) analyzeTLSFingerprint(ctx *engine.RequestContext) (int, []engine
 // The engine preserves EVERY transmitted User-Agent value, and backend
 // parsers disagree on which one they surface (Go first-wins, PHP/Python
 // last-wins) — scoring only vals[0] lets the attacker pick which UA the
-// WAF sees by header ordering (the round-20/81 multi-value family). Any
-// value that scores counts; the suppression filters apply per value.
+// WAF sees by header ordering (the round-20/81 multi-value family). The
+// strongest unsuppressed value wins, regardless of header ordering.
 func (l *Layer) analyzeUA(ctx *engine.RequestContext) (int, []engine.Finding) {
 	cfg := l.snapshotConfig()
 	var uas []string
@@ -313,6 +331,8 @@ func (l *Layer) analyzeUA(ctx *engine.RequestContext) (int, []engine.Finding) {
 		uas = append(uas, "")
 	}
 
+	var bestScore int
+	var bestFinding engine.Finding
 	for _, ua := range uas {
 		score, desc := AnalyzeUserAgent(ua)
 		if score == 0 {
@@ -328,6 +348,9 @@ func (l *Layer) analyzeUA(ctx *engine.RequestContext) (int, []engine.Finding) {
 				continue
 			}
 		}
+		if score <= bestScore {
+			continue
+		}
 
 		severity := engine.SeverityLow
 		if score >= 80 {
@@ -336,7 +359,8 @@ func (l *Layer) analyzeUA(ctx *engine.RequestContext) (int, []engine.Finding) {
 			severity = engine.SeverityMedium
 		}
 
-		return score, []engine.Finding{{
+		bestScore = score
+		bestFinding = engine.Finding{
 			DetectorName: "botdetect-ua",
 			Category:     "bot",
 			Severity:     severity,
@@ -345,21 +369,27 @@ func (l *Layer) analyzeUA(ctx *engine.RequestContext) (int, []engine.Finding) {
 			MatchedValue: truncateUA(ua, 200),
 			Location:     "header",
 			Confidence:   0.6,
-		}}
+		}
 	}
 
-	return 0, nil
+	if bestScore == 0 {
+		return 0, nil
+	}
+	return bestScore, []engine.Finding{bestFinding}
 }
 
 // truncateUA truncates a user-agent string for finding evidence.
+//
+// MatchedValue carries a fully attacker-controlled, unbounded User-Agent into
+// events, the dashboard, and traces. The previous `ua[:maxLen-3] + "..."` byte
+// slice split any multi-byte rune straddling the cut and stored an invalid
+// final sequence, and the engine's canonical re-truncation in
+// ScoreAccumulator.Add could not repair it: TruncateEvidence returns early once
+// len(s) <= maxLen, and maxLen-3 + len("...") == maxLen, so it was a no-op.
+// Delegate to the shared rune-safe helper, matching the sibling detectors
+// already fixed for this defect (xss, sqli, lfi, ssrf, xxe, sanitizer).
 func truncateUA(ua string, maxLen int) string {
-	if len(ua) <= maxLen {
-		return ua
-	}
-	if maxLen <= 3 {
-		return ua[:maxLen]
-	}
-	return ua[:maxLen-3] + "..."
+	return engine.TruncateEvidence(ua, maxLen)
 }
 
 // scoreToBehaviorSeverity maps a behavioral score to a severity level.
