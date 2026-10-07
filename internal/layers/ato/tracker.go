@@ -187,20 +187,26 @@ func (t *AttemptTracker) RecordAttempt(attempt *LoginAttempt) {
 		if _, exists := t.emailAttempts[attempt.Email]; !exists && t.maxEntries > 0 && len(t.emailAttempts) >= t.maxEntries {
 			t.evictOldestAttempt(t.emailAttempts)
 		}
-		if emailRec := t.emailAttempts[attempt.Email]; emailRec != nil || t.maxEntries <= 0 || len(t.emailAttempts) < t.maxEntries {
-			emailRec := t.emailAttempts[attempt.Email]
-			if emailRec == nil {
-				emailRec = &AttemptRecord{Attempts: []time.Time{}}
-				t.emailAttempts[attempt.Email] = emailRec
-			}
-			emailRec.mu.Lock()
-			emailRec.Attempts = append(emailRec.Attempts, now)
-			if len(emailRec.Attempts) > 1000 {
-				emailRec.Attempts = emailRec.Attempts[len(emailRec.Attempts)-500:]
-			}
-			emailRec.lastAccess = now
-			emailRec.mu.Unlock()
+		// maxEntries is a best-effort memory guard, not an admission limit.
+		// evictOldestAttempt deliberately skips still-blocked records, so it
+		// can free nothing; re-checking the cap here and discarding the
+		// attempt silently reset a brand-new email's counter (GetEmailAttempts
+		// returned 0), so per-email brute force failed open exactly when the map
+		// was under pressure while the IP branch kept counting. Admit the key and
+		// grow past the cap instead, matching the IP branch above and the rule
+		// that an explicit block is always recorded.
+		emailRec := t.emailAttempts[attempt.Email]
+		if emailRec == nil {
+			emailRec = &AttemptRecord{Attempts: []time.Time{}}
+			t.emailAttempts[attempt.Email] = emailRec
 		}
+		emailRec.mu.Lock()
+		emailRec.Attempts = append(emailRec.Attempts, now)
+		if len(emailRec.Attempts) > 1000 {
+			emailRec.Attempts = emailRec.Attempts[len(emailRec.Attempts)-500:]
+		}
+		emailRec.lastAccess = now
+		emailRec.mu.Unlock()
 
 		// Track IP->Email mapping for credential stuffing
 		if t.ipToEmails[ip] == nil {
@@ -251,28 +257,29 @@ func (t *AttemptTracker) RecordAttempt(attempt *LoginAttempt) {
 		if _, exists := t.passwordHashes[hash]; !exists && t.maxEntries > 0 && len(t.passwordHashes) >= t.maxEntries {
 			t.evictOldestPassword()
 		}
-		if pwRec := t.passwordHashes[hash]; pwRec != nil || t.maxEntries <= 0 || len(t.passwordHashes) < t.maxEntries {
-			pwRec := t.passwordHashes[hash]
-			if pwRec == nil {
-				pwRec = &PasswordRecord{
-					FirstSeen: now,
-					SourceIPs: make(map[string]bool),
-				}
-				t.passwordHashes[hash] = pwRec
+		// Same admission contract as the IP and email branches: the cap is a
+		// best-effort guard, and a new key is admitted even when no slot could be
+		// freed, so spray detection never loses the first sighting of a password.
+		pwRec := t.passwordHashes[hash]
+		if pwRec == nil {
+			pwRec = &PasswordRecord{
+				FirstSeen: now,
+				SourceIPs: make(map[string]bool),
 			}
-			pwRec.mu.Lock()
-			pwRec.Count++
-			pwRec.Uses = append(pwRec.Uses, now)
-			if len(pwRec.Uses) > 1000 {
-				pwRec.Uses = pwRec.Uses[len(pwRec.Uses)-500:]
-			}
-			pwRec.LastSeen = now
-			if t.maxInnerEntries <= 0 || pwRec.SourceIPs[ip] || len(pwRec.SourceIPs) < t.maxInnerEntries {
-				pwRec.SourceIPs[ip] = true
-			}
-			pwRec.lastAccess = now
-			pwRec.mu.Unlock()
+			t.passwordHashes[hash] = pwRec
 		}
+		pwRec.mu.Lock()
+		pwRec.Count++
+		pwRec.Uses = append(pwRec.Uses, now)
+		if len(pwRec.Uses) > 1000 {
+			pwRec.Uses = pwRec.Uses[len(pwRec.Uses)-500:]
+		}
+		pwRec.LastSeen = now
+		if t.maxInnerEntries <= 0 || pwRec.SourceIPs[ip] || len(pwRec.SourceIPs) < t.maxInnerEntries {
+			pwRec.SourceIPs[ip] = true
+		}
+		pwRec.lastAccess = now
+		pwRec.mu.Unlock()
 	}
 }
 
