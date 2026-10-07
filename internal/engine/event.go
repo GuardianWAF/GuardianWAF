@@ -107,7 +107,11 @@ var sensitiveQueryParamNames = map[string]bool{
 }
 
 var (
-	sensitiveKeyValuePattern = regexp.MustCompile(`(?i)\b(authorization|cookie|x-api-key|x-csrf-token|x-xsrf-token|api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|csrf[_-]?token|xsrf[_-]?token|client[_-]?secret|session[_-]?id|sessionid|password|passwd|secret|jwt|token)\s*[:=]\s*("[^"]*"|'[^']*'|[^&\s;,]+)`)
+	// The key may be quoted, as it is in every JSON body: "password":"value"
+	// puts a closing quote between the key and the ':' that \s* cannot skip,
+	// so the bare-key form alone missed every JSON-shaped credential. The
+	// optional quote keeps the existing bare form working unchanged.
+	sensitiveKeyValuePattern = regexp.MustCompile(`(?i)\b(authorization|cookie|x-api-key|x-csrf-token|x-xsrf-token|api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|csrf[_-]?token|xsrf[_-]?token|client[_-]?secret|session[_-]?id|sessionid|password|passwd|secret|jwt|token)\s*["']?\s*[:=]\s*("[^"]*"|'[^']*'|[^&\s;,]+)`)
 	bearerTokenPattern       = regexp.MustCompile(`(?i)\bBearer\s+[A-Za-z0-9._~+/\-=]+`)
 	jwtPattern               = regexp.MustCompile(`\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b`)
 )
