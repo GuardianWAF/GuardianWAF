@@ -163,7 +163,7 @@ func (bm *BillingManager) RecordUsage(tenantID string, requests int64, bytesTran
 	defer bm.mu.Unlock()
 
 	usage, exists := bm.currentUsage[tenantID]
-	if !exists {
+	if !exists || usage == nil {
 		usage = &UsageMetrics{
 			PeriodStart: time.Now(),
 		}
@@ -181,12 +181,27 @@ func (bm *BillingManager) GetCurrentUsage(tenantID string) *UsageMetrics {
 	bm.mu.RLock()
 	defer bm.mu.RUnlock()
 
-	if usage, exists := bm.currentUsage[tenantID]; exists {
+	if usage, exists := bm.currentUsage[tenantID]; exists && usage != nil {
 		// Return copy
 		copy := *usage
 		return &copy
 	}
 	return nil
+}
+
+// pricingFor resolves the pricing table entry for a plan.
+//
+// A bare map index (`bm.pricing[plan]`) silently returns the ZERO PlanPricing
+// for any plan that is not one of the four compiled-in keys: BaseMonthlyCost,
+// every per-unit rate and OverageRate are all 0, so an invoice for a typo'd or
+// operator-supplied plan billed $0 no matter how much the tenant consumed.
+// DefaultPlanPricing documents — and TestDefaultPlanPricing_Unknown pins —
+// that an unrecognized plan is priced as the Basic plan, so resolve through it.
+func (bm *BillingManager) pricingFor(plan BillingPlan) PlanPricing {
+	if pricing, ok := bm.pricing[plan]; ok {
+		return pricing
+	}
+	return DefaultPlanPricing(plan)
 }
 
 // GenerateInvoice creates an invoice for a tenant's usage.
@@ -199,7 +214,7 @@ func (bm *BillingManager) GenerateInvoice(tenantID, tenantName string, plan Bill
 		usage = &UsageMetrics{}
 	}
 
-	pricing := bm.pricing[plan]
+	pricing := bm.pricingFor(plan)
 
 	// Calculate costs
 	baseCost := pricing.BaseMonthlyCost
@@ -304,7 +319,7 @@ func (bm *BillingManager) UpdateInvoiceStatus(invoiceID, status string) bool {
 
 // EstimateCost estimates the cost for projected usage.
 func (bm *BillingManager) EstimateCost(plan BillingPlan, requests int64, bandwidthGB int64, blockedAttacks int64) float64 {
-	pricing := bm.pricing[plan]
+	pricing := bm.pricingFor(plan)
 
 	baseCost := pricing.BaseMonthlyCost
 
