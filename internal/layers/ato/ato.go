@@ -197,6 +197,19 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		Time:     time.Now(),
 	})
 
+	// Register the post-response outcome hook. The outcome of this login is
+	// unknown here (Process cannot see the upstream response), so the attempt
+	// above is recorded optimistically; a successful login must then clear it
+	// and record the travel state (see recordLoginSuccess). The closure captures
+	// the values it needs, never ctx: the context returns to the pool before the
+	// upstream call and would otherwise retain the request body.
+	loginIP, loginEmail := ctx.ClientIP, email
+	ctx.PostResponseHook = func(success bool) {
+		if success {
+			l.recordLoginSuccess(loginIP, loginEmail)
+		}
+	}
+
 	return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 }
 
@@ -205,14 +218,21 @@ func (l *Layer) PostProcess(ctx *engine.RequestContext, success bool) {
 	if !success || !l.config.Enabled {
 		return
 	}
+	l.recordLoginSuccess(ctx.ClientIP, l.extractEmail(ctx.BodyString))
+}
 
-	email := l.extractEmail(ctx.BodyString)
-	l.tracker.ClearAttempt(ctx.ClientIP, email)
+// recordLoginSuccess clears the failed attempts of a successful login and
+// records the travel state impossible-travel detection compares against. It is
+// the single implementation behind both PostProcess (embedder API) and the
+// RequestContext.PostResponseHook that Process registers, so the live path and
+// the exported method cannot drift apart.
+func (l *Layer) recordLoginSuccess(ip net.IP, email string) {
+	l.tracker.ClearAttempt(ip, email)
 
 	// Record the travel state for impossible-travel detection. Without this
 	// write the travel maps are never populated and the feature stays inert
 	// regardless of configuration.
-	if loc := l.getLocation(ctx.ClientIP); loc != nil {
+	if loc := l.getLocation(ip); loc != nil {
 		l.travelMu.Lock()
 		l.lastLogin[email] = loc
 		l.lastTime[email] = time.Now()
