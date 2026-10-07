@@ -210,13 +210,18 @@ func shouldSkip(layer Layer, path string, exclusions []Exclusion) bool {
 func (p *Pipeline) AddLayer(ol OrderedLayer) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.layers = append(p.layers, ol)
+	// Execute retains the published slice after releasing the lock. Never
+	// mutate its backing array while an in-flight request may still use it.
+	layers := make([]OrderedLayer, len(p.layers)+1)
+	copy(layers, p.layers)
+	layers[len(p.layers)] = ol
 	// SliceStable (not Slice): with distinct Order values the sort is total,
 	// but an accidental future tie must resolve to ADD ORDER, not to Go's
 	// unstable introsort — the registry display and the runtime must agree.
-	sort.SliceStable(p.layers, func(i, j int) bool {
-		return p.layers[i].Order < p.layers[j].Order
+	sort.SliceStable(layers, func(i, j int) bool {
+		return layers[i].Order < layers[j].Order
 	})
+	p.layers = layers
 }
 
 // Layers returns a copy of the current layer list (thread-safe).

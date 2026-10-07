@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"net"
@@ -611,6 +612,12 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 		// Capture tenant ID before releasing context (pool resets all fields)
 		tenantID := ctx.TenantID
 
+		// Capture the post-response outcome hook before releasing the context:
+		// layers that need the upstream result registered it during Process, and
+		// its closure carries the values it needs (the context is pooled and
+		// reused, so it must not be retained across the upstream call).
+		postResponse := ctx.PostResponseHook
+
 		// End trace span before releasing context
 		if ctx.TraceSpan != nil {
 			finishRootSpan(ctx, event, result)
@@ -666,14 +673,97 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 			return
 		}
 
+		// A layer registered a post-response hook, so the upstream status must
+		// be observed. The recorder sits under the masking writer (which also
+		// passes the status through) and is only installed when a hook exists.
+		var rec *statusRecorder
+		out := w
+		if postResponse != nil {
+			rec = &statusRecorder{ResponseWriter: w}
+			out = rec
+		}
+
 		if maskFn != nil || bodyXform != nil {
-			mwr := newMaskingResponseWriter(w, maskFn, bodyXform)
+			mwr := newMaskingResponseWriter(out, maskFn, bodyXform)
 			next.ServeHTTP(mwr, r)
 			mwr.FlushMasked()
 		} else {
-			next.ServeHTTP(w, r)
+			next.ServeHTTP(out, r)
+		}
+
+		// Report the upstream outcome to the layers that asked for it. Only this
+		// path reaches here — a WAF-generated block/challenge response returned
+		// above, and is not an upstream outcome.
+		if postResponse != nil {
+			postResponse(rec.observedStatus() < http.StatusBadRequest)
 		}
 	})
+}
+
+// statusRecorder observes the response status for layers that registered
+// RequestContext.PostResponseHook. Requests that do not need the outcome are
+// not wrapped at all, so they pay nothing.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+// WriteHeader records the first final status. Informational responses do not
+// determine the final status (101 switches protocols, so it is final), matching
+// net/http and maskingResponseWriter.
+func (s *statusRecorder) WriteHeader(code int) {
+	if code >= 100 && code < 200 && code != http.StatusSwitchingProtocols {
+		s.ResponseWriter.WriteHeader(code)
+		return
+	}
+	if s.status == 0 {
+		s.status = code
+	}
+	s.ResponseWriter.WriteHeader(code)
+}
+
+// Write records the implicit 200 a handler gets when it writes a body without
+// calling WriteHeader.
+func (s *statusRecorder) Write(p []byte) (int, error) {
+	if s.status == 0 {
+		s.status = http.StatusOK
+	}
+	return s.ResponseWriter.Write(p)
+}
+
+// observedStatus returns the status the upstream produced, defaulting to 200
+// when the handler wrote nothing (net/http sends 200 implicitly) or the
+// connection was hijacked before any status was written.
+func (s *statusRecorder) observedStatus() int {
+	if s == nil || s.status == 0 {
+		return http.StatusOK
+	}
+	return s.status
+}
+
+// Unwrap returns the underlying writer for http.ResponseController, so
+// Flush/Hijack/SetWriteDeadline reach the real connection.
+func (s *statusRecorder) Unwrap() http.ResponseWriter {
+	return s.ResponseWriter
+}
+
+// Flush implements http.Flusher so streaming responses (SSE, chunked) keep
+// flushing through the recorder.
+func (s *statusRecorder) Flush() {
+	if f, ok := s.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// Hijack implements http.Hijacker so protocol upgrades still work: the
+// WebSocket layer asserts the interface directly, and the reverse proxy hijacks
+// through http.ResponseController. Without this, installing the recorder for a
+// layer that wants the response outcome would break WebSocket proxying.
+func (s *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if h, ok := s.ResponseWriter.(http.Hijacker); ok {
+		return h.Hijack()
+	}
+	return nil, nil, fmt.Errorf("hijacking not supported")
 }
 
 // recordPanicEvent stores and publishes a minimal event for a request that

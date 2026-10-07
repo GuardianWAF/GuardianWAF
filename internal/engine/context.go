@@ -197,6 +197,20 @@ type RequestContext struct {
 	ClientsideBodyXform func([]byte, string) ([]byte, bool) // body transform (clientside layer)
 	DLPBodyXform        func([]byte, string) ([]byte, bool) // body transform (dlp layer)
 
+	// PostResponseHook is registered by layers that need the upstream outcome,
+	// which is only known after the request has been served: the ATO layer
+	// clears a successful login's failed attempts and records its travel state,
+	// and bot detection counts a failed request for its error-rate analysis.
+	// The engine captures the hook before the context returns to the pool and
+	// invokes it once with success = upstream status < 400. It is NOT invoked
+	// when the WAF answered the request itself (block/challenge) — that is not
+	// an upstream outcome.
+	//
+	// Closures MUST capture the values they need, never the context: the context
+	// is pooled and reused by the next request the moment it is released, and
+	// holding it across the upstream call would retain the request body.
+	PostResponseHook func(success bool)
+
 	// CORS headers — set by CORS layer during Process(), consumed post-pipeline
 	CORSHeaders          map[string]string
 	CORSPreflightHeaders map[string]string
@@ -255,7 +269,7 @@ func AcquireContext(r *http.Request, paranoiaLevel int, maxBodySize int64) *Requ
 	// iteration order) and always keeps security-relevant headers first, so an
 	// attacker cannot push an attack-bearing header (e.g. Referer, User-Agent)
 	// out of inspection by padding the request with junk headers.
-	copyHeaders(ctx, r.Header)
+	copyHeaders(ctx, r.Header, r.Host)
 
 	// Cookies — ALL transmitted values per name, in transmission order
 	// (vals[0] == the r.Cookie()/readCookies first-match view Go backends
@@ -374,7 +388,10 @@ var priorityHeaders = []string{
 
 // copyHeaders copies request headers into ctx.Headers with a deterministic,
 // security-prioritized selection bounded by maxInspectedHeaders.
-func copyHeaders(ctx *RequestContext, h http.Header) {
+// host is the request's effective host (http.Request.Host); net/http moves the
+// Host header out of Header into that field, so it must be passed in
+// explicitly for Host to appear in this view at all.
+func copyHeaders(ctx *RequestContext, h http.Header, host string) {
 	ctx.Headers = make(map[string][]string, min(len(h), maxInspectedHeaders))
 
 	add := func(k string, v []string) {
@@ -390,6 +407,22 @@ func copyHeaders(ctx *RequestContext, h http.Header) {
 	for _, k := range priorityHeaders {
 		if len(ctx.Headers) >= maxInspectedHeaders {
 			return
+		}
+		if k == "Host" {
+			// net/http promotes the request's Host header to Request.Host and
+			// deletes it from Header (http.ReadRequest does exactly that), so
+			// h never carries it. priorityHeaders lists "Host" as always
+			// inspected, and the consumers reading it from this view — the
+			// threat_intel domain-reputation check (threatintel.getHost) and
+			// rules-layer `header:Host` conditions — were inspecting nothing:
+			// a listed phishing Host was never checked. Use the authoritative
+			// effective host the server routed on.
+			if host != "" {
+				add(k, []string{host})
+			} else if v, ok := h[k]; ok {
+				add(k, v)
+			}
+			continue
 		}
 		if v, ok := h[k]; ok {
 			add(k, v)
@@ -469,6 +502,7 @@ func ReleaseContext(ctx *RequestContext) {
 	ctx.ClientsideCSPHook = nil
 	ctx.ClientsideBodyXform = nil
 	ctx.DLPBodyXform = nil
+	ctx.PostResponseHook = nil
 	ctx.CORSHeaders = nil
 	ctx.CORSPreflightHeaders = nil
 	ctx.CORSExposeHeaders = ""

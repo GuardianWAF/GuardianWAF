@@ -38,6 +38,12 @@ func newMaskingResponseWriter(w http.ResponseWriter, maskFn func(string) string,
 // lines), so the declared length can no longer be honored — a stale
 // Content-Length would make clients see truncated responses.
 func (m *maskingResponseWriter) WriteHeader(code int) {
+	// Informational headers do not determine the final response's content type.
+	// Like net/http, treat 101 as final because it switches protocols.
+	if code >= 100 && code < 200 && code != http.StatusSwitchingProtocols {
+		m.ResponseWriter.WriteHeader(code)
+		return
+	}
 	if !m.decided {
 		m.decided = true
 		m.capture = m.shouldCapture()
