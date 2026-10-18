@@ -19,6 +19,7 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/geoip"
+	"github.com/guardianwaf/guardianwaf/internal/layers/sanitizer"
 	"github.com/guardianwaf/guardianwaf/internal/logging"
 )
 
@@ -356,7 +357,7 @@ func (l *Layer) opMatches(cond Condition, fieldValue string, ctx *engine.Request
 func (l *Layer) getFieldValue(field string, ctx *engine.RequestContext) string {
 	switch {
 	case field == "path":
-		return ctx.Path
+		return canonicalPath(ctx)
 	case field == "method":
 		return ctx.Method
 	case field == "ip":
@@ -416,6 +417,31 @@ func (l *Layer) getFieldValue(field string, ctx *engine.RequestContext) string {
 	default:
 		return ""
 	}
+}
+
+// canonicalPath returns the path the upstream actually resolves, for the
+// "path" condition field.
+//
+// ctx.Path is r.URL.Path: net/url decodes percent-escapes but never resolves
+// dot-segments, so "/admin/./panel" and "/x/../admin/panel" reach the backend
+// as "/admin/panel" while an operator's path-scoped deny rule written against
+// the real route silently never fired — a fail-open custom rule. This is the
+// canonical-preferred dual view the other path-based security decisions in
+// the WAF already use (apisecurity shouldSkipPath/allowed_paths, ratelimit,
+// virtualpatch).
+//
+// The canonical value is computed ON DEMAND rather than read from
+// ctx.NormalizedPath alone: the sanitizer that populates that field runs at
+// order 300, AFTER this layer's order 155, so in the real pipeline it is
+// still empty here and a plain field read would silently degrade to the raw
+// wire path. When it IS populated — a caller that ran the sanitizer first, a
+// tenant/direct-construction path, or a future ordering change — that value
+// is used directly.
+func canonicalPath(ctx *engine.RequestContext) string {
+	if ctx.NormalizedPath != "" {
+		return ctx.NormalizedPath
+	}
+	return sanitizer.NormalizeAll(ctx.Path)
 }
 
 // regexMatchTimeout limits individual regex execution to prevent ReDoS.
