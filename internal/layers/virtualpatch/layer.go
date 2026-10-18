@@ -503,7 +503,26 @@ func (l *Layer) matchPattern(ctx *engine.RequestContext, pattern PatchPattern, d
 func (l *Layer) getValueByType(ctx *engine.RequestContext, typ, key string) []string {
 	switch typ {
 	case "path":
-		return []string{ctx.Path}
+		// The sanitizer-normalized path is the route the backend actually
+		// resolves (CanonicalizePath collapses //, "." and ".." segments), so
+		// it is the representation a path-scoped patch must be matched
+		// against. Matching only the raw wire path let an attacker reach the
+		// SAME route through traversal segments — /api/../wp-json/wp/v1/users
+		// has a raw path that fails a ^-anchored regex while its normalized
+		// form is exactly the declared target — bypassing every path-scoped
+		// patch, including the shipped VP-WP-REST-001. This is the
+		// NormalizedPath||Path dual view every detection layer already uses
+		// (lfi/ssrf/cmdi/ssti/nosqli, xss/sqli, ratelimit.go, apisecurity.go)
+		// and the same representation reasoning the "query"/"uri" scopes below
+		// apply; the any-match loop in matchPattern inspects both forms.
+		vals := make([]string, 0, 2)
+		if ctx.NormalizedPath != "" {
+			vals = append(vals, ctx.NormalizedPath)
+		}
+		if ctx.Path != "" && ctx.Path != ctx.NormalizedPath {
+			vals = append(vals, ctx.Path)
+		}
+		return vals
 	case "query":
 		var vals []string
 		if ctx.Request != nil && ctx.Request.URL != nil {
@@ -559,10 +578,17 @@ func (l *Layer) getValueByType(ctx *engine.RequestContext, typ, key string) []st
 			// payload riding as class%2Emodule or %24%7Bjndi%3A evades a
 			// contains-pattern written against the decoded form. The decoded
 			// path (URL.Path) and the engine's decoded query values are the
-			// other representations; the any-match loop in matchPattern
-			// inspects every returned value (round-20 multi-value family,
-			// extended to representations).
+			// other representations. URL.Path is decoded but still carries the
+			// wire's redundant segments: when the sanitizer has run, the
+			// canonicalized route it resolves (NormalizedPath — the r40
+			// path-scope reasoning) is included too, or /wp-json//wp/v1/users
+			// evades a pattern written against the canonical form. The
+			// any-match loop in matchPattern inspects every returned value
+			// (round-20 multi-value family, extended to representations).
 			vals := []string{ctx.Request.URL.RequestURI(), ctx.Request.URL.Path}
+			if ctx.NormalizedPath != "" && ctx.NormalizedPath != ctx.Request.URL.Path {
+				vals = append(vals, ctx.NormalizedPath)
+			}
 			for k, vs := range ctx.QueryParams {
 				vals = append(vals, k)
 				vals = append(vals, vs...)
