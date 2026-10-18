@@ -986,8 +986,13 @@ type APIValidationConfig struct {
 
 // SchemaSourceConfig represents a schema source configuration.
 type SchemaSourceConfig struct {
-	Path      string `yaml:"path"`
-	Type      string `yaml:"type"`
+	Path string `yaml:"path"`
+	Type string `yaml:"type"`
+	// Name is the optional operator-assigned identity of a declared schema.
+	// Setting it lets the dashboard/MCP upload route target this schema by name
+	// (an upload under the same name replaces it, DELETE removes it). Empty
+	// keeps the historical append-only semantics for config-declared sources.
+	Name      string `yaml:"name"`
 	AutoLearn bool   `yaml:"auto_learn"`
 }
 
