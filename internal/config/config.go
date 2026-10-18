@@ -1050,10 +1050,23 @@ func FindVirtualHost(vhosts []VirtualHostConfig, host string) *VirtualHostConfig
 	// Remove port from host if present (bracket-aware for IPv6)
 	host = stripHostPort(host)
 
+	// Host headers and DNS names are case-insensitive, so both sides must be
+	// normalised. Every other vhost matcher in the codebase already does this:
+	// the proxy router lower-cases the registered key and the incoming Host
+	// (internal/proxy/router.go:77,83,227) and the duplicate-domain validator
+	// keys on strings.ToLower(domain) (validate.go:1716) precisely so the
+	// validator and the runtime can never diverge. This matcher was the
+	// outlier, and it matters: engine.go:558 uses it to choose
+	// ctx.TenantWAFConfig and falls back to the tenant BASE config when it
+	// misses, so a case-variant Host silently discarded the operator's
+	// per-vhost WAF override (stricter rate limits, extra detection, custom
+	// exclusions) — a fail-open on a security control.
+	host = strings.ToLower(host)
+
 	for i := range vhosts {
 		vh := &vhosts[i]
 		for _, domain := range vh.Domains {
-			if domain == host {
+			if strings.ToLower(domain) == host {
 				return vh
 			}
 		}
@@ -1064,7 +1077,7 @@ func FindVirtualHost(vhosts []VirtualHostConfig, host string) *VirtualHostConfig
 		for _, domain := range vh.Domains {
 			// Check wildcard match
 			if len(domain) > 0 && domain[0] == '*' {
-				suffix := domain[1:] // Remove leading *
+				suffix := strings.ToLower(domain[1:]) // Remove leading *
 				if len(host) > len(suffix) && strings.HasSuffix(host, suffix) {
 					return vh
 				}
