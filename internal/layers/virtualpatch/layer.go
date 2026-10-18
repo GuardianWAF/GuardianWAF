@@ -548,13 +548,28 @@ func (l *Layer) getValueByType(ctx *engine.RequestContext, typ, key string) []st
 		}
 		return nil
 	case "body":
+		// Same attacker-chosen-encoding family as the path/query/uri cases
+		// above: the backend decodes percent-escapes before the vulnerable
+		// code ever runs, so "%24%7Bjndi%3A" is "${jndi:" by the time it
+		// matters, while the raw body never contains the pattern text. The
+		// engine's decoded representation (ctx.NormalizedBody, populated by
+		// the sanitizer at order 300) was sat unused, so the shipped
+		// body-scoped patches VP-LOG4SHELL-001 ("${jndi:") and
+		// VP-SPRING4SHELL-001 ("class.module") never fired on the encoded
+		// form of the identical attack. Both representations are returned;
+		// the any-match loop in matchPattern inspects every one of them.
+		vals := make([]string, 0, 2)
+		if ctx.NormalizedBody != "" {
+			vals = append(vals, ctx.NormalizedBody)
+		}
 		if ctx.BodyString != "" {
-			return []string{ctx.BodyString}
+			if ctx.BodyString != ctx.NormalizedBody {
+				vals = append(vals, ctx.BodyString)
+			}
+		} else if ctx.Body != nil {
+			vals = append(vals, string(ctx.Body))
 		}
-		if ctx.Body != nil {
-			return []string{string(ctx.Body)}
-		}
-		return nil
+		return vals
 	case "method":
 		return []string{ctx.Method}
 	case "user_agent":
