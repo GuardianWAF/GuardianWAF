@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
+	"github.com/guardianwaf/guardianwaf/internal/layers/sanitizer"
 )
 
 // Rule defines a rate limiting rule.
@@ -157,12 +158,24 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		ip = ctx.ClientIP.String()
 	}
 	// Prefer the sanitizer-normalized path: matching and bucket-keying on
-	// the raw wire path let percent-encoding rotation both dodge the rule
-	// globs and split bucket keys, bypassing ip+path-scoped limits. Mirrors
-	// the NormalizedPath||Path dual-view every detection layer uses.
+	// the raw wire path let alternate spellings of one route both dodge the
+	// rule globs and split bucket keys, bypassing ip+path-scoped limits.
+	//
+	// The canonical value cannot simply be read from ctx.NormalizedPath. This
+	// layer runs at engine.OrderRateLimit (200) and the sanitizer that
+	// populates the field runs at engine.OrderSanitizer (300), so on EVERY live
+	// request the field is still empty here and the raw fallback below
+	// silently re-opened the bypass this view exists to close — an ip+path
+	// rate limit on /login was not applied at all to "/x/../login", which
+	// upstreams serve as /login. ctx.Path is r.URL.Path: net/url resolves
+	// percent-escapes there, but it never resolves dot-segments or collapses
+	// "//", so traversal and double-slash spellings are the live bypass. The
+	// package's own regression test never caught this because it hand-builds a
+	// RequestContext with NormalizedPath pre-set, a state the pipeline never
+	// produces. Canonicalize on demand, preferring the field when populated.
 	reqPath := ctx.NormalizedPath
 	if reqPath == "" {
-		reqPath = ctx.Path
+		reqPath = sanitizer.NormalizeAll(ctx.Path)
 	}
 
 	// Single lock acquisition: read config.Enabled, tenantID, and rules together.
