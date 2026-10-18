@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
+	"github.com/guardianwaf/guardianwaf/internal/layers/sanitizer"
 )
 
 // Config holds the configuration for the API Security layer.
@@ -89,10 +90,20 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	// must evaluate the canonical path — the form upstreams resolve — not the
 	// raw wire path: dot-segment forms like "/health/../admin" matched raw
 	// prefixes ("/health*", "/api/*") while upstreams served "/admin".
-	// Mirrors the ratelimit layer's NormalizedPath||Path dual view.
+	//
+	// That canonical value cannot simply be read from ctx.NormalizedPath. This
+	// layer runs at engine.OrderAPISecurity (275) and the sanitizer that
+	// populates the field runs at engine.OrderSanitizer (300), so on EVERY live
+	// request the field is still empty here and the raw-wire-path fallback
+	// below silently re-opened exactly the bypass this view exists to close —
+	// an auth exemption and an API-key scope escape, both reachable. The
+	// package's own regression test never caught it because it hand-builds a
+	// RequestContext with NormalizedPath pre-set, a state the pipeline never
+	// produces. Canonicalize on demand, preferring the field when a caller has
+	// already populated it.
 	authPath := ctx.NormalizedPath
 	if authPath == "" {
-		authPath = ctx.Path
+		authPath = sanitizer.NormalizeAll(ctx.Path)
 	}
 
 	// Check if path should be skipped
