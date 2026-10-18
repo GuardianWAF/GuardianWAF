@@ -179,6 +179,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	tenantID := ctx.TenantID
 	rules := make([]Rule, len(l.config.Rules))
 	copy(rules, l.config.Rules)
+	clusterStore := l.clusterStore
 	l.mu.RUnlock()
 
 	var findings []engine.Finding
@@ -209,8 +210,8 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		// IncrementCounter performs the increment and returns the
 		// post-increment value in a single atomic call.
 		clusterExceeded := false
-		if l.clusterStore != nil {
-			clusterVal := l.clusterStore.IncrementCounter(key, windowEpoch)
+		if clusterStore != nil {
+			clusterVal := clusterStore.IncrementCounter(key, windowEpoch)
 			if clusterVal > int64(rule.Limit) {
 				clusterExceeded = true
 			}
