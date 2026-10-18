@@ -127,7 +127,8 @@ internal/geoip/*.csv.gz
 # Benchmark results
 *.bench
 
-# Website
+# Node dependencies (root + per-package installs)
+node_modules/
 website/node_modules/
 website/dist/
 
