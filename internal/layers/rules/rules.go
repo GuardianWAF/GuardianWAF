@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/textproto"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -72,7 +73,9 @@ func (l *Layer) Order() int   { return engine.OrderRules }
 // SetRules replaces all rules (thread-safe, for hot-reload).
 func (l *Layer) SetRules(rules []Rule) {
 	sorted := make([]Rule, len(rules))
-	copy(sorted, rules)
+	for i, rule := range rules {
+		sorted[i] = cloneRule(rule)
+	}
 	sort.Slice(sorted, func(i, j int) bool {
 		return sorted[i].Priority < sorted[j].Priority
 	})
@@ -89,15 +92,31 @@ func (l *Layer) Rules() []Rule {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	out := make([]Rule, len(l.rules))
-	copy(out, l.rules)
+	for i, rule := range l.rules {
+		out[i] = cloneRule(rule)
+	}
 	return out
+}
+
+// cloneRule detaches conditions and supported list values from caller-owned slices.
+func cloneRule(rule Rule) Rule {
+	rule.Conditions = slices.Clone(rule.Conditions)
+	for i := range rule.Conditions {
+		switch value := rule.Conditions[i].Value.(type) {
+		case []string:
+			rule.Conditions[i].Value = slices.Clone(value)
+		case []any:
+			rule.Conditions[i].Value = slices.Clone(value)
+		}
+	}
+	return rule
 }
 
 // AddRule adds a rule (thread-safe).
 func (l *Layer) AddRule(rule Rule) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.rules = append(l.rules, rule)
+	l.rules = append(l.rules, cloneRule(rule))
 	sort.Slice(l.rules, func(i, j int) bool {
 		return l.rules[i].Priority < l.rules[j].Priority
 	})
@@ -139,7 +158,7 @@ func (l *Layer) UpdateRule(rule Rule) bool {
 	defer l.mu.Unlock()
 	for i := range l.rules {
 		if l.rules[i].ID == rule.ID {
-			l.rules[i] = rule
+			l.rules[i] = cloneRule(rule)
 			sort.Slice(l.rules, func(a, b int) bool {
 				return l.rules[a].Priority < l.rules[b].Priority
 			})
