@@ -9,7 +9,6 @@ import (
 	"time"
 )
 
-
 func slotTestRequest(size int) *http.Request {
 	r := httptest.NewRequest(http.MethodPost, "/api/upload", bytes.NewReader([]byte(strings.Repeat("a", size))))
 	r.Header.Set("Content-Type", "text/plain")
