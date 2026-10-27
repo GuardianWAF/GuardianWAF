@@ -510,7 +510,7 @@ func checkExecString(tokens []Token, location string) (engine.Finding, bool) {
 // that closes the application's string literal, optional closing parens, a
 // boolean operator, and then either a comment that discards the rest of the
 // query (`' OR 1 --`, `' HAVING 1=1 --`, `'||1=1 --`) or a literal comparison
-// that re-balances the trailing quote (`' OR ''='`, `') OR ('1'='1`).
+// that re-balances the trailing quote (`' OR ”='`, `') OR ('1'='1`).
 //
 // Natural text never puts OR/AND/||/&& directly after an apostrophe — "it's",
 // "O'Brien or" and "rock 'n' roll" all continue with a word — so the shape is
