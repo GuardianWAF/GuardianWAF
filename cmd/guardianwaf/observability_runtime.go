@@ -102,6 +102,12 @@ var prometheusMetricsContract = []prometheusMetric{
 		Value: func(s engine.Stats) int64 { return s.TracingExported },
 	},
 	{
+		Name:  "guardianwaf_large_body_rejected_total",
+		Help:  "Requests refused with 503 because every large-body inspection slot stayed busy.",
+		Type:  "counter",
+		Value: func(s engine.Stats) int64 { return s.LargeBodyRejected },
+	},
+	{
 		Name:  "guardianwaf_tracing_spans_dropped_total",
 		Help:  "Total number of tracing spans the exporter dropped (queue full or delivery failed).",
 		Type:  "counter",

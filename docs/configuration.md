@@ -150,7 +150,9 @@ waf:
     max_url_length: 8192         # Default: 8192 bytes
     max_header_size: 8192        # Default: 8192 bytes (total headers)
     max_header_count: 100        # Default: 100 headers
-    max_body_size: 10485760      # Default: 10MB (10 * 1024 * 1024)
+    max_body_size: 10485760      # Default: 10MB (10 * 1024 * 1024); larger is 413.
+                                 # Bodies > 256 KiB share bounded inspection slots
+                                 # (503 + Retry-After when saturated for 5 s).
     max_cookie_size: 4096        # Default: 4096 bytes
     block_null_bytes: true       # Default: true
     normalize_encoding: true     # Default: true (URL-decode, normalize)

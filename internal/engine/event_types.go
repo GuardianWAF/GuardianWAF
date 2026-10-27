@@ -39,6 +39,7 @@ type Stats struct {
 	TracingSpans       int64
 	TracingExported    int64
 	TracingDropped     int64
+	LargeBodyRejected  int64
 }
 
 // LatencyBucket describes one cumulative request latency histogram bucket.

@@ -48,7 +48,7 @@ Budgets are stated as WAF processing overhead measured in-process unless the dep
 | Library middleware | Clean request | p99 < 1 ms, 0 unexpected blocks | `TestLoadTest_BenignTraffic`, `BenchmarkEngine_BenignRequest` |
 | Library middleware | Attack-heavy request | p99 < 2 ms for detector processing | `BenchmarkEngine_AttackRequest`, `BenchmarkEngine_FullPipeline_MultiParam` |
 | Library middleware | Large headers | p99 < 5 ms with 100 bounded headers | `BenchmarkEngine_LargeHeaders` |
-| Library middleware | Large body inspection | p99 < 25 ms at default 10 MiB inspection cap | `BenchmarkEngine_LargeBody` |
+| Library middleware | Large body inspection | p99 < 25 ms for the 150 KB JSON body of the benchmark; inspection scales at ~110 ms/MB (JSON) to ~180 ms/MB (text) per core, so set `max_body_size` per path | `BenchmarkEngine_LargeBody` |
 | Library middleware | gzip body inspection | p99 < 35 ms, decompressed data still capped | `BenchmarkEngine_GzipBody` |
 | Library middleware | deflate body inspection | p99 < 35 ms, decompressed data still capped | `BenchmarkEngine_DeflateBody` |
 | Standalone proxy | Clean HTTP proxy path | p99 < 5 ms plus upstream RTT | CLI smoke plus release load test |
@@ -56,6 +56,12 @@ Budgets are stated as WAF processing overhead measured in-process unless the dep
 | Routing | 100 virtual hosts x 100 routes | lookup p99 < 1 ms | `BenchmarkRouteLookup_ManyRoutes` |
 | Tenancy | 1000 tenants by host | resolve p99 < 1 ms | `BenchmarkTenantResolve_ManyTenants` |
 | Events | High event write rate | no unbounded growth, drops observable | `BenchmarkEventStore_HighEventRate`, `guardianwaf_event_store_dropped_total` |
+
+Bodies over 256 KiB share a bounded set of inspection slots (half the CPUs).
+A request that cannot get a slot within 5 seconds is refused with `503` and
+`Retry-After` and counted in `guardianwaf_large_body_rejected_total`; it is
+never forwarded uninspected. Small requests never wait for a slot, so a burst
+of multi-megabyte bodies degrades only those requests.
 
 If a budget is missed, release notes must either document the regression as a known issue with mitigation, or the release must be held until the regression is fixed.
 
