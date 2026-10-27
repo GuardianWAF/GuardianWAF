@@ -435,8 +435,22 @@ tracing:
   followed, so the headers are never sent to another origin.
 - Config reload and shutdown flush queued spans, bounded by `timeout`.
 - The gRPC transport (port 4317) and protobuf encoding are not supported.
-  Incoming W3C `traceparent` headers are not yet joined and not propagated
-  upstream, so each request starts a new trace.
+
+### Trace context
+
+GuardianWAF speaks W3C Trace Context (`traceparent`) whenever a request is
+sampled:
+
+- A valid incoming `traceparent` is joined. The `waf.request` span uses the
+  caller's trace ID, with the caller's span as its parent. Malformed headers,
+  all-zero IDs and version `ff` are ignored, and a new trace starts instead.
+- The request forwarded upstream carries a `traceparent` naming the
+  `waf.request` span, so the application's spans become its children.
+- Sampling is decided locally by `sampling_rate`. A client's sampled flag
+  cannot force a trace, so clients cannot drive collector load. An unsampled
+  request forwards the client's `traceparent` and `tracestate` unchanged.
+- Trace IDs from clients are not trusted for anything but correlation. They
+  never affect detection or routing.
 
 ---
 

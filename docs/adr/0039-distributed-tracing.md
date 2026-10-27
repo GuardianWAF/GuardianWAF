@@ -39,7 +39,10 @@ Implement a minimal, zero-dependency tracing package (`internal/tracing/`) with 
 - **OTLP/HTTP JSON wire format** — `exporter_type: otlp` batches spans to an
   OpenTelemetry collector over HTTP with the OTLP JSON mapping, hand-encoded with
   the stdlib. gRPC and protobuf transports are out of scope.
-- **No baggage propagation** — Only `X-Correlation-ID` (not full W3C Trace Context) is propagated to upstream backends and cluster nodes. Full trace context propagation would require a wire format.
+- **W3C Trace Context, local sampling** — A valid incoming `traceparent` is
+  joined and the upstream receives one naming the WAF span. The sampling
+  decision stays local so clients cannot force tracing. Baggage is not
+  interpreted; cluster RPCs carry `X-Correlation-ID` only.
 - **Sync export, buffered delivery** — Exporters are called synchronously on
   span end. The `StdoutExporter` writes inline and is for development only; the
   OTLP exporter only copies the span into a bounded queue and drops (and counts)
@@ -54,7 +57,7 @@ Implement a minimal, zero-dependency tracing package (`internal/tracing/`) with 
 - Per-layer spans with WAF attributes enable targeted performance analysis
 
 **Negative:**
-- Incoming W3C `traceparent` headers are not joined yet, so WAF traces are not linked to client or upstream traces
+- The `waf.request` span ends when inspection finishes, so it measures WAF time only. Upstream latency appears in the application's own child spans.
 - No automatic context propagation across HTTP boundaries (only correlation ID header)
 - The stdout exporter writes inline and can add latency (mitigated by sampling); the OTLP exporter drops spans instead
 
