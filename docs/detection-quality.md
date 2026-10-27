@@ -152,6 +152,7 @@ placements in a `# placement:` header:
 
 - `query`: `?q=`
 - `form`: urlencoded body
+- `multipart`: a multipart/form-data field next to a PNG upload
 - `json`: the whole body
 - `path`
 - `redirect`: `?next=`
@@ -159,19 +160,19 @@ placements in a `# placement:` header:
 | Corpus | Requests | Blocked |
 |---|---:|---:|
 | search queries (EN/TR/DE/ES/FR) | 274 | 0 |
-| comments, reviews, support tickets | 184 | 0 |
-| names, companies, addresses, emails, phones | 154 | 0 |
+| comments, reviews, support tickets | 368 | 0 |
+| names, companies, addresses, emails, phones | 231 | 0 |
 | JSON API bodies | 78 | 0 |
-| passwords, tokens, identifiers | 55 | 0 |
+| passwords, tokens, identifiers | 110 | 0 |
 | URL paths and slugs | 51 | 0 |
 | URLs as parameters | 20 | 0 |
 | same-site redirect targets | 17 | 0 |
-| **General benign** | **833** | **0 (0.00%)** — budget 1% |
-| developer posts quoting code (`technical_*`) | 60 | 0 (0.00%) — budget 5% |
+| **General benign** | **1149** | **0 (0.00%)** — budget 1% |
+| developer posts quoting code (`technical_*`) | 120 | 0 (0.00%) — budget 5% |
 
 Attacks reuse `testdata/attacks/`, placed where each class is delivered:
 
-- SQLi, XSS, CMDi, SSTI, NoSQLi: query and form.
+- SQLi, XSS, CMDi, SSTI, NoSQLi: query, form and multipart.
 - LFI: `file=` and query.
 - SSRF: `url=` and query.
 - Open redirect: `next=`.
@@ -179,7 +180,7 @@ Attacks reuse `testdata/attacks/`, placed where each class is delivered:
 - GraphQL: `/graphql`.
 
 Every class must be blocked at least 85% of the time. Current result:
-799/817 (97.8%), with SQLi at 97.1% and CMDi at 98.0%.
+1071/1094 (97.9%), with SQLi at 97.1% and CMDi at 98.0%.
 
 Building this gate exposed defects that the layer-only corpus could not see.
 They are now fixed and pinned by tests:
@@ -203,6 +204,16 @@ They are now fixed and pinned by tests:
   Isolated keywords now score at most twice, and the bonus needs two real
   clauses (`DELETE FROM`, `UPDATE t SET`, `DROP TABLE`, ...). Attack detection
   is unchanged.
+- **Multipart bodies.** Multipart fields were scanned as raw body text, so the
+  boundary `--` and the quoted `name="..."` gave every upload form a 35-point
+  SQLi baseline; 35 of 833 benign samples blocked. Fields, raw upload filenames
+  and textual uploads are now extracted like JSON and form fields.
+- **Binary uploads.** The default `block_null_bytes` check ran over the raw
+  body, and text detectors scanned binary bytes, so every image, PDF or
+  archive upload was blocked. The NUL check now covers multipart fields and
+  textual bodies only, and a body that is binary under a binary media type
+  skips text inspection (text sent as `application/octet-stream` is still
+  inspected).
 - **Windows paths in prose.** "the path is C:\Users\me\AppData" scored 55. A
   drive path a space into prose now only logs (25); one that is the value or
   follows `=`, `/` or a quote still scores 55, and sensitive targets such as
@@ -220,5 +231,5 @@ The corpus gate also locks recent SSRF bypass fixes:
 
 ## Remaining Work
 
-- Grow the end-to-end corpora with anonymized production traffic, and add multipart bodies and header placements.
+- Grow the end-to-end corpora with anonymized production traffic, and add cookie and header placements.
 - Expand the detector-specific benign corpora with real production traffic once anonymized logs are available.

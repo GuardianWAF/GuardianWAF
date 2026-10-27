@@ -1,6 +1,6 @@
 # Developer forum posts and support tickets that quote code. Real deployments
 # usually exclude such endpoints, so this corpus has its own looser budget.
-# placement: form
+# placement: form,multipart
 How do I select only the first row in PostgreSQL? I tried LIMIT but it's slow on a big table.
 In SQL, what's the difference between UNION and UNION ALL?
 My query uses a JOIN on two tables and returns duplicates, any idea why?

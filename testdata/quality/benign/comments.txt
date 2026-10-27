@@ -1,7 +1,7 @@
 # User-generated text: product reviews, forum replies, support tickets and
 # chat messages, with natural punctuation, quotes, emoticons and markup-like
 # characters.
-# placement: form
+# placement: form,multipart
 Great product, works exactly as described. Would buy again!
 Arrived two days late but the quality is excellent.
 I've been using this for 3 months now and it's still going strong.
