@@ -142,7 +142,9 @@ jobs:
 
   dashboard-e2e:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    # The suite itself takes ~7 minutes, but `playwright install --with-deps`
+    # pulls fonts from the Ubuntu mirror and has taken 9+ minutes on its own.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

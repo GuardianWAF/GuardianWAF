@@ -50,11 +50,13 @@ func setupIntegrationCluster(t *testing.T, n int) map[string]*integrationNode {
 		sm := NewStoreStateMachine(store, nil)
 
 		r, err := raft.New(raft.Config{
-			NodeID:             id,
-			Secret:             testClusterSecret,
-			BindAddr:           "127.0.0.1:0",
-			ElectionTimeoutMin: 2000 * time.Millisecond,
-			ElectionTimeoutMax: 4000 * time.Millisecond,
+			NodeID:   id,
+			Secret:   testClusterSecret,
+			BindAddr: "127.0.0.1:0",
+			// 10x the heartbeat keeps elections stable under -race while
+			// failover tests do not wait out production-sized timeouts.
+			ElectionTimeoutMin: 500 * time.Millisecond,
+			ElectionTimeoutMax: 1000 * time.Millisecond,
 			HeartbeatInterval:  50 * time.Millisecond,
 		}, sm)
 		if err != nil {
