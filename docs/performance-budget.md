@@ -48,7 +48,7 @@ Budgets are stated as WAF processing overhead measured in-process unless the dep
 | Library middleware | Clean request | p99 < 1 ms, 0 unexpected blocks | `TestLoadTest_BenignTraffic`, `BenchmarkEngine_BenignRequest` |
 | Library middleware | Attack-heavy request | p99 < 2 ms for detector processing | `BenchmarkEngine_AttackRequest`, `BenchmarkEngine_FullPipeline_MultiParam` |
 | Library middleware | Large headers | p99 < 5 ms with 100 bounded headers | `BenchmarkEngine_LargeHeaders` |
-| Library middleware | Large body inspection | p99 < 25 ms for the 150 KB JSON body of the benchmark; inspection scales at ~110 ms/MB (JSON) to ~180 ms/MB (text) per core, so set `max_body_size` per path | `BenchmarkEngine_LargeBody` |
+| Library middleware | Large body inspection | p99 < 25 ms for the 150 KB JSON body of the benchmark; inspection scales at ~50 ms/MB (JSON) to ~75 ms/MB (text) per core, so set `max_body_size` per path | `BenchmarkEngine_LargeBody` |
 | Library middleware | gzip body inspection | p99 < 35 ms, decompressed data still capped | `BenchmarkEngine_GzipBody` |
 | Library middleware | deflate body inspection | p99 < 35 ms, decompressed data still capped | `BenchmarkEngine_DeflateBody` |
 | Standalone proxy | Clean HTTP proxy path | p99 < 5 ms plus upstream RTT | CLI smoke plus release load test |
