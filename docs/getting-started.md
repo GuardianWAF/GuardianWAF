@@ -41,8 +41,8 @@ docker pull guardianwaf/guardianwaf:latest
 
 Prerequisites:
 
-- Go 1.26.6 or newer
-- Node.js 20.19.0 or newer
+- Go 1.26.10 or newer
+- Node.js 22.22.2+ (22.x), 24.15.0+ (24.x), or 26+
 - npm 10.x or newer
 - `git`
 

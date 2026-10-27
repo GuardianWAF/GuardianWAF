@@ -431,6 +431,7 @@ waf:
     enabled: true
     scan_payloads: true                  # run detection pipeline on text frames
     max_frame_size: 1048576              # max bytes per frame (default: 1 MB)
+    max_message_size: 10485760           # max bytes per message (reassembled); tightens the 8 MiB ceiling
     max_concurrent_per_ip: 100           # concurrent WS connections per IP
     block_binary_messages: false         # reject all binary frames
     allowed_origins: []                  # empty = allow all; set to restrict (CSWSH protection)
@@ -604,6 +605,7 @@ waf:
     enabled: true
     scan_payloads: true                  # run detection on text frames
     max_frame_size: 1048576              # 1 MB per frame (DoS protection)
+    max_message_size: 10485760           # max bytes per message (reassembled); tightens the 8 MiB ceiling
     max_concurrent_per_ip: 100           # concurrent WS connections per IP
     block_binary_messages: false         # reject all binary frames
     block_empty_messages: false          # reject empty payloads
@@ -616,6 +618,7 @@ waf:
 | `enabled` | `false` | Enable WebSocket inspection |
 | `scan_payloads` | `true` | Run detection pipeline on text frames |
 | `max_frame_size` | `1048576` | Maximum frame size in bytes |
+| `max_message_size` | `10485760` | Maximum message size in bytes. Fragmented messages are reassembled before inspection, so this bounds that buffer; the value can only tighten the built-in 8 MiB ceiling. Over-limit messages are refused with close code 1009. |
 | `max_concurrent_per_ip` | `100` | Max concurrent WS connections per IP |
 | `block_binary_messages` | `false` | Block all binary frames |
 | `block_empty_messages` | `false` | Block empty payloads |

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-GuardianWAF is a zero-dependency Web Application Firewall written in Go (`go.mod` declares `go 1.26.6`; there is no `toolchain` directive).
+GuardianWAF is a zero-dependency Web Application Firewall written in Go (`go.mod` declares `go 1.26.10`; there is no `toolchain` directive).
 Module: `github.com/guardianwaf/guardianwaf`
 
 The codebase uses the Go standard library **only** — `go.mod` has zero `require` entries and `go.sum` is empty (verified 2026-06-04, after the dead `internal/http3` package and its sole dependency `quic-go` were removed).
@@ -118,7 +118,7 @@ provided by the challenge service rather than the registry):
 | 100 | IP ACL | Radix tree CIDR matching, runtime add/remove, auto-ban |
 | 125 | Threat Intel | IP/domain reputation feeds with LRU cache |
 | 150 | CORS | Origin validation, preflight caching |
-| 150 | Custom Rules | Geo-aware rule engine with dashboard CRUD |
+| 155 | Custom Rules | Geo-aware rule engine with dashboard CRUD |
 | 200 | Rate Limit | Token bucket per IP/path, auto-ban |
 | 250 | ATO Protection | Brute force, credential stuffing, password spray, impossible travel |
 | 275 | API Security | JWT validation (RS256/ES256/HS256), API key auth |
@@ -145,7 +145,7 @@ provided by the challenge service rather than the registry):
 
 ### Layer vs Library Mode
 
-The `serve` command (`cmd/guardianwaf/main.go` → `cmd/guardianwaf/layers.go`) wires all **16** layers above via `layerregistry`, plus the JS-challenge service and the runtime subsystems listed in the table above. The Go library API (`guardianwaf.go`) wires only 6 core layers by default. To add more layers in library mode, access the internal engine and call `AddLayer` directly.
+The `serve` command (`cmd/guardianwaf/main.go` → `cmd/guardianwaf/layers.go`) wires all **16** layers above via `layerregistry`, plus the JS-challenge service and the runtime subsystems listed in the table above. The Go library API (`guardianwaf.go`) supports the seven layers listed above; API Security is opt-in through YAML. Detection includes all 11 detectors by default. Unsupported enabled registry layers fail construction; use standalone mode for those capabilities. The internal engine is not exposed through the public API.
 
 ### Multi-Tenancy
 

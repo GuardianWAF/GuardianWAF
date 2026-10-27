@@ -59,7 +59,7 @@ with `apiKey.existingSecret`.
 - [ ] SMTP server for alerts (optional)
 - [ ] Webhook endpoints for notifications (optional)
 - [ ] Reverse proxy (nginx/traefik/caddy) - **recommended**
-- [ ] Source builds only: Go 1.26.6 or newer, Node.js 20.19.0 or newer, npm 10.x or newer, and `git`
+- [ ] Source builds only: Go 1.26.10 or newer, Node.js 22.22.2+ (22.x), 24.15.0+ (24.x), or 26+, npm 10.x or newer, and `git`
 
 For source builds, validate the local toolchain before building:
 
@@ -89,15 +89,34 @@ Outbound:
 
 ### Method 1: Docker (Recommended)
 
+For the repository's production Compose profile, copy `.env.example` to `.env`,
+set its permissions to `600`, and supply your real `GWAF_UPSTREAM_URL` plus two
+independent, stable dashboard keys (`openssl rand -hex 32` for each). Retain
+these keys in your secret store across container recreation. For a private
+origin, set `GWAF_ALLOWED_UPSTREAM_CIDRS` to the narrowest CIDRs containing it.
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+This profile mounts `guardianwaf.production.yaml`, requires the three settings
+above, disables the example backends, and persists events, IP bans, and dashboard
+audit records on `guardianwaf-data`. The dashboard is published on host loopback
+only. Put the public HTTP proxy behind your TLS terminator and configure a
+reachable origin; the example backend services are disabled in production.
+Protect the data volume and include it in the backup/restore procedure below.
+
+For a separately managed config, the equivalent container setup is:
+
 ```yaml
 # docker-compose.yml
-version: '3.8'
-
 services:
   guardianwaf:
     image: ghcr.io/guardianwaf/guardianwaf:v0.4.0
     container_name: guardianwaf
     restart: unless-stopped
+    command: ["serve", "--config", "/etc/guardianwaf/config.yaml"]
     ports:
       - "80:8080"
       - "443:8443"
@@ -118,7 +137,7 @@ services:
     tmpfs:
       - /tmp:noexec,nosuid,size=100m
     healthcheck:
-      test: ["CMD", "/app/guardianwaf", "healthcheck"]
+      test: ["CMD", "/usr/local/bin/guardianwaf", "healthcheck", "--config", "/etc/guardianwaf/config.yaml"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -650,3 +669,13 @@ guardianwaf migrate-config --from 0.2 --to 0.3 --config config.yaml
 ---
 
 *Last updated: 2026-04-15 for GuardianWAF v0.4.0*
+
+## Response masking boundaries
+
+Response masking buffers supported text, JSON, XML, and JavaScript responses up
+to 1 MiB. A response exceeding that buffer, a streaming flush, or an unsupported
+content encoding passes through without complete masking. Gzip is decoded and
+re-encoded within the bounded buffer; this is not incremental streaming DLP.
+Do not rely on this mechanism as the only mandatory control for sensitive-data
+exports, downloads, or streams. Apply application-side redaction for those
+paths and test representative response sizes and encodings before rollout.

