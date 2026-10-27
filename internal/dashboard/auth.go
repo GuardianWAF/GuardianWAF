@@ -417,7 +417,7 @@ const (
 // asserts the admin/mutating endpoints stay denied and a hypothetical new
 // endpoint is denied by default.
 var tenantReadablePrefixes = []string{
-	"/api/v1/stats",  // global aggregate counters: numbers only, no per-tenant payload
+	"/api/v1/stats",  // tenant-scoped counts from the event store in the handler
 	"/api/v1/events", // tenant-filtered in the handler
 	"/api/v1/sse",    // tenant-filtered in the broadcaster
 	"/api/v1/geoip/lookup",

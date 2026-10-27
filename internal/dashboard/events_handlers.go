@@ -13,6 +13,10 @@ import (
 // --- Stats ---
 
 func (d *Dashboard) handleGetStats(w http.ResponseWriter, r *http.Request) {
+	if scope := tenantScope(r); scope != "" {
+		d.handleTenantStats(w, scope)
+		return
+	}
 	stats := d.engine.Stats()
 	result := map[string]any{
 		"total_requests":      stats.TotalRequests,
@@ -31,6 +35,40 @@ func (d *Dashboard) handleGetStats(w http.ResponseWriter, r *http.Request) {
 		result[k] = fn()
 	}
 	d.extraStatsMu.RUnlock()
+	writeJSON(w, http.StatusOK, result)
+}
+
+// handleTenantStats answers /api/v1/stats for a tenant-scoped key. The engine
+// counters are process-wide, so returning them told one tenant every other
+// tenant's traffic and block volume; alerting and integration stats describe
+// the operator's infrastructure. A tenant instead gets its own request counts
+// over the retained event window, under the same field names.
+func (d *Dashboard) handleTenantStats(w http.ResponseWriter, tenantID string) {
+	if d.eventStore == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "event store unavailable"})
+		return
+	}
+	count := func(action string) (int, bool) {
+		n, err := d.eventStore.Count(events.EventFilter{TenantID: tenantID, Action: action})
+		return n, err == nil
+	}
+	result := map[string]any{"tenant_id": tenantID, "scope": "tenant", "window": "retained_events"}
+	total := 0
+	for key, action := range map[string]string{
+		"blocked_requests":    "blocked",
+		"challenged_requests": "challenge",
+		"logged_requests":     "logged",
+		"passed_requests":     "passed",
+	} {
+		n, ok := count(action)
+		if !ok {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "failed to count events"})
+			return
+		}
+		result[key] = n
+		total += n
+	}
+	result["total_requests"] = total
 	writeJSON(w, http.StatusOK, result)
 }
 
