@@ -31,6 +31,8 @@ import (
 //	json   POST /api/items with the sample as the JSON body
 //	cookie GET /account with Cookie: pref=<URL-encoded sample>
 //	cookie_raw GET /account with the sample line (name=value) as a cookie
+//	header GET /api/items with X-Search-Term: <sample>
+//	header_raw GET /api/items with the sample line (Name: value) as a header
 //	path   GET  /<sample>
 //	xml      POST /api/import with the sample as an XML body
 //	redirect GET  /login?next=<sample>
@@ -66,6 +68,17 @@ var placements = map[string]func(sample string) *http.Request{
 	"cookie_raw": func(s string) *http.Request {
 		r := httptest.NewRequest(http.MethodGet, "/account", nil)
 		r.Header.Set("Cookie", "theme=dark; "+s)
+		return r
+	},
+	"header": func(s string) *http.Request {
+		r := httptest.NewRequest(http.MethodGet, "/api/items", nil)
+		r.Header.Set("X-Search-Term", s)
+		return r
+	},
+	"header_raw": func(s string) *http.Request {
+		r := httptest.NewRequest(http.MethodGet, "/api/items", nil)
+		name, value, _ := strings.Cut(s, ":")
+		r.Header.Add(strings.TrimSpace(name), strings.TrimSpace(value))
 		return r
 	},
 	"json": func(s string) *http.Request {

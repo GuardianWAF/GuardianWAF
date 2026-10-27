@@ -149,7 +149,7 @@ func TestAttackCorpusBlockedEndToEnd(t *testing.T) {
 		name := strings.TrimSuffix(filepath.Base(path), ".txt")
 		pl := attackPlacements[name]
 		if pl == nil {
-			pl = []string{"query", "form", "multipart", "cookie"}
+			pl = []string{"query", "form", "multipart", "cookie", "header"}
 		}
 		c := readCorpus(t, path, pl...)
 		o := run(t, eng, c, &seq, true)

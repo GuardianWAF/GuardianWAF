@@ -154,27 +154,31 @@ placements in a `# placement:` header:
 - `form`: urlencoded body
 - `multipart`: a multipart/form-data field next to a PNG upload
 - `cookie_raw`: a real-world cookie (`name=value`) as browsers send it
+- `header`: the value of an application header (`X-Search-Term`)
+- `header_raw`: a real-world request header (`Name: value`) as clients send it
 - `json`: the whole body
 - `path`
 - `redirect`: `?next=`
 
 | Corpus | Requests | Blocked |
 |---|---:|---:|
-| search queries (EN/TR/DE/ES/FR) | 274 | 0 |
+| search queries (EN/TR/DE/ES/FR), also as a header | 548 | 0 |
 | comments, reviews, support tickets | 368 | 0 |
-| names, companies, addresses, emails, phones | 231 | 0 |
+| names, companies, addresses, emails, phones, also as a header | 308 | 0 |
 | JSON API bodies | 78 | 0 |
-| passwords, tokens, identifiers | 110 | 0 |
+| passwords, tokens, identifiers, also as a header | 165 | 0 |
 | cookies: analytics, consent, signed sessions, preferences | 45 | 0 |
+| custom headers: API keys, tenants, cloud SDK, webhook signatures, tracing | 102 | 0 |
 | URL paths and slugs | 51 | 0 |
 | URLs as parameters | 20 | 0 |
 | same-site redirect targets | 17 | 0 |
-| **General benign** | **1194** | **0 (0.00%)** — budget 1% |
+| **General benign** | **1702** | **0 (0.00%)** — budget 1% |
 | developer posts quoting code (`technical_*`) | 120 | 0 (0.00%) — budget 5% |
 
 Attacks reuse `testdata/attacks/`, placed where each class is delivered:
 
-- SQLi, XSS, CMDi, SSTI, NoSQLi: query, form, multipart and a URL-encoded cookie.
+- SQLi, XSS, CMDi, SSTI, NoSQLi: query, form, multipart, a URL-encoded cookie
+  and an application header.
 - LFI: `file=` and query.
 - SSRF: `url=` and query.
 - Open redirect: `next=`.
@@ -182,7 +186,7 @@ Attacks reuse `testdata/attacks/`, placed where each class is delivered:
 - GraphQL: `/graphql`.
 
 Every class must be blocked at least 85% of the time. Current result:
-1343/1371 (98.0%), with SQLi at 97.1% and CMDi at 98.0%.
+1615/1648 (98.0%), with SQLi at 97.1% and CMDi at 98.0%.
 
 Building this gate exposed defects that the layer-only corpus could not see.
 They are now fixed and pinned by tests:
@@ -220,6 +224,12 @@ They are now fixed and pinned by tests:
   `pref=%27+OR+1%3D1+--`, which PHP, Express and Rails hand the application as
   `' OR 1=1 --`, scored 0 (SQLi in cookies: 2/105 blocked). Detectors now also
   scan the URL-decoded and normalized forms (`RequestContext.CookieViews`).
+- **Custom headers.** Only Referer and User-Agent were scanned (plus four
+  headers by SSRF), so an injection in any header the backend reads as data,
+  such as `X-Api-Key: ' OR '1'='1' --` or `X-Original-URL: /../../etc/passwd`,
+  scored 0. Application-defined headers are now scanned like query values
+  (`RequestContext.CustomHeaderViews`). Protocol, credential, client-IP,
+  tracing and `Sec-*` headers are skipped.
 - **Windows paths in prose.** "the path is C:\Users\me\AppData" scored 55. A
   drive path a space into prose now only logs (25); one that is the value or
   follows `=`, `/` or a quote still scores 55, and sensitive targets such as
@@ -237,5 +247,5 @@ The corpus gate also locks recent SSRF bypass fixes:
 
 ## Remaining Work
 
-- Grow the end-to-end corpora with anonymized production traffic, and add header placements.
+- Grow the end-to-end corpora with anonymized production traffic.
 - Expand the detector-specific benign corpora with real production traffic once anonymized logs are available.
