@@ -74,8 +74,10 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 			scan(v, "query")
 		}
 	}
-	scan(ctx.BodyString, "body")
-	scan(ctx.NormalizedBody, "body")
+	// Decoded fields of a structured (JSON/form) body, else the whole body.
+	for _, view := range ctx.BodyViews() {
+		scan(view, "body")
+	}
 	for _, vals := range ctx.Cookies {
 		for _, v := range vals {
 			scan(v, "cookie")
@@ -144,6 +146,11 @@ var exploitGadgets = []string{
 	"t(java.lang.system",
 	"java.lang.runtime).getruntime",
 	"getruntime().exec",
+	// Reflection path to the same classes, reachable from any EL object:
+	// ${''.getClass().forName('java.lang.Runtime')}.
+	".getclass().forname(",
+	"forname('java.lang.",
+	"forname(\"java.lang.",
 	"freemarker.template.utility.execute",
 	"processbuilder",
 	"javax.script",

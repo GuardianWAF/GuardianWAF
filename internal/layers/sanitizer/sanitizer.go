@@ -1,6 +1,7 @@
 package sanitizer
 
 import (
+	"encoding/json"
 	"net/url"
 	"strings"
 	"sync"
@@ -99,6 +100,13 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		// Oversized bodies are rejected independently of their finding score;
 		// the complete original stream is retained for monitor-mode forwarding.
 		ctx.NormalizedBody = NormalizeAll(inspectionBody(ctx))
+		if fields := bodyFields(ctx); fields != nil {
+			ctx.BodyFields = fields
+			ctx.NormalizedBodyFields = make([]string, len(fields))
+			for i, f := range fields {
+				ctx.NormalizedBodyFields[i] = NormalizeAll(f)
+			}
+		}
 
 		// Normalize headers
 		ctx.NormalizedHeaders = make(map[string][]string, len(ctx.Headers))
@@ -116,6 +124,10 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 			ctx.NormalizedQuery[k] = append([]string(nil), vs...)
 		}
 		ctx.NormalizedBody = inspectionBody(ctx)
+		if fields := bodyFields(ctx); fields != nil {
+			ctx.BodyFields = fields
+			ctx.NormalizedBodyFields = append([]string(nil), fields...)
+		}
 		ctx.NormalizedHeaders = make(map[string][]string, len(ctx.Headers))
 		for k, vs := range ctx.Headers {
 			ctx.NormalizedHeaders[k] = append([]string(nil), vs...)
@@ -192,4 +204,90 @@ func inspectionBody(ctx *engine.RequestContext) string {
 func isFormURLEncoded(contentType string) bool {
 	mediaType, _, _ := strings.Cut(contentType, ";")
 	return strings.EqualFold(strings.TrimSpace(mediaType), "application/x-www-form-urlencoded")
+}
+
+// Bounds on structured-body field extraction. Bodies outside them fall back
+// to whole-body inspection, so a large or deeply structured body is never
+// inspected less than before.
+const (
+	maxFieldBodyBytes = 1 << 20
+	maxBodyFields     = 10000
+)
+
+// bodyFields extracts the decoded string leaves of a JSON or urlencoded form
+// body: keys/names and string values, with JSON escapes and form encoding
+// resolved. Text detectors scan these individually, because the raw syntax
+// both hides payloads ({"user":"admin' --"} reads as one closed string) and
+// fabricates them (":"# heading" reads as a quote followed by a comment).
+// Returns nil when the body is not structured or cannot be parsed.
+func bodyFields(ctx *engine.RequestContext) []string {
+	body := ctx.BodyString
+	if body == "" || len(body) > maxFieldBodyBytes {
+		return nil
+	}
+	if isFormURLEncoded(ctx.ContentType) {
+		var fields []string
+		for pair := range strings.SplitSeq(body, "&") {
+			name, value, _ := strings.Cut(pair, "=")
+			for _, part := range []string{name, value} {
+				if decoded, err := url.QueryUnescape(part); err == nil {
+					part = decoded
+				}
+				if part != "" {
+					fields = append(fields, part)
+				}
+			}
+			if len(fields) > maxBodyFields {
+				return nil
+			}
+		}
+		return fields
+	}
+	if !looksLikeJSON(ctx.ContentType, body) {
+		return nil
+	}
+	dec := json.NewDecoder(strings.NewReader(body))
+	dec.UseNumber()
+	var doc any
+	if err := dec.Decode(&doc); err != nil || dec.More() {
+		return nil
+	}
+	fields := make([]string, 0, 16)
+	var walk func(v any) bool
+	walk = func(v any) bool {
+		switch t := v.(type) {
+		case string:
+			fields = append(fields, t)
+		case map[string]any:
+			for k, child := range t {
+				fields = append(fields, k)
+				if !walk(child) {
+					return false
+				}
+			}
+		case []any:
+			for _, child := range t {
+				if !walk(child) {
+					return false
+				}
+			}
+		}
+		return len(fields) <= maxBodyFields
+	}
+	if !walk(doc) || len(fields) == 0 {
+		return nil
+	}
+	return fields
+}
+
+// looksLikeJSON reports a JSON media type (application/json, *+json), or an
+// unlabelled body that starts like a JSON document.
+func looksLikeJSON(contentType, body string) bool {
+	mediaType, _, _ := strings.Cut(strings.ToLower(contentType), ";")
+	mediaType = strings.TrimSpace(mediaType)
+	if mediaType == "application/json" || strings.HasSuffix(mediaType, "+json") {
+		return true
+	}
+	trimmed := strings.TrimSpace(body)
+	return trimmed != "" && (trimmed[0] == '{' || trimmed[0] == '[')
 }
