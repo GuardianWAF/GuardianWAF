@@ -85,8 +85,15 @@ spec:
 
       containers:
         - name: guardianwaf
-          image: ghcr.io/guardianwaf/guardianwaf:0.5.0
+          image: ghcr.io/guardianwaf/guardianwaf:0.6.0
           imagePullPolicy: IfNotPresent
+          # Let kube-proxy and the ingress drop this pod from their endpoints
+          # before serve stops accepting, so a rolling update does not refuse
+          # connections (the Deployment manifests do the same).
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 5"]
           args:
             - serve
             - -c
