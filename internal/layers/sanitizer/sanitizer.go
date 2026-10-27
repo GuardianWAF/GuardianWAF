@@ -1,6 +1,7 @@
 package sanitizer
 
 import (
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -97,7 +98,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		// The engine reads only the effective per-path budget plus a sentinel.
 		// Oversized bodies are rejected independently of their finding score;
 		// the complete original stream is retained for monitor-mode forwarding.
-		ctx.NormalizedBody = NormalizeAll(ctx.BodyString)
+		ctx.NormalizedBody = NormalizeAll(inspectionBody(ctx))
 
 		// Normalize headers
 		ctx.NormalizedHeaders = make(map[string][]string, len(ctx.Headers))
@@ -114,7 +115,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		for k, vs := range ctx.QueryParams {
 			ctx.NormalizedQuery[k] = append([]string(nil), vs...)
 		}
-		ctx.NormalizedBody = ctx.BodyString
+		ctx.NormalizedBody = inspectionBody(ctx)
 		ctx.NormalizedHeaders = make(map[string][]string, len(ctx.Headers))
 		for k, vs := range ctx.Headers {
 			ctx.NormalizedHeaders[k] = append([]string(nil), vs...)
@@ -158,4 +159,37 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		Score:    totalScore,
 		Duration: time.Since(start),
 	}
+}
+
+// inspectionBody returns the body as detectors should see it. A
+// application/x-www-form-urlencoded body is decoded with form rules ('+' is a
+// space, each name and value percent-decoded) — the syntax of the content
+// type itself, applied even when encoding normalization is off. Generic URL
+// decoding leaves '+' in place, so "q=%27+OR+1%3D1+--" reached detectors as
+// "'+OR+1=1+--" and classic payloads in every HTML form scored zero.
+func inspectionBody(ctx *engine.RequestContext) string {
+	if !isFormURLEncoded(ctx.ContentType) || ctx.BodyString == "" {
+		return ctx.BodyString
+	}
+	pairs := strings.Split(ctx.BodyString, "&")
+	for i, pair := range pairs {
+		name, value, hasValue := strings.Cut(pair, "=")
+		if n, err := url.QueryUnescape(name); err == nil {
+			name = n
+		}
+		if v, err := url.QueryUnescape(value); err == nil {
+			value = v
+		}
+		if hasValue {
+			pairs[i] = name + "=" + value
+		} else {
+			pairs[i] = name
+		}
+	}
+	return strings.Join(pairs, "&")
+}
+
+func isFormURLEncoded(contentType string) bool {
+	mediaType, _, _ := strings.Cut(contentType, ";")
+	return strings.EqualFold(strings.TrimSpace(mediaType), "application/x-www-form-urlencoded")
 }
