@@ -1,11 +1,17 @@
 package sanitizer
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
+	"io"
+	"mime"
+	"mime/multipart"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
@@ -134,6 +140,8 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		}
 	}
 
+	ctx.BodyBinary = isBinaryMediaType(ctx.ContentType) && looksBinary(ctx.BodyString)
+
 	// Step 2: Validate
 	validationConfig := l.config
 	validationConfig.MaxBodySize = l.InspectionBodyLimit(ctx.Path, ctx.TenantWAFConfig)
@@ -206,6 +214,65 @@ func isFormURLEncoded(contentType string) bool {
 	return strings.EqualFold(strings.TrimSpace(mediaType), "application/x-www-form-urlencoded")
 }
 
+// looksBinary reports whether s holds binary data: a NUL byte or invalid
+// UTF-8. Text sent under a binary media type is still inspected.
+func looksBinary(s string) bool {
+	return strings.IndexByte(s, 0) >= 0 || !utf8.ValidString(s)
+}
+
+// multipartBoundary returns the boundary of a multipart/form-data body.
+func multipartBoundary(contentType string) (string, bool) {
+	mediaType, params, err := mime.ParseMediaType(contentType)
+	if err != nil || !strings.EqualFold(mediaType, "multipart/form-data") || params["boundary"] == "" {
+		return "", false
+	}
+	return params["boundary"], true
+}
+
+// multipartFields extracts field names, field values, raw upload filenames
+// and textual upload contents from a multipart/form-data body. Binary
+// uploads (invalid UTF-8 or NUL bytes) are skipped. Any parse error returns
+// nil so the raw body is inspected instead.
+func multipartFields(body, boundary string) []string {
+	mr := multipart.NewReader(strings.NewReader(body), boundary)
+	var fields []string
+	for {
+		part, err := mr.NextRawPart()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil
+		}
+		// Read Content-Disposition directly: Part.FileName applies
+		// filepath.Base, which would hide "../../etc/passwd" filenames.
+		_, params, err := mime.ParseMediaType(part.Header.Get("Content-Disposition"))
+		if err != nil {
+			return nil
+		}
+		content, err := io.ReadAll(part)
+		if err != nil {
+			return nil
+		}
+		filename, isFile := params["filename"]
+		for _, f := range []string{params["name"], filename} {
+			if f != "" {
+				fields = append(fields, f)
+			}
+		}
+		if len(content) > 0 && (!isFile || utf8.Valid(content) && bytes.IndexByte(content, 0) < 0) {
+			fields = append(fields, string(content))
+		}
+		if len(fields) > maxBodyFields {
+			return nil
+		}
+	}
+	if len(fields) == 0 {
+		return nil
+	}
+	return fields
+}
+
 // Bounds on structured-body field extraction. Bodies outside them fall back
 // to whole-body inspection, so a large or deeply structured body is never
 // inspected less than before.
@@ -242,6 +309,9 @@ func bodyFields(ctx *engine.RequestContext) []string {
 			}
 		}
 		return fields
+	}
+	if boundary, ok := multipartBoundary(ctx.ContentType); ok {
+		return multipartFields(body, boundary)
 	}
 	if !looksLikeJSON(ctx.ContentType, body) {
 		return nil

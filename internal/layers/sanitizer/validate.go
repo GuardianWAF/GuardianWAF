@@ -2,6 +2,7 @@ package sanitizer
 
 import (
 	"fmt"
+	"mime"
 	"strings"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
@@ -204,21 +205,70 @@ func ValidateRequest(ctx *engine.RequestContext, cfg Config) []engine.Finding {
 			}
 		}
 
-		if containsNullByte(ctx.BodyString) {
-			findings = append(findings, engine.Finding{
-				DetectorName: "sanitizer",
-				Category:     "sanitizer",
-				Severity:     engine.SeverityHigh,
-				Score:        60,
-				Description:  "Null byte detected in body",
-				MatchedValue: truncate(ctx.BodyString, 200),
-				Location:     "body",
-				Confidence:   1.0,
-			})
+		for _, in := range nullByteBodyInputs(ctx) {
+			if containsNullByte(in) {
+				findings = append(findings, engine.Finding{
+					DetectorName: "sanitizer",
+					Category:     "sanitizer",
+					Severity:     engine.SeverityHigh,
+					Score:        60,
+					Description:  "Null byte detected in body",
+					MatchedValue: truncate(in, 200),
+					Location:     "body",
+					Confidence:   1.0,
+				})
+				break
+			}
 		}
 	}
 
 	return findings
+}
+
+// nullByteBodyInputs returns the body text checked for null bytes. NUL is
+// ordinary in binary payloads, so checking them blocked every image, PDF or
+// archive upload under the default block_null_bytes. A multipart body is
+// checked through its fields (names, values, raw filenames such as
+// "shell.php%00.jpg" and textual uploads, not binary ones); a binary media
+// type is not checked. The text detectors still scan the body either way.
+func nullByteBodyInputs(ctx *engine.RequestContext) []string {
+	if ctx.BodyString == "" {
+		return nil
+	}
+	if boundary, ok := multipartBoundary(ctx.ContentType); ok {
+		if fields := multipartFields(ctx.BodyString, boundary); fields != nil {
+			return fields
+		}
+		return []string{ctx.BodyString} // unparsable: check it all
+	}
+	if isBinaryMediaType(ctx.ContentType) {
+		return nil
+	}
+	return []string{ctx.BodyString}
+}
+
+// isBinaryMediaType reports whether a Content-Type names a binary payload.
+func isBinaryMediaType(contentType string) bool {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		return false
+	}
+	if strings.HasSuffix(mediaType, "+json") || strings.HasSuffix(mediaType, "+xml") {
+		return false
+	}
+	for _, prefix := range []string{"image/", "audio/", "video/", "font/", "application/grpc", "application/vnd."} {
+		if strings.HasPrefix(mediaType, prefix) {
+			return true
+		}
+	}
+	switch mediaType {
+	case "application/octet-stream", "application/pdf", "application/zip", "application/gzip",
+		"application/x-gzip", "application/x-tar", "application/x-7z-compressed", "application/x-bzip2",
+		"application/protobuf", "application/x-protobuf", "application/msgpack", "application/x-msgpack",
+		"application/cbor", "application/wasm":
+		return true
+	}
+	return false
 }
 
 // StripHopByHopHeaders removes hop-by-hop headers from the request context.

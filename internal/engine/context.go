@@ -258,7 +258,12 @@ type RequestContext struct {
 	// operators. Nil when the body is unstructured or could not be parsed.
 	BodyFields           []string
 	NormalizedBodyFields []string
-	NormalizedHeaders    map[string][]string
+	// BodyBinary is set by the sanitizer when the declared media type is
+	// binary (image, PDF, octet-stream, ...) and the body really is binary.
+	// Backends never read such a body as parameters, and text detectors
+	// scanning random bytes block legitimate uploads, so BodyViews omits it.
+	BodyBinary        bool
+	NormalizedHeaders map[string][]string
 
 	// Scoring
 	Accumulator *ScoreAccumulator
@@ -603,6 +608,7 @@ func ReleaseContext(ctx *RequestContext) {
 	ctx.NormalizedBody = ""
 	ctx.BodyFields = nil
 	ctx.NormalizedBodyFields = nil
+	ctx.BodyBinary = false
 	ctx.NormalizedHeaders = nil
 
 	ctx.Accumulator = nil
@@ -779,10 +785,14 @@ func generateRequestID() string {
 	return string(buf[:])
 }
 
-// BodyViews returns the body inputs a text detector scans: the decoded
-// fields of a structured body (raw, then normalized) when the sanitizer
-// extracted them, otherwise the whole raw and normalized body.
+// BodyViews returns the body inputs a text detector scans: nothing for a
+// binary body (BodyBinary), the decoded fields of a structured body (raw,
+// then normalized) when the sanitizer extracted them, otherwise the whole
+// raw and normalized body.
 func (ctx *RequestContext) BodyViews() []string {
+	if ctx.BodyBinary {
+		return nil
+	}
 	if len(ctx.BodyFields) == 0 {
 		return []string{ctx.BodyString, ctx.NormalizedBody}
 	}

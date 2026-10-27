@@ -1,5 +1,5 @@
 # Names, companies, addresses, emails and phone numbers as entered in forms.
-# placement: query,form
+# placement: query,form,multipart
 John O'Brien
 Mary-Kate O'Neill
 D'Angelo Russell

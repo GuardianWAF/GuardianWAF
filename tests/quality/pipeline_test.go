@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -25,6 +26,8 @@ import (
 //
 //	query  GET  /search?q=<sample>
 //	form   POST /comments with comment=<sample> (urlencoded)
+//	multipart POST /profile: multipart/form-data with comment=<sample> beside
+//	         a text field and a PNG upload
 //	json   POST /api/items with the sample as the JSON body
 //	path   GET  /<sample>
 //	xml      POST /api/import with the sample as an XML body
@@ -39,6 +42,18 @@ var placements = map[string]func(sample string) *http.Request{
 	"form": func(s string) *http.Request {
 		r := httptest.NewRequest(http.MethodPost, "/comments", strings.NewReader("comment="+url.QueryEscape(s)))
 		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		return r
+	},
+	"multipart": func(s string) *http.Request {
+		var buf bytes.Buffer
+		w := multipart.NewWriter(&buf)
+		_ = w.WriteField("title", "hello")
+		_ = w.WriteField("comment", s)
+		fw, _ := w.CreateFormFile("avatar", "me.png")
+		_, _ = fw.Write([]byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"))
+		_ = w.Close()
+		r := httptest.NewRequest(http.MethodPost, "/profile", &buf)
+		r.Header.Set("Content-Type", w.FormDataContentType())
 		return r
 	},
 	"json": func(s string) *http.Request {
