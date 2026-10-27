@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
+	"github.com/guardianwaf/guardianwaf/internal/textmatch"
 )
 
 // Detector implements engine.Detector for server-side template injection.
@@ -179,13 +180,16 @@ var exploitGadgets = []string{
 	"{system(",
 }
 
+// exploitGadgetSet finds every gadget in one pass; a strings.Contains per
+// gadget read a large body once per list entry.
+var exploitGadgetSet = textmatch.New(exploitGadgets)
+
 func checkExploitGadgets(lower, location string) []engine.Finding {
 	var findings []engine.Finding
-	for _, g := range exploitGadgets {
-		if strings.Contains(lower, g) {
-			findings = append(findings, makeFinding(85, engine.SeverityCritical,
-				"SSTI exploitation gadget detected", g, extractContext(lower, g), location, 0.90))
-		}
+	for _, i := range exploitGadgetSet.Find(lower) {
+		g := exploitGadgets[i]
+		findings = append(findings, makeFinding(85, engine.SeverityCritical,
+			"SSTI exploitation gadget detected", g, extractContext(lower, g), location, 0.90))
 	}
 	return findings
 }

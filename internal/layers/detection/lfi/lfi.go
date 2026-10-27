@@ -341,6 +341,11 @@ func checkWindowsPaths(lower, location string) []engine.Finding {
 
 // checkWrapperSchemes detects PHP wrappers and file:// scheme.
 func checkWrapperSchemes(lower, location string) []engine.Finding {
+	// Every scheme below contains "://": one scan rules them all out for
+	// ordinary text instead of one scan per scheme.
+	if !strings.Contains(lower, "://") {
+		return nil
+	}
 	var findings []engine.Finding
 
 	schemes := []struct {

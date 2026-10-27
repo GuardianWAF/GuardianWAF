@@ -395,10 +395,14 @@ var jsBreakoutSinks = []string{
 func containsJSStringBreakout(lower string) bool {
 	var seen [3]int // ', ", ` occurrences so far
 	for i := 0; i < len(lower); i++ {
-		q := strings.IndexByte("'\"`", lower[i])
-		if q < 0 {
-			continue
+		// Jump to the next quote: a per-byte lookup cost 6% of all inspection
+		// time on large quote-free bodies.
+		next := strings.IndexAny(lower[i:], "'\"`")
+		if next < 0 {
+			return false
 		}
+		i += next
+		q := strings.IndexByte("'\"`", lower[i])
 		seen[q]++
 		if seen[q]%2 == 0 {
 			continue
