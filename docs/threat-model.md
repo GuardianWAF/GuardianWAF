@@ -222,7 +222,7 @@ Mitigations and evidence:
 - Strict persistence paths fail startup when configured durable audit storage cannot be opened.
 - State persistence and runbook docs identify backup/restore paths and evidence retention notes.
 - Metrics and runbooks cover event store pressure and drop investigation.
-- Residual risk: the dashboard management audit log is append-only JSONL, not hash-chained, so a host-level attacker can truncate or edit it undetected. The incident evidence runbook requires fingerprinting exports into write-once storage, and SIEM export provides the off-host, append-only copy that tamper checks should rely on.
+- Residual risk: the dashboard management audit log is a SHA-256 hash chain, so editing, inserting, deleting or reordering stored entries fails `guardianwaf verify-audit` and blocks startup. A host-level attacker can still truncate the newest entries or rewrite the whole chain. Detecting that needs the chain head (`chain_head` from `GET /api/v1/audit`) recorded off the host, and SIEM export remains the off-host, append-only copy.
 
 ### Generated Rules, Virtual Patches, and Remediation
 
@@ -291,7 +291,7 @@ Mitigations and evidence:
 | Deployment hardening | `internal/config/deployment_hardening_test.go` | Confirm in a live Kubernetes restricted-policy cluster |
 | Release supply chain | `internal/config/release_supply_chain_test.go` | Confirm real hosted-runner release artifacts |
 | Dashboard API contract | `internal/dashboard/openapi_contract_test.go` | Add method/body/response-shape contract coverage |
-| Event/audit persistence | Event store and dashboard audit tests | Hash-chain the dashboard audit log (currently fingerprint-and-SIEM guidance only) |
+| Event/audit persistence | Event store and dashboard audit tests, audit hash-chain tamper and fuzz tests | Anchor the audit chain head off the host automatically (today: operator records `chain_head`) |
 | Detection quality | Detector tests and bounded fuzz smoke | Build measured benign/attack corpus reporting |
 | MCP safety | Authenticated SSE and structured tools | Add per-tool authorization/audit matrix |
 | HTTP/3/QUIC | Tagged command compatibility tests and planned-runtime docs | Add a concrete QUIC listener plus QUIC client E2E before production support claim |

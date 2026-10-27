@@ -443,6 +443,9 @@ kubectl logs -l app=guardianwaf --since=24h > incident-export/guardianwaf.log
 curl -s http://localhost:9443/api/v1/audit \
   -H "X-API-Key: $GWAF_DASHBOARD_ADMIN_KEY" > incident-export/dashboard-audit.json
 
+# Verify the on-disk audit hash chain and record its head
+guardianwaf verify-audit /var/lib/guardianwaf/audit/dashboard.jsonl | tee incident-export/audit-chain-head.txt
+
 # Fingerprint the export for tamper evidence
 sha256sum incident-export/* > incident-export/SHA256SUMS
 ```
@@ -450,7 +453,7 @@ sha256sum incident-export/* > incident-export/SHA256SUMS
 **Verification**:
 - Confirm exported events have request IDs and redacted sensitive fields.
 - Record the GuardianWAF version and image digest.
-- The dashboard audit log (`dashboard.audit_path`) is append-only JSONL but not hash-chained, so GuardianWAF alone cannot prove it was not truncated or edited. Store `SHA256SUMS` in the approved write-once evidence system, and rely on SIEM export (`siem.enabled`) as the off-host, append-only copy for tamper checks.
+- The dashboard audit log (`dashboard.audit_path`) is a SHA-256 hash chain: each entry carries `seq`, `prev_hash` and `hash`. `guardianwaf verify-audit` exits 1 and names the first broken entry if any stored entry was edited, inserted, deleted or reordered. GuardianWAF also refuses to start on a broken chain; move the file aside as evidence to recover. A chain cannot reveal that its newest entries were truncated: compare `seq`/`hash` with a head recorded earlier (`chain_head` in `GET /api/v1/audit`, or a previous `audit-chain-head.txt`). Store `SHA256SUMS` in the approved write-once evidence system, and rely on SIEM export (`siem.enabled`) as the off-host, append-only copy.
 - Store the export in the approved evidence repository with retention tags.
 
 ### 18. Backup Stale or Restore Required
