@@ -117,6 +117,7 @@ func New(cfg Config, sm StateMachine) (*Raft, error) {
 	if err != nil {
 		return nil, fmt.Errorf("raft: create transport: %w", err)
 	}
+	cfg.Peers = append([]Peer(nil), cfg.Peers...)
 
 	r := &Raft{
 		config:    cfg,
@@ -143,10 +144,13 @@ func New(cfg Config, sm StateMachine) (*Raft, error) {
 	if cfg.DataDir != "" {
 		wal, err := OpenWAL(cfg.DataDir)
 		if err != nil {
+			_ = tr.Close()
 			return nil, fmt.Errorf("raft: open WAL: %w", err)
 		}
 		r.persist.SetWAL(wal)
 		if err := wal.Replay(r.persist); err != nil {
+			_ = wal.Close()
+			_ = tr.Close()
 			return nil, fmt.Errorf("raft: replay WAL: %w", err)
 		}
 	}
@@ -172,7 +176,10 @@ func (r *Raft) Start() error {
 func (r *Raft) Stop() {
 	r.stopOnce.Do(func() {
 		close(r.stopCh)
-		r.transport.Close()
+		_ = r.transport.Close()
+		if wal := r.persist.WALRef(); wal != nil {
+			_ = wal.Close()
+		}
 		close(r.doneCh)
 	})
 }
@@ -186,14 +193,14 @@ func (r *Raft) Transport() *TCPTransport {
 func (r *Raft) UpdatePeers(peers []Peer) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.config.Peers = peers
+	r.config.Peers = append([]Peer(nil), peers...)
 }
 
 // Peers returns the current peer list.
 func (r *Raft) Peers() []Peer {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.config.Peers
+	return append([]Peer(nil), r.config.Peers...)
 }
 
 // Log returns the log store (for testing/inspection).
@@ -461,6 +468,7 @@ func (r *Raft) becomeFollower(term uint64) {
 	r.role = RoleFollower
 	r.persist.SetCurrentTerm(term)
 	r.leaderState = nil
+	r.leaderID = ""
 
 	// Signal the election loop to re-check role.
 	select {

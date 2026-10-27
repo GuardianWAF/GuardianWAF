@@ -31,7 +31,7 @@ type clusterRuntime struct {
 //
 // The cluster subsystem consists of:
 //   - Gossip membership (UDP-based node discovery + failure detection)
-//   - PeerSyncBridge (feeds gossip membership changes into Raft UpdatePeers)
+//   - PeerSyncBridge (observes gossip liveness without changing Raft voters)
 //   - Raft consensus node (leader election + log replication)
 //   - Replicated state store (ban lists, rules, rate counters)
 //   - StoreStateMachine adapter (feeds committed Raft entries to the store)
@@ -47,16 +47,8 @@ func setupClusterRuntime(cfg *config.Config, eng *engine.Engine, bctx *layerregi
 	if cfg.Cluster.BindAddr == "" {
 		return nil, fmt.Errorf("cluster.enabled is true but cluster.bind_addr is empty")
 	}
-	// Fail closed on a wildcard bind address. RaftAddr is ADVERTISED to every
-	// peer via gossip piggyback (gossip/protocol.go:134), collected by the
-	// peersync bridge (peersync/bridge.go:102 -> raft.Peer{Addr: m.RaftAddr}),
-	// and then DIALED by raft.SendRPC (raft.go:391, :528). A bind wildcard
-	// ("0.0.0.0:7947" — the documented example) is not a dialable destination:
-	// a peer that learns it dials 0.0.0.0, which on Linux connects to ITSELF,
-	// not this node. Replication to every gossip-discovered peer would then
-	// silently target the wrong host and the cluster would never form quorum.
-	// Unlike the dashboard address there is no second address to fall back to,
-	// so a cluster node must be given an explicitly routable bind address.
+	// These addresses are announced in gossip and used to identify this node.
+	// A wildcard is a local bind target, not a remotely dialable destination.
 	if isUnspecifiedBindHost(cfg.Cluster.BindAddr) {
 		return nil, fmt.Errorf(
 			"cluster.enabled is true but cluster.bind_addr host is a wildcard (%s); "+
@@ -66,6 +58,15 @@ func setupClusterRuntime(cfg *config.Config, eng *engine.Engine, bctx *layerregi
 	}
 	if cfg.Cluster.GossipAddr == "" {
 		return nil, fmt.Errorf("cluster.enabled is true but cluster.gossip_addr is empty")
+	}
+	// Gossip publishes its bound address to peers; wildcard binds would make
+	// probes reach the dialing node instead of the remote member.
+	if isUnspecifiedBindHost(cfg.Cluster.GossipAddr) {
+		return nil, fmt.Errorf(
+			"cluster.enabled is true but cluster.gossip_addr host is a wildcard (%s); "+
+				"it is advertised to peers as this node's gossip address and dialing a wildcard "+
+				"reaches the dialing host, not this node — set cluster.gossip_addr to "+
+				"this node's routable IP (e.g. 10.0.0.2:7946)", cfg.Cluster.GossipAddr)
 	}
 	// Fail closed. Peers authenticate each other with this secret alone, and
 	// the replicated log carries ban and rule mutations, so starting a cluster
@@ -91,8 +92,11 @@ func setupClusterRuntime(cfg *config.Config, eng *engine.Engine, bctx *layerregi
 		Secret:             clusterSecret,
 	}
 
-	// Convert config peers to raft peers (initial seed list).
+	// Configure the fixed voting set; Raft counts the local node separately.
 	for _, p := range cfg.Cluster.Peers {
+		if p.ID == cfg.Cluster.NodeID {
+			continue // the chart lists the complete set; Raft counts self separately
+		}
 		raftCfg.Peers = append(raftCfg.Peers, raft.Peer{
 			ID:   p.ID,
 			Addr: p.Addr,
@@ -121,8 +125,8 @@ func setupClusterRuntime(cfg *config.Config, eng *engine.Engine, bctx *layerregi
 
 	// Start gossip membership for dynamic peer discovery.
 	// The gossip layer discovers nodes via UDP probes; the PeerSyncBridge
-	// feeds alive/suspect transitions into Raft.UpdatePeers so the consensus
-	// layer adjusts its peer list without a restart.
+	// observes alive/suspect transitions without modifying the fixed voting set.
+	// Failure detection is not a consensus membership change.
 	var g *gossip.Gossip
 	var peerBridge *peersync.Bridge
 	if cfg.Cluster.GossipAddr != "" {
@@ -147,17 +151,7 @@ func setupClusterRuntime(cfg *config.Config, eng *engine.Engine, bctx *layerregi
 		peerBridge = peersync.NewBridge(g, r, nil)
 		onJoin, onLeave := peerBridge.Callbacks()
 		g.SetCallbacks(onJoin, onLeave)
-		// Do NOT Sync() here. At this point gossip has only ever seen itself
-		// (gossip.New registers only the local member), and Bridge.Sync
-		// EXCLUDES self when it builds the Raft peer set. Calling it before
-		// g.Start() therefore computed an EMPTY peer list, and
-		// raft.UpdatePeers is a full replace — wiping the operator's
-		// cluster.peers seed list that raft.New was just seeded with. With
-		// zero peers hasQuorum counts total=1, majority=1, so the node
-		// self-elects on a cluster configured for N. The onJoin/onLeave
-		// callbacks above already call Sync() whenever gossip actually
-		// discovers a peer, which is when the peer set is legitimately
-		// recomputed from real membership.
+		// Gossip observations must never replace the configured Raft voters.
 
 		if err := g.Start(); err != nil {
 			g.Stop()

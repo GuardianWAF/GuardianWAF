@@ -17,6 +17,7 @@ type TCPTransport struct {
 	peerMu   map[string]*sync.Mutex // per-peer write serialization
 	peerMuMu sync.Mutex             // protects peerMu map
 	conns    map[string]net.Conn    // peerAddr -> connection
+	inbound  map[net.Conn]struct{}  // accepted sockets owned by this transport
 	connMu   sync.Mutex             // protects conns map
 	dialer   Dialer
 	listener net.Listener
@@ -102,7 +103,23 @@ func (t *TCPTransport) acceptLoop() {
 }
 
 func (t *TCPTransport) handleConn(conn net.Conn) {
-	defer conn.Close()
+	t.connMu.Lock()
+	if t.closed {
+		t.connMu.Unlock()
+		_ = conn.Close()
+		return
+	}
+	if t.inbound == nil {
+		t.inbound = make(map[net.Conn]struct{})
+	}
+	t.inbound[conn] = struct{}{}
+	t.connMu.Unlock()
+	defer func() {
+		t.connMu.Lock()
+		delete(t.inbound, conn)
+		t.connMu.Unlock()
+		_ = conn.Close()
+	}()
 	for {
 		if t.timeout > 0 {
 			_ = conn.SetReadDeadline(time.Now().Add(t.timeout * 10)) // generous read deadline
@@ -270,6 +287,10 @@ func (t *TCPTransport) Close() error {
 	for _, conn := range t.conns {
 		conn.Close()
 	}
+	for conn := range t.inbound {
+		_ = conn.Close()
+	}
+	t.inbound = nil
 	t.conns = make(map[string]net.Conn)
 	t.connMu.Unlock()
 	return nil

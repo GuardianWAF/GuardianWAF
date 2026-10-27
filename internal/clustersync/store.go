@@ -87,7 +87,10 @@ func (s *ReplicatedStore) GetRule(ruleID string) (json.RawMessage, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	r, ok := s.rules[ruleID]
-	return r, ok
+	if !ok {
+		return nil, false
+	}
+	return append(json.RawMessage(nil), r...), true
 }
 
 // AllRules returns a snapshot of all custom rules.
@@ -96,7 +99,7 @@ func (s *ReplicatedStore) AllRules() map[string]json.RawMessage {
 	defer s.mu.RUnlock()
 	result := make(map[string]json.RawMessage, len(s.rules))
 	for k, v := range s.rules {
-		result[k] = v
+		result[k] = append(json.RawMessage(nil), v...)
 	}
 	return result
 }
@@ -227,6 +230,9 @@ func (s *ReplicatedStore) applyIncrCounter(payload IncrCounterPayload) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if payload.Window < s.sweptWindow {
+		return
+	}
 	s.sweepStaleCounters(payload.Window)
 
 	existing := s.counters[payload.Key]
