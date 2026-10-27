@@ -1043,8 +1043,9 @@ const (
 )
 
 // apiKeyHashIterations is the cost applied to new hashes. It is always
-// apiKeyHashIterationsDefault in production; only this package's TestMain
-// lowers it, because every test tenant would otherwise pay a full-cost hash.
+// apiKeyHashIterationsDefault in production; only this package's test init
+// (hash_cost_test.go) lowers it, because every test tenant would otherwise
+// pay a full-cost hash.
 // Verification reads the cost from the stored hash, so it is unaffected.
 var apiKeyHashIterations = apiKeyHashIterationsDefault
 
