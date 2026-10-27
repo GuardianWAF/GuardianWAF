@@ -188,6 +188,12 @@ func checkBooleanInjection(tokens []Token, location string) []engine.Finding {
 			score := 0
 			if hasPrecedingString {
 				score = 30
+				if proseAfter(tokens, i+1) {
+					// "the 'red' and blue ones": still logged, but too weak to
+					// push quoted prose over the block threshold with one more
+					// low-confidence signal.
+					score = 10
+				}
 			}
 
 			// Check for tautology after the OR/AND
@@ -412,8 +418,8 @@ func checkIntoOutfile(tokens []Token, location string) (engine.Finding, bool) {
 //
 // Two shapes are distinguished, because they carry very different confidence:
 //
-//   - Tight: the comment abuts the quote, with nothing between it but closing
-//     parentheses — `admin'--`, `admin'#`, `admin')--`, `admin")--`. This is the
+//   - Tight: the comment abuts a bare quote, with nothing between them but
+//     closing parentheses — `admin'--`, `admin'#`, `admin')--`, `admin")--`. This is the
 //     canonical authentication-bypass primitive (close the literal, comment out
 //     the rest of the WHERE clause) and has no benign free-text equivalent, so
 //     it is scored above the block threshold on its own.
@@ -427,7 +433,9 @@ func checkCommentAfterString(tokens []Token, location string) (engine.Finding, b
 		if tokens[i].Type != TokenStringLiteral {
 			continue
 		}
-		tight := true
+		// Only a bare quote breaks out of the application's literal. A whole
+		// quoted word before a comment ("he said 'no' -- typical") is prose.
+		tight := tokens[i].Value == "'" || tokens[i].Value == `"`
 		for j := i + 1; j < len(tokens); j++ {
 			if tokens[j].Type == TokenComment {
 				matched := extractRange(tokens, i, j)
@@ -539,7 +547,7 @@ func checkQuoteBreakoutLogic(tokens []Token, location string) (engine.Finding, b
 			tokens[j].Value == "||", tokens[j].Value == "&&":
 			logic = true
 		}
-		if !logic {
+		if !logic || proseAfter(tokens, j+1) {
 			continue
 		}
 		comparison := false
@@ -858,4 +866,55 @@ func hasSQLContinuation(tokens []Token, keywordIdx int) bool {
 		seen++
 	}
 	return false
+}
+
+// proseAfter reports whether the operand following a boolean operator at
+// tokens[start:] reads as English rather than SQL. Text such as
+// "Don't say 'no' and leave -- please" or "the 'red' and 'blue' options"
+// continues with a bare word, while an injection continues with a literal,
+// a function, a constant, or a column that an operator, keyword or
+// parenthesis follows (`' OR 1 --`, `' AND sleep(5)`, `' OR a=a`). The scan
+// stops at the first comment and looks at a short window only.
+func proseAfter(tokens []Token, start int) bool {
+	for k := start; k < len(tokens) && k < start+6; k++ {
+		switch tokens[k].Type {
+		case TokenComment, TokenParenOpen, TokenFunction, TokenOperator:
+			// A comparison, function call or sub-expression is SQL, whatever
+			// its operands look like (`' OR 'a'='a`,
+			// `' AND SUBSTRING(username,1,1)='a'`).
+			return false
+		}
+		if isProseWord(tokens, k) {
+			return true
+		}
+	}
+	return false
+}
+
+// isProseWord reports whether tokens[k] is a bare alphabetic word that is not
+// an SQL constant and is not followed by an operator, keyword or opening
+// parenthesis.
+func isProseWord(tokens []Token, k int) bool {
+	t := tokens[k]
+	if t.Type != TokenOther || t.Value == "" {
+		return false
+	}
+	for i := range len(t.Value) {
+		c := t.Value[i] | 0x20
+		if c < 'a' || c > 'z' {
+			return false
+		}
+	}
+	for _, c := range [...]string{"TRUE", "FALSE", "NULL", "UNKNOWN"} {
+		if strings.EqualFold(t.Value, c) {
+			return false
+		}
+	}
+	if k+1 < len(tokens) {
+		switch tokens[k+1].Type {
+		case TokenOperator, TokenKeyword, TokenParenOpen:
+			return false
+		}
+	}
+	return true
 }
