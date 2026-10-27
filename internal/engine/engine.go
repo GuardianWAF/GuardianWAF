@@ -948,9 +948,10 @@ func (e *Engine) Stats() Stats {
 	}
 	layerTiming := e.layerTimingStats()
 	var tracingEnabled bool
-	var tracingSpans, tracingExported int64
+	var tracingSpans, tracingExported, tracingDropped int64
 	if e.tracer != nil {
 		tracingEnabled, tracingSpans, tracingExported = e.tracer.Stats()
+		tracingDropped = e.tracer.DroppedSpans()
 	}
 	return Stats{
 		TotalRequests:      total,
@@ -968,6 +969,7 @@ func (e *Engine) Stats() Stats {
 		TracingEnabled:     tracingEnabled,
 		TracingSpans:       tracingSpans,
 		TracingExported:    tracingExported,
+		TracingDropped:     tracingDropped,
 	}
 }
 
@@ -1045,6 +1047,7 @@ func tracingConfig(cfg *config.Config) tracing.Config {
 		ServiceName:  cfg.Tracing.ServiceName,
 		SamplingRate: cfg.Tracing.SamplingRate,
 		ExporterType: cfg.Tracing.ExporterType,
+		OTLP:         cfg.Tracing.OTLP.ToTracing(),
 	}
 }
 

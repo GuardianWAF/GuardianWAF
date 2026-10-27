@@ -38,6 +38,7 @@ type Stats struct {
 	TracingEnabled     bool
 	TracingSpans       int64
 	TracingExported    int64
+	TracingDropped     int64
 }
 
 // LatencyBucket describes one cumulative request latency histogram bucket.
