@@ -40,7 +40,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -o guardianwaf ./cmd/guardianwaf
 
 # Stage 3: Runtime
-FROM alpine:3.24.1
+FROM alpine:3.24.3
 
 ARG IMAGE_VERSION=dev
 
