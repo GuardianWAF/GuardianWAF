@@ -70,9 +70,9 @@ func setupE2ECluster(t *testing.T, n int) map[string]*e2eNode {
 		sm := NewStoreStateMachine(store, nil)
 
 		r, err := raft.New(raft.Config{
-			NodeID:             id,
-			Secret:             testClusterSecret,
-			BindAddr:           "127.0.0.1:0",
+			NodeID:   id,
+			Secret:   testClusterSecret,
+			BindAddr: "127.0.0.1:0",
 			// 10x the heartbeat keeps elections stable under -race while
 			// failover tests do not wait out production-sized timeouts.
 			ElectionTimeoutMin: 500 * time.Millisecond,
