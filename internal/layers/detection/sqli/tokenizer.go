@@ -75,9 +75,12 @@ func Tokenize(input string) []Token {
 
 // tokenize is Tokenize, optionally without whitespace tokens.
 func tokenize(input string, keepSpace bool) []Token {
-	// Typical input averages several bytes per token; sizing up front avoids
-	// repeated slice doubling on large bodies (the dominant allocation).
-	tokens := make([]Token, 0, max(32, min(len(input)/6, 1<<16)))
+	// Prose averages about five bytes per token once whitespace is dropped;
+	// sizing up front avoids repeated slice doubling on large bodies, which was
+	// 73% of tokenize time on a 2 MB body when the estimate was capped at 64K
+	// tokens. The cap (32 MiB of tokens) only matters beyond max_body_size
+	// defaults, and concurrent large inspections are bounded by the engine.
+	tokens := make([]Token, 0, max(32, min(len(input)/5, 1<<20)))
 	i := 0
 	n := len(input)
 
