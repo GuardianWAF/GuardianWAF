@@ -98,8 +98,10 @@ Library mode:
   ([detection quality](detection-quality.md)). Real applications differ: deploy
   in monitor mode and tune per application before enforcing.
 - **Large-body inspection cost.** Detection runs at roughly 11 MB/s per core on
-  JSON bodies (≈14 ms for 150 KB) and faster on forms. Keep
-  `waf.sanitizer.max_body_size` and per-path overrides as small as each
+  JSON bodies (≈14 ms for 150 KB) and faster on forms, so a 10 MiB text body
+  costs about a CPU-second. Bodies over 256 KiB share inspection slots (half
+  the CPUs) and get `503` when saturated, so they cannot starve small requests.
+  Keep `waf.sanitizer.max_body_size` and per-path overrides as small as each
   endpoint allows.
 - **CRS and OpenAPI support are subsets.** Neither is full ModSecurity or full
   OpenAPI/JSON Schema compatibility.

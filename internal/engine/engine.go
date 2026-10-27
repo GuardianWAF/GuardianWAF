@@ -77,9 +77,13 @@ type Engine struct {
 	eventStore EventStorer
 	eventBus   EventPublisher
 	tracer     *tracing.Tracer
-	closeOnce  sync.Once
-	closeErr   error
-	closed     atomic.Bool
+	// largeBodySlots bounds concurrent large-body inspections; see
+	// inspection_slots.go. largeBodyRejected counts refusals.
+	largeBodySlots    chan struct{}
+	largeBodyRejected atomic.Int64
+	closeOnce         sync.Once
+	closeErr          error
+	closed            atomic.Bool
 
 	// panicEventBroken disables panic-event recording once a panic occurs
 	// inside the recording path itself; the middleware then falls back to
@@ -166,12 +170,13 @@ func NewEngine(cfg *config.Config, eventStore EventStorer, eventBus EventPublish
 	}
 
 	e := &Engine{
-		cfg:         cfg,
-		eventStore:  eventStore,
-		eventBus:    eventBus,
-		tracer:      engineTracer,
-		Logs:        NewLogBuffer(2000),
-		layerTiming: make(map[string]*layerTimingCounters),
+		cfg:            cfg,
+		eventStore:     eventStore,
+		eventBus:       eventBus,
+		tracer:         engineTracer,
+		largeBodySlots: newLargeBodySlots(),
+		Logs:           NewLogBuffer(2000),
+		layerTiming:    make(map[string]*layerTimingCounters),
 	}
 	// Initialize atomic config fields
 	e.paranoiaLevel.Store(2) // default
@@ -631,7 +636,25 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 			}
 		}
 
-		result := e.execute(ctx)
+		releaseSlot, ok := e.acquireInspectionSlot(r.Context(), len(ctx.Body))
+		if !ok {
+			// Too many large bodies are already being inspected. Refuse rather
+			// than forward uninspected; this is load, not an attack.
+			if ctx.TraceSpan != nil {
+				ctx.TraceSpan.End()
+			}
+			ReleaseContext(ctx)
+			w.Header().Set("Retry-After", "5")
+			w.Header().Set("Cache-Control", "no-store")
+			http.Error(w, "503 Service Unavailable: request body inspection is at capacity", http.StatusServiceUnavailable)
+			return
+		}
+		// Release in a defer so a recovered pipeline panic cannot leak a slot.
+		var result PipelineResult
+		func() {
+			defer releaseSlot()
+			result = e.execute(ctx)
+		}()
 
 		finalAction := e.requestAction(ctx, result, mode)
 
@@ -983,6 +1006,7 @@ func (e *Engine) Stats() Stats {
 		TracingSpans:       tracingSpans,
 		TracingExported:    tracingExported,
 		TracingDropped:     tracingDropped,
+		LargeBodyRejected:  e.largeBodyRejected.Load(),
 	}
 }
 
