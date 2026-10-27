@@ -201,6 +201,10 @@ func Parse(data []byte) (*Node, error) {
 	if err != nil {
 		return nil, err
 	}
+	p.skipBlankAndComments()
+	if p.pos < len(p.lines) {
+		return nil, &ParseError{Line: p.lineNum(), Message: "unexpected content after the root node"}
+	}
 
 	return node, nil
 }
@@ -454,7 +458,7 @@ func (p *parser) parseBlockSequence(indent, depth int) (*Node, error) {
 					MapItems: map[string]*Node{},
 					Line:     lineNum,
 				}
-				child, err := p.resolveValue(val, indent, lineNum, depth+1)
+				child, err := p.resolveValue(val, contentIndent, lineNum, depth+1)
 				if err != nil {
 					return nil, err
 				}
@@ -930,7 +934,7 @@ func parseKeyValue(line string) (key, value string, ok bool) {
 			continue
 		}
 
-		if ch == '\\' {
+		if ch == '\\' && !inSingle {
 			escaped = true
 			i++
 			continue
@@ -982,7 +986,7 @@ func unquoteKey(key string) string {
 		}
 		if key[0] == '\'' && key[len(key)-1] == '\'' {
 			// Single-quoted YAML scalars treat backslashes literally.
-			return key[1 : len(key)-1]
+			return unescapeSingleQuoted(key[1 : len(key)-1])
 		}
 	}
 	return key

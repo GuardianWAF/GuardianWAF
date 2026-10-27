@@ -643,14 +643,8 @@ func TestIsZeroValue_Unsupported(t *testing.T) {
 
 func TestParse_MappingSequenceItemBreak(t *testing.T) {
 	node, err := Parse([]byte("a: 1\n- item\nb: 2"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if node.Get("a") == nil {
-		t.Error("expected key a")
-	}
-	if node.Get("b") != nil {
-		t.Error("expected mapping to stop before b")
+	if node != nil || err == nil || !strings.Contains(err.Error(), "line 2: unexpected content after the root node") {
+		t.Fatalf("expected rejection of unconsumed sequence item, got node=%v err=%v", node, err)
 	}
 }
 
@@ -685,23 +679,15 @@ func TestParse_FlowMapError(t *testing.T) {
 
 func TestParse_BlockSequenceIndentMismatch(t *testing.T) {
 	node, err := Parse([]byte("- a\n  b: 1\nc: 2"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	items := node.Slice()
-	if len(items) != 1 {
-		t.Fatalf("expected 1 item, got %d", len(items))
+	if node != nil || err == nil || !strings.Contains(err.Error(), "line 2: unexpected content after the root node") {
+		t.Fatalf("expected rejection of unconsumed indented content, got node=%v err=%v", node, err)
 	}
 }
 
 func TestParse_BlockSequenceNonItemBreak(t *testing.T) {
 	node, err := Parse([]byte("- a\nnot_seq: 1\nb: 2"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	items := node.Slice()
-	if len(items) != 1 {
-		t.Fatalf("expected 1 item, got %d", len(items))
+	if node != nil || err == nil || !strings.Contains(err.Error(), "line 2: unexpected content after the root node") {
+		t.Fatalf("expected rejection of unconsumed mapping, got node=%v err=%v", node, err)
 	}
 }
 
@@ -714,23 +700,15 @@ func TestParse_BlockSequenceNestedMapResolveError(t *testing.T) {
 
 func TestParse_BlockSequenceNestedMapWrongIndent(t *testing.T) {
 	node, err := Parse([]byte("- k: v\n   wrong: 1"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	items := node.Slice()
-	if len(items) != 1 {
-		t.Fatalf("expected 1 item, got %d", len(items))
+	if node != nil || err == nil || !strings.Contains(err.Error(), "line 2: unexpected content after the root node") {
+		t.Fatalf("expected rejection of unconsumed wrongly indented key, got node=%v err=%v", node, err)
 	}
 }
 
 func TestParse_BlockSequenceNestedMapNonKV(t *testing.T) {
 	node, err := Parse([]byte("- k: v\n  notkv"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	items := node.Slice()
-	if len(items) != 1 {
-		t.Fatalf("expected 1 item, got %d", len(items))
+	if node != nil || err == nil || !strings.Contains(err.Error(), "line 2: unexpected content after the root node") {
+		t.Fatalf("expected rejection of unconsumed non-key-value content, got node=%v err=%v", node, err)
 	}
 }
 

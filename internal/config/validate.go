@@ -340,7 +340,11 @@ func LoadDir(dir string) (*Config, error) {
 
 	for subdir, loader := range subdirs {
 		subdirPath := filepath.Join(dir, subdir)
-		if entries, err := os.ReadDir(subdirPath); err == nil {
+		entries, err := os.ReadDir(subdirPath)
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return nil, fmt.Errorf("reading %s: %w", subdirPath, err)
+		}
+		if err == nil {
 			for _, entry := range entries {
 				if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".yaml") {
 					filePath, err := configChildFile(subdirPath, entry.Name(), ".yaml")
@@ -1536,6 +1540,18 @@ func validateRateLimit(rl *RateLimitConfig, ve *ValidationError) {
 		if rule.Window <= 0 {
 			ve.addError(prefix+".window", fmt.Sprintf("must be > 0; got %v", rule.Window))
 		}
+		// A malformed glob loads silently and never matches at request time —
+		// ratelimit's matchPath maps path.Match errors to "no match" — so the
+		// pattern is probed here for every load path (main config file,
+		// rules.d, and virtual-host overrides; the rules.d/vhost populaters
+		// already probe at parse time via parseRateLimitRule). Probing with
+		// the pattern as its own subject walks the full syntax even on
+		// mismatch.
+		for _, pattern := range rule.Paths {
+			if _, err := path.Match(pattern, pattern); err != nil {
+				ve.addError(prefix+".paths", fmt.Sprintf("invalid path pattern %q: %v", pattern, err))
+			}
+		}
 		switch rule.Scope {
 		case "ip", "ip+path":
 			// valid
@@ -1578,6 +1594,20 @@ func validateIPACL(acl *IPACLConfig, ve *ValidationError) {
 	if acl.AutoBan.Enabled && acl.AutoBan.DefaultTTL <= 0 {
 		ve.addError("waf.ip_acl.auto_ban.default_ttl",
 			fmt.Sprintf("must be > 0; got %v — a zero or negative TTL stores an already-expired ban that never blocks", acl.AutoBan.DefaultTTL))
+	}
+	// A negative persist interval is not a "no persistence" setting: the IP-ACL
+	// layer starts its ban-persistence goroutine with this value
+	// (internal/layers/ipacl/ipacl.go:99) and only floors a ZERO interval, so a
+	// negative one reaches time.NewTicker — which panics on a non-positive
+	// duration, inside an unrecovered goroutine, taking the whole WAF process
+	// down at startup. Every comparable bound in this repo refuses a negative
+	// value (auto_block_ttl, auto_ban.default_ttl above, the dashboard's ban
+	// duration), so refuse the configuration with a clear message instead of
+	// crashing on it.
+	if acl.AutoBan.PersistPath != "" && acl.AutoBan.PersistInterval < 0 {
+		ve.addError("waf.ip_acl.auto_ban.persist_interval",
+			fmt.Sprintf("must be >= 0; got %v — a negative interval is passed to time.NewTicker "+
+				"by the ban-persistence loop and panics the process", acl.AutoBan.PersistInterval))
 	}
 }
 
