@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/config"
 )
@@ -239,7 +240,10 @@ func (d *Dashboard) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 
 	// Apply WAF section patches
 	if waf, ok := patch["waf"].(map[string]any); ok {
-		applyWAFPatch(cfg, waf)
+		if err := applyWAFPatch(cfg, waf); err != nil {
+			writeError(w, http.StatusBadRequest, sanitizeErr(err))
+			return
+		}
 	}
 
 	// Apply Docker section patches
@@ -281,9 +285,6 @@ func (d *Dashboard) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Audit log for security-critical config changes
-	d.logSecurityConfigChanges(oldCfg, cfg, r)
-
 	if err := validateRuntimeReloadableConfig(oldCfg, cfg); err != nil {
 		writeError(w, http.StatusConflict, sanitizeErr(err))
 		return
@@ -306,6 +307,12 @@ func (d *Dashboard) handleUpdateConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+
+	// Audit log for security-critical config changes. Emitted only once the
+	// change is actually live and persisted: calling it before the
+	// validate/reload/save gates recorded rejected and rolled-back disables as
+	// if a WAF control had been switched off.
+	d.logSecurityConfigChanges(oldCfg, cfg, r)
 
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "message": "Configuration updated and saved"})
 }
@@ -332,6 +339,23 @@ func (d *Dashboard) handleReloadConfig(w http.ResponseWriter, r *http.Request) {
 func validateRuntimeReloadableConfig(oldCfg, newCfg *config.Config) error {
 	if oldCfg == nil || newCfg == nil {
 		return nil
+	}
+	// These services are constructed by the CLI at startup. Publishing a new
+	// config snapshot cannot rebind listeners or reconfigure their instances.
+	for _, field := range []struct {
+		name string
+		old  any
+		new  any
+	}{
+		{"TLS/ACME", oldCfg.TLS, newCfg.TLS},
+		{"Docker discovery", oldCfg.Docker, newCfg.Docker},
+		{"AI analysis", oldCfg.WAF.AIAnalysis, newCfg.WAF.AIAnalysis},
+		{"alerting enabled", oldCfg.Alerting.Enabled, newCfg.Alerting.Enabled},
+		{"challenge service", oldCfg.WAF.Challenge, newCfg.WAF.Challenge},
+	} {
+		if !reflect.DeepEqual(field.old, field.new) {
+			return fmt.Errorf("runtime reload cannot change %s; update the config file and restart GuardianWAF", field.name)
+		}
 	}
 
 	changed := make([]string, 0)
@@ -419,7 +443,10 @@ func reloadGuardWAFShape(cfg *config.Config) any {
 }
 
 // applyWAFPatch applies partial config updates from a JSON patch object.
-func applyWAFPatch(cfg *config.Config, waf map[string]any) {
+// It returns an error when a supplied value cannot be applied (a malformed
+// duration); a value that is simply absent from the patch leaves the current
+// setting untouched.
+func applyWAFPatch(cfg *config.Config, waf map[string]any) error {
 	if det, ok := waf["detection"].(map[string]any); ok {
 		if v, ok := det["enabled"].(bool); ok {
 			cfg.WAF.Detection.Enabled = v
@@ -475,7 +502,33 @@ func applyWAFPatch(cfg *config.Config, waf map[string]any) {
 		if v, ok := bd["mode"].(string); ok {
 			cfg.WAF.BotDetection.Mode = v
 		}
+		// The GET counterpart (handleGetBotConfig) advertises every field
+		// below, and the YAML loader (populateBotDetection) accepts the same
+		// set. Each field this branch used to ignore was SILENTLY DROPPED:
+		// the endpoint answered 200 "updated and saved" while the value
+		// never reached the config — so it was neither enforced at runtime
+		// nor written to the persisted config file (routingCtrl.Save writes
+		// eng.Config()), and the operator's change was lost even across a
+		// restart. The invariant: an accepted parameter must either reach
+		// its consumer or be explicitly refused.
+		if tf, ok := bd["tls_fingerprint"].(map[string]any); ok {
+			if v, ok := tf["enabled"].(bool); ok {
+				cfg.WAF.BotDetection.TLSFingerprint.Enabled = v
+			}
+			if v, ok := tf["known_bots_action"].(string); ok {
+				cfg.WAF.BotDetection.TLSFingerprint.KnownBotsAction = v
+			}
+			if v, ok := tf["unknown_action"].(string); ok {
+				cfg.WAF.BotDetection.TLSFingerprint.UnknownAction = v
+			}
+			if v, ok := tf["mismatch_action"].(string); ok {
+				cfg.WAF.BotDetection.TLSFingerprint.MismatchAction = v
+			}
+		}
 		if ua, ok := bd["user_agent"].(map[string]any); ok {
+			if v, ok := ua["enabled"].(bool); ok {
+				cfg.WAF.BotDetection.UserAgent.Enabled = v
+			}
 			if v, ok := ua["block_empty"].(bool); ok {
 				cfg.WAF.BotDetection.UserAgent.BlockEmpty = v
 			}
@@ -484,6 +537,20 @@ func applyWAFPatch(cfg *config.Config, waf map[string]any) {
 			}
 		}
 		if beh, ok := bd["behavior"].(map[string]any); ok {
+			if v, ok := beh["enabled"].(bool); ok {
+				cfg.WAF.BotDetection.Behavior.Enabled = v
+			}
+			// The window is a duration string — the same shape the GET
+			// counterpart returns (Window.String()) and the YAML loader
+			// parses. A malformed value is refused loudly rather than
+			// silently ignored.
+			if v, ok := beh["window"].(string); ok {
+				d, err := time.ParseDuration(v)
+				if err != nil {
+					return fmt.Errorf("bot_detection.behavior.window: invalid duration %q", v)
+				}
+				cfg.WAF.BotDetection.Behavior.Window = d
+			}
 			if v, ok := beh["rps_threshold"].(float64); ok {
 				cfg.WAF.BotDetection.Behavior.RPSThreshold = clampInt(int(v), 1, 100000)
 			}
@@ -498,7 +565,10 @@ func applyWAFPatch(cfg *config.Config, waf map[string]any) {
 			cfg.WAF.Challenge.Enabled = v
 		}
 		if v, ok := ch["difficulty"].(float64); ok {
-			cfg.WAF.Challenge.Difficulty = clampInt(int(v), 1, 5)
+			// Difficulty is a count of SHA-256 leading zero bits, not a
+			// 1..5 level. Preserve an unchanged GET value (normally 20) so
+			// the restart guard can distinguish no-op form submissions.
+			cfg.WAF.Challenge.Difficulty = int(v)
 		}
 	}
 
@@ -586,10 +656,10 @@ func applyWAFPatch(cfg *config.Config, waf map[string]any) {
 			if v, ok := bf["enabled"].(bool); ok {
 				cfg.WAF.ATOProtection.BruteForce.Enabled = v
 			}
-			if v, ok := bf["max_attempts_per_ip"].(float64); ok {
+			if v, ok := bf["max_attempts_per_ip"].(float64); ok && v != float64(cfg.WAF.ATOProtection.BruteForce.MaxAttemptsPerIP) {
 				cfg.WAF.ATOProtection.BruteForce.MaxAttemptsPerIP = clampInt(int(v), 1, 10000)
 			}
-			if v, ok := bf["max_attempts_per_email"].(float64); ok {
+			if v, ok := bf["max_attempts_per_email"].(float64); ok && v != float64(cfg.WAF.ATOProtection.BruteForce.MaxAttemptsPerEmail) {
 				cfg.WAF.ATOProtection.BruteForce.MaxAttemptsPerEmail = clampInt(int(v), 1, 10000)
 			}
 		}
@@ -597,7 +667,7 @@ func applyWAFPatch(cfg *config.Config, waf map[string]any) {
 			if v, ok := cs["enabled"].(bool); ok {
 				cfg.WAF.ATOProtection.CredStuffing.Enabled = v
 			}
-			if v, ok := cs["distributed_threshold"].(float64); ok {
+			if v, ok := cs["distributed_threshold"].(float64); ok && v != float64(cfg.WAF.ATOProtection.CredStuffing.DistributedThreshold) {
 				cfg.WAF.ATOProtection.CredStuffing.DistributedThreshold = clampInt(int(v), 1, 10000)
 			}
 		}
@@ -636,6 +706,7 @@ func applyWAFPatch(cfg *config.Config, waf map[string]any) {
 			}
 		}
 	}
+	return nil
 }
 
 // logSecurityConfigChanges logs when security features are disabled via the config API.

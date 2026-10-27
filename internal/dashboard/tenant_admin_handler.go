@@ -151,7 +151,7 @@ func (h *TenantAdminHandler) createTenant(w http.ResponseWriter, r *http.Request
 
 	tenant, err := h.getManager().CreateTenant(req.Name, req.Description, req.Domains, req.Quota)
 	if err != nil {
-		writeError(w, http.StatusConflict, sanitizeErr(err))
+		writeError(w, tenantMutationStatus(err, http.StatusConflict), sanitizeErr(err))
 		return
 	}
 
@@ -208,7 +208,7 @@ func (h *TenantAdminHandler) updateTenant(w http.ResponseWriter, r *http.Request
 		"enabled": true, "billing_plan": true, "quota": true,
 		"waf_config": true, "rate_limits": true,
 		"active": true, "status": true, "plan": true,
-		"email": true, "auto_rotation": true, "rotation_interval": true,
+		"email": true,
 	}
 	for k := range update {
 		if !allowedKeys[k] {
@@ -219,7 +219,7 @@ func (h *TenantAdminHandler) updateTenant(w http.ResponseWriter, r *http.Request
 	update = normalizeTenantAdminUpdate(update)
 
 	if err := h.getManager().UpdateTenant(tenantID, update); err != nil {
-		writeError(w, http.StatusNotFound, sanitizeErr(err))
+		writeError(w, tenantMutationStatus(err, http.StatusNotFound), sanitizeErr(err))
 		return
 	}
 
@@ -234,12 +234,33 @@ func (h *TenantAdminHandler) deleteTenant(w http.ResponseWriter, r *http.Request
 	}
 
 	if err := h.getManager().DeleteTenant(tenantID); err != nil {
-		writeError(w, http.StatusNotFound, sanitizeErr(err))
+		writeError(w, tenantMutationStatus(err, http.StatusNotFound), sanitizeErr(err))
 		return
 	}
 	h.dashboard.SetTenantAPIKey(tenantID, "")
 
 	writeJSON(w, http.StatusNoContent, nil)
+}
+
+// tenantToJSONMap converts a tenant value from the tenantManagerInterface seam
+// into a plain map via its JSON tags. Production managers return a
+// *tenant.Tenant struct while tests and integrations may return
+// map[string]any, so a bare map type-assertion is not a valid check — the same
+// round-trip decodeTenantAuthRecord and sanitizeTenantResponse already rely on.
+// ok is false only when tenant cannot be represented as a JSON object.
+func tenantToJSONMap(tenant any) (map[string]any, bool) {
+	if tenant == nil {
+		return nil, false
+	}
+	data, err := json.Marshal(tenant)
+	if err != nil {
+		return nil, false
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil || m == nil {
+		return nil, false
+	}
+	return m, true
 }
 
 // sanitizeTenantResponse strips sensitive fields from a tenant object before it
@@ -264,7 +285,7 @@ func normalizeTenantAdminUpdate(update map[string]any) map[string]any {
 	normalized := make(map[string]any, len(update))
 	for k, v := range update {
 		switch k {
-		case "email", "auto_rotation", "rotation_interval":
+		case "email":
 			// Accepted for dashboard form compatibility. These fields are not
 			// persisted by the current tenant manager model.
 			continue
@@ -359,7 +380,7 @@ func (h *TenantAdminHandler) regenerateAPIKey(w http.ResponseWriter, r *http.Req
 
 	apiKey, err := h.getManager().RegenerateAPIKey(tenantID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, sanitizeErr(err))
+		writeError(w, tenantMutationStatus(err, http.StatusNotFound), sanitizeErr(err))
 		return
 	}
 	// Replace the complete snapshot so the old hash is removed and the new hash
@@ -447,8 +468,14 @@ func (h *TenantAdminHandler) handleBillingDetail(w http.ResponseWriter, r *http.
 			return
 		}
 
-		// Extract tenant data from map
-		tenantMap, ok := tenant.(map[string]any)
+		// Extract tenant data across the JSON-tagged adapter boundary.
+		// Production managers return *tenant.Tenant STRUCTS while tests and
+		// integrations may return maps, so a bare map type-assertion rejected
+		// every real tenant and made invoice generation unreachable in
+		// production (always 500 "invalid tenant data"). Round-trip through
+		// JSON so both shapes work — the same approach createTenant's
+		// decodeTenantAuthRecord already uses just above.
+		tenantMap, ok := tenantToJSONMap(tenant)
 		if !ok {
 			writeError(w, http.StatusInternalServerError, "invalid tenant data")
 			return
@@ -636,13 +663,13 @@ func (h *TenantAdminHandler) handleTenantRuleDetail(w http.ResponseWriter, r *ht
 			return
 		}
 		if err := h.getManager().UpdateTenantRule(tenantID, rule); err != nil {
-			writeError(w, http.StatusNotFound, sanitizeErr(err))
+			writeError(w, tenantMutationStatus(err, http.StatusNotFound), sanitizeErr(err))
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 	case http.MethodDelete:
 		if err := h.getManager().RemoveTenantRule(tenantID, ruleID); err != nil {
-			writeError(w, http.StatusNotFound, sanitizeErr(err))
+			writeError(w, tenantMutationStatus(err, http.StatusNotFound), sanitizeErr(err))
 			return
 		}
 		writeJSON(w, http.StatusNoContent, nil)
@@ -655,7 +682,7 @@ func (h *TenantAdminHandler) handleTenantRuleDetail(w http.ResponseWriter, r *ht
 			return
 		}
 		if err := h.getManager().ToggleTenantRule(tenantID, ruleID, req.Enabled); err != nil {
-			writeError(w, http.StatusNotFound, sanitizeErr(err))
+			writeError(w, tenantMutationStatus(err, http.StatusNotFound), sanitizeErr(err))
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "enabled": req.Enabled})

@@ -81,22 +81,6 @@ interface ApiKeyRotation {
 
 
 
-const ROTATION_INTERVALS = [
-
-  { value: 'never', label: 'Never (Manual Only)', days: 0 },
-
-  { value: '30days', label: 'Every 30 Days', days: 30 },
-
-  { value: '90days', label: 'Every 90 Days', days: 90 },
-
-  { value: '180days', label: 'Every 180 Days', days: 180 },
-
-  { value: '365days', label: 'Every Year', days: 365 }
-
-]
-
-
-
 export default function TenantDetailPage() {
 
   const { id } = useParams<{ id: string }>()
@@ -116,10 +100,6 @@ export default function TenantDetailPage() {
   const [newApiKey, setNewApiKey] = useState<string | null>(null)
 
   const [rotationHistory, setRotationHistory] = useState<ApiKeyRotation[]>([])
-
-  const [autoRotationEnabled, setAutoRotationEnabled] = useState(false)
-
-  const [rotationInterval, setRotationInterval] = useState('90days')
 
   const [showRotationModal, setShowRotationModal] = useState(false)
 
@@ -212,17 +192,9 @@ export default function TenantDetailPage() {
 
         name: form.name,
 
-        email: form.email,
-
-        plan: form.plan,
-
         status: form.status,
 
-        domains: form.domains.filter(d => d.trim()),
-
-        auto_rotation: autoRotationEnabled,
-
-        rotation_interval: rotationInterval
+        domains: form.domains.filter(d => d.trim())
 
       })
 
@@ -407,22 +379,6 @@ export default function TenantDetailPage() {
   // security risk. Keys are shown exactly once on generation; use clipboard copy
 
   // or display the key shown on screen for manual recording.
-
-
-
-  const getDaysUntilExpiration = (createdAt: string, intervalDays: number) => {
-
-    const created = new Date(createdAt)
-
-    const expires = new Date(created.getTime() + intervalDays * 86400000)
-
-    const now = new Date()
-
-    const diff = expires.getTime() - now.getTime()
-
-    return Math.ceil(diff / 86400000)
-
-  }
 
 
 
@@ -627,7 +583,7 @@ export default function TenantDetailPage() {
 
                 value={form.email}
 
-                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                disabled
 
               />
 
@@ -647,7 +603,7 @@ export default function TenantDetailPage() {
 
                   value={form.plan}
 
-                  onChange={(e) => setForm({ ...form, plan: e.target.value })}
+                  disabled
 
                 >
 
@@ -775,81 +731,7 @@ export default function TenantDetailPage() {
 
             <div className="border-t pt-4 space-y-4">
 
-              <div className="flex items-center justify-between">
-
-                <div>
-
-                  <div className="font-medium">Auto Key Rotation</div>
-
-                  <div className="text-sm text-gray-500">Automatically rotate keys periodically</div>
-
-                </div>
-
-                <button
-
-                  onClick={() => setAutoRotationEnabled(!autoRotationEnabled)}
-
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-
-                    autoRotationEnabled ? 'bg-accent' : 'bg-gray-200 dark:bg-gray-700'
-
-                  }`}
-
-                >
-
-                  <span
-
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-
-                      autoRotationEnabled ? 'translate-x-6' : 'translate-x-1'
-
-                    }`}
-
-                  />
-
-                </button>
-
-              </div>
-
-
-
-              {autoRotationEnabled && (
-
-                <div className="space-y-2">
-
-                  <Label>Rotation Interval</Label>
-
-                  <Select
-
-                    value={rotationInterval}
-
-                    onChange={(e) => setRotationInterval(e.target.value)}
-
-                  >
-
-                    {ROTATION_INTERVALS.map(interval => (
-
-                      <SelectOption key={interval.value} value={interval.value}>
-
-                        {interval.label}
-
-                      </SelectOption>
-
-                    ))}
-
-                  </Select>
-
-                  <p className="text-xs text-gray-500">
-
-                    A new key will be generated and the old key will expire after this period.
-
-                  </p>
-
-                </div>
-
-              )}
-
-
+              <p className="text-sm text-gray-500">Rotate this key manually when access changes or a key is exposed.</p>
 
               <Button
 
@@ -887,7 +769,7 @@ export default function TenantDetailPage() {
 
             <History className="w-5 h-5" />
 
-            API Key Rotation History
+            Rotations in This Session
 
           </CardTitle>
 
@@ -899,7 +781,7 @@ export default function TenantDetailPage() {
 
             <table className="w-full">
 
-              <caption className="sr-only">API key rotation history with key ID, created date, status, reason, and expiration columns</caption>
+              <caption className="sr-only">API key rotations performed in this browser session</caption>
 
               <thead>
 
@@ -913,8 +795,6 @@ export default function TenantDetailPage() {
 
                   <th scope="col" className="text-left py-3 px-4 font-medium">Reason</th>
 
-                  <th scope="col" className="text-left py-3 px-4 font-medium">Expiration</th>
-
                 </tr>
 
               </thead>
@@ -924,17 +804,11 @@ export default function TenantDetailPage() {
                 {rotationHistory.length === 0 && (
                   <tr>
                     <td colSpan={4} className="py-8 text-center text-gray-500">
-                      No key rotation history. Rotate the API key to create a record.
+                      No rotations in this session. This list resets when the page is reloaded.
                     </td>
                   </tr>
                 )}
                 {rotationHistory.map((key) => {
-
-                  const intervalDays = ROTATION_INTERVALS.find(i => i.value === rotationInterval)?.days || 90
-
-                  const daysLeft = autoRotationEnabled ? getDaysUntilExpiration(key.created_at, intervalDays) : null
-
-
 
                   return (
 
@@ -977,34 +851,6 @@ export default function TenantDetailPage() {
                       <td className="py-3 px-4 text-sm text-gray-600">
 
                         {key.rotation_reason || 'Manual rotation'}
-
-                      </td>
-
-                      <td className="py-3 px-4 text-sm">
-
-                        {key.is_active && autoRotationEnabled && daysLeft !== null ? (
-
-                          daysLeft <= 7 ? (
-
-                            <span className="text-red-600 flex items-center gap-1">
-
-                              <AlertTriangle className="w-3 h-3" />
-
-                              {daysLeft} days
-
-                            </span>
-
-                          ) : (
-
-                            <span className="text-gray-500">{daysLeft} days</span>
-
-                          )
-
-                        ) : (
-
-                          <span className="text-gray-400">-</span>
-
-                        )}
 
                       </td>
 

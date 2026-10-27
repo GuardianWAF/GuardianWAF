@@ -608,8 +608,8 @@ func TestHandleUpdateConfig_WAFChallenge(t *testing.T) {
 	w := httptest.NewRecorder()
 	d.mux.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", w.Code)
+	if w.Code != http.StatusConflict {
+		t.Errorf("expected 409 for restart-only config, got %d", w.Code)
 	}
 }
 
@@ -683,8 +683,8 @@ func TestHandleUpdateConfig_TLSACME(t *testing.T) {
 	w := httptest.NewRecorder()
 	d.mux.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", w.Code)
+	if w.Code != http.StatusConflict {
+		t.Errorf("expected 409 for restart-only config, got %d", w.Code)
 	}
 }
 

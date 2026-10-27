@@ -1,3 +1,3 @@
 module github.com/guardianwaf/guardianwaf/internal/dashboard/ui
 
-go 1.26.6
+go 1.26.10

@@ -31,7 +31,8 @@ export function useMountLoad(load: (isCancelled: () => boolean) => void | Promis
 /**
  * `useMountLoad` plus a refresh timer.
  *
- * Loads once on mount, then re-runs `load` every `intervalMs`. Set `enabled` to
+ * Loads once on mount, then re-runs `load` every `intervalMs`, skipping ticks
+ * while a load is pending. Set `enabled` to
  * false to skip both (for example while a route parameter is still undefined);
  * the timer is cleared and further state writes suppressed on unmount.
  */
@@ -43,13 +44,23 @@ export function usePollingLoad(
   useEffect(() => {
     if (!enabled) return
     let cancelled = false
+    let loading = false
     const isCancelled = () => cancelled
+    const run = async () => {
+      if (cancelled || loading) return
+      loading = true
+      try {
+        await load(isCancelled)
+      } finally {
+        loading = false
+      }
+    }
     void (async () => {
       await Promise.resolve()
-      if (!cancelled) await load(isCancelled)
+      if (!cancelled) await run()
     })()
     const timer = setInterval(() => {
-      void load(isCancelled)
+      void run()
     }, intervalMs)
     return () => {
       cancelled = true

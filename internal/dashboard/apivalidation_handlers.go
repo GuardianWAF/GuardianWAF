@@ -229,6 +229,15 @@ func (h *APIValidationHandler) handleValidationConfig(w http.ResponseWriter, r *
 			http.Error(w, sanitizeErr(err), http.StatusInternalServerError)
 			return
 		}
+		// engine.Reload does not rebuild layers, and the apivalidation layer
+		// reads its own mode flags, so the toggles must be pushed into the
+		// running layer as well — otherwise this route reports "updated" while
+		// enforcement stays on the previous mode.
+		if setter, ok := apiLayer.(interface {
+			SetMode(validateRequest, strictMode, blockOnViolation *bool)
+		}); ok {
+			setter.SetMode(req.ValidateRequest, req.StrictMode, req.BlockOnViolation)
+		}
 
 		// Persist the full config to disk — same contract as
 		// handleUpdateConfig. Without this the settings are runtime-only: a
@@ -369,6 +378,17 @@ func (a *apiValidationAdapter) GetSchema(name string) *APISchemaInfo {
 		}
 	}
 	return nil
+}
+
+// SetMode forwards control-plane mode toggles to the layer. engine.Reload
+// updates the engine's config but does not rebuild layers, so without this the
+// config route would report "updated" while the layer kept enforcing its
+// construction-time mode.
+func (a *apiValidationAdapter) SetMode(validateRequest, strictMode, blockOnViolation *bool) {
+	if a.layer == nil {
+		return
+	}
+	a.layer.SetMode(validateRequest, strictMode, blockOnViolation)
 }
 
 func (a *apiValidationAdapter) LoadSchema(schema *APISchemaInfo) error {

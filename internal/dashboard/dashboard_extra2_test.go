@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -1108,6 +1109,7 @@ func TestGetEvent_EmptyID_DirectCall(t *testing.T) {
 func TestUpdateConfig_Docker(t *testing.T) {
 	d := newTestDashboard(t, "")
 	handler := d.Handler()
+	old := d.engine.Config()
 
 	body := `{"docker":{"enabled":true,"socket_path":"/var/run/docker.sock","label_prefix":"gwaf","network":"guardian"}}`
 	req := httptest.NewRequest("PUT", "/api/v1/config", strings.NewReader(body))
@@ -1116,23 +1118,13 @@ func TestUpdateConfig_Docker(t *testing.T) {
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("startup-owned settings must return 409, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !reflect.DeepEqual(old, d.engine.Config()) {
+		t.Fatal("rejected startup-only update changed running configuration")
 	}
 
-	cfg := d.engine.Config()
-	if !cfg.Docker.Enabled {
-		t.Error("expected docker enabled")
-	}
-	if cfg.Docker.SocketPath != "/var/run/docker.sock" {
-		t.Errorf("expected socket_path '/var/run/docker.sock', got %q", cfg.Docker.SocketPath)
-	}
-	if cfg.Docker.LabelPrefix != "gwaf" {
-		t.Errorf("expected label_prefix 'gwaf', got %q", cfg.Docker.LabelPrefix)
-	}
-	if cfg.Docker.Network != "guardian" {
-		t.Errorf("expected network 'guardian', got %q", cfg.Docker.Network)
-	}
 }
 
 // --- handleUpdateConfig: AI Analysis section ---
@@ -1140,6 +1132,7 @@ func TestUpdateConfig_Docker(t *testing.T) {
 func TestUpdateConfig_AIAnalysis(t *testing.T) {
 	d := newTestDashboard(t, "")
 	handler := d.Handler()
+	old := d.engine.Config()
 
 	body := `{"ai_analysis":{"enabled":true,"batch_size":10,"min_score":50,"auto_block":true}}`
 	req := httptest.NewRequest("PUT", "/api/v1/config", strings.NewReader(body))
@@ -1148,23 +1141,13 @@ func TestUpdateConfig_AIAnalysis(t *testing.T) {
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("startup-owned settings must return 409, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !reflect.DeepEqual(old, d.engine.Config()) {
+		t.Fatal("rejected startup-only update changed running configuration")
 	}
 
-	cfg := d.engine.Config()
-	if !cfg.WAF.AIAnalysis.Enabled {
-		t.Error("expected AI analysis enabled")
-	}
-	if cfg.WAF.AIAnalysis.BatchSize != 10 {
-		t.Errorf("expected batch_size 10, got %d", cfg.WAF.AIAnalysis.BatchSize)
-	}
-	if cfg.WAF.AIAnalysis.MinScore != 50 {
-		t.Errorf("expected min_score 50, got %d", cfg.WAF.AIAnalysis.MinScore)
-	}
-	if !cfg.WAF.AIAnalysis.AutoBlock {
-		t.Error("expected auto_block true")
-	}
 }
 
 // --- handleUpdateConfig: Alerting section ---
@@ -1172,6 +1155,7 @@ func TestUpdateConfig_AIAnalysis(t *testing.T) {
 func TestUpdateConfig_Alerting(t *testing.T) {
 	d := newTestDashboard(t, "")
 	handler := d.Handler()
+	old := d.engine.Config()
 
 	body := `{"alerting":{"enabled":true}}`
 	req := httptest.NewRequest("PUT", "/api/v1/config", strings.NewReader(body))
@@ -1180,14 +1164,13 @@ func TestUpdateConfig_Alerting(t *testing.T) {
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("startup-owned settings must return 409, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !reflect.DeepEqual(old, d.engine.Config()) {
+		t.Fatal("rejected startup-only update changed running configuration")
 	}
 
-	cfg := d.engine.Config()
-	if !cfg.Alerting.Enabled {
-		t.Error("expected alerting enabled")
-	}
 }
 
 // --- handleUpdateConfig: combined patch ---
@@ -1195,6 +1178,7 @@ func TestUpdateConfig_Alerting(t *testing.T) {
 func TestUpdateConfig_CombinedDockerAIAlerting(t *testing.T) {
 	d := newTestDashboard(t, "")
 	handler := d.Handler()
+	old := d.engine.Config()
 
 	body := `{
 		"docker":{"enabled":true,"socket_path":"/tmp/docker.sock"},
@@ -1207,21 +1191,11 @@ func TestUpdateConfig_CombinedDockerAIAlerting(t *testing.T) {
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("startup-owned settings must return 409, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !reflect.DeepEqual(old, d.engine.Config()) {
+		t.Fatal("rejected startup-only update changed running configuration")
 	}
 
-	cfg := d.engine.Config()
-	if !cfg.Docker.Enabled {
-		t.Error("expected docker enabled")
-	}
-	if !cfg.WAF.AIAnalysis.Enabled {
-		t.Error("expected AI enabled")
-	}
-	if cfg.WAF.AIAnalysis.BatchSize != 20 {
-		t.Errorf("expected batch_size 20, got %d", cfg.WAF.AIAnalysis.BatchSize)
-	}
-	if cfg.Alerting.Enabled {
-		t.Error("expected alerting disabled")
-	}
 }

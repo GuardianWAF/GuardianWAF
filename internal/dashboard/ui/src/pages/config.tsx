@@ -168,6 +168,12 @@ export default function ConfigPage() {
         <h1 className="text-lg font-semibold text-foreground">WAF Configuration</h1>
       </div>
 
+      <p className="text-sm text-muted-foreground">
+        Mode, detection thresholds, and maximum request body size can be applied here.
+        Edit restart-only settings in the YAML configuration and restart GuardianWAF.
+        IP lists and temporary bans apply through their own controls.
+      </p>
+
       {error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {error}
@@ -182,7 +188,7 @@ export default function ConfigPage() {
       {/* General */}
       <Section title="General" defaultOpen>
         <div className="space-y-4">
-          <FieldRow label="WAF Mode">
+          <FieldRow label="WAF Mode" live>
             <Select
               value={val('mode', 'enforce') as string}
               onChange={(e) => update('mode', e.target.value)}
@@ -284,7 +290,7 @@ export default function ConfigPage() {
               onCheckedChange={(v) => update('detection.enabled', v)}
             />
           </FieldRow>
-          <FieldRow label="Block Threshold">
+          <FieldRow label="Block Threshold" live>
             <Input
               type="number"
               value={val('detection.threshold.block', 50) as number}
@@ -294,7 +300,7 @@ export default function ConfigPage() {
               max={100}
             />
           </FieldRow>
-          <FieldRow label="Log Threshold">
+          <FieldRow label="Log Threshold" live>
             <Input
               type="number"
               value={val('detection.threshold.log', 25) as number}
@@ -320,6 +326,8 @@ export default function ConfigPage() {
                       {DETECTOR_LABELS[key]}
                     </span>
                     <Switch
+                      disabled
+                      aria-label={DETECTOR_LABELS[key]}
                       checked={val(`detection.detectors.${key}.enabled`, true) as boolean}
                       onCheckedChange={(v) =>
                         update(`detection.detectors.${key}.enabled`, v)
@@ -649,7 +657,7 @@ export default function ConfigPage() {
               min={256}
             />
           </FieldRow>
-          <FieldRow label="Max Body Size">
+          <FieldRow label="Max Body Size" live>
             <Input
               type="number"
               value={val('sanitizer.max_body_size', 1048576) as number}
@@ -1102,15 +1110,22 @@ export default function ConfigPage() {
 function FieldRow({
   label,
   children,
+  live = false,
 }: {
   label: string
   children: React.ReactNode
+  live?: boolean
 }) {
   return (
-    <div className="flex items-center justify-between gap-4">
-      <label className="text-sm text-foreground whitespace-nowrap">{label}</label>
-      {children}
-    </div>
+    <fieldset disabled={!live} aria-label={label} className="min-w-0">
+      <div className="flex items-center justify-between gap-4">
+        <span className="text-sm text-foreground whitespace-nowrap">
+          {label}
+          {!live && <span className="ml-2 text-xs text-muted-foreground">Restart required</span>}
+        </span>
+        {children}
+      </div>
+    </fieldset>
   )
 }
 

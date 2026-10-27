@@ -15,15 +15,22 @@ export function useSSE(onEvent: (event: WafEvent) => void) {
 
     function connect() {
       if (unmounted) return
+      if (reconnectTimer !== null) {
+        clearTimeout(reconnectTimer)
+        reconnectTimer = null
+      }
 
-      es = new EventSource('/api/v1/sse')
+      const source = new EventSource('/api/v1/sse')
+      es = source
 
-      es.onopen = () => {
+      source.onopen = () => {
+        if (unmounted || es !== source) return
         setConnected(true)
         backoff = 1000
       }
 
-      es.onmessage = (msg) => {
+      source.onmessage = (msg) => {
+        if (unmounted || es !== source) return
         try {
           const data = JSON.parse(msg.data)
           // Only forward actual WAF events (not control messages like {"type":"connected"})
@@ -35,9 +42,10 @@ export function useSSE(onEvent: (event: WafEvent) => void) {
         }
       }
 
-      es.onerror = () => {
+      source.onerror = () => {
+        if (unmounted || es !== source) return
         setConnected(false)
-        es?.close()
+        source.close()
         es = null
 
         if (!unmounted) {

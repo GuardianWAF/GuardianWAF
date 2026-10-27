@@ -88,7 +88,7 @@ func (d *Dashboard) authWrap(handler http.HandlerFunc) http.HandlerFunc {
 		// CSRF protection for state-changing requests authenticated via cookie
 		// (API key header auth is inherently CSRF-safe since browsers can't set custom headers cross-origin)
 		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
-			if r.Header.Get("X-API-Key") == "" && !verifySameOrigin(r) {
+			if getAuthType(r) == authSession && !verifySameOrigin(r) {
 				writeError(w, http.StatusForbidden, "CSRF validation failed")
 				return
 			}
