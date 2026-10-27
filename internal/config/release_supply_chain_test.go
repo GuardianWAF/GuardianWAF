@@ -419,7 +419,6 @@ func TestCIWorkflowPinsActionsToolsAndReleaseGates(t *testing.T) {
 		"gosec -include=G304,G703 -severity=medium -confidence=medium ./internal/geoip",
 		"gosec -include=G304,G703 -severity=medium -confidence=medium ./internal/engine",
 		"gosec -include=G304,G703 -severity=medium -confidence=medium ./internal/ai",
-		"gosec -include=G304,G703 -severity=medium -confidence=medium ./internal/compliance",
 		"gosec -include=G304,G703 -severity=medium -confidence=medium ./cmd/guardianwaf",
 		"gosec -include=G304,G703 -severity=medium -confidence=medium ./internal/layers/ipacl",
 		"gosec -include=G304,G703 -severity=medium -confidence=medium ./internal/layers/crs",

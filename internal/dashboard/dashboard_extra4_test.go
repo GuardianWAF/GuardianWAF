@@ -386,51 +386,6 @@ func TestGetCWV(t *testing.T) {
 // Compliance endpoint tests
 // =====================================================================
 
-func TestComplianceControls_NoEngine(t *testing.T) {
-	d := newTestDashboard(t, "k")
-	w := httptest.NewRecorder()
-	req := authenticatedRequest("GET", "/api/v1/compliance/controls", "", "k")
-	d.Handler().ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", w.Code)
-	}
-	var result map[string]any
-	_ = json.Unmarshal(w.Body.Bytes(), &result)
-	if result["controls"] == nil {
-		t.Error("expected controls field")
-	}
-}
-
-func TestComplianceReport_NoEngine(t *testing.T) {
-	d := newTestDashboard(t, "k")
-	w := httptest.NewRecorder()
-	req := authenticatedRequest("GET", "/api/v1/compliance/report/pci-dss", "", "k")
-	d.Handler().ServeHTTP(w, req)
-
-	if w.Code != http.StatusServiceUnavailable {
-		t.Errorf("expected 503, got %d", w.Code)
-	}
-}
-
-func TestAuditChain_NoEngine(t *testing.T) {
-	d := newTestDashboard(t, "k")
-	w := httptest.NewRecorder()
-	req := authenticatedRequest("GET", "/api/v1/compliance/audit-chain", "", "k")
-	d.Handler().ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", w.Code)
-	}
-	var body map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
-		t.Fatalf("response JSON: %v", err)
-	}
-	if body["head_hash"] != "genesis" {
-		t.Fatalf("head_hash = %#v, want genesis", body["head_hash"])
-	}
-}
-
 // =====================================================================
 // Cert endpoint tests
 // =====================================================================

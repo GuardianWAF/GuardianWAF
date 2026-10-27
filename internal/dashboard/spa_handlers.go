@@ -5,9 +5,6 @@ import (
 	"net/http"
 	"strings"
 	"sync"
-	"time"
-
-	"github.com/guardianwaf/guardianwaf/internal/compliance"
 )
 
 // --- SPA Serving (React dashboard) ---
@@ -62,88 +59,6 @@ func (d *Dashboard) handleGetCWV(w http.ResponseWriter, r *http.Request) {
 		return true
 	})
 	writeJSON(w, http.StatusOK, metrics)
-}
-
-func (d *Dashboard) handleComplianceControls(w http.ResponseWriter, r *http.Request) {
-	if d.complianceEngine == nil {
-		writeJSON(w, http.StatusOK, map[string]any{"controls": []any{}, "frameworks": []string{}})
-		return
-	}
-	framework := r.URL.Query().Get("framework")
-	var controls any
-	if framework != "" {
-		controls = d.complianceEngine.ControlsForFramework(framework)
-	} else {
-		controls = d.complianceEngine.Controls()
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"controls":   controls,
-		"frameworks": compliance.SortedFrameworks(),
-	})
-}
-
-func (d *Dashboard) handleComplianceReport(w http.ResponseWriter, r *http.Request) {
-	if d.complianceEngine == nil {
-		writeError(w, http.StatusServiceUnavailable, "compliance reporting not configured")
-		return
-	}
-	framework := r.PathValue("framework")
-	if framework == "" {
-		writeError(w, http.StatusBadRequest, "framework is required")
-		return
-	}
-
-	// Parse period from query params
-	fromStr := r.URL.Query().Get("from")
-	toStr := r.URL.Query().Get("to")
-	from, _ := time.Parse(time.RFC3339, fromStr)
-	to, _ := time.Parse(time.RFC3339, toStr)
-	if to.IsZero() {
-		to = time.Now().UTC()
-	}
-	if from.IsZero() {
-		from = to.AddDate(0, -1, 0)
-	}
-
-	// Collect metrics from engine
-	stats := d.engine.Stats()
-	m := compliance.Metrics{
-		WAFOperational:     true,
-		TotalRequests:      stats.TotalRequests,
-		BlockedRequests:    stats.BlockedRequests,
-		TLSEnabled:         d.engine.Config().TLS.CertFile != "",
-		RateLimitActive:    d.engine.Config().WAF.RateLimit.Enabled,
-		IPACLActive:        d.engine.Config().WAF.IPACL.Enabled,
-		BotDetectionActive: d.engine.Config().WAF.BotDetection.Enabled,
-	}
-	// WAFUptimePct and LogCompletenessPct have no telemetry source in this
-	// codebase — leave them at zero rather than inventing passing values.
-	// The controls they feed (pci_dss_6_4_1, pci_dss_10_2_1, gdpr_art32)
-	// fail honestly until real uptime/log-completeness telemetry exists
-	// (the round 6/25 falsifiability convention: criteria must be able to
-	// fail on missing evidence).
-
-	report, err := d.complianceEngine.GenerateReportWithError(framework, "", compliance.Period{From: from, To: to}, m)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to persist compliance audit entry"})
-		return
-	}
-	writeJSON(w, http.StatusOK, report)
-}
-
-func (d *Dashboard) handleAuditChain(w http.ResponseWriter, r *http.Request) {
-	if d.complianceEngine == nil {
-		writeJSON(w, http.StatusOK, map[string]any{"entries": []any{}, "length": 0, "valid": 0, "errors": []string{}, "integrity": true, "head_hash": "genesis"})
-		return
-	}
-	valid, errors := d.complianceEngine.VerifyChain()
-	writeJSON(w, http.StatusOK, map[string]any{
-		"length":    d.complianceEngine.ChainLen(),
-		"valid":     valid,
-		"errors":    errors,
-		"integrity": len(errors) == 0,
-		"head_hash": d.complianceEngine.ChainHeadHash(),
-	})
 }
 
 func (d *Dashboard) handleSPA(w http.ResponseWriter, r *http.Request) {

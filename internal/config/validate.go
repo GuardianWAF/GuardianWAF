@@ -913,8 +913,6 @@ func LoadEnv(cfg *Config) error {
 		"GWAF_WAF_AI_ANALYSIS_ENABLED",
 		"GWAF_TLS_ENABLED",
 		"GWAF_TRACING_ENABLED",
-		"GWAF_COMPLIANCE_ENABLED",
-		"GWAF_COMPLIANCE_AUDIT_TRAIL_ENABLED",
 	} {
 		if value := os.Getenv(key); value != "" {
 			if _, err := strconv.ParseBool(value); err != nil {
@@ -1051,24 +1049,6 @@ func LoadEnv(cfg *Config) error {
 		"GWAF_LOGGING_MAX_AGE_DAYS": func(v string) {
 			if i, err := strconv.Atoi(v); err == nil {
 				cfg.Logging.MaxAgeDays = i
-			}
-		},
-
-		// Compliance reporting
-		"GWAF_COMPLIANCE_ENABLED": func(v string) {
-			if b, err := strconv.ParseBool(v); err == nil {
-				cfg.Compliance.Enabled = b
-			}
-		},
-		"GWAF_COMPLIANCE_FRAMEWORKS": func(v string) {
-			cfg.Compliance.Frameworks = strings.Split(v, ",")
-		},
-		"GWAF_COMPLIANCE_REPORT_DIR": func(v string) {
-			cfg.Compliance.ReportDir = v
-		},
-		"GWAF_COMPLIANCE_AUDIT_TRAIL_ENABLED": func(v string) {
-			if b, err := strconv.ParseBool(v); err == nil {
-				cfg.Compliance.AuditTrail.Enabled = b
 			}
 		},
 	}

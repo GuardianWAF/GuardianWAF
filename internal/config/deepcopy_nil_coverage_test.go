@@ -33,9 +33,6 @@ func TestGeneratedDeepCopyNilReceivers(t *testing.T) {
 	if ((*ATOProtectionConfig)(nil)).DeepCopy() != nil {
 		t.Errorf("ATOProtectionConfig.DeepCopy nil receiver returned non-nil")
 	}
-	if ((*AuditTrailConfig)(nil)).DeepCopy() != nil {
-		t.Errorf("AuditTrailConfig.DeepCopy nil receiver returned non-nil")
-	}
 	if ((*AutoBanConfig)(nil)).DeepCopy() != nil {
 		t.Errorf("AutoBanConfig.DeepCopy nil receiver returned non-nil")
 	}
@@ -71,9 +68,6 @@ func TestGeneratedDeepCopyNilReceivers(t *testing.T) {
 	}
 	if ((*ClusterSyncConfig)(nil)).DeepCopy() != nil {
 		t.Errorf("ClusterSyncConfig.DeepCopy nil receiver returned non-nil")
-	}
-	if ((*ComplianceConfig)(nil)).DeepCopy() != nil {
-		t.Errorf("ComplianceConfig.DeepCopy nil receiver returned non-nil")
 	}
 	if ((*Config)(nil)).DeepCopy() != nil {
 		t.Errorf("Config.DeepCopy nil receiver returned non-nil")
@@ -210,9 +204,6 @@ func TestGeneratedDeepCopyNilReceivers(t *testing.T) {
 	if ((*ResponseConfig)(nil)).DeepCopy() != nil {
 		t.Errorf("ResponseConfig.DeepCopy nil receiver returned non-nil")
 	}
-	if ((*RetentionConfig)(nil)).DeepCopy() != nil {
-		t.Errorf("RetentionConfig.DeepCopy nil receiver returned non-nil")
-	}
 	if ((*RouteConfig)(nil)).DeepCopy() != nil {
 		t.Errorf("RouteConfig.DeepCopy nil receiver returned non-nil")
 	}
@@ -221,9 +212,6 @@ func TestGeneratedDeepCopyNilReceivers(t *testing.T) {
 	}
 	if ((*SanitizerConfig)(nil)).DeepCopy() != nil {
 		t.Errorf("SanitizerConfig.DeepCopy nil receiver returned non-nil")
-	}
-	if ((*ScheduledReportConfig)(nil)).DeepCopy() != nil {
-		t.Errorf("ScheduledReportConfig.DeepCopy nil receiver returned non-nil")
 	}
 	if ((*SchemaSourceConfig)(nil)).DeepCopy() != nil {
 		t.Errorf("SchemaSourceConfig.DeepCopy nil receiver returned non-nil")

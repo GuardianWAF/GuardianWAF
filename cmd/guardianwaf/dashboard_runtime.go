@@ -8,7 +8,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/guardianwaf/guardianwaf/internal/compliance"
 	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/dashboard"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
@@ -92,16 +91,6 @@ func startDashboard(cfg *config.Config, eng *engine.Engine) (*http.Server, *dash
 	}
 	dash.SetTrustedProxies(cfg.TrustedProxies)
 	dash.SetBuildInfo(version, commit, date)
-
-	if cfg.Compliance.Enabled {
-		compEngine, err := compliance.NewEngineWithError(cfg.Compliance)
-		if err != nil {
-			dash.Close()
-			fmt.Fprintf(os.Stderr, "Dashboard compliance error: %v\n", err)
-			return nil, nil, nil
-		}
-		dash.SetComplianceEngine(compEngine)
-	}
 
 	if cfg.Dashboard.AdminKey != "" {
 		dash.SetAdminKey(cfg.Dashboard.AdminKey)

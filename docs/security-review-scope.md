@@ -108,7 +108,7 @@ Review:
 - event evidence redaction,
 - log and trace redaction,
 - dashboard/API response schemas and OpenAPI contract tests,
-- AI, alerting, MCP, compliance, and SSE data paths,
+- AI, alerting, MCP, and SSE data paths,
 - download/export paths for logs, reports, and audit evidence.
 
 Required attacker models:

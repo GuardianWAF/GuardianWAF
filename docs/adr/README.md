@@ -99,7 +99,7 @@ the decision made, and the consequences.
 | ADR | Title | Status |
 |-----|-------|--------|
 | [0020](./0020-advanced-dlp.md) | Advanced DLP Pattern Engine | Implemented baseline — advanced pattern engine planned |
-| [0022](./0022-compliance-reporting.md) | Compliance & Reporting Framework | Implemented baseline — scheduled reports and retention enforcement planned |
+| [0022](./0022-compliance-reporting.md) | Compliance & Reporting Framework | Removed in v0.7.0 — `internal/compliance` deleted |
 | [0024](./0024-zero-trust-network-access.md) | Zero Trust Network Access (mTLS) | Proposed — not registered in pipeline |
 
 ### Developer Experience

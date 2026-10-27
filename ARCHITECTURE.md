@@ -32,7 +32,6 @@ GuardianWAF is designed around these constraints:
 | `internal/tls/` | Certificate store, SNI selection, OCSP helpers, certificate hot reload support. |
 | `internal/tracing/` | Lightweight span/tracer/exporter API with OpenTelemetry-style vocabulary and no external SDK dependency. |
 | `internal/tenant/` | Multi-tenant store, quota and billing structures, API-key support. |
-| `internal/compliance/` | Compliance reporting helpers. |
 | `docs/` | Operator guides, ADRs, API/config references, deployment notes, and detailed feature documentation. |
 | `contrib/` | Kubernetes, Grafana, and deployment support assets. |
 | `tests/` | End-to-end and integration-oriented test assets. |
@@ -292,7 +291,6 @@ Dashboard responsibilities include:
 - dynamic rules and virtual patch views,
 - tenant/admin compatibility handlers,
 - AI analysis endpoints,
-- compliance and analytics endpoints,
 - optional profiling/debug endpoints when configured.
 
 The dashboard is not required for request processing. It reads from the engine, event store, event bus, and runtime adapters provided by `cmd/guardianwaf`.

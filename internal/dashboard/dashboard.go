@@ -17,7 +17,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/guardianwaf/guardianwaf/internal/compliance"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/events"
 	"github.com/guardianwaf/guardianwaf/internal/layers/apivalidation"
@@ -102,10 +101,9 @@ type Dashboard struct {
 
 	// Existing interfaces (kept as-is). Atomic for the same reason —
 	// published post-start (setupTenantRuntime/setupAIRuntime).
-	aiAnalyzer       atomic.Pointer[aiAnalyzerInterface]    // AI threat analyzer (optional)
-	dockerWatcher    atomic.Pointer[dockerWatcherInterface] // Docker auto-discovery (optional). Atomic: published post-start (setupDockerRuntime).
-	tenantManager    atomic.Pointer[tenantManagerInterface] // Multi-tenant manager (optional)
-	complianceEngine *compliance.Engine                     // Compliance reporting engine (optional)
+	aiAnalyzer    atomic.Pointer[aiAnalyzerInterface]    // AI threat analyzer (optional)
+	dockerWatcher atomic.Pointer[dockerWatcherInterface] // Docker auto-discovery (optional). Atomic: published post-start (setupDockerRuntime).
+	tenantManager atomic.Pointer[tenantManagerInterface] // Multi-tenant manager (optional)
 
 	// Login rate limiting: per-IP token buckets
 	loginBuckets sync.Map // map[string]*loginBucket
@@ -446,11 +444,6 @@ func (a *alertingStatsAdapter) GetAlertingStats() any { return a.fn() }
 
 // SetTenantManager injects the multi-tenant manager.
 // Also registers all existing tenant API keys for per-tenant authentication (AUTH-003).
-// SetComplianceEngine sets the compliance reporting engine for the dashboard.
-func (d *Dashboard) SetComplianceEngine(e *compliance.Engine) {
-	d.complianceEngine = e
-}
-
 func (d *Dashboard) SetTenantManager(manager tenantManagerInterface) {
 	// Atomic publication: the dashboard server may already be serving tenant
 	// endpoints when this runs (the production wiring happens after
