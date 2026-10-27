@@ -2,6 +2,7 @@ package crs
 
 import (
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -131,7 +132,7 @@ func (vr *VariableResolver) Resolve(rv RuleVariable) ([]string, error) {
 	case "TX":
 		if rv.Key != "" {
 			if rv.KeyRegex {
-				re, err := getCachedRegex(rv.Key)
+				re, err := getKeySelectorRegex(rv.Key)
 				if err != nil {
 					if rv.Count {
 						return []string{"0"}, nil
@@ -219,7 +220,7 @@ func (vr *VariableResolver) resolveArgs(key string, keyRegex bool, count bool) (
 		// pollution detection idiom (&ARGS:password "@eq 2") and must not
 		// fall back to the whole-collection total.
 		if keyRegex {
-			re, err := getCachedRegex(key)
+			re, err := getKeySelectorRegex(key)
 			if err != nil {
 				return []string{"0"}, nil
 			}
@@ -255,7 +256,7 @@ func (vr *VariableResolver) resolveArgs(key string, keyRegex bool, count bool) (
 		// Regex key matching: /pattern/ selectors parse to KeyRegex with the
 		// pattern as Key. Matched through the bounded regex cache; an invalid
 		// pattern selects nothing (fail-soft, like operator errors).
-		re, err := getCachedRegex(key)
+		re, err := getKeySelectorRegex(key)
 		if err != nil {
 			return []string{}, nil
 		}
@@ -284,7 +285,7 @@ func (vr *VariableResolver) resolveHeaders(key string, keyRegex bool, headers ma
 		// counts values across matching headers; only the keyless form is
 		// the whole-collection total.
 		if keyRegex {
-			re, err := getCachedRegex(key)
+			re, err := getKeySelectorRegex(key)
 			if err != nil {
 				return []string{"0"}, nil
 			}
@@ -321,7 +322,7 @@ func (vr *VariableResolver) resolveHeaders(key string, keyRegex bool, headers ma
 	if keyRegex {
 		// Regex key matching (see resolveArgs): bounded cache, fail-soft on
 		// an invalid pattern.
-		re, err := getCachedRegex(key)
+		re, err := getKeySelectorRegex(key)
 		if err != nil {
 			return []string{}, nil
 		}
@@ -342,39 +343,54 @@ func (vr *VariableResolver) resolveHeaders(key string, keyRegex bool, headers ma
 	return []string{}, nil
 }
 
+// cookieValues also supports manually populated public Transactions, whose
+// RequestCookies field retains its single-value-per-name API.
+func (vr *VariableResolver) cookieValues() map[string][]string {
+	if vr.transaction.requestCookieValues != nil {
+		return vr.transaction.requestCookieValues
+	}
+	cookies := make(map[string][]string, len(vr.transaction.RequestCookies))
+	for name, value := range vr.transaction.RequestCookies {
+		cookies[name] = []string{value}
+	}
+	return cookies
+}
+
 // resolveCookies resolves cookie variables.
 func (vr *VariableResolver) resolveCookies(key string, keyRegex bool, count bool) ([]string, error) {
+	cookies := vr.cookieValues()
 	if count {
 		// Keyed counts mirror resolveArgs: &REQUEST_COOKIES:key counts that
-		// cookie's values (1 or 0 — the store keeps one value per name);
+		// cookie's values, including repeated names captured by the engine;
 		// only the keyless form is the whole-collection total.
 		if keyRegex {
-			re, err := getCachedRegex(key)
+			re, err := getKeySelectorRegex(key)
 			if err != nil {
 				return []string{"0"}, nil
 			}
 			total := 0
-			for cookieKey := range vr.transaction.RequestCookies {
+			for cookieKey, values := range cookies {
 				if re.MatchString(cookieKey) {
-					total++
+					total += len(values)
 				}
 			}
 			return []string{strconv.Itoa(total)}, nil
 		}
 		if key != "" {
-			if _, ok := vr.transaction.RequestCookies[key]; ok {
-				return []string{"1"}, nil
-			}
-			return []string{"0"}, nil
+			return []string{strconv.Itoa(len(cookies[key]))}, nil
 		}
-		return []string{strconv.Itoa(len(vr.transaction.RequestCookies))}, nil
+		total := 0
+		for _, values := range cookies {
+			total += len(values)
+		}
+		return []string{strconv.Itoa(total)}, nil
 	}
 
 	if key == "" {
 		// Return all cookie values
 		var values []string
-		for _, val := range vr.transaction.RequestCookies {
-			values = append(values, val)
+		for _, vals := range cookies {
+			values = append(values, vals...)
 		}
 		return values, nil
 	}
@@ -382,22 +398,22 @@ func (vr *VariableResolver) resolveCookies(key string, keyRegex bool, count bool
 	if keyRegex {
 		// Regex key matching (see resolveArgs): bounded cache, fail-soft on
 		// an invalid pattern.
-		re, err := getCachedRegex(key)
+		re, err := getKeySelectorRegex(key)
 		if err != nil {
 			return []string{}, nil
 		}
 		var values []string
-		for cookieKey, val := range vr.transaction.RequestCookies {
+		for cookieKey, vals := range cookies {
 			if re.MatchString(cookieKey) {
-				values = append(values, val)
+				values = append(values, vals...)
 			}
 		}
 		return values, nil
 	}
 
 	// Exact key match
-	if val, ok := vr.transaction.RequestCookies[key]; ok {
-		return []string{val}, nil
+	if vals, ok := cookies[key]; ok {
+		return vals, nil
 	}
 
 	return []string{}, nil
@@ -424,7 +440,7 @@ func (vr *VariableResolver) getHeaderNames(headers map[string][]string) []string
 // getCookieNames returns all cookie names.
 func (vr *VariableResolver) getCookieNames() []string {
 	names := []string{}
-	for key := range vr.transaction.RequestCookies {
+	for key := range vr.cookieValues() {
 		names = append(names, key)
 	}
 	return names
@@ -471,4 +487,109 @@ func matchWildcard(s, pattern string) (bool, error) {
 
 	// Exact match
 	return s == pattern, nil
+}
+
+// getKeySelectorRegex compiles a COLLECTION:/re/ key selector. SecLang matches
+// regex key selectors case-insensitively (ModSecurity v2 compiles them
+// PCRE_CASELESS; libmodsecurity v3 builds VariableRegex with ignoreCase).
+// Case-sensitive matching left every lowercase header selector
+// (REQUEST_HEADERS:/^x-api-/) inert, because Go canonicalizes header names to
+// "X-Api-..." (F186).
+func getKeySelectorRegex(key string) (*regexp.Regexp, error) {
+	return getCachedRegex("(?i)" + key)
+}
+
+// resolveExcluding resolves an included rule variable minus the fields named
+// by exclusion targets (!COLLECTION:key or !COLLECTION:/re/) of the SAME
+// collection. Exclusion is by field identity, never by value: a different
+// field carrying a byte-identical value is still inspected (F187).
+func (vr *VariableResolver) resolveExcluding(rv RuleVariable, excludes []RuleVariable) []string {
+	name := ruleVariableName(rv)
+	var same []RuleVariable
+	for _, ex := range excludes {
+		if ruleVariableName(ex) == name {
+			same = append(same, ex)
+		}
+	}
+	if len(same) == 0 || rv.Count {
+		values, _ := vr.Resolve(rv)
+		return values
+	}
+	entries, fold, keyed := vr.keyedEntries(name)
+	if !keyed {
+		// Non-keyed variable: a keyless exclusion removes it entirely.
+		for _, ex := range same {
+			if ex.Key == "" {
+				return nil
+			}
+		}
+		values, _ := vr.Resolve(rv)
+		return values
+	}
+	var values []string
+	for key, vals := range entries {
+		if !keySelectorMatches(rv, key, fold) {
+			continue
+		}
+		excluded := false
+		for _, ex := range same {
+			if keySelectorMatches(ex, key, fold) {
+				excluded = true
+				break
+			}
+		}
+		if !excluded {
+			values = append(values, vals...)
+		}
+	}
+	return values
+}
+
+// ruleVariableName returns the collection/variable a RuleVariable targets.
+func ruleVariableName(rv RuleVariable) string {
+	if rv.Name == "" && rv.Collection != "" {
+		return rv.Collection
+	}
+	return rv.Name
+}
+
+// keyedEntries returns the key->values view of a keyed collection, mirroring
+// what Resolve inspects, plus whether its exact keys compare
+// case-insensitively (header names, TX variables).
+func (vr *VariableResolver) keyedEntries(name string) (map[string][]string, bool, bool) {
+	switch name {
+	case "ARGS", "ARGS_GET", "ARGS_POST":
+		return vr.transaction.RequestArgs, false, true
+	case "REQUEST_HEADERS":
+		return vr.transaction.RequestHeaders, true, true
+	case "RESPONSE_HEADERS":
+		return vr.transaction.ResponseHeaders, true, true
+	case "REQUEST_COOKIES":
+		return vr.cookieValues(), false, true
+	case "TX":
+		entries := make(map[string][]string, len(vr.transaction.Variables))
+		for k, v := range vr.transaction.Variables {
+			if v != "" {
+				entries[k] = []string{v}
+			}
+		}
+		return entries, true, true
+	}
+	return nil, false, false
+}
+
+// keySelectorMatches reports whether a field key is selected by rv's key
+// selector (no key selects every field).
+func keySelectorMatches(rv RuleVariable, key string, fold bool) bool {
+	switch {
+	case rv.Key == "":
+		return true
+	case rv.KeyRegex:
+		re, err := getKeySelectorRegex(rv.Key)
+		return err == nil && re.MatchString(key)
+	case fold:
+		return strings.EqualFold(rv.Key, key)
+	default:
+		return rv.Key == key
+	}
 }

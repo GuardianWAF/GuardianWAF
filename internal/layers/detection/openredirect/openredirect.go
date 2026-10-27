@@ -208,11 +208,12 @@ func (d *Detector) checkValue(rawVal, location, reqHost string) *engine.Finding 
 	// like "/settings\profile".
 	if strings.Contains(val, `\`) {
 		normalized := strings.ReplaceAll(val, `\`, "/")
-		if strings.HasPrefix(normalized, "//") || strings.HasPrefix(normalized, "https://") || strings.HasPrefix(normalized, "http://") {
+		lowerNormalized := strings.ToLower(normalized)
+		if strings.HasPrefix(normalized, "//") || strings.HasPrefix(lowerNormalized, "https://") || strings.HasPrefix(lowerNormalized, "http://") {
 			host := normalized
 			if strings.HasPrefix(host, "//") {
 				host = host[2:]
-			} else if strings.HasPrefix(host, "https://") {
+			} else if strings.HasPrefix(lowerNormalized, "https://") {
 				host = host[8:]
 			} else {
 				host = host[7:]
@@ -234,6 +235,10 @@ func (d *Detector) checkValue(rawVal, location, reqHost string) *engine.Finding 
 			// "external hosts". Comparison mirrors the http/https branch:
 			// case-insensitive host, exact or "."+reqHost suffix.
 			hostName := hostname(host)
+			if authority, err := url.Parse("//" + host); err == nil {
+				// Userinfo is not part of the redirect destination hostname.
+				hostName = authority.Hostname()
+			}
 			if host != "" && hostName != "" &&
 				!strings.EqualFold(hostName, reqHost) &&
 				!strings.HasSuffix(strings.ToLower(hostName), "."+strings.ToLower(reqHost)) {
@@ -313,6 +318,15 @@ func (d *Detector) checkValue(rawVal, location, reqHost string) *engine.Finding 
 	// Parse as URL to evaluate the scheme and host.
 	parsed, err := url.Parse(val)
 	if err != nil || parsed == nil {
+		// url.Parse rejects inputs a browser still follows (F197): an
+		// invalid percent-escape ("https://evil.com/%zz"), an interior
+		// control byte such as DEL, or leading C0 controls the WHATWG parser
+		// strips. Returning nil here passed those off-site redirects
+		// unscored. Re-classify the browser-lenient spelling instead; the
+		// rewrite is idempotent, so the recursion runs at most once more.
+		if lenient := browserLenientURL(val); lenient != val {
+			return d.checkValue(lenient, location, reqHost)
+		}
 		return nil
 	}
 
@@ -379,6 +393,36 @@ func (d *Detector) checkValue(rawVal, location, reqHost string) *engine.Finding 
 	return nil
 }
 
+// browserLenientURL approximates the WHATWG URL parser's leniency so a value
+// url.Parse rejects can still be classified: leading/trailing C0 controls and
+// spaces are stripped, and remaining control bytes and '%' signs that do not
+// start a valid escape are percent-encoded (as a browser does before it
+// navigates). The result is a fixed point: browserLenientURL(r) == r.
+func browserLenientURL(val string) string {
+	val = strings.TrimFunc(val, func(r rune) bool { return r <= ' ' })
+	const hexDigits = "0123456789ABCDEF"
+	var b strings.Builder
+	b.Grow(len(val))
+	for i := 0; i < len(val); i++ {
+		c := val[i]
+		switch {
+		case c == '%' && (i+2 >= len(val) || !isHexDigit(val[i+1]) || !isHexDigit(val[i+2])):
+			b.WriteString("%25")
+		case c < ' ' || c == 0x7f:
+			b.WriteByte('%')
+			b.WriteByte(hexDigits[c>>4])
+			b.WriteByte(hexDigits[c&0x0f])
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
+}
+
+func isHexDigit(c byte) bool {
+	return c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F'
+}
+
 // ctx2Host extracts the hostname from the RequestContext's Host field.
 func ctx2Host(ctx *engine.RequestContext) string {
 	if ctx.Request != nil {
@@ -408,13 +452,15 @@ func hostname(h string) string {
 	return h
 }
 
-// truncate limits a string to maxLen characters, appending "..." if truncated.
+// truncate limits a string to maxLen bytes, appending "..." if truncated.
+//
+// TruncateEvidence is the shared, rune-safe evidence truncation: the cut
+// never splits a multi-byte UTF-8 rune, so MatchedValue stays valid UTF-8.
+// The value truncated here is the redirect target straight from the request —
+// attacker-controlled and stored verbatim in events, the dashboard and SIEM
+// exports — and the previous s[:maxLen-3] + "..." byte slice cut a multi-byte
+// character in half when one straddled the cut, which encoding/json then
+// silently rewrote to U+FFFD (corrupted stored evidence).
 func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	if maxLen <= 3 {
-		return s[:maxLen]
-	}
-	return s[:maxLen-3] + "..."
+	return engine.TruncateEvidence(s, maxLen)
 }

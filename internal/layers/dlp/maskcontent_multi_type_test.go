@@ -22,9 +22,9 @@ func TestMaskContent_MultiTypeMatchesAllMasked(t *testing.T) {
 		Patterns:     []string{"credit_card", "api_key"},
 	})
 
-	// The api-key match (offset 0, 25 chars) masks down to 12 chars: when it
-	// was substituted before the later credit-card match, the card's offset
-	// shifted by -13 and the stale bounds check dropped its mask entirely.
+	// The API-key value masks down from 18 to 12 chars. Substituting it
+	// before the later credit-card match would shift the card's offset
+	// and could cause a stale bounds check to drop its mask entirely.
 	content := []byte("apikey=ABCDEFGHIJKLMNOPAK cc=4111111111111111")
 	for i := 0; i < 500; i++ {
 		result, masked := layer.ScanResponse(content, "application/json")
@@ -38,7 +38,7 @@ func TestMaskContent_MultiTypeMatchesAllMasked(t *testing.T) {
 		if strings.Contains(s, "apikey=ABCDEFGHIJKLMNOPAK") {
 			t.Fatalf("FAIL: iteration %d: unmasked api key in masked response: %q", i, s)
 		}
-		if !strings.Contains(s, "****-****-****-1111") || !strings.Contains(s, "apik****OPAK") {
+		if !strings.Contains(s, "****-****-****-1111") || !strings.Contains(s, "apikey=ABCD****OPAK") {
 			t.Fatalf("FAIL: iteration %d: masks missing from output: %q", i, s)
 		}
 	}

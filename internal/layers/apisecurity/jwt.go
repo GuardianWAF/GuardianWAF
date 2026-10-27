@@ -204,8 +204,9 @@ func (v *JWTValidator) Validate(tokenString string) (*JWTClaims, error) {
 	now := time.Now().Unix()
 	skew := int64(v.config.ClockSkewSeconds)
 
-	// Check expiration
-	if claims.ExpiresAt > 0 && now > claims.ExpiresAt+skew {
+	// Check expiration. RFC 7519 §4.1.4: exp is the time "on or after which"
+	// the token MUST NOT be accepted, so the boundary second is expired (F157).
+	if claims.ExpiresAt > 0 && now >= claims.ExpiresAt+skew {
 		return nil, fmt.Errorf("token expired")
 	}
 
@@ -298,6 +299,12 @@ func (v *JWTValidator) fetchJWKS() {
 		return
 	}
 	defer resp.Body.Close()
+	// F155: only a successful response is an authoritative key set. Treating
+	// an error page as a JWKS would, with the eviction below, revoke every key.
+	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
+		return
+	}
 
 	var jwks struct {
 		Keys []struct {
@@ -318,6 +325,11 @@ func (v *JWTValidator) fetchJWKS() {
 	}
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
 
+	// F155: track the kids this refresh publishes so keys the issuer has
+	// removed (rotated out or revoked) stop validating tokens. Previously the
+	// refresh was purely additive and a revoked kid stayed trusted forever.
+	published := make(map[string]struct{}, len(jwks.Keys))
+	publishedHMAC := make(map[string]struct{})
 	for _, key := range jwks.Keys {
 		switch key.Kty {
 		case "RSA":
@@ -330,6 +342,7 @@ func (v *JWTValidator) fetchJWKS() {
 				}
 				if key.Kid != "" {
 					v.jwksCache.Store(key.Kid, pubKey)
+					published[key.Kid] = struct{}{}
 				}
 			}
 		case "EC":
@@ -346,13 +359,18 @@ func (v *JWTValidator) fetchJWKS() {
 					curve = elliptic.P521()
 				}
 				if curve != nil {
-					pubKey := &ecdsa.PublicKey{
-						Curve: curve,
-						X:     new(big.Int).SetBytes(x),
-						Y:     new(big.Int).SetBytes(y),
+					width := (curve.Params().BitSize + 7) / 8
+					if len(x) > width || len(y) > width {
+						continue
 					}
-					if key.Kid != "" {
+					point := make([]byte, 1+2*width)
+					point[0] = 4
+					copy(point[1+width-len(x):1+width], x)
+					copy(point[1+2*width-len(y):], y)
+					pubKey, err := ecdsa.ParseUncompressedPublicKey(curve, point)
+					if err == nil && key.Kid != "" {
 						v.jwksCache.Store(key.Kid, pubKey)
+						published[key.Kid] = struct{}{}
 					}
 				}
 			}
@@ -361,9 +379,33 @@ func (v *JWTValidator) fetchJWKS() {
 			k, _ := decodeBase64Raw(key.K)
 			if len(k) > 0 && key.Kid != "" {
 				v.hmacKeys.Store(key.Kid, hmacKey(k))
+				publishedHMAC[key.Kid] = struct{}{}
 			}
 		}
 	}
+
+	// A set with no usable key is treated as malformed rather than as "revoke
+	// everything", so a broken response cannot take authentication down.
+	if len(published) == 0 && len(publishedHMAC) == 0 {
+		return
+	}
+	evictUnpublished(v.jwksCache, published)
+	evictUnpublished(v.hmacKeys, publishedHMAC)
+}
+
+// evictUnpublished deletes every kid in m that the latest JWKS did not publish.
+func evictUnpublished(m *sync.Map, keep map[string]struct{}) {
+	if m == nil {
+		return
+	}
+	m.Range(func(k, _ any) bool {
+		if kid, ok := k.(string); ok {
+			if _, kept := keep[kid]; !kept {
+				m.Delete(k)
+			}
+		}
+		return true
+	})
 }
 
 func decodeJWKSResponse(r io.Reader, out any) error {

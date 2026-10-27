@@ -377,8 +377,8 @@ func (db *Database) GetPatchesForProduct(cpe string) []*VirtualPatch {
 	for _, cveID := range cveIDs {
 		if entry, ok := db.entries[cveID]; ok {
 			for _, patch := range entry.Patches {
-				if patch.Enabled {
-					patchCopy := patch
+				if current, ok := db.patches[patch.ID]; ok && current.Enabled {
+					patchCopy := *current
 					patches = append(patches, &patchCopy)
 				}
 			}

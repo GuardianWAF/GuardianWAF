@@ -1,6 +1,7 @@
 package detection
 
 import (
+	"path"
 	"slices"
 	"strings"
 	"sync"
@@ -155,10 +156,19 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 
 	// Get exclusions (merge global and tenant-specific)
 	exclusions := l.getExclusions(tenantDet)
+	exclusionPath := ctx.Path
+	if exclusionPath != "" {
+		// Resolve traversal even when sanitizer normalization is disabled.
+		trailingSlash := strings.HasSuffix(exclusionPath, "/")
+		exclusionPath = path.Clean(exclusionPath)
+		if trailingSlash && exclusionPath != "/" {
+			exclusionPath += "/"
+		}
+	}
 
 	for _, det := range l.detectors {
 		// Check exclusions
-		if l.isExcludedWithTenant(det.DetectorName(), ctx.Path, exclusions) {
+		if l.isExcludedWithTenant(det.DetectorName(), exclusionPath, exclusions) {
 			continue
 		}
 

@@ -5,6 +5,7 @@ package cors
 import (
 	"errors"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -31,7 +32,27 @@ type Layer struct {
 	originRegex  []*regexp.Regexp // Compiled wildcard patterns
 	exactOrigins map[string]bool  // Exact origin matches
 	mu           sync.RWMutex
+
+	// Preflight verdict cache (ADR 0031: "Preflight results are cached per
+	// origin for preflight_cache_seconds duration. Cache hits are served with a
+	// header X-CORS-Cache: hit"). Keyed by the full preflight signature — the
+	// origin plus the requested method and headers — so a hit reuses the exact
+	// validation outcome a miss produced and can never skip the strict-mode
+	// method/header validation, which depends on those values.
+	cacheMu        sync.Mutex
+	preflightCache map[string]preflightEntry
 }
+
+// preflightEntry is one cached preflight verdict: the response headers emitted
+// for that signature and when they stop being reusable.
+type preflightEntry struct {
+	headers map[string]string
+	expires time.Time
+}
+
+// maxPreflightCacheEntries bounds the preflight cache. Expired entries are
+// dropped first, then the soonest to expire.
+const maxPreflightCacheEntries = 1024
 
 // NewLayer creates a new CORS layer from the given config.
 func NewLayer(cfg *Config) (*Layer, error) {
@@ -181,11 +202,15 @@ func (l *Layer) Name() string { return "cors" }
 // Order returns the execution order.
 func (l *Layer) Order() int { return engine.OrderCORS }
 
-// snapshotConfig returns a copy of the current config under RLock.
-func (l *Layer) snapshotConfig() Config {
+// snapshotConfig reads the config and origin decision from the same policy version.
+func (l *Layer) snapshotConfig(origin string) (Config, bool) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
-	return l.config
+	allowed := false
+	if l.config.Enabled && origin != "" {
+		allowed = l.isOriginAllowedLocked(origin)
+	}
+	return l.config, allowed
 }
 
 // Process validates CORS requests and sets response headers.
@@ -193,7 +218,8 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	start := time.Now()
 
 	// Check if CORS is enabled (tenant config takes precedence)
-	cfg := l.snapshotConfig()
+	origin := getHeader(ctx.Headers, "Origin")
+	cfg, originAllowed := l.snapshotConfig(origin)
 	if ctx.TenantWAFConfig != nil && !ctx.TenantWAFConfig.CORS.Enabled {
 		cfg.Enabled = false
 	}
@@ -201,8 +227,6 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
-	// Get Origin header
-	origin := getHeader(ctx.Headers, "Origin")
 	if origin == "" {
 		// Not a CORS request
 		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
@@ -216,7 +240,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	}
 
 	// Validate origin against allowlist
-	if !l.isOriginAllowed(origin) {
+	if !originAllowed {
 		if cfg.StrictMode {
 			return engine.LayerResult{
 				Action: engine.ActionBlock,
@@ -251,7 +275,11 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 func (l *Layer) isOriginAllowed(origin string) bool {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
+	return l.isOriginAllowedLocked(origin)
+}
 
+// isOriginAllowedLocked requires l.mu to be held for reading or writing.
+func (l *Layer) isOriginAllowedLocked(origin string) bool {
 	// Normalize the wire origin the same way the allowlist was normalized at
 	// load (case, default ports, scheme-less wildcards) — otherwise exact
 	// entries still miss on case differences and explicit default ports.
@@ -276,6 +304,17 @@ func (l *Layer) isOriginAllowed(origin string) bool {
 func (l *Layer) handlePreflight(ctx *engine.RequestContext, origin string, cfg *Config, start time.Time) engine.LayerResult {
 	// Validate requested method
 	reqMethod := getHeader(ctx.Headers, "Access-Control-Request-Method")
+	reqHeaders := getHeader(ctx.Headers, "Access-Control-Request-Headers")
+
+	// Serve a fresh cached verdict when preflight caching is configured
+	// (ADR 0031). A non-positive TTL disables the cache.
+	cacheKey := preflightKey(origin, reqMethod, reqHeaders)
+	if cached, ok := l.cachedPreflight(cacheKey, cfg.PreflightCacheSeconds); ok {
+		cached["X-CORS-Cache"] = "hit"
+		ctx.CORSPreflightHeaders = cached
+		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
+	}
+
 	if reqMethod != "" && len(cfg.AllowMethods) > 0 {
 		if !contains(cfg.AllowMethods, reqMethod) {
 			if cfg.StrictMode {
@@ -296,8 +335,7 @@ func (l *Layer) handlePreflight(ctx *engine.RequestContext, origin string, cfg *
 		}
 	}
 
-	// Validate requested headers
-	reqHeaders := getHeader(ctx.Headers, "Access-Control-Request-Headers")
+	// Validate requested headers (already read above for the cache key).
 	if reqHeaders != "" && len(cfg.AllowHeaders) > 0 {
 		headers := parseHeaderList(reqHeaders)
 		for _, h := range headers {
@@ -323,7 +361,104 @@ func (l *Layer) handlePreflight(ctx *engine.RequestContext, origin string, cfg *
 
 	// Set preflight response headers via metadata
 	l.setPreflightHeaders(ctx, origin, cfg)
+	l.cachePreflightIfCurrent(cacheKey, ctx.CORSPreflightHeaders, cfg)
 	return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
+}
+
+// preflightKey identifies a preflight by its full request signature: origin,
+// requested method, and requested headers.
+func preflightKey(origin, method, headers string) string {
+	return origin + "\x00" + method + "\x00" + headers
+}
+
+// cachedPreflight returns a copy of a fresh cached preflight verdict, or
+// ok=false when caching is disabled, the signature is unknown, or the entry
+// has expired.
+func (l *Layer) cachedPreflight(key string, ttlSeconds int) (map[string]string, bool) {
+	if ttlSeconds <= 0 {
+		return nil, false
+	}
+	l.cacheMu.Lock()
+	defer l.cacheMu.Unlock()
+	entry, ok := l.preflightCache[key]
+	if !ok {
+		return nil, false
+	}
+	if time.Now().After(entry.expires) {
+		delete(l.preflightCache, key)
+		return nil, false
+	}
+	out := make(map[string]string, len(entry.headers))
+	for k, v := range entry.headers {
+		out[k] = v
+	}
+	return out, true
+}
+
+// cachePreflightIfCurrent caches a verdict only while cfg is still the live
+// policy. cfg was snapshotted before validation; an UpdateConfig that landed
+// in between already cleared the cache, so storing this verdict would let an
+// old-policy result serve hits under the new policy for the whole TTL. l.mu is
+// held across the check and the insert so UpdateConfig (which clears the cache
+// under l.mu) cannot interleave between them.
+func (l *Layer) cachePreflightIfCurrent(key string, headers map[string]string, cfg *Config) {
+	if cfg.PreflightCacheSeconds <= 0 {
+		return
+	}
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	if !samePolicy(&l.config, cfg) {
+		return
+	}
+	l.cachePreflight(key, headers, cfg.PreflightCacheSeconds)
+}
+
+// samePolicy reports whether two configs are the same CORS policy.
+func samePolicy(a, b *Config) bool {
+	return a.Enabled == b.Enabled && a.AllowCredentials == b.AllowCredentials &&
+		a.MaxAgeSeconds == b.MaxAgeSeconds && a.StrictMode == b.StrictMode &&
+		a.PreflightCacheSeconds == b.PreflightCacheSeconds &&
+		slices.Equal(a.AllowOrigins, b.AllowOrigins) && slices.Equal(a.AllowMethods, b.AllowMethods) &&
+		slices.Equal(a.AllowHeaders, b.AllowHeaders) && slices.Equal(a.ExposeHeaders, b.ExposeHeaders)
+}
+
+// cachePreflight stores a preflight verdict for ttlSeconds.
+func (l *Layer) cachePreflight(key string, headers map[string]string, ttlSeconds int) {
+	if ttlSeconds <= 0 || len(headers) == 0 {
+		return
+	}
+	now := time.Now()
+	l.cacheMu.Lock()
+	defer l.cacheMu.Unlock()
+	if l.preflightCache == nil {
+		l.preflightCache = make(map[string]preflightEntry, 8)
+	}
+	if len(l.preflightCache) >= maxPreflightCacheEntries {
+		for k, e := range l.preflightCache {
+			if now.After(e.expires) {
+				delete(l.preflightCache, k)
+			}
+		}
+		for len(l.preflightCache) >= maxPreflightCacheEntries {
+			oldestKey := ""
+			var oldest time.Time
+			first := true
+			for k, e := range l.preflightCache {
+				if first || e.expires.Before(oldest) {
+					oldestKey, oldest, first = k, e.expires, false
+				}
+			}
+			if oldestKey == "" {
+				break
+			}
+			delete(l.preflightCache, oldestKey)
+		}
+	}
+	cp := make(map[string]string, len(headers))
+	for k, v := range headers {
+		cp[k] = v
+	}
+	l.preflightCache[key] = preflightEntry{headers: cp, expires: now.Add(time.Duration(ttlSeconds) * time.Second)}
 }
 
 // setCORSHeaders sets CORS headers for regular requests via response hook.
@@ -455,6 +590,11 @@ func (l *Layer) UpdateConfig(cfg Config) error {
 	defer l.mu.Unlock()
 
 	l.config = cfg
+	// Cached preflight verdicts were derived from the previous policy; a policy
+	// change must take effect immediately.
+	l.cacheMu.Lock()
+	l.preflightCache = nil
+	l.cacheMu.Unlock()
 	l.originRegex = make([]*regexp.Regexp, 0)
 	l.exactOrigins = make(map[string]bool)
 

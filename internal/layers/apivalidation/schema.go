@@ -306,6 +306,7 @@ func (v *SchemaValidator) Validate(data any, schema *Schema, path string) Valida
 	// Type validation
 	if schema.Type != "" {
 		if !v.validateType(data, schema.Type, path, &result) {
+			result.Score = len(result.Errors) * 10
 			return result
 		}
 	}

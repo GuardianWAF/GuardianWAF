@@ -1,9 +1,11 @@
 package sanitizer
 
 import (
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 )
 
@@ -25,6 +27,24 @@ func NewLayer(cfg *Config) *Layer {
 // Name returns "sanitizer".
 func (l *Layer) Name() string { return "sanitizer" }
 func (l *Layer) Order() int   { return engine.OrderSanitizer }
+
+// InspectionBodyLimit publishes the request's effective size limit before
+// the engine reads the body, using exactly the sanitizer's path view.
+func (l *Layer) InspectionBodyLimit(path string, tenant *config.WAFConfig) int64 {
+	if !l.config.SkipNormalization {
+		path = NormalizeAll(path)
+	}
+	if tenant == nil {
+		return l.config.effectiveMaxBodySize(path)
+	}
+	limit, matched := tenant.Sanitizer.MaxBodySize, 0
+	for _, override := range tenant.Sanitizer.PathOverrides {
+		if override.Path != "" && strings.HasPrefix(path, override.Path) && len(override.Path) > matched {
+			limit, matched = override.MaxBodySize, len(override.Path)
+		}
+	}
+	return limit
+}
 
 // SetEnabled enables or disables the sanitizer layer.
 func (l *Layer) SetEnabled(enabled bool) {
@@ -74,20 +94,9 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 
 		// Normalize body.
 		//
-		// NOTE (measured): NormalizeAll is a multi-pass decoder allocating ~17x its
-		// input — 1 MiB of "/" costs 12.3 ms and 17.8 MB (BenchmarkNormalizeAllLarge).
-		// The engine reads up to waf.max_body_size (10 MiB default) while the
-		// sanitizer's own max_body_size defaults to 1 MiB, so a 10 MiB body of "/"
-		// costs roughly 123 ms and 178 MB here before ValidateRequest below ever
-		// checks the size.
-		//
-		// Skipping normalization for over-limit bodies was tried and reverted: an
-		// oversized body scores 40, which is under the block threshold, so it is
-		// only logged and still proxied. Not normalizing it would leave
-		// NormalizedBody empty and blind every detector that reads it for bodies
-		// between the two limits — trading a capacity problem for a detection gap.
-		// Closing this properly needs a policy decision (block on oversize, or
-		// lower the engine's read cap), not a silent change here.
+		// The engine reads only the effective per-path budget plus a sentinel.
+		// Oversized bodies are rejected independently of their finding score;
+		// the complete original stream is retained for monitor-mode forwarding.
 		ctx.NormalizedBody = NormalizeAll(ctx.BodyString)
 
 		// Normalize headers
@@ -113,7 +122,10 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	}
 
 	// Step 2: Validate
-	findings := ValidateRequest(ctx, l.config)
+	validationConfig := l.config
+	validationConfig.MaxBodySize = l.InspectionBodyLimit(ctx.Path, ctx.TenantWAFConfig)
+	validationConfig.PathOverrides = nil
+	findings := ValidateRequest(ctx, validationConfig)
 
 	// NOTE: hop-by-hop stripping (strip_hop_by_hop) previously mutated
 	// ctx.Headers here. That blinded the order-400 smuggling detector (it
@@ -129,7 +141,12 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	for _, f := range findings {
 		totalScore += f.Score
 	}
-	if totalScore >= 50 {
+	if maxBody := validationConfig.MaxBodySize; maxBody > 0 && int64(len(ctx.Body)) > maxBody {
+		// A body limit is an inspection boundary, not a scoring hint: the
+		// unread tail may contain an attack that no detector could inspect.
+		action = engine.ActionBlock
+		ctx.BodyLimitExceeded = true
+	} else if totalScore >= 50 {
 		action = engine.ActionBlock
 	} else if len(findings) > 0 {
 		action = engine.ActionLog

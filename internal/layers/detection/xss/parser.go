@@ -36,8 +36,7 @@ func scanTags(input string) []htmlTag {
 
 		// Extract tag name: read until whitespace, /, or >
 		nameStart := i
-		for i < len(input) && input[i] != ' ' && input[i] != '\t' &&
-			input[i] != '\n' && input[i] != '\r' && input[i] != '>' &&
+		for i < len(input) && !isHTMLWhitespace(input[i]) && input[i] != '>' &&
 			input[i] != '/' && input[i] != '\x00' {
 			i++
 		}
@@ -50,16 +49,15 @@ func scanTags(input string) []htmlTag {
 		attrs := make(map[string]string)
 		for i < len(input) && input[i] != '>' {
 			// Skip whitespace and null bytes
-			if input[i] == ' ' || input[i] == '\t' || input[i] == '\n' ||
-				input[i] == '\r' || input[i] == '\x00' || input[i] == '/' {
+			if isHTMLWhitespace(input[i]) || input[i] == '\x00' || input[i] == '/' {
 				i++
 				continue
 			}
 
 			// Read attribute name
 			attrStart := i
-			for i < len(input) && input[i] != '=' && input[i] != ' ' &&
-				input[i] != '\t' && input[i] != '>' && input[i] != '\x00' {
+			for i < len(input) && input[i] != '=' && !isHTMLWhitespace(input[i]) &&
+				input[i] != '>' && input[i] != '\x00' {
 				i++
 			}
 			if i == attrStart {
@@ -71,13 +69,13 @@ func scanTags(input string) []htmlTag {
 			// Check for = sign
 			attrVal := ""
 			// Skip whitespace before =
-			for i < len(input) && (input[i] == ' ' || input[i] == '\t' || input[i] == '\x00') {
+			for i < len(input) && (isHTMLWhitespace(input[i]) || input[i] == '\x00') {
 				i++
 			}
 			if i < len(input) && input[i] == '=' {
 				i++ // skip =
 				// Skip whitespace after =
-				for i < len(input) && (input[i] == ' ' || input[i] == '\t' || input[i] == '\x00') {
+				for i < len(input) && (isHTMLWhitespace(input[i]) || input[i] == '\x00') {
 					i++
 				}
 				if i < len(input) && input[i] != '>' {
@@ -95,7 +93,7 @@ func scanTags(input string) []htmlTag {
 					} else {
 						// Unquoted attribute value
 						valStart := i
-						for i < len(input) && input[i] != ' ' && input[i] != '\t' &&
+						for i < len(input) && !isHTMLWhitespace(input[i]) &&
 							input[i] != '>' && input[i] != '\x00' {
 							i++
 						}
@@ -119,6 +117,12 @@ func scanTags(input string) []htmlTag {
 		})
 	}
 	return tags
+}
+
+// isHTMLWhitespace matches HTML's ASCII separators, not Unicode whitespace.
+// Use the same set in every tag state so LF/CR/FF cannot hide attributes.
+func isHTMLWhitespace(ch byte) bool {
+	return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || ch == '\f'
 }
 
 // hasEventHandler checks if any attribute starts with "on" followed by

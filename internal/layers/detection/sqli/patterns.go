@@ -316,6 +316,15 @@ func checkTimeBasedBlind(tokens []Token, location string) []engine.Finding {
 			upper := tokenUpperValue(tokens[i])
 			switch upper {
 			case "SLEEP", "BENCHMARK":
+				// Bare names are also ordinary prose; require call syntax,
+				// allowing comments between the function and its parenthesis.
+				j := i + 1
+				for j < len(tokens) && tokens[j].Type == TokenComment {
+					j++
+				}
+				if j >= len(tokens) || tokens[j].Type != TokenParenOpen {
+					continue
+				}
 				matched := extractRange(tokens, i, min(len(tokens)-1, i+3))
 				findings = append(findings, makeFinding(90, engine.SeverityCritical,
 					"Time-based blind injection using "+upper,

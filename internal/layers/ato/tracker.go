@@ -35,11 +35,12 @@ type AttemptRecord struct {
 type PasswordRecord struct {
 	mu         sync.RWMutex
 	Count      int
-	Uses       []time.Time // per-use timestamps; windowed spray detection counts these
+	Uses       []time.Time // per-use timestamps; the raw use dimension of the password record
 	FirstSeen  time.Time
 	LastSeen   time.Time
 	SourceIPs  map[string]bool
-	lastAccess time.Time // updated on every write; used for oldest-first eviction
+	accounts   map[string]time.Time // account (email) -> last time it used this password
+	lastAccess time.Time            // updated on every write; used for oldest-first eviction
 }
 
 // GeoLocation represents a geographic location.
@@ -278,6 +279,36 @@ func (t *AttemptTracker) RecordAttempt(attempt *LoginAttempt) {
 		if t.maxInnerEntries <= 0 || pwRec.SourceIPs[ip] || len(pwRec.SourceIPs) < t.maxInnerEntries {
 			pwRec.SourceIPs[ip] = true
 		}
+		// Record which ACCOUNTS used this password, with the time each was
+		// last seen. ADR 0030 defines a spray as "the same password hash seen
+		// against threshold+ different accounts" — the account is the unit of
+		// the detection, so the record has to carry it: the raw use count
+		// cannot distinguish one password spread over many accounts (a spray)
+		// from one account repeating one password (brute force).
+		if attempt.Email != "" {
+			if pwRec.accounts == nil {
+				pwRec.accounts = make(map[string]time.Time)
+			}
+			if _, exists := pwRec.accounts[attempt.Email]; !exists && t.maxInnerEntries > 0 && len(pwRec.accounts) >= t.maxInnerEntries {
+				// Bounded-cache admission, matching the emailToIPs policy:
+				// at capacity, admit the fresh account by evicting the
+				// least-recently-seen one. Silently dropping the newcomer
+				// instead let one wave saturate the set with accounts that
+				// later aged out of the detection window, and every later
+				// fresh account was then rejected at the cap — spray
+				// detection stayed permanently blinded for that password.
+				oldestAccount := ""
+				var oldest time.Time
+				first := true
+				for account, lastSeen := range pwRec.accounts {
+					if first || lastSeen.Before(oldest) {
+						oldestAccount, oldest, first = account, lastSeen, false
+					}
+				}
+				delete(pwRec.accounts, oldestAccount)
+			}
+			pwRec.accounts[attempt.Email] = now
+		}
 		pwRec.lastAccess = now
 		pwRec.mu.Unlock()
 	}
@@ -395,6 +426,45 @@ func (t *AttemptTracker) GetPasswordUsesInWindow(password string, window time.Du
 	count := 0
 	for _, use := range rec.Uses {
 		if use.After(cutoff) {
+			count++
+		}
+	}
+	return count
+}
+
+// GetPasswordAccountCount returns the number of distinct accounts that used a
+// password within the window.
+//
+// ADR 0030 defines a spray as "the same password hash seen against threshold+
+// different accounts" — the ACCOUNT is the unit of the detection, so this
+// counts accounts, not uses: one password submitted many times against a
+// single account is brute force's job, and counting it as a spray blocked
+// that user's IP with a "common password attack" verdict.
+//
+// With window > 0 only accounts whose last use of the password falls inside
+// the window count, mirroring the windowed GetIPAttempts/GetEmailAttempts
+// checks; an unset window (<= 0) keeps the legacy all-time behavior.
+func (t *AttemptTracker) GetPasswordAccountCount(password string, window time.Duration) int {
+	hash := hashPassword(password)
+
+	t.mu.RLock()
+	rec, ok := t.passwordHashes[hash]
+	t.mu.RUnlock()
+
+	if !ok {
+		return 0
+	}
+
+	rec.mu.RLock()
+	defer rec.mu.RUnlock()
+
+	if window <= 0 {
+		return len(rec.accounts)
+	}
+	cutoff := time.Now().Add(-window)
+	count := 0
+	for _, lastSeen := range rec.accounts {
+		if lastSeen.After(cutoff) {
 			count++
 		}
 	}

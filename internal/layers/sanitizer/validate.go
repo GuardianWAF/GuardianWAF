@@ -237,6 +237,11 @@ func containsNullByte(s string) bool {
 		if s[i] == '%' && i+2 < len(s) && s[i+1] == '0' && s[i+2] == '0' {
 			return true
 		}
+		// %u0000: the IIS-style unicode escape the sibling normalizer also
+		// decodes to NUL (decodeURLOnce), so it is a null byte here too.
+		if s[i] == '%' && i+5 < len(s) && (s[i+1] == 'u' || s[i+1] == 'U') && s[i+2:i+6] == "0000" {
+			return true
+		}
 		// Backslash-zero (\0): the third form this function's contract
 		// names, and the one the sibling normalizer already strips
 		// (RemoveNullBytes, normalize.go:124). The two disagreed — the

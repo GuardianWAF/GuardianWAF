@@ -369,6 +369,16 @@ func (l *Layer) createTransaction(ctx *engine.RequestContext, deadline *regexsaf
 		tx.RequestHeaders = ctx.Headers
 	}
 
+	// Cookie rules must see the engine-captured collection, not an empty map.
+	tx.requestCookieValues = make(map[string][]string, len(ctx.Cookies))
+	for name, values := range ctx.Cookies {
+		if len(values) == 0 {
+			continue
+		}
+		tx.RequestCookies[name] = values[0]
+		tx.requestCookieValues[name] = append([]string(nil), values...)
+	}
+
 	// Client info
 	if ctx.ClientIP != nil {
 		tx.ClientIP = ctx.ClientIP.String()
@@ -439,22 +449,22 @@ func (l *Layer) evaluateRule(rule *Rule, tx *Transaction) (bool, int, *engine.Fi
 		return true, 0, nil
 	}
 
-	// Evaluate variables. Exclusion targets (!VAR) remove their resolved
-	// values from the included result set (ModSecurity negation semantics —
-	// CRS exclusions suppress matches on specific fields). A rule with only
-	// exclusion targets means the collection minus the excluded entries.
-	excludeValues := map[string]bool{}
+	// Evaluate variables. Exclusion targets (!VAR) remove the excluded
+	// FIELDS (same collection, matching key) from the included result set
+	// (ModSecurity negation semantics — CRS exclusions suppress matches on
+	// specific fields). A rule with only exclusion targets means the
+	// collection minus the excluded entries. Exclusion used to be by VALUE:
+	// every included value equal to an excluded field's value was skipped, so
+	// placing the payload in the excluded field too suppressed inspection of
+	// the attacked field (F187).
+	var excludes []RuleVariable
 	included := make([]RuleVariable, 0, len(rule.Variables))
 	for _, variable := range rule.Variables {
 		if !variable.Exclude {
 			included = append(included, variable)
 			continue
 		}
-		if values, err := resolver.Resolve(variable); err == nil {
-			for _, v := range values {
-				excludeValues[v] = true
-			}
-		}
+		excludes = append(excludes, variable)
 	}
 	if len(included) == 0 {
 		for _, variable := range rule.Variables {
@@ -473,16 +483,10 @@ func (l *Layer) evaluateRule(rule *Rule, tx *Transaction) (bool, int, *engine.Fi
 	matchedValues := []string{}
 
 	for _, variable := range included {
-		values, _ := resolver.Resolve(variable)
+		values := resolver.resolveExcluding(variable, excludes)
 
 		// Apply transformations
 		for _, value := range values {
-			// Excluded field's value (value-level difference — the resolver
-			// model is flat values).
-			if excludeValues[value] {
-				continue
-			}
-
 			transformed := Transform(value, rule.Actions.Transformations)
 
 			// Evaluate operator. SecLang expands %{...} macros in operator
@@ -542,10 +546,16 @@ func (l *Layer) evaluateRule(rule *Rule, tx *Transaction) (bool, int, *engine.Fi
 	}
 
 	// Create finding
-	data := strings.Join(matchedValues, ", ")
-	if len(data) > 200 {
-		data = data[:200]
-	}
+	//
+	// TruncateEvidence is the shared, rune-safe evidence truncation: the cut
+	// never splits a multi-byte UTF-8 rune, so MatchedValue stays valid UTF-8.
+	// The joined matched values are the rule's matched variable content — the
+	// attacker's own request parameters — and the previous data[:200] byte
+	// slice cut a multi-byte character in half when one straddled the cut.
+	// encoding/json then silently rewrote the split rune to U+FFFD, i.e.
+	// corrupted evidence in the stored event (the same defect class fixed in
+	// the xxe / ssrf / sqli / xss / cmdi / lfi / openredirect detectors).
+	data := engine.TruncateEvidence(strings.Join(matchedValues, ", "), 200)
 	finding := &engine.Finding{
 		DetectorName: l.Name(),
 		Category:     rule.ID,

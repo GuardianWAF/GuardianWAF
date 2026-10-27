@@ -97,7 +97,11 @@ func NewLayer(cfg *Config) (*Layer, error) {
 
 	if cfgCopy.AutoBan.PersistPath != "" {
 		interval := cfgCopy.AutoBan.PersistInterval
-		if interval == 0 {
+		// Floor a NON-POSITIVE interval, not just a zero one: time.NewTicker
+		// panics on a negative duration, and the panic happens inside this
+		// unrecovered goroutine, so a negative operator-supplied interval
+		// would take the whole WAF process down at startup.
+		if interval <= 0 {
 			interval = 30 * time.Second
 		}
 		l.wg.Add(1)
@@ -243,10 +247,6 @@ func (l *Layer) AddAutoBan(ip, reason string, ttl time.Duration) {
 	// non-canonical spelling (e.g. "2001:0DB8::1") would never block.
 	key := parsed.String()
 
-	if l.config.AutoBan.MaxTTL > 0 && ttl > l.config.AutoBan.MaxTTL {
-		ttl = l.config.AutoBan.MaxTTL
-	}
-
 	// A non-positive TTL would store an entry whose ExpiresAt is already in the
 	// past: the ban is recorded, consumes a MaxAutoBanEntries slot, is filtered
 	// out of the dashboard's ban list, and never blocks a request — a ban that
@@ -259,6 +259,9 @@ func (l *Layer) AddAutoBan(ip, reason string, ttl time.Duration) {
 	}
 	if ttl <= 0 {
 		ttl = defaultAutoBanTTL
+	}
+	if l.config.AutoBan.MaxTTL > 0 && ttl > l.config.AutoBan.MaxTTL {
+		ttl = l.config.AutoBan.MaxTTL
 	}
 
 	l.mu.Lock()

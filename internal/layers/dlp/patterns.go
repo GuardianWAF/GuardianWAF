@@ -133,7 +133,7 @@ func (r *PatternRegistry) registerDefaults() {
 	r.patterns[PatternAPIKey] = &Pattern{
 		Type:        PatternAPIKey,
 		Name:        "API Key",
-		Regex:       regexp.MustCompile(`\b(?:api[_-]?key|apikey|token)[\s]*[:=][\s]*['"]?([a-zA-Z0-9_\-]{16,})['"]?`),
+		Regex:       regexp.MustCompile(`\b(?:api[_-]?key|apikey|token)['"]?[\s]*[:=][\s]*['"]?([a-zA-Z0-9_\-]{16,})['"]?`),
 		Severity:    SeverityHigh,
 		MaskFormat:  "${prefix}****${suffix}",
 		Description: "API keys and tokens",
@@ -266,15 +266,26 @@ func (r *PatternRegistry) Scan(text string) []Match {
 			continue
 		}
 
-		for _, loc := range pattern.Regex.FindAllStringIndex(text, -1) {
-			value := text[loc[0]:loc[1]]
+		var locations [][]int
+		if pattern.Type == PatternAPIKey {
+			locations = pattern.Regex.FindAllStringSubmatchIndex(text, -1)
+		} else {
+			locations = pattern.Regex.FindAllStringIndex(text, -1)
+		}
+		for _, loc := range locations {
+			start, end := loc[0], loc[1]
+			if pattern.Type == PatternAPIKey && len(loc) >= 4 && loc[2] >= 0 {
+				// Mask only the secret, preserving field names and JSON quotes.
+				start, end = loc[2], loc[3]
+			}
+			value := text[start:end]
 			match := Match{
 				Type:     pattern.Type,
 				Severity: pattern.Severity,
 				Value:    "", // Cleared — only Masked retained to prevent raw data exposure
 				Masked:   r.maskValue(value, pattern),
-				Position: loc[0],
-				Length:   loc[1] - loc[0],
+				Position: start,
+				Length:   end - start,
 			}
 			matches = append(matches, match)
 		}

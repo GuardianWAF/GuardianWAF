@@ -161,6 +161,13 @@ func (v *APIKeyValidator) ValidateConstantTime(key, path string) (*APIKeyConfig,
 		}
 	}
 
+	if matched.RateLimit > 0 {
+		tracker := v.trackers[matched.Name]
+		if tracker != nil && !v.checkRateLimit(tracker, matched.RateLimit) {
+			return nil, ErrRateLimitExceeded
+		}
+	}
+
 	return matched, nil
 }
 
@@ -212,21 +219,22 @@ func (v *APIKeyValidator) RemoveKey(name string) bool {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 
-	// Find key by name
-	var hashToRemove string
+	// Revoke every key with this name, including overlapping rotation keys.
+	removed := false
 	for h, cfg := range v.hashes {
 		if cfg.Name == name {
-			hashToRemove = h
-			delete(v.keys, cfg.KeyPrefix)
-			break
+			delete(v.hashes, h)
+			if v.keys[cfg.KeyPrefix] == cfg {
+				delete(v.keys, cfg.KeyPrefix)
+			}
+			removed = true
 		}
 	}
 
-	if hashToRemove == "" {
+	if !removed {
 		return false
 	}
 
-	delete(v.hashes, hashToRemove)
 	delete(v.trackers, name)
 	return true
 }

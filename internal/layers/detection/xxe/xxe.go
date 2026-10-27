@@ -1,6 +1,7 @@
 package xxe
 
 import (
+	"encoding/xml"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -154,7 +155,7 @@ func Detect(input, location string) []engine.Finding {
 	checkSSIInclude(lower, location, &findings)
 
 	// 7. XInclude
-	checkXInclude(lower, location, &findings)
+	checkXInclude(input, lower, location, &findings)
 
 	// 8. CDATA with suspicious content
 	checkSuspiciousCDATA(lower, location, &findings)
@@ -343,11 +344,35 @@ func checkSSIInclude(lower, location string, findings *[]engine.Finding) {
 }
 
 // checkXInclude detects XInclude elements.
-func checkXInclude(lower, location string, findings *[]engine.Finding) {
+func checkXInclude(input, lower, location string, findings *[]engine.Finding) {
 	if strings.Contains(lower, "<xi:include") {
 		*findings = append(*findings, makeFinding(70, engine.SeverityHigh,
 			"XInclude element detected",
 			extractContext(lower, "<xi:include"), location, 0.80))
+		return
+	}
+	if !strings.Contains(input, "include") {
+		return
+	}
+
+	// XInclude is identified by its expanded name, not the arbitrary xi prefix.
+	// Keep case-sensitive namespace bindings from the original input. Unknown
+	// DTD entities must not stop scanning; encoding/xml never resolves them.
+	decoder := xml.NewDecoder(strings.NewReader(input))
+	decoder.Strict = false
+	for {
+		start := decoder.InputOffset()
+		token, err := decoder.Token()
+		if err != nil {
+			return
+		}
+		if element, ok := token.(xml.StartElement); ok &&
+			element.Name.Space == "http://www.w3.org/2001/XInclude" && element.Name.Local == "include" {
+			matched := strings.ToLower(input[start:decoder.InputOffset()])
+			*findings = append(*findings, makeFinding(70, engine.SeverityHigh,
+				"XInclude element detected", engine.TruncateEvidence(matched, 200), location, 0.80))
+			return
+		}
 	}
 }
 

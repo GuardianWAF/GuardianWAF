@@ -2,7 +2,6 @@ package apisecurity
 
 import (
 	"crypto"
-	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
@@ -217,33 +216,11 @@ func parseECDSAPublicKey(der []byte) *ecdsa.PublicKey {
 	if err != nil {
 		return nil
 	}
-	// Decode the uncompressed EC point without the deprecated elliptic.Unmarshal.
-	// crypto/ecdh.NewPublicKey performs the same format + on-curve validation
-	// (point must be 0x04 || X || Y, each coordinate byteLen bytes, on the curve);
-	// the coordinates are then read directly — equivalent to elliptic.Unmarshal.
-	byteLen := (curve.Params().BitSize + 7) / 8
-	if len(keyBits) != 1+2*byteLen || keyBits[0] != 4 {
+	pub, err := ecdsa.ParseUncompressedPublicKey(curve, keyBits)
+	if err != nil {
 		return nil
 	}
-	var ecdhCurve ecdh.Curve
-	switch curve {
-	case elliptic.P256():
-		ecdhCurve = ecdh.P256()
-	case elliptic.P384():
-		ecdhCurve = ecdh.P384()
-	case elliptic.P521():
-		ecdhCurve = ecdh.P521()
-	default:
-		return nil
-	}
-	if _, err := ecdhCurve.NewPublicKey(keyBits); err != nil {
-		return nil // not a valid point on the curve
-	}
-	return &ecdsa.PublicKey{
-		Curve: curve,
-		X:     new(big.Int).SetBytes(keyBits[1 : 1+byteLen]),
-		Y:     new(big.Int).SetBytes(keyBits[1+byteLen:]),
-	}
+	return pub
 }
 
 func isP256OID(oid []byte) bool {

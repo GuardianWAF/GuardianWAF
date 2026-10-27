@@ -27,6 +27,15 @@ type Config struct {
 	MaxConcurrentPerIP int
 	IdleTimeout        time.Duration
 
+	// MaxMessageSize bounds the size of a single WebSocket message
+	// (`waf.websocket.max_message_size`, ADR 0035: "Enforce max_message_size
+	// — close with code 1009 (message too big) if exceeded"). The relay
+	// buffers a fragmented message (RFC 6455 §5.4) before scanning it, so an
+	// unbounded buffer lets a client grow it without limit. The value can
+	// only tighten the hard ceiling (maxAssembledMessageBytes); it never
+	// loosens it. Zero means "unset" — the hard ceiling applies.
+	MaxMessageSize int64
+
 	// AllowedBackendHosts constrains which Host headers may be dialed for
 	// websocket upgrades. When empty, upgrades are not hijacked for
 	// inspection: they fall through to the normal proxy path, whose
@@ -208,6 +217,18 @@ func (l *Layer) handleWebSocket(w http.ResponseWriter, r *http.Request, next htt
 // messages (fail-closed: an over-cap assembled message is refused with 1009).
 const maxAssembledMessageBytes = 8 << 20
 
+// maxMessageBytes returns the effective cap for a single WebSocket message.
+// The operator's max_message_size tightens the hard ceiling; it can never
+// loosen it, so a misconfigured value cannot re-open the memory-exhaustion
+// hole the hard ceiling closes. Zero (unset) means the hard ceiling applies.
+func (l *Layer) maxMessageBytes() int64 {
+	limit := int64(maxAssembledMessageBytes)
+	if l.cfg.MaxMessageSize > 0 && l.cfg.MaxMessageSize < limit {
+		limit = l.cfg.MaxMessageSize
+	}
+	return limit
+}
+
 type bufferedConn struct {
 	net.Conn
 	reader *bufio.Reader
@@ -320,6 +341,24 @@ func (l *Layer) inspectAndForward(src io.Reader, dst io.Writer, clientIP, path s
 			return
 		}
 
+		// Enforce the message-size cap on a message that arrives in a single
+		// frame (FIN=1). A fragmented message is bounded by the reassembly
+		// check below; an unfragmented one has no size bound other than
+		// max_frame_size, so the operator's max_message_size must apply here
+		// as well (ADR 0035: close with code 1009 when the message is too
+		// big). Only enforced when the operator configured a limit — the
+		// unset default keeps the historical behaviour.
+		if frame.FIN && l.cfg.MaxMessageSize > 0 && int64(len(frame.Payload)) > l.maxMessageBytes() {
+			closeFrame := &Frame{
+				FIN:     true,
+				Opcode:  OpClose,
+				Payload: makeClosePayload(1009, "message too big"),
+			}
+			_ = write(dst, closeFrame)
+			teardownConns(src, dst)
+			return
+		}
+
 		// Inspect data-frame payloads (text AND continuation — RFC 6455 §5.4
 		// fragmentation splits messages across frames, and inspecting only
 		// OpText would let an attacker move the payload into continuation
@@ -371,7 +410,7 @@ func (l *Layer) inspectAndForward(src io.Reader, dst io.Writer, clientIP, path s
 				}
 			} else if inMessage {
 				assembly = append(assembly, frame.Payload...)
-				if len(assembly) > maxAssembledMessageBytes {
+				if len(assembly) > int(l.maxMessageBytes()) {
 					closeFrame := &Frame{
 						FIN:     true,
 						Opcode:  OpClose,
