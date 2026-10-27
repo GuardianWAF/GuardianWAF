@@ -70,7 +70,7 @@ GuardianWAF uses a layered pipeline. Layers implement `Layer` interface (`Name()
 
 - Per-tenant `WAFConfig` overrides read directly from `ctx.TenantWAFConfig`
 - Domain-based tenant resolution via virtual hosts
-- Separate rate tracking, rules, alerts, billing per tenant
+- Separate rate tracking, quotas, rules, alerts per tenant
 
 ### Configuration Priority
 
@@ -139,7 +139,7 @@ internal/
   docker/                Auto-discovery: Unix socket / named pipe / Docker CLI
   geoip/                 GeoIP database with auto-refresh
   acme/                  ACME/Let's Encrypt HTTP-01
-  tenant/                Multi-tenant isolation, billing, per-tenant rules
+  tenant/                Multi-tenant isolation, quotas, per-tenant rules
   analytics/             Analytics engine, API handlers
   cluster/               Cluster mode, HTTP gossip + leader election (ADR 0023)
   clustersync/           Cross-node state synchronization

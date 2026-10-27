@@ -31,7 +31,7 @@ GuardianWAF is designed around these constraints:
 | `internal/acme/` | ACME/HTTP-01 certificate provisioning using the standard library. |
 | `internal/tls/` | Certificate store, SNI selection, OCSP helpers, certificate hot reload support. |
 | `internal/tracing/` | Lightweight span/tracer/exporter API with OpenTelemetry-style vocabulary and no external SDK dependency. |
-| `internal/tenant/` | Multi-tenant store, quota and billing structures, API-key support. |
+| `internal/tenant/` | Multi-tenant store, per-tenant quotas and rate limits, API-key support. |
 | `docs/` | Operator guides, ADRs, API/config references, deployment notes, and detailed feature documentation. |
 | `contrib/` | Kubernetes, Grafana, and deployment support assets. |
 | `tests/` | End-to-end and integration-oriented test assets. |

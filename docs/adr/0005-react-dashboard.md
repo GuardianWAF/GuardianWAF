@@ -153,7 +153,7 @@ The React dashboard (14 pages, all route through React Router SPA with SSE real-
 | `/ai` | AI Analysis | Provider config, model selection, analysis history |
 | `/tenants` | Tenant Manager | Multi-tenant management |
 | `/tenant/new` | New Tenant | Tenant onboarding form |
-| `/tenant/:id` | Tenant Detail | Per-tenant analytics, rules, billing |
+| `/tenant/:id` | Tenant Detail | Per-tenant analytics, rules, quotas |
 | `/tenant/:id/analytics` | Tenant Analytics | Per-tenant traffic trends |
 
 ## Implementation Locations

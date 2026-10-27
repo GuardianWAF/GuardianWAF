@@ -2008,46 +2008,6 @@ paths:
         '200':
           description: Platform statistics
 
-  /api/admin/billing:
-    get:
-      tags: [Tenants]
-      summary: List all invoices
-      security:
-        - AdminKeyAuth: []
-      responses:
-        '200':
-          description: Invoice list
-
-  /api/admin/billing/{tenantID}:
-    get:
-      tags: [Tenants]
-      summary: Get tenant invoices
-      security:
-        - AdminKeyAuth: []
-      parameters:
-        - name: tenantID
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Tenant invoices and usage
-    post:
-      tags: [Tenants]
-      summary: Generate tenant invoice
-      security:
-        - AdminKeyAuth: []
-      parameters:
-        - name: tenantID
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Invoice generated
-
   /api/admin/alerts:
     get:
       tags: [Tenants]
@@ -2818,8 +2778,6 @@ components:
         updated_at:
           type: string
           format: date-time
-        plan:
-          type: string
         quota:
           $ref: '#/components/schemas/ResourceQuota'
 
@@ -2834,10 +2792,7 @@ components:
           type: string
         status:
           type: string
-          enum: [active, suspended, trial, expired]
-        plan:
-          type: string
-          enum: [free, basic, pro, enterprise]
+          enum: [active, suspended]
         domains:
           type: array
           items:

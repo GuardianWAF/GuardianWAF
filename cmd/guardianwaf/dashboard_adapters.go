@@ -191,10 +191,6 @@ func (a *tenantManagerAdapter) Stats() any {
 	return a.mgr.Stats()
 }
 
-func (a *tenantManagerAdapter) BillingManager() dashboard.BillingManagerInterface {
-	return &billingManagerAdapter{bm: a.mgr.BillingManager()}
-}
-
 func (a *tenantManagerAdapter) AlertManager() dashboard.AlertManagerInterface {
 	return &alertManagerAdapter{am: a.mgr.AlertManager()}
 }
@@ -240,49 +236,6 @@ func (a *tenantManagerAdapter) RemoveTenantRule(tenantID, ruleID string) error {
 
 func (a *tenantManagerAdapter) ToggleTenantRule(tenantID, ruleID string, enabled bool) error {
 	return a.mgr.ToggleTenantRule(tenantID, ruleID, enabled)
-}
-
-// billingManagerAdapter adapts tenant.BillingManager to dashboard interface.
-type billingManagerAdapter struct {
-	bm *tenant.BillingManager
-}
-
-func (a *billingManagerAdapter) GetAllInvoices() []any {
-	if a.bm == nil {
-		return nil
-	}
-	invoices := a.bm.GetAllInvoices()
-	result := make([]any, len(invoices))
-	for i, inv := range invoices {
-		result[i] = inv
-	}
-	return result
-}
-
-func (a *billingManagerAdapter) GetInvoices(tenantID string) []any {
-	if a.bm == nil {
-		return nil
-	}
-	invoices := a.bm.GetInvoices(tenantID)
-	result := make([]any, len(invoices))
-	for i, inv := range invoices {
-		result[i] = inv
-	}
-	return result
-}
-
-func (a *billingManagerAdapter) GetCurrentUsage(tenantID string) any {
-	if a.bm == nil {
-		return nil
-	}
-	return a.bm.GetCurrentUsage(tenantID)
-}
-
-func (a *billingManagerAdapter) GenerateInvoice(tenantID, tenantName string, plan string, periodStart, periodEnd time.Time) (any, error) {
-	if a.bm == nil {
-		return nil, fmt.Errorf("billing not enabled")
-	}
-	return a.bm.GenerateInvoice(tenantID, tenantName, tenant.BillingPlan(plan), periodStart, periodEnd)
 }
 
 // alertManagerAdapter adapts tenant.AlertManager to dashboard interface.

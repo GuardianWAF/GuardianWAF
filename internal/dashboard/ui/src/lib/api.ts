@@ -457,7 +457,6 @@ export interface Tenant {
   domains: string[]
   created_at: string
   updated_at: string
-  plan?: string
   quota?: ResourceQuota
 }
 
@@ -465,8 +464,7 @@ export interface AdminTenant {
   id: string
   name: string
   email: string
-  status: 'active' | 'suspended' | 'trial' | 'expired'
-  plan: 'free' | 'basic' | 'pro' | 'enterprise'
+  status: 'active' | 'suspended'
   domains: string[]
   created_at: string
   usage: {
@@ -488,7 +486,6 @@ export interface AdminCreateTenantRequest {
   name: string
   email: string
   description?: string
-  plan: string
   domains: string[]
   quota?: ResourceQuota
 }
@@ -496,7 +493,6 @@ export interface AdminCreateTenantRequest {
 export interface AdminUpdateTenantRequest {
   name?: string
   email?: string
-  plan?: string
   status?: string
   domains?: string[]
   quota?: ResourceQuota

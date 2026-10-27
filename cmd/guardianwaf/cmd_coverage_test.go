@@ -586,12 +586,6 @@ func TestTenantManagerAdapter_Stats_Coverage(t *testing.T) {
 	_ = a.Stats()
 }
 
-func TestTenantManagerAdapter_BillingManager_Coverage(t *testing.T) {
-	a := createTestTenantMgr(t)
-	result := a.BillingManager()
-	_ = result
-}
-
 func TestTenantManagerAdapter_AlertManager_Coverage(t *testing.T) {
 	a := createTestTenantMgr(t)
 	result := a.AlertManager()
@@ -636,40 +630,6 @@ func TestTenantManagerAdapter_RemoveTenantRule_Coverage(t *testing.T) {
 func TestTenantManagerAdapter_ToggleTenantRule_Coverage(t *testing.T) {
 	a := createTestTenantMgr(t)
 	_ = a.ToggleTenantRule("test", "rule1", true)
-}
-
-// --- billingManagerAdapter tests ---
-
-func TestBillingManagerAdapter_GetAllInvoices_Nil(t *testing.T) {
-	a := &billingManagerAdapter{bm: nil}
-	result := a.GetAllInvoices()
-	if result != nil {
-		t.Error("expected nil for nil billing manager")
-	}
-}
-
-func TestBillingManagerAdapter_GetInvoices_Nil(t *testing.T) {
-	a := &billingManagerAdapter{bm: nil}
-	result := a.GetInvoices("test")
-	if result != nil {
-		t.Error("expected nil for nil billing manager")
-	}
-}
-
-func TestBillingManagerAdapter_GetCurrentUsage_Nil(t *testing.T) {
-	a := &billingManagerAdapter{bm: nil}
-	result := a.GetCurrentUsage("test")
-	if result != nil {
-		t.Error("expected nil for nil billing manager")
-	}
-}
-
-func TestBillingManagerAdapter_GenerateInvoice_Nil(t *testing.T) {
-	a := &billingManagerAdapter{bm: nil}
-	_, err := a.GenerateInvoice("test", "Test Tenant", "basic", time.Now(), time.Now())
-	if err == nil {
-		t.Error("expected error for nil billing manager")
-	}
 }
 
 // --- alertManagerAdapter tests ---
@@ -960,34 +920,6 @@ func TestReadLine_WithInput(t *testing.T) {
 	cmd.Stdin = strings.NewReader("custom-input\n")
 	output, err := cmd.CombinedOutput()
 	_ = output
-	_ = err
-}
-
-// --- billingManagerAdapter with real tenant.BillingManager ---
-
-func TestBillingManagerAdapter_WithRealManager(t *testing.T) {
-	mgr := tenant.NewManager(100)
-	bm := mgr.BillingManager()
-	a := &billingManagerAdapter{bm: bm}
-
-	// GetAllInvoices with non-nil billing manager
-	invoices := a.GetAllInvoices()
-	if invoices == nil {
-		t.Error("expected non-nil result")
-	}
-
-	// GetInvoices for nonexistent tenant
-	invoices = a.GetInvoices("nonexistent")
-	if invoices == nil {
-		t.Error("expected non-nil result")
-	}
-
-	// GetCurrentUsage for nonexistent tenant
-	usage := a.GetCurrentUsage("nonexistent")
-	_ = usage
-
-	// GenerateInvoice for nonexistent tenant
-	_, err := a.GenerateInvoice("nonexistent", "Test", "basic", time.Now(), time.Now())
 	_ = err
 }
 

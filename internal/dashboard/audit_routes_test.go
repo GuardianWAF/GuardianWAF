@@ -54,7 +54,6 @@ func TestManagementMutationRoutesAreAudited(t *testing.T) {
 		{http.MethodPost, "/api/virtualpatch/patches", "virtual_patch_mutation"},
 		{http.MethodPost, "/api/admin/tenants", "admin_tenant_mutation"},
 		{http.MethodPost, "/api/admin/tenants/rules", "admin_tenant_rule_mutation"},
-		{http.MethodPost, "/api/admin/billing/tenant-1", "generate_invoice"},
 	}
 
 	for i, tt := range tests {

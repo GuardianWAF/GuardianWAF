@@ -23,80 +23,89 @@ import {
 
 type Step = 1 | 2 | 3 | 4 | 5
 
-interface Plan {
+// Resource-limit presets for a new tenant. They only prefill the quota form;
+// GuardianWAF has no billing plans.
+interface QuotaPreset {
   id: string
   name: string
-  price: string
   description: string
   icon: React.ElementType
-  features: string[]
   quota: ResourceQuota
   recommended?: boolean
 }
 
-const PLANS: Plan[] = [
+const QUOTA_PRESETS: QuotaPreset[] = [
   {
-    id: 'free',
-    name: 'Free',
-    price: '$0',
-    description: 'Perfect for testing and small projects',
+    id: 'small',
+    name: 'Small',
+    description: 'A single low-traffic site',
     icon: Sparkles,
-    features: ['1 Domain', '5 Custom Rules', '1,000 req/min', '10 Mbps bandwidth', 'Community support'],
     quota: {
       max_domains: 1,
       max_rules: 5,
       max_rate_limit_rules: 2,
-      max_requests_per_minute: 1000,      max_requests_per_hour: 60000,      max_bandwidth_mbps: 10,
+      max_requests_per_minute: 1000,
+      max_requests_per_hour: 60000,
+      max_bandwidth_mbps: 10,
       max_ip_acls: 10
     }
   },
   {
-    id: 'basic',
-    name: 'Basic',
-    price: '$49',
-    description: 'For small businesses getting started',
+    id: 'standard',
+    name: 'Standard',
+    description: 'A few sites with moderate traffic',
     icon: Shield,
     recommended: true,
-    features: ['3 Domains', '20 Custom Rules', '10,000 req/min', '100 Mbps bandwidth', 'Email support'],
     quota: {
       max_domains: 3,
       max_rules: 20,
       max_rate_limit_rules: 5,
-      max_requests_per_minute: 10000,      max_requests_per_hour: 600000,      max_bandwidth_mbps: 100,
+      max_requests_per_minute: 10000,
+      max_requests_per_hour: 600000,
+      max_bandwidth_mbps: 100,
       max_ip_acls: 50
     }
   },
   {
-    id: 'pro',
-    name: 'Pro',
-    price: '$199',
-    description: 'For growing businesses with high traffic',
+    id: 'large',
+    name: 'Large',
+    description: 'High-traffic sites',
     icon: Zap,
-    features: ['10 Domains', '100 Custom Rules', '50,000 req/min', '1 Gbps bandwidth', 'Priority support', 'Advanced analytics'],
     quota: {
       max_domains: 10,
       max_rules: 100,
       max_rate_limit_rules: 20,
-      max_requests_per_minute: 50000,      max_requests_per_hour: 3000000,      max_bandwidth_mbps: 1000,
+      max_requests_per_minute: 50000,
+      max_requests_per_hour: 3000000,
+      max_bandwidth_mbps: 1000,
       max_ip_acls: 200
     }
   },
   {
-    id: 'enterprise',
-    name: 'Enterprise',
-    price: 'Custom',
-    description: 'For large organizations with custom needs',
+    id: 'xlarge',
+    name: 'Extra large',
+    description: 'Many domains and very high traffic',
     icon: Server,
-    features: ['Unlimited Domains', 'Unlimited Rules', 'Custom req/min', 'Custom bandwidth', '24/7 Phone support', 'Dedicated account manager', 'SLA guarantee'],
     quota: {
       max_domains: 100,
       max_rules: 1000,
       max_rate_limit_rules: 100,
-      max_requests_per_minute: 100000,      max_requests_per_hour: 6000000,      max_bandwidth_mbps: 10000,
+      max_requests_per_minute: 100000,
+      max_requests_per_hour: 6000000,
+      max_bandwidth_mbps: 10000,
       max_ip_acls: 1000
     }
   }
 ]
+
+function presetSummary(q: ResourceQuota): string[] {
+  return [
+    `${q.max_domains} domain${q.max_domains === 1 ? '' : 's'}`,
+    `${q.max_rules} custom rules`,
+    `${q.max_requests_per_minute.toLocaleString()} req/min`,
+    `${q.max_requests_per_hour.toLocaleString()} req/hour`,
+  ]
+}
 
 export default function TenantNewPage() {
   const navigate = useNavigate()
@@ -112,14 +121,14 @@ export default function TenantNewPage() {
     name: '',
     email: '',
     description: '',
-    plan: 'basic',
+    preset: 'standard',
     domains: [''],
     customConfig: false
   })
 
-  const [customQuota, setCustomQuota] = useState<ResourceQuota>(PLANS[1].quota)
+  const [customQuota, setCustomQuota] = useState<ResourceQuota>(QUOTA_PRESETS[1].quota)
 
-  const selectedPlan = PLANS.find(p => p.id === form.plan) || PLANS[1]
+  const selectedPreset = QUOTA_PRESETS.find(p => p.id === form.preset) || QUOTA_PRESETS[1]
 
   const validateStep = (currentStep: Step): boolean => {
     switch (currentStep) {
@@ -163,22 +172,22 @@ export default function TenantNewPage() {
     }
   }
 
-  const handlePlanSelect = (planId: string) => {
-    setForm({ ...form, plan: planId })
-    const plan = PLANS.find(p => p.id === planId)
-    if (plan) {
-      setCustomQuota(plan.quota)
+  const handlePresetSelect = (presetId: string) => {
+    setForm({ ...form, preset: presetId })
+    const preset = QUOTA_PRESETS.find(p => p.id === presetId)
+    if (preset) {
+      setCustomQuota(preset.quota)
     }
   }
 
   const addDomain = () => {
-    const maxDomains = (form.customConfig ? customQuota.max_domains : selectedPlan.quota.max_domains) || 1
+    const maxDomains = (form.customConfig ? customQuota.max_domains : selectedPreset.quota.max_domains) || 1
     if (form.domains.length < maxDomains) {
       setForm({ ...form, domains: [...form.domains, ''] })
     } else {
       toast({
         title: 'Limit Reached',
-        description: `Maximum ${maxDomains} domains allowed for this plan`,
+        description: `Maximum ${maxDomains} domains allowed by the selected limits`,
         variant: 'destructive'
       })
     }
@@ -199,13 +208,12 @@ export default function TenantNewPage() {
     setLoading(true)
 
     try {
-      const quota = form.customConfig ? customQuota : selectedPlan.quota
+      const quota = form.customConfig ? customQuota : selectedPreset.quota
 
       const response = await api.adminCreateTenant({
         name: form.name,
         email: form.email,
         description: form.description,
-        plan: form.plan,
         domains: form.domains.filter(d => d.trim()),
         quota
       })
@@ -322,7 +330,7 @@ export default function TenantNewPage() {
           <div className="space-y-6">
             <div className="text-center mb-6">
               <h2 className="text-2xl font-bold">Domain Configuration</h2>
-              <p className="text-gray-500">Add domains you want to protect ({form.domains.filter(d => d.trim()).length}/{selectedPlan.quota.max_domains || 1})</p>
+              <p className="text-gray-500">Add domains you want to protect ({form.domains.filter(d => d.trim()).length}/{selectedPreset.quota.max_domains || 1})</p>
             </div>
 
             <div className="space-y-4">
@@ -354,7 +362,7 @@ export default function TenantNewPage() {
                 type="button"
                 variant="outline"
                 onClick={addDomain}
-                disabled={form.domains.length >= (selectedPlan.quota.max_domains || 1)}
+                disabled={form.domains.length >= (selectedPreset.quota.max_domains || 1)}
                 className="w-full"
               >
                 <Globe className="w-4 h-4 mr-2" />
@@ -372,26 +380,26 @@ export default function TenantNewPage() {
         return (
           <div className="space-y-6">
             <div className="text-center mb-6">
-              <h2 className="text-2xl font-bold">Select Your Plan</h2>
-              <p className="text-gray-500">Choose the plan that fits your needs</p>
+              <h2 className="text-2xl font-bold">Resource Limits</h2>
+              <p className="text-gray-500">Pick a preset for the tenant's rate limits and quotas, or customize them below</p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {PLANS.map((plan) => {
-                const Icon = plan.icon
-                const isSelected = form.plan === plan.id
+              {QUOTA_PRESETS.map((preset) => {
+                const Icon = preset.icon
+                const isSelected = form.preset === preset.id
 
                 return (
                   <Card
-                    key={plan.id}
+                    key={preset.id}
                     className={`cursor-pointer transition-all ${
                       isSelected
                         ? 'border-accent ring-2 ring-accent/20'
                         : 'hover:border-gray-300 dark:hover:border-gray-600'
-                    } ${plan.recommended ? 'relative' : ''}`}
-                    onClick={() => handlePlanSelect(plan.id)}
+                    } ${preset.recommended ? 'relative' : ''}`}
+                    onClick={() => handlePresetSelect(preset.id)}
                   >
-                    {plan.recommended && (
+                    {preset.recommended && (
                       <div className="absolute -top-3 left-1/2 -translate-x-1/2">
                         <span className="bg-accent text-white text-xs px-3 py-1 rounded-full font-medium">
                           Recommended
@@ -404,13 +412,10 @@ export default function TenantNewPage() {
                           <Icon className={`w-6 h-6 ${isSelected ? 'text-accent' : 'text-gray-500'}`} />
                         </div>
                         <div className="flex-1">
-                          <div className="flex items-center justify-between">
-                            <h3 className="font-semibold text-lg">{plan.name}</h3>
-                            <div className="text-xl font-bold">{plan.price}<span className="text-sm text-gray-500 font-normal">/mo</span></div>
-                          </div>
-                          <p className="text-sm text-gray-500 mt-1">{plan.description}</p>
+                          <h3 className="font-semibold text-lg">{preset.name}</h3>
+                          <p className="text-sm text-gray-500 mt-1">{preset.description}</p>
                           <ul className="mt-4 space-y-2">
-                            {plan.features.slice(0, 4).map((feature, i) => (
+                            {presetSummary(preset.quota).map((feature, i) => (
                               <li key={i} className="text-sm flex items-center gap-2">
                                 <Check className="w-4 h-4 text-green-500 shrink-0" />
                                 {feature}
@@ -554,26 +559,26 @@ export default function TenantNewPage() {
                 <CardHeader>
                   <CardTitle className="text-base flex items-center gap-2">
                     <Sparkles className="w-4 h-4" />
-                    Plan: {selectedPlan.name}
+                    Limits: {form.customConfig ? 'Custom' : selectedPreset.name}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2 text-sm">
                   <div className="grid grid-cols-2 gap-4">
                     <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded">
                       <div className="text-gray-500">Max Domains</div>
-                      <div className="font-medium">{(form.customConfig ? customQuota : selectedPlan.quota).max_domains}</div>
+                      <div className="font-medium">{(form.customConfig ? customQuota : selectedPreset.quota).max_domains}</div>
                     </div>
                     <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded">
                       <div className="text-gray-500">Max Rules</div>
-                      <div className="font-medium">{(form.customConfig ? customQuota : selectedPlan.quota).max_rules}</div>
+                      <div className="font-medium">{(form.customConfig ? customQuota : selectedPreset.quota).max_rules}</div>
                     </div>
                     <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded">
                       <div className="text-gray-500">Requests/Min</div>
-                      <div className="font-medium">{(form.customConfig ? customQuota : selectedPlan.quota).max_requests_per_minute.toLocaleString()}</div>
+                      <div className="font-medium">{(form.customConfig ? customQuota : selectedPreset.quota).max_requests_per_minute.toLocaleString()}</div>
                     </div>
                     <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded">
                       <div className="text-gray-500">Bandwidth</div>
-                      <div className="font-medium">{(form.customConfig ? customQuota : selectedPlan.quota).max_bandwidth_mbps} Mbps</div>
+                      <div className="font-medium">{(form.customConfig ? customQuota : selectedPreset.quota).max_bandwidth_mbps} Mbps</div>
                     </div>
                   </div>
                 </CardContent>
@@ -629,8 +634,8 @@ export default function TenantNewPage() {
                   <span>{form.name}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Plan</span>
-                  <span>{selectedPlan.name}</span>
+                  <span className="text-gray-500">Limits</span>
+                  <span>{form.customConfig ? 'Custom' : selectedPreset.name}</span>
                 </div>
               </CardContent>
             </Card>

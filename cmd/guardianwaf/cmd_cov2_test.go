@@ -914,22 +914,6 @@ func TestTenantManagerAdapter_UpdateTenant_WithJSONMapAliases(t *testing.T) {
 	}
 }
 
-// --- billingManagerAdapter: with tenant that has invoices ---
-
-func TestBillingManagerAdapter_WithInvoices(t *testing.T) {
-	mgr := tenant.NewManager(100)
-	bm := mgr.BillingManager()
-	a := &billingManagerAdapter{bm: bm}
-
-	mgr.CreateTenant("billed-tenant", "Billed", []string{"example.com"}, nil)
-
-	invoices := a.GetAllInvoices()
-	_ = invoices
-
-	invoices = a.GetInvoices("billed-tenant")
-	_ = invoices
-}
-
 // --- alertManagerAdapter: with alerts after creating tenant ---
 
 func TestAlertManagerAdapter_WithTenant(t *testing.T) {

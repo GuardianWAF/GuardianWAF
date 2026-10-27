@@ -106,9 +106,6 @@ type Manager struct {
 	// Tenant-specific rules
 	rulesManager *TenantRulesManager
 
-	// Billing
-	billingManager *BillingManager
-
 	// Alerts
 	alertManager *AlertManager
 
@@ -145,17 +142,16 @@ func NewManager(maxTenants int) *Manager {
 // NewManagerWithStore creates a new tenant manager with persistence.
 func NewManagerWithStore(maxTenants int, storePath string) *Manager {
 	m := &Manager{
-		tenants:        make(map[string]*Tenant),
-		domains:        make(map[string]string),
-		maxTenants:     maxTenants,
-		rateLimiter:    NewTenantRateLimiter(time.Minute),
-		hourLimiter:    NewTenantRateLimiter(time.Hour),
-		rulesManager:   NewTenantRulesManager(100),
-		billingManager: NewBillingManager(""),
-		alertManager:   NewAlertManager(),
-		store:          NewStore(storePath),
-		broadcastSem:   make(chan struct{}, 16),
-		log:            logging.NewLogger("tenant"),
+		tenants:      make(map[string]*Tenant),
+		domains:      make(map[string]string),
+		maxTenants:   maxTenants,
+		rateLimiter:  NewTenantRateLimiter(time.Minute),
+		hourLimiter:  NewTenantRateLimiter(time.Hour),
+		rulesManager: NewTenantRulesManager(100),
+		alertManager: NewAlertManager(),
+		store:        NewStore(storePath),
+		broadcastSem: make(chan struct{}, 16),
+		log:          logging.NewLogger("tenant"),
 	}
 	return m
 }
@@ -830,11 +826,6 @@ func (m *Manager) RecordUsage(tenant *Tenant, bytes int64) {
 	m.rateLimiter.Record(tenant.ID)
 	m.hourLimiter.Record(tenant.ID)
 
-	// Record for billing
-	if m.billingManager != nil {
-		m.billingManager.RecordUsage(tenant.ID, 1, bytes, 0)
-	}
-
 	// Check quota alerts
 	if m.alertManager != nil {
 		currentRPM := m.rateLimiter.Count(tenant.ID)
@@ -869,30 +860,11 @@ func (m *Manager) RecordBlocked(tenant *Tenant) {
 	tenant.mu.Lock()
 	tenant.BlockedCount++
 	tenant.mu.Unlock()
-
-	// Record for billing (security value)
-	if m.billingManager != nil {
-		m.billingManager.RecordUsage(tenant.ID, 0, 0, 1)
-	}
-}
-
-// BillingManager returns the billing manager.
-func (m *Manager) BillingManager() *BillingManager {
-	return m.billingManager
 }
 
 // AlertManager returns the alert manager.
 func (m *Manager) AlertManager() *AlertManager {
 	return m.alertManager
-}
-
-// SetBillingStorePath sets the storage path for billing data.
-func (m *Manager) SetBillingStorePath(path string) {
-	if m.billingManager != nil {
-		// Note: This won't change the path for existing billing manager
-		// Should be set before first use
-		_ = path // unused - billing path is set at initialization
-	}
 }
 
 // TenantUpdate contains fields that can be updated.

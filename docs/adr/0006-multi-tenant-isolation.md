@@ -8,13 +8,13 @@
 
 ## Context
 
-GuardianWAF supports multi-tenant deployments where different organizations (tenants) share the same WAF instance and binary but maintain isolated configurations and billing. Each tenant has:
+GuardianWAF supports multi-tenant deployments where different organizations (tenants) share the same WAF instance and binary but maintain isolated configurations and usage accounting. Each tenant has:
 
 - **Own domain(s)** — `tenant-a.example.com`, `tenant-b.example.com`
 - **Own WAF config overrides** — different block thresholds, custom rules, detector settings
 - **Own rate limits** — independent rate tracking per tenant
 - **Own alerting** — separate webhook and email targets per tenant
-- **Own billing records** — per-tenant usage tracking
+- **Own usage counters** — per-tenant request, block and quota tracking
 
 Tenant isolation must be **race-free** under high concurrency. When two tenants' requests are being processed simultaneously by different goroutines, one goroutine must never observe another tenant's configuration or rate limit state. Shared mutable state accessed without synchronization is a data race; shared mutable state accessed with a single global lock is a bottleneck.
 
@@ -91,7 +91,7 @@ CLI flags
 
 For a tenant with `TenantWAFConfig.BlockThreshold = 40`, the global `BlockThreshold = 50` is replaced entirely — not merged. The tenant override replaces the global value.
 
-### Billing Isolation
+### Usage and Rate-Limit Isolation
 
 Rate counters and event counters are namespaced by `TenantID`:
 
@@ -147,7 +147,7 @@ The swap is a single atomic pointer assignment — no locking required for read 
 | `internal/engine/context.go` | `RequestContext.TenantID`, `RequestContext.TenantWAFConfig` |
 | `internal/config/config.go` | `VirtualHostConfig`, `TenantWAFConfig` structs |
 | `internal/config/findvh_test.go` | Virtual host → tenant resolution tests |
-| `internal/tenant/manager.go` | Tenant registry, billing, rate tracking per tenant |
+| `internal/tenant/manager.go` | Tenant registry, usage and rate tracking per tenant |
 | `internal/engine/engine.go` | Tenant resolution at request entry (called once per request) |
 | `internal/layers/ratelimit/ratelimit.go` | Per-tenant rate limit bucket namespacing (`tenantID:key`) |
 | `internal/layers/ipacl/ipacl.go` | Per-tenant IP ban list namespacing |

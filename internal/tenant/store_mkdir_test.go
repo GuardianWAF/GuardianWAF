@@ -14,7 +14,7 @@ import (
 // manager every save failed and the manager logged it as a non-fatal WARN:
 // persistence silently did not persist for any caller following the
 // documented persistence constructor. Repo convention (ai/store.go,
-// tenant/billing.go, compliance.go) is write-time dir-ensure.
+// tenant data) is write-time dir-ensure.
 
 func TestSaveTenantPersistsWithoutInit(t *testing.T) {
 	// Store path whose directory does not exist yet.

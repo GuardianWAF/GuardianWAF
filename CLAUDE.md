@@ -151,7 +151,7 @@ The `serve` command (`cmd/guardianwaf/main.go` → `cmd/guardianwaf/layers.go`) 
 `internal/tenant/` provides full tenant isolation:
 - Per-tenant WAF config overrides via `RequestContext.TenantWAFConfig` (read directly by each layer, race-free)
 - Tenant middleware sets `TenantContext` in request context
-- Separate rate tracking, rules, alerts, and billing per tenant
+- Separate rate tracking, quotas, rules, and alerts per tenant
 - Domain-based tenant resolution via virtual hosts
 
 ### Configuration Layering
@@ -216,7 +216,7 @@ Key config files:
 - `internal/docker/` — Docker auto-discovery (Unix socket/CLI, label-based routing, event watcher)
 - `internal/geoip/` — GeoIP database with auto-refresh
 - `internal/acme/` — ACME/Let's Encrypt auto-certificate (HTTP-01)
-- `internal/tenant/` — Multi-tenant management (isolation, billing, rate limits, per-tenant rules)
+- `internal/tenant/` — Multi-tenant management (isolation, quotas/rate limits, per-tenant rules)
 - `internal/alerting/` — Webhook and email alerting (Slack, Discord, PagerDuty, SMTP)
 - `internal/tracing/` — Zero-dependency distributed tracing (OpenTelemetry-compatible API, sampling, exporters)
 - `tests/reliability/` — Flaky test detection (JSONL-based pass/fail tracking across CI runs)

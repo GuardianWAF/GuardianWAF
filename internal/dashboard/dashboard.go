@@ -45,7 +45,6 @@ type tenantManagerInterface interface {
 	DeleteTenant(id string) error
 	RegenerateAPIKey(id string) (string, error)
 	Stats() any
-	BillingManager() BillingManagerInterface
 	AlertManager() AlertManagerInterface
 	GetAllUsage() []any
 	GetTenantUsage(tenantID string) any
@@ -55,14 +54,6 @@ type tenantManagerInterface interface {
 	UpdateTenantRule(tenantID string, rule map[string]any) error
 	RemoveTenantRule(tenantID, ruleID string) error
 	ToggleTenantRule(tenantID, ruleID string, enabled bool) error
-}
-
-// BillingManagerInterface is the interface for tenant billing.
-type BillingManagerInterface interface {
-	GetAllInvoices() []any
-	GetInvoices(tenantID string) []any
-	GetCurrentUsage(tenantID string) any
-	GenerateInvoice(tenantID, tenantName string, plan string, periodStart, periodEnd time.Time) (any, error)
 }
 
 // AlertManagerInterface is the interface for tenant alerts.
@@ -78,7 +69,7 @@ type Dashboard struct {
 	mux        *http.ServeMux
 	apiKey     atomic.Value // stores *apiKeyHolder
 	buildInfo  map[string]string
-	adminKey   string // Separate key for system admin operations (tenant management, billing, stats)
+	adminKey   string // Separate key for system admin operations (tenant management, quotas, stats)
 	pprofKey   string // Separate key for pprof debug endpoints (more restrictive than apiKey)
 	// Atomic: production publishes the handler after the dashboard server has
 	// begun serving (main.go wires it post-startDashboard), so request
@@ -197,7 +188,7 @@ func (d *Dashboard) CurrentAPIKey() string {
 
 // SetAdminKey sets the system administrator API key.
 // This key grants exclusive access to /api/admin/* endpoints for cross-tenant
-// management (tenant CRUD, billing, system-wide stats). It is separate from
+// management (tenant CRUD, quotas, system-wide stats). It is separate from
 // the per-tenant API key which only authenticates within a single tenant context.
 // If not set, admin endpoints are inaccessible.
 func (d *Dashboard) SetAdminKey(key string) {

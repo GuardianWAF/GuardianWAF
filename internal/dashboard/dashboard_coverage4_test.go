@@ -619,22 +619,8 @@ func TestVP_MockLayer_UpdateCVE(t *testing.T) {
 }
 
 // =====================================================================
-// TenantAdmin handler tests with billing and alerts
+// TenantAdmin handler tests with alerts
 // =====================================================================
-
-type mockBillingManager struct {
-	invoices []any
-	usage    any
-}
-
-func (m *mockBillingManager) GetAllInvoices() []any { return m.invoices }
-func (m *mockBillingManager) GetInvoices(tenantID string) []any {
-	return m.invoices
-}
-func (m *mockBillingManager) GetCurrentUsage(tenantID string) any { return m.usage }
-func (m *mockBillingManager) GenerateInvoice(tenantID, tenantName, plan string, from, to time.Time) (any, error) {
-	return map[string]any{"id": "inv-1", "tenant_id": tenantID, "plan": plan}, nil
-}
 
 type mockAlertManagerForTenant struct {
 	alerts []any
@@ -642,11 +628,10 @@ type mockAlertManagerForTenant struct {
 
 func (m *mockAlertManagerForTenant) GetRecentAlerts(since time.Duration) []any { return m.alerts }
 
-// fullMockTenantManager extends mockTenantManager with billing/alert support
+// fullMockTenantManager extends mockTenantManager with alert support
 type fullMockTenantManager struct {
 	tenants []any
 	stats   any
-	billing BillingManagerInterface
 	alerts  AlertManagerInterface
 	usage   []any
 }
@@ -678,10 +663,9 @@ func (m *fullMockTenantManager) DeleteTenant(id string) error {
 func (m *fullMockTenantManager) RegenerateAPIKey(id string) (string, error) {
 	return "new-api-key-" + id, nil
 }
-func (m *fullMockTenantManager) Stats() any                              { return m.stats }
-func (m *fullMockTenantManager) BillingManager() BillingManagerInterface { return m.billing }
-func (m *fullMockTenantManager) AlertManager() AlertManagerInterface     { return m.alerts }
-func (m *fullMockTenantManager) GetAllUsage() []any                      { return m.usage }
+func (m *fullMockTenantManager) Stats() any                          { return m.stats }
+func (m *fullMockTenantManager) AlertManager() AlertManagerInterface { return m.alerts }
+func (m *fullMockTenantManager) GetAllUsage() []any                  { return m.usage }
 func (m *fullMockTenantManager) GetTenantUsage(tenantID string) any {
 	return map[string]any{"tenant_id": tenantID, "requests": 5000}
 }
@@ -707,13 +691,8 @@ func newTenantHandlerWithFullMocks(t *testing.T) *TenantAdminHandler {
 			map[string]any{
 				"id":           "t1",
 				"name":         "Test Tenant",
-				"billing_plan": "pro",
 				"api_key_hash": "hash1",
 			},
-		},
-		billing: &mockBillingManager{
-			invoices: []any{map[string]any{"id": "inv-1", "amount": 99.99}},
-			usage:    map[string]any{"requests": 10000, "blocked": 50},
 		},
 		alerts: &mockAlertManagerForTenant{
 			alerts: []any{map[string]any{"id": "alert-1", "type": "block_spike"}},
@@ -723,94 +702,6 @@ func newTenantHandlerWithFullMocks(t *testing.T) *TenantAdminHandler {
 		},
 	}
 	return NewTenantAdminHandler(d, mgr)
-}
-
-func TestTenantBilling_GetInvoices(t *testing.T) {
-	h := newTenantHandlerWithFullMocks(t)
-
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/admin/billing", nil)
-	req.Header.Set("X-API-Key", "admin-key")
-	h.handleBilling(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-	var result map[string]any
-	json.Unmarshal(rr.Body.Bytes(), &result)
-	if result["invoices"] == nil {
-		t.Error("expected invoices")
-	}
-}
-
-func TestTenantBilling_MethodNotAllowed(t *testing.T) {
-	h := newTenantHandlerWithFullMocks(t)
-
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest("DELETE", "/api/admin/billing", nil)
-	req.Header.Set("X-API-Key", "admin-key")
-	h.handleBilling(rr, req)
-
-	if rr.Code != http.StatusMethodNotAllowed {
-		t.Errorf("expected 405, got %d", rr.Code)
-	}
-}
-
-func TestTenantBillingDetail_Get(t *testing.T) {
-	h := newTenantHandlerWithFullMocks(t)
-
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/admin/billing/t1", nil)
-	req.Header.Set("X-API-Key", "admin-key")
-	h.handleBillingDetail(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d: %s", rr.Code, rr.Body.String())
-	}
-	var result map[string]any
-	json.Unmarshal(rr.Body.Bytes(), &result)
-	if result["tenant_id"] != "t1" {
-		t.Errorf("expected tenant_id=t1, got %v", result["tenant_id"])
-	}
-}
-
-func TestTenantBillingDetail_PostGenerateInvoice(t *testing.T) {
-	h := newTenantHandlerWithFullMocks(t)
-
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/api/admin/billing/t1", nil)
-	req.Header.Set("X-API-Key", "admin-key")
-	h.handleBillingDetail(rr, req)
-
-	if rr.Code != http.StatusCreated {
-		t.Errorf("expected 201, got %d: %s", rr.Code, rr.Body.String())
-	}
-}
-
-func TestTenantBillingDetail_PostTenantNotFound(t *testing.T) {
-	h := newTenantHandlerWithFullMocks(t)
-
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/api/admin/billing/nonexistent", nil)
-	req.Header.Set("X-API-Key", "admin-key")
-	h.handleBillingDetail(rr, req)
-
-	if rr.Code != http.StatusNotFound {
-		t.Errorf("expected 404, got %d", rr.Code)
-	}
-}
-
-func TestTenantBillingDetail_MethodNotAllowed(t *testing.T) {
-	h := newTenantHandlerWithFullMocks(t)
-
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest("DELETE", "/api/admin/billing/t1", nil)
-	req.Header.Set("X-API-Key", "admin-key")
-	h.handleBillingDetail(rr, req)
-
-	if rr.Code != http.StatusMethodNotAllowed {
-		t.Errorf("expected 405, got %d", rr.Code)
-	}
 }
 
 func TestTenantAlerts_Get(t *testing.T) {

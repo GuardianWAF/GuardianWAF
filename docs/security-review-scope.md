@@ -57,7 +57,7 @@ Required attacker models:
 Review:
 
 - tenant lookup and domain routing,
-- tenant-scoped event, stats, billing, rate-limit, and quota state,
+- tenant-scoped event, stats, rate-limit, and quota state,
 - tenant admin list/get/create/update/delete responses,
 - response sanitization for tenant credential fields.
 

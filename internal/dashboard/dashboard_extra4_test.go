@@ -1175,7 +1175,6 @@ type mockTenantManager struct {
 	tenants      []any
 	createTenant any
 	stats        any
-	billing      BillingManagerInterface
 	alerts       AlertManagerInterface
 	usage        []any
 }
@@ -1193,10 +1192,9 @@ func (m *mockTenantManager) DeleteTenant(id string) error             { return n
 func (m *mockTenantManager) RegenerateAPIKey(id string) (string, error) {
 	return "new-key", nil
 }
-func (m *mockTenantManager) Stats() any                              { return m.stats }
-func (m *mockTenantManager) BillingManager() BillingManagerInterface { return m.billing }
-func (m *mockTenantManager) AlertManager() AlertManagerInterface     { return m.alerts }
-func (m *mockTenantManager) GetAllUsage() []any                      { return m.usage }
+func (m *mockTenantManager) Stats() any                          { return m.stats }
+func (m *mockTenantManager) AlertManager() AlertManagerInterface { return m.alerts }
+func (m *mockTenantManager) GetAllUsage() []any                  { return m.usage }
 func (m *mockTenantManager) GetTenantUsage(tenantID string) any {
 	return map[string]any{"tenant_id": tenantID}
 }
