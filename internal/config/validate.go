@@ -13,6 +13,8 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+
+	"github.com/guardianwaf/guardianwaf/internal/tracing"
 )
 
 // ValidationError holds all config validation errors.
@@ -913,8 +915,6 @@ func LoadEnv(cfg *Config) error {
 		"GWAF_WAF_AI_ANALYSIS_ENABLED",
 		"GWAF_TLS_ENABLED",
 		"GWAF_TRACING_ENABLED",
-		"GWAF_COMPLIANCE_ENABLED",
-		"GWAF_COMPLIANCE_AUDIT_TRAIL_ENABLED",
 	} {
 		if value := os.Getenv(key); value != "" {
 			if _, err := strconv.ParseBool(value); err != nil {
@@ -1037,6 +1037,8 @@ func LoadEnv(cfg *Config) error {
 			}
 		},
 		"GWAF_TRACING_EXPORTER_TYPE": func(v string) { cfg.Tracing.ExporterType = v },
+		"GWAF_TRACING_OTLP_ENDPOINT": func(v string) { cfg.Tracing.OTLP.Endpoint = v },
+		"GWAF_TRACING_OTLP_HEADERS":  func(v string) { cfg.Tracing.OTLP.Headers = parseHeaderList(v) },
 
 		"GWAF_LOGGING_MAX_SIZE_MB": func(v string) {
 			if i, err := strconv.Atoi(v); err == nil {
@@ -1051,24 +1053,6 @@ func LoadEnv(cfg *Config) error {
 		"GWAF_LOGGING_MAX_AGE_DAYS": func(v string) {
 			if i, err := strconv.Atoi(v); err == nil {
 				cfg.Logging.MaxAgeDays = i
-			}
-		},
-
-		// Compliance reporting
-		"GWAF_COMPLIANCE_ENABLED": func(v string) {
-			if b, err := strconv.ParseBool(v); err == nil {
-				cfg.Compliance.Enabled = b
-			}
-		},
-		"GWAF_COMPLIANCE_FRAMEWORKS": func(v string) {
-			cfg.Compliance.Frameworks = strings.Split(v, ",")
-		},
-		"GWAF_COMPLIANCE_REPORT_DIR": func(v string) {
-			cfg.Compliance.ReportDir = v
-		},
-		"GWAF_COMPLIANCE_AUDIT_TRAIL_ENABLED": func(v string) {
-			if b, err := strconv.ParseBool(v); err == nil {
-				cfg.Compliance.AuditTrail.Enabled = b
 			}
 		},
 	}
@@ -1338,6 +1322,25 @@ func validateAllowedUpstreamCIDRs(cidrs []string, ve *ValidationError) {
 	}
 }
 
+// parseHeaderList parses "k1=v1,k2=v2" (the OTEL_EXPORTER_OTLP_HEADERS
+// format). Values may be percent-encoded so they can contain commas.
+func parseHeaderList(v string) map[string]string {
+	out := map[string]string{}
+	for _, part := range splitCommaList(v) {
+		k, val, ok := strings.Cut(part, "=")
+		k = strings.TrimSpace(k)
+		if !ok || k == "" {
+			continue
+		}
+		val = strings.TrimSpace(val)
+		if dec, err := url.PathUnescape(val); err == nil {
+			val = dec
+		}
+		out[k] = val
+	}
+	return out
+}
+
 func splitCommaList(v string) []string {
 	parts := strings.Split(v, ",")
 	out := make([]string, 0, len(parts))
@@ -1498,8 +1501,12 @@ func validateTracing(trace *TracingConfig, ve *ValidationError) {
 	switch trace.ExporterType {
 	case "", "noop", "stdout":
 		// Empty is the disabled/default no-op exporter.
+	case "otlp":
+		if err := tracing.ValidateOTLPConfig(trace.OTLP.ToTracing()); err != nil {
+			ve.addError("tracing.otlp", err.Error())
+		}
 	default:
-		ve.addError("tracing.exporter_type", "must be one of: noop, stdout")
+		ve.addError("tracing.exporter_type", "must be one of: noop, stdout, otlp")
 	}
 }
 

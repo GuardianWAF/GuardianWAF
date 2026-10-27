@@ -148,7 +148,8 @@ type Config struct {
 	Enabled      bool
 	ServiceName  string
 	SamplingRate float64 // 0.0-1.0, fraction of requests to trace
-	ExporterType string  // "stdout", "noop", or custom name
+	ExporterType string  // "stdout", "otlp", "noop", or custom name
+	OTLP         OTLPConfig
 }
 
 // Tracer creates and manages spans.
@@ -160,6 +161,9 @@ type Tracer struct {
 	samples  atomic.Uint64
 	spans    atomic.Int64
 	exported atomic.Int64
+	// retiredDrops accumulates drops of replaced exporters so DroppedSpans
+	// stays monotonic across reloads.
+	retiredDrops atomic.Int64
 }
 
 var globalTracer = func() *Tracer {
@@ -175,8 +179,10 @@ func ValidateConfig(cfg Config) error {
 	switch cfg.ExporterType {
 	case "", "noop", "stdout":
 		return nil
+	case "otlp":
+		return ValidateOTLPConfig(cfg.OTLP)
 	default:
-		return fmt.Errorf("exporter type must be one of: noop, stdout")
+		return fmt.Errorf("exporter type must be one of: noop, stdout, otlp")
 	}
 }
 
@@ -192,11 +198,19 @@ func NewTracer(cfg Config) (*Tracer, error) {
 	return t, nil
 }
 
-func exporterFor(name string) Exporter {
-	if name == "stdout" {
-		return NewStdoutExporter()
+func exporterFor(cfg Config) (Exporter, error) {
+	switch cfg.ExporterType {
+	case "stdout":
+		return NewStdoutExporter(), nil
+	case "otlp":
+		if !cfg.Enabled {
+			// A disabled tracer starts no spans; do not start a sender either.
+			return NewNoopExporter(), nil
+		}
+		return NewOTLPExporter(cfg.OTLP, cfg.ServiceName)
+	default:
+		return NewNoopExporter(), nil
 	}
-	return NewNoopExporter()
 }
 
 // Init initializes the global tracer with the given config.
@@ -212,16 +226,17 @@ func (t *Tracer) Reconfigure(cfg Config) error {
 	if cfg.Enabled && cfg.ServiceName == "" {
 		cfg.ServiceName = "guardianwaf"
 	}
-	nextExporter := exporterFor(cfg.ExporterType)
+	nextExporter, err := exporterFor(cfg)
+	if err != nil {
+		return err
+	}
 	t.mu.Lock()
 	oldExporter := t.exporter
 	t.config = cfg
 	t.exporter = nextExporter
 	t.enabled.Store(cfg.Enabled)
 	t.mu.Unlock()
-	if oldExporter != nil {
-		oldExporter.Shutdown()
-	}
+	t.retire(oldExporter)
 	return nil
 }
 
@@ -243,9 +258,7 @@ func (t *Tracer) SetExporter(e Exporter) {
 	oldExporter := t.exporter
 	t.exporter = e
 	t.mu.Unlock()
-	if oldExporter != nil {
-		oldExporter.Shutdown()
-	}
+	t.retire(oldExporter)
 }
 
 // Enabled reports whether tracing is active.
@@ -347,8 +360,17 @@ func (t *Tracer) Shutdown() {
 	exporter := t.exporter
 	t.exporter = nil
 	t.mu.Unlock()
-	if exporter != nil {
-		exporter.Shutdown()
+	t.retire(exporter)
+}
+
+// retire shuts an exporter down and folds its drop count into retiredDrops.
+func (t *Tracer) retire(e Exporter) {
+	if e == nil {
+		return
+	}
+	e.Shutdown()
+	if d, ok := e.(interface{ Dropped() int64 }); ok {
+		t.retiredDrops.Add(d.Dropped())
 	}
 }
 
@@ -373,6 +395,21 @@ func (t *Tracer) export(span *Span) {
 	}
 	t.exporter.Export(span)
 	t.exported.Add(1)
+}
+
+// DroppedSpans returns the number of spans the current exporter discarded
+// (queue overflow or failed delivery). Exporters that never drop report 0.
+func (t *Tracer) DroppedSpans() int64 {
+	if t == nil {
+		return 0
+	}
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	n := t.retiredDrops.Load()
+	if d, ok := t.exporter.(interface{ Dropped() int64 }); ok {
+		n += d.Dropped()
+	}
+	return n
 }
 
 // NoopExporter discards all spans.

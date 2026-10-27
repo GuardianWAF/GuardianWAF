@@ -11,7 +11,6 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -297,13 +296,9 @@ func TestCoverage_CleanupRateLimiter(t *testing.T) {
 
 func TestCoverage_Accessors(t *testing.T) {
 	m := NewManager(10)
-	if m.BillingManager() == nil {
-		t.Error("BillingManager should not be nil")
-	}
 	if m.AlertManager() == nil {
 		t.Error("AlertManager should not be nil")
 	}
-	m.SetBillingStorePath("/some/path")
 }
 
 func TestCoverage_GetTenantUsage(t *testing.T) {
@@ -878,13 +873,6 @@ func TestCoverage_Middleware_Handler_WithContext(t *testing.T) {
 	if captured == nil {
 		t.Error("expected tenant in context")
 	}
-}
-
-func TestCoverage_BillingManager_LoadBadJSON(t *testing.T) {
-	tmpDir := t.TempDir()
-	sp := filepath.Join(tmpDir, "billing.json")
-	os.WriteFile(sp, []byte("not valid json"), 0600)
-	_ = NewBillingManager(sp)
 }
 
 func TestCoverage_IsTenantActive_NonExistent(t *testing.T) {

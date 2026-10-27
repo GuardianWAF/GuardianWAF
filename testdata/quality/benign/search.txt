@@ -1,0 +1,278 @@
+# Realistic site and product search queries (EN/TR/DE/ES/FR), including words
+# and punctuation that resemble attack syntax.
+# placement: query,header
+running shoes
+wireless headphones under $100
+iphone 15 pro max case
+samsung galaxy s24 vs pixel 8
+best laptop for programming 2026
+mechanical keyboard brown switches
+4k monitor 27 inch
+usb-c to hdmi adapter
+coffee grinder burr
+air fryer recipes
+how to select the best mattress
+union square restaurants
+drop shoulder t-shirt
+drop earrings gold
+table tennis set
+order history
+where is my order
+select comfort bed
+script font tattoo
+alert bracelet medical
+exec office chair
+admin assistant jobs
+union jack flag
+1 or 2 bedroom apartments
+cheap flights london or paris
+shoes size 42 or 43
+men's watches
+women's running jacket
+children's books age 5-7
+kids' bikes 20"
+o'neill wetsuit
+l'oreal shampoo
+levi's 501
+dr. martens boots
+m&m's peanut
+h&m jeans
+at&t phone plans
+b&q paint
+johnson & johnson baby oil
+procter & gamble careers
+"exact phrase search"
+'single quoted search'
+c++ programming book
+c# tutorial
+.net core hosting
+node.js course
+50% off sale
+price < 20
+size >= 10
+2 + 2 = 4 worksheet
+1/2 inch drill bit
+3/4 sleeve dress
+24/7 pharmacy near me
+100% cotton sheets
+#1 best seller
+@home furniture
+email@example.com not working
+re: invoice 2026-104
+fw: meeting notes
+q&a session
+pros & cons of electric cars
+black friday deals
+cyber monday laptop
+gift ideas for dad
+anniversary gift for wife
+birthday cake delivery
+vegan protein powder
+gluten-free bread
+espresso machine with grinder
+nespresso pods compatible
+dyson v15 vs v12
+roomba j7+
+lego star wars ucs
+nintendo switch oled
+ps5 slim digital
+xbox series x controller
+steam deck 512gb
+raspberry pi 5 8gb
+arduino starter kit
+3d printer filament pla
+soldering iron kit
+multimeter fluke
+garden hose 50ft
+lawn mower electric
+patio furniture set
+bbq grill gas
+camping tent 4 person
+sleeping bag -10c
+hiking boots waterproof
+yoga mat non slip
+dumbbells adjustable
+treadmill folding
+bike helmet mips
+ski jacket men
+snowboard bindings
+swimming goggles anti fog
+tennis racket wilson
+golf balls titleist
+football boots size 9
+basketball hoop outdoor
+cat food grain free
+dog bed large
+fish tank 50 gallon
+bird cage stand
+hamster wheel silent
+kedi maması
+köpek tasması
+bebek arabası
+çocuk bisikleti
+kadın mont
+erkek ayakkabı 43 numara
+şarj aleti type-c
+kablosuz kulaklık
+telefon kılıfı
+bulaşık makinesi
+çamaşır makinesi 9 kg
+buzdolabı no frost
+klima 12000 btu
+elektrikli süpürge
+kahve makinesi
+çay makinesi
+tost makinesi
+saç kurutma makinesi
+ütü buharlı
+masa lambası
+ofis koltuğu
+çalışma masası
+kitaplık beyaz
+nevresim takımı çift kişilik
+yastık ortopedik
+havlu seti
+"istanbul'dan ankara'ya otobüs"
+ankara'da kiralık daire
+izmir'in en iyi kahvaltı yerleri
+öğrenci indirimi
+kargo takip
+iade nasıl yapılır
+sipariş iptali
+fatura sorgulama
+şifremi unuttum
+hesap silme
+üyelik iptali
+kampanya kodu
+hediye çeki
+Laufschuhe Herren
+Kaffeemaschine mit Mahlwerk
+Fahrradhelm Kinder
+Größe 42
+Übergrößen Jacke
+zapatillas de running
+cafetera espresso
+portátil para estudiantes
+chaussures de course
+machine à café
+ordinateur portable
+crème hydratante
+où acheter
+qu'est-ce que c'est
+l'été 2026
+aujourd'hui
+it's raining
+don't stop me now
+we're open sunday
+you've got mail
+rock 'n' roll vinyl
+fish 'n' chips
+o'clock
+ma'am
+y'all
+5'11" height
+6' tall bookcase
+12" pizza pan
+27" monitor arm
+nike air max 90
+adidas ultraboost 22
+new balance 990v6
+asics gel-kayano 30
+the north face jacket
+patagonia better sweater
+columbia fleece
+under armour hoodie
+ray-ban wayfarer
+oakley sunglasses
+casio g-shock
+seiko 5 sports
+apple watch band 45mm
+fitbit charge 6
+garmin forerunner 265
+kindle paperwhite
+ipad air m2
+macbook air 15
+thinkpad x1 carbon
+dell xps 13
+surface pro 10
+lg c3 oled 65
+sony bravia
+bose quietcomfort ultra
+airpods pro 2
+jbl flip 6
+sonos era 100
+canon r6 mark ii
+fujifilm x100vi
+gopro hero 12
+dji mini 4 pro
+how to cook rice
+how to tie a tie
+how to delete my account
+how to reset password
+how to update iphone
+what is the capital of australia
+who won the world cup 2022
+when does the store open
+why is the sky blue
+weather tomorrow
+time in tokyo
+1 usd to try
+100 euro in dollars
+convert 5 feet to cm
+recipe for chocolate chip cookies
+banana bread without eggs
+chicken tikka masala
+pasta carbonara authentic
+lentil soup turkish
+menemen tarifi
+mercimek çorbası
+karnıyarık
+baklava nasıl yapılır
+sql developer jobs
+database administrator salary
+backup and restore guide
+select committee report
+union membership benefits
+drop off locations
+insert coin
+delete key not working
+update windows 11
+create account
+grant application deadline
+exec summary template
+shell gasoline prices
+bash party ideas
+python snake facts
+java coffee beans
+ruby necklace
+perl jam band
+go kart racing
+rust remover spray
+echo dot 5th gen
+cat 6 ethernet cable
+wget for windows
+curl hair tutorial
+ping pong table
+null and void meaning
+undefined behavior
+true or false quiz
+1=1 math puzzle
+x = y + 1
+a * b formula
+(a+b)^2 expansion
+f(x) = 2x + 3
+sin(x) graph
+log(100)
+e=mc2 explained
+eval of the year
+document management system
+window cleaning service
+location of nearest atm
+cookie recipe
+onload appliance
+onerror meaning
+javascript course for beginners
+iframe embed youtube
+svg icons free
+img to pdf converter
+style guide template

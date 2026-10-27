@@ -36,26 +36,35 @@ Implement a minimal, zero-dependency tracing package (`internal/tracing/`) with 
   span IDs are 64-bit random hex values, and non-finite/out-of-range sampling
   rates or unsupported exporter names fail validation.
 
-- **No wire format** — Spans are exported in-process, not serialized over gRPC/HTTP. A bridge exporter can translate to OTLP if needed.
-- **No baggage propagation** — Only `X-Correlation-ID` (not full W3C Trace Context) is propagated to upstream backends and cluster nodes. Full trace context propagation would require a wire format.
-- **Sync export** — Exporters are called synchronously on span end. The `StdoutExporter` is for development only; production exporters should be buffered.
+- **OTLP/HTTP JSON wire format** — `exporter_type: otlp` batches spans to an
+  OpenTelemetry collector over HTTP with the OTLP JSON mapping, hand-encoded with
+  the stdlib. gRPC and protobuf transports are out of scope.
+- **W3C Trace Context, local sampling** — A valid incoming `traceparent` is
+  joined and the upstream receives one naming the WAF span. The sampling
+  decision stays local so clients cannot force tracing. Baggage is not
+  interpreted; cluster RPCs carry `X-Correlation-ID` only.
+- **Sync export, buffered delivery** — Exporters are called synchronously on
+  span end. The `StdoutExporter` writes inline and is for development only; the
+  OTLP exporter only copies the span into a bounded queue and drops (and counts)
+  spans rather than blocking the request.
 
 ## Consequences
 
 **Positive:**
 - Full pipeline visibility without any external dependencies
-- OpenTelemetry-compatible API means a bridge exporter can forward to Jaeger/Zipkin/Tempo
+- The built-in OTLP exporter delivers spans to any OpenTelemetry collector, Tempo or Jaeger without an SDK
 - Sampling prevents overhead on high-traffic deployments
 - Per-layer spans with WAF attributes enable targeted performance analysis
 
 **Negative:**
-- Not wire-compatible with W3C Trace Context out of the box (requires bridge exporter)
+- The `waf.request` span ends when inspection finishes, so it measures WAF time only. Upstream latency appears in the application's own child spans.
 - No automatic context propagation across HTTP boundaries (only correlation ID header)
-- Sync export model may add latency if exporter is slow (mitigated by sampling)
+- The stdout exporter writes inline and can add latency (mitigated by sampling); the OTLP exporter drops spans instead
 
 Operational counters are exposed as `guardianwaf_tracing_enabled`,
-`guardianwaf_tracing_spans_created_total`, and
-`guardianwaf_tracing_spans_exported_total`.
+`guardianwaf_tracing_spans_created_total`,
+`guardianwaf_tracing_spans_exported_total`, and
+`guardianwaf_tracing_spans_dropped_total`.
 
 ## References
 

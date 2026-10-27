@@ -49,12 +49,12 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 	// normalizer decodes evasion encodings; the raw form preserves bytes the
 	// normalizer may alter). Identical strings are scanned once. Mirrors the other
 	// detectors and their fail-open guard for a disabled Sanitizer.
-	seen := make(map[string]struct{})
+	seen := make(map[[2]string]struct{}) // keyed by (location, value) without copying the value
 	scan := func(v, location string) {
 		if v == "" {
 			return
 		}
-		key := location + "\x00" + v
+		key := [2]string{location, v}
 		if _, ok := seen[key]; ok {
 			return
 		}
@@ -74,12 +74,12 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 			scan(v, "query")
 		}
 	}
-	scan(ctx.BodyString, "body")
-	scan(ctx.NormalizedBody, "body")
-	for _, vals := range ctx.Cookies {
-		for _, v := range vals {
-			scan(v, "cookie")
-		}
+	// Decoded fields of a structured (JSON/form) body, else the whole body.
+	for _, view := range ctx.BodyViews() {
+		scan(view, "body")
+	}
+	for _, v := range ctx.CookieViews() {
+		scan(v, "cookie")
 	}
 	if refs, ok := ctx.Headers["Referer"]; ok {
 		for _, v := range refs {
@@ -90,6 +90,12 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 		for _, v := range refs {
 			scan(v, "header")
 		}
+	}
+
+	// Application-defined headers (X-Original-URL, X-Api-Key, ...) are read
+	// by backends as data; see engine.CustomHeaderViews for what is skipped.
+	for _, v := range ctx.CustomHeaderViews() {
+		scan(v, "header")
 	}
 
 	engine.ApplyMultiplier(allFindings, d.multiplier)
@@ -144,6 +150,11 @@ var exploitGadgets = []string{
 	"t(java.lang.system",
 	"java.lang.runtime).getruntime",
 	"getruntime().exec",
+	// Reflection path to the same classes, reachable from any EL object:
+	// ${''.getClass().forName('java.lang.Runtime')}.
+	".getclass().forname(",
+	"forname('java.lang.",
+	"forname(\"java.lang.",
 	"freemarker.template.utility.execute",
 	"processbuilder",
 	"javax.script",

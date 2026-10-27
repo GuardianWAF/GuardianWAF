@@ -781,27 +781,6 @@ tracing:
   exporter_type: stdout
 features:
   parser_guard: true
-compliance:
-  enabled: true
-  frameworks: [pci_dss, gdpr]
-  report_dir: /var/lib/guardianwaf/reports
-  audit_trail:
-    enabled: true
-    hash_algorithm: sha256
-    persist_path: /var/lib/guardianwaf/audit.jsonl
-  retention:
-    default_days: 90
-    per_framework:
-      pci_dss: 365
-    auto_delete: true
-    archive_path: /archive
-  scheduled_reports:
-    - id: weekly
-      framework: pci_dss
-      schedule: "0 0 * * 1"
-      format: [json, csv]
-      tenant_id: tenant-a
-      output_dir: /reports
 tenant:
   enabled: true
   max_tenants: 25
@@ -1055,9 +1034,6 @@ waf:
 	}
 	if !cfg.Features["parser_guard"] {
 		t.Fatalf("features not populated: %+v", cfg.Features)
-	}
-	if !cfg.Compliance.Enabled || cfg.Compliance.Retention.PerFramework["pci_dss"] != 365 || len(cfg.Compliance.ScheduledReports) != 1 {
-		t.Fatalf("compliance not populated: %+v", cfg.Compliance)
 	}
 	if !cfg.Tenant.Enabled || cfg.Tenant.DefaultQuota.MaxRequestsPerMinute != 100 || cfg.Tenant.Tenants[0].Quota.MaxRequestsPerHour != 2000 {
 		t.Fatalf("tenant not populated: %+v", cfg.Tenant)

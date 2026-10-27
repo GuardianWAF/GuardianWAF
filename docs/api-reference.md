@@ -62,6 +62,23 @@ Get WAF runtime statistics.
 }
 ```
 
+A tenant-scoped API key gets its own tenant's counts instead, computed over
+the retained event window. Alerting, latency and integration fields are
+omitted:
+
+```json
+{
+  "scope": "tenant",
+  "tenant_id": "acme",
+  "window": "retained_events",
+  "total_requests": 310,
+  "blocked_requests": 4,
+  "challenged_requests": 0,
+  "logged_requests": 12,
+  "passed_requests": 294
+}
+```
+
 ---
 
 ### GET /api/v1/health
@@ -219,7 +236,7 @@ curl -X POST http://localhost:9443/api/v1/config/reload \
 }
 ```
 
-Use a rolling restart for listener, TLS/ACME, event store, Docker watcher, AI, alerting, tenant, MCP, tracing, compliance, SIEM, cluster, WAF layer topology/configuration, or other startup-owned service changes.
+Use a rolling restart for listener, TLS/ACME, event store, Docker watcher, AI, alerting, tenant, MCP, tracing, SIEM, cluster, WAF layer topology/configuration, or other startup-owned service changes.
 
 ---
 

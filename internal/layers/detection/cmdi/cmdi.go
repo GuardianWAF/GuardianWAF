@@ -58,12 +58,12 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 	// "127.0.0.1;cat /etc/passwd"). Scanning the raw input as well preserves the
 	// injection signal while keeping the decode-evasion benefit of normalization.
 	// Identical strings are scanned once (dedup). Mirrors xss/xxe fail-open guard.
-	seen := make(map[string]struct{})
+	seen := make(map[[2]string]struct{}) // keyed by (location, value) without copying the value
 	scan := func(v, location string) {
 		if v == "" {
 			return
 		}
-		key := location + "\x00" + v
+		key := [2]string{location, v}
 		if _, ok := seen[key]; ok {
 			return
 		}
@@ -88,14 +88,14 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 	}
 
 	// 3. Body (raw + normalized)
-	scan(ctx.BodyString, "body")
-	scan(ctx.NormalizedBody, "body")
+	// Decoded fields of a structured (JSON/form) body, else the whole body.
+	for _, view := range ctx.BodyViews() {
+		scan(view, "body")
+	}
 
 	// 4. Cookie values
-	for _, vals := range ctx.Cookies {
-		for _, v := range vals {
-			scan(v, "cookie")
-		}
+	for _, v := range ctx.CookieViews() {
+		scan(v, "cookie")
 	}
 
 	// 5. Referer header (raw + normalized)
@@ -108,6 +108,12 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 		for _, v := range refs {
 			scan(v, "header")
 		}
+	}
+
+	// Application-defined headers (X-Original-URL, X-Api-Key, ...) are read
+	// by backends as data; see engine.CustomHeaderViews for what is skipped.
+	for _, v := range ctx.CustomHeaderViews() {
+		scan(v, "header")
 	}
 
 	// Apply multiplier
@@ -215,10 +221,10 @@ func checkShellMetachars(_, lower, location string) []engine.Finding {
 	reported := make(map[string]bool)
 
 	for _, s := range separators {
-		parts := strings.Split(lower, s.sep)
-		if len(parts) < 2 {
-			continue
+		if !strings.Contains(lower, s.sep) {
+			continue // spares Split's allocation for every separator-free value
 		}
+		parts := strings.Split(lower, s.sep)
 		// Check each part after a separator for known commands
 		for i := 1; i < len(parts); i++ {
 			trimmed := strings.TrimSpace(parts[i])
@@ -237,7 +243,14 @@ func checkShellMetachars(_, lower, location string) []engine.Finding {
 			// invocation is corroborated by real arguments. Applies to every
 			// branch below — "id" is classified as a recon command, so guarding
 			// only the generic branch left the markdown table blocking.
-			downgrade := isAmbiguousCommand(cmd) && !hasCommandArguments(trimmed, cmd)
+			//
+			// The downgrade does not apply when the whole value is an
+			// injection: "<sep><cmd>" (";id", "| id", "&& id") or
+			// "<host><sep><cmd>" ("127.0.0.1;id"), with the separator used
+			// once and no further pipe — prose and table rows are never
+			// shaped like that, while those are the canonical payloads.
+			wholeValue := len(parts) == 2 && !strings.Contains(trimmed, "|") && isInjectionPrefix(parts[0])
+			downgrade := isAmbiguousCommand(cmd) && !hasCommandArguments(trimmed, cmd) && !wholeValue
 
 			if isReconCommand(cmd) || isNetworkCommand(cmd) || IsCommand(cmd) {
 				reported[cmd] = true
@@ -379,30 +392,34 @@ func checkShellPaths(lower, location string) []engine.Finding {
 }
 
 // checkInterpreterFlags detects interpreter invocations with -c or -e flags.
-func checkInterpreterFlags(lower, location string) []engine.Finding {
-	var findings []engine.Finding
-
-	interpreters := []string{
+// interpreterFlagPatterns are interpreter names followed by an inline-code
+// flag, in match priority order.
+var interpreterFlagPatterns = func() []string {
+	var patterns []string
+	for _, interp := range []string{
 		"python", "python3", "perl", "ruby", "php", "node",
 		"bash", "sh", "zsh", "dash", "csh", "ksh",
 		"cmd", "powershell", "pwsh",
-	}
-
-	flags := []string{" -c ", " -e "}
-
-	for _, interp := range interpreters {
-		for _, flag := range flags {
-			pattern := interp + flag
-			if strings.Contains(lower, pattern) {
-				findings = append(findings, makeFinding(80, engine.SeverityCritical,
-					"Interpreter with execution flag detected: "+interp+flag,
-					extractContext(lower, pattern), location, 0.90))
-				return findings // One match is enough
-			}
+	} {
+		for _, flag := range []string{" -c ", " -e "} {
+			patterns = append(patterns, interp+flag)
 		}
 	}
+	return patterns
+}()
 
-	return findings
+func checkInterpreterFlags(lower, location string) []engine.Finding {
+	if !strings.Contains(lower, " -c ") && !strings.Contains(lower, " -e ") {
+		return nil
+	}
+	for _, pattern := range interpreterFlagPatterns {
+		if strings.Contains(lower, pattern) {
+			return []engine.Finding{makeFinding(80, engine.SeverityCritical,
+				"Interpreter with execution flag detected: "+pattern,
+				extractContext(lower, pattern), location, 0.90)} // One match is enough
+		}
+	}
+	return nil
 }
 
 // base64DecodeFlags are the flags that turn base64(1) into a decoder, which is
@@ -619,6 +636,8 @@ func redirectionTargetLooksLikeFileOrFD(rest string) bool {
 	if idx := strings.IndexAny(word, " \t\r\n&|;"); idx >= 0 {
 		word = word[:idx]
 	}
+	// Sentence punctuation is not an extension: "coffee > tea." compares.
+	word = strings.TrimRight(word, ".,!?)")
 	return strings.ContainsAny(word, "/\\") || strings.Contains(word, ".")
 }
 
@@ -699,6 +718,27 @@ func safeTruncate(s string, maxBytes int) string {
 // next cell of a markdown table. It is what upgrades an ambiguous command name
 // back to a blocking score: ";cat /etc/passwd" corroborates, "| id | name |"
 // does not.
+// isInjectionPrefix reports whether the text before a separator is empty or a
+// single host/IP-like token ("127.0.0.1", "example.com", "::1"), i.e. what an
+// injected value looks like in front of its separator. A bare word ("Price",
+// "test") is not enough: "Price | id" is a two-column table row.
+func isInjectionPrefix(prefix string) bool {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		return true
+	}
+	if len(prefix) > 253 || !strings.ContainsAny(prefix, ".:") {
+		return false
+	}
+	for i := 0; i < len(prefix); i++ {
+		c := prefix[i]
+		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '.' || c == '-' || c == ':' || c == '_') {
+			return false
+		}
+	}
+	return true
+}
+
 func hasCommandArguments(trimmed, cmd string) bool {
 	rest := strings.TrimSpace(strings.TrimPrefix(trimmed, cmd))
 	if rest == "" {

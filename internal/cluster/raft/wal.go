@@ -18,7 +18,10 @@ const (
 	WALState    WALRecordType = 1 // term/votedFor change
 	WALLog      WALRecordType = 2 // log entry append
 	WALTruncate WALRecordType = 3 // log truncation from index
-	WALSnapshot WALRecordType = 4 // full-state snapshot (compaction)
+	WALSnapshot WALRecordType = 4 // full-state snapshot (compaction), legacy: no log base
+	// WALSnapshotBase is a full-state snapshot that also records the log base
+	// (the last index/term folded into a state-machine snapshot).
+	WALSnapshotBase WALRecordType = 5
 )
 
 // WALRecord is a single durable record in the Write-Ahead Log.
@@ -30,6 +33,9 @@ type WALRecord struct {
 	Entry    LogEntry   // WALLog: the appended entry
 	Index    uint64     // WALTruncate: truncation start index (1-based)
 	Entries  []LogEntry // WALSnapshot: all surviving log entries after compaction
+	// WALSnapshotBase: the log base preceding Entries.
+	BaseIndex uint64
+	BaseTerm  uint64
 }
 
 // WAL is a binary append-only Write-Ahead Log that persists Raft state
@@ -256,11 +262,12 @@ func (w *WAL) Replay(ps *PersistentState) error {
 			if rec.Index > 0 && rec.Index-1 < w.snapLastIndex {
 				w.snapLastIndex = rec.Index - 1
 			}
-		case WALSnapshot:
+		case WALSnapshot, WALSnapshotBase:
 			// A snapshot resets all accumulated state. Replace the log
 			// and term/vote with the snapshot contents, then continue
 			// replaying any records that follow the snapshot.
 			ps.log.resetNoPersist()
+			ps.log.setBaseNoPersist(rec.BaseIndex, rec.BaseTerm)
 			for _, e := range rec.Entries {
 				ps.log.appendNoPersist(e)
 			}
@@ -270,7 +277,7 @@ func (w *WAL) Replay(ps *PersistentState) error {
 			if n := len(rec.Entries); n > 0 {
 				w.snapLastIndex = rec.Entries[n-1].Index
 			} else {
-				w.snapLastIndex = 0
+				w.snapLastIndex = rec.BaseIndex
 			}
 			// Snapshot replaces all prior records — count is managed by
 		// countRecords() in OpenWAL; Replay() only applies state.
@@ -343,13 +350,18 @@ func (w *WAL) compactLocked(ps *PersistentState) error {
 	// persists outside l.mu, mirroring Append), so this cannot self-deadlock.
 	term := ps.currentTerm
 	votedFor := ps.votedFor
+	ps.log.mu.RLock()
+	baseIndex, baseTerm := ps.log.baseIndex, ps.log.baseTerm
+	ps.log.mu.RUnlock()
 	entries := ps.log.AllEntries()
 
 	rec := WALRecord{
-		Type:     WALSnapshot,
-		Term:     term,
-		VotedFor: votedFor,
-		Entries:  entries,
+		Type:      WALSnapshotBase,
+		Term:      term,
+		VotedFor:  votedFor,
+		Entries:   entries,
+		BaseIndex: baseIndex,
+		BaseTerm:  baseTerm,
 	}
 	data := encodeWALRecord(rec)
 	// Refuse to write a snapshot record the replay path would reject. Failing
@@ -414,7 +426,7 @@ func (w *WAL) compactLocked(ps *PersistentState) error {
 	if n := len(entries); n > 0 {
 		w.snapLastIndex = entries[n-1].Index
 	} else {
-		w.snapLastIndex = 0
+		w.snapLastIndex = baseIndex
 	}
 
 	return nil
@@ -458,8 +470,9 @@ func encodeWALRecord(rec WALRecord) []byte {
 	case WALTruncate:
 		payload = binary.BigEndian.AppendUint64(payload, rec.Index)
 
-	case WALSnapshot:
+	case WALSnapshot, WALSnapshotBase:
 		// Snapshot payload: [8 term][2 votedForLen][votedFor][4 entryCount][entries...]
+		// WALSnapshotBase appends [8 baseIndex][8 baseTerm].
 		payload = binary.BigEndian.AppendUint64(payload, rec.Term)
 		vf := []byte(rec.VotedFor)
 		payload = binary.BigEndian.AppendUint16(payload, uint16(len(vf))) // #nosec G115 -- node IDs are short
@@ -474,6 +487,10 @@ func encodeWALRecord(rec WALRecord) []byte {
 			}
 			payload = binary.BigEndian.AppendUint32(payload, uint32(len(cmd))) // #nosec G115 -- command bounded
 			payload = append(payload, cmd...)
+		}
+		if rec.Type == WALSnapshotBase {
+			payload = binary.BigEndian.AppendUint64(payload, rec.BaseIndex)
+			payload = binary.BigEndian.AppendUint64(payload, rec.BaseTerm)
 		}
 
 	default:
@@ -566,8 +583,9 @@ func decodeWALPayload(payload []byte) (WALRecord, error) {
 		}
 		rec.Index = binary.BigEndian.Uint64(p[0:8])
 
-	case WALSnapshot:
+	case WALSnapshot, WALSnapshotBase:
 		// Snapshot payload: term(8) | votedFor_len(2) | votedFor(N) | entry_count(4) | entries...
+		// [| base_index(8) | base_term(8)] for WALSnapshotBase.
 		if len(p) < 10 {
 			return WALRecord{}, errors.New("wal: short snapshot record")
 		}
@@ -606,6 +624,13 @@ func decodeWALPayload(payload []byte) (WALRecord, error) {
 			rec.Entries = append(rec.Entries, e)
 			off += 20 + int(cmdLen)
 		}
+		if rec.Type == WALSnapshotBase {
+			if len(p) < off+16 {
+				return WALRecord{}, errors.New("wal: short snapshot base")
+			}
+			rec.BaseIndex = binary.BigEndian.Uint64(p[off : off+8])
+			rec.BaseTerm = binary.BigEndian.Uint64(p[off+8 : off+16])
+		}
 
 	default:
 		return WALRecord{}, fmt.Errorf("wal: unknown record type %d", rec.Type)
@@ -625,10 +650,10 @@ func decodeWALPayload(payload []byte) (WALRecord, error) {
 // time (a compaction-straddling record): the snapshot is authoritative up to
 // its last entry's index, so replaying the straddler again would duplicate it
 // (the observed 22001-vs-22000 crash-window failure). Indices are dense —
-// Append assigns len+1 — so Index <= len(entries) means already present.
+// Append assigns LastIndex+1 — so Index <= LastIndex means already present.
 func (l *LogStore) appendNoPersist(entry LogEntry) {
 	l.mu.Lock()
-	if entry.Index != 0 && entry.Index <= uint64(len(l.entries)) {
+	if entry.Index != 0 && entry.Index <= l.lastIndexLocked() {
 		l.mu.Unlock()
 		return
 	}
@@ -636,14 +661,22 @@ func (l *LogStore) appendNoPersist(entry LogEntry) {
 	l.mu.Unlock()
 }
 
+// setBaseNoPersist sets the snapshot base of an empty log during replay.
+func (l *LogStore) setBaseNoPersist(index, term uint64) {
+	l.mu.Lock()
+	l.baseIndex, l.baseTerm = index, term
+	l.mu.Unlock()
+}
+
 // truncateNoPersist truncates the log WITHOUT triggering the persist callback.
 func (l *LogStore) truncateNoPersist(index uint64) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if index == 0 || index > uint64(len(l.entries)) {
+	pos, ok := l.posLocked(index)
+	if !ok {
 		return
 	}
-	l.entries = l.entries[:index-1]
+	l.entries = l.entries[:pos]
 }
 
 // setTermNoPersist sets term and votedFor WITHOUT writing to the WAL.

@@ -1,8 +1,17 @@
 # ADR 0022: Compliance & Reporting Framework
 
 **Date:** 2026-04-15
-**Status:** Implemented baseline; scheduled reports and retention enforcement planned
+**Status:** Removed in v0.7.0 — `internal/compliance/` was deleted
 **Deciders:** GuardianWAF Team
+
+> **Removal note (2026-10-27).** The compliance engine was removed to narrow
+> GuardianWAF to its WAF core. It mapped metrics onto framework controls but did
+> not itself make a deployment PCI DSS, GDPR, SOC 2 or ISO 27001 compliant, and
+> its scheduled reports and retention enforcement were never implemented. The
+> `compliance:` config section and `GWAF_COMPLIANCE_*` variables are now
+> rejected at load. Use the dashboard management audit log
+> (`dashboard.audit_path`) and SIEM export for evidence and retention. The rest
+> of this record is kept for history.
 
 ---
 

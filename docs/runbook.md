@@ -418,7 +418,7 @@ curl -s "http://localhost:9443/api/v1/events?limit=100" \
 - Add the sample to the attack corpus/regression tests before broad detector changes.
 - Keep the deployment in `enforce` after confirming the compensating rule blocks the sample.
 
-### 17. Incident Export for Compliance
+### 17. Incident Evidence Export
 
 **Symptoms**: Security, audit, or compliance team requests evidence for a time window.
 
@@ -439,15 +439,21 @@ cp /etc/guardianwaf/guardianwaf.yaml incident-export/guardianwaf.yaml
 # Runtime logs
 kubectl logs -l app=guardianwaf --since=24h > incident-export/guardianwaf.log
 
-# Audit-chain integrity snapshot for external anchoring
-curl -s http://localhost:9443/api/v1/compliance/audit-chain \
-  -H "X-API-Key: $GWAF_DASHBOARD_API_KEY" > incident-export/audit-chain.json
+# Dashboard management audit log (admin key)
+curl -s http://localhost:9443/api/v1/audit \
+  -H "X-API-Key: $GWAF_DASHBOARD_ADMIN_KEY" > incident-export/dashboard-audit.json
+
+# Verify the on-disk audit hash chain and record its head
+guardianwaf verify-audit /var/lib/guardianwaf/audit/dashboard.jsonl | tee incident-export/audit-chain-head.txt
+
+# Fingerprint the export for tamper evidence
+sha256sum incident-export/* > incident-export/SHA256SUMS
 ```
 
 **Verification**:
 - Confirm exported events have request IDs and redacted sensitive fields.
 - Record the GuardianWAF version and image digest.
-- Confirm `audit-chain.json` has `"integrity": true` and store its `head_hash` in the approved write-once evidence system for later truncation/tamper checks.
+- The dashboard audit log (`dashboard.audit_path`) is a SHA-256 hash chain: each entry carries `seq`, `prev_hash` and `hash`. `guardianwaf verify-audit` exits 1 and names the first broken entry if any stored entry was edited, inserted, deleted or reordered. GuardianWAF also refuses to start on a broken chain; move the file aside as evidence to recover. A chain cannot reveal that its newest entries were truncated: compare `seq`/`hash` with a head recorded earlier (`chain_head` in `GET /api/v1/audit`, or a previous `audit-chain-head.txt`). Store `SHA256SUMS` in the approved write-once evidence system, and rely on SIEM export (`siem.enabled`) as the off-host, append-only copy.
 - Store the export in the approved evidence repository with retention tags.
 
 ### 18. Backup Stale or Restore Required
@@ -470,7 +476,7 @@ test "$((now-last))" -le 3600
   --verify-only
 ```
 
-Restore procedure and exact paths are in [State Persistence](state-persistence.md#backup-and-restore). Start the RTO clock when the restore is approved; service must remain stopped until restore completes. After start, require `/livez`, `/readyz`, event history, tenants, ACME material, compliance chain, and dashboard mutation audit replay before accepting traffic. Record the selected snapshot time (RPO), elapsed restore time (RTO), operator, incident/ticket, and validation results. Target: **RPO ≤ 3600s; RTO ≤ 300s**.
+Restore procedure and exact paths are in [State Persistence](state-persistence.md#backup-and-restore). Start the RTO clock when the restore is approved; service must remain stopped until restore completes. After start, require `/livez`, `/readyz`, event history, tenants, ACME material, and dashboard mutation audit replay before accepting traffic. Record the selected snapshot time (RPO), elapsed restore time (RTO), operator, incident/ticket, and validation results. Target: **RPO ≤ 3600s; RTO ≤ 300s**.
 
 ### 19. Dashboard Audit Persistence Failure
 
@@ -547,4 +553,4 @@ curl -X POST http://localhost:9443/api/v1/config/reload \
   -H "X-API-Key: YOUR_API_KEY"
 ```
 
-This does not reread the YAML file from disk. For listener, storage, TLS/ACME, Docker watcher, AI, alerting, tenant, MCP, tracing, compliance, SIEM, cluster, or other startup-owned service changes, update the config through your deployment system and perform a rolling restart. See [Runtime Reload Contract](runtime-reload.md).
+This does not reread the YAML file from disk. For listener, storage, TLS/ACME, Docker watcher, AI, alerting, tenant, MCP, tracing, SIEM, cluster, or other startup-owned service changes, update the config through your deployment system and perform a rolling restart. See [Runtime Reload Contract](runtime-reload.md).

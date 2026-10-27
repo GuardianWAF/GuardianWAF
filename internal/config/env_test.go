@@ -91,7 +91,7 @@ func TestValidateRejectsInvalidTracingConfiguration(t *testing.T) {
 		{name: "infinite rate", configure: func(c *TracingConfig) { c.SamplingRate = math.Inf(1) }, want: "tracing.sampling_rate"},
 		{name: "negative rate", configure: func(c *TracingConfig) { c.SamplingRate = -0.1 }, want: "tracing.sampling_rate"},
 		{name: "oversized rate", configure: func(c *TracingConfig) { c.SamplingRate = 1.1 }, want: "tracing.sampling_rate"},
-		{name: "unsupported exporter", configure: func(c *TracingConfig) { c.ExporterType = "otlp" }, want: "tracing.exporter_type"},
+		{name: "unsupported exporter", configure: func(c *TracingConfig) { c.ExporterType = "jaeger" }, want: "tracing.exporter_type"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -248,10 +248,25 @@ type RequestContext struct {
 	ContentType string
 
 	// Normalized versions (populated by sanitizer layer)
-	NormalizedPath    string
-	NormalizedQuery   map[string][]string
-	NormalizedBody    string
+	NormalizedPath  string
+	NormalizedQuery map[string][]string
+	NormalizedBody  string
+	// BodyFields and NormalizedBodyFields are the decoded string leaves of a
+	// structured body (JSON keys and string values, form names and values),
+	// set by the sanitizer. Text detectors scan them via BodyViews instead of
+	// the raw body, whose JSON or form syntax hides payload quotes and
+	// operators. Nil when the body is unstructured or could not be parsed.
+	BodyFields           []string
+	NormalizedBodyFields []string
+	// BodyBinary is set by the sanitizer when the declared media type is
+	// binary (image, PDF, octet-stream, ...) and the body really is binary.
+	// Backends never read such a body as parameters, and text detectors
+	// scanning random bytes block legitimate uploads, so BodyViews omits it.
+	BodyBinary        bool
 	NormalizedHeaders map[string][]string
+	// NormalizedCookies holds the sanitizer's normalized cookie values, in
+	// the same order as Cookies. See CookieViews.
+	NormalizedCookies map[string][]string
 
 	// Scoring
 	Accumulator *ScoreAccumulator
@@ -594,6 +609,10 @@ func ReleaseContext(ctx *RequestContext) {
 	ctx.NormalizedPath = ""
 	ctx.NormalizedQuery = nil
 	ctx.NormalizedBody = ""
+	ctx.BodyFields = nil
+	ctx.NormalizedBodyFields = nil
+	ctx.BodyBinary = false
+	ctx.NormalizedCookies = nil
 	ctx.NormalizedHeaders = nil
 
 	ctx.Accumulator = nil
@@ -768,4 +787,46 @@ func generateRequestID() string {
 	buf[23] = '-'
 	hex.Encode(buf[24:36], b[10:16])
 	return string(buf[:])
+}
+
+// CookieViews returns every cookie value as transmitted, URL-decoded ("+"
+// as space) where that differs, and the sanitizer's normalized form where
+// that differs again. PHP, Express and Rails decode cookie values before the
+// application sees them, so "%27+OR+1%3D1+--" must be judged as
+// "' OR 1=1 --"; the normalized form matches how query values are judged.
+func (ctx *RequestContext) CookieViews() []string {
+	var views []string
+	for name, vals := range ctx.Cookies {
+		normalized := ctx.NormalizedCookies[name]
+		for i, v := range vals {
+			views = append(views, v)
+			decoded := v
+			if strings.ContainsAny(v, "%+") {
+				if d, err := url.QueryUnescape(v); err == nil && d != v {
+					decoded = d
+					views = append(views, d)
+				}
+			}
+			if i < len(normalized) && normalized[i] != v && normalized[i] != decoded {
+				views = append(views, normalized[i])
+			}
+		}
+	}
+	return views
+}
+
+// BodyViews returns the body inputs a text detector scans: nothing for a
+// binary body (BodyBinary), the decoded fields of a structured body (raw,
+// then normalized) when the sanitizer extracted them, otherwise the whole
+// raw and normalized body.
+func (ctx *RequestContext) BodyViews() []string {
+	if ctx.BodyBinary {
+		return nil
+	}
+	if len(ctx.BodyFields) == 0 {
+		return []string{ctx.BodyString, ctx.NormalizedBody}
+	}
+	views := make([]string, 0, len(ctx.BodyFields)+len(ctx.NormalizedBodyFields))
+	views = append(views, ctx.BodyFields...)
+	return append(views, ctx.NormalizedBodyFields...)
 }

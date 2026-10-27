@@ -4,10 +4,12 @@
 package config
 
 import (
+	"maps"
 	"strings"
 	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/netutil"
+	"github.com/guardianwaf/guardianwaf/internal/tracing"
 )
 
 // Config is the top-level configuration for GuardianWAF.
@@ -22,21 +24,20 @@ type Config struct {
 	Routes       []RouteConfig       `yaml:"routes"`
 	VirtualHosts []VirtualHostConfig `yaml:"virtual_hosts"`
 
-	WAF                   WAFConfig        `yaml:"waf"`
-	Dashboard             DashboardConfig  `yaml:"dashboard"`
-	MCP                   MCPConfig        `yaml:"mcp"`
-	Docker                DockerConfig     `yaml:"docker"`
-	Alerting              AlertingConfig   `yaml:"alerting"`
-	Logging               LogConfig        `yaml:"logging"`
-	Events                EventsConfig     `yaml:"events"`
-	Tenant                TenantConfig     `yaml:"tenant"`
-	TrustedProxies        []string         `yaml:"trusted_proxies"`         // CIDRs/IPs whose X-Forwarded-For/X-Real-IP headers are trusted
-	AllowPrivateUpstreams *bool            `yaml:"allow_private_upstreams"` // Explicitly allow private, loopback, and link-local upstream targets
-	AllowedUpstreamCIDRs  []string         `yaml:"allowed_upstream_cidrs"`  // Explicit private/reserved upstream CIDRs/IPs allowed when global private upstreams are disabled
-	Tracing               TracingConfig    `yaml:"tracing"`
-	Features              map[string]bool  `yaml:"features"`
-	Compliance            ComplianceConfig `yaml:"compliance"`
-	Cluster               ClusterConfig    `yaml:"cluster"`
+	WAF                   WAFConfig       `yaml:"waf"`
+	Dashboard             DashboardConfig `yaml:"dashboard"`
+	MCP                   MCPConfig       `yaml:"mcp"`
+	Docker                DockerConfig    `yaml:"docker"`
+	Alerting              AlertingConfig  `yaml:"alerting"`
+	Logging               LogConfig       `yaml:"logging"`
+	Events                EventsConfig    `yaml:"events"`
+	Tenant                TenantConfig    `yaml:"tenant"`
+	TrustedProxies        []string        `yaml:"trusted_proxies"`         // CIDRs/IPs whose X-Forwarded-For/X-Real-IP headers are trusted
+	AllowPrivateUpstreams *bool           `yaml:"allow_private_upstreams"` // Explicitly allow private, loopback, and link-local upstream targets
+	AllowedUpstreamCIDRs  []string        `yaml:"allowed_upstream_cidrs"`  // Explicit private/reserved upstream CIDRs/IPs allowed when global private upstreams are disabled
+	Tracing               TracingConfig   `yaml:"tracing"`
+	Features              map[string]bool `yaml:"features"`
+	Cluster               ClusterConfig   `yaml:"cluster"`
 }
 
 // ClusterConfig controls multi-node cluster coordination via gossip membership
@@ -52,7 +53,7 @@ type ClusterConfig struct {
 	ElectionTimeoutMax time.Duration `yaml:"election_timeout_max"`
 	HeartbeatInterval  time.Duration `yaml:"heartbeat_interval"`
 	DataDir            string        `yaml:"data_dir"`           // Raft WAL persistence directory (empty = in-memory)
-	SnapshotThreshold  int           `yaml:"snapshot_threshold"` // WAL compaction threshold (0 = disabled)
+	SnapshotThreshold  int           `yaml:"snapshot_threshold"` // entries applied between Raft snapshots (default 10000, 0 = disabled)
 
 	// Secret is the shared key that authenticates every Raft RPC frame and
 	// gossip datagram between peers. It is REQUIRED when clustering is
@@ -998,45 +999,22 @@ type SchemaSourceConfig struct {
 
 // TracingConfig controls built-in distributed tracing.
 type TracingConfig struct {
-	Enabled      bool    `yaml:"enabled"`
-	ServiceName  string  `yaml:"service_name"`
-	SamplingRate float64 `yaml:"sampling_rate"` // 0.0-1.0
-	ExporterType string  `yaml:"exporter_type"` // "stdout", "noop"
+	Enabled      bool              `yaml:"enabled"`
+	ServiceName  string            `yaml:"service_name"`
+	SamplingRate float64           `yaml:"sampling_rate"` // 0.0-1.0
+	ExporterType string            `yaml:"exporter_type"` // "noop", "stdout", "otlp"
+	OTLP         TracingOTLPConfig `yaml:"otlp"`
 }
 
-// ComplianceConfig controls compliance reporting (PCI DSS, GDPR, SOC 2, ISO 27001).
-type ComplianceConfig struct {
-	Enabled          bool                    `yaml:"enabled"`
-	Frameworks       []string                `yaml:"frameworks"` // Active frameworks: "pci_dss", "gdpr", "soc2", "iso27001"
-	ReportDir        string                  `yaml:"report_dir"` // Output directory for generated reports
-	AuditTrail       AuditTrailConfig        `yaml:"audit_trail"`
-	Retention        RetentionConfig         `yaml:"retention"`
-	ScheduledReports []ScheduledReportConfig `yaml:"scheduled_reports"`
-}
-
-// AuditTrailConfig controls hash-chained audit trail.
-type AuditTrailConfig struct {
-	Enabled       bool   `yaml:"enabled"`
-	HashAlgorithm string `yaml:"hash_algorithm"` // "sha256" (default)
-	PersistPath   string `yaml:"persist_path"`   // JSONL file for audit chain persistence (survives restarts)
-}
-
-// RetentionConfig controls data retention per compliance framework.
-type RetentionConfig struct {
-	DefaultDays  int            `yaml:"default_days"`
-	PerFramework map[string]int `yaml:"per_framework"`
-	AutoDelete   bool           `yaml:"auto_delete"`
-	ArchivePath  string         `yaml:"archive_path"`
-}
-
-// ScheduledReportConfig defines a scheduled compliance report.
-type ScheduledReportConfig struct {
-	ID        string   `yaml:"id"`
-	Framework string   `yaml:"framework"`
-	Schedule  string   `yaml:"schedule"`  // Cron expression
-	Format    []string `yaml:"format"`    // "json", "csv"
-	TenantID  string   `yaml:"tenant_id"` // Empty = all tenants
-	OutputDir string   `yaml:"output_dir"`
+// TracingOTLPConfig configures the OTLP/HTTP (JSON) exporter used when
+// exporter_type is "otlp". Zero values select the exporter defaults.
+type TracingOTLPConfig struct {
+	Endpoint      string            `yaml:"endpoint"`       // default http://localhost:4318/v1/traces
+	Headers       map[string]string `yaml:"headers"`        // e.g. Authorization for a hosted collector
+	Timeout       time.Duration     `yaml:"timeout"`        // per request; default 10s
+	BatchSize     int               `yaml:"batch_size"`     // spans per request; default 512
+	FlushInterval time.Duration     `yaml:"flush_interval"` // default 5s
+	QueueSize     int               `yaml:"queue_size"`     // buffered spans before dropping; default 2048
 }
 
 // FindVirtualHost finds a virtual host configuration by domain.
@@ -1090,4 +1068,16 @@ func FindVirtualHost(vhosts []VirtualHostConfig, host string) *VirtualHostConfig
 // stripHostPort removes the port suffix from a host string, handling IPv6 brackets.
 func stripHostPort(host string) string {
 	return netutil.StripPort(host)
+}
+
+// ToTracing converts the YAML block to the tracing package's exporter config.
+func (c TracingOTLPConfig) ToTracing() tracing.OTLPConfig {
+	return tracing.OTLPConfig{
+		Endpoint:      c.Endpoint,
+		Headers:       maps.Clone(c.Headers),
+		Timeout:       c.Timeout,
+		BatchSize:     c.BatchSize,
+		FlushInterval: c.FlushInterval,
+		QueueSize:     c.QueueSize,
+	}
 }

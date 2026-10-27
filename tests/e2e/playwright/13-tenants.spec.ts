@@ -76,7 +76,6 @@ test.describe('Multi-Tenant Management', () => {
       data: {
         name: 'e2e-test-tenant',
         domain: 'e2e-test.example.com',
-        plan: 'basic',
       },
     })
     expect([201, 400, 401, 409, 503]).toContain(resp.status())

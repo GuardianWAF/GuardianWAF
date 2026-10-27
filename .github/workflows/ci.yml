@@ -116,9 +116,8 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
 
   # Cross-platform vet: go build skips test files, so Linux-only syscalls in
-  # untagged test files (see compliance_coverage_test.go history) only surface
-  # under a non-Linux vet. Both commands are green as of the round-20 fix
-  # (newline_write_linux_test.go carries the //go:build linux guard).
+  # untagged test files only surface under a non-Linux vet; guard such files
+  # with a //go:build linux constraint.
   vet-cross-platform:
     needs: [build-dashboard]
     runs-on: ubuntu-latest
@@ -519,7 +518,6 @@ jobs:
         gosec -include=G304,G703 -severity=medium -confidence=medium ./internal/geoip
         gosec -include=G304,G703 -severity=medium -confidence=medium ./internal/engine
         gosec -include=G304,G703 -severity=medium -confidence=medium ./internal/ai
-        gosec -include=G304,G703 -severity=medium -confidence=medium ./internal/compliance
         gosec -include=G304,G703 -severity=medium -confidence=medium ./cmd/guardianwaf
         gosec -include=G304,G703 -severity=medium -confidence=medium ./internal/layers/ipacl
         gosec -include=G304,G703 -severity=medium -confidence=medium ./internal/layers/crs

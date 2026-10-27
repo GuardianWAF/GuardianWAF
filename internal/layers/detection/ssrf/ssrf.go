@@ -60,12 +60,12 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 	// localhost/loopback patterns. Scanning the raw input as well restores the
 	// signal; normalized keeps the decode-evasion benefit. Identical strings are
 	// scanned once (dedup). Mirrors xss/xxe fail-open guard for a disabled Sanitizer.
-	seen := make(map[string]struct{})
+	seen := make(map[[2]string]struct{}) // keyed by (location, value) without copying the value
 	scan := func(v, location string) {
 		if v == "" {
 			return
 		}
-		key := location + "\x00" + v
+		key := [2]string{location, v}
 		if _, ok := seen[key]; ok {
 			return
 		}
@@ -90,14 +90,14 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 	}
 
 	// 3. Body (JSON string values, form data) (raw + normalized)
-	scan(ctx.BodyString, "body")
-	scan(ctx.NormalizedBody, "body")
+	// Decoded fields of a structured (JSON/form) body, else the whole body.
+	for _, view := range ctx.BodyViews() {
+		scan(view, "body")
+	}
 
 	// 4. Cookie values
-	for _, vals := range ctx.Cookies {
-		for _, v := range vals {
-			allFindings = append(allFindings, Detect(v, "cookie")...)
-		}
+	for _, v := range ctx.CookieViews() {
+		allFindings = append(allFindings, Detect(v, "cookie")...)
 	}
 
 	// 5. Referer header
@@ -198,6 +198,9 @@ func makeFinding(score int, severity engine.Severity, desc, matched, location st
 
 // checkLocalhostPatterns detects localhost and loopback access.
 func checkLocalhostPatterns(lower, location string) []engine.Finding {
+	if !strings.Contains(lower, "://") {
+		return nil // every pattern below is an absolute http(s) URL
+	}
 	var findings []engine.Finding
 
 	patterns := []struct {

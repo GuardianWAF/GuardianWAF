@@ -62,6 +62,12 @@ type LogStore struct {
 	mu      sync.RWMutex
 	entries []LogEntry
 
+	// baseIndex/baseTerm describe the last entry folded into a snapshot.
+	// entries[i] holds index baseIndex+i+1; indices at or below baseIndex are
+	// compacted away and only their term at baseIndex is retained.
+	baseIndex uint64
+	baseTerm  uint64
+
 	// persistEntry, if set, is called after every successful append/truncate.
 	// It allows the WAL to durably record the change before the caller proceeds.
 	persistEntry func(entry LogEntry)
@@ -107,8 +113,8 @@ const (
 	RPCRequestVoteResp     RPCType = 2
 	RPCAppendEntries       RPCType = 3
 	RPCAppendEntriesResp   RPCType = 4
-	RPCInstallSnapshot     RPCType = 5 // reserved for future snapshot support
-	RPCInstallSnapshotResp RPCType = 6 // reserved for future snapshot support
+	RPCInstallSnapshot     RPCType = 5
+	RPCInstallSnapshotResp RPCType = 6
 	RPCPropose             RPCType = 7 // internal: leader-forwarded proposal
 
 	// Aliases used by the transport for request/response framing.
@@ -155,6 +161,24 @@ type AppendEntriesResponse struct {
 	// (optimization from §5.3 of the Raft thesis).
 	ConflictIndex uint64
 	ConflictTerm  uint64
+}
+
+// --- InstallSnapshot RPC ---
+
+// InstallSnapshotRequest is sent by the leader to a follower whose next
+// needed entry has been compacted into a snapshot (Raft §7). The snapshot is
+// sent in a single frame; see maxSnapshotSize.
+type InstallSnapshotRequest struct {
+	Term              uint64 // Leader's term
+	LeaderID          string // So followers can redirect clients
+	LastIncludedIndex uint64 // The snapshot replaces all entries up to this index
+	LastIncludedTerm  uint64 // Term of LastIncludedIndex
+	Data              []byte // State-machine snapshot
+}
+
+// InstallSnapshotResponse is the reply to an InstallSnapshotRequest.
+type InstallSnapshotResponse struct {
+	Term uint64 // Responder's current term
 }
 
 // --- Propose (internal leader-forwarded write) ---

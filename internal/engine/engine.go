@@ -362,7 +362,16 @@ func (e *Engine) startRootSpan(ctx *RequestContext, r *http.Request) *tracing.Sp
 	if e.tracer == nil || !e.tracer.Enabled() || !e.tracer.ShouldSample() {
 		return nil
 	}
-	span := e.tracer.StartSpan("waf.request", tracing.SpanKindServer)
+	// Join the caller's trace when it sent a valid W3C traceparent. The
+	// sampling decision above stays local, so a client cannot force tracing
+	// (and collector load) by setting the sampled flag.
+	var span *tracing.Span
+	if traceID, parentID, ok := tracing.ParseTraceparent(r.Header.Get(tracing.TraceparentHeader)); ok {
+		span = e.tracer.StartSpanWithParent("waf.request", tracing.SpanKindServer, traceID)
+		span.ParentID = parentID
+	} else {
+		span = e.tracer.StartSpan("waf.request", tracing.SpanKindServer)
+	}
 	span.SetAttribute(tracing.AttrHTTPMethod, r.Method)
 	span.SetAttribute(tracing.AttrHTTPURL, redactSensitiveURL(r.URL.String()))
 	span.SetAttribute(tracing.AttrHTTPHost, r.Host)
@@ -603,7 +612,11 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 
 		// Start root trace span if tracing is enabled and sampled. Unlike Check,
 		// Middleware ends the span manually before releasing the context.
-		e.startRootSpan(ctx, r)
+		if span := e.startRootSpan(ctx, r); span != nil {
+			// Parent the upstream's spans on the WAF span. Unsampled requests
+			// keep whatever traceparent the client sent.
+			r.Header.Set(tracing.TraceparentHeader, tracing.FormatTraceparent(span.TraceID, span.SpanID))
+		}
 
 		// Set tenant info from context if available (set by caller via SetTenantContext)
 		// This avoids importing tenant package to break circular dependency
@@ -948,9 +961,10 @@ func (e *Engine) Stats() Stats {
 	}
 	layerTiming := e.layerTimingStats()
 	var tracingEnabled bool
-	var tracingSpans, tracingExported int64
+	var tracingSpans, tracingExported, tracingDropped int64
 	if e.tracer != nil {
 		tracingEnabled, tracingSpans, tracingExported = e.tracer.Stats()
+		tracingDropped = e.tracer.DroppedSpans()
 	}
 	return Stats{
 		TotalRequests:      total,
@@ -968,6 +982,7 @@ func (e *Engine) Stats() Stats {
 		TracingEnabled:     tracingEnabled,
 		TracingSpans:       tracingSpans,
 		TracingExported:    tracingExported,
+		TracingDropped:     tracingDropped,
 	}
 }
 
@@ -1045,6 +1060,7 @@ func tracingConfig(cfg *config.Config) tracing.Config {
 		ServiceName:  cfg.Tracing.ServiceName,
 		SamplingRate: cfg.Tracing.SamplingRate,
 		ExporterType: cfg.Tracing.ExporterType,
+		OTLP:         cfg.Tracing.OTLP.ToTracing(),
 	}
 }
 

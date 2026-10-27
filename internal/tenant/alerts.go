@@ -24,11 +24,10 @@ const (
 type AlertType string
 
 const (
-	AlertQuotaWarning   AlertType = "quota_warning"
-	AlertQuotaExceeded  AlertType = "quota_exceeded"
-	AlertRateLimit      AlertType = "rate_limit"
-	AlertSecurityEvent  AlertType = "security_event"
-	AlertBillingWarning AlertType = "billing_warning"
+	AlertQuotaWarning  AlertType = "quota_warning"
+	AlertQuotaExceeded AlertType = "quota_exceeded"
+	AlertRateLimit     AlertType = "rate_limit"
+	AlertSecurityEvent AlertType = "security_event"
 )
 
 // Alert represents a tenant alert notification.

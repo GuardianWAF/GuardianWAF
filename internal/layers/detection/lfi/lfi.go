@@ -63,12 +63,12 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 	//
 	// Identical strings are scanned once (dedup) so unchanged inputs aren't
 	// double-counted. Mirrors xss/xxe fail-open guard for a disabled Sanitizer.
-	seen := make(map[string]struct{})
+	seen := make(map[[2]string]struct{}) // keyed by (location, value) without copying the value
 	scanOnly := func(v, location string) {
 		if v == "" {
 			return
 		}
-		key := location + "\x00" + v
+		key := [2]string{location, v}
 		if _, ok := seen[key]; ok {
 			return
 		}
@@ -99,14 +99,14 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 	}
 
 	// 3. Body (raw + normalized)
-	scan(ctx.BodyString, "body")
-	scan(ctx.NormalizedBody, "body")
+	// Decoded fields of a structured (JSON/form) body, else the whole body.
+	for _, view := range ctx.BodyViews() {
+		scan(view, "body")
+	}
 
 	// 4. Cookie values
-	for _, vals := range ctx.Cookies {
-		for _, v := range vals {
-			scan(v, "cookie")
-		}
+	for _, v := range ctx.CookieViews() {
+		scan(v, "cookie")
 	}
 
 	// 5. Referer header (raw + normalized)
@@ -122,6 +122,13 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 	}
 
 	// Apply multiplier
+
+	// Application-defined headers (X-Original-URL, X-Api-Key, ...) are read
+	// by backends as data; see engine.CustomHeaderViews for what is skipped.
+	for _, v := range ctx.CustomHeaderViews() {
+		scan(v, "header")
+	}
+
 	engine.ApplyMultiplier(allFindings, d.multiplier)
 
 	action := engine.ActionPass
@@ -158,6 +165,7 @@ func Detect(input, location string) []engine.Finding {
 
 	// 3. Sensitive file paths
 	findings = append(findings, checkSensitivePaths(lower, location)...)
+	findings = append(findings, checkHomeSecrets(lower, location)...)
 
 	// 4. Windows paths
 	findings = append(findings, checkWindowsPaths(lower, location)...)
@@ -265,6 +273,8 @@ func checkSensitivePaths(lower, location string) []engine.Finding {
 	return sensitiveTrie.checkWithTrie(lower, location)
 }
 
+func isSpaceByte(c byte) bool { return c == ' ' || c == '\t' || c == '\r' || c == '\n' }
+
 // checkWindowsPaths detects Windows path traversal and sensitive file access.
 func checkWindowsPaths(lower, location string) []engine.Finding {
 	var findings []engine.Finding
@@ -274,14 +284,23 @@ func checkWindowsPaths(lower, location string) []engine.Finding {
 	for i := 0; i < len(lower)-2; i++ {
 		if lower[i] >= 'a' && lower[i] <= 'z' && lower[i+1] == ':' &&
 			(lower[i+2] == '\\' || lower[i+2] == '/') {
-			atStart := i == 0
+			atStart := strings.TrimLeft(lower[:i], " \t\r\n") == ""
 			atBoundary := !atStart &&
 				((lower[i-1] < 'a' || lower[i-1] > 'z') &&
 					(lower[i-1] < 'A' || lower[i-1] > 'Z'))
 			if atStart || atBoundary {
-				findings = append(findings, makeFinding(55, engine.SeverityHigh,
+				// A drive path that is the value, or follows a delimiter such
+				// as "=" or "/", is a file target. One a space into prose
+				// ("on Windows the path is C:\Users\...") is usually an
+				// explanation, so it only logs; sensitive targets (win.ini,
+				// SAM, system32) still score through their own checks.
+				score, sev, conf := 55, engine.SeverityHigh, 0.75
+				if !atStart && isSpaceByte(lower[i-1]) {
+					score, sev, conf = 25, engine.SeverityLow, 0.40
+				}
+				findings = append(findings, makeFinding(score, sev,
 					"Windows drive letter path detected",
-					extractContext(lower, lower[i:i+3]), location, 0.75))
+					extractContext(lower, lower[i:i+3]), location, conf))
 				break
 			}
 		}

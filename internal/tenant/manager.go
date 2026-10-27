@@ -106,9 +106,6 @@ type Manager struct {
 	// Tenant-specific rules
 	rulesManager *TenantRulesManager
 
-	// Billing
-	billingManager *BillingManager
-
 	// Alerts
 	alertManager *AlertManager
 
@@ -145,17 +142,16 @@ func NewManager(maxTenants int) *Manager {
 // NewManagerWithStore creates a new tenant manager with persistence.
 func NewManagerWithStore(maxTenants int, storePath string) *Manager {
 	m := &Manager{
-		tenants:        make(map[string]*Tenant),
-		domains:        make(map[string]string),
-		maxTenants:     maxTenants,
-		rateLimiter:    NewTenantRateLimiter(time.Minute),
-		hourLimiter:    NewTenantRateLimiter(time.Hour),
-		rulesManager:   NewTenantRulesManager(100),
-		billingManager: NewBillingManager(""),
-		alertManager:   NewAlertManager(),
-		store:          NewStore(storePath),
-		broadcastSem:   make(chan struct{}, 16),
-		log:            logging.NewLogger("tenant"),
+		tenants:      make(map[string]*Tenant),
+		domains:      make(map[string]string),
+		maxTenants:   maxTenants,
+		rateLimiter:  NewTenantRateLimiter(time.Minute),
+		hourLimiter:  NewTenantRateLimiter(time.Hour),
+		rulesManager: NewTenantRulesManager(100),
+		alertManager: NewAlertManager(),
+		store:        NewStore(storePath),
+		broadcastSem: make(chan struct{}, 16),
+		log:          logging.NewLogger("tenant"),
 	}
 	return m
 }
@@ -830,11 +826,6 @@ func (m *Manager) RecordUsage(tenant *Tenant, bytes int64) {
 	m.rateLimiter.Record(tenant.ID)
 	m.hourLimiter.Record(tenant.ID)
 
-	// Record for billing
-	if m.billingManager != nil {
-		m.billingManager.RecordUsage(tenant.ID, 1, bytes, 0)
-	}
-
 	// Check quota alerts
 	if m.alertManager != nil {
 		currentRPM := m.rateLimiter.Count(tenant.ID)
@@ -869,30 +860,11 @@ func (m *Manager) RecordBlocked(tenant *Tenant) {
 	tenant.mu.Lock()
 	tenant.BlockedCount++
 	tenant.mu.Unlock()
-
-	// Record for billing (security value)
-	if m.billingManager != nil {
-		m.billingManager.RecordUsage(tenant.ID, 0, 0, 1)
-	}
-}
-
-// BillingManager returns the billing manager.
-func (m *Manager) BillingManager() *BillingManager {
-	return m.billingManager
 }
 
 // AlertManager returns the alert manager.
 func (m *Manager) AlertManager() *AlertManager {
 	return m.alertManager
-}
-
-// SetBillingStorePath sets the storage path for billing data.
-func (m *Manager) SetBillingStorePath(path string) {
-	if m.billingManager != nil {
-		// Note: This won't change the path for existing billing manager
-		// Should be set before first use
-		_ = path // unused - billing path is set at initialization
-	}
 }
 
 // TenantUpdate contains fields that can be updated.
@@ -1037,17 +1009,13 @@ const (
 	// apiKeyHashIterationsLegacy is the v2 iteration count (100K). Kept for
 	// backward-compatible verification of existing hashes.
 	apiKeyHashIterationsLegacy = 100000
-	// apiKeyHashIterationsDefault is the current iteration count (600K),
-	// matching OWASP 2023+ guidance for PBKDF2-HMAC-SHA256.
-	apiKeyHashIterationsDefault = 600000
 )
 
-// apiKeyHashIterations is the cost applied to new hashes. It is always
-// apiKeyHashIterationsDefault in production; only this package's test init
-// (hash_cost_test.go) lowers it, because every test tenant would otherwise
-// pay a full-cost hash.
-// Verification reads the cost from the stored hash, so it is unaffected.
-var apiKeyHashIterations = apiKeyHashIterationsDefault
+// apiKeyHashIterations is the iteration count for new hashes (600K), matching
+// OWASP 2023+ guidance for PBKDF2-HMAC-SHA256. It is a variable only so the
+// package tests can lower it: v3 hashes record their own iteration count, so
+// verification behaves identically at any value.
+var apiKeyHashIterations = 600000
 
 // hashAPIKey hashes an API key using PBKDF2-HMAC-SHA256 (via crypto/pbkdf2)
 // with a random salt. Returns "v3$iterations$salt$hash" format. The v3

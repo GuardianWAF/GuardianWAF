@@ -115,8 +115,6 @@ export default function TenantDetailPage() {
 
     email: '',
 
-    plan: 'basic',
-
     status: 'active',
 
     domains: ['']
@@ -148,8 +146,6 @@ export default function TenantDetailPage() {
         name: data.name || '',
 
         email: data.email || '',
-
-        plan: data.plan || 'basic',
 
         status: data.status || 'active',
 
@@ -595,34 +591,6 @@ export default function TenantDetailPage() {
 
               <div className="space-y-2">
 
-                <Label htmlFor="plan">Plan</Label>
-
-                <Select
-
-                  id="plan"
-
-                  value={form.plan}
-
-                  disabled
-
-                >
-
-                  <SelectOption value="free">Free</SelectOption>
-
-                  <SelectOption value="basic">Basic</SelectOption>
-
-                  <SelectOption value="pro">Pro</SelectOption>
-
-                  <SelectOption value="enterprise">Enterprise</SelectOption>
-
-                </Select>
-
-              </div>
-
-
-
-              <div className="space-y-2">
-
                 <Label htmlFor="status">Status</Label>
 
                 <Select
@@ -637,11 +605,7 @@ export default function TenantDetailPage() {
 
                   <SelectOption value="active">Active</SelectOption>
 
-                  <SelectOption value="trial">Trial</SelectOption>
-
                   <SelectOption value="suspended">Suspended</SelectOption>
-
-                  <SelectOption value="expired">Expired</SelectOption>
 
                 </Select>
 

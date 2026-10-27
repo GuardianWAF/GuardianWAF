@@ -101,6 +101,12 @@ var prometheusMetricsContract = []prometheusMetric{
 		Type:  "counter",
 		Value: func(s engine.Stats) int64 { return s.TracingExported },
 	},
+	{
+		Name:  "guardianwaf_tracing_spans_dropped_total",
+		Help:  "Total number of tracing spans the exporter dropped (queue full or delivery failed).",
+		Type:  "counter",
+		Value: func(s engine.Stats) int64 { return s.TracingDropped },
+	},
 }
 
 // clusterMetricsSource is the slice of dashboard.ClusterStatusProvider the

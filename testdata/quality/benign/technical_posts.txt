@@ -1,0 +1,72 @@
+# Developer forum posts and support tickets that quote code. Real deployments
+# usually exclude such endpoints, so this corpus has its own looser budget.
+# placement: form,multipart
+How do I select only the first row in PostgreSQL? I tried LIMIT but it's slow on a big table.
+In SQL, what's the difference between UNION and UNION ALL?
+My query uses a JOIN on two tables and returns duplicates, any idea why?
+Should I use a stored procedure or an ORM for this?
+I get "syntax error at or near FROM" when I run my migration.
+Use an index on created_at, then ORDER BY created_at DESC.
+We dropped the legacy table after migrating the data last week.
+Remember to back up the database before you run any DELETE statement.
+The ORM generates a query with WHERE id IN (...) and 5000 parameters.
+Is it safe to store JSON in a text column or should I use jsonb?
+Prepared statements prevent SQL injection, never concatenate user input.
+In Python, use cursor.execute(query, params) instead of string formatting.
+The tutorial explains SQL injection and how parameterized queries fix it.
+To install, run npm install and then npm run build.
+Run go test ./... before pushing.
+Use git rebase -i to squash commits, then force-push your branch.
+I ran docker compose up and the container exits with code 137.
+Try kubectl describe pod to see why it's crash-looping.
+The cron job runs every 5 minutes, see crontab -e.
+Set the environment variable before starting the server.
+On Windows the path is C:\Users\me\AppData\Local\App, on macOS it's ~/Library/Application Support/App.
+My config lives in /etc/nginx/conf.d/site.conf, is that the right place?
+Logs are under /var/log/myapp/ and rotate daily.
+In React, useEffect runs after render; pass an empty array to run it once.
+Why does my onClick handler fire twice in StrictMode?
+Use encodeURIComponent for query parameters in JavaScript.
+document.querySelector returns null because the script runs before the DOM is ready.
+You can escape HTML with a library instead of writing your own sanitizer.
+In Go, a nil map can be read but not written.
+Use context.WithTimeout to cancel long-running requests.
+The function returns an error if the file doesn't exist.
+Rust's borrow checker complains about a mutable reference here.
+Java's Optional helps avoid NullPointerException.
+In C#, async void should only be used for event handlers.
+PHP 8 introduced named arguments and match expressions.
+Ruby on Rails migrations can be rolled back with rails db:rollback.
+Our CI pipeline caches node_modules between runs.
+The regex ^[a-z0-9_-]{3,16}$ validates usernames.
+I'm using the template syntax with double curly braces in Vue and it renders the variable fine.
+In Jinja you loop with for/endfor blocks.
+YAML is indentation-sensitive, so check your spaces vs tabs.
+The XML file has a DOCTYPE declaration but no external entities.
+Base64-encode the credentials and send them in the Authorization header.
+JWTs have three parts separated by dots: header, payload, signature.
+CORS errors happen when the server doesn't return Access-Control-Allow-Origin.
+Set SameSite=Lax on the session cookie.
+The Content-Security-Policy header blocks inline scripts by default.
+Rate limiting returns 429 Too Many Requests.
+A 502 Bad Gateway usually means the upstream crashed.
+Check the TLS certificate chain with openssl s_client.
+I benchmarked it: the new version handles 12k req/s vs 8k before.
+Memory usage grows to 2 GB after a few hours, looks like a leak.
+The goroutine count keeps increasing; I'm not closing response bodies.
+Use pprof to find where the CPU time goes.
+The test is flaky because it depends on wall-clock time.
+Mock the HTTP client instead of calling the real API in unit tests.
+We use feature flags to roll out the change to 10% of users.
+Blue-green deployment lets us switch traffic back instantly.
+Our SLO is 99.9% availability per 30 days.
+Postmortem: the outage was caused by a misconfigured load balancer.
+Add your public key to ~/.ssh/authorized_keys on the server, then chmod 600 it.
+aws configure stores the access key in ~/.aws/credentials by default.
+Run kubectl config view; it reads ~/.kube/config unless KUBECONFIG is set.
+If the build hangs, clear ~/.bash_history and re-run the provisioning script.
+const s = "a"; window.addEventListener('load', init);
+In React you write const el = 'root'; document.getElementById(el)
+Try `npm run build`; location.reload() usually fixes the stale cache.
+fetch('/api/items').then(r => r.json()); // works in every modern browser
+setTimeout(() => console.log('done'), 100); is the classic way to defer.

@@ -86,23 +86,22 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 	scanInputs("query", queryForms...)
 
 	// 3. Body (if present)
-	scanInputs("body", ctx.BodyString, ctx.NormalizedBody)
+	// Decoded fields of a structured (JSON/form) body, else the whole body.
+	scanInputs("body", ctx.BodyViews()...)
 
 	// 4. Cookie values (elevated scrutiny — cookies often carry auth tokens/sessions
 	// that are seldom intentionally SQL-shaped; catch delimiter-less injection)
-	for _, vals := range ctx.Cookies {
-		for _, v := range vals {
-			cookieFindings := Detect(v, "cookie")
-			// Elevate scores for cookie values containing injection patterns without
-			// surrounding SQL delimiters (quotes, parens). Pattern: unquoted operators
-			// and tautologies like "admin OR 1=1" where cookie value isn't wrapped.
-			for i := range cookieFindings {
-				if cookieFindings[i].Score < 30 && isSQLishPattern(v) {
-					cookieFindings[i].Score = 30
-				}
+	for _, v := range ctx.CookieViews() {
+		cookieFindings := Detect(v, "cookie")
+		// Elevate scores for cookie values containing injection patterns without
+		// surrounding SQL delimiters (quotes, parens). Pattern: unquoted operators
+		// and tautologies like "admin OR 1=1" where cookie value isn't wrapped.
+		for i := range cookieFindings {
+			if cookieFindings[i].Score < 30 && isSQLishPattern(v) {
+				cookieFindings[i].Score = 30
 			}
-			allFindings = append(allFindings, cookieFindings...)
 		}
+		allFindings = append(allFindings, cookieFindings...)
 	}
 
 	// 5. Referer header
@@ -121,6 +120,12 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 			}
 			allFindings = append(allFindings, uaFindings...)
 		}
+	}
+
+	// 7. Application-defined headers (X-Original-URL, X-Api-Key, ...) are
+	// read by backends as data; see engine.CustomHeaderViews.
+	for _, v := range ctx.CustomHeaderViews() {
+		allFindings = append(allFindings, Detect(v, "header")...)
 	}
 
 	// Apply multiplier to all findings

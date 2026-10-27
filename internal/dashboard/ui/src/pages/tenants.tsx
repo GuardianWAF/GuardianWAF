@@ -87,18 +87,7 @@ export default function TenantsPage() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'active': return 'bg-green-500'
-      case 'trial': return 'bg-blue-500'
       case 'suspended': return 'bg-yellow-500'
-      case 'expired': return 'bg-red-500'
-      default: return 'bg-gray-500'
-    }
-  }
-
-  const getPlanColor = (plan: string) => {
-    switch (plan) {
-      case 'enterprise': return 'bg-purple-500'
-      case 'pro': return 'bg-indigo-500'
-      case 'basic': return 'bg-blue-500'
       default: return 'bg-gray-500'
     }
   }
@@ -140,12 +129,11 @@ export default function TenantsPage() {
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full">
-                <caption className="sr-only">List of tenants with name, domains, plan, status, usage, and actions columns</caption>
+                <caption className="sr-only">List of tenants with name, domains, status, usage, and actions columns</caption>
                 <thead>
                   <tr className="border-b border-gray-200 dark:border-gray-700">
                     <th scope="col" className="text-left py-3 px-4 font-medium">Tenant</th>
                     <th scope="col" className="text-left py-3 px-4 font-medium">Domains</th>
-                    <th scope="col" className="text-left py-3 px-4 font-medium">Plan</th>
                     <th scope="col" className="text-left py-3 px-4 font-medium">Status</th>
                     <th scope="col" className="text-left py-3 px-4 font-medium">Usage</th>
                     <th scope="col" className="text-left py-3 px-4 font-medium">Actions</th>
@@ -172,11 +160,6 @@ export default function TenantsPage() {
                             </Badge>
                           ))}
                         </div>
-                      </td>
-                      <td className="py-3 px-4">
-                        <Badge className={getPlanColor(tenant.plan)}>
-                          {tenant.plan}
-                        </Badge>
                       </td>
                       <td className="py-3 px-4">
                         <Badge className={getStatusColor(tenant.status)}>

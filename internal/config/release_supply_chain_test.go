@@ -419,7 +419,6 @@ func TestCIWorkflowPinsActionsToolsAndReleaseGates(t *testing.T) {
 		"gosec -include=G304,G703 -severity=medium -confidence=medium ./internal/geoip",
 		"gosec -include=G304,G703 -severity=medium -confidence=medium ./internal/engine",
 		"gosec -include=G304,G703 -severity=medium -confidence=medium ./internal/ai",
-		"gosec -include=G304,G703 -severity=medium -confidence=medium ./internal/compliance",
 		"gosec -include=G304,G703 -severity=medium -confidence=medium ./cmd/guardianwaf",
 		"gosec -include=G304,G703 -severity=medium -confidence=medium ./internal/layers/ipacl",
 		"gosec -include=G304,G703 -severity=medium -confidence=medium ./internal/layers/crs",
@@ -1914,7 +1913,9 @@ func TestDetectionQualityDocsDescribeCorpusGate(t *testing.T) {
 		"testdata/attacks/xxe.txt",
 		"testdata/benign/application_logs.txt",
 		"Combined benign corpus",
-		"9/211 at or above block threshold, 4.3%; weighted FP avg 0.56",
+		"8/211 at or above block threshold, 3.8%; weighted FP avg 0.53",
+		"## End-to-End Quality Gate",
+		"go test ./tests/quality -count=1 -v",
 		"go test ./internal/layers/detection -run TestDetectionLayer_CorpusQualityBaseline -count=1 -v",
 		"at least 20 application-log benign samples",
 	} {
@@ -1940,7 +1941,7 @@ func TestCleanCheckoutDashboardEmbedContract(t *testing.T) {
 	root := filepath.Join("..", "..")
 	placeholder := readTextFixture(t, filepath.Join(root, "internal/dashboard/dist/placeholder.txt"))
 	gitignore := readTextFixture(t, filepath.Join(root, ".gitignore"))
-	roadmap := readTextFixture(t, filepath.Join(root, "docs/production-readiness-roadmap.md"))
+	roadmap := readTextFixture(t, filepath.Join(root, "docs/history/production-readiness-roadmap.md"))
 	readme := readTextFixture(t, filepath.Join(root, "README.md"))
 	gettingStarted := readTextFixture(t, filepath.Join(root, "docs/getting-started.md"))
 	productionDeployment := readTextFixture(t, filepath.Join(root, "docs/production-deployment.md"))

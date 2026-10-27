@@ -25,6 +25,11 @@ func analyzeSignificant(significant []Token, location string) []engine.Finding {
 	// 2. String literal + OR/AND keyword (with tautology check)
 	findings = append(findings, checkBooleanInjection(significant, location)...)
 
+	// 2b. Quote breakout followed by boolean logic and a comment or tautology
+	if f, ok := checkQuoteBreakoutLogic(significant, location); ok {
+		findings = append(findings, f)
+	}
+
 	// 3. SEMICOLON + dangerous keyword (stacked queries)
 	if f, ok := checkStackedQuery(significant, location); ok {
 		findings = append(findings, f)
@@ -83,16 +88,9 @@ func Detect(input, location string) []engine.Finding {
 	if input == "" {
 		return nil
 	}
-	// Detect owns the token slice, so whitespace is dropped in place instead
-	// of copying it: large bodies tokenize into tens of thousands of tokens.
-	tokens := Tokenize(input)
-	significant := tokens[:0]
-	for _, t := range tokens {
-		if t.Type != TokenWhitespace {
-			significant = append(significant, t)
-		}
-	}
-	return analyzeSignificant(significant, location)
+	// The analysis ignores whitespace, so it is never emitted: large bodies
+	// tokenize into tens of thousands of tokens, about half of them spaces.
+	return analyzeSignificant(tokenize(input, false), location)
 }
 
 // filterSignificant returns tokens with whitespace removed.
@@ -108,6 +106,9 @@ func filterSignificant(tokens []Token) []Token {
 
 // tokenUpperValue returns the uppercase version of a token's value.
 func tokenUpperValue(t Token) string {
+	if t.class != 0 {
+		return classUpper[t.class]
+	}
 	return strings.ToUpper(t.Value)
 }
 
@@ -168,8 +169,10 @@ func checkUnionSelect(tokens []Token, location string) (engine.Finding, bool) {
 func checkBooleanInjection(tokens []Token, location string) []engine.Finding {
 	var findings []engine.Finding
 	for i := 0; i < len(tokens); i++ {
-		upper := tokenUpperValue(tokens[i])
-		if (tokens[i].Type == TokenKeyword || tokens[i].Type == TokenOperator) && (upper == "OR" || upper == "AND") {
+		if tokens[i].Type != TokenKeyword && tokens[i].Type != TokenOperator {
+			continue
+		}
+		if upper := tokenUpperValue(tokens[i]); upper == "OR" || upper == "AND" {
 			// Check if preceded by string literal or followed by tautology
 			hasPrecedingString := false
 			for j := i - 1; j >= 0; j-- {
@@ -185,6 +188,12 @@ func checkBooleanInjection(tokens []Token, location string) []engine.Finding {
 			score := 0
 			if hasPrecedingString {
 				score = 30
+				if proseAfter(tokens, i+1) {
+					// "the 'red' and blue ones": still logged, but too weak to
+					// push quoted prose over the block threshold with one more
+					// low-confidence signal.
+					score = 10
+				}
 			}
 
 			// Check for tautology after the OR/AND
@@ -409,8 +418,8 @@ func checkIntoOutfile(tokens []Token, location string) (engine.Finding, bool) {
 //
 // Two shapes are distinguished, because they carry very different confidence:
 //
-//   - Tight: the comment abuts the quote, with nothing between it but closing
-//     parentheses — `admin'--`, `admin'#`, `admin')--`, `admin")--`. This is the
+//   - Tight: the comment abuts a bare quote, with nothing between them but
+//     closing parentheses — `admin'--`, `admin'#`, `admin')--`, `admin")--`. This is the
 //     canonical authentication-bypass primitive (close the literal, comment out
 //     the rest of the WHERE clause) and has no benign free-text equivalent, so
 //     it is scored above the block threshold on its own.
@@ -424,7 +433,9 @@ func checkCommentAfterString(tokens []Token, location string) (engine.Finding, b
 		if tokens[i].Type != TokenStringLiteral {
 			continue
 		}
-		tight := true
+		// Only a bare quote breaks out of the application's literal. A whole
+		// quoted word before a comment ("he said 'no' -- typical") is prose.
+		tight := tokens[i].Value == "'" || tokens[i].Value == `"`
 		for j := i + 1; j < len(tokens); j++ {
 			if tokens[j].Type == TokenComment {
 				matched := extractRange(tokens, i, j)
@@ -481,7 +492,13 @@ func checkExecString(tokens []Token, location string) (engine.Finding, bool) {
 					if tokens[j].Type == TokenParenOpen {
 						continue
 					}
-					if tokens[j].Type == TokenStringLiteral || tokens[j].Type == TokenOther || tokens[j].Type == TokenFunction {
+					// A bare identifier counts only when it is shaped like an
+					// executable target — a system/stored procedure (xp_, sp_),
+					// a schema-qualified name (master..xp_cmdshell, dbo.proc) or
+					// a variable (@sql). Any word used to match, so ordinary
+					// text such as "exec office chair" scored 80 and blocked.
+					if tokens[j].Type == TokenStringLiteral || tokens[j].Type == TokenFunction ||
+						tokens[j].Type == TokenOther && looksLikeExecTarget(tokens[j].Value) {
 						matched := extractRange(tokens, i, min(len(tokens)-1, j+2))
 						return makeFinding(80, engine.SeverityHigh,
 							"EXEC/EXECUTE with dynamic argument",
@@ -493,6 +510,76 @@ func checkExecString(tokens []Token, location string) (engine.Finding, bool) {
 		}
 	}
 	return engine.Finding{}, false
+}
+
+// checkQuoteBreakoutLogic detects the canonical injection shape: a bare quote
+// that closes the application's string literal, optional closing parens, a
+// boolean operator, and then either a comment that discards the rest of the
+// query (`' OR 1 --`, `' HAVING 1=1 --`, `'||1=1 --`) or a literal comparison
+// that re-balances the trailing quote (`') OR ('1'='1`, `" OR "1"="1`).
+//
+// Natural text never puts OR/AND/||/&& directly after an apostrophe — "it's",
+// "O'Brien or" and "rock 'n' roll" all continue with a word — so the shape is
+// scored above the block threshold on its own.
+func checkQuoteBreakoutLogic(tokens []Token, location string) (engine.Finding, bool) {
+	for i := 0; i < len(tokens); i++ {
+		if tokens[i].Type != TokenStringLiteral || (tokens[i].Value != "'" && tokens[i].Value != `"`) {
+			continue
+		}
+		j := i + 1
+		for j < len(tokens) && tokens[j].Type == TokenParenClose {
+			j++
+		}
+		if j >= len(tokens) {
+			continue
+		}
+		logic := false
+		switch {
+		case tokens[j].Type == TokenKeyword:
+			switch tokenUpperValue(tokens[j]) {
+			case "OR", "AND", "XOR", "HAVING":
+				logic = true
+			case "GROUP", "ORDER": // ' ORDER BY 1-- (column-count probe)
+				logic = j+1 < len(tokens) && tokenUpperValue(tokens[j+1]) == "BY"
+			}
+		case j+1 < len(tokens) && tokens[j].Value == "|" && tokens[j+1].Value == "|",
+			j+1 < len(tokens) && tokens[j].Value == "&" && tokens[j+1].Value == "&",
+			tokens[j].Value == "||", tokens[j].Value == "&&":
+			logic = true
+		}
+		if !logic || proseAfter(tokens, j+1) {
+			continue
+		}
+		comparison := false
+		for k := j + 1; k < len(tokens); k++ {
+			switch {
+			case tokens[k].Type == TokenComment:
+				return makeFinding(60, engine.SeverityHigh,
+					"Quote breakout with boolean logic and the remainder commented out",
+					extractRange(tokens, i, k), location, 0.90), true
+			case tokens[k].Type == TokenOperator && (tokens[k].Value == "=" || tokens[k].Value == "<>" || tokens[k].Value == "!="):
+				comparison = true
+			case comparison && k >= len(tokens)-2 && tokens[k].Type == TokenStringLiteral &&
+				(tokens[k].Value == "'" || tokens[k].Value == `"`):
+				// The comparison ends in a bare quote (optionally followed by
+				// one literal) that the application's own closing quote
+				// completes: `' OR ''='`, `') OR ('1'='1`.
+				return makeFinding(60, engine.SeverityHigh,
+					"Quote breakout with boolean tautology balancing the closing quote",
+					extractRange(tokens, i, k), location, 0.85), true
+			}
+		}
+	}
+	return engine.Finding{}, false
+}
+
+// looksLikeExecTarget reports whether an identifier after EXEC/EXECUTE names
+// something executable rather than being an ordinary word.
+func looksLikeExecTarget(ident string) bool {
+	lower := strings.ToLower(ident)
+	return strings.HasPrefix(lower, "xp_") || strings.HasPrefix(lower, "sp_") ||
+		strings.HasPrefix(lower, "@") || strings.Contains(lower, ".") ||
+		strings.Contains(lower, "_")
 }
 
 // checkCharConcat checks for CHAR/CONCAT with parentheses (obfuscation pattern).
@@ -545,13 +632,24 @@ func checkHexComparison(tokens []Token, location string) (engine.Finding, bool) 
 	return engine.Finding{}, false
 }
 
+// maxIsolatedKeywordFindings caps how many distinct keywords score. Prose
+// names many keywords ("create, update or delete a post, then select and
+// drop..."), and uncapped they would sum past the block threshold on their
+// own. Real injections are scored by the structural checks above.
+const maxIsolatedKeywordFindings = 2
+
 // checkIsolatedKeywords reports isolated SQL keywords at low score.
 func checkIsolatedKeywords(tokens []Token, location string) []engine.Finding {
 	var findings []engine.Finding
+	var seen []string
 	for _, t := range tokens {
 		if t.Type == TokenKeyword {
 			upper := tokenUpperValue(t)
-			if IsDangerousKeyword(upper) {
+			if IsDangerousKeyword(upper) && !slices.Contains(seen, upper) {
+				if len(seen) == maxIsolatedKeywordFindings {
+					break
+				}
+				seen = append(seen, upper)
 				findings = append(findings, makeFinding(10, engine.SeverityLow,
 					"SQL keyword found in input: "+upper,
 					t.Value, location, 0.20))
@@ -561,8 +659,14 @@ func checkIsolatedKeywords(tokens []Token, location string) []engine.Finding {
 	return findings
 }
 
-// checkMultipleDangerousKeywords applies bonus scoring when multiple dangerous keywords appear.
+// checkMultipleDangerousKeywords applies bonus scoring when multiple dangerous
+// keywords appear and at least two of them form SQL clauses. Plain prose such
+// as "the new select menu, an improved update flow and the drop in latency"
+// names three keywords but forms no clause, so it gets no bonus.
 func checkMultipleDangerousKeywords(tokens []Token, location string) (engine.Finding, bool) {
+	if countSQLClauses(tokens, 2) < 2 {
+		return engine.Finding{}, false
+	}
 	dangerousCount := 0
 	var dangerousWords []string
 	seen := make(map[string]bool)
@@ -582,6 +686,65 @@ func checkMultipleDangerousKeywords(tokens []Token, location string) (engine.Fin
 			strings.Join(dangerousWords, " "), location, 0.80), true
 	}
 	return engine.Finding{}, false
+}
+
+// countSQLClauses counts, up to limit, dangerous keywords that start a SQL
+// clause (see isSQLClauseAt) or directly follow a stacked-query semicolon or
+// comment.
+func countSQLClauses(tokens []Token, limit int) int {
+	n := 0
+	for i, t := range tokens {
+		if n == limit {
+			break
+		}
+		if t.Type != TokenKeyword || !IsDangerousKeyword(tokenUpperValue(t)) {
+			continue
+		}
+		if i > 0 && (tokens[i-1].Type == TokenSemicolon || tokens[i-1].Type == TokenComment) || isSQLClauseAt(tokens, i) {
+			n++
+		}
+	}
+	return n
+}
+
+// isSQLClauseAt reports whether the dangerous keyword at tokens[i] is followed
+// by what makes it a SQL clause: UNION SELECT, SELECT * or SELECT a, b FROM,
+// DELETE FROM, INSERT INTO, UPDATE <table> SET, DROP/TRUNCATE/ALTER/CREATE
+// TABLE and the like, EXEC( or EXEC xp_..., GRANT/REVOKE <privilege>.
+func isSQLClauseAt(tokens []Token, i int) bool {
+	at := func(j int) string {
+		if j < len(tokens) {
+			return tokenUpperValue(tokens[j])
+		}
+		return ""
+	}
+	next := at(i + 1)
+	switch tokenUpperValue(tokens[i]) {
+	case "UNION":
+		return next == "SELECT" || next == "ALL" || next == "DISTINCT"
+	case "SELECT":
+		return next == "*" || next == "DISTINCT" || at(i+2) == "FROM" || at(i+3) == "FROM" || at(i+4) == "FROM"
+	case "DELETE":
+		return next == "FROM"
+	case "INSERT":
+		return next == "INTO"
+	case "UPDATE":
+		return at(i+2) == "SET"
+	case "DROP", "TRUNCATE", "ALTER", "CREATE":
+		switch next {
+		case "TABLE", "DATABASE", "SCHEMA", "INDEX", "VIEW", "USER", "PROCEDURE", "FUNCTION", "TRIGGER":
+			return true
+		}
+	case "EXEC", "EXECUTE":
+		return i+1 < len(tokens) && tokens[i+1].Type == TokenParenOpen ||
+			strings.HasPrefix(next, "XP_") || strings.HasPrefix(next, "SP_")
+	case "GRANT", "REVOKE":
+		switch next {
+		case "ALL", "SELECT", "INSERT", "UPDATE", "DELETE", "EXECUTE", "USAGE", "CREATE", "ALTER", "DROP", "FILE", "SUPER":
+			return true
+		}
+	}
+	return false
 }
 
 // checkSubquery detects (SELECT ...) subquery patterns used in boolean injection context.
@@ -703,4 +866,55 @@ func hasSQLContinuation(tokens []Token, keywordIdx int) bool {
 		seen++
 	}
 	return false
+}
+
+// proseAfter reports whether the operand following a boolean operator at
+// tokens[start:] reads as English rather than SQL. Text such as
+// "Don't say 'no' and leave -- please" or "the 'red' and 'blue' options"
+// continues with a bare word, while an injection continues with a literal,
+// a function, a constant, or a column that an operator, keyword or
+// parenthesis follows (`' OR 1 --`, `' AND sleep(5)`, `' OR a=a`). The scan
+// stops at the first comment and looks at a short window only.
+func proseAfter(tokens []Token, start int) bool {
+	for k := start; k < len(tokens) && k < start+6; k++ {
+		switch tokens[k].Type {
+		case TokenComment, TokenParenOpen, TokenFunction, TokenOperator:
+			// A comparison, function call or sub-expression is SQL, whatever
+			// its operands look like (`' OR 'a'='a`,
+			// `' AND SUBSTRING(username,1,1)='a'`).
+			return false
+		}
+		if isProseWord(tokens, k) {
+			return true
+		}
+	}
+	return false
+}
+
+// isProseWord reports whether tokens[k] is a bare alphabetic word that is not
+// an SQL constant and is not followed by an operator, keyword or opening
+// parenthesis.
+func isProseWord(tokens []Token, k int) bool {
+	t := tokens[k]
+	if t.Type != TokenOther || t.Value == "" {
+		return false
+	}
+	for i := range len(t.Value) {
+		c := t.Value[i] | 0x20
+		if c < 'a' || c > 'z' {
+			return false
+		}
+	}
+	for _, c := range [...]string{"TRUE", "FALSE", "NULL", "UNKNOWN"} {
+		if strings.EqualFold(t.Value, c) {
+			return false
+		}
+	}
+	if k+1 < len(tokens) {
+		switch tokens[k+1].Type {
+		case TokenOperator, TokenKeyword, TokenParenOpen:
+			return false
+		}
+	}
+	return true
 }

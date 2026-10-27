@@ -479,24 +479,6 @@ func TestDashboardUICoreResponseShapesAreDocumentedInOpenAPI(t *testing.T) {
 		"events:",
 		"$ref: '#/components/schemas/DockerEvent'",
 	})
-	assertOpenAPIPathContains(t, openAPI, "/api/v1/compliance/controls", []string{
-		"controls:",
-		"$ref: '#/components/schemas/ComplianceControl'",
-		"frameworks:",
-	})
-	assertOpenAPIPathContains(t, openAPI, "/api/v1/compliance/report/{framework}", []string{
-		"$ref: '#/components/schemas/ComplianceReport'",
-	})
-	assertOpenAPIPathContains(t, openAPI, "/api/v1/compliance/audit-chain", []string{
-		"$ref: '#/components/schemas/AuditChainResponse'",
-	})
-	assertOpenAPISchemaContains(t, openAPI, "AuditChainResponse", []string{
-		"valid:",
-		"length:",
-		"errors:",
-		"integrity:",
-		"head_hash:",
-	})
 	assertOpenAPISchemaContains(t, openAPI, "AIProviderSummary", []string{
 		"id:",
 		"name:",
@@ -531,14 +513,6 @@ func TestDashboardUICoreResponseShapesAreDocumentedInOpenAPI(t *testing.T) {
 		"upstream:",
 		"target:",
 		"labels:",
-	})
-	assertOpenAPISchemaContains(t, openAPI, "ComplianceReport", []string{
-		"report_id:",
-		"generated_at:",
-		"period:",
-		"framework:",
-		"summary:",
-		"controls:",
 	})
 	assertOpenAPISchemaNotContains(t, openAPI, "AIConfig", []string{"api_key:"})
 }

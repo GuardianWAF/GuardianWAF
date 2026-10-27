@@ -28,7 +28,6 @@ func (d *Dashboard) registerRoutes() {
 	d.registerAI(d.mux)
 	d.registerAlerting(d.mux)
 	d.registerDocker(d.mux)
-	d.registerCompliance(d.mux)
 	d.registerAnalytics(d.mux)
 	d.registerCluster(d.mux)
 	d.registerTenantCompatibility(d.mux)

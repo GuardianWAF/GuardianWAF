@@ -51,6 +51,10 @@ type Command struct {
 type BanIPPayload struct {
 	IP       string        `json:"ip"`
 	Duration time.Duration `json:"duration"` // 0 = permanent
+	// BannedAt is fixed at proposal time so every node, and every replay of
+	// the log, computes the same expiry. Zero for commands written by older
+	// versions, which fall back to the apply-time clock.
+	BannedAt time.Time `json:"banned_at,omitzero"`
 }
 
 type UnbanIPPayload struct {
@@ -110,7 +114,7 @@ func NewBanCommand(ip string, duration time.Duration) (Command, error) {
 	if parsed == nil {
 		return Command{}, fmt.Errorf("clustersync: invalid ban IP %q", ip)
 	}
-	payload, err := json.Marshal(BanIPPayload{IP: parsed.String(), Duration: duration})
+	payload, err := json.Marshal(BanIPPayload{IP: parsed.String(), Duration: duration, BannedAt: time.Now().UTC()})
 	if err != nil {
 		return Command{}, err
 	}

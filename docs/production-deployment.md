@@ -565,7 +565,7 @@ curl --fail http://127.0.0.1:8088/livez
 curl --fail http://127.0.0.1:8088/readyz
 ```
 
-Before accepting traffic, verify event history, tenants, ACME material, compliance audit-chain continuity, and dashboard mutation audit replay. Record elapsed recovery time and attach the drill evidence to the release/operations record. `make backup-restore-smoke` validates integrity, tamper rejection, config validation, restore equality, cleanup, and the 300-second RTO budget locally; it does not replace a target-environment restore drill.
+Before accepting traffic, verify event history, tenants, ACME material, and dashboard mutation audit replay. Record elapsed recovery time and attach the drill evidence to the release/operations record. `make backup-restore-smoke` validates integrity, tamper rejection, config validation, restore equality, cleanup, and the 300-second RTO budget locally; it does not replace a target-environment restore drill.
 
 ---
 

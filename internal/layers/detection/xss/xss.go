@@ -85,13 +85,12 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 	scanInputs("query", queryForms...)
 
 	// 3. Body (if present)
-	scanInputs("body", ctx.BodyString, ctx.NormalizedBody)
+	// Decoded fields of a structured (JSON/form) body, else the whole body.
+	scanInputs("body", ctx.BodyViews()...)
 
 	// 4. Cookie values
-	for _, vals := range ctx.Cookies {
-		for _, v := range vals {
-			allFindings = append(allFindings, Detect(v, "cookie")...)
-		}
+	for _, v := range ctx.CookieViews() {
+		allFindings = append(allFindings, Detect(v, "cookie")...)
 	}
 
 	// 5. Referer header
@@ -110,6 +109,12 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 			}
 			allFindings = append(allFindings, uaFindings...)
 		}
+	}
+
+	// 7. Application-defined headers (X-Original-URL, X-Api-Key, ...) are
+	// read by backends as data; see engine.CustomHeaderViews.
+	for _, v := range ctx.CustomHeaderViews() {
+		allFindings = append(allFindings, Detect(v, "header")...)
 	}
 
 	// Apply multiplier to all findings

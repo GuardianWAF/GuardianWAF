@@ -6,9 +6,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
-	"github.com/guardianwaf/guardianwaf/internal/compliance"
 	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/dashboard"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
@@ -37,7 +37,9 @@ func startDashboard(cfg *config.Config, eng *engine.Engine) (*http.Server, *dash
 	// HTTP, making them interceptable. Operators who intentionally run behind
 	// a TLS-terminating reverse proxy on a trusted network should set
 	// dashboard.insecure: true in their config to acknowledge and suppress.
-	if !cfg.Dashboard.Insecure {
+	// A loopback bind (the default, 127.0.0.1:9443) is reachable only from the
+	// host itself, so warning there would train operators to ignore it.
+	if !cfg.Dashboard.Insecure && !isLoopbackListen(cfg.Dashboard.Listen) {
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "==========================================================")
 		fmt.Fprintln(os.Stderr, "[SECURITY WARNING] Dashboard is starting on plain HTTP!")
@@ -93,16 +95,6 @@ func startDashboard(cfg *config.Config, eng *engine.Engine) (*http.Server, *dash
 	dash.SetTrustedProxies(cfg.TrustedProxies)
 	dash.SetBuildInfo(version, commit, date)
 
-	if cfg.Compliance.Enabled {
-		compEngine, err := compliance.NewEngineWithError(cfg.Compliance)
-		if err != nil {
-			dash.Close()
-			fmt.Fprintf(os.Stderr, "Dashboard compliance error: %v\n", err)
-			return nil, nil, nil
-		}
-		dash.SetComplianceEngine(compEngine)
-	}
-
 	if cfg.Dashboard.AdminKey != "" {
 		dash.SetAdminKey(cfg.Dashboard.AdminKey)
 	} else {
@@ -139,4 +131,18 @@ func startDashboard(cfg *config.Config, eng *engine.Engine) (*http.Server, *dash
 func isTerminal(f *os.File) bool {
 	info, err := f.Stat()
 	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
+// isLoopbackListen reports whether addr ("host:port") binds only loopback
+// interfaces. An empty host (":9443") binds every interface.
+func isLoopbackListen(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil || host == "" {
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }

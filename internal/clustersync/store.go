@@ -185,7 +185,13 @@ func (s *ReplicatedStore) applyBanIP(payload BanIPPayload) error {
 		return fmt.Errorf("clustersync: invalid ban duration %s (0 = permanent)", payload.Duration)
 	}
 
-	now := time.Now()
+	// The proposal time makes the state machine deterministic: replaying the
+	// log after a restart must not re-ban an IP for a full duration that has
+	// already elapsed.
+	now := payload.BannedAt
+	if now.IsZero() {
+		now = time.Now()
+	}
 	// Opportunistic reclamation: expired bans are dead state (IsBanned
 	// filters them on read) but linger forever unless an operator issues an
 	// explicit unban per IP — PurgeExpiredBans has no production caller. Ban
@@ -339,4 +345,50 @@ type StoreStats struct {
 // String formats StoreStats for logging.
 func (s StoreStats) String() string {
 	return fmt.Sprintf("bans=%d rules=%d counters=%d", s.Bans, s.Rules, s.Counters)
+}
+
+// storeSnapshot is the serialized form of a ReplicatedStore.
+type storeSnapshot struct {
+	Bans        []BanEntry                 `json:"bans"`
+	Rules       map[string]json.RawMessage `json:"rules"`
+	Counters    map[string]CounterEntry    `json:"counters"`
+	SweptWindow int64                      `json:"swept_window"`
+}
+
+// snapshot serializes the full store state.
+func (s *ReplicatedStore) snapshot() ([]byte, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	snap := storeSnapshot{
+		Bans:        make([]BanEntry, 0, len(s.bans)),
+		Rules:       s.rules,
+		Counters:    s.counters,
+		SweptWindow: s.sweptWindow,
+	}
+	for _, b := range s.bans {
+		snap.Bans = append(snap.Bans, b)
+	}
+	return json.Marshal(snap)
+}
+
+// restore replaces the store state with a snapshot.
+func (s *ReplicatedStore) restore(data []byte) error {
+	var snap storeSnapshot
+	if err := json.Unmarshal(data, &snap); err != nil {
+		return fmt.Errorf("clustersync: decode snapshot: %w", err)
+	}
+	bans := make(map[string]BanEntry, len(snap.Bans))
+	for _, b := range snap.Bans {
+		bans[b.IP] = b
+	}
+	if snap.Rules == nil {
+		snap.Rules = make(map[string]json.RawMessage)
+	}
+	if snap.Counters == nil {
+		snap.Counters = make(map[string]CounterEntry)
+	}
+	s.mu.Lock()
+	s.bans, s.rules, s.counters, s.sweptWindow = bans, snap.Rules, snap.Counters, snap.SweptWindow
+	s.mu.Unlock()
+	return nil
 }

@@ -13,7 +13,7 @@ GuardianWAF has 29 pipeline layers and growing functionality. Not all features a
 - Enterprise tenants may want ML anomaly detection while smaller deployments do not
 - Canary releases of new detection rules need gradual rollout
 - Emergency kill switches for individual layers (e.g., disable AI remediation if provider has an outage)
-- Per-tenant feature differentiation for billing tiers
+- Per-tenant feature differentiation
 
 Without feature flags, enabling/disabling features requires config changes and restarts, or complex conditional logic scattered across the codebase.
 

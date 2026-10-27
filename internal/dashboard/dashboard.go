@@ -17,7 +17,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/guardianwaf/guardianwaf/internal/compliance"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/events"
 	"github.com/guardianwaf/guardianwaf/internal/layers/apivalidation"
@@ -46,7 +45,6 @@ type tenantManagerInterface interface {
 	DeleteTenant(id string) error
 	RegenerateAPIKey(id string) (string, error)
 	Stats() any
-	BillingManager() BillingManagerInterface
 	AlertManager() AlertManagerInterface
 	GetAllUsage() []any
 	GetTenantUsage(tenantID string) any
@@ -56,14 +54,6 @@ type tenantManagerInterface interface {
 	UpdateTenantRule(tenantID string, rule map[string]any) error
 	RemoveTenantRule(tenantID, ruleID string) error
 	ToggleTenantRule(tenantID, ruleID string, enabled bool) error
-}
-
-// BillingManagerInterface is the interface for tenant billing.
-type BillingManagerInterface interface {
-	GetAllInvoices() []any
-	GetInvoices(tenantID string) []any
-	GetCurrentUsage(tenantID string) any
-	GenerateInvoice(tenantID, tenantName string, plan string, periodStart, periodEnd time.Time) (any, error)
 }
 
 // AlertManagerInterface is the interface for tenant alerts.
@@ -79,7 +69,7 @@ type Dashboard struct {
 	mux        *http.ServeMux
 	apiKey     atomic.Value // stores *apiKeyHolder
 	buildInfo  map[string]string
-	adminKey   string // Separate key for system admin operations (tenant management, billing, stats)
+	adminKey   string // Separate key for system admin operations (tenant management, quotas, stats)
 	pprofKey   string // Separate key for pprof debug endpoints (more restrictive than apiKey)
 	// Atomic: production publishes the handler after the dashboard server has
 	// begun serving (main.go wires it post-startDashboard), so request
@@ -102,10 +92,9 @@ type Dashboard struct {
 
 	// Existing interfaces (kept as-is). Atomic for the same reason —
 	// published post-start (setupTenantRuntime/setupAIRuntime).
-	aiAnalyzer       atomic.Pointer[aiAnalyzerInterface]    // AI threat analyzer (optional)
-	dockerWatcher    atomic.Pointer[dockerWatcherInterface] // Docker auto-discovery (optional). Atomic: published post-start (setupDockerRuntime).
-	tenantManager    atomic.Pointer[tenantManagerInterface] // Multi-tenant manager (optional)
-	complianceEngine *compliance.Engine                     // Compliance reporting engine (optional)
+	aiAnalyzer    atomic.Pointer[aiAnalyzerInterface]    // AI threat analyzer (optional)
+	dockerWatcher atomic.Pointer[dockerWatcherInterface] // Docker auto-discovery (optional). Atomic: published post-start (setupDockerRuntime).
+	tenantManager atomic.Pointer[tenantManagerInterface] // Multi-tenant manager (optional)
 
 	// Login rate limiting: per-IP token buckets
 	loginBuckets sync.Map // map[string]*loginBucket
@@ -199,7 +188,7 @@ func (d *Dashboard) CurrentAPIKey() string {
 
 // SetAdminKey sets the system administrator API key.
 // This key grants exclusive access to /api/admin/* endpoints for cross-tenant
-// management (tenant CRUD, billing, system-wide stats). It is separate from
+// management (tenant CRUD, quotas, system-wide stats). It is separate from
 // the per-tenant API key which only authenticates within a single tenant context.
 // If not set, admin endpoints are inaccessible.
 func (d *Dashboard) SetAdminKey(key string) {
@@ -446,11 +435,6 @@ func (a *alertingStatsAdapter) GetAlertingStats() any { return a.fn() }
 
 // SetTenantManager injects the multi-tenant manager.
 // Also registers all existing tenant API keys for per-tenant authentication (AUTH-003).
-// SetComplianceEngine sets the compliance reporting engine for the dashboard.
-func (d *Dashboard) SetComplianceEngine(e *compliance.Engine) {
-	d.complianceEngine = e
-}
-
 func (d *Dashboard) SetTenantManager(manager tenantManagerInterface) {
 	// Atomic publication: the dashboard server may already be serving tenant
 	// endpoints when this runs (the production wiring happens after

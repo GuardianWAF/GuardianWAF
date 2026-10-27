@@ -61,12 +61,5 @@ func (d *Dashboard) registerDocker(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/docker/events", d.authWrap(d.handleDockerEvents))
 }
 
-// registerCompliance registers compliance reporting routes.
-func (d *Dashboard) registerCompliance(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/v1/compliance/controls", d.authWrap(d.handleComplianceControls))
-	mux.HandleFunc("GET /api/v1/compliance/report/{framework}", d.authWrap(d.handleComplianceReport))
-	mux.HandleFunc("GET /api/v1/compliance/audit-chain", d.authWrap(d.handleAuditChain))
-}
-
 // registerSPA is a no-op — SPA routes are registered in registerRouting.
 func (d *Dashboard) registerSPA(mux *http.ServeMux) {}

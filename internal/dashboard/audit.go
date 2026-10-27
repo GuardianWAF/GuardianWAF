@@ -3,8 +3,12 @@ package dashboard
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -27,6 +31,110 @@ type AuditEntry struct {
 	RemoteAddr string    `json:"remote_addr"`
 	Status     int       `json:"status"`
 	Mutation   string    `json:"mutation"` // human-readable summary
+
+	// Hash chain (tamper evidence). Seq numbers entries from 1; Hash is
+	// hex SHA-256 over PrevHash followed by the entry's JSON encoding with
+	// Hash empty. Editing, inserting, deleting or reordering any stored entry
+	// breaks the chain. Truncating the newest entries does not, so record the
+	// chain head (GET /api/v1/audit) off the host. Entries written before
+	// 0.7.0 have none of these fields and are accepted only as a prefix.
+	Seq      uint64 `json:"seq,omitempty"`
+	PrevHash string `json:"prev_hash,omitempty"`
+	Hash     string `json:"hash,omitempty"`
+}
+
+// AuditChainHead identifies the newest entry of an audit hash chain.
+type AuditChainHead struct {
+	Seq  uint64 `json:"seq"`
+	Hash string `json:"hash"`
+}
+
+// auditEntryHash returns the chain hash of entry, which must have Seq and
+// PrevHash set. Hash itself is excluded.
+func auditEntryHash(entry AuditEntry) (string, error) {
+	entry.Hash = ""
+	data, err := json.Marshal(entry)
+	if err != nil {
+		return "", err
+	}
+	h := sha256.New()
+	h.Write([]byte(entry.PrevHash))
+	h.Write(data)
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// auditChainVerifier checks entries one by one in file order.
+type auditChainVerifier struct {
+	head    AuditChainHead
+	chained bool // a hashed entry has been seen; legacy entries are no longer allowed
+}
+
+func (v *auditChainVerifier) next(entry AuditEntry) error {
+	if entry.Hash == "" && entry.Seq == 0 && entry.PrevHash == "" {
+		if v.chained {
+			return errors.New("unchained entry after the hash chain started")
+		}
+		return nil // legacy (pre-0.7.0) prefix
+	}
+	if entry.Seq != v.head.Seq+1 {
+		return fmt.Errorf("hash chain sequence %d, want %d", entry.Seq, v.head.Seq+1)
+	}
+	if entry.PrevHash != v.head.Hash {
+		return fmt.Errorf("hash chain broken at seq %d: prev_hash does not match the previous entry", entry.Seq)
+	}
+	want, err := auditEntryHash(entry)
+	if err != nil {
+		return err
+	}
+	if entry.Hash != want {
+		return fmt.Errorf("hash chain broken at seq %d: entry was modified", entry.Seq)
+	}
+	v.head = AuditChainHead{Seq: entry.Seq, Hash: entry.Hash}
+	v.chained = true
+	return nil
+}
+
+// replayAuditEntries decodes and verifies JSONL audit entries from r,
+// calling fn for each, and returns the chain head.
+func replayAuditEntries(r io.Reader, fn func(AuditEntry)) (AuditChainHead, error) {
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 4096), maxAuditEntryBytes)
+	var verifier auditChainVerifier
+	line := 0
+	for scanner.Scan() {
+		line++
+		if len(strings.TrimSpace(scanner.Text())) == 0 {
+			continue
+		}
+		var entry AuditEntry
+		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
+			return AuditChainHead{}, fmt.Errorf("decode audit log line %d: %w", line, err)
+		}
+		if entry.Timestamp.IsZero() || entry.Method == "" || entry.Path == "" || entry.Mutation == "" {
+			return AuditChainHead{}, fmt.Errorf("decode audit log line %d: required audit fields are missing", line)
+		}
+		if err := verifier.next(entry); err != nil {
+			return AuditChainHead{}, fmt.Errorf("verify audit log line %d: %w", line, err)
+		}
+		if fn != nil {
+			fn(entry)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return AuditChainHead{}, fmt.Errorf("read audit log: %w", err)
+	}
+	return verifier.head, nil
+}
+
+// VerifyAuditFile checks the hash chain of a persisted dashboard audit log
+// and returns its head.
+func VerifyAuditFile(path string) (AuditChainHead, error) {
+	f, err := os.Open(filepath.Clean(path)) // #nosec G304 -- operator-supplied path
+	if err != nil {
+		return AuditChainHead{}, fmt.Errorf("open audit log: %w", err)
+	}
+	defer f.Close()
+	return replayAuditEntries(f, nil)
 }
 
 // AuditLog is a thread-safe ring buffer of recent audit entries.
@@ -38,6 +146,7 @@ type AuditLog struct {
 	pos     int
 	full    bool
 	file    *os.File
+	head    AuditChainHead
 }
 
 var auditPersistenceFailures atomic.Uint64
@@ -110,26 +219,11 @@ func NewPersistentAuditLog(path string, maxSize int) (*AuditLog, error) {
 	if _, err := file.Seek(0, 0); err != nil {
 		return closeOnError(fmt.Errorf("seek audit log: %w", err))
 	}
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 4096), maxAuditEntryBytes)
-	line := 0
-	for scanner.Scan() {
-		line++
-		if len(strings.TrimSpace(scanner.Text())) == 0 {
-			continue
-		}
-		var entry AuditEntry
-		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
-			return closeOnError(fmt.Errorf("decode audit log line %d: %w", line, err))
-		}
-		if entry.Timestamp.IsZero() || entry.Method == "" || entry.Path == "" || entry.Mutation == "" {
-			return closeOnError(fmt.Errorf("decode audit log line %d: required audit fields are missing", line))
-		}
-		log.appendMemory(entry)
+	head, replayErr := replayAuditEntries(file, log.appendMemory)
+	if replayErr != nil {
+		return closeOnError(replayErr)
 	}
-	if err := scanner.Err(); err != nil {
-		return closeOnError(fmt.Errorf("read audit log: %w", err))
-	}
+	log.head = head
 	if _, err := file.Seek(0, 2); err != nil {
 		return closeOnError(fmt.Errorf("seek audit log end: %w", err))
 	}
@@ -158,6 +252,19 @@ func (al *AuditLog) Append(entry AuditEntry) error {
 	// fails replay at startup.
 	entry.Path = clampAuditField(entry.Path, maxAuditPathBytes)
 	entry.Mutation = clampAuditField(entry.Mutation, maxAuditMutationBytes)
+	// The chain hash covers the JSON encoding, which must survive a decode
+	// and re-encode unchanged. json.Marshal escapes an invalid byte as
+	// \ufffd but writes a decoded U+FFFD raw, so make the text valid first.
+	for _, f := range []*string{&entry.Method, &entry.Path, &entry.AuthType, &entry.Principal, &entry.RemoteAddr, &entry.Mutation} {
+		*f = strings.ToValidUTF8(*f, "\uFFFD")
+	}
+	entry.Seq = al.head.Seq + 1
+	entry.PrevHash = al.head.Hash
+	hash, err := auditEntryHash(entry)
+	if err != nil {
+		return fmt.Errorf("hash audit entry: %w", err)
+	}
+	entry.Hash = hash
 	if al.file != nil {
 		data, err := json.Marshal(entry)
 		if err != nil {
@@ -172,11 +279,22 @@ func (al *AuditLog) Append(entry AuditEntry) error {
 		}
 	}
 	al.appendMemory(entry)
+	al.head = AuditChainHead{Seq: entry.Seq, Hash: entry.Hash}
 	return nil
 }
 
+// Head returns the newest entry of the hash chain (zero when empty).
+func (al *AuditLog) Head() AuditChainHead {
+	if al == nil {
+		return AuditChainHead{}
+	}
+	al.mu.Lock()
+	defer al.mu.Unlock()
+	return al.head
+}
+
 // clampAuditField truncates s to at most max bytes. Cutting mid-rune is
-// acceptable: json.Marshal replaces invalid UTF-8 with U+FFFD.
+// acceptable: Append replaces invalid UTF-8 with U+FFFD.
 func clampAuditField(s string, max int) string {
 	if len(s) <= max {
 		return s
@@ -309,8 +427,6 @@ func classifyMutation(method, path string) string {
 		return "admin_tenant_rule_mutation"
 	case strings.HasPrefix(path, "/api/admin/tenants"):
 		return "admin_tenant_mutation"
-	case method == http.MethodPost && strings.HasPrefix(path, "/api/admin/billing/"):
-		return "generate_invoice"
 	case strings.HasPrefix(path, "/api/crs/"):
 		return "crs_mutation"
 	case strings.HasPrefix(path, "/api/dlp/"):
@@ -436,7 +552,8 @@ func (d *Dashboard) handleGetAudit(w http.ResponseWriter, r *http.Request) {
 
 	entries := d.auditLog.Recent(n)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"entries": entries,
-		"total":   d.auditLog.Len(),
+		"entries":    entries,
+		"total":      d.auditLog.Len(),
+		"chain_head": d.auditLog.Head(),
 	})
 }
