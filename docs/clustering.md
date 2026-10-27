@@ -76,7 +76,7 @@ cluster:
   # Persistence and log compaction (optional). Without data_dir the Raft log
   # is in memory only. snapshot_threshold bounds the log: after that many
   # applied entries the replicated store is snapshotted and older entries are
-  # discarded (0 = never discard; see Persistence & Backup).
+  # discarded (default 10000; 0 = never discard; see Persistence & Backup).
   data_dir: /var/lib/guardianwaf/raft
   snapshot_threshold: 10000
 ```
@@ -777,14 +777,14 @@ Items marked **[limitation]** describe known constraints with recommended mitiga
   - **For planned full-cluster restarts**, drain the ban list to a file first (above), then re-apply after restart.
 
 
-- **Log compaction with state-machine snapshots.** Set `cluster.snapshot_threshold` (for example `10000`) to bound the Raft log. Once that many entries have been applied since the last snapshot, a node:
+- **Log compaction with state-machine snapshots.** `cluster.snapshot_threshold` (default `10000`) bounds the Raft log. Once that many entries have been applied since the last snapshot, a node:
   - serializes the replicated store (bans, rules, counters) to `raft.snapshot` in `data_dir`, written atomically and checksummed;
   - drops the covered log entries from memory;
   - rewrites `raft.wal` with only the remaining suffix.
 
   Without `data_dir`, the snapshot is kept in memory only. On restart, the node restores the store from `raft.snapshot` and replays the WAL suffix. A follower whose next entry was compacted away receives the snapshot through `InstallSnapshot`.
 
-  The snapshot must fit one RPC frame (11 MiB of serialized state). If a snapshot is larger, it is skipped and logged, and the log keeps growing until the store shrinks. With `snapshot_threshold: 0` (the current default) no log entries are discarded and history grows with writes.
+  The snapshot must fit one RPC frame (11 MiB of serialized state). If a snapshot is larger, it is skipped and logged, and the log keeps growing until the store shrinks. With `snapshot_threshold: 0` no log entries are discarded and history grows with writes.
 - **Deterministic ban expiry.** Ban commands carry their proposal time, so every node computes the same expiry, and replaying the log never re-bans an IP whose ban already elapsed. Bans proposed by versions before 0.7.0 still use the apply-time clock.
 
 ### Resource Sizing

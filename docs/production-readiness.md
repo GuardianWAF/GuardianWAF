@@ -18,7 +18,7 @@ released as a signed, independently assessed stable version; see
 | Tier | Components | Meaning |
 |---|---|---|
 | **Stable** | Reverse proxy and router, the 16 pipeline layers, JS challenge, dashboard and admin API, TLS/SNI, ACME HTTP-01, event store, alerting, SIEM export, GeoIP, library mode for the layers it supports | Covered by regression tests and CI gates; breaking changes are called out in the changelog. |
-| **Use with care** | Multi-tenancy, MCP server, Docker discovery, AI batch analysis, tracing (stdout/noop exporters only), Raft clustering | Functional and tested, but larger trust surfaces or newer code paths; review the linked docs before enabling. Raft needs `cluster.snapshot_threshold` set to bound its log ([clustering](clustering.md#persistence--backup)). |
+| **Use with care** | Multi-tenancy, MCP server, Docker discovery, AI batch analysis, tracing (stdout/noop exporters only), Raft clustering | Functional and tested, but larger trust surfaces or newer code paths; review the linked docs before enabling. Raft compacts its log every `cluster.snapshot_threshold` (default 10000) applied entries ([clustering](clustering.md#persistence--backup)). |
 | **Removed in 0.7.0** | Compliance reporting, tenant billing plans and invoices | Rejected at config load; see [Removed sections](configuration.md#removed-sections). |
 
 ## Hardening landed in this cycle
@@ -78,7 +78,7 @@ Library mode:
 
 | Priority | Item | Done when |
 |---|---|---|
-| P1 | Enable Raft compaction by default | `cluster.snapshot_threshold` defaults to a non-zero value; multi-day cluster soak shows bounded WAL size and restart time |
+| P1 | Raft long-uptime soak | Multi-day cluster soak shows bounded WAL size and restart time with the default `cluster.snapshot_threshold` |
 | P1 | Detection quality gate | Benign corpus of thousands of samples; block FP < 1% enforced in CI; gotestwaf / CRS regression results published |
 | P1 | Large-body inspection throughput | Profile-driven work on per-field scanning; LargeBody p99 within the [performance budget](performance-budget.md) |
 | P2 | Hash-chained dashboard audit log | Tamper evidence without relying on external fingerprints |

@@ -31,7 +31,8 @@ type Config struct {
 	// are discarded from memory and the WAL, and lagging followers receive
 	// the snapshot via InstallSnapshot. Otherwise it is the number of WAL
 	// records after which the WAL is rewritten as a single record (the log
-	// itself is kept). Set to 0 to disable compaction. Default: 0.
+	// itself is kept). Set to 0 to disable compaction. Default: 0 (the serve config
+	// defaults cluster.snapshot_threshold to 10000).
 	SnapshotThreshold int
 
 	// Secret authenticates every RPC frame between peers. It is required:
