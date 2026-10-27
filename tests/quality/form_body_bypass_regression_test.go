@@ -1,10 +1,6 @@
 package quality
 
 import (
-	"net/http"
-	"net/http/httptest"
-	"net/url"
-	"strings"
 	"testing"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
@@ -22,8 +18,7 @@ func TestFormBodyAttacksAreBlocked(t *testing.T) {
 		"<script>alert(1)</script>",
 		"; cat /etc/passwd",
 	} {
-		r := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader("user="+url.QueryEscape(payload)+"&remember=on"))
-		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r := placements["form"](payload)
 		browserHeaders(r, i+1)
 		if ev := eng.Check(r); ev.Action != engine.ActionBlock {
 			t.Errorf("form payload %q: action=%v score=%d, want block", payload, ev.Action, ev.Score)

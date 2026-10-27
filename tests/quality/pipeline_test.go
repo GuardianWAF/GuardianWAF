@@ -50,12 +50,6 @@ var placements = map[string]func(sample string) *http.Request{
 	},
 }
 
-// attackPlacements places the shared attack corpora (testdata/attacks, which
-// predate placement headers) where each attack class is delivered.
-var attackPlacements = map[string][]string{
-	"xxe": {"xml"},
-}
-
 // browserHeaders makes requests look like a real browser so bot detection
 // does not add score that a production user would never see.
 func browserHeaders(r *http.Request, n int) {
@@ -92,4 +86,3 @@ func newPipeline(t testing.TB) *engine.Engine {
 	}
 	return eng
 }
-
