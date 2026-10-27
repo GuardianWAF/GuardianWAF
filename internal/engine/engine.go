@@ -519,8 +519,8 @@ func (e *Engine) Check(r *http.Request) (ev *Event) {
 	finalAction := e.requestAction(ctx, result, mode)
 
 	event := e.buildEvent(ctx, result, finalAction)
-	if ctx.BodyLimitExceeded && finalAction == ActionBlock {
-		event.StatusCode = http.StatusRequestEntityTooLarge
+	if finalAction == ActionBlock {
+		event.StatusCode = bodyBlockStatus(ctx, event.StatusCode)
 	}
 	finishRootSpan(ctx, event, result)
 	e.recordStats(finalAction, result.Duration)
@@ -631,8 +631,8 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 
 		// Create event
 		event := e.buildEvent(ctx, result, finalAction)
-		if ctx.BodyLimitExceeded && finalAction == ActionBlock {
-			event.StatusCode = http.StatusRequestEntityTooLarge
+		if finalAction == ActionBlock {
+			event.StatusCode = bodyBlockStatus(ctx, event.StatusCode)
 		}
 		statusCode := event.StatusCode
 
@@ -1113,13 +1113,25 @@ func (e *Engine) inspectionBodyLimit(r *http.Request) int64 {
 
 func (e *Engine) requestAction(ctx *RequestContext, result PipelineResult, mode string) Action {
 	action := determineAction(result, int(e.blockThreshold.Load()), int(e.logThreshold.Load()))
-	if ctx.BodyLimitExceeded {
+	if ctx.BodyLimitExceeded || ctx.BodyUninspectable != "" {
 		action = ActionBlock
 	}
 	if mode == "monitor" && action != ActionPass {
 		return ActionLog
 	}
 	return action
+}
+
+// bodyBlockStatus maps a body-level block to its HTTP status: 413 for an
+// over-budget body, 400 for one that could not be read or decoded.
+func bodyBlockStatus(ctx *RequestContext, status int) int {
+	switch {
+	case ctx.BodyLimitExceeded:
+		return http.StatusRequestEntityTooLarge
+	case ctx.BodyUninspectable != "":
+		return http.StatusBadRequest
+	}
+	return status
 }
 
 func (e *Engine) execute(ctx *RequestContext) PipelineResult {
@@ -1133,6 +1145,13 @@ func (e *Engine) execute(ctx *RequestContext) PipelineResult {
 		// Preserve an audit reason even when the sanitizer layer is disabled.
 		finding := Finding{DetectorName: "engine-body-limit", Category: "sanitizer", Severity: SeverityHigh,
 			Score: 40, Description: "Body exceeds the inspection budget", Location: "body", Confidence: 1}
+		ctx.Accumulator.Add(&finding)
+		result.Findings = append(result.Findings, finding)
+		result.TotalScore = ctx.Accumulator.Total()
+	}
+	if ctx.BodyUninspectable != "" {
+		finding := Finding{DetectorName: "engine-body-decode", Category: "sanitizer", Severity: SeverityHigh,
+			Score: 40, Description: "Body not inspectable: " + ctx.BodyUninspectable, Location: "body", Confidence: 1}
 		ctx.Accumulator.Add(&finding)
 		result.Findings = append(result.Findings, finding)
 		result.TotalScore = ctx.Accumulator.Total()

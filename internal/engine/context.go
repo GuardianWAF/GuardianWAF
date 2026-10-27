@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/flate"
 	"compress/gzip"
+	"compress/zlib"
 	"crypto/rand"
 	"encoding/hex"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -37,6 +39,72 @@ var (
 type replayReadCloser struct {
 	io.Reader
 	io.Closer
+}
+
+// maxStackedContentEncodings bounds how many request content-codings are
+// unwrapped for inspection; deeper stacks are treated as uninspectable.
+const maxStackedContentEncodings = 3
+
+// decodeRequestBody reverses the request content-codings (listed in the order
+// they were applied) so detectors inspect what the backend will see. Output
+// is capped at limit+1 bytes per stage. A non-empty reason means the body
+// could not be decoded and must not be forwarded on raw-byte inspection.
+func decodeRequestBody(raw []byte, headerValues []string, limit int64) ([]byte, string) {
+	var codings []string
+	for _, v := range headerValues {
+		for c := range strings.SplitSeq(v, ",") {
+			if c = strings.ToLower(strings.TrimSpace(c)); c != "" && c != "identity" {
+				codings = append(codings, c)
+			}
+		}
+	}
+	if len(codings) == 0 || len(raw) == 0 {
+		return raw, ""
+	}
+	if len(codings) > maxStackedContentEncodings {
+		return raw, "too many stacked request content-codings"
+	}
+	data := raw
+	for i := len(codings) - 1; i >= 0; i-- {
+		var err error
+		switch codings[i] {
+		case "gzip", "x-gzip":
+			var gr *gzip.Reader
+			if gr, err = gzip.NewReader(bytes.NewReader(data)); err == nil {
+				data, err = drainDecoder(gr, limit)
+			}
+		case "deflate":
+			// RFC 9110 "deflate" is zlib-wrapped; some clients send raw DEFLATE.
+			var zr io.ReadCloser
+			if zr, err = zlib.NewReader(bytes.NewReader(data)); err == nil {
+				var decoded []byte
+				if decoded, err = drainDecoder(zr, limit); err == nil {
+					data = decoded
+				}
+			}
+			if err != nil {
+				data, err = drainDecoder(flate.NewReader(bytes.NewReader(data)), limit)
+			}
+		default:
+			return raw, "unsupported request content-coding " + strconv.Quote(codings[i])
+		}
+		if err != nil {
+			return raw, "malformed " + codings[i] + " request body"
+		}
+		if int64(len(data)) > limit {
+			// Over budget: the caller blocks on the size limit, and decoding a
+			// truncated stream further would only report a spurious error.
+			return data, ""
+		}
+	}
+	return data, ""
+}
+
+// drainDecoder reads a decompressor up to limit+1 bytes. Hitting the cap is
+// not an error: the size limit is enforced by the caller.
+func drainDecoder(r io.ReadCloser, limit int64) ([]byte, error) {
+	defer r.Close() // #nosec G104 -- decompressor close; data already consumed
+	return io.ReadAll(io.LimitReader(r, limit+1))
 }
 
 // SetTrustedProxies configures the list of trusted proxy CIDRs.
@@ -152,6 +220,10 @@ type RequestContext struct {
 	// decompressed body that exceeds the inspection budget. Enforcing engines
 	// must not forward an uninspected tail based only on detector scores.
 	BodyLimitExceeded bool
+	// BodyUninspectable is a non-empty reason when the request body could not
+	// be read or decoded for inspection (unsupported or malformed
+	// Content-Encoding). Enforcing engines block such requests.
+	BodyUninspectable string
 	// ObserveOnly lets layers collect evidence without creating bans or
 	// publishing enforcement state while the engine is in monitor mode.
 	ObserveOnly bool
@@ -346,32 +418,26 @@ func AcquireContext(r *http.Request, paranoiaLevel int, maxBodySize int64) *Requ
 			Closer: r.Body,
 		}
 
-		if err == nil {
-			// Decompress for WAF inspection based on Content-Encoding.
-			// Rejects decompression bombs (ratio > 100:1).
-			inspectData := rawData
-			switch strings.ToLower(r.Header.Get("Content-Encoding")) {
-			case "gzip":
-				if gr, err := gzip.NewReader(bytes.NewReader(rawData)); err == nil {
-					if decompressed, err := io.ReadAll(io.LimitReader(gr, inspectLimit+1)); err == nil {
-						ctx.BodyLimitExceeded = ctx.BodyLimitExceeded || int64(len(decompressed)) > inspectLimit
-						if len(rawData) > 0 && len(decompressed) <= len(rawData)*100 {
-							inspectData = decompressed
-						}
-					}
-					gr.Close() // #nosec G104 -- decompression close; error irrelevant — reader already consumed
-				}
-			case "deflate":
-				fr := flate.NewReader(bytes.NewReader(rawData))
-				if decompressed, err := io.ReadAll(io.LimitReader(fr, inspectLimit+1)); err == nil {
-					ctx.BodyLimitExceeded = ctx.BodyLimitExceeded || int64(len(decompressed)) > inspectLimit
-					if len(rawData) > 0 && len(decompressed) <= len(rawData)*100 {
-						inspectData = decompressed
-					}
-				}
-				fr.Close() // #nosec G104 -- decompression close; error irrelevant — reader already consumed
+		switch {
+		case err != nil:
+			ctx.BodyUninspectable = "request body could not be read"
+		case ctx.BodyLimitExceeded:
+			// The raw stream is already over budget and will be blocked;
+			// decoding a truncated compressed prefix would only produce errors.
+			ctx.Body = rawData
+			ctx.BodyString = string(rawData)
+		default:
+			// Decode for WAF inspection based on Content-Encoding. A body the
+			// WAF cannot decode is never forwarded on raw-byte scores alone:
+			// backends that decompress request bodies would execute a payload
+			// the detectors only saw as compressed noise. Decompression bombs
+			// are bounded by the inspection budget, not by a ratio heuristic.
+			inspectData, reason := decodeRequestBody(rawData, r.Header.Values("Content-Encoding"), inspectLimit)
+			if reason != "" {
+				ctx.BodyUninspectable = reason
+				inspectData = rawData
 			}
-
+			ctx.BodyLimitExceeded = int64(len(inspectData)) > inspectLimit
 			ctx.Body = inspectData
 			if len(inspectData) > 0 {
 				ctx.BodyString = string(inspectData)
@@ -551,6 +617,7 @@ func ReleaseContext(ctx *RequestContext) {
 
 	ctx.bodyRead = false
 	ctx.BodyLimitExceeded = false
+	ctx.BodyUninspectable = ""
 	ctx.ObserveOnly = false
 
 	contextPool.Put(ctx)

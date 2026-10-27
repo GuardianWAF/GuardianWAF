@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"bytes"
 	"compress/flate"
 	"compress/gzip"
 	"crypto/tls"
@@ -941,8 +940,11 @@ func TestAcquireContext_GzipDecompressionBoundedByMaxBodySize(t *testing.T) {
 	}
 }
 
-func TestAcquireContext_GzipBombRatioFallsBackToRawInspection(t *testing.T) {
-	payload := strings.Repeat("A", 100_000)
+// A highly compressible body within the inspection budget is decoded and
+// inspected; the former 100:1 ratio heuristic let padded payloads fall back to
+// raw compressed bytes that detectors could not read.
+func TestAcquireContext_HighRatioGzipWithinBudgetIsInspected(t *testing.T) {
+	payload := "' OR 1=1--" + strings.Repeat(" ", 100_000)
 	var gzipBuf strings.Builder
 	gw := gzip.NewWriter(&gzipBuf)
 	if _, err := gw.Write([]byte(payload)); err != nil {
@@ -951,19 +953,18 @@ func TestAcquireContext_GzipBombRatioFallsBackToRawInspection(t *testing.T) {
 	if err := gw.Close(); err != nil {
 		t.Fatalf("close gzip writer: %v", err)
 	}
-	compressed := []byte(gzipBuf.String())
 
-	req := httptest.NewRequest("POST", "/gzip-bomb", bytes.NewReader(compressed))
+	req := httptest.NewRequest("POST", "/gzip-ratio", strings.NewReader(gzipBuf.String()))
 	req.Header.Set("Content-Encoding", "gzip")
 
 	ctx := AcquireContext(req, 2, int64(len(payload)))
 	defer ReleaseContext(ctx)
 
-	if bytes.Equal(ctx.Body, []byte(payload)) {
-		t.Fatal("gzip ratio abuse was accepted as decompressed inspection data")
+	if ctx.BodyString != payload {
+		t.Fatalf("inspection body = %d bytes, want decoded %d bytes", len(ctx.BodyString), len(payload))
 	}
-	if !bytes.Equal(ctx.Body, compressed) {
-		t.Fatalf("inspection body should fall back to raw compressed bytes: got %d bytes, want %d", len(ctx.Body), len(compressed))
+	if ctx.BodyLimitExceeded || ctx.BodyUninspectable != "" {
+		t.Fatalf("in-budget body flagged: limit=%v uninspectable=%q", ctx.BodyLimitExceeded, ctx.BodyUninspectable)
 	}
 }
 
