@@ -57,6 +57,24 @@ func DefaultConfig(nodeID, bindAddr string) Config {
 	}
 }
 
+// normalizeTimings replaces unset or inconsistent election/heartbeat timings
+// with safe values. A zero election timeout made electionLoop start elections
+// back to back, each spawning RequestVote goroutines with a zero transport
+// timeout: an unbounded goroutine pile-up that consumed gigabytes in seconds.
+func normalizeTimings(cfg Config) Config {
+	def := DefaultConfig("", "")
+	if cfg.ElectionTimeoutMin <= 0 {
+		cfg.ElectionTimeoutMin = def.ElectionTimeoutMin
+	}
+	if cfg.ElectionTimeoutMax <= cfg.ElectionTimeoutMin {
+		cfg.ElectionTimeoutMax = 2 * cfg.ElectionTimeoutMin
+	}
+	if cfg.HeartbeatInterval <= 0 || cfg.HeartbeatInterval >= cfg.ElectionTimeoutMin {
+		cfg.HeartbeatInterval = cfg.ElectionTimeoutMin / 3
+	}
+	return cfg
+}
+
 // StateMachine applies committed log entries. Implementations must be
 // idempotent and safe for concurrent access.
 type StateMachine interface {
@@ -113,6 +131,7 @@ type Raft struct {
 
 // New creates a new Raft node with the given config.
 func New(cfg Config, sm StateMachine) (*Raft, error) {
+	cfg = normalizeTimings(cfg)
 	tr, err := NewTCPTransport(cfg.BindAddr, cfg.NodeID, cfg.ElectionTimeoutMax*2, cfg.Secret)
 	if err != nil {
 		return nil, fmt.Errorf("raft: create transport: %w", err)
