@@ -38,7 +38,7 @@ import (
 //	redirect GET  /login?next=<sample>
 //	file     GET  /download?file=<sample>
 //	fetch    GET  /preview?url=<sample>
-//	graphql  POST /graphql with {"query": <sample>}
+//	graphql  POST /graphql with {"query": <sample>} (lines already in that form are sent as-is)
 var placements = map[string]func(sample string) *http.Request{
 	"query": func(s string) *http.Request {
 		return httptest.NewRequest(http.MethodGet, "/search?q="+url.QueryEscape(s), nil)
@@ -99,7 +99,12 @@ var placements = map[string]func(sample string) *http.Request{
 		return httptest.NewRequest(http.MethodGet, "/preview?url="+url.QueryEscape(s), nil)
 	},
 	"graphql": func(s string) *http.Request {
-		body, _ := json.Marshal(map[string]string{"query": s})
+		// Some corpus lines are already full request bodies; wrapping them
+		// again would hide the query inside a string.
+		body := []byte(s)
+		if !strings.HasPrefix(strings.TrimSpace(s), `{"query"`) {
+			body, _ = json.Marshal(map[string]string{"query": s})
+		}
 		r := httptest.NewRequest(http.MethodPost, "/graphql", bytes.NewReader(body))
 		r.Header.Set("Content-Type", "application/json")
 		return r

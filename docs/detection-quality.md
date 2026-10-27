@@ -186,7 +186,7 @@ Attacks reuse `testdata/attacks/`, placed where each class is delivered:
 - GraphQL: `/graphql`.
 
 Every class must be blocked at least 85% of the time. Current result:
-1626/1648 (98.7%), with SQLi at 97.1%, CMDi at 98.0%, and LFI and XSS at 100%.
+1627/1648 (98.7%), with SQLi at 97.1%, CMDi at 98.0%, and LFI, XSS and GraphQL at 100%.
 
 Building this gate exposed defects that the layer-only corpus could not see.
 They are now fixed and pinned by tests:
