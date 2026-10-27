@@ -173,7 +173,7 @@ placements in a `# placement:` header:
 | URLs as parameters | 20 | 0 |
 | same-site redirect targets | 17 | 0 |
 | **General benign** | **1716** | **0 (0.00%)** — budget 1% |
-| developer posts quoting code (`technical_*`) | 120 | 0 (0.00%) — budget 5% |
+| developer posts quoting code (`technical_*`) | 128 | 0 (0.00%) — budget 5% |
 
 Attacks reuse `testdata/attacks/`, placed where each class is delivered:
 
@@ -186,7 +186,7 @@ Attacks reuse `testdata/attacks/`, placed where each class is delivered:
 - GraphQL: `/graphql`.
 
 Every class must be blocked at least 85% of the time. Current result:
-1615/1648 (98.0%), with SQLi at 97.1% and CMDi at 98.0%.
+1621/1648 (98.4%), with SQLi at 97.1%, CMDi at 98.0% and LFI at 100%.
 
 Building this gate exposed defects that the layer-only corpus could not see.
 They are now fixed and pinned by tests:
@@ -243,6 +243,12 @@ They are now fixed and pinned by tests:
   60-point "literal then comment" rule needs a bare quote (`admin'--`).
   Prose that is token-for-token identical to an attack (`it's 'a' and "b" --`
   vs `x' and 'x' --`) still blocks.
+- **Home-directory secrets.** `file=/root/.ssh/id_rsa`, `/root/.bash_history`
+  and `~/.aws/credentials` scored 0 because only `/etc`, `/proc`, `/var/log` and
+  Windows paths were listed. SSH keys, cloud, Docker, Kubernetes and git
+  credentials, `.netrc`, `.pgpass` and shell/DB history now score 70-85 when
+  the path is the value, and 25 (log only) when a developer post mentions it
+  in a sentence.
 - **"exec" as a word.** `exec office chair` scored 80.
 
 ## Known Bypass Coverage
