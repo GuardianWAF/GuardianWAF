@@ -63,12 +63,12 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 	//
 	// Identical strings are scanned once (dedup) so unchanged inputs aren't
 	// double-counted. Mirrors xss/xxe fail-open guard for a disabled Sanitizer.
-	seen := make(map[string]struct{})
+	seen := make(map[[2]string]struct{}) // keyed by (location, value) without copying the value
 	scanOnly := func(v, location string) {
 		if v == "" {
 			return
 		}
-		key := location + "\x00" + v
+		key := [2]string{location, v}
 		if _, ok := seen[key]; ok {
 			return
 		}

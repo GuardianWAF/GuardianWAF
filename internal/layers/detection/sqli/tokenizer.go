@@ -3,7 +3,7 @@ package sqli
 import "strings"
 
 // TokenType represents the type of a SQL token.
-type TokenType int
+type TokenType uint8
 
 const (
 	TokenStringLiteral  TokenType = iota // 'value', "value"
@@ -57,7 +57,11 @@ func (t TokenType) String() string {
 
 // Token represents a single token from the input.
 type Token struct {
-	Type  TokenType
+	Type TokenType
+	// class indexes classUpper for keyword, function and operator tokens
+	// (0 otherwise), so pattern checks get the upper-case spelling without
+	// allocating. It packs beside Type, keeping Token at 32 bytes.
+	class uint8
 	Value string
 	Pos   int // position in input
 }
@@ -66,6 +70,11 @@ type Token struct {
 // It operates as a state machine: read char, classify, emit token, repeat.
 // No regex is used on the hot path.
 func Tokenize(input string) []Token {
+	return tokenize(input, true)
+}
+
+// tokenize is Tokenize, optionally without whitespace tokens.
+func tokenize(input string, keepSpace bool) []Token {
 	// Typical input averages several bytes per token; sizing up front avoids
 	// repeated slice doubling on large bodies (the dominant allocation).
 	tokens := make([]Token, 0, max(32, min(len(input)/6, 1<<16)))
@@ -81,7 +90,9 @@ func Tokenize(input string) []Token {
 			for i < n && (input[i] == ' ' || input[i] == '\t' || input[i] == '\n' || input[i] == '\r') {
 				i++
 			}
-			tokens = append(tokens, Token{Type: TokenWhitespace, Value: input[start:i], Pos: start})
+			if keepSpace {
+				tokens = append(tokens, Token{Type: TokenWhitespace, Value: input[start:i], Pos: start})
+			}
 			continue
 		}
 
@@ -312,20 +323,9 @@ func Tokenize(input string) []Token {
 				i++
 			}
 			word := input[start:i]
-			upper := strings.ToUpper(word)
-
-			switch {
-			case IsOperatorKeyword(upper):
-				tokens = append(tokens, Token{Type: TokenOperator, Value: word, Pos: start})
-			case IsFunction(upper):
-				tokens = append(tokens, Token{Type: TokenFunction, Value: word, Pos: start})
-			case IsKeyword(upper):
-				tokens = append(tokens, Token{Type: TokenKeyword, Value: word, Pos: start})
-			case containsSQLKeywordSubstring(upper):
-				// Concatenated keywords like "unionselection", "selectall", "droptab"
-				// are TokenOther by default but may contain SQL injection patterns.
-				tokens = append(tokens, Token{Type: TokenOther, Value: word, Pos: start})
-			default:
+			if c, ok := classifyWord(word); ok {
+				tokens = append(tokens, Token{Type: c.typ, Value: word, Pos: start, class: c.class})
+			} else {
 				tokens = append(tokens, Token{Type: TokenOther, Value: word, Pos: start})
 			}
 			continue
@@ -419,23 +419,6 @@ func containsMultiWordPattern(s string) bool {
 	tautologyPatterns := []string{"1=1", "1'='1", "1\"=\"1", "1=0", "1<>0", "1>=1", "1<=1"}
 	for _, pat := range tautologyPatterns {
 		if strings.Contains(s, pat) {
-			return true
-		}
-	}
-	return false
-}
-
-// containsSQLKeywordSubstring checks if a word contains SQL keywords
-// as substrings (for concatenated keyword detection like "unionselection").
-func containsSQLKeywordSubstring(word string) bool {
-	// SQL keyword substrings to detect in concatenated words.
-	// Using short substrings to catch variations like "unionselection", "selCT" etc.
-	sqlParts := []string{
-		"UNION", "SELECT", "INSERT", "UPDATE", "DELETE", "DROP",
-		"CREATE", "ALTER", "EXEC", "EXECUTE", "SCRIPT",
-	}
-	for _, part := range sqlParts {
-		if strings.Contains(word, part) {
 			return true
 		}
 	}

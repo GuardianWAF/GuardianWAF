@@ -141,6 +141,19 @@ func CanonicalizePath(s string) string {
 	if s == "" {
 		return s
 	}
+	// A single segment without trailing dots resolves to itself; skip the
+	// split and join, which dominate on large bodies.
+	if !strings.ContainsAny(s, "/\\") && s[len(s)-1] != '.' {
+		return s
+	}
+	return canonicalizePath(s)
+}
+
+// canonicalizePath is CanonicalizePath without the fast path.
+func canonicalizePath(s string) string {
+	if s == "" {
+		return s
+	}
 
 	// Normalize backslashes to forward slashes first
 	s = strings.ReplaceAll(s, "\\", "/")
@@ -390,6 +403,14 @@ func NormalizeCase(s string) string {
 
 // NormalizeWhitespace collapses runs of whitespace/control chars to single space, trims.
 func NormalizeWhitespace(s string) string {
+	if whitespaceNormalized(s) {
+		return s
+	}
+	return collapseWhitespace(s)
+}
+
+// collapseWhitespace is NormalizeWhitespace without the fast path.
+func collapseWhitespace(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
 
@@ -413,6 +434,21 @@ func NormalizeWhitespace(s string) string {
 		result = result[:len(result)-1]
 	}
 	return result
+}
+
+// whitespaceNormalized reports whether NormalizeWhitespace would return s
+// unchanged: its only whitespace or control bytes are single interior spaces.
+func whitespaceNormalized(s string) bool {
+	for i := range len(s) {
+		c := s[i]
+		if !isWhitespaceOrControl(c) {
+			continue
+		}
+		if c != ' ' || i == 0 || i == len(s)-1 || s[i-1] == ' ' {
+			return false
+		}
+	}
+	return true
 }
 
 // isWhitespaceOrControl returns true if the byte is whitespace or a control character.

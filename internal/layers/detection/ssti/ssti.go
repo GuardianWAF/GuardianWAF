@@ -49,12 +49,12 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 	// normalizer decodes evasion encodings; the raw form preserves bytes the
 	// normalizer may alter). Identical strings are scanned once. Mirrors the other
 	// detectors and their fail-open guard for a disabled Sanitizer.
-	seen := make(map[string]struct{})
+	seen := make(map[[2]string]struct{}) // keyed by (location, value) without copying the value
 	scan := func(v, location string) {
 		if v == "" {
 			return
 		}
-		key := location + "\x00" + v
+		key := [2]string{location, v}
 		if _, ok := seen[key]; ok {
 			return
 		}
