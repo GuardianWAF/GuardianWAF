@@ -72,6 +72,13 @@ cluster:
   election_timeout_min: 2s   # Minimum randomized election timeout.
   election_timeout_max: 4s   # Maximum randomized election timeout.
   heartbeat_interval: 50ms   # Leader heartbeat frequency.
+
+  # Persistence and log compaction (optional). Without data_dir the Raft log
+  # is in memory only. snapshot_threshold bounds the log: after that many
+  # applied entries the replicated store is snapshotted and older entries are
+  # discarded (0 = never discard; see Persistence & Backup).
+  data_dir: /var/lib/guardianwaf/raft
+  snapshot_threshold: 10000
 ```
 
 ### Minimum Required Fields
@@ -770,7 +777,15 @@ Items marked **[limitation]** describe known constraints with recommended mitiga
   - **For planned full-cluster restarts**, drain the ban list to a file first (above), then re-apply after restart.
 
 
-- **[limitation] No state-machine snapshot or log prefix truncation.** WAL compaction rewrites the term, vote, and all surviving log entries into one record; it does not discard applied command history. The in-memory log and persisted command history therefore grow with writes. Restarting a node with persistent WAL replays that history and does not reset its size. Monitor memory, WAL size, and compaction errors. Do not treat the current cluster mode as suitable for an indefinitely growing write history; state-machine snapshots, prefix truncation, and follower snapshot transfer remain necessary for that deployment pattern.
+- **Log compaction with state-machine snapshots.** Set `cluster.snapshot_threshold` (for example `10000`) to bound the Raft log. Once that many entries have been applied since the last snapshot, a node:
+  - serializes the replicated store (bans, rules, counters) to `raft.snapshot` in `data_dir`, written atomically and checksummed;
+  - drops the covered log entries from memory;
+  - rewrites `raft.wal` with only the remaining suffix.
+
+  Without `data_dir`, the snapshot is kept in memory only. On restart, the node restores the store from `raft.snapshot` and replays the WAL suffix. A follower whose next entry was compacted away receives the snapshot through `InstallSnapshot`.
+
+  The snapshot must fit one RPC frame (11 MiB of serialized state). If a snapshot is larger, it is skipped and logged, and the log keeps growing until the store shrinks. With `snapshot_threshold: 0` (the current default) no log entries are discarded and history grows with writes.
+- **Deterministic ban expiry.** Ban commands carry their proposal time, so every node computes the same expiry, and replaying the log never re-bans an IP whose ban already elapsed. Bans proposed by versions before 0.7.0 still use the apply-time clock.
 
 ### Resource Sizing
 

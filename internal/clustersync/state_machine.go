@@ -41,3 +41,9 @@ func (sm *StoreStateMachine) Apply(entry raft.LogEntry) {
 			"index", entry.Index, "term", entry.Term, "err", err)
 	}
 }
+
+// Snapshot implements raft.Snapshotter so the Raft log can be compacted.
+func (sm *StoreStateMachine) Snapshot() ([]byte, error) { return sm.store.snapshot() }
+
+// Restore implements raft.Snapshotter.
+func (sm *StoreStateMachine) Restore(data []byte) error { return sm.store.restore(data) }
