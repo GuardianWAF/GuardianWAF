@@ -305,7 +305,16 @@ func (h *Handlers) getTenantWAFConfig(w http.ResponseWriter, r *http.Request, te
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	// The read takes t.mu: UpdateTenant publishes Config under t.mu, and an
+	// unlocked read here races with a concurrent tenant update (the same rule
+	// updateTenantWAFConfig below and sanitizeTenant both honour). Only the
+	// POINTER is copied under the lock; UpdateTenant replaces the pointer and
+	// never mutates the config in place, so dereferencing the captured pointer
+	// after the unlock is safe — the same contract updateTenantWAFConfig relies
+	// on when it shallow-copies *updatedConfig outside the critical section.
+	tenant.mu.RLock()
 	cfg := tenant.Config
+	tenant.mu.RUnlock()
 	if cfg == nil {
 		cfg = config.DefaultConfig()
 	}

@@ -138,6 +138,9 @@ func (s *Store) Init() error {
 			storeLog.Warn("failed to parse tenant store index", "path", indexPath, "err", unmarshalErr)
 		}
 	}
+	if s.index == nil {
+		s.index = make(map[string]string)
+	}
 
 	return nil
 }
@@ -183,20 +186,50 @@ func (s *Store) SaveTenant(tenant *Tenant) error {
 	// Ensure the store directory exists: SaveTenant can run on a store whose
 	// Init has not been called (the path may even be the constructor default),
 	// and persistence must not silently no-op in that state.
-	if err := os.MkdirAll(s.basePath, 0o700); err != nil {
-		return fmt.Errorf("creating tenant directory: %w", err)
+	if mkdirErr := os.MkdirAll(s.basePath, 0o700); mkdirErr != nil {
+		return fmt.Errorf("creating tenant directory: %w", mkdirErr)
 	}
+	// The tenant record is authoritative (LoadAllTenants rebuilds the index).
+	// Persist the index first: an index failure must not replace the record
+	// and then report failure while callers retain the old credentials.
+	previous, existed := s.index[tenant.ID]
+	s.index[tenant.ID] = filename
+	if indexErr := s.saveIndex(); indexErr != nil {
+		s.restoreIndex(tenant.ID, previous, existed)
+		return fmt.Errorf("writing tenant index: %w", indexErr)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			s.restoreIndex(tenant.ID, previous, existed)
+			if indexErr := s.saveIndex(); indexErr != nil {
+				storeLog.Warn("failed to restore tenant index; records remain authoritative", "err", indexErr)
+			}
+		}
+	}()
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, jsonData, 0600); err != nil {
+	// #nosec G304 -- tenantFilePath constrains the validated tenant basename to the store directory; the temp suffix is fixed.
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
+	if err != nil {
 		return fmt.Errorf("writing tenant file: %w", err)
+	}
+	defer func() { _ = os.Remove(tmp) }()
+	if _, err := f.Write(jsonData); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("writing tenant file: %w", err)
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("syncing tenant file: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("closing tenant file: %w", err)
 	}
 	if err := os.Rename(tmp, path); err != nil {
 		return fmt.Errorf("renaming tenant file: %w", err)
 	}
-
-	// Update index
-	s.index[tenant.ID] = filename
-	return s.saveIndex()
+	committed = true
+	return nil
 }
 
 // LoadTenant loads a tenant from disk.
@@ -335,13 +368,30 @@ func (s *Store) DeleteTenant(tenantID string) error {
 	if err != nil {
 		return err
 	}
+	previous, existed := s.index[tenantID]
+	delete(s.index, tenantID)
+	if err := s.saveIndex(); err != nil {
+		s.restoreIndex(tenantID, previous, existed)
+		return fmt.Errorf("writing tenant index: %w", err)
+	}
 	// #nosec G304 -- tenant filename is derived from a validated tenant ID and constrained to the store directory.
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		s.restoreIndex(tenantID, previous, existed)
+		if indexErr := s.saveIndex(); indexErr != nil {
+			storeLog.Warn("failed to restore tenant index; records remain authoritative", "err", indexErr)
+		}
 		return fmt.Errorf("removing tenant file: %w", err)
 	}
+	return nil
+}
 
-	delete(s.index, tenantID)
-	return s.saveIndex()
+// restoreIndex restores a single entry while s.mu is held.
+func (s *Store) restoreIndex(id, filename string, existed bool) {
+	if existed {
+		s.index[id] = filename
+	} else {
+		delete(s.index, id)
+	}
 }
 
 // saveIndex persists the index file.

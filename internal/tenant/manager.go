@@ -23,6 +23,16 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/netutil"
 )
 
+// persistenceError identifies a failed durable mutation at HTTP adapter seams.
+type persistenceError struct {
+	op  string
+	err error
+}
+
+func (e *persistenceError) Error() string       { return e.op + ": " + e.err.Error() }
+func (e *persistenceError) Unwrap() error       { return e.err }
+func (e *persistenceError) HTTPStatusCode() int { return http.StatusInternalServerError }
+
 // Tenant represents a single tenant with isolated WAF configuration.
 type Tenant struct {
 	// Metadata
@@ -300,6 +310,11 @@ func (m *Manager) CreateTenant(name, description string, domains []string, quota
 		Config:      config.DefaultConfig(),
 	}
 
+	// Do not publish a tenant whose credentials/config did not reach storage.
+	if err := m.SaveTenant(tenant); err != nil {
+		return nil, &persistenceError{op: "persist tenant", err: err}
+	}
+
 	m.tenants[id] = tenant
 	m.invalidateAPIKeyCache()
 
@@ -311,12 +326,6 @@ func (m *Manager) CreateTenant(name, description string, domains []string, quota
 	// Set as default if first tenant
 	if len(m.tenants) == 1 {
 		m.defaultTenantID = id
-	}
-
-	// Persist tenant to storage
-	if err := m.SaveTenant(tenant); err != nil {
-		// Non-fatal: log but don't fail
-		m.log.Warn("failed to persist tenant", "err", err)
 	}
 
 	// Broadcast to cluster
@@ -408,32 +417,33 @@ func (m *Manager) GetTenantByAPIKey(apiKey string) *Tenant {
 		return nil
 	}
 
+	// Keep verification, cache reads/publication, and key invalidation in one
+	// manager-lock order. Otherwise a completed lookup can repopulate an old
+	// key after a concurrent rotation has invalidated the cache.
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	cacheKey := fastKeyHash(apiKey)
 
 	// Fast path: consult the memoized result and skip PBKDF2 entirely.
-	m.apiKeyCacheMu.Lock()
-	if m.apiKeyCache != nil {
-		if tenantID, ok := m.apiKeyCache[cacheKey]; ok {
-			m.apiKeyCacheMu.Unlock()
-			if tenantID == "" {
-				return nil // cached negative result
-			}
-			m.mu.RLock()
-			tenant := m.tenants[tenantID]
-			m.mu.RUnlock()
-			if tenant != nil {
-				return tenant
-			}
-			// Tenant vanished (deleted without a cache clear); fall through.
+	if tenantID, ok := m.cachedTenantID(cacheKey); ok {
+		if tenantID == "" {
+			return nil // cached negative result
 		}
+		tenant := m.tenants[tenantID]
+		if tenant != nil {
+			return tenant
+		}
+		// Tenant vanished (deleted without a cache clear); fall through to
+		// the slow path, which re-verifies the key from scratch.
 	}
-	m.apiKeyCacheMu.Unlock()
 
 	// Slow path: verify against each tenant (expensive PBKDF2).
-	m.mu.RLock()
 	var found *Tenant
 	for _, tenant := range m.tenants {
-		if matched, legacy := verifyAPIKey(tenant.APIKeyHash, apiKey); matched {
+		tenant.mu.RLock()
+		hash := tenant.APIKeyHash
+		tenant.mu.RUnlock()
+		if matched, legacy := verifyAPIKey(hash, apiKey); matched {
 			if legacy {
 				// Auto-upgrade unsalted hash to salted hash
 				newHash, err := hashAPIKey(apiKey)
@@ -450,10 +460,32 @@ func (m *Manager) GetTenantByAPIKey(apiKey string) *Tenant {
 			break
 		}
 	}
-	m.mu.RUnlock()
-
 	m.cacheAPIKeyResult(cacheKey, found)
 	return found
+}
+
+// cachedTenantID returns the memoized tenant ID for cacheKey and whether the
+// cache held an entry for it at all (an entry of "" is a cached NEGATIVE
+// result, distinct from a miss).
+//
+// The lock is taken and released exactly once, on every path. The previous
+// inline fast path released apiKeyCacheMu inside the cache-hit branch and then
+// fell through to a second, unconditional Unlock at the end of the block — so a
+// cache entry naming a tenant that was no longer in m.tenants (the
+// "deleted without a cache clear" case) released the mutex twice. On a
+// sync.Mutex that is `fatal error: sync: unlock of unlocked mutex`, a runtime
+// throw rather than a recoverable panic: one unauthenticated request carrying
+// the affected key aborted the whole process. Scoping the read to this helper
+// makes the single release structural instead of something each branch has to
+// remember.
+func (m *Manager) cachedTenantID(cacheKey string) (tenantID string, ok bool) {
+	m.apiKeyCacheMu.Lock()
+	defer m.apiKeyCacheMu.Unlock()
+	if m.apiKeyCache == nil {
+		return "", false
+	}
+	tenantID, ok = m.apiKeyCache[cacheKey]
+	return tenantID, ok
 }
 
 // cacheAPIKeyResult memoizes an API-key verification outcome (found may be nil
@@ -526,35 +558,12 @@ func (m *Manager) UpdateTenant(id string, updates *TenantUpdate) error {
 		return fmt.Errorf("tenant %s not found", id)
 	}
 
-	// Publish metadata updates under the per-tenant lock: CheckQuota,
-	// GetTenantUsage, and sanitizeTenant read these fields under tenant.mu
-	// on the request path, and m.mu alone establishes no happens-before
-	// edge with those readers (two different mutexes = data race).
-	tenant.mu.Lock()
-	if updates.Name != "" {
-		tenant.Name = updates.Name
-	}
-	if updates.Description != "" {
-		tenant.Description = updates.Description
-	}
-	if updates.Active != nil {
-		tenant.Active = *updates.Active
-	}
-	if updates.Quota != nil {
-		tenant.Quota = *updates.Quota
-	}
-	if updates.Config != nil {
-		tenant.Config = updates.Config
-	}
-	tenant.mu.Unlock()
-
-	// Update domains — this is part of the same atomic operation under m.mu
+	// Validate domains before publishing any part of the update.
+	var normalizedDomains []string
 	if len(updates.Domains) > 0 {
 		// Normalize at this index-write seam (see CreateTenant): raw
 		// port-suffixed or padded values could never match a request.
-		// Normalization happens before the consistency check so a rejected
-		// update cannot leave the mappings inconsistent with tenant.Domains.
-		normalizedDomains := make([]string, 0, len(updates.Domains))
+		normalizedDomains = make([]string, 0, len(updates.Domains))
 		for _, domain := range updates.Domains {
 			d := normalizeDomain(domain)
 			if d == "" {
@@ -562,41 +571,54 @@ func (m *Manager) UpdateTenant(id string, updates *TenantUpdate) error {
 			}
 			normalizedDomains = append(normalizedDomains, d)
 		}
-
-		// Check new domains before touching the index so a rejected update
-		// cannot leave the mappings inconsistent with tenant.Domains.
 		for _, domain := range normalizedDomains {
 			if existingID, exists := m.domains[domainKey(domain)]; exists && existingID != id {
 				return fmt.Errorf("domain %s already assigned to tenant %s", domain, existingID)
 			}
 		}
-
-		// Remove old domain mappings
-		for _, oldDomain := range tenant.Domains {
-			delete(m.domains, domainKey(oldDomain))
-		}
-
-		// Set new domains. The slice header is published under tenant.mu
-		// (sanitizeTenant reads tenant.Domains there); m.mu stays held
-		// across delete-old → set-new so index readers (m.mu.RLock) never
-		// observe a gap.
-		tenant.mu.Lock()
-		tenant.Domains = normalizedDomains
-		tenant.mu.Unlock()
-		for _, domain := range normalizedDomains {
-			m.domains[domainKey(domain)] = id
-		}
 	}
 
+	// Build a detached record. Requests holding the live tenant pointer must
+	// observe only committed state, including while disk I/O is in progress.
+	tenant.mu.RLock()
+	staged := tenantRecord(tenant)
+	tenant.mu.RUnlock()
+	if updates.Name != "" {
+		staged.Name = updates.Name
+	}
+	if updates.Description != "" {
+		staged.Description = updates.Description
+	}
+	if updates.Active != nil {
+		staged.Active = *updates.Active
+	}
+	if updates.Quota != nil {
+		staged.Quota = *updates.Quota
+	}
+	if updates.Config != nil {
+		staged.Config = updates.Config.DeepCopy()
+	}
+	if len(updates.Domains) > 0 {
+		staged.Domains = normalizedDomains
+	}
+	if err := m.SaveTenant(staged); err != nil {
+		return &persistenceError{op: "persist tenant update", err: err}
+	}
+
+	// Publish under both the index and tenant locks. Preserve the live pointer
+	// and its usage counters; callers may already be using this tenant.
 	tenant.mu.Lock()
-	tenant.UpdatedAt = time.Now()
-	tenant.mu.Unlock()
-
-	// Persist updated tenant
-	if err := m.SaveTenant(tenant); err != nil {
-		// Non-fatal: log but don't fail
-		m.log.Warn("failed to persist tenant update", "err", err)
+	for _, oldDomain := range tenant.Domains {
+		delete(m.domains, domainKey(oldDomain))
 	}
+	tenant.Name, tenant.Description = staged.Name, staged.Description
+	tenant.Active, tenant.Quota = staged.Active, staged.Quota
+	tenant.Config, tenant.Domains = staged.Config, staged.Domains
+	tenant.UpdatedAt = staged.UpdatedAt
+	for _, domain := range tenant.Domains {
+		m.domains[domainKey(domain)] = id
+	}
+	tenant.mu.Unlock()
 
 	// Broadcast to cluster
 	m.broadcast("tenant", tenant.ID, "update", map[string]any{
@@ -621,6 +643,13 @@ func (m *Manager) DeleteTenant(id string) error {
 		return fmt.Errorf("tenant %s not found", id)
 	}
 
+	// A failed deletion must leave the live tenant and its key intact.
+	if m.store != nil {
+		if err := m.store.DeleteTenant(id); err != nil {
+			return &persistenceError{op: "delete tenant from storage", err: err}
+		}
+	}
+
 	// Remove domain mappings
 	for _, domain := range tenant.Domains {
 		delete(m.domains, domainKey(domain))
@@ -635,14 +664,6 @@ func (m *Manager) DeleteTenant(id string) error {
 		for tid := range m.tenants {
 			m.defaultTenantID = tid
 			break
-		}
-	}
-
-	// Delete from persistent storage
-	if m.store != nil {
-		if err := m.store.DeleteTenant(id); err != nil {
-			// Non-fatal: log but don't fail
-			m.log.Warn("failed to delete tenant from storage", "err", err)
 		}
 	}
 
@@ -672,24 +693,64 @@ func (m *Manager) RegenerateAPIKey(id string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// Publish under the per-tenant lock: UpdatedAt is read under tenant.mu
-	// (sanitizeTenant); APIKeyHash readers hold m.mu, which this mutator
-	// holds too, so the additional section keeps every field's publication
-	// protocol uniform. Lock order m.mu → tenant.mu matches UpdateTenant.
+	tenant.mu.RLock()
+	staged := tenantRecord(tenant)
+	tenant.mu.RUnlock()
+	staged.APIKeyHash = newHash
+	if err := m.SaveTenant(staged); err != nil {
+		return "", &persistenceError{op: "persist API key update", err: err}
+	}
 	tenant.mu.Lock()
-	tenant.APIKeyHash = newHash
-	tenant.UpdatedAt = time.Now()
+	tenant.APIKeyHash, tenant.UpdatedAt = staged.APIKeyHash, staged.UpdatedAt
 	tenant.mu.Unlock()
-	// The old key must stop resolving and the new one must resolve.
 	m.invalidateAPIKeyCache()
 
-	// Persist updated tenant
-	if err := m.SaveTenant(tenant); err != nil {
-		// Non-fatal: log but don't fail
-		m.log.Warn("failed to persist API key update", "err", err)
-	}
-
 	return newKey, nil
+}
+
+// tenantRecord copies persisted fields without copying the live mutex/counters.
+// The caller holds tenant.mu for reading.
+func tenantRecord(t *Tenant) *Tenant {
+	return &Tenant{
+		ID: t.ID, Name: t.Name, Description: t.Description,
+		CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt, Active: t.Active,
+		APIKeyHash: t.APIKeyHash, Domains: append([]string(nil), t.Domains...),
+		Quota: t.Quota, Config: t.Config,
+	}
+}
+
+// VerifyTenantAPIKey checks current committed credentials while holding the
+// manager lock. Dashboard authentication must not use a stale copied key list.
+func (m *Manager) VerifyTenantAPIKey(id, key string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	t := m.tenants[id]
+	if t == nil || key == "" {
+		return false
+	}
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	if !t.Active {
+		return false
+	}
+	matched, _ := verifyAPIKey(t.APIKeyHash, key)
+	return matched
+}
+
+// TenantConfigSnapshot returns a detached config for an administrative patch.
+func (m *Manager) TenantConfigSnapshot(id string) (*config.Config, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	t := m.tenants[id]
+	if t == nil {
+		return nil, fmt.Errorf("tenant %s not found", id)
+	}
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	if t.Config == nil {
+		return config.DefaultConfig(), nil
+	}
+	return t.Config.DeepCopy(), nil
 }
 
 // ListTenants returns all tenants.
