@@ -84,6 +84,8 @@ func runMain(args []string) int {
 		return cmdCluster(args[2:])
 	case "healthcheck":
 		return cmdHealthcheck(args[2:])
+	case "verify-audit":
+		return cmdVerifyAudit(args[2:])
 	case "setup":
 		cmdSetup(args[2:])
 	case "version":
@@ -112,6 +114,7 @@ COMMANDS:
   test-alert  Send test alert to configured targets
   cluster     Cluster operations (status, nodes, bans, ban, unban, health)
   healthcheck Probe the local server liveness endpoint
+  verify-audit Verify the dashboard audit log hash chain
   setup       Interactive first-time setup
   version     Print version information
   help        Show help

@@ -58,9 +58,10 @@ Library mode:
 - **Response masking** is not a DLP guarantee. Responses larger than 1 MiB,
   streamed or flushed responses, and unsupported encodings pass through
   unmasked.
-- **Audit tamper evidence.** The dashboard audit log is append-only JSONL, not
-  hash-chained. Fingerprint exports into write-once storage and use SIEM export
-  as the off-host copy ([runbook §17](runbook.md)).
+- **Audit tamper evidence.** The dashboard audit log is a SHA-256 hash chain.
+  Edits, insertions, deletions and reordering are detected, but truncating the
+  newest entries is not unless the chain head was recorded off the host
+  ([runbook §17](runbook.md)). SIEM export remains the off-host copy.
 - **Detection quality** has only been measured on small corpora. Block-level
   false positives are 0–8% depending on corpus ([detection quality](detection-quality.md)).
   Deploy in monitor mode and tune per application before enforcing.
@@ -77,7 +78,6 @@ Library mode:
 | P1 | Raft state-machine snapshot, log truncation and InstallSnapshot | Long-running cluster soak shows bounded WAL size and restart time |
 | P1 | Detection quality gate | Benign corpus of thousands of samples; block FP < 1% enforced in CI; gotestwaf / CRS regression results published |
 | P1 | Large-body inspection throughput | Profile-driven work on per-field scanning; LargeBody p99 within the [performance budget](performance-budget.md) |
-| P2 | Hash-chained dashboard audit log | Tamper evidence without relying on external fingerprints |
 | P2 | Production-profile startup guard | Refuse non-loopback plain-HTTP dashboard unless explicitly acknowledged |
 | P2 | Test suite cost | Tenant package under 60 s (PBKDF2 cost in tests), per-bug regression files consolidated by theme |
 | P3 | OTLP trace exporter | Traces reach a standard collector without custom code |
