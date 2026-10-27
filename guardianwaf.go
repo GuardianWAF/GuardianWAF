@@ -26,6 +26,8 @@
 package guardianwaf
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -35,13 +37,8 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/events"
-	"github.com/guardianwaf/guardianwaf/internal/layers/botdetect"
 	"github.com/guardianwaf/guardianwaf/internal/layers/challenge"
-	"github.com/guardianwaf/guardianwaf/internal/layers/detection"
-	"github.com/guardianwaf/guardianwaf/internal/layers/ipacl"
-	"github.com/guardianwaf/guardianwaf/internal/layers/ratelimit"
-	"github.com/guardianwaf/guardianwaf/internal/layers/response"
-	"github.com/guardianwaf/guardianwaf/internal/layers/sanitizer"
+	"github.com/guardianwaf/guardianwaf/internal/runtime/layerregistry"
 )
 
 // Mode constants for WAF operation mode.
@@ -73,6 +70,11 @@ type DetectionConfig struct {
 	CmdInjection  DetectorConfig
 	XXE           DetectorConfig
 	SSRF          DetectorConfig
+	SSTI          DetectorConfig
+	NoSQLi        DetectorConfig
+	Smuggling     DetectorConfig
+	OpenRedirect  DetectorConfig
+	GraphQL       DetectorConfig
 	Exclusions    []ExclusionConfig
 }
 
@@ -84,6 +86,8 @@ type ExclusionConfig struct {
 }
 
 // DetectorConfig toggles a single detector and sets its score multiplier.
+// A zero value inherits the enabled default. To disable a detector, use
+// WithDetector(name, false, 1) or set Enabled:false with Multiplier:1.
 type DetectorConfig struct {
 	Enabled    bool
 	Multiplier float64
@@ -181,6 +185,8 @@ type Engine struct {
 	cfg         *config.Config
 	cleanupStop chan struct{}
 	cleanupWG   sync.WaitGroup
+	closeOnce   sync.Once
+	closeErr    error
 }
 
 // libraryCleanupInterval is how often stale per-IP/per-tenant layer state is
@@ -199,6 +205,9 @@ var (
 type staleCleaner interface{ CleanupExpired(time.Duration) }
 type expiryCleaner interface{ CleanupExpired() }
 type simpleCleaner interface{ Cleanup() }
+type eventSubscriptionAcceptor interface {
+	TrySubscribe(chan<- engine.Event) bool
+}
 
 // startCleanup launches the periodic layer-state cleanup goroutine.
 func (e *Engine) startCleanup() {
@@ -287,9 +296,15 @@ func New(cfg Config, opts ...Option) (*Engine, error) {
 		return nil, fmt.Errorf("creating engine: %w", err)
 	}
 
-	addDefaultLayers(eng, internalCfg)
+	if err := addDefaultLayers(eng, internalCfg); err != nil {
+		_ = stopLibraryLayers(eng)
+		_ = eng.Close()
+		return nil, err
+	}
 
 	if err := wireChallengeService(eng, internalCfg); err != nil {
+		_ = stopLibraryLayers(eng)
+		_ = eng.Close()
 		return nil, err
 	}
 
@@ -322,9 +337,15 @@ func NewFromFile(path string, opts ...Option) (*Engine, error) {
 		return nil, fmt.Errorf("creating engine: %w", err)
 	}
 
-	addDefaultLayers(eng, cfg)
+	if err := addDefaultLayers(eng, cfg); err != nil {
+		_ = stopLibraryLayers(eng)
+		_ = eng.Close()
+		return nil, err
+	}
 
 	if err := wireChallengeService(eng, cfg); err != nil {
+		_ = stopLibraryLayers(eng)
+		_ = eng.Close()
 		return nil, err
 	}
 
@@ -358,7 +379,14 @@ func (e *Engine) Check(r *http.Request) Result {
 // the subscriber (the bus drops on full channels).
 func (e *Engine) OnEvent(fn func(Event)) {
 	ch := make(chan engine.Event, 64)
-	e.internal.EventBus().Subscribe(ch)
+	bus := e.internal.EventBus()
+	if acceptor, ok := bus.(eventSubscriptionAcceptor); ok {
+		if !acceptor.TrySubscribe(ch) {
+			return
+		}
+	} else {
+		bus.Subscribe(ch)
+	}
 	go func() {
 		for event := range ch {
 			invokeEventCallback(fn, event)
@@ -402,12 +430,14 @@ type Stats struct {
 
 // Close shuts down the engine and releases resources.
 func (e *Engine) Close() error {
-	if e.cleanupStop != nil {
-		close(e.cleanupStop)
-		e.cleanupWG.Wait()
-		e.cleanupStop = nil
-	}
-	return e.internal.Close()
+	e.closeOnce.Do(func() {
+		if e.cleanupStop != nil {
+			close(e.cleanupStop)
+			e.cleanupWG.Wait()
+		}
+		e.closeErr = errors.Join(stopLibraryLayers(e.internal), e.internal.Close())
+	})
+	return e.closeErr
 }
 
 // convertConfig converts the public Config to the internal config.Config.
@@ -427,14 +457,18 @@ func convertConfig(cfg Config) *config.Config {
 	}
 
 	// Detection detectors
-	detectors := make(map[string]config.DetectorConfig)
+	detectors := c.WAF.Detection.Detectors
 	detectors["sqli"] = toInternalDetector(cfg.Detection.SQLi, true)
 	detectors["xss"] = toInternalDetector(cfg.Detection.XSS, true)
 	detectors["lfi"] = toInternalDetector(cfg.Detection.PathTraversal, true)
 	detectors["cmdi"] = toInternalDetector(cfg.Detection.CmdInjection, true)
 	detectors["xxe"] = toInternalDetector(cfg.Detection.XXE, true)
 	detectors["ssrf"] = toInternalDetector(cfg.Detection.SSRF, true)
-	c.WAF.Detection.Detectors = detectors
+	detectors["ssti"] = toInternalDetector(cfg.Detection.SSTI, true)
+	detectors["nosqli"] = toInternalDetector(cfg.Detection.NoSQLi, true)
+	detectors["smuggling"] = toInternalDetector(cfg.Detection.Smuggling, true)
+	detectors["openredirect"] = toInternalDetector(cfg.Detection.OpenRedirect, true)
+	detectors["graphql"] = toInternalDetector(cfg.Detection.GraphQL, true)
 
 	for _, exc := range cfg.Detection.Exclusions {
 		c.WAF.Detection.Exclusions = append(c.WAF.Detection.Exclusions, config.ExclusionConfig{
@@ -480,10 +514,22 @@ func convertConfig(cfg Config) *config.Config {
 		if len(rules) > 0 {
 			c.WAF.RateLimit.Rules = rules
 		}
+	} else {
+		c.WAF.RateLimit.Enabled = false
 	}
 
-	// Bot detection
-	if !cfg.Bot.Enabled {
+	// Bot detection. The public BotConfig has no independent mode, so inherit
+	// the global WAF mode. Otherwise New(ModeEnforce) leaves the bot layer in
+	// the internal default "monitor" mode and its block/challenge actions are
+	// unreachable for programmatic users.
+	if cfg.Bot.Enabled {
+		c.WAF.BotDetection.Enabled = true
+		if c.Mode == ModeEnforce {
+			c.WAF.BotDetection.Mode = ModeEnforce
+		} else {
+			c.WAF.BotDetection.Mode = ModeMonitor
+		}
+	} else {
 		c.WAF.BotDetection.Enabled = false
 	}
 	c.WAF.BotDetection.UserAgent.BlockEmpty = cfg.Bot.BlockEmpty
@@ -556,135 +602,45 @@ func convertResult(event *engine.Event) Result {
 	}
 }
 
-// addDefaultLayers wires all WAF layers based on the internal config.
-func addDefaultLayers(eng *engine.Engine, cfg *config.Config) {
-	// 1. IP ACL layer (Order 100)
-	if cfg.WAF.IPACL.Enabled {
-		ipaclLayer, err := ipacl.NewLayer(&ipacl.Config{
-			Enabled:   cfg.WAF.IPACL.Enabled,
-			Whitelist: cfg.WAF.IPACL.Whitelist,
-			Blacklist: cfg.WAF.IPACL.Blacklist,
-			AutoBan: ipacl.AutoBanConfig{
-				Enabled:    cfg.WAF.IPACL.AutoBan.Enabled,
-				DefaultTTL: cfg.WAF.IPACL.AutoBan.DefaultTTL,
-				MaxTTL:     cfg.WAF.IPACL.AutoBan.MaxTTL,
-			},
-		})
-		if err == nil {
-			eng.AddLayer(engine.OrderedLayer{Layer: ipaclLayer, Order: engine.OrderIPACL})
+// addDefaultLayers uses the same builders as standalone mode. Reject enabled
+// layers requiring standalone services rather than silently dropping protection.
+func addDefaultLayers(eng *engine.Engine, cfg *config.Config) error {
+	supported := map[string]bool{
+		"ip_acl": true, "rate_limit": true, "api_security": true,
+		"sanitizer": true, "detection": true, "bot_detection": true, "response": true,
+	}
+	for _, d := range layerregistry.DefaultRegistry() {
+		if !supported[d.Name] && d.Enabled(cfg) {
+			return fmt.Errorf("WAF layer %q is not supported in library mode; use guardianwaf serve or disable this layer", d.Name)
 		}
 	}
-
-	// 2. Rate Limit layer (Order 200)
-	if cfg.WAF.RateLimit.Enabled {
-		rules := make([]ratelimit.Rule, len(cfg.WAF.RateLimit.Rules))
-		for i, r := range cfg.WAF.RateLimit.Rules {
-			rules[i] = ratelimit.Rule{
-				ID:           r.ID,
-				Scope:        r.Scope,
-				Paths:        r.Paths,
-				Limit:        r.Limit,
-				Window:       r.Window,
-				Burst:        r.Burst,
-				Action:       r.Action,
-				AutoBanAfter: r.AutoBanAfter,
-			}
+	buildCtx := &layerregistry.BuildContext{}
+	for _, d := range layerregistry.DefaultRegistry() {
+		if !supported[d.Name] {
+			continue
 		}
-		rlLayer := ratelimit.NewLayer(&ratelimit.Config{
-			Enabled: true,
-			Rules:   rules,
-		})
-		eng.AddLayer(engine.OrderedLayer{Layer: rlLayer, Order: engine.OrderRateLimit})
-	}
-
-	// 3. Sanitizer layer (Order 300)
-	if cfg.WAF.Sanitizer.Enabled {
-		sanLayer := sanitizer.NewLayer(&sanitizer.Config{
-			MaxURLLength:   cfg.WAF.Sanitizer.MaxURLLength,
-			MaxHeaderSize:  cfg.WAF.Sanitizer.MaxHeaderSize,
-			MaxHeaderCount: cfg.WAF.Sanitizer.MaxHeaderCount,
-			MaxBodySize:    cfg.WAF.Sanitizer.MaxBodySize,
-			MaxCookieSize:  cfg.WAF.Sanitizer.MaxCookieSize,
-			AllowedMethods: cfg.WAF.Sanitizer.AllowedMethods,
-			BlockNullBytes: cfg.WAF.Sanitizer.BlockNullBytes,
-			StripHopByHop:  cfg.WAF.Sanitizer.StripHopByHop,
-		})
-		eng.AddLayer(engine.OrderedLayer{Layer: sanLayer, Order: engine.OrderSanitizer})
-	}
-
-	// 4. Detection layer (Order 400)
-	if cfg.WAF.Detection.Enabled {
-		detConfigs := make(map[string]detection.DetectorConfig, len(cfg.WAF.Detection.Detectors))
-		for name, dc := range cfg.WAF.Detection.Detectors {
-			detConfigs[name] = detection.DetectorConfig{
-				Enabled:    dc.Enabled,
-				Multiplier: dc.Multiplier,
-			}
+		layer, ok, err := layerregistry.BuildLayerWithContext(d.Name, cfg, buildCtx)
+		if err != nil {
+			return err
 		}
-		var exclusions []detection.Exclusion
-		for _, exc := range cfg.WAF.Detection.Exclusions {
-			exclusions = append(exclusions, detection.Exclusion{
-				PathPrefix: exc.Path,
-				Detectors:  exc.Detectors,
-				Reason:     exc.Reason,
-			})
-		}
-		detLayer := detection.NewLayer(&detection.Config{
-			Enabled:                   true,
-			Detectors:                 detConfigs,
-			Exclusions:                exclusions,
-			GraphQLMaxDepth:           cfg.WAF.GraphQL.MaxDepth,
-			GraphQLMaxComplexity:      cfg.WAF.GraphQL.MaxComplexity,
-			GraphQLBlockIntrospection: cfg.WAF.GraphQL.BlockIntrospection,
-			GraphQLAllowEndpoints:     cfg.WAF.GraphQL.AllowEndpoints,
-		})
-		eng.AddLayer(engine.OrderedLayer{Layer: detLayer, Order: engine.OrderDetection})
-	}
-
-	// 5. Bot Detection layer (Order 500)
-	if cfg.WAF.BotDetection.Enabled {
-		bdLayer := botdetect.NewLayer(&botdetect.Config{
-			Enabled: true,
-			Mode:    cfg.WAF.BotDetection.Mode,
-			TLSFingerprint: botdetect.TLSFingerprintConfig{
-				Enabled:         cfg.WAF.BotDetection.TLSFingerprint.Enabled,
-				KnownBotsAction: cfg.WAF.BotDetection.TLSFingerprint.KnownBotsAction,
-				UnknownAction:   cfg.WAF.BotDetection.TLSFingerprint.UnknownAction,
-				MismatchAction:  cfg.WAF.BotDetection.TLSFingerprint.MismatchAction,
-			},
-			UserAgent: botdetect.UAConfig{
-				Enabled:            cfg.WAF.BotDetection.UserAgent.Enabled,
-				BlockEmpty:         cfg.WAF.BotDetection.UserAgent.BlockEmpty,
-				BlockKnownScanners: cfg.WAF.BotDetection.UserAgent.BlockKnownScanners,
-			},
-			Behavior: botdetect.BehaviorAnalysisConfig{
-				Enabled:            cfg.WAF.BotDetection.Behavior.Enabled,
-				Window:             cfg.WAF.BotDetection.Behavior.Window,
-				RPSThreshold:       cfg.WAF.BotDetection.Behavior.RPSThreshold,
-				ErrorRateThreshold: cfg.WAF.BotDetection.Behavior.ErrorRateThreshold,
-			},
-		})
-		eng.AddLayer(engine.OrderedLayer{Layer: bdLayer, Order: engine.OrderBotDetect})
-	}
-
-	// 6. Response layer (Order 600)
-	respCfg := response.Config{
-		SecurityHeadersEnabled: cfg.WAF.Response.SecurityHeaders.Enabled,
-		DataMaskingEnabled:     cfg.WAF.Response.DataMasking.Enabled,
-		MaskCreditCards:        cfg.WAF.Response.DataMasking.MaskCreditCards,
-		MaskSSN:                cfg.WAF.Response.DataMasking.MaskSSN,
-		MaskAPIKeys:            cfg.WAF.Response.DataMasking.MaskAPIKeys,
-		StripStackTraces:       cfg.WAF.Response.DataMasking.StripStackTraces,
-		ErrorPageMode:          cfg.WAF.Response.ErrorPages.Mode,
-	}
-	if cfg.WAF.Response.SecurityHeaders.Enabled {
-		respCfg.Headers = response.SecurityHeaders{
-			XContentTypeOptions: "nosniff",
-			XFrameOptions:       cfg.WAF.Response.SecurityHeaders.XFrameOptions,
-			ReferrerPolicy:      cfg.WAF.Response.SecurityHeaders.ReferrerPolicy,
-			PermissionsPolicy:   cfg.WAF.Response.SecurityHeaders.PermissionsPolicy,
+		if ok {
+			eng.AddLayer(layer)
 		}
 	}
-	respLayer := response.NewLayer(&respCfg)
-	eng.AddLayer(engine.OrderedLayer{Layer: respLayer, Order: engine.OrderResponse})
+	return nil
+}
+
+// stopLibraryLayers releases background persistence and JWKS refresh workers,
+// including when a later builder or challenge-service constructor fails.
+func stopLibraryLayers(eng *engine.Engine) error {
+	var errs []error
+	for _, name := range []string{"api_security", "ipacl"} {
+		layer := eng.FindLayer(name)
+		if stopper, ok := layer.(interface{ StopWithContext(context.Context) error }); ok {
+			errs = append(errs, stopper.StopWithContext(context.Background()))
+		} else if stopper, ok := layer.(interface{ Stop() }); ok {
+			stopper.Stop()
+		}
+	}
+	return errors.Join(errs...)
 }
