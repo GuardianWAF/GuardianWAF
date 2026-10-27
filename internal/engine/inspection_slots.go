@@ -7,7 +7,7 @@ import (
 )
 
 // Large bodies dominate inspection cost: every text detector scans every view
-// of the body, roughly 110 ms per MB of JSON and 180 ms per MB of text on one
+// of the body, roughly 50 ms per MB of JSON and 75 ms per MB of text on one
 // core. Without a bound, a few concurrent multi-megabyte POSTs could occupy
 // every core and stall the small requests that make up normal traffic. Bodies
 // above largeBodyBytes therefore take one of a fixed number of inspection
