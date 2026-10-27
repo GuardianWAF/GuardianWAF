@@ -159,14 +159,14 @@ placements in a `# placement:` header:
 | Corpus | Requests | Blocked |
 |---|---:|---:|
 | search queries (EN/TR/DE/ES/FR) | 274 | 0 |
-| comments, reviews, support tickets | 179 | 0 |
+| comments, reviews, support tickets | 184 | 0 |
 | names, companies, addresses, emails, phones | 154 | 0 |
-| JSON API bodies | 76 | 0 |
+| JSON API bodies | 78 | 0 |
 | passwords, tokens, identifiers | 55 | 0 |
 | URL paths and slugs | 51 | 0 |
 | URLs as parameters | 20 | 0 |
 | same-site redirect targets | 17 | 0 |
-| **General benign** | **826** | **0 (0.00%)** — budget 1% |
+| **General benign** | **833** | **0 (0.00%)** — budget 1% |
 | developer posts quoting code (`technical_*`) | 60 | 1 (1.67%) — budget 5% |
 
 Attacks reuse `testdata/attacks/`, placed where each class is delivered:
@@ -179,7 +179,7 @@ Attacks reuse `testdata/attacks/`, placed where each class is delivered:
 - GraphQL: `/graphql`.
 
 Every class must be blocked at least 85% of the time. Current result:
-797/817 (97.6%), with SQLi at 97.1% and CMDi at 98.0%.
+799/817 (97.8%), with SQLi at 97.1% and CMDi at 98.0%.
 
 Building this gate exposed defects that the layer-only corpus could not see.
 They are now fixed and pinned by tests:
@@ -198,6 +198,11 @@ They are now fixed and pinned by tests:
   `') OR ('1'='1` scored below the block threshold.
 - **CMDi whole-value payloads.** `;id`, `| id` and `127.0.0.1;id` were
   downgraded as ambiguous. Table rows such as `| id | name |` still are.
+- **SQL keywords in prose.** Every distinct keyword scored 10 and three or more
+  added 30, so "create, update or delete a post, select a theme" scored 100.
+  Isolated keywords now score at most twice, and the bonus needs two real
+  clauses (`DELETE FROM`, `UPDATE t SET`, `DROP TABLE`, ...). Attack detection
+  is unchanged.
 - **"exec" as a word.** `exec office chair` scored 80.
 
 ## Known Bypass Coverage

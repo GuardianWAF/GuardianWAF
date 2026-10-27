@@ -1047,8 +1047,8 @@ func TestCheckMultipleDangerousKeywords_TwoKeywords(t *testing.T) {
 }
 
 func TestCheckMultipleDangerousKeywords_ThreeKeywords(t *testing.T) {
-	// 3 dangerous keywords -- should trigger the bonus
-	findings := Detect("SELECT DROP DELETE", "query")
+	// 3 dangerous keywords in SQL clauses -- should trigger the bonus
+	findings := Detect("SELECT * FROM t; DROP TABLE x; DELETE FROM y", "query")
 	hasMultiple := false
 	for _, f := range findings {
 		if strings.Contains(f.Description, "Multiple dangerous") {

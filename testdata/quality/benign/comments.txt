@@ -181,3 +181,8 @@ Please ring twice. Flat 3B, 2nd floor.
 Call me before 6 pm if there's a problem.
 Gate code is 1234#
 Leave it with the neighbour at no. 14 if I'm not home.
+Our quarterly update covers the new select menu, an improved update flow for orders, and the drop in latency after moving the cache.
+You can create, update or delete a post, select a theme, drop a pin on the map, grant access to editors and alter the layout.
+Execute the plan: insert the new slide, truncate the intro and create a union of both teams.
+Please select a size from the menu, update your cart, delete the old items and create an account to check out.
+The admin can grant or revoke access, create new users, update their roles and drop inactive accounts every quarter.

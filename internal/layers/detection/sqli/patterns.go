@@ -626,13 +626,24 @@ func checkHexComparison(tokens []Token, location string) (engine.Finding, bool) 
 	return engine.Finding{}, false
 }
 
+// maxIsolatedKeywordFindings caps how many distinct keywords score. Prose
+// names many keywords ("create, update or delete a post, then select and
+// drop..."), and uncapped they would sum past the block threshold on their
+// own. Real injections are scored by the structural checks above.
+const maxIsolatedKeywordFindings = 2
+
 // checkIsolatedKeywords reports isolated SQL keywords at low score.
 func checkIsolatedKeywords(tokens []Token, location string) []engine.Finding {
 	var findings []engine.Finding
+	var seen []string
 	for _, t := range tokens {
 		if t.Type == TokenKeyword {
 			upper := tokenUpperValue(t)
-			if IsDangerousKeyword(upper) {
+			if IsDangerousKeyword(upper) && !slices.Contains(seen, upper) {
+				if len(seen) == maxIsolatedKeywordFindings {
+					break
+				}
+				seen = append(seen, upper)
 				findings = append(findings, makeFinding(10, engine.SeverityLow,
 					"SQL keyword found in input: "+upper,
 					t.Value, location, 0.20))
@@ -642,8 +653,14 @@ func checkIsolatedKeywords(tokens []Token, location string) []engine.Finding {
 	return findings
 }
 
-// checkMultipleDangerousKeywords applies bonus scoring when multiple dangerous keywords appear.
+// checkMultipleDangerousKeywords applies bonus scoring when multiple dangerous
+// keywords appear and at least two of them form SQL clauses. Plain prose such
+// as "the new select menu, an improved update flow and the drop in latency"
+// names three keywords but forms no clause, so it gets no bonus.
 func checkMultipleDangerousKeywords(tokens []Token, location string) (engine.Finding, bool) {
+	if countSQLClauses(tokens, 2) < 2 {
+		return engine.Finding{}, false
+	}
 	dangerousCount := 0
 	var dangerousWords []string
 	seen := make(map[string]bool)
@@ -663,6 +680,65 @@ func checkMultipleDangerousKeywords(tokens []Token, location string) (engine.Fin
 			strings.Join(dangerousWords, " "), location, 0.80), true
 	}
 	return engine.Finding{}, false
+}
+
+// countSQLClauses counts, up to limit, dangerous keywords that start a SQL
+// clause (see isSQLClauseAt) or directly follow a stacked-query semicolon or
+// comment.
+func countSQLClauses(tokens []Token, limit int) int {
+	n := 0
+	for i, t := range tokens {
+		if n == limit {
+			break
+		}
+		if t.Type != TokenKeyword || !IsDangerousKeyword(tokenUpperValue(t)) {
+			continue
+		}
+		if i > 0 && (tokens[i-1].Type == TokenSemicolon || tokens[i-1].Type == TokenComment) || isSQLClauseAt(tokens, i) {
+			n++
+		}
+	}
+	return n
+}
+
+// isSQLClauseAt reports whether the dangerous keyword at tokens[i] is followed
+// by what makes it a SQL clause: UNION SELECT, SELECT * or SELECT a, b FROM,
+// DELETE FROM, INSERT INTO, UPDATE <table> SET, DROP/TRUNCATE/ALTER/CREATE
+// TABLE and the like, EXEC( or EXEC xp_..., GRANT/REVOKE <privilege>.
+func isSQLClauseAt(tokens []Token, i int) bool {
+	at := func(j int) string {
+		if j < len(tokens) {
+			return tokenUpperValue(tokens[j])
+		}
+		return ""
+	}
+	next := at(i + 1)
+	switch tokenUpperValue(tokens[i]) {
+	case "UNION":
+		return next == "SELECT" || next == "ALL" || next == "DISTINCT"
+	case "SELECT":
+		return next == "*" || next == "DISTINCT" || at(i+2) == "FROM" || at(i+3) == "FROM" || at(i+4) == "FROM"
+	case "DELETE":
+		return next == "FROM"
+	case "INSERT":
+		return next == "INTO"
+	case "UPDATE":
+		return at(i+2) == "SET"
+	case "DROP", "TRUNCATE", "ALTER", "CREATE":
+		switch next {
+		case "TABLE", "DATABASE", "SCHEMA", "INDEX", "VIEW", "USER", "PROCEDURE", "FUNCTION", "TRIGGER":
+			return true
+		}
+	case "EXEC", "EXECUTE":
+		return i+1 < len(tokens) && tokens[i+1].Type == TokenParenOpen ||
+			strings.HasPrefix(next, "XP_") || strings.HasPrefix(next, "SP_")
+	case "GRANT", "REVOKE":
+		switch next {
+		case "ALL", "SELECT", "INSERT", "UPDATE", "DELETE", "EXECUTE", "USAGE", "CREATE", "ALTER", "DROP", "FILE", "SUPER":
+			return true
+		}
+	}
+	return false
 }
 
 // checkSubquery detects (SELECT ...) subquery patterns used in boolean injection context.

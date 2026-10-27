@@ -76,3 +76,5 @@
 {"batch":[{"op":"update","id":7,"fields":{"name":"New name"}},{"op":"delete","id":9}]}
 {"select":["id","name","email"],"from":"users","where":{"active":true}}
 {"sql_dialect":"postgres","table":"orders","columns":["id","total","created_at"]}
+{"title":"Release notes","body":"This update adds a select menu for regions, lets admins delete or create teams, and fixes the drop in upload speed. Grant editors access from Settings."}
+{"comment":"Can you update the doc, select the final logo, drop the old draft and create the invoice before Friday?","rating":5}
