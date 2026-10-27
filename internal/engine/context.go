@@ -262,8 +262,8 @@ type RequestContext struct {
 	// binary (image, PDF, octet-stream, ...) and the body really is binary.
 	// Backends never read such a body as parameters, and text detectors
 	// scanning random bytes block legitimate uploads, so BodyViews omits it.
-	BodyBinary bool
-	NormalizedHeaders    map[string][]string
+	BodyBinary        bool
+	NormalizedHeaders map[string][]string
 
 	// Scoring
 	Accumulator *ScoreAccumulator
