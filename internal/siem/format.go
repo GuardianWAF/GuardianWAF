@@ -45,7 +45,7 @@ func EncodeCEF(ev engine.Event, vendor, productVersion string) string {
 	if len(nameParts) > 0 {
 		name = strings.Join(nameParts, "; ")
 		if len(name) > 200 {
-			name = name[:197] + "..."
+			name = engine.TruncateEvidence(name, 200)
 		}
 	}
 

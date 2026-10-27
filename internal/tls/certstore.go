@@ -104,7 +104,7 @@ func (cs *CertStore) LoadCert(domains []string, certFile, keyFile string) error 
 	keyInfo, _ := os.Stat(keyFile)
 
 	entry := CertEntry{
-		Domains:  domains,
+		Domains:  append([]string(nil), domains...),
 		CertFile: certFile,
 		KeyFile:  keyFile,
 	}

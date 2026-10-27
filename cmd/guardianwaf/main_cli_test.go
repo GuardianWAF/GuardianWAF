@@ -980,7 +980,7 @@ virtual_hosts:
 
 	// Wait for main server
 	started := false
-	for i := 0; i < 200; i++ {
+	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); {
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", mainPort), 50*time.Millisecond)
 		if err == nil {
 			conn.Close()
@@ -996,7 +996,7 @@ virtual_hosts:
 
 	// Wait for dashboard
 	dashStarted := false
-	for i := 0; i < 200; i++ {
+	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); {
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", dashPort), 50*time.Millisecond)
 		if err == nil {
 			conn.Close()

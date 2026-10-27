@@ -612,6 +612,12 @@ func (m *mockChallengeService) ServeChallengePage(w http.ResponseWriter, _ *http
 	_, _ = w.Write([]byte("challenge page"))
 }
 
+// ServeChallengeVerify reports that this mock does not own the challenge
+// verification endpoint, so the middleware passes the request through.
+func (m *mockChallengeService) ServeChallengeVerify(_ http.ResponseWriter, _ *http.Request) bool {
+	return false
+}
+
 // ---------------------------------------------------------------------------
 // computeJA4FromContext: TLS version and cipher suite branches
 // ---------------------------------------------------------------------------

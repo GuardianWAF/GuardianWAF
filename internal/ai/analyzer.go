@@ -63,6 +63,9 @@ type AnalyzerConfig struct {
 	AutoBlockEnabled bool
 	AutoBlockTTL     time.Duration
 	MinScoreForAI    int
+	// EnforcementAllowed is checked when a verdict is applied, so an analysis
+	// started before a switch to monitoring cannot publish a later ban.
+	EnforcementAllowed func() bool `json:"-"`
 }
 
 // Analyzer is the background AI threat analysis engine.
@@ -76,9 +79,10 @@ type Analyzer struct {
 	logFn   atomic.Value // logFunc; atomic so SetLogger never races the background loop
 
 	// Event collection
-	pending []eventSummary
-	stopCh  chan struct{}
-	wg      sync.WaitGroup
+	pending  []eventSummary
+	stopCh   chan struct{}
+	stopOnce sync.Once
+	wg       sync.WaitGroup
 }
 
 type logFunc func(level, msg string)
@@ -190,11 +194,9 @@ func (a *Analyzer) Stop() {
 
 // StopWithContext gracefully stops the analyzer without waiting past ctx.
 func (a *Analyzer) StopWithContext(ctx context.Context) error {
-	select {
-	case <-a.stopCh:
-	default:
+	a.stopOnce.Do(func() {
 		close(a.stopCh)
-	}
+	})
 	done := make(chan struct{})
 	go func() {
 		a.wg.Wait()
@@ -315,7 +317,7 @@ func (a *Analyzer) flushBatch() {
 	}
 
 	// Check cost limits
-	if !a.store.WithinLimits(a.config.MaxTokensHour, a.config.MaxTokensDay, a.config.MaxRequestsHour) {
+	if !a.store.reserveRequest(a.config.MaxTokensHour, a.config.MaxTokensDay, a.config.MaxRequestsHour) {
 		a.log("warn", "AI analyzer: usage limit reached, skipping batch")
 		return
 	}
@@ -339,7 +341,7 @@ func (a *Analyzer) flushBatch() {
 	duration := time.Since(start)
 
 	// Track usage regardless of success
-	a.store.TrackUsage(usage.TotalTokens)
+	a.store.trackUsage(usage.TotalTokens, false)
 
 	// Calculate cost (estimate)
 	provCfg := a.store.GetConfig()
@@ -400,6 +402,7 @@ func (a *Analyzer) applyVerdicts(verdicts []Verdict, batchIPs map[string]bool) {
 	blocker := a.blocker
 	autoBlock := a.config.AutoBlockEnabled
 	ttl := a.config.AutoBlockTTL
+	enforcementAllowed := a.config.EnforcementAllowed
 	a.mu.RUnlock()
 
 	if blocker == nil || !autoBlock {
@@ -408,6 +411,9 @@ func (a *Analyzer) applyVerdicts(verdicts []Verdict, batchIPs map[string]bool) {
 
 	for _, v := range verdicts {
 		if v.Action == "block" && v.Confidence >= 0.7 {
+			if enforcementAllowed != nil && !enforcementAllowed() {
+				continue
+			}
 			if !verdictIPInBatch(v.IP, batchIPs) {
 				a.log("warn", "AI verdict for "+v.IP+" rejected: the IP is not part of the analyzed batch")
 				continue
@@ -450,7 +456,7 @@ func (a *Analyzer) ManualAnalyze(events []engine.Event) (*AnalysisResult, error)
 		return nil, ErrNoProviderConfigured
 	}
 
-	if !a.store.WithinLimits(a.config.MaxTokensHour, a.config.MaxTokensDay, a.config.MaxRequestsHour) {
+	if !a.store.reserveRequest(a.config.MaxTokensHour, a.config.MaxTokensDay, a.config.MaxRequestsHour) {
 		return nil, ErrUsageLimitReached
 	}
 
@@ -489,7 +495,7 @@ func (a *Analyzer) ManualAnalyze(events []engine.Event) (*AnalysisResult, error)
 
 	responseText, usage, err := client.Analyze(ctx, systemPrompt, userContent)
 	duration := time.Since(start)
-	a.store.TrackUsage(usage.TotalTokens)
+	a.store.trackUsage(usage.TotalTokens, false)
 
 	provCfg := a.store.GetConfig()
 	cost := float64(usage.PromptTokens)/1_000_000*1.0 + float64(usage.CompletionTokens)/1_000_000*3.0

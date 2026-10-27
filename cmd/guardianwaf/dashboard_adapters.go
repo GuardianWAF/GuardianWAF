@@ -26,6 +26,10 @@ func (a *tenantManagerAdapter) TenantAPIKeyHashes() map[string]string {
 	return a.mgr.TenantAPIKeyHashes()
 }
 
+func (a *tenantManagerAdapter) VerifyTenantAPIKey(id, key string) bool {
+	return a.mgr.VerifyTenantAPIKey(id, key)
+}
+
 func (a *tenantManagerAdapter) GetTenant(id string) any {
 	// Return an untyped nil when the tenant is missing. a.mgr.GetTenant returns a
 	// nil *tenant.Tenant for unknown IDs; returning it directly would wrap a typed
@@ -53,6 +57,29 @@ func (a *tenantManagerAdapter) UpdateTenant(id string, update any) error {
 		return a.mgr.UpdateTenant(id, u)
 	}
 	if m, ok := update.(map[string]any); ok {
+		for field, value := range m {
+			switch field {
+			case "name", "description":
+				if _, ok := value.(string); !ok {
+					return &tenantUpdateError{err: fmt.Errorf("%s must be a string", field)}
+				}
+			case "active", "enabled":
+				if _, ok := value.(bool); !ok {
+					return &tenantUpdateError{err: fmt.Errorf("%s must be a boolean", field)}
+				}
+			case "domains":
+				if domains, ok := stringSlice(value); !ok || len(domains) == 0 {
+					return &tenantUpdateError{err: fmt.Errorf("domains must be a nonempty string array")}
+				}
+			case "quota":
+				if _, ok := quotaFromAny(value); !ok {
+					return &tenantUpdateError{err: fmt.Errorf("quota must be an object")}
+				}
+			case "waf_config":
+			default:
+				return &tenantUpdateError{err: fmt.Errorf("unsupported field: %s", field)}
+			}
+		}
 		tu := &tenant.TenantUpdate{}
 		if v, ok := m["name"].(string); ok {
 			tu.Name = v
@@ -70,6 +97,16 @@ func (a *tenantManagerAdapter) UpdateTenant(id string, update any) error {
 		}
 		if q, ok := quotaFromAny(m["quota"]); ok {
 			tu.Quota = q
+		}
+		if v, exists := m["waf_config"]; exists {
+			cfg, err := a.mgr.TenantConfigSnapshot(id)
+			if err != nil {
+				return err
+			}
+			if err := applyTenantWAFPatch(cfg, v); err != nil {
+				return &tenantUpdateError{err: err}
+			}
+			tu.Config = cfg
 		}
 		return a.mgr.UpdateTenant(id, tu)
 	}

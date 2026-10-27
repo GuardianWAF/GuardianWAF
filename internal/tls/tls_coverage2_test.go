@@ -113,8 +113,8 @@ func TestCoverage_BuildCertID(t *testing.T) {
 
 	// Verify fields
 	sha1OID := asn1.ObjectIdentifier{1, 3, 14, 3, 2, 26}
-	if !certID.HashAlgorithm.Equal(sha1OID) {
-		t.Errorf("expected SHA1 OID, got %v", certID.HashAlgorithm)
+	if !certID.HashAlgorithm.Algorithm.Equal(sha1OID) {
+		t.Errorf("expected SHA1 OID, got %v", certID.HashAlgorithm.Algorithm)
 	}
 	if len(certID.IssuerNameHash) == 0 {
 		t.Error("expected non-empty issuer name hash")

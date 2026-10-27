@@ -65,7 +65,7 @@ func (p *Pipeline) SetExclusions(exclusions []Exclusion) {
 }
 
 // Execute runs each layer in order against the request context.
-// If any layer returns ActionBlock, execution stops immediately.
+// If a layer returns ActionBlock, execution stops unless ctx.ObserveOnly is set.
 // Findings and scores are accumulated across all layers.
 func (p *Pipeline) Execute(ctx *RequestContext) (result PipelineResult) {
 	p.mu.RLock()
@@ -133,6 +133,12 @@ func (p *Pipeline) Execute(ctx *RequestContext) (result PipelineResult) {
 		// Check action
 		switch lr.Action {
 		case ActionBlock:
+			if ctx.ObserveOnly {
+				// Preserve the strongest observed verdict for the engine's
+				// mode decision while continuing inspection of later layers.
+				result.Action = ActionBlock
+				continue
+			}
 			// Security headers (HSTS, X-Frame-Options, X-Content-Type-Options,
 			// CSP) are registered by the response layer at Order 600, and it is
 			// the only thing in the tree that sets them. Returning here without

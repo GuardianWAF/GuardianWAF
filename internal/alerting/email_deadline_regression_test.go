@@ -138,8 +138,10 @@ func serveDlCompliant(conn net.Conn, served *atomic.Int64) {
 			}
 			writeLine("250 OK: message accepted")
 		case strings.HasPrefix(cmd, "QUIT"):
-			writeLine("221 Bye")
+			// Publish completion before acknowledging it to the client. The
+			// client may return from Quit as soon as it reads the response.
 			served.Add(1)
+			writeLine("221 Bye")
 			return
 		default:
 			writeLine("250 OK")

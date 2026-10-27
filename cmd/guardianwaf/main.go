@@ -313,12 +313,16 @@ func cmdServe(args []string) {
 	})
 	handler := http.Handler(serveMux)
 
-	// 8. Start TLS server if enabled
+	// Bind and serve HTTP before ACME provisioning: HTTP-01 validation calls
+	// this listener while buildTLSServer obtains the initial certificate.
+	// Readiness remains false until the remaining runtime services are ready.
+	var httpRuntimeReady atomic.Bool
+	startupHandler := buildStartupHTTPHandler(cfg, serveMux, handler, httpRuntimeReady.Load)
+	srv := newRuntimeHTTPServer(cfg.Listen, startupHandler)
+	if !startServeHTTPServer(cfg, eng, srv) {
+		return
+	}
 	tlsSrv, certStore, diskStore := buildTLSServer(cfg, serveMux, handler)
-
-	// 9. Start HTTP server
-	// If TLS is enabled with http_redirect, HTTP server redirects to HTTPS
-	srv := newRuntimeHTTPServer(cfg.Listen, buildHTTPHandler(cfg, serveMux, handler))
 
 	// 10. Prepare MCP SSE registration after dashboard startup.
 	var mcpSSE *mcp.SSEHandler
@@ -407,7 +411,7 @@ func cmdServe(args []string) {
 	signalNotify(shutdown, syscall.SIGINT, syscall.SIGTERM)
 	defer signalStop(shutdown)
 
-	startServeHTTPServer(cfg, eng, srv)
+	httpRuntimeReady.Store(true)
 	startServeTLSServer(cfg, eng, tlsSrv)
 	logServeRuntimeStatus(cfg, eng)
 

@@ -11,8 +11,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
 	"os"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -64,6 +66,10 @@ type SpanEvent struct {
 // SetAttribute sets a single attribute on the span.
 func (s *Span) SetAttribute(key, value string) {
 	s.mu.Lock()
+	if !s.EndTime.IsZero() {
+		s.mu.Unlock()
+		return
+	}
 	if s.Attributes == nil {
 		s.Attributes = make(map[string]string)
 	}
@@ -74,10 +80,14 @@ func (s *Span) SetAttribute(key, value string) {
 // AddEvent records a timed event on the span.
 func (s *Span) AddEvent(name string, attrs map[string]string) {
 	s.mu.Lock()
+	if !s.EndTime.IsZero() {
+		s.mu.Unlock()
+		return
+	}
 	s.Events = append(s.Events, SpanEvent{
 		Name:       name,
 		Timestamp:  time.Now(),
-		Attributes: attrs,
+		Attributes: maps.Clone(attrs),
 	})
 	s.mu.Unlock()
 }
@@ -147,7 +157,7 @@ type Tracer struct {
 	config   Config
 	exporter Exporter
 	enabled  atomic.Bool
-	samples  atomic.Int64
+	samples  atomic.Uint64
 	spans    atomic.Int64
 	exported atomic.Int64
 }
@@ -226,6 +236,10 @@ func (t *Tracer) SetExporter(e Exporter) {
 		e = NewNoopExporter()
 	}
 	t.mu.Lock()
+	if reflect.ValueOf(e).Comparable() && t.exporter == e {
+		t.mu.Unlock()
+		return
+	}
 	oldExporter := t.exporter
 	t.exporter = e
 	t.mu.Unlock()
@@ -264,9 +278,9 @@ func (t *Tracer) ShouldSample() bool {
 	if rate <= 0.0 {
 		return false
 	}
-	// Deterministic sampling using span counter
-	n := t.samples.Add(1)
-	return float64(n%100)/100.0 < rate
+	// Spread counter values over [0,1) instead of rounding rates to percent.
+	n := t.samples.Add(1) * 0x9e3779b97f4a7c15
+	return float64(n>>11)/(1<<53) < rate
 }
 
 // StartSpan creates a new span with the given name and kind.

@@ -82,7 +82,9 @@ func (ps *PersistentMemoryStore) Store(event engine.Event) error {
 	data, err := json.Marshal(event)
 	if err != nil {
 		ps.dropped.Add(1)
-		ps.log.Warn("failed to marshal event to JSONL", "error", err)
+		if ps.log != nil {
+			ps.log.Warn("failed to marshal event to JSONL", "error", err)
+		}
 		return nil
 	}
 
@@ -226,10 +228,20 @@ func (ps *PersistentMemoryStore) replay() error {
 	scanner := bufio.NewScanner(f)
 	buf := make([]byte, 0, 64*1024)
 	scanner.Buffer(buf, 1024*1024)
+	repairNeeded := false
+	scanner.Split(func(data []byte, atEOF bool) (int, []byte, error) {
+		advance, token, err := bufio.ScanLines(data, atEOF)
+		// Even a valid final JSON record needs a newline before future appends.
+		if atEOF && advance > 0 && advance == len(data) && data[advance-1] != '\n' {
+			repairNeeded = true
+		}
+		return advance, token, err
+	})
 
 	for scanner.Scan() {
 		var ev engine.Event
-		if err := json.Unmarshal(scanner.Bytes(), &ev); err != nil {
+		if err := unmarshalPersistedEvent(scanner.Bytes(), &ev); err != nil {
+			repairNeeded = true
 			continue
 		}
 		all = append(all, ev)
@@ -247,8 +259,8 @@ func (ps *PersistentMemoryStore) replay() error {
 		_ = ps.MemoryStore.Store(ev) //nolint:errcheck // #nosec G104 -- in-memory store; cannot fail
 	}
 
-	// Truncate the file to only contain events we kept (rewrite)
-	if len(all) > ps.capacity {
+	// Retain valid events and remove damaged tails before reopening for append.
+	if len(all) > ps.capacity || repairNeeded {
 		if err := ps.rewriteFile(all[start:]); err != nil {
 			return err
 		}

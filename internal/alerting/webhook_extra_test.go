@@ -623,7 +623,7 @@ func TestPagerDutyPayload(t *testing.T) {
 		UserAgent: "TestAgent/1.0",
 	}
 
-	payload := pagerdutyPayload(a)
+	payload := pagerdutyPayload(a, "")
 
 	if payload["event_action"] != "trigger" {
 		t.Errorf("expected event_action=trigger, got %v", payload["event_action"])
@@ -635,6 +635,16 @@ func TestPagerDutyPayload(t *testing.T) {
 	}
 	if p["source"] != "192.168.1.1" {
 		t.Errorf("expected source=192.168.1.1, got %v", p["source"])
+	}
+
+	// Catalog-closure round 3/25 regression: the operator-supplied routing
+	// key (PagerDuty Events v2 integration key) MUST flow through the body
+	// unchanged. The previous in-code comment claimed the field would be set
+	// elsewhere — the v2 spec rejects empty values with HTTP 400. The fix
+	// threaded RoutingKey through Manager.send into pagerdutyPayload.
+	payloadWithKey := pagerdutyPayload(a, "test-routing-key-placeholder")
+	if got := payloadWithKey["routing_key"]; got != "test-routing-key-placeholder" {
+		t.Errorf("routing_key contract: got %v, want non-empty operator key", got)
 	}
 }
 
@@ -648,7 +658,7 @@ func TestPagerDutyPayload_Challenge(t *testing.T) {
 		Timestamp: "2025-01-15T10:30:00Z",
 	}
 
-	payload := pagerdutyPayload(a)
+	payload := pagerdutyPayload(a, "")
 	p := payload["payload"].(map[string]any)
 
 	if p["severity"] != "warning" {
@@ -666,7 +676,7 @@ func TestPagerDutyPayload_Log(t *testing.T) {
 		Timestamp: "2025-01-15T10:30:00Z",
 	}
 
-	payload := pagerdutyPayload(a)
+	payload := pagerdutyPayload(a, "")
 	p := payload["payload"].(map[string]any)
 
 	if p["severity"] != "info" {

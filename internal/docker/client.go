@@ -280,7 +280,8 @@ func (c *Client) StreamEvents(ctx context.Context, labelPrefix string, ch chan<-
 	if err := validateDockerLabelPrefix(labelPrefix); err != nil {
 		return err
 	}
-	if err := validateDockerCLIArg("docker host", c.hostFlag); err != nil {
+	baseArgs, err := c.dockerCLIBaseArgs()
+	if err != nil {
 		return err
 	}
 
@@ -292,9 +293,7 @@ func (c *Client) StreamEvents(ctx context.Context, labelPrefix string, ch chan<-
 		"--filter", filter, "--format", "{{json .}}",
 	}
 
-	if c.hostFlag != "" {
-		args = append([]string{"--host", c.hostFlag}, args...)
-	}
+	args = append(baseArgs, args...)
 
 	cmd := exec.CommandContext(ctx, "docker", args...) // #nosec G204 -- docker is executed without a shell and all caller-controlled args are rejected on control/NUL bytes.
 	stdout, err := cmd.StdoutPipe()

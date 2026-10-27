@@ -2,6 +2,7 @@ package events
 
 import (
 	"errors"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -41,10 +42,12 @@ func (ms *MemoryStore) Store(event engine.Event) error {
 	// If buffer is full, remove the old event at head from the index
 	if ms.count == ms.capacity {
 		oldID := ms.buffer[ms.head].ID
-		delete(ms.index, oldID)
+		if ms.index[oldID] == ms.head {
+			delete(ms.index, oldID)
+		}
 	}
 
-	ms.buffer[ms.head] = event
+	ms.buffer[ms.head] = cloneEvent(event)
 	ms.index[event.ID] = ms.head
 
 	ms.head = (ms.head + 1) % ms.capacity
@@ -64,7 +67,7 @@ func (ms *MemoryStore) Get(id string) (*engine.Event, error) {
 	if !ok {
 		return nil, errors.New("event not found")
 	}
-	ev := ms.buffer[pos]
+	ev := cloneEvent(ms.buffer[pos])
 	return &ev, nil
 }
 
@@ -84,7 +87,7 @@ func (ms *MemoryStore) Recent(n int) ([]engine.Event, error) {
 	for i := 0; i < n; i++ {
 		// Walk backwards from the most recently written position
 		pos := (ms.head - 1 - i + ms.capacity) % ms.capacity
-		result[i] = ms.buffer[pos]
+		result[i] = cloneEvent(ms.buffer[pos])
 	}
 	return result, nil
 }
@@ -123,7 +126,15 @@ func (ms *MemoryStore) Query(filter EventFilter) ([]engine.Event, int, error) {
 		matched = matched[:filter.Limit]
 	}
 
+	for i := range matched {
+		matched[i] = cloneEvent(matched[i])
+	}
 	return matched, total, nil
+}
+
+func cloneEvent(event engine.Event) engine.Event {
+	event.Findings = slices.Clone(event.Findings)
+	return event
 }
 
 // Count returns the number of events matching the filter without returning them.

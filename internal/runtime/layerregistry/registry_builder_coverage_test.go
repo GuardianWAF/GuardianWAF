@@ -174,8 +174,16 @@ func TestBuildAPIValidation_CopiesSchemas(t *testing.T) {
 	cfg.WAF.APIValidation.BlockOnViolation = true
 	cfg.WAF.APIValidation.ViolationScore = 55
 	cfg.WAF.APIValidation.CacheSize = 321
+	// The builder now compiles declared schemas at startup (fail closed), and
+	// Layer.readFile confines schema files to the process working directory, so
+	// the fixture must be a real schema under CWD rather than a dummy path.
+	specPath := "zz_registry_builder_schema.yaml"
+	if err := os.WriteFile(specPath, []byte(minimalOpenAPIYAML), 0o600); err != nil {
+		t.Fatalf("write fixture schema: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Remove(specPath) })
 	cfg.WAF.APIValidation.Schemas = []config.SchemaSourceConfig{{
-		Path:      "/tmp/openapi.yaml",
+		Path:      specPath,
 		Type:      "openapi",
 		AutoLearn: true,
 	}}
@@ -203,7 +211,7 @@ func TestBuildAPIValidation_CopiesSchemas(t *testing.T) {
 	if len(stored.Schemas) != 1 {
 		t.Fatalf("stored schemas len = %d, want 1", len(stored.Schemas))
 	}
-	if stored.Schemas[0].Path != "/tmp/openapi.yaml" || stored.Schemas[0].Type != "openapi" || !stored.Schemas[0].AutoLearn {
+	if stored.Schemas[0].Path != specPath || stored.Schemas[0].Type != "openapi" || !stored.Schemas[0].AutoLearn {
 		t.Fatalf("stored schema = %#v, want original copy", stored.Schemas[0])
 	}
 }
@@ -294,3 +302,19 @@ func unexportedField[T any](t *testing.T, obj any, name string) T {
 	}
 	return cast
 }
+
+// minimalOpenAPIYAML is a builder-test schema fixture. buildAPIValidation now
+// compiles declared schemas at startup (fail closed) and Layer.readFile
+// confines schema files to the process working directory, so a fixture must be
+// a real, parseable schema under CWD.
+const minimalOpenAPIYAML = `openapi: 3.0.0
+info:
+  title: fixture
+  version: "1.0.0"
+paths:
+  /fixture:
+    get:
+      responses:
+        "200":
+          description: ok
+`

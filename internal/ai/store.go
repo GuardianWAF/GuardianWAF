@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -273,8 +274,13 @@ func (s *Store) GetConfig() ProviderConfig {
 func (s *Store) SetConfig(cfg ProviderConfig) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	previous := s.data.Config
 	s.data.Config = cfg
-	return s.save()
+	if err := s.save(); err != nil {
+		s.data.Config = previous
+		return err
+	}
+	return nil
 }
 
 // HasConfig returns true if a provider is configured with an API key.
@@ -290,7 +296,7 @@ func (s *Store) AddResult(result AnalysisResult) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.data.History = append(s.data.History, result)
+	s.data.History = append(s.data.History, cloneAnalysisResult(result))
 	if len(s.data.History) > maxHistorySize {
 		s.data.History = s.data.History[len(s.data.History)-maxHistorySize:]
 	}
@@ -324,8 +330,14 @@ func (s *Store) GetHistory(n int) []AnalysisResult {
 	// Return most recent first
 	result := make([]AnalysisResult, n)
 	for i := range n {
-		result[i] = s.data.History[len(s.data.History)-1-i]
+		result[i] = cloneAnalysisResult(s.data.History[len(s.data.History)-1-i])
 	}
+	return result
+}
+
+func cloneAnalysisResult(result AnalysisResult) AnalysisResult {
+	result.Verdicts = slices.Clone(result.Verdicts)
+	result.ThreatsDetected = slices.Clone(result.ThreatsDetected)
 	return result
 }
 
@@ -334,6 +346,11 @@ func (s *Store) GetUsage() UsageStats {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	s.resetUsageLocked()
+	return s.data.Usage
+}
+
+func (s *Store) resetUsageLocked() {
 	now := time.Now()
 
 	// Reset hourly counters
@@ -353,43 +370,45 @@ func (s *Store) GetUsage() UsageStats {
 		// states that intent.
 		s.data.Usage.DayResetAt = now.UTC().Truncate(24 * time.Hour).Add(24 * time.Hour)
 	}
-
-	return s.data.Usage
 }
 
 // TrackUsage increments hourly and daily usage counters.
 func (s *Store) TrackUsage(tokens int) {
+	s.trackUsage(tokens, true)
+}
+
+func (s *Store) trackUsage(tokens int, countRequest bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	now := time.Now()
-
-	// Reset if needed
-	if now.After(s.data.Usage.HourResetAt) {
-		s.data.Usage.TokensUsedHour = 0
-		s.data.Usage.RequestsHour = 0
-		s.data.Usage.HourResetAt = now.Truncate(time.Hour).Add(time.Hour)
-	}
-	if now.After(s.data.Usage.DayResetAt) {
-		s.data.Usage.TokensUsedDay = 0
-		s.data.Usage.RequestsDay = 0
-		// The usage day is the UTC day, independent of the server's local
-		// zone, so quotas roll identically across deployments. time.Truncate
-		// already anchors to UTC midnight (the absolute zero time); .UTC()
-		// states that intent.
-		s.data.Usage.DayResetAt = now.UTC().Truncate(24 * time.Hour).Add(24 * time.Hour)
-	}
-
+	s.resetUsageLocked()
 	s.data.Usage.TokensUsedHour += int64(tokens)
 	s.data.Usage.TokensUsedDay += int64(tokens)
-	s.data.Usage.RequestsHour++
-	s.data.Usage.RequestsDay++
+	if countRequest {
+		s.data.Usage.RequestsHour++
+		s.data.Usage.RequestsDay++
+	}
 }
 
 // WithinLimits checks if usage is within the configured limits.
 func (s *Store) WithinLimits(maxTokensHour, maxTokensDay int64, maxReqsHour int) bool {
-	usage := s.GetUsage()
+	return usageWithinLimits(s.GetUsage(), maxTokensHour, maxTokensDay, maxReqsHour)
+}
 
+// reserveRequest counts in-flight requests before releasing the quota lock.
+func (s *Store) reserveRequest(maxTokensHour, maxTokensDay int64, maxReqsHour int) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.resetUsageLocked()
+	if !usageWithinLimits(s.data.Usage, maxTokensHour, maxTokensDay, maxReqsHour) {
+		return false
+	}
+	s.data.Usage.RequestsHour++
+	s.data.Usage.RequestsDay++
+	return true
+}
+
+func usageWithinLimits(usage UsageStats, maxTokensHour, maxTokensDay int64, maxReqsHour int) bool {
 	if maxTokensHour > 0 && usage.TokensUsedHour >= maxTokensHour {
 		return false
 	}

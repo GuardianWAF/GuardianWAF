@@ -148,6 +148,13 @@ type RequestContext struct {
 	Headers     map[string][]string
 	Cookies     map[string][]string
 	Body        []byte
+	// BodyLimitExceeded records a truncated inspection view, including a
+	// decompressed body that exceeds the inspection budget. Enforcing engines
+	// must not forward an uninspected tail based only on detector scores.
+	BodyLimitExceeded bool
+	// ObserveOnly lets layers collect evidence without creating bans or
+	// publishing enforcement state while the engine is in monitor mode.
+	ObserveOnly bool
 	BodyString  string // Lazy: populated on first access via GetBodyString(). Allocated to avoid per-request string([]byte) if no body.
 	ContentType string
 
@@ -197,10 +204,15 @@ type RequestContext struct {
 	ClientsideBodyXform func([]byte, string) ([]byte, bool) // body transform (clientside layer)
 	DLPBodyXform        func([]byte, string) ([]byte, bool) // body transform (dlp layer)
 
-	// PostResponseHook is registered by layers that need the upstream outcome,
-	// which is only known after the request has been served: the ATO layer
+	// PostResponseHook is the composed post-response outcome hook. Layers must
+	// register through AddPostResponseHook, never by assigning this field
+	// directly: more than one layer needs the upstream outcome, which is only
+	// known after the request has been served — the ATO layer (order 250)
 	// clears a successful login's failed attempts and records its travel state,
-	// and bot detection counts a failed request for its error-rate analysis.
+	// and bot detection (order 500) counts a failed request for its error-rate
+	// analysis. A direct assignment from the later layer therefore discarded
+	// the earlier layer's hook.
+	//
 	// The engine captures the hook before the context returns to the pool and
 	// invokes it once with success = upstream status < 400. It is NOT invoked
 	// when the WAF answered the request itself (block/challenge) — that is not
@@ -218,6 +230,33 @@ type RequestContext struct {
 
 	// Internal
 	bodyRead bool
+}
+
+// AddPostResponseHook registers fn to be invoked with the upstream outcome,
+// composing it with any hook already registered by another layer.
+//
+// The outcome channel serves more than one layer — the ATO layer clears a
+// successful login's failed attempts, bot detection counts upstream errors —
+// and the pipeline runs them in order, so a plain assignment from the later
+// layer silently discarded the earlier layer's hook. Composing the hooks keeps
+// every registrant alive: the engine still invokes one hook, and that hook
+// runs each registered callback in registration order.
+//
+// The composed closure captures prev and fn, never the context: the context is
+// pooled and reused by the next request the moment it is released.
+func (ctx *RequestContext) AddPostResponseHook(fn func(success bool)) {
+	if fn == nil {
+		return
+	}
+	prev := ctx.PostResponseHook
+	if prev == nil {
+		ctx.PostResponseHook = fn
+		return
+	}
+	ctx.PostResponseHook = func(success bool) {
+		prev(success)
+		fn(success)
+	}
 }
 
 // contextPool is the package-level sync.Pool for RequestContext reuse.
@@ -299,6 +338,7 @@ func AcquireContext(r *http.Request, paranoiaLevel int, maxBodySize int64) *Requ
 		}
 		limited := io.LimitReader(r.Body, inspectLimit+1)
 		rawData, err := io.ReadAll(limited)
+		ctx.BodyLimitExceeded = int64(len(rawData)) > inspectLimit
 		// A failed read can still consume bytes. Replay them along with the
 		// unread portion so inspection never discards downstream body data.
 		r.Body = &replayReadCloser{
@@ -314,6 +354,7 @@ func AcquireContext(r *http.Request, paranoiaLevel int, maxBodySize int64) *Requ
 			case "gzip":
 				if gr, err := gzip.NewReader(bytes.NewReader(rawData)); err == nil {
 					if decompressed, err := io.ReadAll(io.LimitReader(gr, inspectLimit+1)); err == nil {
+						ctx.BodyLimitExceeded = ctx.BodyLimitExceeded || int64(len(decompressed)) > inspectLimit
 						if len(rawData) > 0 && len(decompressed) <= len(rawData)*100 {
 							inspectData = decompressed
 						}
@@ -323,6 +364,7 @@ func AcquireContext(r *http.Request, paranoiaLevel int, maxBodySize int64) *Requ
 			case "deflate":
 				fr := flate.NewReader(bytes.NewReader(rawData))
 				if decompressed, err := io.ReadAll(io.LimitReader(fr, inspectLimit+1)); err == nil {
+					ctx.BodyLimitExceeded = ctx.BodyLimitExceeded || int64(len(decompressed)) > inspectLimit
 					if len(rawData) > 0 && len(decompressed) <= len(rawData)*100 {
 						inspectData = decompressed
 					}
@@ -508,6 +550,8 @@ func ReleaseContext(ctx *RequestContext) {
 	ctx.CORSExposeHeaders = ""
 
 	ctx.bodyRead = false
+	ctx.BodyLimitExceeded = false
+	ctx.ObserveOnly = false
 
 	contextPool.Put(ctx)
 }

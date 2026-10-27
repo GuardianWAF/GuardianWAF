@@ -421,7 +421,10 @@ func (c *Client) fetchCertificateChain(certURL string) ([]byte, error) {
 }
 
 func readACMEResponse(r io.Reader) ([]byte, error) {
-	body, _ := io.ReadAll(io.LimitReader(r, maxACMEResponseBytes+1))
+	body, err := io.ReadAll(io.LimitReader(r, maxACMEResponseBytes+1))
+	if err != nil {
+		return nil, err
+	}
 	if len(body) > maxACMEResponseBytes {
 		return nil, fmt.Errorf("ACME response exceeds %d bytes", maxACMEResponseBytes)
 	}
@@ -546,6 +549,16 @@ func isBadNonceProblem(body []byte) bool {
 	return problem.Type == "urn:ietf:params:acme:error:badNonce"
 }
 
+type acmeResponseBody struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (b *acmeResponseBody) Close() error {
+	defer b.cancel()
+	return b.ReadCloser.Close()
+}
+
 func (c *Client) postSigned(url string, payload any, useJWK bool, nonce string) (*http.Response, error) {
 	// Protected header
 	header := map[string]any{
@@ -596,14 +609,16 @@ func (c *Client) postSigned(url string, payload any, useJWK bool, nonce string) 
 	body, _ := json.Marshal(jws)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/jose+json")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		cancel()
 		return nil, err
 	}
+	// The request context also governs body reads; keep it alive until Close.
+	resp.Body = &acmeResponseBody{ReadCloser: resp.Body, cancel: cancel}
 	c.saveNonce(resp)
 	return resp, nil
 }

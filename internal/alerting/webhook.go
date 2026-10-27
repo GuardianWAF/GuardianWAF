@@ -35,6 +35,12 @@ type WebhookTarget struct {
 	MinScore int
 	Cooldown time.Duration
 	Headers  map[string]string
+	// RoutingKey is the PagerDuty Events API v2 integration key. It is
+	// required when Type == "pagerduty" (the API rejects payloads with an
+	// empty routing_key). Other types ignore it. The PagerDuty Events v2
+	// spec takes routing_key in the JSON body — not in a URL parameter or
+	// custom header — so wiring it here is the only correct path.
+	RoutingKey string
 }
 
 // Alert is the payload sent to webhooks.
@@ -430,7 +436,7 @@ func (m *Manager) send(wc *WebhookTarget, alert *Alert) error {
 	case "discord":
 		body, marshalErr = json.Marshal(discordPayload(alert))
 	case "pagerduty":
-		body, marshalErr = json.Marshal(pagerdutyPayload(alert))
+		body, marshalErr = json.Marshal(pagerdutyPayload(alert, wc.RoutingKey))
 	default:
 		body, marshalErr = json.Marshal(alert)
 	}
@@ -463,7 +469,7 @@ func (m *Manager) send(wc *WebhookTarget, alert *Alert) error {
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20)) // nolint:errcheck // response body drain after webhook call; error ignored
 
-	if resp.StatusCode >= 400 {
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		m.failed.Add(1)
 		m.log("warn", fmt.Sprintf("Webhook %s returned %d", wc.Name, resp.StatusCode))
 		return fmt.Errorf("webhook %s rejected with status %d", wc.Name, resp.StatusCode)
@@ -566,7 +572,7 @@ func discordPayload(a *Alert) map[string]any {
 
 // --- PagerDuty Events API v2 format ---
 
-func pagerdutyPayload(a *Alert) map[string]any {
+func pagerdutyPayload(a *Alert, routingKey string) map[string]any {
 	// Map action to PagerDuty severity
 	severity := "warning"
 	switch a.Action {
@@ -582,7 +588,15 @@ func pagerdutyPayload(a *Alert) map[string]any {
 	dedupKey := fmt.Sprintf("guardianwaf-%s-%s", a.ClientIP, a.Action)
 
 	return map[string]any{
-		"routing_key":  "", // Will be set via custom header or URL
+		// routingKey is the operator-supplied PagerDuty Events API v2
+		// integration key. PagerDuty rejects payloads with an empty
+		// routing_key — empty here is the loud-fail contract: the
+		// dispatcher still POSTs the payload, the API responds 400, and
+		// Manager.failed is incremented so the operator can see the
+		// misconfiguration. The previous comment ("Will be set via custom
+		// header or URL") was wrong: the v2 spec takes routing_key in the
+		// body, not in headers/URL.
+		"routing_key":  routingKey,
 		"event_action": "trigger",
 		"dedup_key":    dedupKey,
 		"payload": map[string]any{

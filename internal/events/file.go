@@ -79,7 +79,7 @@ func (fs *FileStore) Store(event engine.Event) error {
 		return errors.New("event dropped: file store is closed")
 	}
 	select {
-	case fs.ch <- event:
+	case fs.ch <- cloneEvent(event):
 		fs.mu.RUnlock()
 		return nil
 	default:
@@ -512,6 +512,7 @@ func marshalFinding(b *strings.Builder, f engine.Finding) {
 
 // writeJSONString writes a properly escaped JSON string (with quotes) to the builder.
 func writeJSONString(b *strings.Builder, s string) {
+	s = strings.ToValidUTF8(s, "\uFFFD")
 	b.WriteByte('"')
 	for i := 0; i < len(s); i++ {
 		c := s[i]

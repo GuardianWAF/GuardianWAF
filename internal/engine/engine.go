@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"path"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -120,6 +122,7 @@ type Engine struct {
 	blockThreshold    atomic.Int32
 	logThreshold      atomic.Int32
 	trustedProxyCIDRs atomic.Value // stores []*net.IPNet
+	mode              atomic.Value // stores string; pinned once per request
 
 	// GeoIP status (set via SetGeoIPReady)
 	geoipReady atomic.Bool
@@ -175,6 +178,7 @@ func NewEngine(cfg *config.Config, eventStore EventStorer, eventBus EventPublish
 	e.maxBodySize.Store(cfg.WAF.Sanitizer.MaxBodySize)
 	e.blockThreshold.Store(blockThreshold)
 	e.logThreshold.Store(logThreshold)
+	e.mode.Store(cfg.Mode)
 
 	// Configure trusted proxies for X-Forwarded-For handling. The engine keeps
 	// an instance-local copy and publishes ONLY to it: construction and reload
@@ -262,6 +266,10 @@ func (e *Engine) SetWebSocketInterceptor(fn func(http.Handler) http.Handler) {
 // blocked. This is used by the WebSocket inspection layer to scan individual
 // frames without constructing a full *http.Request.
 func (e *Engine) ScanPayload(clientIP, path, payload string) (score int, block bool) {
+	mode := e.currentMode()
+	if mode == "disabled" {
+		return 0, false
+	}
 	// Accumulator must be set: pipeline.Execute dereferences it
 	// unconditionally (AddMultiple on findings, Total() at the end).
 	// AcquireContext establishes this invariant for HTTP requests;
@@ -279,6 +287,7 @@ func (e *Engine) ScanPayload(clientIP, path, payload string) (score int, block b
 		NormalizedQuery: map[string][]string{},
 		Cookies:         map[string][]string{},
 		Accumulator:     NewScoreAccumulator(int(e.paranoiaLevel.Load())),
+		ObserveOnly:     mode == "monitor",
 	}
 
 	pipeline := e.currentPipeline()
@@ -287,7 +296,7 @@ func (e *Engine) ScanPayload(clientIP, path, payload string) (score int, block b
 	}
 
 	result := pipeline.Execute(ctx)
-	finalAction := determineAction(result, int(e.blockThreshold.Load()), int(e.logThreshold.Load()))
+	finalAction := e.requestAction(ctx, result, mode)
 	return result.TotalScore, finalAction == ActionBlock
 }
 
@@ -473,8 +482,16 @@ func (e *Engine) storeAndPublish(event Event) {
 // Returns an Event describing the outcome. Check is a dry-run scorer: unlike
 // Middleware it does not apply per-tenant config overrides or write a response.
 func (e *Engine) Check(r *http.Request) (ev *Event) {
+	mode := e.currentMode()
+	if mode == "disabled" {
+		// A disabled Check must not read the body or run a protection layer.
+		now := time.Now()
+		return &Event{ID: generateRequestID(), RequestID: generateRequestID(), Timestamp: now,
+			Method: r.Method, Path: r.URL.Path, Action: ActionPass, StatusCode: http.StatusOK}
+	}
 	// Acquire context from pool
-	ctx := AcquireContext(r, int(e.paranoiaLevel.Load()), e.maxBodySize.Load())
+	ctx := AcquireContext(r, int(e.paranoiaLevel.Load()), e.inspectionBodyLimit(r))
+	ctx.ObserveOnly = mode == "monitor"
 	ctx.ClientIP = e.extractClientIP(r)
 	defer ReleaseContext(ctx)
 
@@ -484,7 +501,11 @@ func (e *Engine) Check(r *http.Request) (ev *Event) {
 	defer func() {
 		if rv := recover(); rv != nil {
 			e.Logs.ErrorWithStack(fmt.Sprintf("PANIC recovered in WAF Check: %v", rv))
-			blocked := Event{Action: ActionBlock, Score: int(e.blockThreshold.Load())}
+			action := ActionBlock
+			if mode == "monitor" {
+				action = ActionLog
+			}
+			blocked := Event{Action: action, Score: int(e.blockThreshold.Load())}
 			ev = &blocked
 		}
 	}()
@@ -494,10 +515,13 @@ func (e *Engine) Check(r *http.Request) (ev *Event) {
 	}
 
 	// Execute pipeline
-	result := e.currentPipeline().Execute(ctx)
-	finalAction := determineAction(result, int(e.blockThreshold.Load()), int(e.logThreshold.Load()))
+	result := e.execute(ctx)
+	finalAction := e.requestAction(ctx, result, mode)
 
 	event := e.buildEvent(ctx, result, finalAction)
+	if ctx.BodyLimitExceeded && finalAction == ActionBlock {
+		event.StatusCode = http.StatusRequestEntityTooLarge
+	}
 	finishRootSpan(ctx, event, result)
 	e.recordStats(finalAction, result.Duration)
 	e.recordLayerTimings(result.LayerTiming)
@@ -508,9 +532,11 @@ func (e *Engine) Check(r *http.Request) (ev *Event) {
 
 // Middleware returns standard Go HTTP middleware.
 // It processes requests through the WAF pipeline and either passes to the
-// next handler or returns a 403 block response. Security headers from the
+// next handler or returns a block response (413 for an oversized body).
+// Security headers from the
 // response layer are applied to all responses (both blocked and passed).
 func (e *Engine) Middleware(next http.Handler) http.Handler {
+	application := next
 	// Wrap next with the WebSocket interceptor when configured. This must be
 	// applied outside the detection pipeline so WS upgrade requests still go
 	// through detection layers on the initial HTTP request — the interceptor
@@ -523,6 +549,16 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mode := e.currentMode()
+		if mode == "disabled" {
+			application.ServeHTTP(w, r)
+			return
+		}
+		downstream := next
+		if mode == "monitor" {
+			// Frame interception can block independently of the HTTP pipeline.
+			downstream = application
+		}
 		// Panic recovery — prevent a single request from crashing the server
 		defer func() {
 			if rv := recover(); rv != nil {
@@ -541,9 +577,28 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 		accessLogFn := e.accessLogFn
 		e.mu.RUnlock()
 
+		// The JS-challenge verification endpoint is a WAF control endpoint,
+		// not application traffic: the challenge page the WAF itself serves
+		// embeds an absolute form action pointing at it. Serve mode registers
+		// that path on its mux ahead of the proxy route, so the request never
+		// reaches this middleware; library and sidecar mode have no such mux,
+		// so the engine — which serves the challenge page — must own the
+		// endpoint too. Without it the solution POST fell through to the
+		// application, no clearance cookie was ever issued, and the client was
+		// challenged forever.
+		//
+		// Intercept it before the pipeline runs: the verification handler
+		// parses the POST form from the request body, which the pipeline
+		// would otherwise have consumed, and the endpoint is deliberately
+		// outside WAF inspection (as it is in serve mode).
+		if mode != "monitor" && challengeSvc != nil && challengeSvc.ServeChallengeVerify(w, r) {
+			return
+		}
+
 		// Acquire context and run pipeline (inline, not via Check,
 		// so we can access metadata before the context is released)
-		ctx := AcquireContext(r, int(e.paranoiaLevel.Load()), e.maxBodySize.Load())
+		ctx := AcquireContext(r, int(e.paranoiaLevel.Load()), e.inspectionBodyLimit(r))
+		ctx.ObserveOnly = mode == "monitor"
 		ctx.ClientIP = e.extractClientIP(r)
 
 		// Start root trace span if tracing is enabled and sampled. Unlike Check,
@@ -563,9 +618,9 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 			}
 		}
 
-		result := e.currentPipeline().Execute(ctx)
+		result := e.execute(ctx)
 
-		finalAction := determineAction(result, int(e.blockThreshold.Load()), int(e.logThreshold.Load()))
+		finalAction := e.requestAction(ctx, result, mode)
 
 		// If challenge, check for valid cookie first — if present, downgrade to pass
 		if finalAction == ActionChallenge && challengeSvc != nil {
@@ -576,14 +631,19 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 
 		// Create event
 		event := e.buildEvent(ctx, result, finalAction)
+		if ctx.BodyLimitExceeded && finalAction == ActionBlock {
+			event.StatusCode = http.StatusRequestEntityTooLarge
+		}
 		statusCode := event.StatusCode
 
 		// Apply security headers from response layer hook
-		applyResponseHook(w, ctx)
+		if mode != "monitor" {
+			applyResponseHook(w, ctx)
+		}
 
 		// Extract masking function before releasing context
 		var maskFn func(string) string
-		if ctx.ResponseMaskFn != nil {
+		if mode != "monitor" && ctx.ResponseMaskFn != nil {
 			maskFn = ctx.ResponseMaskFn
 		}
 
@@ -592,10 +652,10 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 		// value copies. Composed clientside-first so the DLP mask applies
 		// to the final body.
 		var bodyXform func([]byte, string) ([]byte, bool)
-		if ctx.ClientsideBodyXform != nil {
+		if mode != "monitor" && ctx.ClientsideBodyXform != nil {
 			bodyXform = ctx.ClientsideBodyXform
 		}
-		if ctx.DLPBodyXform != nil {
+		if mode != "monitor" && ctx.DLPBodyXform != nil {
 			if bodyXform == nil {
 				bodyXform = ctx.DLPBodyXform
 			} else {
@@ -657,7 +717,7 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 		case ActionBlock:
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.Header().Set("Cache-Control", "no-store")
-			w.WriteHeader(http.StatusForbidden)
+			w.WriteHeader(statusCode)
 			_, _ = w.Write([]byte(blockPage(event.RequestID, event.Score))) // nolint:errcheck // block page write; error ignored
 			return
 		case ActionChallenge:
@@ -685,10 +745,10 @@ func (e *Engine) Middleware(next http.Handler) http.Handler {
 
 		if maskFn != nil || bodyXform != nil {
 			mwr := newMaskingResponseWriter(out, maskFn, bodyXform)
-			next.ServeHTTP(mwr, r)
+			downstream.ServeHTTP(mwr, r)
 			mwr.FlushMasked()
 		} else {
-			next.ServeHTTP(out, r)
+			downstream.ServeHTTP(out, r)
 		}
 
 		// Report the upstream outcome to the layers that asked for it. Only this
@@ -842,6 +902,7 @@ func (e *Engine) Reload(cfg *config.Config) error {
 	e.blockThreshold.Store(blockThreshold)
 	e.logThreshold.Store(logThreshold)
 	e.maxBodySize.Store(e.cfg.WAF.Sanitizer.MaxBodySize)
+	e.mode.Store(e.cfg.Mode)
 	proxyCIDRs := parseTrustedProxyCIDRs(e.cfg.TrustedProxies)
 	e.trustedProxyCIDRs.Store(proxyCIDRs)
 	if err := e.tracer.Reconfigure(tracingConfig(e.cfg)); err != nil {
@@ -1002,4 +1063,79 @@ func determineAction(result PipelineResult, blockThresh, logThresh int) Action {
 		action = ActionChallenge
 	}
 	return action
+}
+
+func (e *Engine) currentMode() string {
+	mode, _ := e.mode.Load().(string)
+	return mode
+}
+
+// inspectionBodyLimit uses the same path normalization and limits as the
+// sanitizer, before reading any request body. A larger upload exception must
+// not raise the read budget of unrelated paths.
+func (e *Engine) inspectionBodyLimit(r *http.Request) int64 {
+	var tenantConfig *config.WAFConfig
+	if tenant := GetTenantContext(r.Context()); tenant != nil && tenant.WAFConfig != nil {
+		tenantConfig = tenant.WAFConfig
+		if vh := config.FindVirtualHost(tenant.VirtualHosts, r.Host); vh != nil && vh.WAF != nil {
+			tenantConfig = vh.WAF
+		}
+	}
+	if pipeline := e.currentPipeline(); pipeline != nil {
+		for _, layer := range pipeline.Layers() {
+			if limiter, ok := layer.Layer.(interface {
+				InspectionBodyLimit(string, *config.WAFConfig) int64
+			}); ok {
+				return limiter.InspectionBodyLimit(r.URL.Path, tenantConfig)
+			}
+		}
+	}
+	// Engines without a sanitizer still enforce their configured budget.
+	e.mu.RLock()
+	limit := e.maxBodySize.Load()
+	var overrides []config.PathOverride
+	if e.cfg != nil {
+		overrides = e.cfg.WAF.Sanitizer.PathOverrides
+	}
+	if tenantConfig != nil {
+		limit = tenantConfig.Sanitizer.MaxBodySize
+		overrides = tenantConfig.Sanitizer.PathOverrides
+	}
+	matched := 0
+	for _, override := range overrides {
+		if override.Path != "" && strings.HasPrefix(path.Clean(r.URL.Path), override.Path) && len(override.Path) > matched {
+			limit, matched = override.MaxBodySize, len(override.Path)
+		}
+	}
+	e.mu.RUnlock()
+	return limit
+}
+
+func (e *Engine) requestAction(ctx *RequestContext, result PipelineResult, mode string) Action {
+	action := determineAction(result, int(e.blockThreshold.Load()), int(e.logThreshold.Load()))
+	if ctx.BodyLimitExceeded {
+		action = ActionBlock
+	}
+	if mode == "monitor" && action != ActionPass {
+		return ActionLog
+	}
+	return action
+}
+
+func (e *Engine) execute(ctx *RequestContext) PipelineResult {
+	result := e.currentPipeline().Execute(ctx)
+	if ctx.BodyLimitExceeded {
+		for _, finding := range result.Findings {
+			if finding.DetectorName == "sanitizer" && finding.Location == "body" && strings.HasPrefix(finding.Description, "Body size ") {
+				return result
+			}
+		}
+		// Preserve an audit reason even when the sanitizer layer is disabled.
+		finding := Finding{DetectorName: "engine-body-limit", Category: "sanitizer", Severity: SeverityHigh,
+			Score: 40, Description: "Body exceeds the inspection budget", Location: "body", Confidence: 1}
+		ctx.Accumulator.Add(&finding)
+		result.Findings = append(result.Findings, finding)
+		result.TotalScore = ctx.Accumulator.Total()
+	}
+	return result
 }

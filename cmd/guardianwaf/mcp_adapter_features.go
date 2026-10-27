@@ -321,6 +321,13 @@ func (a *mcpEngineAdapter) SetAPIValidationMode(validateRequest, validateRespons
 	if err := a.engine.Reload(cfg); err != nil {
 		return err
 	}
+	// Same reason as the dashboard route: engine.Reload does not rebuild
+	// layers, so the mode must be pushed into the running layer too.
+	if layer := a.engine.FindLayer("apivalidation"); layer != nil {
+		if apiLayer, ok := layer.(*apivalidation.Layer); ok {
+			apiLayer.SetMode(validateRequest, strictMode, blockOnViolation)
+		}
+	}
 	return a.persistConfig(oldCfg)
 }
 
