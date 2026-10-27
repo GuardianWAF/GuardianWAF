@@ -377,14 +377,21 @@ func (d *Dashboard) handleRotateKey(w http.ResponseWriter, r *http.Request) {
 		Previous:  currentKey,
 		ExpiresAt: time.Now().Add(keyRotationGracePeriod),
 	})
+	// Rotation is the response to a leaked key: browser sessions minted with
+	// it must end now, not after their sliding/absolute lifetime.
+	d.revokeAllSessions()
 
-	loginLog.Info("dashboard API key rotated",
+	loginLog.Info("dashboard API key rotated; all dashboard sessions revoked",
 		"current_key_previous", currentMatch,
 		"grace_period_seconds", int(keyRotationGracePeriod.Seconds()))
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"status":               "ok",
-		"message":              "API key rotated. The previous key remains valid for the grace period.",
+		"status": "ok",
+		"message": "API key rotated and all dashboard sessions revoked; sign in again with the new key. " +
+			"The previous key remains valid for API clients during the grace period. " +
+			"Rotation is runtime-only: update dashboard.api_key (or GWAF_DASHBOARD_API_KEY) before the next restart, or the old key becomes active again.",
 		"grace_period_seconds": int(keyRotationGracePeriod.Seconds()),
+		"sessions_revoked":     true,
+		"persisted":            false,
 	})
 }

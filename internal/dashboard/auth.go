@@ -477,6 +477,27 @@ func tenantScope(r *http.Request) string {
 	return ""
 }
 
+// revokeAllSessions invalidates every session created before now. API-key
+// rotation calls it so sessions minted under a leaked key end with the key
+// instead of living out their 7-day absolute lifetime.
+func (d *Dashboard) revokeAllSessions() { d.sessionsNotBefore.Store(time.Now().Unix()) }
+
+// sessionAfterRevocation reports whether a signature-verified token was
+// created at or after the last revoke-all. Refreshes preserve the creation
+// time, so a refreshed pre-rotation session stays revoked.
+func (d *Dashboard) sessionAfterRevocation(token string) bool {
+	notBefore := d.sessionsNotBefore.Load()
+	if notBefore == 0 {
+		return true
+	}
+	parts := strings.SplitN(token, ".", 3)
+	if len(parts) != 3 {
+		return false
+	}
+	created, err := strconv.ParseInt(parts[1], 10, 64)
+	return err == nil && created >= notBefore
+}
+
 func (d *Dashboard) isAuthenticated(r *http.Request) (*http.Request, bool) {
 	currentKey, previousKey := d.loadActiveAPIKeys()
 	if currentKey == "" {
@@ -522,7 +543,7 @@ func (d *Dashboard) isAuthenticated(r *http.Request) (*http.Request, bool) {
 	if err != nil {
 		return r, false
 	}
-	if verifySession(cookie.Value, clientIPFromRequest(r)) {
+	if verifySession(cookie.Value, clientIPFromRequest(r)) && d.sessionAfterRevocation(cookie.Value) {
 		return setAuthInfo(r, authSession, ""), true
 	}
 	return r, false

@@ -25,7 +25,18 @@ func (d *Dashboard) getClientIP(r *http.Request) string {
 // which route (/api/admin/* or the /api/v1/* compat routes) reaches them.
 func (d *Dashboard) adminAuthWrap(handler http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		ip := d.getClientIP(r)
+		key := r.Header.Get("X-API-Key")
+		if key != "" && !d.checkLoginRateLimit(ip) {
+			writeError(w, http.StatusTooManyRequests, "too many failed authentication attempts")
+			return
+		}
 		if !d.isAdminAuthenticated(r) {
+			// A valid dashboard key on an admin route is a permission error,
+			// not a guess; only unknown keys count toward the lockout.
+			if key != "" && !d.isDashboardKey(key) {
+				d.recordLoginFailure(ip)
+			}
 			writeError(w, http.StatusUnauthorized, "admin API key required")
 			return
 		}
@@ -46,8 +57,19 @@ func (d *Dashboard) adminAuthAuditWrap(handler http.HandlerFunc) http.HandlerFun
 // requests are subject to per-IP rate limiting.
 func (d *Dashboard) authWrap(handler http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Failed X-API-Key attempts share the /login lockout so the header
+		// cannot be used for unlimited online key guessing.
+		ip := d.getClientIP(r)
+		hasKey := r.Header.Get("X-API-Key") != ""
+		if hasKey && !d.checkLoginRateLimit(ip) {
+			writeError(w, http.StatusTooManyRequests, "too many failed authentication attempts")
+			return
+		}
 		r, ok := d.isAuthenticated(r)
 		if !ok {
+			if hasKey {
+				d.recordLoginFailure(ip)
+			}
 			// API requests get 401 JSON, browser requests get redirected to login
 			if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/mcp") {
 				writeError(w, http.StatusUnauthorized, "unauthorized")
@@ -97,6 +119,21 @@ func (d *Dashboard) authWrap(handler http.HandlerFunc) http.HandlerFunc {
 		handler(w, r)
 	}
 }
+
+// isDashboardKey reports whether key is the active (or grace-period) dashboard key.
+func (d *Dashboard) isDashboardKey(key string) bool {
+	current, previous := d.loadActiveAPIKeys()
+	return current != "" && subtle.ConstantTimeCompare([]byte(key), []byte(current)) == 1 ||
+		previous != "" && subtle.ConstantTimeCompare([]byte(key), []byte(previous)) == 1
+}
+
+// AuthAllowed reports whether ip may attempt API-key authentication; it is
+// false while ip is locked out after repeated failures. Other transports
+// served on the dashboard listener (MCP SSE) share this lockout.
+func (d *Dashboard) AuthAllowed(ip string) bool { return d.checkLoginRateLimit(ip) }
+
+// AuthFailed records a failed API-key authentication attempt from ip.
+func (d *Dashboard) AuthFailed(ip string) { d.recordLoginFailure(ip) }
 
 func auditPrincipal(r *http.Request) string {
 	if getAuthType(r) == authTenant {

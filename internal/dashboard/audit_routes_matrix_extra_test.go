@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -44,10 +45,12 @@ func TestRemainingManagementMutationRoutesAreAudited(t *testing.T) {
 		{http.MethodDelete, "/api/admin/tenants/rules/tenant-1/rule-1", "admin_tenant_rule_mutation"},
 	}
 
-	for _, tt := range tests {
+	for i, tt := range tests {
 		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
 			before := d.auditLog.Len()
 			req := httptest.NewRequest(tt.method, tt.path, nil)
+			// Distinct peers: repeated invalid keys from one IP trip the lockout.
+			req.RemoteAddr = fmt.Sprintf("198.51.100.%d:1234", i+1)
 			req.Header.Set("X-API-Key", "invalid-key")
 			w := httptest.NewRecorder()
 			d.Handler().ServeHTTP(w, req)
