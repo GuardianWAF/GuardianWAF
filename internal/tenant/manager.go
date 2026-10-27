@@ -1009,10 +1009,13 @@ const (
 	// apiKeyHashIterationsLegacy is the v2 iteration count (100K). Kept for
 	// backward-compatible verification of existing hashes.
 	apiKeyHashIterationsLegacy = 100000
-	// apiKeyHashIterations is the current iteration count (600K), matching
-	// OWASP 2023+ guidance for PBKDF2-HMAC-SHA256.
-	apiKeyHashIterations = 600000
 )
+
+// apiKeyHashIterations is the iteration count for new hashes (600K), matching
+// OWASP 2023+ guidance for PBKDF2-HMAC-SHA256. It is a variable only so the
+// package tests can lower it: v3 hashes record their own iteration count, so
+// verification behaves identically at any value.
+var apiKeyHashIterations = 600000
 
 // hashAPIKey hashes an API key using PBKDF2-HMAC-SHA256 (via crypto/pbkdf2)
 // with a random salt. Returns "v3$iterations$salt$hash" format. The v3

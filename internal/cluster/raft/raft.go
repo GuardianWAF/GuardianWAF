@@ -25,12 +25,14 @@ type Config struct {
 	// on startup to restore the committed log and term/vote state.
 	DataDir string
 
-	// SnapshotThreshold is the number of WAL records after which a
-	// compaction is triggered. Each AppendEntry, state mutation, and
-	// truncation counts as one record. When recordCount reaches this
-	// threshold, the leader writes the full current state as a single
-	// snapshot record and atomically rotates the WAL. Set to 0 to disable
-	// compaction (WAL grows unboundedly). Default: 0 (disabled).
+	// SnapshotThreshold controls log compaction. When the state machine
+	// implements Snapshotter, a state-machine snapshot is taken once this
+	// many entries have been applied since the last one; compacted entries
+	// are discarded from memory and the WAL, and lagging followers receive
+	// the snapshot via InstallSnapshot. Otherwise it is the number of WAL
+	// records after which the WAL is rewritten as a single record (the log
+	// itself is kept). Set to 0 to disable compaction. Default: 0 (the serve config
+	// defaults cluster.snapshot_threshold to 10000).
 	SnapshotThreshold int
 
 	// Secret authenticates every RPC frame between peers. It is required:
@@ -56,6 +58,12 @@ func DefaultConfig(nodeID, bindAddr string) Config {
 		HeartbeatInterval:  50 * time.Millisecond,
 	}
 }
+
+// Bounds on a single AppendEntries batch.
+const (
+	maxAppendEntries = 512
+	maxAppendBytes   = 4 << 20
+)
 
 // normalizeTimings replaces unset or inconsistent election/heartbeat timings
 // with safe values. A zero election timeout made electionLoop start elections
@@ -117,8 +125,21 @@ type Raft struct {
 	// Votes received in current election.
 	votesReceived map[string]bool
 
-	// State machine for applying committed entries.
-	sm StateMachine
+	// State machine for applying committed entries. snapshotter is sm when
+	// it supports log compaction, else nil.
+	sm          StateMachine
+	snapshotter Snapshotter
+
+	// applyMu serializes state-machine access: the apply loop holds it per
+	// entry and InstallSnapshot holds it while restoring. Lock order is
+	// applyMu → mu → PersistentState.mu.
+	applyMu sync.Mutex
+
+	// snapshot is the latest state-machine snapshot (guarded by mu), sent to
+	// followers whose next entry was compacted away.
+	snapshot stateSnapshot
+	// nextSnapshotAt suppresses retrying a failed snapshot on every apply.
+	nextSnapshotAt uint64
 
 	// Lifecycle.
 	stopCh   chan struct{}
@@ -138,12 +159,14 @@ func New(cfg Config, sm StateMachine) (*Raft, error) {
 	}
 	cfg.Peers = append([]Peer(nil), cfg.Peers...)
 
+	snapshotter, _ := sm.(Snapshotter)
 	r := &Raft{
-		config:    cfg,
-		transport: tr,
-		persist:   NewPersistentState(),
-		sm:        sm,
-		role:      RoleFollower,
+		config:      cfg,
+		transport:   tr,
+		persist:     NewPersistentState(),
+		sm:          sm,
+		snapshotter: snapshotter,
+		role:        RoleFollower,
 		// Initialize the election-timer baseline so the FIRST election also
 		// waits the randomized [Min, Max] window. A zero electionResetTime
 		// made waitDuration <= 0 on every fresh node — all nodes started a
@@ -171,6 +194,11 @@ func New(cfg Config, sm StateMachine) (*Raft, error) {
 			_ = wal.Close()
 			_ = tr.Close()
 			return nil, fmt.Errorf("raft: replay WAL: %w", err)
+		}
+		if err := r.restoreSnapshot(cfg.DataDir); err != nil {
+			_ = wal.Close()
+			_ = tr.Close()
+			return nil, err
 		}
 	}
 
@@ -525,17 +553,28 @@ func (r *Raft) sendAppendEntries(peer Peer) {
 	term := r.persist.CurrentTerm()
 	nextIdx := r.leaderState.NextIndex(peer.ID)
 
+	// The follower needs entries that were compacted into the snapshot.
+	if nextIdx <= r.persist.Log().BaseIndex() {
+		snap := r.snapshot
+		r.mu.Unlock()
+		r.sendInstallSnapshot(peer, term, snap)
+		return
+	}
+
 	var prevLogIndex uint64
 	var prevLogTerm uint64
 	if nextIdx > 1 {
 		prevLogIndex = nextIdx - 1
-		entry, ok := r.persist.Log().Get(prevLogIndex)
-		if ok {
-			prevLogTerm = entry.Term
-		}
+		prevLogTerm = r.persist.Log().Term(prevLogIndex)
 	}
 
-	entries := r.persist.Log().EntriesFrom(nextIdx)
+	// Bounded batches: a lagging follower is caught up over several RPCs
+	// instead of one frame that could exceed maxFrameSize and fail forever.
+	entries := r.persist.Log().EntriesFromLimit(nextIdx, maxAppendEntries, maxAppendBytes)
+	if entries == nil {
+		r.mu.Unlock()
+		return
+	}
 
 	req := AppendEntriesRequest{
 		Term:         term,
@@ -605,6 +644,47 @@ func (r *Raft) maybeAdvanceCommitIndex() {
 	}
 }
 
+// sendInstallSnapshot sends the latest snapshot to a follower whose next
+// entry has been compacted (Raft §7).
+func (r *Raft) sendInstallSnapshot(peer Peer, term uint64, snap stateSnapshot) {
+	if snap.Index == 0 {
+		return
+	}
+	data, err := EncodeInstallSnapshot(InstallSnapshotRequest{
+		Term:              term,
+		LeaderID:          r.config.NodeID,
+		LastIncludedIndex: snap.Index,
+		LastIncludedTerm:  snap.Term,
+		Data:              snap.Data,
+	})
+	if err != nil {
+		return
+	}
+	respType, respData, err := r.transport.SendRPC(peer.Addr, RPCInstallSnapshot, data)
+	if err != nil || respType != RPCInstallSnapshotResp {
+		return
+	}
+	resp, err := DecodeInstallSnapshotResp(respData)
+	if err != nil {
+		return
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if resp.Term > r.persist.CurrentTerm() {
+		r.becomeFollower(resp.Term)
+		return
+	}
+	if r.role != RoleLeader || r.persist.CurrentTerm() != term {
+		return
+	}
+	if snap.Index > r.leaderState.MatchIndex(peer.ID) {
+		r.leaderState.SetMatchIndex(peer.ID, snap.Index)
+	}
+	r.leaderState.SetNextIndex(peer.ID, snap.Index+1)
+	r.maybeAdvanceCommitIndex()
+}
+
 // --- Apply Loop ---
 
 func (r *Raft) applyLoop() {
@@ -615,41 +695,123 @@ func (r *Raft) applyLoop() {
 		default:
 		}
 
-		r.mu.Lock()
-		if r.lastApplied >= r.commitIndex {
-			r.mu.Unlock()
+		if !r.applyNext() {
 			time.Sleep(5 * time.Millisecond)
-			continue
-		}
-
-		r.lastApplied++
-		idx := r.lastApplied
-		r.mu.Unlock()
-
-		entry, ok := r.persist.Log().Get(idx)
-		if !ok {
-			r.mu.Lock()
-			r.lastApplied--
-			r.mu.Unlock()
-			continue
-		}
-
-		if r.sm != nil {
-			r.sm.Apply(entry)
-		}
-
-		// Check if WAL compaction is needed. Triggered after each apply so
-		// only committed+applied entries are compacted.
-		if r.config.SnapshotThreshold > 0 {
-			if wal := r.persist.WALRef(); wal != nil && wal.ShouldCompact(r.config.SnapshotThreshold) {
-				if err := r.persist.Snapshot(); err != nil {
-					// Compaction failures are non-fatal — the WAL grows
-					// until the next successful compaction.
-					fmt.Fprintf(os.Stderr, "guardianwaf: wal compaction failed: %v\n", err)
-				}
-			}
 		}
 	}
+}
+
+// applyNext applies the next committed entry, if any, and compacts the log
+// when due. It reports whether an entry was applied.
+func (r *Raft) applyNext() bool {
+	r.applyMu.Lock()
+	defer r.applyMu.Unlock()
+
+	r.mu.Lock()
+	if r.lastApplied >= r.commitIndex {
+		r.mu.Unlock()
+		return false
+	}
+	idx := r.lastApplied + 1
+	r.mu.Unlock()
+
+	entry, ok := r.persist.Log().Get(idx)
+	if !ok {
+		return false
+	}
+	if r.sm != nil {
+		r.sm.Apply(entry)
+	}
+	r.mu.Lock()
+	r.lastApplied = idx
+	r.mu.Unlock()
+
+	// Compaction is triggered after each apply so only committed+applied
+	// entries are compacted.
+	threshold := r.config.SnapshotThreshold
+	if threshold <= 0 {
+		return true
+	}
+	if r.snapshotter != nil {
+		if idx-r.persist.Log().BaseIndex() >= uint64(threshold) && idx >= r.nextSnapshotAt { // #nosec G115 -- threshold > 0
+			if err := r.takeSnapshot(idx); err != nil {
+				// Non-fatal: the log keeps growing until the next attempt.
+				fmt.Fprintf(os.Stderr, "guardianwaf: raft snapshot at %d failed: %v\n", idx, err)
+				r.nextSnapshotAt = idx + uint64(threshold) // #nosec G115 -- threshold > 0
+			}
+		}
+		return true
+	}
+	if wal := r.persist.WALRef(); wal != nil && wal.ShouldCompact(threshold) {
+		if err := r.persist.Snapshot(); err != nil {
+			// Compaction failures are non-fatal — the WAL grows
+			// until the next successful compaction.
+			fmt.Fprintf(os.Stderr, "guardianwaf: wal compaction failed: %v\n", err)
+		}
+	}
+	return true
+}
+
+// takeSnapshot snapshots the state machine at idx (the last applied entry)
+// and discards the log up to it. The snapshot file is written before the WAL
+// is rewritten, so a crash in between leaves a WAL whose extra prefix is
+// reconciled away by restoreSnapshot. Caller holds applyMu.
+func (r *Raft) takeSnapshot(idx uint64) error {
+	data, err := r.snapshotter.Snapshot()
+	if err != nil {
+		return err
+	}
+	if len(data) > maxSnapshotSize {
+		return errSnapshotTooLarge
+	}
+	snap := stateSnapshot{Index: idx, Term: r.persist.Log().Term(idx), Data: data}
+	if r.config.DataDir != "" {
+		if err := writeSnapshotFile(r.config.DataDir, snap); err != nil {
+			return err
+		}
+	}
+	r.mu.Lock()
+	r.snapshot = snap
+	r.mu.Unlock()
+	if err := r.persist.Log().CompactTo(idx); err != nil {
+		return err
+	}
+	return r.persist.Snapshot()
+}
+
+// restoreSnapshot loads the persisted state-machine snapshot at startup and
+// reconciles the replayed log with it.
+func (r *Raft) restoreSnapshot(dir string) error {
+	snap, ok, err := readSnapshotFile(dir)
+	if err != nil {
+		return fmt.Errorf("raft: load snapshot: %w", err)
+	}
+	if !ok {
+		return nil
+	}
+	if r.snapshotter == nil {
+		return errors.New("raft: a state-machine snapshot exists but the state machine cannot restore it")
+	}
+	if err := r.snapshotter.Restore(snap.Data); err != nil {
+		return fmt.Errorf("raft: restore snapshot: %w", err)
+	}
+	log := r.persist.Log()
+	if log.BaseIndex() < snap.Index {
+		// The snapshot file is newer than the WAL's last compaction (a crash
+		// between the two writes): fold the covered prefix away.
+		if log.Term(snap.Index) == snap.Term {
+			_ = log.CompactTo(snap.Index)
+		} else {
+			log.ResetToSnapshot(snap.Index, snap.Term)
+		}
+		if err := r.persist.Snapshot(); err != nil {
+			return fmt.Errorf("raft: compact WAL to snapshot: %w", err)
+		}
+	}
+	r.snapshot = snap
+	r.commitIndex = snap.Index
+	r.lastApplied = snap.Index
+	return nil
 }
 
 // --- RPC Handlers ---
@@ -660,6 +822,8 @@ func (r *Raft) handleRPC(msgType RPCType, payload []byte) ([]byte, error) {
 		return r.handleRequestVote(payload)
 	case RPCAppendEntriesRequest:
 		return r.handleAppendEntries(payload)
+	case RPCInstallSnapshot:
+		return r.handleInstallSnapshot(payload)
 	default:
 		return nil, errors.New("unknown RPC type")
 	}
@@ -753,7 +917,9 @@ func (r *Raft) handleAppendEntries(data []byte) ([]byte, error) {
 
 	// Reply false if log doesn't contain an entry at prevLogIndex whose
 	// term matches prevLogTerm (§5.3).
-	if req.PrevLogIndex > 0 {
+	// Indices at or below the snapshot base are committed, so they match.
+	base := r.persist.Log().BaseIndex()
+	if req.PrevLogIndex > base {
 		entry, ok := r.persist.Log().Get(req.PrevLogIndex)
 		if !ok {
 			resp.ConflictIndex = r.persist.Log().LastIndex() + 1
@@ -778,6 +944,9 @@ func (r *Raft) handleAppendEntries(data []byte) ([]byte, error) {
 	// Append any new entries not already in the log.
 	for i, entry := range req.Entries {
 		entryIdx := req.PrevLogIndex + uint64(i) + 1
+		if entryIdx <= base {
+			continue // already folded into our snapshot
+		}
 
 		existing, ok := r.persist.Log().Get(entryIdx)
 		if ok {
@@ -805,6 +974,64 @@ func (r *Raft) handleAppendEntries(data []byte) ([]byte, error) {
 	}
 
 	return EncodeAppendEntriesResp(resp)
+}
+
+// handleInstallSnapshot replaces the follower's state with the leader's
+// snapshot (Raft §7).
+func (r *Raft) handleInstallSnapshot(data []byte) ([]byte, error) {
+	req, err := DecodeInstallSnapshot(data)
+	if err != nil {
+		return nil, err
+	}
+
+	r.applyMu.Lock()
+	defer r.applyMu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if req.Term > r.persist.CurrentTerm() {
+		r.becomeFollower(req.Term)
+	}
+	resp := InstallSnapshotResponse{Term: r.persist.CurrentTerm()}
+	if req.Term < r.persist.CurrentTerm() {
+		return EncodeInstallSnapshotResp(resp)
+	}
+	r.role = RoleFollower
+	r.leaderID = req.LeaderID
+	r.resetElectionTimer()
+
+	// Already covered by our own state.
+	if req.LastIncludedIndex <= r.lastApplied {
+		return EncodeInstallSnapshotResp(resp)
+	}
+	if r.snapshotter == nil {
+		return nil, errors.New("raft: state machine does not support snapshots")
+	}
+	if len(req.Data) > maxSnapshotSize {
+		return nil, errSnapshotTooLarge
+	}
+
+	snap := stateSnapshot{Index: req.LastIncludedIndex, Term: req.LastIncludedTerm, Data: req.Data}
+	// Persist before mutating state: on failure the follower is unchanged
+	// and the leader retries.
+	if r.config.DataDir != "" {
+		if err := writeSnapshotFile(r.config.DataDir, snap); err != nil {
+			return nil, err
+		}
+	}
+	if err := r.snapshotter.Restore(snap.Data); err != nil {
+		return nil, fmt.Errorf("raft: restore snapshot: %w", err)
+	}
+	r.persist.Log().ResetToSnapshot(snap.Index, snap.Term)
+	r.snapshot = snap
+	r.lastApplied = snap.Index
+	if r.commitIndex < snap.Index {
+		r.commitIndex = snap.Index
+	}
+	if err := r.persist.Snapshot(); err != nil {
+		fmt.Fprintf(os.Stderr, "guardianwaf: wal compaction after snapshot install failed: %v\n", err)
+	}
+	return EncodeInstallSnapshotResp(resp)
 }
 
 // Members returns the list of known peers. This is the integration point

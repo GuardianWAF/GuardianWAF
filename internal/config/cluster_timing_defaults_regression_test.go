@@ -40,3 +40,22 @@ func TestClusterTimingDefaultsApplyToTopLevelCluster(t *testing.T) {
 		t.Fatalf("defaults fail cluster validation: %v", ve.Errors)
 	}
 }
+
+// Raft log compaction is on by default so a long-running cluster's log and
+// WAL stay bounded; an explicit 0 still opts out.
+func TestClusterSnapshotThresholdDefault(t *testing.T) {
+	if got := DefaultConfig().Cluster.SnapshotThreshold; got != 10000 {
+		t.Fatalf("default snapshot_threshold = %d, want 10000", got)
+	}
+	path := filepath.Join(t.TempDir(), "guardianwaf.yaml")
+	if err := os.WriteFile(path, []byte("cluster:\n  snapshot_threshold: 0\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Cluster.SnapshotThreshold != 0 {
+		t.Fatalf("explicit snapshot_threshold: 0 loaded as %d", cfg.Cluster.SnapshotThreshold)
+	}
+}

@@ -53,7 +53,7 @@ type ClusterConfig struct {
 	ElectionTimeoutMax time.Duration `yaml:"election_timeout_max"`
 	HeartbeatInterval  time.Duration `yaml:"heartbeat_interval"`
 	DataDir            string        `yaml:"data_dir"`           // Raft WAL persistence directory (empty = in-memory)
-	SnapshotThreshold  int           `yaml:"snapshot_threshold"` // WAL compaction threshold (0 = disabled)
+	SnapshotThreshold  int           `yaml:"snapshot_threshold"` // entries applied between Raft snapshots (default 10000, 0 = disabled)
 
 	// Secret is the shared key that authenticates every Raft RPC frame and
 	// gossip datagram between peers. It is REQUIRED when clustering is

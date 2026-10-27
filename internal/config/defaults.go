@@ -356,6 +356,8 @@ func DefaultConfig() *Config {
 			ElectionTimeoutMin: 2 * time.Second,
 			ElectionTimeoutMax: 4 * time.Second,
 			HeartbeatInterval:  50 * time.Millisecond,
+			// Bound the Raft log and WAL; 0 disables compaction.
+			SnapshotThreshold: 10000,
 		},
 	}
 }

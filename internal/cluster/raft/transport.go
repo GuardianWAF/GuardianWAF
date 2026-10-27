@@ -149,6 +149,8 @@ func (t *TCPTransport) handleConn(conn net.Conn) {
 			respType = RPCRequestVoteResponse
 		case RPCAppendEntriesRequest:
 			respType = RPCAppendEntriesResponse
+		case RPCInstallSnapshot:
+			respType = RPCInstallSnapshotResp
 		}
 		if resp != nil {
 			_ = EncodeAuthenticatedRequest(conn, t.secret, respType, resp)
