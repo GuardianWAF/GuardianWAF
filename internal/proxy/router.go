@@ -2,7 +2,9 @@ package proxy
 
 import (
 	"bytes"
+	"errors"
 	"io"
+	"net"
 	"net/http"
 	"path"
 	"sort"
@@ -74,7 +76,7 @@ func NewRouterWithVHosts(vhosts []VirtualHost, defaultRoutes []Route) *Router {
 		entry := &vhostEntry{routes: sortRoutes(vh.Routes)}
 		for _, domain := range vh.Domains {
 			if strings.HasPrefix(domain, "*.") {
-				suffix := domain[1:] // "*.example.com" -> ".example.com"
+				suffix := strings.ToLower(domain[1:]) // "*.example.com" -> ".example.com"
 				rt.wildcardHosts = append(rt.wildcardHosts, wildcardEntry{
 					suffix: suffix,
 					routes: entry.routes,
@@ -125,21 +127,26 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		canReplayBody := false
 		if route.Balancer.Len() > 1 && r.Body != nil && r.Body != http.NoBody &&
 			r.ContentLength >= 0 && r.ContentLength <= maxRetryBodyBytes {
-			buf, err := io.ReadAll(io.LimitReader(r.Body, maxRetryBodyBytes))
+			// Read one sentinel byte so the limit cannot hide a terminal error
+			// or EOF metadata from a body exactly at the buffering boundary.
+			buf, err := io.ReadAll(io.LimitReader(r.Body, maxRetryBodyBytes+1))
 			_ = r.Body.Close()
-			if err == nil {
-				replayBody = buf
-				canReplayBody = true
-				r.Body = io.NopCloser(bytes.NewReader(replayBody))
-			} else {
-				// Reading failed; give downstream an empty body rather than a
-				// half-consumed stream.
-				r.Body = io.NopCloser(bytes.NewReader(nil))
+			if err != nil || len(buf) > maxRetryBodyBytes {
+				http.Error(w, "400 Bad Request - Failed to read request body", http.StatusBadRequest)
+				return
 			}
+			replayBody = buf
+			canReplayBody = true
+			r.Body = io.NopCloser(bytes.NewReader(replayBody))
 		}
 
 		// Send to first target; retry on proxy error (502) if more targets exist.
-		proxyErr := target.ServeHTTP(w, r, stripPrefix)
+		tried := map[*Target]bool{target: true}
+		target, proxyErr := serveAvailableTarget(w, r, stripPrefix, route.Balancer, target, tried)
+		if target == nil {
+			http.Error(w, "503 Service Unavailable - No healthy backends", http.StatusServiceUnavailable)
+			return
+		}
 		if proxyErr == nil {
 			return
 		}
@@ -150,6 +157,14 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			// double-writing a committed response), which made this path
 			// return a silent empty 200 on upstream failure — client-visible
 			// success from a dead upstream.
+			http.Error(w, "502 Bad Gateway", http.StatusBadGateway)
+			return
+		}
+
+		// A response failure can arrive after the upstream committed a POST.
+		// Only idempotent methods may be retried then. A failed dial is the
+		// narrow exception: no request was delivered to that upstream.
+		if !retryableMethod(r.Method) && !failedBeforeRequest(proxyErr) {
 			http.Error(w, "502 Bad Gateway", http.StatusBadGateway)
 			return
 		}
@@ -169,8 +184,10 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// tie-break, ip_hash's same-client hash) would otherwise re-return the
 		// failed target on every call, and skipping after selection consumed
 		// the retry budget while a healthy sibling sat idle.
-		tried := map[*Target]bool{target: true}
 		for attempt := 0; attempt < maxRetries; attempt++ {
+			if r.Context().Err() != nil {
+				break
+			}
 			next := route.Balancer.NextExcluding(r, tried)
 			if next == nil {
 				break
@@ -181,8 +198,10 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if canReplayBody {
 				r.Body = io.NopCloser(bytes.NewReader(replayBody))
 			}
-			if next.ServeHTTP(w, r, stripPrefix) == nil {
+			if _, err := serveAvailableTarget(w, r, stripPrefix, route.Balancer, next, tried); err == nil {
 				return
+			} else if !retryableMethod(r.Method) && !failedBeforeRequest(err) {
+				break
 			}
 		}
 		// All attempts failed — send 502 to client
@@ -191,6 +210,36 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Error(w, "404 Not Found - No route matched", http.StatusNotFound)
+}
+
+// A selection can become unavailable while the router buffers the body or
+// another request changes the circuit. Skipping rejected admissions does not
+// consume an upstream retry or require body replay: nothing was sent yet.
+func serveAvailableTarget(w http.ResponseWriter, r *http.Request, stripPrefix string, balancer *Balancer, target *Target, tried map[*Target]bool) (*Target, error) {
+	var err error
+	for target != nil {
+		tried[target] = true
+		err = target.serveHTTP(w, r, stripPrefix)
+		if !errors.Is(err, errTargetClosed) && !errors.Is(err, errCircuitOpen) {
+			return target, err
+		}
+		target = balancer.NextExcluding(r, tried)
+	}
+	return nil, err
+}
+
+func retryableMethod(method string) bool {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodTrace, http.MethodPut, http.MethodDelete:
+		return true
+	default:
+		return false
+	}
+}
+
+func failedBeforeRequest(err error) bool {
+	var opErr *net.OpError
+	return errors.As(err, &opErr) && opErr.Op == "dial"
 }
 
 // lookupRoutes resolves Host header to a route list.

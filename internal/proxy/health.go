@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 )
@@ -110,6 +111,9 @@ func (hc *HealthChecker) Start() {
 			hc.mu.Lock()
 			hc.cancel = nil
 			hc.mu.Unlock()
+			if hc.client != nil {
+				hc.client.CloseIdleConnections()
+			}
 		}()
 
 		select {
@@ -157,7 +161,11 @@ func (hc *HealthChecker) StopWithContext(ctx context.Context) error {
 	hc.stopOnce.Do(func() {
 		close(hc.stopCh)
 	})
-	return waitForHealthChecker(ctx, &hc.wg)
+	err := waitForHealthChecker(ctx, &hc.wg)
+	if hc.client != nil {
+		hc.client.CloseIdleConnections()
+	}
+	return err
 }
 
 func waitForHealthChecker(ctx context.Context, wg *sync.WaitGroup) error {
@@ -179,6 +187,9 @@ func waitForHealthChecker(ctx context.Context, wg *sync.WaitGroup) error {
 func (hc *HealthChecker) checkAll(ctx context.Context) {
 	targets := hc.balancer.Targets()
 	for _, t := range targets {
+		if ctx.Err() != nil {
+			return
+		}
 		// SSRF TOCTOU mitigation: re-check DNS on each health check to detect
 		// DNS rebinding attacks that change a public IP to a private one.
 		if !t.policy.AllowPrivateTargets {
@@ -189,6 +200,10 @@ func (hc *HealthChecker) checkAll(ctx context.Context) {
 			}
 		}
 		healthy := hc.check(ctx, t)
+		// Cancellation during shutdown is not evidence of a backend outage.
+		if ctx.Err() != nil {
+			return
+		}
 		t.SetHealthy(healthy)
 		t.lastCheck.Store(time.Now())
 	}
@@ -207,7 +222,17 @@ func (hc *HealthChecker) check(ctx context.Context, t *Target) bool {
 	// traffic it was handling correctly. Upstream URLs with a path are accepted
 	// by validateUpstreamTargetURL (it checks only scheme and host), so this is
 	// reachable configuration.
-	probeURL := t.URL.JoinPath(hc.path)
+	probePath, err := url.Parse(hc.path)
+	if err != nil {
+		return false
+	}
+	probeURL := t.URL.JoinPath(probePath.EscapedPath())
+	// Keep endpoint parameters in the query, alongside target parameters.
+	if probeURL.RawQuery == "" || probePath.RawQuery == "" {
+		probeURL.RawQuery += probePath.RawQuery
+	} else {
+		probeURL.RawQuery += "&" + probePath.RawQuery
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, probeURL.String(), http.NoBody)
 	if err != nil {
 		return false

@@ -5,6 +5,7 @@ package proxy
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -23,22 +24,33 @@ type proxyError struct {
 	err error
 }
 
+type circuitAttemptKey struct{}
+
+type targetUnavailableError string
+
+func (err targetUnavailableError) Error() string { return string(err) }
+
+const (
+	errTargetClosed targetUnavailableError = "503 Service Unavailable - Target closed"
+	errCircuitOpen  targetUnavailableError = "503 Service Unavailable - Circuit breaker open"
+)
+
 func (pe *proxyError) WriteHeader(code int)        { pe.ResponseWriter.WriteHeader(code) }
 func (pe *proxyError) Write(p []byte) (int, error) { return pe.ResponseWriter.Write(p) }
 
 // Flush implements http.Flusher to support streaming responses.
 func (pe *proxyError) Flush() {
-	if f, ok := pe.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
-	}
+	_ = pe.FlushError()
+}
+
+// FlushError preserves flush errors and resolves supporting wrapped writers.
+func (pe *proxyError) FlushError() error {
+	return http.NewResponseController(pe.ResponseWriter).Flush()
 }
 
 // Hijack implements http.Hijacker to support WebSocket upgrades.
 func (pe *proxyError) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	if h, ok := pe.ResponseWriter.(http.Hijacker); ok {
-		return h.Hijack()
-	}
-	return nil, nil, fmt.Errorf("hijacking not supported by underlying ResponseWriter")
+	return http.NewResponseController(pe.ResponseWriter).Hijack()
 }
 
 // Target represents a single backend server with its reverse proxy and stats.
@@ -393,12 +405,22 @@ func NewTargetWithPolicy(rawURL string, weight int, policy TargetPolicy) (*Targe
 
 	// Wire error handler for circuit breaker
 	t.proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
-		// Drain the request body so the connection can be reused for keep-alive.
+		// Drain live requests for keep-alive; canceled requests must not start
+		// another body read before the handler can return.
 		if r.Body != nil {
-			_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 1<<20)) // nolint:errcheck // #nosec G104 -- response body drain; error ignored
-			r.Body.Close()                                            // #nosec G104 -- best-effort close; error not actionable
+			if r.Context().Err() == nil {
+				_, _ = io.Copy(io.Discard, io.LimitReader(r.Body, 1<<20)) // nolint:errcheck // #nosec G104 -- response body drain; error ignored
+			}
+			r.Body.Close() // #nosec G104 -- best-effort close; error not actionable
 		}
-		t.circuit.RecordFailure()
+		if r.Context().Err() != nil {
+			// Caller cancellation is not evidence of an upstream failure.
+			if generation, ok := r.Context().Value(circuitAttemptKey{}).(uint64); ok {
+				t.circuit.cancelAttempt(generation)
+			}
+		} else {
+			t.recordCircuitResult(r, false)
+		}
 		// Store error on the writer so ServeHTTP can return it.
 		if pw, ok := w.(*proxyError); ok {
 			pw.err = err
@@ -407,42 +429,91 @@ func NewTargetWithPolicy(rawURL string, weight int, policy TargetPolicy) (*Targe
 
 	// Wire response modifier to record success
 	t.proxy.ModifyResponse = func(resp *http.Response) error {
-		if resp.StatusCode < 500 {
-			t.circuit.RecordSuccess()
-		} else {
-			t.circuit.RecordFailure()
-		}
+		t.recordCircuitResult(resp.Request, resp.StatusCode < 500)
 		return nil
 	}
 
 	return t, nil
 }
 
+func (t *Target) recordCircuitResult(r *http.Request, success bool) {
+	if r != nil {
+		if generation, ok := r.Context().Value(circuitAttemptKey{}).(uint64); ok {
+			t.circuit.recordResult(generation, success)
+			return
+		}
+	}
+	if success {
+		t.circuit.RecordSuccess()
+	} else {
+		t.circuit.RecordFailure()
+	}
+}
+
 // ServeHTTP proxies the request to this target, tracking active connections.
 // Returns an error if the upstream was unreachable (so the router can retry).
 // If the circuit breaker is open, writes 503 and returns nil (not retryable).
 func (t *Target) ServeHTTP(w http.ResponseWriter, r *http.Request, stripPrefix string) error {
+	err := t.serveHTTP(w, r, stripPrefix)
+	if errors.Is(err, errTargetClosed) || errors.Is(err, errCircuitOpen) {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return nil
+	}
+	return err
+}
+
+// serveHTTP leaves the response and body untouched when admission is rejected,
+// so the router can select another target before committing a response.
+func (t *Target) serveHTTP(w http.ResponseWriter, r *http.Request, stripPrefix string) error {
 	if t.closed.Load() {
-		http.Error(w, "503 Service Unavailable - Target closed", http.StatusServiceUnavailable)
-		return nil
+		return errTargetClosed
 	}
-	if !t.circuit.Allow() {
-		http.Error(w, "503 Service Unavailable - Circuit breaker open", http.StatusServiceUnavailable)
-		return nil
+	if err := r.Context().Err(); err != nil {
+		return err
 	}
+	generation, allowed := t.circuit.allow()
+	if !allowed {
+		return errCircuitOpen
+	}
+	r = r.WithContext(context.WithValue(r.Context(), circuitAttemptKey{}, generation))
 
 	t.activeConns.Add(1)
-	defer t.activeConns.Add(-1)
+	defer func() {
+		// A request that entered before Close can start transport afterward,
+		// enabling keep-alive again. Release its newly idle connections too.
+		if t.closed.Load() {
+			if tr, ok := t.proxy.Transport.(*http.Transport); ok {
+				tr.CloseIdleConnections()
+			}
+		}
+		t.activeConns.Add(-1)
+	}()
 
 	// Track whether the ErrorHandler was invoked (upstream unreachable).
 	proxyErr := &proxyError{ResponseWriter: w}
 	if stripPrefix != "" {
 		r2 := r.Clone(r.Context())
-		r2.URL.Path = strings.TrimPrefix(r2.URL.Path, stripPrefix)
+		strippedPath := strings.TrimPrefix(r2.URL.Path, stripPrefix)
+		rawPath := r2.URL.EscapedPath()
+		// Remove the same decoded bytes from the escaped path. Each escape
+		// represents one byte, including escapes within the prefix itself.
+		for range len(r2.URL.Path) - len(strippedPath) {
+			if strings.HasPrefix(rawPath, "%") {
+				rawPath = rawPath[3:]
+			} else {
+				rawPath = rawPath[1:]
+			}
+		}
+		// The remaining path must start with a literal separator on the wire.
+		if strings.HasPrefix(strippedPath, "/") && !strings.HasPrefix(rawPath, "/") {
+			rawPath = "/" + rawPath[3:]
+		}
+		r2.URL.Path = strippedPath
+		r2.URL.RawPath = rawPath
 		if !strings.HasPrefix(r2.URL.Path, "/") {
 			r2.URL.Path = "/" + r2.URL.Path
+			r2.URL.RawPath = "/" + r2.URL.RawPath
 		}
-		r2.URL.RawPath = ""
 		t.proxy.ServeHTTP(proxyErr, r2)
 	} else {
 		t.proxy.ServeHTTP(proxyErr, r)

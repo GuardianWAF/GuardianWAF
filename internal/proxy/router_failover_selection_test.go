@@ -134,7 +134,7 @@ func TestRouterFailoverWeightedSkewTriesHealthySibling(t *testing.T) {
 func TestRouterFailoverLeastConnReplaysBufferedBody(t *testing.T) {
 	dead, healthy, hits := failoverFixture(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/anything", strings.NewReader("hello-replay"))
+	req := httptest.NewRequest(http.MethodPut, "/anything", strings.NewReader("hello-replay"))
 	rec := serveThroughRouter(t, StrategyLeastConn, dead, healthy, req)
 
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "served-by-healthy:hello-replay") {

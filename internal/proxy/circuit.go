@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -34,6 +35,8 @@ func (s CircuitState) String() string {
 // It tracks consecutive failures and opens the circuit when a threshold is reached.
 // After a reset timeout, it transitions to half-open and allows one probe request.
 type CircuitBreaker struct {
+	mu            sync.Mutex    // serializes admission and result transitions
+	generation    uint64        // protected by mu; identifies the admitted circuit phase
 	state         atomic.Int32  // CircuitState
 	failures      atomic.Int32  // consecutive failure count
 	threshold     int32         // failures before opening
@@ -67,14 +70,32 @@ func NewCircuitBreaker(cfg CircuitConfig) *CircuitBreaker {
 	return cb
 }
 
+// canAttempt lets selection include a timed-out circuit without consuming its
+// single half-open probe. Allow reserves that probe when the request is sent.
+func (cb *CircuitBreaker) canAttempt() bool {
+	if CircuitState(cb.state.Load()) != CircuitOpen {
+		return true
+	}
+	last, _ := cb.lastFailure.Load().(time.Time)
+	return time.Since(last) >= cb.resetTimeout
+}
+
 // Allow checks if the request should be allowed through.
 // Returns true if allowed, false if circuit is open.
 func (cb *CircuitBreaker) Allow() bool {
+	_, allowed := cb.allow()
+	return allowed
+}
+
+// allow captures the phase that owns this request's eventual result.
+func (cb *CircuitBreaker) allow() (uint64, bool) {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
 	state := CircuitState(cb.state.Load())
 
 	switch state {
 	case CircuitClosed:
-		return true
+		return cb.generation, true
 	case CircuitOpen:
 		// Check if reset timeout has elapsed
 		last, _ := cb.lastFailure.Load().(time.Time)
@@ -84,33 +105,48 @@ func (cb *CircuitBreaker) Allow() bool {
 			// Allow() can win the HalfOpen probe CAS and slip in as a second
 			// probe against an upstream that just failed threshold times.
 			if cb.state.CompareAndSwap(int32(CircuitOpen), int32(CircuitHalfOpen)) {
+				cb.generation++
 				cb.failures.Store(0) // Reset so probe failure correctly re-opens
-				return true
+				return cb.generation, true
 			}
 			// Another goroutine already transitioned; reject
-			return false
+			return cb.generation, false
 		}
-		return false
+		return cb.generation, false
 	case CircuitHalfOpen:
 		// Only one probe allowed — subsequent requests are rejected
 		if cb.halfOpenProbe.CompareAndSwap(true, false) {
-			return true
+			return cb.generation, true
 		}
-		return false
+		return cb.generation, false
 	}
-	return false
+	return cb.generation, false
 }
 
 // RecordSuccess records a successful request. Resets failure count and
 // only transitions from HalfOpen to Closed to prevent stale successes from
 // prematurely closing the circuit.
 func (cb *CircuitBreaker) RecordSuccess() {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+	cb.recordSuccessLocked()
+}
+
+func (cb *CircuitBreaker) recordSuccessLocked() {
 	cb.failures.Store(0)
-	cb.state.CompareAndSwap(int32(CircuitHalfOpen), int32(CircuitClosed))
+	if cb.state.CompareAndSwap(int32(CircuitHalfOpen), int32(CircuitClosed)) {
+		cb.generation++
+	}
 }
 
 // RecordFailure records a failed request. May open the circuit if threshold is reached.
 func (cb *CircuitBreaker) RecordFailure() {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+	cb.recordFailureLocked()
+}
+
+func (cb *CircuitBreaker) recordFailureLocked() {
 	cb.lastFailure.Store(time.Now())
 
 	// A failed probe while half-open means the target is still unhealthy. Reopen
@@ -121,12 +157,39 @@ func (cb *CircuitBreaker) RecordFailure() {
 	if CircuitState(cb.state.Load()) == CircuitHalfOpen {
 		cb.failures.Store(cb.threshold)
 		cb.state.Store(int32(CircuitOpen))
+		cb.generation++
 		return
 	}
 
 	failures := cb.failures.Add(1)
-	if failures >= cb.threshold {
+	if failures >= cb.threshold && CircuitState(cb.state.Load()) != CircuitOpen {
 		cb.state.Store(int32(CircuitOpen))
+		cb.generation++
+	}
+}
+
+// recordResult ignores requests admitted before a later open/reset/recovery.
+func (cb *CircuitBreaker) recordResult(generation uint64, success bool) {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+	if generation != cb.generation {
+		return
+	}
+	if success {
+		cb.recordSuccessLocked()
+	} else {
+		cb.recordFailureLocked()
+	}
+}
+
+// cancelAttempt releases a canceled probe without counting a backend failure
+// or extending its cooldown. The next request can probe the expired circuit.
+func (cb *CircuitBreaker) cancelAttempt(generation uint64) {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+	if generation == cb.generation && CircuitState(cb.state.Load()) == CircuitHalfOpen {
+		cb.state.Store(int32(CircuitOpen))
+		cb.generation++
 	}
 }
 
@@ -142,6 +205,9 @@ func (cb *CircuitBreaker) Failures() int {
 
 // Reset forces the circuit breaker back to closed state.
 func (cb *CircuitBreaker) Reset() {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+	cb.generation++
 	cb.failures.Store(0)
 	cb.state.Store(int32(CircuitClosed))
 }

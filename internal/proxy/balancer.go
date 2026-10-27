@@ -5,6 +5,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"slices"
 	"sync"
 	"sync/atomic"
 )
@@ -31,7 +32,7 @@ func NewBalancer(targets []*Target, strategy string) *Balancer {
 		strategy = StrategyRoundRobin
 	}
 	return &Balancer{
-		targets:  targets,
+		targets:  slices.Clone(targets),
 		strategy: strategy,
 	}
 }
@@ -108,7 +109,13 @@ func (b *Balancer) healthyTargets() []*Target {
 	defer b.mu.RUnlock()
 	var result []*Target
 	for _, t := range b.targets {
-		if t.IsHealthy() {
+		if t.Closed() {
+			continue
+		}
+		if t.circuit.State() == CircuitHalfOpen && !t.circuit.halfOpenProbe.Load() {
+			continue
+		}
+		if t.healthy.Load() && t.circuit.canAttempt() {
 			result = append(result, t)
 		}
 	}

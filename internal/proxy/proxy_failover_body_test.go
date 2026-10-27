@@ -82,7 +82,7 @@ func TestBufferedFailoverReplaysBody(t *testing.T) {
 
 	router := failoverRouter(t, abort.URL, healthy.URL)
 
-	req := httptest.NewRequest("POST", "/", strings.NewReader("hello"))
+	req := httptest.NewRequest(http.MethodPut, "/", strings.NewReader("hello"))
 	req.ContentLength = 5 // buffered failover budget
 
 	rec := httptest.NewRecorder()
