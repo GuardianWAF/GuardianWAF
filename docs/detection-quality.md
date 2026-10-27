@@ -167,7 +167,7 @@ placements in a `# placement:` header:
 | URLs as parameters | 20 | 0 |
 | same-site redirect targets | 17 | 0 |
 | **General benign** | **833** | **0 (0.00%)** — budget 1% |
-| developer posts quoting code (`technical_*`) | 60 | 1 (1.67%) — budget 5% |
+| developer posts quoting code (`technical_*`) | 60 | 0 (0.00%) — budget 5% |
 
 Attacks reuse `testdata/attacks/`, placed where each class is delivered:
 
@@ -203,6 +203,10 @@ They are now fixed and pinned by tests:
   Isolated keywords now score at most twice, and the bonus needs two real
   clauses (`DELETE FROM`, `UPDATE t SET`, `DROP TABLE`, ...). Attack detection
   is unchanged.
+- **Windows paths in prose.** "the path is C:\Users\me\AppData" scored 55. A
+  drive path a space into prose now only logs (25); one that is the value or
+  follows `=`, `/` or a quote still scores 55, and sensitive targets such as
+  `win.ini` and `system32` score through their own rules.
 - **"exec" as a word.** `exec office chair` scored 80.
 
 ## Known Bypass Coverage
@@ -217,5 +221,4 @@ The corpus gate also locks recent SSRF bypass fixes:
 ## Remaining Work
 
 - Grow the end-to-end corpora with anonymized production traffic, and add multipart bodies and header placements.
-- Windows paths in prose (`C:\Users\...`) still reach the LFI block threshold in the technical corpus.
 - Expand the detector-specific benign corpora with real production traffic once anonymized logs are available.
