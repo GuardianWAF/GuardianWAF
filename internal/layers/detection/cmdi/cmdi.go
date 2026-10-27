@@ -58,12 +58,12 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 	// "127.0.0.1;cat /etc/passwd"). Scanning the raw input as well preserves the
 	// injection signal while keeping the decode-evasion benefit of normalization.
 	// Identical strings are scanned once (dedup). Mirrors xss/xxe fail-open guard.
-	seen := make(map[string]struct{})
+	seen := make(map[[2]string]struct{}) // keyed by (location, value) without copying the value
 	scan := func(v, location string) {
 		if v == "" {
 			return
 		}
-		key := location + "\x00" + v
+		key := [2]string{location, v}
 		if _, ok := seen[key]; ok {
 			return
 		}
@@ -217,10 +217,10 @@ func checkShellMetachars(_, lower, location string) []engine.Finding {
 	reported := make(map[string]bool)
 
 	for _, s := range separators {
-		parts := strings.Split(lower, s.sep)
-		if len(parts) < 2 {
-			continue
+		if !strings.Contains(lower, s.sep) {
+			continue // spares Split's allocation for every separator-free value
 		}
+		parts := strings.Split(lower, s.sep)
 		// Check each part after a separator for known commands
 		for i := 1; i < len(parts); i++ {
 			trimmed := strings.TrimSpace(parts[i])
@@ -388,30 +388,34 @@ func checkShellPaths(lower, location string) []engine.Finding {
 }
 
 // checkInterpreterFlags detects interpreter invocations with -c or -e flags.
-func checkInterpreterFlags(lower, location string) []engine.Finding {
-	var findings []engine.Finding
-
-	interpreters := []string{
+// interpreterFlagPatterns are interpreter names followed by an inline-code
+// flag, in match priority order.
+var interpreterFlagPatterns = func() []string {
+	var patterns []string
+	for _, interp := range []string{
 		"python", "python3", "perl", "ruby", "php", "node",
 		"bash", "sh", "zsh", "dash", "csh", "ksh",
 		"cmd", "powershell", "pwsh",
-	}
-
-	flags := []string{" -c ", " -e "}
-
-	for _, interp := range interpreters {
-		for _, flag := range flags {
-			pattern := interp + flag
-			if strings.Contains(lower, pattern) {
-				findings = append(findings, makeFinding(80, engine.SeverityCritical,
-					"Interpreter with execution flag detected: "+interp+flag,
-					extractContext(lower, pattern), location, 0.90))
-				return findings // One match is enough
-			}
+	} {
+		for _, flag := range []string{" -c ", " -e "} {
+			patterns = append(patterns, interp+flag)
 		}
 	}
+	return patterns
+}()
 
-	return findings
+func checkInterpreterFlags(lower, location string) []engine.Finding {
+	if !strings.Contains(lower, " -c ") && !strings.Contains(lower, " -e ") {
+		return nil
+	}
+	for _, pattern := range interpreterFlagPatterns {
+		if strings.Contains(lower, pattern) {
+			return []engine.Finding{makeFinding(80, engine.SeverityCritical,
+				"Interpreter with execution flag detected: "+pattern,
+				extractContext(lower, pattern), location, 0.90)} // One match is enough
+		}
+	}
+	return nil
 }
 
 // base64DecodeFlags are the flags that turn base64(1) into a decoder, which is

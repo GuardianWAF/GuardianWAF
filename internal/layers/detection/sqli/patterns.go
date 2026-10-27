@@ -88,16 +88,9 @@ func Detect(input, location string) []engine.Finding {
 	if input == "" {
 		return nil
 	}
-	// Detect owns the token slice, so whitespace is dropped in place instead
-	// of copying it: large bodies tokenize into tens of thousands of tokens.
-	tokens := Tokenize(input)
-	significant := tokens[:0]
-	for _, t := range tokens {
-		if t.Type != TokenWhitespace {
-			significant = append(significant, t)
-		}
-	}
-	return analyzeSignificant(significant, location)
+	// The analysis ignores whitespace, so it is never emitted: large bodies
+	// tokenize into tens of thousands of tokens, about half of them spaces.
+	return analyzeSignificant(tokenize(input, false), location)
 }
 
 // filterSignificant returns tokens with whitespace removed.
@@ -113,6 +106,9 @@ func filterSignificant(tokens []Token) []Token {
 
 // tokenUpperValue returns the uppercase version of a token's value.
 func tokenUpperValue(t Token) string {
+	if t.class != 0 {
+		return classUpper[t.class]
+	}
 	return strings.ToUpper(t.Value)
 }
 
@@ -173,8 +169,10 @@ func checkUnionSelect(tokens []Token, location string) (engine.Finding, bool) {
 func checkBooleanInjection(tokens []Token, location string) []engine.Finding {
 	var findings []engine.Finding
 	for i := 0; i < len(tokens); i++ {
-		upper := tokenUpperValue(tokens[i])
-		if (tokens[i].Type == TokenKeyword || tokens[i].Type == TokenOperator) && (upper == "OR" || upper == "AND") {
+		if tokens[i].Type != TokenKeyword && tokens[i].Type != TokenOperator {
+			continue
+		}
+		if upper := tokenUpperValue(tokens[i]); upper == "OR" || upper == "AND" {
 			// Check if preceded by string literal or followed by tautology
 			hasPrecedingString := false
 			for j := i - 1; j >= 0; j-- {

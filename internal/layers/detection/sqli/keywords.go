@@ -49,6 +49,64 @@ var sqlOperators = keywordSet{
 	"NOT": true, "EXISTS": true,
 }
 
+// wordClass is the token type and classUpper index of a classified SQL word.
+type wordClass struct {
+	typ   TokenType
+	class uint8
+}
+
+// maxClassifiedWordLen is the longest word in any keyword set.
+const maxClassifiedWordLen = 24
+
+// classUpper holds the canonical upper-case spelling of every classified
+// word; index 0 is reserved for "not classified".
+var classUpper = []string{""}
+
+// wordClasses maps every upper-case keyword, function and operator to its
+// token type. Operators take precedence over functions, functions over
+// keywords, matching the tokenizer's historical order.
+var wordClasses = func() map[string]wordClass {
+	m := make(map[string]wordClass, len(sqlKeywords)+len(sqlFunctions))
+	for _, set := range []struct {
+		words keywordSet
+		typ   TokenType
+	}{{sqlKeywords, TokenKeyword}, {sqlFunctions, TokenFunction}, {sqlOperators, TokenOperator}} {
+		for w := range set.words {
+			if len(w) > maxClassifiedWordLen {
+				panic("sqli: keyword longer than maxClassifiedWordLen: " + w)
+			}
+			c, ok := m[w]
+			if !ok {
+				if len(classUpper) > 255 {
+					panic("sqli: more classified words than a uint8 class index holds")
+				}
+				c.class = uint8(len(classUpper)) // #nosec G115 -- bounded above
+				classUpper = append(classUpper, w)
+			}
+			c.typ = set.typ
+			m[w] = c
+		}
+	}
+	return m
+}()
+
+// classifyWord looks word up case-insensitively without allocating.
+func classifyWord(word string) (wordClass, bool) {
+	if len(word) > maxClassifiedWordLen {
+		return wordClass{}, false
+	}
+	var buf [maxClassifiedWordLen]byte
+	for i := range len(word) {
+		c := word[i]
+		if c >= 'a' && c <= 'z' {
+			c -= 'a' - 'A'
+		}
+		buf[i] = c
+	}
+	c, ok := wordClasses[string(buf[:len(word)])]
+	return c, ok
+}
+
 // IsKeyword returns true if the word (uppercase) is a SQL keyword.
 func IsKeyword(word string) bool { return sqlKeywords[word] }
 

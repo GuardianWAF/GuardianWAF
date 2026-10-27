@@ -60,12 +60,12 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 	// localhost/loopback patterns. Scanning the raw input as well restores the
 	// signal; normalized keeps the decode-evasion benefit. Identical strings are
 	// scanned once (dedup). Mirrors xss/xxe fail-open guard for a disabled Sanitizer.
-	seen := make(map[string]struct{})
+	seen := make(map[[2]string]struct{}) // keyed by (location, value) without copying the value
 	scan := func(v, location string) {
 		if v == "" {
 			return
 		}
-		key := location + "\x00" + v
+		key := [2]string{location, v}
 		if _, ok := seen[key]; ok {
 			return
 		}
@@ -200,6 +200,9 @@ func makeFinding(score int, severity engine.Severity, desc, matched, location st
 
 // checkLocalhostPatterns detects localhost and loopback access.
 func checkLocalhostPatterns(lower, location string) []engine.Finding {
+	if !strings.Contains(lower, "://") {
+		return nil // every pattern below is an absolute http(s) URL
+	}
 	var findings []engine.Finding
 
 	patterns := []struct {

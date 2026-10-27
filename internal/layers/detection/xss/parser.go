@@ -178,18 +178,22 @@ func stripURLWhitespace(s string) string {
 // "{{ user_name }}" and "${HOME}" are common in documentation and legitimate
 // templates, so delimiters alone are not enough to report XSS.
 func detectTemplateInjection(input string) []string {
+	if !strings.Contains(input, "{") {
+		return nil
+	}
 	var found []string
+	lower := strings.ToLower(input)
 	patterns := []string{"{{", "${", "#{"}
 	for _, p := range patterns {
-		if hasDangerousTemplateExpression(input, p) {
+		if hasDangerousTemplateExpression(lower, p) {
 			found = append(found, p)
 		}
 	}
 	return found
 }
 
-func hasDangerousTemplateExpression(input, open string) bool {
-	lower := strings.ToLower(input)
+// lower is the lower-cased input.
+func hasDangerousTemplateExpression(lower, open string) bool {
 	for from := 0; ; {
 		idx := strings.Index(lower[from:], open)
 		if idx < 0 {
@@ -274,6 +278,9 @@ func hasTemplateExecutionToken(s string) bool {
 // detection. Returns true if any encoding is found.
 // Patterns: &#60, &#x3c, &#x3C, \x3c, \x3C, \u003c, \u003C, %3c, %3C
 func detectEncodedLT(input string) bool {
+	if !strings.ContainsAny(input, "&\\%") {
+		return false
+	}
 	lower := strings.ToLower(input)
 	encodedPatterns := []string{
 		"&#60",    // HTML decimal entity
@@ -302,6 +309,9 @@ func detectEncodedLT(input string) bool {
 // It returns the decoded string. Non-decodable sequences are left as-is.
 // Decoding is single-pass: &amp;lt; becomes &lt;, never <.
 func decodeCommonEncodings(s string) string {
+	if !strings.ContainsAny(s, "\\%&") {
+		return s // nothing to decode; spares a copy of large bodies
+	}
 	var b strings.Builder
 	b.Grow(len(s))
 	i := 0

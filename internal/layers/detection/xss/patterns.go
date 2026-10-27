@@ -25,13 +25,12 @@ func Detect(input, location string) []engine.Finding {
 
 	// Decode common encodings (\x3c, %3c, &#60;, etc.) and also analyze decoded form
 	decoded := decodeCommonEncodings(cleaned)
-	decodedLower := strings.ToLower(decoded)
 	// Use the decoded version for pattern matching if it differs (evasion detection)
 	analysisStr := cleaned
 	analysisLower := lower
 	if decoded != cleaned {
 		analysisStr = decoded
-		analysisLower = decodedLower
+		analysisLower = strings.ToLower(decoded)
 	}
 
 	// --- Pattern-based checks on the analysis input ---
