@@ -25,8 +25,14 @@ ui-dev:
 dev:
 	go build $(GOFLAGS_BUILD) $(LDFLAGS) -o $(BINARY) ./cmd/guardianwaf
 
+# Race-instrumented test binaries peak at up to ~800 MB each (cmd/guardianwaf,
+# internal/cluster/raft). Go defaults to one package per CPU, so on a 16-core
+# machine `go test -race ./...` can hold 10+ GB at once. Bound the fan-out;
+# raise it on large CI runners with GO_TEST_PARALLEL=8.
+GO_TEST_PARALLEL ?= 4
+
 test:
-	go test -race -count=1 ./...
+	go test -race -count=1 -p $(GO_TEST_PARALLEL) ./...
 
 # Run Go tests one package at a time with a per-package timeout to isolate slow
 # or hanging packages. Override with GO_TEST_PACKAGE_TIMEOUT=300s and/or

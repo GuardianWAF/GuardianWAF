@@ -12,7 +12,9 @@ import (
 
 // MemoryStore stores events in a fixed-size ring buffer.
 type MemoryStore struct {
-	mu       sync.RWMutex
+	mu sync.RWMutex
+	// buffer grows on demand up to capacity, then wraps. Until it is full,
+	// len(buffer) == count == head, so the ring arithmetic below is unchanged.
 	buffer   []engine.Event
 	capacity int
 	head     int            // next write position
@@ -21,17 +23,23 @@ type MemoryStore struct {
 }
 
 // NewMemoryStore creates a new MemoryStore with the given capacity.
-// If capacity is less than 1, it defaults to 1024.
+// If capacity is less than 1, it defaults to 1024. Memory is allocated as
+// events arrive: the default 100,000-event capacity would otherwise cost
+// ~44 MB per store before the first request.
 func NewMemoryStore(capacity int) *MemoryStore {
 	if capacity < 1 {
 		capacity = 1024
 	}
+	initial := min(capacity, memoryStoreInitialSize)
 	return &MemoryStore{
-		buffer:   make([]engine.Event, capacity),
+		buffer:   make([]engine.Event, 0, initial),
 		capacity: capacity,
-		index:    make(map[string]int, capacity),
+		index:    make(map[string]int, initial),
 	}
 }
+
+// memoryStoreInitialSize is the number of event slots allocated up front.
+const memoryStoreInitialSize = 256
 
 // Store writes an event into the ring buffer.
 // When the buffer is full, the oldest event is overwritten.
@@ -47,7 +55,12 @@ func (ms *MemoryStore) Store(event engine.Event) error {
 		}
 	}
 
-	ms.buffer[ms.head] = cloneEvent(event)
+	if len(ms.buffer) < ms.capacity {
+		// Not yet full: head == len(buffer), so this appends at head.
+		ms.buffer = append(ms.buffer, cloneEvent(event))
+	} else {
+		ms.buffer[ms.head] = cloneEvent(event)
+	}
 	ms.index[event.ID] = ms.head
 
 	ms.head = (ms.head + 1) % ms.capacity
