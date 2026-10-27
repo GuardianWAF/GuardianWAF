@@ -13,7 +13,7 @@ Attack corpus:
 | LFI | `testdata/attacks/lfi.txt` | 52/55 detected, 94.5% |
 | NoSQLi | `testdata/attacks/nosqli.txt` | 26/26 detected, 100.0% |
 | Open Redirect | `testdata/attacks/openredirect.txt` | 27/28 detected, 96.4% |
-| SQLi | `testdata/attacks/sqli.txt` | 95/105 detected, 90.5% |
+| SQLi | `testdata/attacks/sqli.txt` | 100/105 detected, 95.2% |
 | SSRF | `testdata/attacks/ssrf.txt` | 39/39 detected, 100.0% |
 | SSTi | `testdata/attacks/ssti.txt` | 22/23 detected, 95.7% |
 | XSS | `testdata/attacks/xss.txt` | 71/72 detected, 98.6% |
@@ -29,10 +29,10 @@ Benign corpus:
 | cmdi-benign | 25 | 0/25 = 0.0% |
 | lfi-benign | 25 | 2/25 = 8.0% |
 | nosqli-benign | 25 | 0/25 = 0.0% |
-| ssrf-benign | 25 | 2/25 = 8.0% |
+| ssrf-benign | 25 | 1/25 = 4.0% |
 | ssti-benign | 25 | 0/25 = 0.0% |
 | application_logs | 30 | 2/30 = 6.7% |
-| **Combined** | **211** | **9/211 = 4.3%** |
+| **Combined** | **211** | **8/211 = 3.8%** |
 
 | File | Current baseline |
 |---|---:|
@@ -40,10 +40,10 @@ Benign corpus:
 | `testdata/benign/cmdi.txt` | 0/25 at or above block threshold, 0.0%; weighted FP avg 0.00 |
 | `testdata/benign/lfi.txt` | 2/25 at or above block threshold, 8.0%; weighted FP avg 0.80 |
 | `testdata/benign/nosqli.txt` | 0/25 at or above block threshold, 0.0%; weighted FP avg 0.16 |
-| `testdata/benign/ssrf.txt` | 2/25 at or above block threshold, 8.0%; weighted FP avg 0.56 |
+| `testdata/benign/ssrf.txt` | 1/25 at or above block threshold, 4.0%; weighted FP avg 0.28 |
 | `testdata/benign/ssti.txt` | 0/25 at or above block threshold, 0.0%; weighted FP avg 0.00 |
 | `testdata/benign/application_logs.txt` | 2/30 at or above block threshold, 6.7%; weighted FP avg 1.03 |
-| Combined benign corpus | 9/211 at or above block threshold, 4.3%; weighted FP avg 0.56 |
+| Combined benign corpus | 8/211 at or above block threshold, 3.8%; weighted FP avg 0.53 |
 
 The benign corpus intentionally includes text that resembles attacks: Windows paths, local development URLs, FTP URLs, SQL-like prose, HTML-like prose, shell-like snippets, mathematical expressions, MongoDB/JSON filter builders, template placeholder examples, and realistic application/audit log lines. The current block-threshold and severity-weighted false positives are tracked instead of hidden so tuning work can reduce them without weakening attack coverage.
 
@@ -135,6 +135,71 @@ The gate currently requires:
 
 The test logs per-detector detection rates, context-specific benign false-positive rates, severity-weighted false-positive averages, and the detector/severity/description behind benign samples that reach the block threshold. Detection changes should include this output in review notes when they alter scoring, normalization, or detector patterns.
 
+## End-to-End Quality Gate
+
+The corpora above score the detection layer alone, and the benign samples
+are chosen to look like attacks. The end-to-end gate in `tests/quality`
+measures what a production request experiences instead. It builds every
+layer the default config enables, exactly as `serve` does, and sends each
+sample in realistic positions with browser headers from a distinct client.
+
+```bash
+go test ./tests/quality -count=1 -v
+```
+
+Benign traffic lives in `testdata/quality/benign/`. Each file declares its
+placements in a `# placement:` header:
+
+- `query`: `?q=`
+- `form`: urlencoded body
+- `json`: the whole body
+- `path`
+- `redirect`: `?next=`
+
+| Corpus | Requests | Blocked |
+|---|---:|---:|
+| search queries (EN/TR/DE/ES/FR) | 274 | 0 |
+| comments, reviews, support tickets | 179 | 0 |
+| names, companies, addresses, emails, phones | 154 | 0 |
+| JSON API bodies | 76 | 0 |
+| passwords, tokens, identifiers | 55 | 0 |
+| URL paths and slugs | 51 | 0 |
+| URLs as parameters | 20 | 0 |
+| same-site redirect targets | 17 | 0 |
+| **General benign** | **826** | **0 (0.00%)** — budget 1% |
+| developer posts quoting code (`technical_*`) | 60 | 1 (1.67%) — budget 5% |
+
+Attacks reuse `testdata/attacks/`, placed where each class is delivered:
+
+- SQLi, XSS, CMDi, SSTI, NoSQLi: query and form.
+- LFI: `file=` and query.
+- SSRF: `url=` and query.
+- Open redirect: `next=`.
+- XXE: XML body.
+- GraphQL: `/graphql`.
+
+Every class must be blocked at least 85% of the time. Current result:
+797/817 (97.6%), with SQLi at 97.1% and CMDi at 98.0%.
+
+Building this gate exposed defects that the layer-only corpus could not see.
+They are now fixed and pinned by tests:
+
+- **Form bodies.** Urlencoded form bodies were inspected with `+` left
+  undecoded, so `' OR 1=1 --` in a login form scored 0.
+- **JSON bodies.** Fields were inspected as raw JSON text. `{"user":"admin' --"}`
+  scored 0, while `{"md":"# Title"}` scored 60. Text detectors now scan the
+  decoded fields of JSON and form bodies (`RequestContext.BodyViews`).
+- **Double counting.** One rule matching an input's raw and normalized views
+  was counted twice, pushing 30-point "possible" findings such as "O'Connor" to
+  60.
+- **Same-site redirects.** A normalization artifact (`https:/host`) flagged
+  every absolute same-site `next=` target as external.
+- **Missed SQLi.** `' OR 1 --`, `' HAVING 1=1 --`, `'||1=1 --` and
+  `') OR ('1'='1` scored below the block threshold.
+- **CMDi whole-value payloads.** `;id`, `| id` and `127.0.0.1;id` were
+  downgraded as ambiguous. Table rows such as `| id | name |` still are.
+- **"exec" as a word.** `exec office chair` scored 80.
+
 ## Known Bypass Coverage
 
 Current parser and detector boundary fuzzing runs through `scripts/fuzz-smoke.sh`, which covers sanitizer normalization, SQLi, XSS, CMDi, LFI, SSRF, NoSQLi, SSTI, IP ACL, rate limiting, bot fingerprinting, and JWT validation.
@@ -146,6 +211,6 @@ The corpus gate also locks recent SSRF bypass fixes:
 
 ## Remaining Work
 
-- Expand benign traffic with more realistic form, search-box, API query-string, documentation-page, and application-log samples.
-- Continue splitting benign samples by context so URL-fetch parameters, search terms, request bodies, and documentation text can have separate expected outcomes.
+- Grow the end-to-end corpora with anonymized production traffic, and add multipart bodies and header placements.
+- Windows paths in prose (`C:\Users\...`) still reach the LFI block threshold in the technical corpus.
 - Expand the detector-specific benign corpora with real production traffic once anonymized logs are available.

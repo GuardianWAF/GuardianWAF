@@ -1,0 +1,20 @@
+# Same-site post-login and return-to targets. Requests are sent with
+# Host: example.com, so these must never be treated as external redirects.
+# placement: redirect
+/account/orders
+/checkout/payment?step=2
+/products/42#reviews
+/search?q=running+shoes
+/
+https://example.com/
+https://example.com/cart
+https://example.com/search?q=o%27neill
+https://example.com/account/settings#security
+https://shop.example.com/cart
+https://shop.example.com/products/42?utm_source=newsletter&utm_medium=email
+https://www.example.com/blog/how-to-select-a-database
+https://m.example.com/en/help
+https://docs.example.com/api/v2/orders#list
+http://example.com/legacy/path
+https://EXAMPLE.com/Mixed/Case
+https://example.com:443/with-port

@@ -1,0 +1,78 @@
+# Realistic JSON API request bodies (one per line).
+# placement: json
+{"email":"john.doe@example.com","password":"S3cure!Pass#2026","remember_me":true}
+{"username":"o'brien_j","password":"p@ss'w0rd\"; --","otp":"492013"}
+{"name":"John O'Brien","email":"john@example.com","phone":"+1 (555) 123-4567"}
+{"first_name":"Ayşe","last_name":"Öztürk","city":"İstanbul","district":"Kadıköy"}
+{"query":"select the best plan","page":1,"per_page":20}
+{"q":"union square cafe","filters":{"open_now":true,"price":["$","$$"]}}
+{"search":"drop shoulder dress","sort":"price_asc","in_stock":true}
+{"items":[{"sku":"SKU-1001","qty":2},{"sku":"SKU-2002","qty":1}],"coupon":"SAVE20"}
+{"order_id":"ORD-2026-000123","status":"shipped","tracking":"1Z999AA10123456784"}
+{"cart_id":"8f14e45f-ceea-467f-a1d5-6f2c2d9ab8a1","currency":"EUR","total":149.95}
+{"shipping_address":{"line1":"221B Baker Street","line2":"","city":"London","postcode":"NW1 6XE","country":"GB"}}
+{"billing":{"name":"Smith & Sons Ltd.","vat":"GB123456789"},"notes":"Please deliver after 5pm"}
+{"rating":5,"title":"Love it <3","body":"Works great, would buy again!"}
+{"rating":2,"title":"Not as described","body":"It's \"waterproof\" but water got in."}
+{"comment":"I'd give it 4/5 - setup was easy, the app's a bit clunky.","product_id":5531}
+{"message":"Hi, can you ship to Canada? Thanks!","channel":"chat","lang":"en"}
+{"message":"Merhaba, siparişim ne zaman gelir?","channel":"whatsapp","lang":"tr"}
+{"event":"page_view","url":"https://shop.example.com/products/42?ref=home","referrer":"https://www.google.com/"}
+{"event":"add_to_cart","properties":{"sku":"SKU-1001","price":19.99,"currency":"USD"}}
+{"events":[{"type":"click","target":"#buy-now","ts":1793088000},{"type":"scroll","depth":0.75}]}
+{"metrics":{"lcp":1.92,"fid":12,"cls":0.04},"page":"/checkout"}
+{"user_agent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15","screen":"1512x982"}
+{"settings":{"theme":"dark","language":"tr-TR","timezone":"Europe/Istanbul","notifications":{"email":true,"sms":false}}}
+{"profile":{"bio":"Full-stack dev. I <3 Go & TypeScript. Coffee > tea.","website":"https://example.dev"}}
+{"avatar_url":"https://cdn.example.com/u/1234/avatar.png?v=2"}
+{"redirect_uri":"https://app.example.com/oauth/callback","state":"xyz123","code":"SplxlOBeZQQYbYS6WxSbIA"}
+{"grant_type":"refresh_token","refresh_token":"tGzv3JOkF0XG5Qx2TlKWIA","client_id":"s6BhdRkqt3"}
+{"token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"}
+{"api_version":"2026-10-01","idempotency_key":"5f9c2a1e-7b3d-4e8f-9a6c-1d2e3f4a5b6c"}
+{"file_name":"Q3 report (final).pdf","size":482113,"mime":"application/pdf"}
+{"file_name":"photo_2026-10-27 at 10.32.11.jpeg","size":2311042}
+{"path":"documents/2026/invoices/INV-0042.pdf","overwrite":false}
+{"folder":"Projects/Website Redesign/Assets","shared_with":["anna@example.com"]}
+{"title":"Meeting notes 27/10","content":"- Decide on Q4 roadmap\n- Review budget (+10%)\n- Next meeting: Friday 10:00"}
+{"title":"Recipe","content":"Mix 2 cups flour & 1 cup sugar; bake at 180°C for 25-30 min."}
+{"todo":"Buy milk, eggs & bread","done":false,"due":"2026-10-28T18:00:00+03:00"}
+{"start":"2026-11-01","end":"2026-11-07","guests":2,"room":"double"}
+{"from":"IST","to":"LHR","date":"2026-12-20","passengers":{"adults":2,"children":1}}
+{"amount":"1,250.00","currency":"TRY","description":"Kira - Kasım 2026"}
+{"iban":"TR33 0006 1005 1978 6457 8413 26","recipient":"Ahmet Yılmaz"}
+{"lat":41.0082,"lng":28.9784,"accuracy":12.5}
+{"temperature":-3.5,"unit":"C","sensor":"outdoor-1"}
+{"version":"1.4.2","platform":"android","build":20261027,"locale":"de_DE"}
+{"feedback":"The new design is great! One thing: the 'Save' button is hard to find.","score":9}
+{"question":"What's the difference between v2 and v3?","category":"product"}
+{"tags":["c++","c#",".net","node.js","sql"],"level":"beginner"}
+{"skills":["Go","PostgreSQL","Redis","Kubernetes","Terraform"],"years":7}
+{"job_title":"Database Administrator (SQL Server / PostgreSQL)","location":"Remote"}
+{"description":"We are looking for a backend engineer to design and maintain our order & payment services."}
+{"filters":{"status":{"$in":["active","pending"]}},"limit":50}
+{"where":{"price":{"gte":10,"lte":100}},"order_by":"created_at desc"}
+{"operationName":"GetProduct","variables":{"id":"42"},"query":"query GetProduct($id: ID!) { product(id: $id) { id name price } }"}
+{"query":"mutation AddToCart($sku: String!, $qty: Int!) { addToCart(sku: $sku, qty: $qty) { id total } }","variables":{"sku":"SKU-1001","qty":1}}
+{"query":"{ viewer { login repositories(first: 10) { nodes { name } } } }"}
+{"html":"<p>Hello <b>world</b></p>","format":"rich_text"}
+{"markdown":"# Title\n\nSome **bold** text and a [link](https://example.com)."}
+{"emoji":"😀🎉👍","text":"Thanks!!!"}
+{"color":"#ff6600","font":"Inter, sans-serif","size":"14px"}
+{"css_class":"btn btn-primary","aria_label":"Add to cart"}
+{"math":"2 + 2 = 4","expr":"(a+b)*c","ratio":"1:3"}
+{"price_range":"<20","rating":">=4"}
+{"code":"SAVE20","applies_to":["shoes","bags"]}
+{"subscription":{"plan":"monthly","seats":5,"auto_renew":true}}
+{"consent":{"marketing":false,"analytics":true,"version":"2026-05"}}
+{"device":{"id":"a1b2c3d4e5f6","name":"John's iPhone","os":"iOS 18.1"}}
+{"webhook_url":"https://hooks.example.com/services/T000/B000/XXXX","events":["order.created"]}
+{"callback":"https://partner.example.net/notify?order=123&sig=abc"}
+{"note":"Leave at the back door; the dog's friendly :)"}
+{"instructions":"Gate code is 1234#, flat 3B on the 2nd floor."}
+{"survey":{"q1":"Yes","q2":"No","q3":"Maybe - depends on price"}}
+{"answer":"I'd say 'definitely yes'"}
+{"search_history":["running shoes","o'neill wetsuit","levi's 501"]}
+{"ids":[1,2,3,4,5,6,7,8,9,10],"action":"archive"}
+{"batch":[{"op":"update","id":7,"fields":{"name":"New name"}},{"op":"delete","id":9}]}
+{"select":["id","name","email"],"from":"users","where":{"active":true}}
+{"sql_dialect":"postgres","table":"orders","columns":["id","total","created_at"]}
