@@ -163,7 +163,7 @@ placements in a `# placement:` header:
 | Corpus | Requests | Blocked |
 |---|---:|---:|
 | search queries (EN/TR/DE/ES/FR), also as a header | 548 | 0 |
-| comments, reviews, support tickets | 382 | 0 |
+| comments, reviews, support tickets | 386 | 0 |
 | names, companies, addresses, emails, phones, also as a header | 308 | 0 |
 | JSON API bodies | 78 | 0 |
 | passwords, tokens, identifiers, also as a header | 165 | 0 |
@@ -172,8 +172,8 @@ placements in a `# placement:` header:
 | URL paths and slugs | 51 | 0 |
 | URLs as parameters | 20 | 0 |
 | same-site redirect targets | 17 | 0 |
-| **General benign** | **1716** | **0 (0.00%)** — budget 1% |
-| developer posts quoting code (`technical_*`) | 128 | 0 (0.00%) — budget 5% |
+| **General benign** | **1724** | **0 (0.00%)** — budget 1% |
+| developer posts quoting code (`technical_*`) | 138 | 0 (0.00%) — budget 5% |
 
 Attacks reuse `testdata/attacks/`, placed where each class is delivered:
 
@@ -186,7 +186,7 @@ Attacks reuse `testdata/attacks/`, placed where each class is delivered:
 - GraphQL: `/graphql`.
 
 Every class must be blocked at least 85% of the time. Current result:
-1621/1648 (98.4%), with SQLi at 97.1%, CMDi at 98.0% and LFI at 100%.
+1627/1648 (98.7%), with SQLi at 97.1%, CMDi at 98.0%, and LFI, XSS and GraphQL at 100%.
 
 Building this gate exposed defects that the layer-only corpus could not see.
 They are now fixed and pinned by tests:
@@ -249,6 +249,13 @@ They are now fixed and pinned by tests:
   credentials, `.netrc`, `.pgpass` and shell/DB history now score 70-85 when
   the path is the value, and 25 (log only) when a developer post mentions it
   in a sentence.
+- **JavaScript string breakout.** `';alert(1)//` scored 0. Input reflected
+  into `var q = '...'` needs no tag. A quote, a run of expression separators
+  (`;` `+` `-` `)` `||` ...) and a script sink used as code (`alert(`,
+  ``alert`1` ``, `top[...]`, `location=`) now score 70. Only a quote with no
+  partner earlier in the input counts, so developer posts that quote code
+  (`const s = "a"; window.addEventListener(...)`) close their own literal and
+  stay clean.
 - **"exec" as a word.** `exec office chair` scored 80.
 
 ## Known Bypass Coverage

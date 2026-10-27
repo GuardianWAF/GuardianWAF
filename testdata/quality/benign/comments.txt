@@ -193,3 +193,7 @@ the 'red' and 'blue' options -- pick one
 Mark's 'draft' and 'final' versions -- both attached
 you're 'it' and I'm not -- tag!
 we'll go 'early' and stay late
+Click 'Save'; then confirm the dialog
+The 'alert' level is higher than 'warning' -- set it in settings
+Use 'prompt' + 'confirm' wording in the UI copy
+"fetch" is the new API; XMLHttpRequest is older

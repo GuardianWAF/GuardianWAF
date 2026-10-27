@@ -210,6 +210,15 @@ func Detect(input, location string) []engine.Finding {
 			truncateMatch(analysisStr), location, 0.75))
 	}
 
+	// 14. Breakout from a JavaScript string — score 70. Input reflected into
+	// `var q = '<input>';` needs no tag at all: `';alert(1)//`,
+	// `'-alert(1)-'`, `");fetch('//x')//`.
+	if containsJSStringBreakout(analysisLower) {
+		findings = append(findings, makeFinding(70, engine.SeverityHigh,
+			"JavaScript string breakout into a script sink detected",
+			truncateMatch(analysisStr), location, 0.85))
+	}
+
 	// 13. Encoded < bonus: +20 to existing scores
 	if hasEncoded && len(findings) > 0 {
 		findings = append(findings, makeFinding(20, engine.SeverityMedium,
@@ -364,4 +373,71 @@ func isFollowedBy(lower, name string, op byte) bool {
 		}
 		i = i + j + 1
 	}
+}
+
+// jsBreakoutSinks are the calls and globals a JS-string breakout reaches for.
+// Prose never follows a closing quote and an operator with one of them used
+// as code (called, tagged, indexed, dereferenced or assigned).
+var jsBreakoutSinks = []string{
+	"alert", "prompt", "confirm", "eval", "fetch", "settimeout", "setinterval",
+	"function", "import", "atob", "constructor", "document", "window", "top",
+	"self", "parent", "globalthis", "location",
+}
+
+// containsJSStringBreakout reports a quote (', " or `) followed by a run of
+// expression separators (; + - * , ) } || &&, with optional whitespace) and
+// then a script sink used as code: followed by ( ` . [ or =.
+//
+// Only a quote with an even number of the same quote before it counts: it
+// closes the application's string rather than one opened in the input.
+// Developer posts quoting code (`const s = "a"; window.foo()`) close their
+// own literal, so the quote before the separator is the odd one.
+func containsJSStringBreakout(lower string) bool {
+	var seen [3]int // ', ", ` occurrences so far
+	for i := 0; i < len(lower); i++ {
+		q := strings.IndexByte("'\"`", lower[i])
+		if q < 0 {
+			continue
+		}
+		seen[q]++
+		if seen[q]%2 == 0 {
+			continue
+		}
+		j, separated := i+1, false
+	separators:
+		for j < len(lower) {
+			switch {
+			case lower[j] == ' ' || lower[j] == '\t' || lower[j] == '\n' || lower[j] == '\r':
+				j++
+			case strings.HasPrefix(lower[j:], "||"), strings.HasPrefix(lower[j:], "&&"):
+				j += 2
+				separated = true
+			case strings.IndexByte(";+-*,)}", lower[j]) >= 0:
+				j++
+				separated = true
+			default:
+				break separators
+			}
+		}
+		if !separated {
+			continue
+		}
+		for _, name := range jsBreakoutSinks {
+			if !strings.HasPrefix(lower[j:], name) {
+				continue
+			}
+			k := skipJSSpace(lower, j+len(name))
+			if k < len(lower) && strings.IndexByte("(`.[=", lower[k]) >= 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func skipJSSpace(s string, i int) int {
+	for i < len(s) && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r') {
+		i++
+	}
+	return i
 }
