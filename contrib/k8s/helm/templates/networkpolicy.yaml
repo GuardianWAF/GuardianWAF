@@ -17,4 +17,19 @@ spec:
         {{- toYaml .Values.networkPolicy.ingress.from | nindent 8 }}
       ports:
         {{- toYaml .Values.networkPolicy.ingress.ports | nindent 8 }}
+        {{- if .Values.tls.enabled }}
+        - protocol: TCP
+          port: {{ .Values.tls.port }}
+        {{- end }}
+    {{- if .Values.cluster.enabled }}
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "guardianwaf.selectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.cluster.raftPort }}
+        - protocol: UDP
+          port: {{ .Values.cluster.gossipPort }}
+    {{- end }}
 {{- end }}

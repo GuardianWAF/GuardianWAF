@@ -2,8 +2,9 @@
 # Validate local build prerequisites for the production build path.
 set -euo pipefail
 
-MIN_GO="1.26.6"
-MIN_NODE="20.19.0"
+MIN_GO="1.26.10"
+MIN_NODE="22.22.2"
+MIN_NODE24="24.15.0"
 MIN_NPM_MAJOR=10
 
 version_ge() {
@@ -49,8 +50,13 @@ if ! version_ge "$go_version" "$MIN_GO"; then
 fi
 
 node_version="$(node --version | sed 's/^v//')"
-if ! version_ge "$node_version" "$MIN_NODE"; then
-    echo "Node.js $MIN_NODE or newer is required for the dashboard build; found $node_version" >&2
+node_major="${node_version%%.*}"
+# Match the intersection of the locked router, jsdom, Vite and ESLint engines.
+# Odd-numbered 23/25 releases are not supported by jsdom.
+if ! { { [[ "$node_major" == 22 ]] && version_ge "$node_version" "$MIN_NODE"; } ||
+       { [[ "$node_major" == 24 ]] && version_ge "$node_version" "$MIN_NODE24"; } ||
+       ((10#$node_major >= 26)); }; then
+    echo "Node.js 22.22.2+ (22.x), 24.15.0+ (24.x), or 26+ is required for the dashboard build; found $node_version" >&2
     exit 1
 fi
 

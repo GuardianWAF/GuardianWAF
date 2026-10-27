@@ -12,7 +12,13 @@ coverage.*
 /guardianwaf
 /guardianwaf-http3
 tmp/
+.temp_files/
 security-report/
+data/
+logs/
+.claude/
+.wrongstack/
+.mcp.json
 *.md
 !README.md
 docs/

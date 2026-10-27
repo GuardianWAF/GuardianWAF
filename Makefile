@@ -85,22 +85,12 @@ fmt:
 # CI gate: verify formatting without writing. Exits non-zero if any Go file
 # would be changed by `gofmt -s`. Used by .github/workflows/ci.yml.
 fmt-check:
-	@out=$$(gofmt -s -l .); \
-	if [ -n "$$out" ]; then \
-		echo "::error::gofmt check failed — the following files need reformatting (run 'make fmt'):"; \
-		echo "$$out"; \
-		exit 1; \
-	fi
-	@echo "gofmt check passed."
+	@./scripts/check-gofmt.sh
 
 # Regenerate DeepCopy methods for config structs.
-# NOTE: tools/deepcopy/main.go is currently broken with Go 1.26+ (go/parser
-# directory restriction). Until fixed, add DeepCopy fields by hand following
-# the pattern in internal/config/deepcopy_generated.go.
+# Generation uses a temporary file so errors preserve the last valid source.
 generate-deepcopy:
-	@echo "WARNING: deepcopy tool is broken with Go 1.26 — see internal/config/deepcopy_generated.go header"
-	cd tools/deepcopy && go run main.go ../../internal/config/config.go > ../../internal/config/deepcopy_generated.go
-	go fmt ./internal/config/
+	./scripts/generate-deepcopy.sh
 
 tidy:
 	go mod tidy

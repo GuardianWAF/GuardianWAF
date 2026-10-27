@@ -13,5 +13,5 @@ spec:
   selector:
     matchLabels:
       {{- include "guardianwaf.selectorLabels" . | nindent 6 }}
-  maxUnavailable: 1
+  minAvailable: {{ add (div (int .Values.cluster.replicas) 2) 1 }}
 {{- end }}

@@ -1,3 +1,4 @@
+{{- include "guardianwaf.validateCluster" . }}
 {{- if .Values.cluster.enabled }}
 # StatefulSet — stable pod identities for Raft and gossip.
 #
@@ -5,8 +6,8 @@
 # record via the headless Service. Raft and gossip use these addresses
 # for peer discovery and consensus.
 #
-# The ConfigMap references pod DNS names as seed peers. Gossip discovers
-# additional peers automatically after the initial bootstrap.
+# The ConfigMap lists every voter by stable pod DNS name. Gossip tracks
+# liveness; the configured Raft voting set remains fixed.
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -15,6 +16,7 @@ metadata:
   labels:
     {{- include "guardianwaf.labels" . | nindent 4 }}
 spec:
+  podManagementPolicy: Parallel
   serviceName: {{ include "guardianwaf.fullname" . }}-cluster
   replicas: {{ .Values.cluster.replicas }}
   selector:
@@ -43,20 +45,25 @@ spec:
           args:
             - serve
             - -c
-            - /etc/guardianwaf/guardianwaf.yaml
+            - /etc/guardianwaf/{{ .Values.config.fileName | default "guardianwaf.yaml" }}
 
           ports:
             - name: http
               containerPort: 8088
               protocol: TCP
+            {{- if .Values.tls.enabled }}
+            - name: https
+              containerPort: {{ .Values.tls.port }}
+              protocol: TCP
+            {{- end }}
             - name: dashboard
               containerPort: 9443
               protocol: TCP
             - name: raft
-              containerPort: 7947
+              containerPort: {{ .Values.cluster.raftPort }}
               protocol: TCP
             - name: gossip
-              containerPort: 7946
+              containerPort: {{ .Values.cluster.gossipPort }}
               protocol: UDP
 
           env:
@@ -67,15 +74,41 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
-            {{- with .Values.env }}
-            {{- toYaml . | nindent 12 }}
-            {{- end }}
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: GWAF_CLUSTER_SECRET
+              {{- if .Values.cluster.secret.existingSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.cluster.secret.existingSecret }}
+                  key: {{ .Values.cluster.secret.existingSecretKey }}
+              {{- else if .Values.cluster.secret.value }}
+              value: {{ .Values.cluster.secret.value | quote }}
+              {{- else }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ printf "%s-generated" (include "guardianwaf.fullname" .) }}
+                  key: cluster-secret
+              {{- end }}
             {{- if .Values.apiKey.existingSecret }}
             - name: GWAF_DASHBOARD_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.apiKey.existingSecret }}
                   key: {{ .Values.apiKey.existingSecretKey }}
+            {{- else if .Values.apiKey.value }}
+            - name: GWAF_DASHBOARD_API_KEY
+              value: {{ .Values.apiKey.value | quote }}
+            {{- else }}
+            # Falls back to the chart-generated Secret so every replica shares
+            # one key instead of each pod minting its own at startup.
+            - name: GWAF_DASHBOARD_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ printf "%s-generated" (include "guardianwaf.fullname" .) }}
+                  key: api-key
             {{- end }}
             {{- if .Values.adminKey.existingSecret }}
             - name: GWAF_DASHBOARD_ADMIN_KEY
@@ -83,8 +116,20 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.adminKey.existingSecret }}
                   key: {{ .Values.adminKey.existingSecretKey }}
+            {{- else if .Values.adminKey.value }}
+            - name: GWAF_DASHBOARD_ADMIN_KEY
+              value: {{ .Values.adminKey.value | quote }}
+            {{- else }}
+            - name: GWAF_DASHBOARD_ADMIN_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ printf "%s-generated" (include "guardianwaf.fullname" .) }}
+                  key: admin-key
             {{- end }}
-
+            {{- range $key, $value := .Values.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
           volumeMounts:
             - name: config
               mountPath: /etc/guardianwaf
@@ -93,6 +138,9 @@ spec:
               mountPath: /var/cache/guardianwaf
             - name: state
               mountPath: /var/lib/guardianwaf
+            - name: state
+              mountPath: /var/log/guardianwaf
+              subPath: logs
             - name: wal
               mountPath: /var/lib/guardianwaf/raft
             {{- if .Values.tls.enabled }}
@@ -131,7 +179,7 @@ spec:
       volumes:
         - name: config
           configMap:
-            name: {{ include "guardianwaf.fullname" . }}-config
+            name: {{ .Values.existingConfigMap | default (printf "%s-config" (include "guardianwaf.fullname" .)) }}
         - name: cache
           emptyDir:
             sizeLimit: 100Mi

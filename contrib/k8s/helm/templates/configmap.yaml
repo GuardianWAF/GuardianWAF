@@ -13,12 +13,14 @@ data:
     tls:
       enabled: {{ .Values.tls.enabled }}
       {{- if .Values.tls.enabled }}
+      listen: ":{{ .Values.tls.port }}"
+      http_redirect: {{ .Values.tls.httpRedirect }}
       cert_file: "/etc/guardianwaf/certs/tls.crt"
       key_file: "/etc/guardianwaf/certs/tls.key"
       {{- end }}
-    {{- if .Values.dashboard.enabled }}
     dashboard:
-      enabled: true
+      enabled: {{ .Values.dashboard.enabled }}
+      {{- if .Values.dashboard.enabled }}
       listen: {{ .Values.config.dashboardListen | quote }}
       api_key: "${GWAF_DASHBOARD_API_KEY}"
       admin_key: "${GWAF_DASHBOARD_ADMIN_KEY}"
@@ -97,8 +99,9 @@ data:
     cluster:
       enabled: true
       node_id: "${POD_NAME}"
-      bind_addr: "0.0.0.0:{{ .Values.cluster.raftPort }}"
-      gossip_addr: "0.0.0.0:{{ .Values.cluster.gossipPort }}"
+      secret: "${GWAF_CLUSTER_SECRET}"
+      bind_addr: "[${POD_IP}]:{{ .Values.cluster.raftPort }}"
+      gossip_addr: "[${POD_IP}]:{{ .Values.cluster.gossipPort }}"
       peers:
         {{- $fullname := include "guardianwaf.fullname" . }}
         {{- $ns := .Release.Namespace }}

@@ -161,3 +161,6 @@ internal/ai/remediation/data/remediation/*.json
 
 # Local scratch worktrees (were committed as broken gitlinks with no .gitmodules)
 .temp_files/
+
+# Schema staging files left by interrupted tests/uploads
+*.schema-*.json

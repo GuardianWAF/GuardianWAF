@@ -65,7 +65,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: ['1.26.6']
+        go-version: ['1.26.10']
       fail-fast: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -108,7 +108,7 @@ jobs:
           go build -tags http3 -o guardianwaf-http3 ./cmd/guardianwaf
 
       - name: Upload coverage
-        if: matrix.go-version == '1.26.6'
+        if: matrix.go-version == '1.26.10'
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           files: ./coverage.txt
@@ -199,7 +199,7 @@ jobs:
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           # v2.12 is built with go1.26; older v2.2 (go1.24) refuses to analyze a
-          # go1.26.6 module ("build Go version lower than targeted").
+          # go1.26.10 module ("build Go version lower than targeted").
           version: v2.12
 
   deadcode:
@@ -255,15 +255,8 @@ jobs:
       - name: Check build prerequisites
         run: ./scripts/check-prereqs.sh
 
-      - name: gofmt check (gofmt -s -l . must be empty)
-        run: |
-          out="$(gofmt -s -l .)"
-          if [ -n "$out" ]; then
-            echo "::error::gofmt check failed — the following files need reformatting (run 'make fmt'):"
-            echo "$out"
-            exit 1
-          fi
-          echo "gofmt check passed."
+      - name: Check Go source formatting
+        run: ./scripts/check-gofmt.sh
 
   docker-compose-integration:
     runs-on: ubuntu-latest
@@ -625,7 +618,7 @@ jobs:
           --severity HIGH,CRITICAL \
           --exit-code 1 \
           --no-progress \
-          golang:1.26.6-alpine
+          golang:1.26.10-alpine
     - name: Scan Dockerfile and manifests for misconfigs
       run: |
         # Gate on HIGH,CRITICAL — same threshold as the base-image scan above.

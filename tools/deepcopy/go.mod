@@ -1,3 +1,3 @@
 module github.com/guardianwaf/guardianwaf/tools/deepcopy
 
-go 1.26.6
+go 1.26.10

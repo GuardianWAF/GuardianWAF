@@ -1,0 +1,56 @@
+# Docker Compose production profile. Terminate public TLS at your edge proxy.
+# Required placeholders are supplied by docker-compose.prod.yml from .env.
+mode: enforce
+listen: ":8088"
+allow_private_upstreams: false
+
+upstreams:
+  - name: origin
+    targets:
+      - url: "${GWAF_UPSTREAM_URL}"
+    health_check:
+      enabled: true
+      path: /
+      interval: 10s
+      timeout: 3s
+
+routes:
+  - path: /
+    upstream: origin
+
+waf:
+  ip_acl:
+    enabled: true
+    auto_ban:
+      enabled: true
+      default_ttl: 1h
+      max_ttl: 24h
+      persist_path: /var/lib/guardianwaf/ip-bans.json
+      persist_interval: 1m
+
+dashboard:
+  enabled: true
+  listen: ":9443"
+  api_key: "${GWAF_DASHBOARD_API_KEY}"
+  admin_key: "${GWAF_DASHBOARD_ADMIN_KEY}"
+  audit_path: /var/lib/guardianwaf/audit/dashboard.jsonl
+  tls: false
+
+mcp:
+  enabled: false
+
+docker:
+  enabled: false
+
+logging:
+  level: info
+  format: json
+  output: stdout
+  log_allowed: false
+  log_blocked: true
+  log_body: false
+
+events:
+  storage: file
+  max_events: 100000
+  file_path: /var/lib/guardianwaf/events/events.jsonl
