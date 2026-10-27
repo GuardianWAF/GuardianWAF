@@ -152,12 +152,10 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 		})
 	}
 
+	engine.ApplyMultiplier(findings, d.multiplier)
 	score := 0
 	for _, f := range findings {
 		score += f.Score
-	}
-	if d.multiplier > 0 && d.multiplier != 1 {
-		score = int(float64(score) * d.multiplier)
 	}
 
 	action := engine.ActionPass

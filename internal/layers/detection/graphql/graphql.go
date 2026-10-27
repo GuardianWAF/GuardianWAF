@@ -472,6 +472,10 @@ func isIdentPart(ch rune) bool {
 	return ch == '_' || unicode.IsLetter(ch) || unicode.IsDigit(ch)
 }
 
+func isIgnoredRune(ch rune) bool {
+	return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || ch == ',' || ch == '\uFEFF'
+}
+
 // countAliases returns the number of alias definitions (pattern `alias:field`).
 // GraphQL aliasing lets a client request the same field multiple times under
 // different names, forcing the backend to resolve it N times.
@@ -480,8 +484,8 @@ func isIdentPart(ch rune) bool {
 // parentheses is a variable definition ($v: Int), a field argument
 // (status: published), or a directive argument (@include(if: true)) — counting
 // those flagged legitimate queries with 11+ variables/arguments as aliasing
-// abuse. Whitespace between the alias name and its colon is also legal
-// GraphQL, so it is skipped rather than allowed to break the match.
+// abuse. Ignored tokens around the colon are legal GraphQL, so they are
+// skipped rather than allowed to break the match. Comments are already stripped.
 func countAliases(s string) int {
 	count := 0
 	runes := []rune(s)
@@ -503,16 +507,15 @@ func countAliases(s string) int {
 			for i < n && isIdentPart(runes[i]) {
 				i++
 			}
-			// Whitespace between an alias name and its colon is legal
-			// GraphQL; skip it before testing for the ':'.
+			// Skip ignored tokens before testing for the ':'.
 			j := i
-			for j < n && (runes[j] == ' ' || runes[j] == '\t' || runes[j] == '\n' || runes[j] == '\r') {
+			for j < n && isIgnoredRune(runes[j]) {
 				j++
 			}
 			if j < n-1 && runes[j] == ':' && runes[j+1] != ':' {
-				// Skip whitespace after colon.
+				// Skip ignored tokens after colon.
 				k := j + 1
-				for k < n && (runes[k] == ' ' || runes[k] == '\t') {
+				for k < n && isIgnoredRune(runes[k]) {
 					k++
 				}
 				if parenDepth == 0 && k < n && isIdentStart(runes[k]) {

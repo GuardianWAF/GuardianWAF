@@ -103,6 +103,10 @@ func entityRune(val int) rune {
 
 // RemoveNullBytes strips \x00, %00, and \0 from input.
 func RemoveNullBytes(s string) string {
+	if !strings.Contains(s, "\x00") && !strings.Contains(s, "%00") && !strings.Contains(s, `\0`) {
+		return s
+	}
+
 	var b strings.Builder
 	b.Grow(len(s))
 
@@ -177,9 +181,8 @@ func CanonicalizePath(s string) string {
 	return result
 }
 
-// NormalizeUnicode maps fullwidth characters to ASCII equivalents.
-// Handles fullwidth A-Z (U+FF21-FF3A), a-z (U+FF41-FF5A), 0-9 (U+FF10-FF19),
-// and common symbols (U+FF01-FF0F).
+// NormalizeUnicode maps fullwidth characters to ASCII equivalents: the whole
+// fullwidth ASCII block U+FF01-FF5E ('!'..'~'), including < > ; = [ ] { } etc.
 func NormalizeUnicode(s string) string {
 	// Quick check: if it's all ASCII, no work needed
 	if isASCII(s) {
@@ -217,23 +220,13 @@ func isASCII(s string) bool {
 // mapFullwidthToASCII maps a fullwidth rune to its ASCII equivalent.
 // If not a fullwidth character, returns the original rune.
 func mapFullwidthToASCII(r rune) rune {
-	switch {
-	// Fullwidth digits 0-9: U+FF10-U+FF19 -> '0'-'9'
-	case r >= 0xFF10 && r <= 0xFF19:
-		return rune('0') + (r - 0xFF10)
-	// Fullwidth uppercase A-Z: U+FF21-U+FF3A -> 'A'-'Z'
-	case r >= 0xFF21 && r <= 0xFF3A:
-		return rune('A') + (r - 0xFF21)
-	// Fullwidth lowercase a-z: U+FF41-U+FF5A -> 'a'-'z'
-	case r >= 0xFF41 && r <= 0xFF5A:
-		return rune('a') + (r - 0xFF41)
-	// Fullwidth symbols: U+FF01-U+FF0F -> '!'-'/'
-	// FF01 = !, FF02 = ", FF03 = #, ... FF0F = /
-	case r >= 0xFF01 && r <= 0xFF0F:
+	// U+FF01-U+FF5E map linearly onto '!'-'~'. Mapping only digits, letters
+	// and U+FF01-FF0F left fullwidth < > ; = ? @ [ \ ] ^ _ ` { | } ~ intact,
+	// so "\uFF1Cscript\uFF1E" never reached the detectors as "<script>".
+	if r >= 0xFF01 && r <= 0xFF5E {
 		return rune('!') + (r - 0xFF01)
-	default:
-		return r
 	}
+	return r
 }
 
 // DecodeHTMLEntities decodes &amp; &lt; &gt; &quot; &#xNN; &#NNN;

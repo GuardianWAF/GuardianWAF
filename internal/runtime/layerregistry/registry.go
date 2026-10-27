@@ -133,6 +133,11 @@ func buildLayerWithRegistry(name string, cfg *config.Config, ctx *BuildContext, 
 		if layer == nil {
 			return engine.OrderedLayer{}, false, fmt.Errorf("build %s layer: nil layer", name)
 		}
+		if ctx != nil && ctx.ClusterStore != nil {
+			if setter, ok := layer.(engine.ClusterStoreSetter); ok {
+				setter.SetClusterStore(ctx.ClusterStore)
+			}
+		}
 		return engine.OrderedLayer{Layer: layer, Order: descriptor.Order}, true, nil
 	}
 	return engine.OrderedLayer{}, false, fmt.Errorf("unknown layer descriptor %q", name)
@@ -408,12 +413,16 @@ func buildAPIValidation(cfg *config.Config) (engine.Layer, error) {
 	schemas := make([]apivalidation.SchemaSource, len(cfg.WAF.APIValidation.Schemas))
 	for i, s := range cfg.WAF.APIValidation.Schemas {
 		schemas[i] = apivalidation.SchemaSource{
-			Path:      s.Path,
-			Type:      s.Type,
+			Path: s.Path,
+			Type: s.Type,
+			// Name is the schema's identity: with it set, the upload route can
+			// replace (LoadSchema) or remove (RemoveSchema) this declared source
+			// by name instead of only by its file path.
+			Name:      s.Name,
 			AutoLearn: s.AutoLearn,
 		}
 	}
-	return apivalidation.NewLayer(&apivalidation.Config{
+	layer := apivalidation.NewLayer(&apivalidation.Config{
 		Enabled:          cfg.WAF.APIValidation.Enabled,
 		ValidateRequest:  cfg.WAF.APIValidation.ValidateRequest,
 		ValidateResponse: cfg.WAF.APIValidation.ValidateResponse,
@@ -422,7 +431,15 @@ func buildAPIValidation(cfg *config.Config) (engine.Layer, error) {
 		ViolationScore:   cfg.WAF.APIValidation.ViolationScore,
 		CacheSize:        cfg.WAF.APIValidation.CacheSize,
 		Schemas:          schemas,
-	}), nil
+	})
+	// Fail closed: an enabled API-validation layer whose declared schemas could
+	// not compile would run as a silent no-op with strict_mode=false and block
+	// every request with strict_mode=true, so surface the load error to the
+	// caller exactly as buildCRS does for its ruleset.
+	if err := layer.LoadError(); err != nil {
+		return nil, fmt.Errorf("loading API validation schemas: %w", err)
+	}
+	return layer, nil
 }
 
 func buildCRS(cfg *config.Config) (engine.Layer, error) {

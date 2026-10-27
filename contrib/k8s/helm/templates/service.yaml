@@ -16,6 +16,12 @@ spec:
       targetPort: http
       protocol: TCP
       name: http
+    {{- if .Values.tls.enabled }}
+    - port: {{ .Values.tls.servicePort }}
+      targetPort: https
+      protocol: TCP
+      name: https
+    {{- end }}
   selector:
     {{- include "guardianwaf.selectorLabels" . | nindent 4 }}
 {{- if .Values.dashboard.enabled }}

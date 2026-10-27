@@ -80,9 +80,9 @@ func TestEvaluateRuleExclusionSuppressesMatch(t *testing.T) {
 	}
 
 	// Control: a non-excluded arg whose value contains the pattern still
-	// fires. (Value-level exclusion removes exactly the excluded value; a
-	// different field carrying the byte-identical value would also be
-	// excluded — a documented limitation of the flat resolver model.)
+	// fires. (Exclusion is by field identity — a different field carrying
+	// the byte-identical value is still inspected; see
+	// crs_audit80_regression_test.go, F187.)
 	tx.RequestArgs["comment"] = []string{"xattack"}
 	if matched, _, _ := l.evaluateRule(rule, tx); !matched {
 		t.Fatal("FAIL: control — non-excluded arg did not match")

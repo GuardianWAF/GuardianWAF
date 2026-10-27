@@ -1,13 +1,11 @@
 // Package peersync bridges the gossip membership layer with the Raft consensus
-// layer. When gossip detects a node joining or leaving the cluster, the bridge
-// recomputes the alive peer set (with Raft TCP addresses) and calls
-// raft.UpdatePeers so the Raft leader replicates to the new node or stops
-// replicating to the departed one.
+// layer for observability. Gossip failure detection never changes the Raft
+// voting configuration: a partition must not reduce the majority needed to
+// elect a leader. Voters are configured explicitly on every node.
 package peersync
 
 import (
 	"log/slog"
-	"sort"
 	"sync"
 
 	"github.com/guardianwaf/guardianwaf/internal/cluster/gossip"
@@ -19,10 +17,9 @@ type GossipMemberList interface {
 	Members() []gossip.Member
 }
 
-// Bridge watches gossip membership events and propagates alive peers to Raft.
-// This enables dynamic peer discovery: new nodes that join via gossip are
-// automatically added to the Raft configuration without manual restart or
-// YAML reconfiguration.
+// Bridge watches gossip membership without changing Raft voters. Dynamic
+// consensus membership is unsupported; operators must configure the same fixed
+// voting set on every node (excluding that node itself).
 type Bridge struct {
 	gossip GossipMemberList
 	raft   *raft.Raft
@@ -48,7 +45,7 @@ func NewBridge(g GossipMemberList, r *raft.Raft, logger *slog.Logger) *Bridge {
 
 // Callbacks returns onJoin/onLeave functions suitable for
 // gossip.Gossip.SetCallbacks. The callbacks trigger Sync(), which recomputes
-// the alive peer set from the full gossip member list.
+// observed liveness from the full gossip member list.
 func (b *Bridge) Callbacks() (onJoin func(id, addr string), onLeave func(id string)) {
 	return b.onJoin, b.onLeave
 }
@@ -65,70 +62,27 @@ func (b *Bridge) onLeave(id string) {
 	b.Sync()
 }
 
-// Sync recomputes the alive peer set from gossip membership and updates Raft.
-// Only members in StateAlive with a non-empty RaftAddr are included. The
-// local node is excluded: raft counts self separately in its quorum math
-// (hasQuorum = (len(Peers)+1)/2+1) and must not see itself in the peer set.
-// This method is safe to call concurrently — it serializes on an internal mutex.
+// Sync records observed liveness only. A dead or newly discovered gossip member
+// is not a consensus configuration change. In particular, the configured peer
+// list must survive an empty or partitioned gossip view unchanged.
 func (b *Bridge) Sync() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-
-	members := b.gossip.Members()
-	peers := make([]raft.Peer, 0, len(members))
-	peerIDs := make(map[string]bool, len(members))
-
-	for _, m := range members {
-		if m.State != gossip.StateAlive {
-			continue
+	peerIDs := make(map[string]bool)
+	for _, m := range b.gossip.Members() {
+		if m.State == gossip.StateAlive && m.ID != b.raft.ID() {
+			peerIDs[m.ID] = true
 		}
-		if m.ID == b.raft.ID() {
-			// Raft counts this node separately — hasQuorum is
-			// (len(Peers)+1)/2+1 and vote/heartbeat fan-out skips
-			// peer.ID == self. Syncing the local node into the peer set
-			// inflates the majority: a 3-node cluster would need 3/3 votes
-			// (one node down = permanent leaderlessness) and leaderState
-			// would track a phantom matchIndex for self that never updates.
-			continue
-		}
-		if m.RaftAddr == "" {
-			// Member hasn't announced a Raft address yet — skip.
-			b.log.Debug("peersync: skipping member without raft_addr",
-				"member_id", m.ID)
-			continue
-		}
-		peers = append(peers, raft.Peer{
-			ID:   m.ID,
-			Addr: m.RaftAddr,
-		})
-		peerIDs[m.ID] = true
 	}
-
-	// Sort peers by ID for deterministic ordering (stable Raft config).
-	sort.Slice(peers, func(i, j int) bool {
-		return peers[i].ID < peers[j].ID
-	})
-
-	b.raft.UpdatePeers(peers)
-
-	// Log diff if peer set changed.
-	changed := false
 	for id := range peerIDs {
 		if !b.lastPeers[id] {
-			changed = true
-			b.log.Info("peersync: peer added to raft config", "peer_id", id)
+			b.log.Info("peersync: gossip member observed alive; voting configuration unchanged", "peer_id", id)
 		}
 	}
 	for id := range b.lastPeers {
 		if !peerIDs[id] {
-			changed = true
-			b.log.Info("peersync: peer removed from raft config", "peer_id", id)
+			b.log.Info("peersync: gossip member unavailable; voting configuration unchanged", "peer_id", id)
 		}
 	}
-	if changed {
-		b.log.Info("peersync: raft peer set updated",
-			"peer_count", len(peers))
-	}
-
 	b.lastPeers = peerIDs
 }

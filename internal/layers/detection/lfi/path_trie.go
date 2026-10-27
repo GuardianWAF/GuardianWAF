@@ -207,6 +207,14 @@ var sensitiveTrie = buildSensitivePathTrie()
 // same-score finding — detection is unaffected.
 func (t *sensitivePathTrie) checkWithTrie(input, location string) []engine.Finding {
 	var findings []engine.Finding
+	// Matches per input are few, so a linear scan over a stack-backed slice
+	// is cheaper than a map (which cost two allocations per call).
+	type nodeContext struct {
+		node    *trieNode
+		matched string
+	}
+	var contextBuf [8]nodeContext
+	contexts := contextBuf[:0]
 	node := t.root
 
 	for i := 0; i < len(input); i++ {
@@ -225,9 +233,22 @@ func (t *sensitivePathTrie) checkWithTrie(input, location string) []engine.Findi
 			node = child
 		}
 		if node.score > 0 {
+			matched, ok := "", false
+			for _, c := range contexts {
+				if c.node == node {
+					matched, ok = c.matched, true
+					break
+				}
+			}
+			if !ok {
+				// Preserve first-occurrence evidence without rescanning the
+				// input for every repeated match of the same path.
+				matched = extractContext(input, node.path)
+				contexts = append(contexts, nodeContext{node, matched})
+			}
 			findings = append(findings, makeFinding(node.score, engine.SeverityHigh,
 				node.description,
-				extractContext(input, node.path),
+				matched,
 				location, 0.75))
 		}
 	}

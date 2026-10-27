@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"reflect"
@@ -51,17 +52,27 @@ type sidecarShutdownResources struct {
 	layerResources      *layerRuntimeResources
 }
 
-func startServeHTTPServer(cfg *config.Config, eng *engine.Engine, srv *http.Server) {
+func startServeHTTPServer(cfg *config.Config, eng *engine.Engine, srv *http.Server) bool {
+	// Bind before returning so ACME provisioning can rely on the HTTP-01
+	// listener already accepting connections.
+	listener, err := net.Listen("tcp", srv.Addr)
+	if err != nil {
+		eng.Logs.Errorf("HTTP server error: %v", err)
+		fmt.Fprintf(os.Stderr, "HTTP server error: %v\n", err)
+		osExit(1)
+		return false
+	}
 	go func() {
 		msg := fmt.Sprintf("GuardianWAF %s starting in %s mode on %s", version, cfg.Mode, cfg.Listen)
 		fmt.Println(msg)
 		eng.Logs.Info(msg)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
 			eng.Logs.Errorf("HTTP server error: %v", err)
 			fmt.Fprintf(os.Stderr, "HTTP server error: %v\n", err)
 			osExit(1)
 		}
 	}()
+	return true
 }
 
 func startServeTLSServer(cfg *config.Config, eng *engine.Engine, tlsSrv *http.Server) {

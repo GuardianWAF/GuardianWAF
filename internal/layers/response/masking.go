@@ -178,8 +178,8 @@ func MaskAPIKeys(s string) string {
 			pos := searchFrom + idx + len(kw)
 			searchFrom = pos
 
-			// Skip separators: = : " ' space
-			for pos < len(result) && (result[pos] == '=' || result[pos] == ':' || result[pos] == '"' || result[pos] == '\'' || result[pos] == ' ' || result[pos] == '\t') {
+			// Skip separators and JSON whitespace, including multiline values.
+			for pos < len(result) && (result[pos] == '=' || result[pos] == ':' || result[pos] == '"' || result[pos] == '\'' || result[pos] == ' ' || result[pos] == '\t' || result[pos] == '\r' || result[pos] == '\n') {
 				pos++
 			}
 

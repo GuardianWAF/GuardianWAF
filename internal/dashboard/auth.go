@@ -106,10 +106,11 @@ func signSession(clientIP string) string {
 
 func signSessionAt(clientIP string, renewedAt, createdAt time.Time) string {
 	ts := fmt.Sprintf("%d.%d", renewedAt.Unix(), createdAt.Unix())
+	nonce := cryptrand.Text()
 	mac := hmac.New(sha256.New, loadSecret())
-	mac.Write([]byte(ts + ":" + clientIP))
+	mac.Write([]byte(ts + ":" + clientIP + ":" + nonce))
 	sig := hex.EncodeToString(mac.Sum(nil))
-	return ts + "." + sig
+	return ts + "." + nonce + ":" + sig
 }
 
 // verifySession checks if a session token is valid, not expired, not revoked,
@@ -132,8 +133,14 @@ func verifySession(token, clientIP string) bool {
 
 	// Verify HMAC (includes IP binding) — use ts.created as the signed payload
 	tsFull := ts + "." + created
+	signedPayload := tsFull + ":" + clientIP
+	// Keep legacy tokens valid; new tokens distinguish sessions minted in one second.
+	if nonce, signature, ok := strings.Cut(sig, ":"); ok {
+		signedPayload += ":" + nonce
+		sig = signature
+	}
 	mac := hmac.New(sha256.New, loadSecret())
-	mac.Write([]byte(tsFull + ":" + clientIP))
+	mac.Write([]byte(signedPayload))
 	expected := hex.EncodeToString(mac.Sum(nil))
 	if !hmac.Equal([]byte(sig), []byte(expected)) {
 		return false
@@ -470,6 +477,27 @@ func tenantScope(r *http.Request) string {
 	return ""
 }
 
+// revokeAllSessions invalidates every session created before now. API-key
+// rotation calls it so sessions minted under a leaked key end with the key
+// instead of living out their 7-day absolute lifetime.
+func (d *Dashboard) revokeAllSessions() { d.sessionsNotBefore.Store(time.Now().Unix()) }
+
+// sessionAfterRevocation reports whether a signature-verified token was
+// created at or after the last revoke-all. Refreshes preserve the creation
+// time, so a refreshed pre-rotation session stays revoked.
+func (d *Dashboard) sessionAfterRevocation(token string) bool {
+	notBefore := d.sessionsNotBefore.Load()
+	if notBefore == 0 {
+		return true
+	}
+	parts := strings.SplitN(token, ".", 3)
+	if len(parts) != 3 {
+		return false
+	}
+	created, err := strconv.ParseInt(parts[1], 10, 64)
+	return err == nil && created >= notBefore
+}
+
 func (d *Dashboard) isAuthenticated(r *http.Request) (*http.Request, bool) {
 	currentKey, previousKey := d.loadActiveAPIKeys()
 	if currentKey == "" {
@@ -496,10 +524,17 @@ func (d *Dashboard) isAuthenticated(r *http.Request) (*http.Request, bool) {
 	// Check per-tenant API key (AUTH-003): scoped to a specific tenant.
 	tenantID := extractTenantID(r)
 	if tenantID != "" {
-		if hash, ok := d.tenantAPIKeyHash(tenantID); ok {
-			if key := r.Header.Get("X-API-Key"); key != "" && verifyTenantAPIKey(hash, key) {
+		key := r.Header.Get("X-API-Key")
+		if verifier, ok := d.getTenantManager().(interface {
+			VerifyTenantAPIKey(string, string) bool
+		}); ok {
+			// Production managers check committed live state. Never fall back to
+			// the snapshot after a failed check: it can contain a revoked key.
+			if verifier.VerifyTenantAPIKey(tenantID, key) {
 				return setAuthInfo(r, authTenant, tenantID), true
 			}
+		} else if hash, ok := d.tenantAPIKeyHash(tenantID); ok && key != "" && verifyTenantAPIKey(hash, key) {
+			return setAuthInfo(r, authTenant, tenantID), true
 		}
 	}
 
@@ -508,7 +543,7 @@ func (d *Dashboard) isAuthenticated(r *http.Request) (*http.Request, bool) {
 	if err != nil {
 		return r, false
 	}
-	if verifySession(cookie.Value, clientIPFromRequest(r)) {
+	if verifySession(cookie.Value, clientIPFromRequest(r)) && d.sessionAfterRevocation(cookie.Value) {
 		return setAuthInfo(r, authSession, ""), true
 	}
 	return r, false

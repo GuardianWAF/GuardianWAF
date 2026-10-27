@@ -17,9 +17,13 @@ FUZZTIME="${FUZZTIME:-5s}"
 
 # "<pkg> <FuzzName>" pairs, sorted and deduplicated.
 mapfile -t targets < <(
-  grep -rEl --include='*_test.go' '^func Fuzz[A-Za-z0-9_]*\(' . |
-    while read -r file; do
-      pkg="./$(dirname "${file#./}")"
+  git ls-files --cached --others --exclude-standard -z -- '*_test.go' |
+    while IFS= read -r -d '' file; do
+      # Deleted tracked files and ignored scratch/dependency trees are not
+      # runnable repository targets. Include new, nonignored tests as well.
+      [ -f "$file" ] || continue
+      grep -qE '^func Fuzz[A-Za-z0-9_]*\(' "$file" || continue
+      pkg="./$(dirname "$file")"
       grep -oE '^func Fuzz[A-Za-z0-9_]+' "$file" | sed 's/^func //' |
         while read -r fn; do printf '%s %s\n' "$pkg" "$fn"; done
     done | sort -u

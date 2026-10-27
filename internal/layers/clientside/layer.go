@@ -367,15 +367,56 @@ func (l *Layer) InjectAgent(body []byte) []byte {
 			return []byte(bodyStr[:idx] + agentScript + bodyStr[idx:])
 		}
 	default:
-		// Default: inject after <head> or at start of <body>
-		if idx := indexFold(bodyStr, "<head>"); idx != -1 {
-			headEnd := idx + len("<head>")
+		// Default: inject right after the <head> start tag, which may carry
+		// attributes (<head lang="en">); matching only a bare "<head>" sent
+		// those pages to the prepend fallback below.
+		if headEnd := headStartTagEnd(bodyStr); headEnd != -1 {
 			return []byte(bodyStr[:headEnd] + agentScript + bodyStr[headEnd:])
 		}
 	}
 
-	// If no suitable injection point found, prepend to body
+	// If no suitable injection point found, prepend to body — but never ahead
+	// of a leading <!DOCTYPE>: content before it puts the page in quirks mode.
+	if dtEnd := leadingDoctypeEnd(bodyStr); dtEnd != -1 {
+		return []byte(bodyStr[:dtEnd] + agentScript + bodyStr[dtEnd:])
+	}
 	return append([]byte(agentScript), body...)
+}
+
+// headStartTagEnd returns the byte offset just past the first <head> start
+// tag (with or without attributes, any case), or -1. "<header" is not a match.
+func headStartTagEnd(s string) int {
+	for from := 0; ; {
+		idx := indexFold(s[from:], "<head")
+		if idx == -1 {
+			return -1
+		}
+		i := from + idx + len("<head")
+		if i < len(s) {
+			switch s[i] {
+			case '>', ' ', '\t', '\n', '\r', '\f', '/':
+				if gt := strings.IndexByte(s[i:], '>'); gt != -1 {
+					return i + gt + 1
+				}
+				return -1
+			}
+		}
+		from = i
+	}
+}
+
+// leadingDoctypeEnd returns the byte offset just past a <!DOCTYPE ...>
+// declaration that starts the document (after an optional BOM and
+// whitespace), or -1.
+func leadingDoctypeEnd(s string) int {
+	start := len(s) - len(strings.TrimLeft(strings.TrimPrefix(s, "\ufeff"), " \t\n\r\f"))
+	if indexFold(s[start:min(len(s), start+len("<!doctype"))], "<!doctype") != 0 {
+		return -1
+	}
+	if gt := strings.IndexByte(s[start:], '>'); gt != -1 {
+		return start + gt + 1
+	}
+	return -1
 }
 
 // generateAgentScript generates the security monitoring agent JavaScript.
@@ -385,7 +426,8 @@ func (l *Layer) generateAgentScript() string {
 	}
 
 	script := `<script ` + agentMarker + `>(function(){`
-	script += `function gwafReport(type,data){try{fetch("/_guardian/report",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:type,data:data,url:location.href,ts:Date.now()})}).catch(function(){});}catch(e){}}`
+	// Report through the original transport so network monitoring cannot recurse.
+	script += `var gwafFetch=window.fetch;function gwafReport(type,data){try{gwafFetch.call(window,"/_guardian/report",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:type,data:data,url:location.href,ts:Date.now()})}).catch(function(){});}catch(e){}}`
 
 	// DOM monitoring
 	if l.config.AgentInjection.MonitorDOM {

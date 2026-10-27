@@ -153,4 +153,4 @@ options.go               Functional options
 
 ## Module
 
-`github.com/guardianwaf/guardianwaf` (Go 1.25+)
+`github.com/guardianwaf/guardianwaf` (Go 1.26.10+)

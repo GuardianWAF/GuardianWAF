@@ -31,6 +31,12 @@ type Layer struct {
 	router  *PathRouter
 	mu      sync.RWMutex
 	enabled bool
+
+	// loadErr records the first configured schema that failed to compile at
+	// construction. The registry surfaces it so an enabled layer with an
+	// unloadable declared schema fails startup instead of running as a silent
+	// no-op (or, with StrictMode, blocking every request).
+	loadErr error
 }
 
 // CompiledSpec holds a compiled OpenAPI specification.
@@ -108,18 +114,90 @@ func NewLayer(cfg *Config) *Layer {
 		cfg = DefaultConfig()
 	}
 
-	return &Layer{
+	l := &Layer{
 		config:  cfg,
 		specs:   make([]*CompiledSpec, 0),
 		cache:   NewSchemaCache(cfg.CacheSize),
 		router:  NewPathRouter(),
 		enabled: cfg.Enabled,
 	}
+
+	// Compile the configured schema sources at construction. The registry hands
+	// cfg.Schemas in, and until this loop existed nothing read them: a serve
+	// deployment that declared schemas ran with zero compiled specs, silently
+	// passing every request when StrictMode was off and blocking every request
+	// when it was on. The first failure is recorded for LoadError so the caller
+	// can fail closed.
+	for _, source := range cfg.Schemas {
+		if err := l.LoadSchema(source); err != nil && l.loadErr == nil {
+			l.loadErr = err
+		}
+	}
+
+	return l
+}
+
+// LoadError returns the first configured-schema load failure recorded at
+// construction, or nil when every configured schema compiled.
+func (l *Layer) LoadError() error {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.loadErr
 }
 
 // Name returns "apivalidation".
 func (l *Layer) Name() string { return "apivalidation" }
 func (l *Layer) Order() int   { return engine.OrderAPIValidation }
+
+// effectiveConfig returns the layer's current config. Reads are lock-free: the
+// config is only ever replaced wholesale (SetMode swaps a copy) and never
+// mutated in place, and the compilation path (compileOperation ->
+// getAdditionalProperties) runs while LoadSchema holds the layer's write lock,
+// where a locking accessor would self-deadlock — Go's RWMutex is not reentrant.
+func (l *Layer) effectiveConfig() *Config { return l.config }
+
+// validateRequest reports the effective validate_request mode.
+func (l *Layer) validateRequest() bool {
+	cfg := l.effectiveConfig()
+	return cfg != nil && cfg.ValidateRequest
+}
+
+// strictMode reports the effective strict_mode.
+func (l *Layer) strictMode() bool {
+	cfg := l.effectiveConfig()
+	return cfg != nil && cfg.StrictMode
+}
+
+// blockOnViolation reports the effective block_on_violation.
+func (l *Layer) blockOnViolation() bool {
+	cfg := l.effectiveConfig()
+	return cfg != nil && cfg.BlockOnViolation
+}
+
+// SetMode pushes control-plane mode toggles into the running layer. A nil
+// pointer leaves that flag unchanged. Engine.Reload updates the engine's config
+// but does not rebuild layers, so an adapter that changes the mode must call
+// this — otherwise the change is acknowledged and then ignored, leaving the
+// previous enforcement (including blocking an operator believes they turned
+// off, or non-strict validation they believe they turned on) in place.
+func (l *Layer) SetMode(validateRequest, strictMode, blockOnViolation *bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.config == nil {
+		return
+	}
+	cfg := *l.config
+	if validateRequest != nil {
+		cfg.ValidateRequest = *validateRequest
+	}
+	if strictMode != nil {
+		cfg.StrictMode = *strictMode
+	}
+	if blockOnViolation != nil {
+		cfg.BlockOnViolation = *blockOnViolation
+	}
+	l.config = &cfg
+}
 
 // SetEnabled enables or disables the layer.
 func (l *Layer) SetEnabled(enabled bool) {
@@ -368,9 +446,17 @@ func (l *Layer) compilePathPattern(path string) *regexp.Regexp {
 
 // compileOperation compiles a single operation.
 func (l *Layer) compileOperation(spec *CompiledSpec, path, method string, op *Operation, commonParams []Parameter, pattern *regexp.Regexp) {
-	// Merge common and operation-specific parameters
+	// Operation parameters override path-level parameters with the same name and location.
+	operationParams := make(map[[2]string]struct{}, len(op.Parameters))
+	for _, p := range op.Parameters {
+		operationParams[[2]string{p.Name, p.In}] = struct{}{}
+	}
 	allParams := make([]Parameter, 0, len(commonParams)+len(op.Parameters))
-	allParams = append(allParams, commonParams...)
+	for _, p := range commonParams {
+		if _, overridden := operationParams[[2]string{p.Name, p.In}]; !overridden {
+			allParams = append(allParams, p)
+		}
+	}
 	allParams = append(allParams, op.Parameters...)
 
 	// Compile parameters
@@ -422,7 +508,10 @@ func (l *Layer) compileOperation(spec *CompiledSpec, path, method string, op *Op
 				ContentType: chosen,
 				Parameters:  compiledParams,
 				BodySchema:  bodySchema,
-				StrictMode:  l.config.StrictMode,
+				// Read directly: compileOperation runs from LoadSchema while the
+				// layer's write lock is held, so the locked accessor would
+				// self-deadlock (Go's RWMutex is not reentrant).
+				StrictMode: l.config != nil && l.config.StrictMode,
 			})
 		}
 	}
@@ -485,7 +574,7 @@ func (l *Layer) getAdditionalProperties(schema *Schema) bool {
 	if schema.AdditionalProperties != nil {
 		return *schema.AdditionalProperties
 	}
-	return !l.config.StrictMode
+	return !l.strictMode()
 }
 
 // Process validates the request against OpenAPI schemas.
@@ -494,7 +583,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	l.mu.RLock()
 	enabled := l.enabled
 	l.mu.RUnlock()
-	if !enabled || !l.config.ValidateRequest {
+	if !enabled || !l.validateRequest() {
 		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 	if ctx.TenantWAFConfig != nil && !ctx.TenantWAFConfig.APIValidation.Enabled {
@@ -508,7 +597,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 
 	// In strict mode, block if no schemas are loaded
 	if len(specs) == 0 {
-		if l.config.StrictMode {
+		if l.strictMode() {
 			return engine.LayerResult{
 				Action: engine.ActionBlock,
 				Score:  l.config.ViolationScore,
@@ -528,7 +617,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	route := router.Match(ctx.Method, ctx.Path)
 	if route == nil {
 		// No schema defined for this route - allow if not in strict mode
-		if l.config.StrictMode {
+		if l.strictMode() {
 			return engine.LayerResult{
 				Action: engine.ActionBlock,
 				Score:  l.config.ViolationScore,
@@ -545,7 +634,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	}
 
 	// Validate request
-	validator := NewSchemaValidator(l.config.StrictMode)
+	validator := NewSchemaValidator(l.strictMode())
 	findings := make([]engine.Finding, 0)
 	totalScore := 0
 
@@ -576,7 +665,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 
 	// Determine action
 	action := engine.ActionPass
-	if totalScore > 0 && l.config.BlockOnViolation {
+	if totalScore > 0 && l.blockOnViolation() {
 		action = engine.ActionBlock
 	} else if totalScore > 0 {
 		action = engine.ActionLog
@@ -587,6 +676,43 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		Findings: findings,
 		Score:    totalScore,
 	}
+}
+
+// deserializeParameterValue converts an OpenAPI scalar parameter's wire value
+// into the JSON instance type declared by its schema. Path, query, header, and
+// cookie values all arrive as strings; passing those strings directly to the
+// JSON Schema validator makes every valid integer, number, and boolean fail its
+// type check. Invalid lexical forms remain strings so validation still reports
+// the declared type mismatch, and string/array/object schemas keep their
+// existing behavior.
+func deserializeParameterValue(value string, schema *Schema) any {
+	if schema == nil || strings.TrimSpace(value) != value {
+		return value
+	}
+
+	switch schema.Type {
+	case "integer", "number", "boolean":
+		var decoded any
+		if err := json.Unmarshal([]byte(value), &decoded); err != nil {
+			return value
+		}
+		switch schema.Type {
+		case "integer":
+			if isInteger(decoded) {
+				return decoded
+			}
+		case "number":
+			if toFloat64(decoded) != nil {
+				return decoded
+			}
+		case "boolean":
+			if _, ok := decoded.(bool); ok {
+				return decoded
+			}
+		}
+	}
+
+	return value
 }
 
 // validatePathParameters validates path parameters.
@@ -613,7 +739,7 @@ func (l *Layer) validatePathParameters(ctx *engine.RequestContext, route *RouteI
 
 		// Validate against schema
 		if param.Schema != nil {
-			result := validator.Validate(value, param.Schema, "path."+param.Name)
+			result := validator.Validate(deserializeParameterValue(value, param.Schema), param.Schema, "path."+param.Name)
 			if !result.Valid {
 				for _, err := range result.Errors {
 					findings = append(findings, engine.Finding{
@@ -654,7 +780,7 @@ func (l *Layer) validateQueryParameters(ctx *engine.RequestContext, route *Route
 		// Validate each value
 		for _, value := range values {
 			if param.Schema != nil {
-				result := validator.Validate(value, param.Schema, "query."+param.Name)
+				result := validator.Validate(deserializeParameterValue(value, param.Schema), param.Schema, "query."+param.Name)
 				if !result.Valid {
 					for _, err := range result.Errors {
 						findings = append(findings, engine.Finding{
@@ -698,7 +824,7 @@ func (l *Layer) validateHeaders(ctx *engine.RequestContext, route *RouteInfo, va
 		// value bypass the declared contract (mirrors the query loop above).
 		for _, value := range values {
 			if param.Schema != nil {
-				result := validator.Validate(value, param.Schema, "header."+param.Name)
+				result := validator.Validate(deserializeParameterValue(value, param.Schema), param.Schema, "header."+param.Name)
 				if !result.Valid {
 					for _, err := range result.Errors {
 						findings = append(findings, engine.Finding{
@@ -746,7 +872,7 @@ func (l *Layer) validateCookieParameters(ctx *engine.RequestContext, route *Rout
 
 		for _, value := range values {
 			if param.Schema != nil {
-				result := validator.Validate(value, param.Schema, "cookie."+param.Name)
+				result := validator.Validate(deserializeParameterValue(value, param.Schema), param.Schema, "cookie."+param.Name)
 				if !result.Valid {
 					for _, err := range result.Errors {
 						findings = append(findings, engine.Finding{

@@ -2,6 +2,8 @@ package engine
 
 import (
 	"bytes"
+	"compress/gzip"
+	"io"
 	"net/http"
 	"strings"
 )
@@ -101,6 +103,20 @@ func (m *maskingResponseWriter) FlushMasked() {
 	data := m.buf.Bytes()
 	m.buf.Reset()
 
+	// A gzip-encoded body is transformed on its decoded form and re-encoded;
+	// splicing plaintext into compressed bytes would corrupt the response.
+	gzipped := isGzipEncoding(m.Header().Get("Content-Encoding"))
+	orig := data
+	if gzipped {
+		plain, ok := gunzipLimited(data, maxMaskingBufferSize)
+		if !ok {
+			m.ResponseWriter.Header().Del("Content-Length")
+			_, _ = m.ResponseWriter.Write(orig) // nolint:errcheck // undecodable body passes through untouched
+			return
+		}
+		data = plain
+	}
+
 	// Apply the client-side body transform first (Magecart sanitization /
 	// agent injection), then data masking on the resulting body.
 	if m.bodyXform != nil {
@@ -112,6 +128,15 @@ func (m *maskingResponseWriter) FlushMasked() {
 	if m.maskFn != nil {
 		// maskFn operates on string, convert once
 		data = []byte(m.maskFn(string(data)))
+	}
+	if gzipped {
+		var zbuf bytes.Buffer
+		zw := gzip.NewWriter(&zbuf)
+		if _, err := zw.Write(data); err == nil && zw.Close() == nil {
+			data = zbuf.Bytes()
+		} else {
+			data = orig
+		}
 	}
 	// The transformed body length can differ from the declared length
 	// (StripStackTraces removes lines). Drop a stale passthrough
@@ -127,6 +152,12 @@ func (m *maskingResponseWriter) FlushMasked() {
 func (m *maskingResponseWriter) shouldCapture() bool {
 	ct := m.Header().Get("Content-Type")
 	if ct == "" {
+		return false
+	}
+	// Only bodies the transforms can decode are captured: identity or gzip.
+	// Other encodings (br, zstd, deflate) pass through unmodified.
+	if ce := strings.TrimSpace(m.Header().Get("Content-Encoding")); ce != "" &&
+		!strings.EqualFold(ce, "identity") && !isGzipEncoding(ce) {
 		return false
 	}
 	ct = strings.ToLower(ct)
@@ -173,4 +204,25 @@ func (m *maskingResponseWriter) Flush() {
 	if f, ok := m.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
+}
+
+// isGzipEncoding reports whether a Content-Encoding value is a single gzip coding.
+func isGzipEncoding(ce string) bool {
+	ce = strings.TrimSpace(ce)
+	return strings.EqualFold(ce, "gzip") || strings.EqualFold(ce, "x-gzip")
+}
+
+// gunzipLimited decodes a gzip body, failing when it is malformed or its
+// decoded size exceeds limit (decompression-bomb guard).
+func gunzipLimited(data []byte, limit int64) ([]byte, bool) {
+	zr, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return nil, false
+	}
+	defer zr.Close()
+	out, err := io.ReadAll(io.LimitReader(zr, limit+1))
+	if err != nil || int64(len(out)) > limit {
+		return nil, false
+	}
+	return out, true
 }

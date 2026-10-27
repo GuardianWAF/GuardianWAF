@@ -24,7 +24,6 @@ type setupWizard struct {
 	targets     []string
 
 	// Routing
-	routeHost string
 	routePath string
 
 	// WAF
@@ -168,8 +167,6 @@ func (w *setupWizard) promptUpstreams() {
 
 func (w *setupWizard) promptRouting() {
 	fmt.Println("\n━━━ Routing ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Print("Route domain/host pattern [*]: ")
-	w.routeHost = readLine("*")
 	fmt.Print("Route path prefix [/]: ")
 	w.routePath = readLine("/")
 }
@@ -483,7 +480,6 @@ func (w *setupWizard) buildConfig() string {
 	buf.WriteString("routes:\n")
 	buf.WriteString("  - path: \"" + w.routePath + "\"\n")
 	buf.WriteString("    upstream: default\n\n")
-	_ = w.routeHost
 
 	buf.WriteString("logging:\n")
 	buf.WriteString("  level: info\n")

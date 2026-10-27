@@ -336,6 +336,7 @@ func (e *Exporter) Close() error {
 	e.mu.Lock()
 	if e.closed {
 		e.mu.Unlock()
+		e.wg.Wait()
 		return nil
 	}
 	e.closed = true

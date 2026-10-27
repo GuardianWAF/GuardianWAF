@@ -577,15 +577,17 @@ func TestSetupNodeCacheOnlyOnNPMHeavyWorkflowJobs(t *testing.T) {
 func TestPatchedGoToolchainIsAlignedAcrossBuildPaths(t *testing.T) {
 	root := filepath.Join("..", "..")
 	files := map[string][]string{
-		"go.mod":                              {"go 1.26.6"},
-		"tools/deepcopy/go.mod":               {"go 1.26.6"},
-		"Dockerfile":                          {"golang:1.26.6-alpine AS builder"},
-		"docker-compose.yml":                  {"golang:1.26.6-alpine"},
-		"docker-compose.test.yml":             {"golang:1.26.6-alpine"},
-		"examples/sidecar/Dockerfile":         {"golang:1.26.6-alpine AS builder"},
-		"examples/sidecar/docker-compose.yml": {"golang:1.26.6-alpine"},
-		"scripts/check-prereqs.sh":            {`MIN_GO="1.26.6"`},
-		".github/workflows/ci.yml":            {"go-version: ['1.26.6']", "golang:1.26.6-alpine"},
+		"go.mod":                              {"go 1.26.10"},
+		"tools/deepcopy/go.mod":               {"go 1.26.10"},
+		"website/go.mod":                      {"go 1.26.10"},
+		"internal/dashboard/ui/go.mod":        {"go 1.26.10"},
+		"Dockerfile":                          {"golang:1.26.10-alpine AS builder"},
+		"docker-compose.yml":                  {"golang:1.26.10-alpine"},
+		"docker-compose.test.yml":             {"golang:1.26.10-alpine"},
+		"examples/sidecar/Dockerfile":         {"golang:1.26.10-alpine AS builder"},
+		"examples/sidecar/docker-compose.yml": {"golang:1.26.10-alpine"},
+		"scripts/check-prereqs.sh":            {`MIN_GO="1.26.10"`},
+		".github/workflows/ci.yml":            {"go-version: ['1.26.10']", "golang:1.26.10-alpine"},
 	}
 
 	for name, required := range files {
@@ -1998,11 +2000,11 @@ func TestCleanCheckoutDashboardEmbedContract(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		`MIN_GO="1.26.6"`,
-		`MIN_NODE="20.19.0"`,
+		`MIN_GO="1.26.10"`,
+		`MIN_NODE="22.22.2"`,
 		"MIN_NPM_MAJOR=10",
 		"Go $MIN_GO or newer is required",
-		"Node.js $MIN_NODE or newer is required",
+		"Node.js 22.22.2+ (22.x), 24.15.0+ (24.x), or 26+ is required",
 		"npm ${MIN_NPM_MAJOR}.x or newer is required",
 	} {
 		if !strings.Contains(prereqScript, want) {
@@ -2015,8 +2017,8 @@ func TestCleanCheckoutDashboardEmbedContract(t *testing.T) {
 		"docs/production-deployment.md": productionDeployment,
 	} {
 		for _, want := range []string{
-			"Go 1.26.6 or newer",
-			"Node.js 20.19.0 or newer",
+			"Go 1.26.10 or newer",
+			"Node.js 22.22.2+ (22.x), 24.15.0+ (24.x), or 26+",
 			"npm 10.x or newer",
 			"./scripts/check-prereqs.sh",
 			"./scripts/build.sh",

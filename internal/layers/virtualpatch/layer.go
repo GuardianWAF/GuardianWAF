@@ -779,11 +779,15 @@ func (l *Layer) loadDefaultPatches() {
 				Name:        "Log4Shell JNDI Injection",
 				Description: "Block Log4j JNDI lookup patterns",
 				GeneratedAt: time.Now(),
+				// Log4j2's Interpolator lower-cases the lookup prefix, so
+				// ${JNDI: / ${JnDi: trigger the same JNDI lookup: match it
+				// case-insensitively (a case-sensitive "contains" was a
+				// one-keystroke bypass — F189).
 				Patterns: []PatchPattern{
-					{Type: "body", Pattern: "${jndi:", MatchType: "contains"},
-					{Type: "query", Pattern: "${jndi:", MatchType: "contains"},
-					{Type: "header", Key: "User-Agent", Pattern: "${jndi:", MatchType: "contains"},
-					{Type: "header", Key: "X-Forwarded-For", Pattern: "${jndi:", MatchType: "contains"},
+					{Type: "body", Pattern: `(?i)\$\{jndi:`, MatchType: "regex"},
+					{Type: "query", Pattern: `(?i)\$\{jndi:`, MatchType: "regex"},
+					{Type: "header", Key: "User-Agent", Pattern: `(?i)\$\{jndi:`, MatchType: "regex"},
+					{Type: "header", Key: "X-Forwarded-For", Pattern: `(?i)\$\{jndi:`, MatchType: "regex"},
 				},
 				Action:     "block",
 				Score:      50,
@@ -837,10 +841,13 @@ func (l *Layer) loadDefaultPatches() {
 				Name:        "Shellshock Bash RCE",
 				Description: "Block Shellshock attack vectors",
 				GeneratedAt: time.Now(),
+				// Bash only requires the "() {" function-definition prefix;
+				// the body is arbitrary. The literal "() { :; }" missed the
+				// canonical PoC "() { :;};" and every other body (F188).
 				Patterns: []PatchPattern{
-					{Type: "header", Key: "User-Agent", Pattern: "() { :; }", MatchType: "contains"},
-					{Type: "header", Key: "Cookie", Pattern: "() { :; }", MatchType: "contains"},
-					{Type: "header", Key: "Referer", Pattern: "() { :; }", MatchType: "contains"},
+					{Type: "header", Key: "User-Agent", Pattern: `\(\s*\)\s*\{`, MatchType: "regex"},
+					{Type: "header", Key: "Cookie", Pattern: `\(\s*\)\s*\{`, MatchType: "regex"},
+					{Type: "header", Key: "Referer", Pattern: `\(\s*\)\s*\{`, MatchType: "regex"},
 				},
 				Action:     "block",
 				Score:      50,

@@ -3,6 +3,7 @@ package mcp
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -65,5 +66,62 @@ func TestUnauthenticatedToolsCallStillRejected(t *testing.T) {
 	}
 	if !bytes.Contains(respData, []byte("-32001")) {
 		t.Fatalf("unauthenticated tools/call was not rejected: %s", respData)
+	}
+}
+
+// Regression F205: every notification (request without an "id" member) — not
+// only notifications/initialized — must go unanswered on both transports,
+// while still being processed. MCP clients send notifications/cancelled
+// routinely; the server answered it with a -32601 error lacking an id.
+func TestAnyNotificationProducesNoResponse(t *testing.T) {
+	notifs := []string{
+		`{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":3}}`,
+		`{"jsonrpc":"2.0","method":"tools/call","params":{"name":"probe","arguments":{}}}`,
+	}
+	for _, n := range notifs {
+		calls := 0
+		probe := func(json.RawMessage) (any, error) { calls++; return "ok", nil }
+
+		var out bytes.Buffer
+		stdio := NewServer(strings.NewReader(n+"\n"), &out)
+		stdio.RegisterTool("probe", probe)
+		if err := stdio.Run(); err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		if out.Len() != 0 {
+			t.Fatalf("stdio answered notification %s: %s", n, out.String())
+		}
+
+		sse := NewServer(nil, nil)
+		sse.RegisterTool("probe", probe)
+		resp, err := sse.HandleRequestJSON([]byte(n))
+		if err != nil {
+			t.Fatalf("HandleRequestJSON: %v", err)
+		}
+		if len(resp) != 0 {
+			t.Fatalf("HTTP answered notification %s: %s", n, resp)
+		}
+		if strings.Contains(n, "probe") && calls != 2 {
+			t.Fatalf("notification tool call not processed on both transports: calls=%d", calls)
+		}
+	}
+
+	// "id": null is a request, not a notification: it is answered with id null.
+	resp, _ := NewServer(nil, nil).HandleRequestJSON([]byte(`{"jsonrpc":"2.0","id":null,"method":"nope"}`))
+	if !bytes.Contains(resp, []byte(`"id":null`)) {
+		t.Fatalf("request with id null not answered with id null: %s", resp)
+	}
+}
+
+// Regression F206: a final stdio request without a trailing newline was read
+// together with io.EOF and silently dropped.
+func TestRunDispatchesUnterminatedFinalLine(t *testing.T) {
+	var out bytes.Buffer
+	in := `{"jsonrpc":"2.0","id":1,"method":"tools/list"}` + "\n" + `{"jsonrpc":"2.0","id":2,"method":"tools/list"}`
+	if err := NewServer(strings.NewReader(in), &out).Run(); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := strings.Count(out.String(), "\n"); got != 2 || !strings.Contains(out.String(), `"id":2`) {
+		t.Fatalf("expected 2 responses incl. id 2, got %d: %.200s", got, out.String())
 	}
 }

@@ -4,6 +4,7 @@ package mcp
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
@@ -23,10 +24,52 @@ type JSONRPCRequest struct {
 	Params  json.RawMessage `json:"params,omitempty"`
 }
 
+// decodeRequest preserves numeric IDs exactly instead of rounding through
+// float64. Each transport accepts one JSON value, just like json.Unmarshal.
+func decodeRequest(data []byte, req *JSONRPCRequest) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(req); err != nil {
+		return err
+	}
+	if _, err := decoder.Token(); err != io.EOF {
+		return fmt.Errorf("unexpected trailing JSON-RPC data")
+	}
+	return nil
+}
+
+// isNotification reports whether a decoded request omitted the "id" member.
+// JSON-RPC 2.0 §4.1: such a request is a notification and MUST NOT be
+// answered. An explicit "id": null is a (discouraged) request, not a
+// notification, so presence — not value — is what matters. (F205)
+func isNotification(data []byte) bool {
+	var probe struct {
+		ID json.RawMessage `json:"id"`
+	}
+	if json.Unmarshal(data, &probe) != nil {
+		return false
+	}
+	return probe.ID == nil
+}
+
+// notificationID marks a stdio request as a notification so writeResponse
+// drops whatever the dispatcher would otherwise send for it. (F205)
+type notificationID struct{}
+
+// decodeErrorCode distinguishes malformed JSON (-32700) from well-formed JSON
+// that is not a valid Request object, such as a batch array or a wrong-typed
+// member (-32600). (F207)
+func decodeErrorCode(data []byte) (int, string) {
+	if json.Valid(data) {
+		return ErrCodeInvalidRequest, "Invalid Request"
+	}
+	return ErrCodeParseError, "Parse error"
+}
+
 // JSONRPCResponse represents a JSON-RPC 2.0 response.
 type JSONRPCResponse struct {
 	JSONRPC string    `json:"jsonrpc"`
-	ID      any       `json:"id,omitempty"`
+	ID      any       `json:"id"` // REQUIRED; null when the request id is unknown (F207)
 	Result  any       `json:"result,omitempty"`
 	Error   *RPCError `json:"error,omitempty"`
 }
@@ -256,30 +299,39 @@ func (s *Server) ValidateTools() error {
 func (s *Server) Run() error {
 	for {
 		line, err := s.reader.ReadBytes('\n')
-		if err != nil {
+		if err != nil && (err != io.EOF || len(line) == 0) {
 			if err == io.EOF {
 				return nil
 			}
 			return err
 		}
+		// A final request without a trailing newline arrives together with
+		// io.EOF; dispatch it before returning. (F206)
+		atEOF := err == io.EOF
 
 		// Skip empty lines
 		if len(line) == 0 || (len(line) == 1 && line[0] == '\n') {
+			if atEOF {
+				return nil
+			}
 			continue
 		}
 
 		var req JSONRPCRequest
-		if err := json.Unmarshal(line, &req); err != nil {
-			s.sendError(nil, ErrCodeParseError, "Parse error")
-			continue
-		}
-
-		if req.JSONRPC != "2.0" {
+		if err := decodeRequest(line, &req); err != nil {
+			code, msg := decodeErrorCode(line)
+			s.sendError(nil, code, msg)
+		} else if req.JSONRPC != "2.0" {
 			s.sendError(req.ID, ErrCodeInvalidRequest, "Invalid JSON-RPC version")
-			continue
+		} else {
+			if isNotification(line) {
+				req.ID = notificationID{}
+			}
+			s.handleRequest(req)
 		}
-
-		s.handleRequest(req)
+		if atEOF {
+			return nil
+		}
 	}
 }
 
@@ -497,6 +549,9 @@ func (s *Server) writeResponse(resp JSONRPCResponse) {
 	if s.writer == nil {
 		return
 	}
+	if _, ok := resp.ID.(notificationID); ok {
+		return // notifications are never answered (F205)
+	}
 	data, err := json.Marshal(resp)
 	if err != nil {
 		return
@@ -517,8 +572,9 @@ func (s *Server) HandleRequestJSON(reqData []byte) ([]byte, error) {
 // metadata available to mutating-tool audit logs.
 func (s *Server) HandleRequestJSONWithAuditContext(reqData []byte, auditCtx *AuditContext) ([]byte, error) {
 	var req JSONRPCRequest
-	if err := json.Unmarshal(reqData, &req); err != nil {
-		resp := JSONRPCResponse{JSONRPC: "2.0", Error: &RPCError{Code: ErrCodeParseError, Message: "Parse error"}}
+	if err := decodeRequest(reqData, &req); err != nil {
+		code, msg := decodeErrorCode(reqData)
+		resp := JSONRPCResponse{JSONRPC: "2.0", Error: &RPCError{Code: code, Message: msg}}
 		return json.Marshal(resp)
 	}
 	if req.JSONRPC != "2.0" {
@@ -527,6 +583,9 @@ func (s *Server) HandleRequestJSONWithAuditContext(reqData []byte, auditCtx *Aud
 	}
 
 	resp := s.processRequestWithAuditContext(req, auditCtx)
+	if isNotification(reqData) {
+		return nil, nil // processed, but never answered (F205)
+	}
 	// JSON-RPC 2.0: a notification (request without an id) MUST NOT receive a
 	// response. The dispatcher returns the zero-value response for
 	// notifications; suppress it here so transports emit nothing.

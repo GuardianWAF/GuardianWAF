@@ -125,8 +125,8 @@ func (w *WAL) countRecords() int {
 		if recLen == 0 || recLen > maxWALRecordSize {
 			break // corrupt
 		}
-		// Skip payload + CRC.
-		if _, err := w.file.Seek(int64(recLen)+4, 1); err != nil {
+		// Consume payload + CRC; seeking past EOF would count a torn record.
+		if _, err := io.CopyN(io.Discard, w.file, int64(recLen)+4); err != nil {
 			break
 		}
 		count++

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -24,6 +25,7 @@ type SSEHandler struct {
 	server         *Server
 	apiKey         string
 	apiKeyProvider func() string
+	authGuard      AuthGuard
 
 	mu                sync.Mutex
 	clients           map[*sseClient]bool
@@ -81,6 +83,17 @@ func (h *SSEHandler) authenticate(r *http.Request) bool {
 	return ok
 }
 
+// AuthGuard throttles failed API-key authentication per client IP.
+type AuthGuard interface {
+	AuthAllowed(ip string) bool
+	AuthFailed(ip string)
+}
+
+// SetAuthGuard makes failed key attempts count toward a shared lockout (the
+// dashboard's login limiter) so the SSE endpoints cannot be used for
+// unlimited key guessing.
+func (h *SSEHandler) SetAuthGuard(g AuthGuard) { h.authGuard = g }
+
 func (h *SSEHandler) authenticateContext(r *http.Request) (*AuditContext, bool) {
 	apiKey := h.currentAPIKey()
 	if apiKey == "" {
@@ -88,15 +101,25 @@ func (h *SSEHandler) authenticateContext(r *http.Request) (*AuditContext, bool) 
 		return nil, false
 	}
 	if key := r.Header.Get("X-API-Key"); key != "" {
-		if subtle.ConstantTimeCompare([]byte(key), []byte(apiKey)) == 1 {
-			return &AuditContext{
-				Transport:  "sse",
-				AuthType:   "api_key",
-				Principal:  "dashboard_api_key",
-				RemoteAddr: r.RemoteAddr,
-			}, true
+		ip := r.RemoteAddr
+		if host, _, err := net.SplitHostPort(ip); err == nil {
+			ip = host
 		}
-		return nil, false
+		if h.authGuard != nil && !h.authGuard.AuthAllowed(ip) {
+			return nil, false
+		}
+		if subtle.ConstantTimeCompare([]byte(key), []byte(apiKey)) != 1 {
+			if h.authGuard != nil {
+				h.authGuard.AuthFailed(ip)
+			}
+			return nil, false
+		}
+		return &AuditContext{
+			Transport:  "sse",
+			AuthType:   "api_key",
+			Principal:  "dashboard_api_key",
+			RemoteAddr: r.RemoteAddr,
+		}, true
 	}
 	if key := r.URL.Query().Get("api_key"); key != "" {
 		h.log.Warn("MCP API key passed via query parameter — rejected, use X-API-Key header", "remote_addr", r.RemoteAddr)

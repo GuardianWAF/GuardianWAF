@@ -4,8 +4,8 @@ Thank you for your interest in contributing! This guide covers the development w
 
 ## Prerequisites
 
-- **Go 1.25+** — Backend runtime
-- **Node.js 20+** — Dashboard build toolchain
+- **Go 1.26.10+** — Backend runtime
+- **Node.js 22.22.2+ (22.x), 24.15.0+ (24.x), or 26+** — Dashboard build toolchain
 - **npm** — Frontend package manager
 - **golangci-lint** — Go linter (optional, for `make lint`)
 - **Docker** — For integration tests (`make docker-test`)
@@ -35,7 +35,7 @@ git checkout -b feature/your-feature
 
 Follow the architecture conventions documented in `CLAUDE.md`. Key points:
 
-- **Zero external Go dependencies** — only stdlib (+ quic-go for HTTP/3)
+- **Zero external Go dependencies** — only stdlib
 - Use `any` instead of `interface{}`
 - Use built-in `min`/`max`, `range N`, `slices.Contains`
 - Pipeline layers implement `Name() + Process(ctx *RequestContext) LayerResult`
@@ -96,7 +96,7 @@ internal/config/          YAML config parser, structs, validation
 internal/layers/          WAF detection layers (SQLi, XSS, LFI, etc.)
 internal/proxy/           Reverse proxy, load balancer, health checks
 internal/dashboard/       React dashboard + Go REST API + SSE
-  ui/                     React 19 + Vite 6 + Tailwind CSS 4
+  ui/                     React 19 + Vite 8 + Tailwind CSS 4
 internal/events/          Event storage (ring buffer, JSONL, event bus)
 internal/tenant/          Multi-tenant isolation and management
 internal/ai/              AI threat analysis
@@ -108,10 +108,10 @@ internal/mcp/             MCP JSON-RPC server
 ### Tech Stack
 
 - React 19 + TypeScript
-- Vite 6 (build tool)
+- Vite 8 (build tool)
 - Tailwind CSS 4 (styling)
 - Vitest 4 + React Testing Library 16 (testing)
-- ESLint 9 (linting)
+- ESLint 10 (linting)
 - Lucide React (icons)
 
 ### Directory Layout
@@ -173,7 +173,7 @@ For hooks, use `renderHook` from `@testing-library/react` with appropriate mocki
 cd internal/dashboard/ui && npm run lint
 ```
 
-Uses ESLint 9 with typescript-eslint, react-hooks, and react-refresh plugins.
+Uses ESLint 10 with typescript-eslint, react-hooks, and react-refresh plugins.
 
 ## Code Style
 

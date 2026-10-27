@@ -65,6 +65,11 @@ type PipelineLayerInfo struct {
 type ChallengeChecker interface {
 	HasValidCookie(r *http.Request, clientIP net.IP) bool
 	ServeChallengePage(w http.ResponseWriter, r *http.Request)
+	// ServeChallengeVerify handles a request addressed to the challenge
+	// verification endpoint. It reports whether the request was addressed
+	// to that endpoint and has therefore been handled. The service owns the
+	// endpoint path, so the engine does not have to know it.
+	ServeChallengeVerify(w http.ResponseWriter, r *http.Request) bool
 }
 
 // AccessLogFunc is called for every request with structured access log data.

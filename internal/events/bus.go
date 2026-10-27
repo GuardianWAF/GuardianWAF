@@ -44,16 +44,23 @@ func NewEventBusWithMaxSubscribers(maxSubscribers int) *EventBus {
 
 // Subscribe registers a channel to receive events.
 func (eb *EventBus) Subscribe(ch chan<- engine.Event) {
+	eb.TrySubscribe(ch)
+}
+
+// TrySubscribe registers a channel and reports whether it was admitted.
+// An already-registered channel counts as admitted. Rejected channels remain
+// owned by the caller and are not closed by the bus.
+func (eb *EventBus) TrySubscribe(ch chan<- engine.Event) bool {
 	eb.mu.Lock()
 	defer eb.mu.Unlock()
 
 	if eb.closed {
 		eb.rejectedSubscriptions.Add(1)
-		return
+		return false
 	}
 	for _, sub := range eb.subscribers {
 		if sub == ch {
-			return
+			return true
 		}
 	}
 	if eb.maxSubscribers < 1 {
@@ -61,9 +68,10 @@ func (eb *EventBus) Subscribe(ch chan<- engine.Event) {
 	}
 	if len(eb.subscribers) >= eb.maxSubscribers {
 		eb.rejectedSubscriptions.Add(1)
-		return
+		return false
 	}
 	eb.subscribers = append(eb.subscribers, ch)
+	return true
 }
 
 // Unsubscribe removes a channel from the subscriber list.
@@ -96,7 +104,7 @@ func (eb *EventBus) Publish(event engine.Event) {
 	eb.publishedTotal.Add(1)
 	for _, ch := range eb.subscribers {
 		select {
-		case ch <- event:
+		case ch <- cloneEvent(event):
 		default:
 			// Skip slow subscribers to avoid blocking
 			eb.droppedTotal.Add(1)

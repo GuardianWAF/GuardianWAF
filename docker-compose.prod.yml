@@ -1,6 +1,7 @@
 # GuardianWAF Docker Compose - Production
 # Uses TLS-based Docker client (no socket mount)
 # Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# First configure .env from .env.example with your origin and stable keys.
 
 services:
   # The example backends in docker-compose.yml exist only for local testing and
@@ -18,7 +19,7 @@ services:
 
   guardianwaf:
     volumes:
-      - ./guardianwaf.yaml:/etc/guardianwaf/guardianwaf.yaml:ro
+      - ./guardianwaf.production.yaml:/etc/guardianwaf/guardianwaf.yaml:ro
       - guardianwaf-data:/var/lib/guardianwaf
       - guardianwaf-logs:/var/log/guardianwaf
       # Socket removed — use TLS-based Docker client for production.
@@ -33,5 +34,9 @@ services:
       - GWAF_MODE=enforce
       - GWAF_LOGGING_LEVEL=info
       - GWAF_LOGGING_FORMAT=json
+      - GWAF_UPSTREAM_URL=${GWAF_UPSTREAM_URL:?Set GWAF_UPSTREAM_URL to your application origin URL}
+      - GWAF_DASHBOARD_API_KEY=${GWAF_DASHBOARD_API_KEY:?Set a stable GWAF_DASHBOARD_API_KEY}
+      - GWAF_DASHBOARD_ADMIN_KEY=${GWAF_DASHBOARD_ADMIN_KEY:?Set a separate stable GWAF_DASHBOARD_ADMIN_KEY}
+      - GWAF_ALLOWED_UPSTREAM_CIDRS=${GWAF_ALLOWED_UPSTREAM_CIDRS:-}
       # Remote Docker TLS is configured in guardianwaf.yaml; certificate paths
       # must point into the optional docker-cert volume mounted above.

@@ -163,9 +163,14 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 			// request is amended once the upstream status is known (see
 			// markRequestOutcome). The closure captures the IP, never ctx: the
 			// context returns to the pool before the upstream call.
-			ctx.PostResponseHook = func(success bool) {
+			//
+			// Register through AddPostResponseHook, not by assigning the field:
+			// the ATO layer (order 250) also needs the outcome, and a plain
+			// assignment here would discard its hook — a successful login would
+			// then not clear the failed-attempt counter.
+			ctx.AddPostResponseHook(func(success bool) {
 				l.markRequestOutcome(ip, success)
-			}
+			})
 
 			behaviorScore, behaviorDescs := l.behavior.Analyze(ip)
 			if behaviorScore > 0 {

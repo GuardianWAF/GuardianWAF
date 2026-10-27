@@ -72,7 +72,9 @@ func (b *SSEBroadcaster) HandleSSE(w http.ResponseWriter, r *http.Request) {
 	b.mu.Unlock()
 	defer b.removeClient(ch)
 
-	fmt.Fprintf(w, "data: {\"type\":\"connected\"}\n\n")
+	if _, err := fmt.Fprintf(w, "data: {\"type\":\"connected\"}\n\n"); err != nil {
+		return
+	}
 	flusher.Flush()
 
 	ctx := r.Context()
@@ -81,9 +83,13 @@ func (b *SSEBroadcaster) HandleSSE(w http.ResponseWriter, r *http.Request) {
 		case msg := <-ch:
 			// Split on newlines per SSE spec: each line gets its own "data:" prefix
 			for _, line := range strings.Split(msg, "\n") {
-				fmt.Fprintf(w, "data: %s\n", line)
+				if _, err := fmt.Fprintf(w, "data: %s\n", line); err != nil {
+					return
+				}
 			}
-			fmt.Fprint(w, "\n")
+			if _, err := fmt.Fprint(w, "\n"); err != nil {
+				return
+			}
 			flusher.Flush()
 		case <-ctx.Done():
 			return

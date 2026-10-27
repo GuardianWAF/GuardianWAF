@@ -130,6 +130,10 @@ type Transaction struct {
 	RequestArgs    map[string][]string
 	RequestCookies map[string]string
 
+	// Preserve the public first-value view while inspecting every transmitted
+	// cookie value, including repeated names, on the Process path.
+	requestCookieValues map[string][]string
+
 	// Response data
 	StatusCode      int
 	ResponseHeaders map[string][]string

@@ -60,6 +60,21 @@ async function addSessionCookie(page: any, sessionCookie: string): Promise<void>
 test.describe('Web UI Runtime Health', () => {
   let sessionCookie: string
 
+  test.beforeEach(async ({ context }) => {
+    // Rendering and console checks must not depend on the live models.dev
+    // catalogue. Its real API success/degraded contract is covered in
+    // 08-ai-config.spec.ts.
+    // Scope the fixture to this one external-data endpoint; all other UI/API
+    // calls and every browser console error remain observable.
+    await context.route('**/api/v1/ai/providers', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ providers: [], count: 0 }),
+      })
+    })
+  })
+
   test.beforeAll(async ({ request }) => {
     sessionCookie = await getSessionCookie(request)
     expect(sessionCookie).toContain('gwaf_session=')
@@ -87,6 +102,29 @@ test.describe('Web UI Runtime Health', () => {
       expect(errors).toEqual([])
     })
   }
+
+  test('configuration separates live controls from restart-only settings', async ({ page, request }) => {
+    await addSessionCookie(page, sessionCookie)
+    await page.goto(`${BASE_URL}/config`, { waitUntil: 'domcontentloaded' })
+    await expect(page.getByRole('group', { name: 'WAF Mode', exact: true }).getByRole('combobox')).toBeEnabled()
+    await expect(page.getByRole('group', { name: 'Block Threshold', exact: true }).getByRole('spinbutton')).toBeEnabled()
+    await expect(page.getByRole('switch', { name: 'SQL Injection', exact: true })).toBeDisabled()
+    await page.getByRole('button', { name: /TLS \/ SSL/ }).click()
+    await expect(page.getByRole('group', { name: 'TLS Enabled', exact: true }).getByRole('switch')).toBeDisabled()
+
+    const original = await request.get(`${BASE_URL}/api/v1/config`, {
+      headers: { 'X-API-Key': API_KEY },
+    })
+    expect(original.ok()).toBeTruthy()
+    const config = await original.json()
+    const listen = config.tls.listen === ':10443' ? ':11443' : ':10443'
+    const rejected = await request.put(`${BASE_URL}/api/v1/config`, {
+      headers: { 'X-API-Key': API_KEY, 'Origin': BASE_URL },
+      data: { tls: { listen } },
+    })
+    expect(rejected.status()).toBe(409)
+    expect((await rejected.json()).error).toMatch(/restart/i)
+  })
 
   test('responsive navigation stays usable', async ({ page }) => {
     const navigationErrors: string[] = []

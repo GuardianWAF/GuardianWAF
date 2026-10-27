@@ -436,7 +436,7 @@ func (a *virtualPatchAdapter) DisablePatchBy(id, actor string) bool {
 func (a *virtualPatchAdapter) GetStats() VirtualPatchStats {
 	stats := a.layer.GetStats()
 	return VirtualPatchStats{
-		TotalCVEs:     0,
+		TotalCVEs:     stats.TotalCVEs,
 		TotalPatches:  stats.TotalPatches,
 		ActivePatches: stats.ActivePatches,
 		BySeverity:    stats.BySeverity,

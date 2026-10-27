@@ -8,6 +8,7 @@ import (
 	"crypto/sha1"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/asn1"
 	"fmt"
 	"io"
@@ -317,11 +318,10 @@ func buildOCSPRequest(issuer, leaf *x509.Certificate) ([]byte, error) {
 
 // certIDData holds the fields needed to build an OCSP CertID.
 type certIDData struct {
-	HashAlgorithm           asn1.ObjectIdentifier
-	HashAlgorithmParameters asn1.RawValue `asn1:"optional"`
-	IssuerNameHash          []byte
-	IssuerKeyHash           []byte
-	SerialNumber            *big.Int
+	HashAlgorithm  pkix.AlgorithmIdentifier // RFC 6960 requires a nested SEQUENCE.
+	IssuerNameHash []byte
+	IssuerKeyHash  []byte
+	SerialNumber   *big.Int
 }
 
 func buildCertID(issuer, leaf *x509.Certificate) (*certIDData, error) {
@@ -331,20 +331,34 @@ func buildCertID(issuer, leaf *x509.Certificate) (*certIDData, error) {
 	h.Write(issuer.RawSubject)
 	issuerNameHash := h.Sum(nil)
 
-	// SHA-1 hash of issuer's public key DER value
+	// RFC 6960 hashes the subjectPublicKey bits, not the enclosing SPKI
+	// SEQUENCE (which also includes the algorithm identifier).
+	var publicKeyInfo struct {
+		Algorithm pkix.AlgorithmIdentifier
+		PublicKey asn1.BitString
+	}
+	rest, err := asn1.Unmarshal(issuer.RawSubjectPublicKeyInfo, &publicKeyInfo)
+	if err != nil {
+		return nil, fmt.Errorf("parsing issuer public key: %w", err)
+	}
+	if len(rest) != 0 {
+		return nil, fmt.Errorf("trailing data in issuer public key")
+	}
 	h.Reset()
-	h.Write(issuer.RawSubjectPublicKeyInfo)
+	h.Write(publicKeyInfo.PublicKey.RightAlign())
 	issuerKeyHash := h.Sum(nil)
 
 	// SHA-1 OID
 	sha1OID := asn1.ObjectIdentifier{1, 3, 14, 3, 2, 26}
 
 	return &certIDData{
-		HashAlgorithm:           sha1OID,
-		HashAlgorithmParameters: asn1.NullRawValue,
-		IssuerNameHash:          issuerNameHash,
-		IssuerKeyHash:           issuerKeyHash,
-		SerialNumber:            leaf.SerialNumber,
+		HashAlgorithm: pkix.AlgorithmIdentifier{
+			Algorithm:  sha1OID,
+			Parameters: asn1.NullRawValue,
+		},
+		IssuerNameHash: issuerNameHash,
+		IssuerKeyHash:  issuerKeyHash,
+		SerialNumber:   leaf.SerialNumber,
 	}, nil
 }
 
@@ -470,7 +484,7 @@ func derElements(content []byte) ([][]byte, error) {
 //
 //	BasicOCSPResponse ::= SEQUENCE { tbsResponseData ResponseData, signatureAlgorithm AlgorithmIdentifier, signature BIT STRING, certs [0] OPTIONAL }
 //	ResponseData ::= SEQUENCE { version [0] EXPLICIT INTEGER OPTIONAL, responderID ResponderID, producedAt GeneralizedTime, responses SEQUENCE OF SingleResponse, ... }
-//	SingleResponse ::= SEQUENCE { certID CertID, certStatus CertStatus, thisUpdate GeneralizedTime, nextUpdate GeneralizedTime OPTIONAL, ... }
+//	SingleResponse ::= SEQUENCE { certID CertID, certStatus CertStatus, thisUpdate GeneralizedTime, nextUpdate [0] EXPLICIT GeneralizedTime OPTIONAL, ... }
 //
 // The request carries exactly one CertID, so the first SingleResponse is its
 // answer. The walk is manual (element-by-element by tag) because the optional
@@ -552,10 +566,27 @@ func parseBasicResponseBody(body []byte, raw []byte) (*OCSPResponse, error) {
 	out.ThisUpdate = thisUpdate
 
 	if len(singleElems) > 3 {
-		if cls, _, tag, _, err := derSplit(singleElems[3]); err == nil && cls == 0 && (tag == 23 || tag == 24) {
+		cls, compound, tag, content, err := derSplit(singleElems[3])
+		if err != nil {
+			return nil, fmt.Errorf("malformed nextUpdate: %w", err)
+		}
+		if (cls == 2 && tag == 0) || (cls == 0 && (tag == 23 || tag == 24)) {
+			timeDER := singleElems[3]
+			if cls == 2 {
+				// RFC 6960 wraps nextUpdate in [0] EXPLICIT GeneralizedTime.
+				// Keep accepting the legacy untagged timestamp form as well.
+				if !compound {
+					return nil, fmt.Errorf("nextUpdate wrapper is not constructed")
+				}
+				timeDER = content
+			}
 			var nextUpdate time.Time
-			if _, err := asn1.Unmarshal(singleElems[3], &nextUpdate); err != nil {
+			rest, err := asn1.Unmarshal(timeDER, &nextUpdate)
+			if err != nil {
 				return nil, fmt.Errorf("unmarshaling nextUpdate: %w", err)
+			}
+			if len(rest) != 0 {
+				return nil, fmt.Errorf("trailing data in nextUpdate")
 			}
 			out.NextUpdate = nextUpdate
 		}
@@ -621,7 +652,12 @@ func (cs *CertStore) stapleOCSPForEntry(entry CertEntry) {
 		ocspLog.Warn("refusing to staple non-good OCSP response", "status", int(ocspResp.Status))
 		return
 	}
-	if !ocspResp.NextUpdate.IsZero() && time.Now().After(ocspResp.NextUpdate) {
+	now := time.Now()
+	if ocspResp.ThisUpdate.After(now) {
+		ocspLog.Warn("refusing to staple not-yet-valid OCSP response", "thisUpdate", ocspResp.ThisUpdate)
+		return
+	}
+	if !ocspResp.NextUpdate.IsZero() && now.After(ocspResp.NextUpdate) {
 		ocspLog.Warn("refusing to staple expired OCSP response", "nextUpdate", ocspResp.NextUpdate)
 		return
 	}
@@ -637,6 +673,10 @@ func (cs *CertStore) stapleOCSPForEntry(entry CertEntry) {
 	// Update the stored certificate with OCSP staple — only matching domains
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
+
+	if entry.isDefault {
+		cs.defaultCert = &cert
+	}
 
 	for _, domain := range entry.Domains {
 		lower := strings.ToLower(domain)

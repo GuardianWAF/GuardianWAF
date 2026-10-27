@@ -155,7 +155,8 @@ waf:
 dashboard:
   enabled: true
   # The built-in dashboard server is plain HTTP; expose it only on a trusted
-  # interface or behind a TLS-terminating reverse proxy.
+  # interface or behind a TLS-terminating reverse proxy. ":9443" suits the
+  # container (Compose maps it to 127.0.0.1); use "127.0.0.1:9443" on a host.
   listen: ":9443"
   api_key: ""
   admin_key: ""

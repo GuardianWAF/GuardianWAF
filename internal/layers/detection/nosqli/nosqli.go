@@ -182,15 +182,15 @@ func checkAuthBypass(lower, location string) []engine.Finding {
 				break
 			}
 			pos := idx + i + len(op)
-			// Skip a closing key quote (single or double) and spaces, then
+			// Skip a closing key quote (single or double) and JSON whitespace, then
 			// require ':' and a bypass-y value (null / "" / '' / true / false).
 			// Arrays/numbers are excluded so legitimate filters like
 			// {"$gt":100} do not match. Without ' in the cutset the
 			// single-quoted key form {'$ne': ''} died on the quote and the
 			// "''" value check below was unreachable for that notation.
-			rest := strings.TrimLeft(lower[pos:], "\"' ")
+			rest := strings.TrimLeft(lower[pos:], "\"' \t\r\n")
 			if strings.HasPrefix(rest, ":") {
-				val := strings.TrimLeft(rest[1:], " ")
+				val := strings.TrimLeft(rest[1:], " \t\r\n")
 				if strings.HasPrefix(val, "null") || strings.HasPrefix(val, `""`) ||
 					strings.HasPrefix(val, "''") || strings.HasPrefix(val, "true") ||
 					strings.HasPrefix(val, "false") {

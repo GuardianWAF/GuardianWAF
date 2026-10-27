@@ -57,6 +57,24 @@ func DefaultConfig(nodeID, bindAddr string) Config {
 	}
 }
 
+// normalizeTimings replaces unset or inconsistent election/heartbeat timings
+// with safe values. A zero election timeout made electionLoop start elections
+// back to back, each spawning RequestVote goroutines with a zero transport
+// timeout: an unbounded goroutine pile-up that consumed gigabytes in seconds.
+func normalizeTimings(cfg Config) Config {
+	def := DefaultConfig("", "")
+	if cfg.ElectionTimeoutMin <= 0 {
+		cfg.ElectionTimeoutMin = def.ElectionTimeoutMin
+	}
+	if cfg.ElectionTimeoutMax <= cfg.ElectionTimeoutMin {
+		cfg.ElectionTimeoutMax = 2 * cfg.ElectionTimeoutMin
+	}
+	if cfg.HeartbeatInterval <= 0 || cfg.HeartbeatInterval >= cfg.ElectionTimeoutMin {
+		cfg.HeartbeatInterval = cfg.ElectionTimeoutMin / 3
+	}
+	return cfg
+}
+
 // StateMachine applies committed log entries. Implementations must be
 // idempotent and safe for concurrent access.
 type StateMachine interface {
@@ -113,10 +131,12 @@ type Raft struct {
 
 // New creates a new Raft node with the given config.
 func New(cfg Config, sm StateMachine) (*Raft, error) {
+	cfg = normalizeTimings(cfg)
 	tr, err := NewTCPTransport(cfg.BindAddr, cfg.NodeID, cfg.ElectionTimeoutMax*2, cfg.Secret)
 	if err != nil {
 		return nil, fmt.Errorf("raft: create transport: %w", err)
 	}
+	cfg.Peers = append([]Peer(nil), cfg.Peers...)
 
 	r := &Raft{
 		config:    cfg,
@@ -143,10 +163,13 @@ func New(cfg Config, sm StateMachine) (*Raft, error) {
 	if cfg.DataDir != "" {
 		wal, err := OpenWAL(cfg.DataDir)
 		if err != nil {
+			_ = tr.Close()
 			return nil, fmt.Errorf("raft: open WAL: %w", err)
 		}
 		r.persist.SetWAL(wal)
 		if err := wal.Replay(r.persist); err != nil {
+			_ = wal.Close()
+			_ = tr.Close()
 			return nil, fmt.Errorf("raft: replay WAL: %w", err)
 		}
 	}
@@ -172,7 +195,10 @@ func (r *Raft) Start() error {
 func (r *Raft) Stop() {
 	r.stopOnce.Do(func() {
 		close(r.stopCh)
-		r.transport.Close()
+		_ = r.transport.Close()
+		if wal := r.persist.WALRef(); wal != nil {
+			_ = wal.Close()
+		}
 		close(r.doneCh)
 	})
 }
@@ -186,14 +212,14 @@ func (r *Raft) Transport() *TCPTransport {
 func (r *Raft) UpdatePeers(peers []Peer) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.config.Peers = peers
+	r.config.Peers = append([]Peer(nil), peers...)
 }
 
 // Peers returns the current peer list.
 func (r *Raft) Peers() []Peer {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.config.Peers
+	return append([]Peer(nil), r.config.Peers...)
 }
 
 // Log returns the log store (for testing/inspection).
@@ -461,6 +487,7 @@ func (r *Raft) becomeFollower(term uint64) {
 	r.role = RoleFollower
 	r.persist.SetCurrentTerm(term)
 	r.leaderState = nil
+	r.leaderID = ""
 
 	// Signal the election loop to re-check role.
 	select {

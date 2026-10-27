@@ -263,13 +263,13 @@ func (l *Layer) ScanRequest(r *http.Request) (*ScanResult, error) {
 	}
 
 	body, err := io.ReadAll(io.LimitReader(r.Body, scanLimit+1))
-	if err != nil {
-		return nil, err
-	}
-
+	// ReadAll can return both consumed bytes and an error; replay either way.
 	r.Body = &replayReadCloser{
 		Reader: io.MultiReader(bytes.NewReader(body), r.Body),
 		Closer: r.Body,
+	}
+	if err != nil {
+		return nil, err
 	}
 
 	if int64(len(body)) > scanLimit {
@@ -360,27 +360,50 @@ func (l *Layer) scanContent(content string) *ScanResult {
 
 // maskContent masks sensitive data in content.
 func (l *Layer) maskContent(content string, matches []Match) string {
-	result := content
-
-	// Substitute from the highest offset downward so earlier offsets stay
-	// valid. PatternRegistry.Scan groups matches by pattern type in map
-	// iteration order, so the slice is NOT position-sorted — the reverse
-	// loop alone did not guarantee that, and a lower-offset match with a
-	// length-changing mask shifted later offsets: the stale bounds check
-	// then silently dropped the higher match and its PII leaked unmasked.
+	// Build the output left-to-right from the ORIGINAL offsets. In-place
+	// substitution shifted later offsets whenever a mask changed length, and
+	// PatternRegistry.Scan returns matches in map order, not position order.
+	// Matches from different patterns can also overlap (an api_key value that
+	// is itself a card number): substituting both deleted or duplicated bytes
+	// outside every match. Covered matches are skipped; a partial overlap
+	// masks its uncovered tail with its own mask. On an identical span the
+	// more severe pattern's (stricter) mask wins, and the order is total so
+	// the output is deterministic.
 	sorted := make([]Match, len(matches))
 	copy(sorted, matches)
 	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i].Position > sorted[j].Position
+		a, b := sorted[i], sorted[j]
+		if a.Position != b.Position {
+			return a.Position < b.Position
+		}
+		if a.Length != b.Length {
+			return a.Length > b.Length
+		}
+		if sa, sb := severityScore(a.Severity), severityScore(b.Severity); sa != sb {
+			return sa > sb
+		}
+		if a.Type != b.Type {
+			return a.Type < b.Type
+		}
+		return a.Masked < b.Masked
 	})
 
+	var out strings.Builder
+	out.Grow(len(content))
+	cursor := 0
 	for _, m := range sorted {
-		if m.Position < len(result) && m.Position+m.Length <= len(result) {
-			result = result[:m.Position] + m.Masked + result[m.Position+m.Length:]
+		end := m.Position + m.Length
+		if m.Position < 0 || m.Length < 0 || end > len(content) || end <= cursor {
+			continue
 		}
+		if m.Position > cursor {
+			out.WriteString(content[cursor:m.Position])
+		}
+		out.WriteString(m.Masked)
+		cursor = end
 	}
-
-	return result
+	out.WriteString(content[cursor:])
+	return out.String()
 }
 
 // isScannableContent checks if the content type should be scanned.

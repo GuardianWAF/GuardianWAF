@@ -1,6 +1,9 @@
 package dashboard
 
-import "net/http"
+import (
+	"errors"
+	"net/http"
+)
 
 func (d *Dashboard) handleTenantListCompat(w http.ResponseWriter, r *http.Request) {
 	if d.getTenantManager() == nil {
@@ -45,9 +48,10 @@ func (d *Dashboard) handleTenantCreateCompat(w http.ResponseWriter, r *http.Requ
 	}
 	tenant, err := d.getTenantManager().CreateTenant(req.Name, req.Description, req.Domains, req.Quota)
 	if err != nil {
-		writeError(w, http.StatusConflict, sanitizeErr(err))
+		writeError(w, tenantMutationStatus(err, http.StatusConflict), sanitizeErr(err))
 		return
 	}
+	d.syncTenantAPIKeys(d.getTenantManager())
 	writeJSON(w, http.StatusCreated, map[string]any{"tenant": sanitizeTenantResponse(tenant)})
 }
 
@@ -68,9 +72,15 @@ func (d *Dashboard) handleTenantUpdateCompat(w http.ResponseWriter, r *http.Requ
 	if !limitedDecodeJSON(w, r, &update) {
 		return
 	}
+	for _, field := range []string{"auto_rotation", "rotation_interval"} {
+		if _, ok := update[field]; ok {
+			writeError(w, http.StatusBadRequest, "unsupported field: "+field)
+			return
+		}
+	}
 	id := r.PathValue("id")
 	if err := d.getTenantManager().UpdateTenant(id, update); err != nil {
-		writeError(w, http.StatusNotFound, sanitizeErr(err))
+		writeError(w, tenantMutationStatus(err, http.StatusNotFound), sanitizeErr(err))
 		return
 	}
 	writeJSON(w, http.StatusOK, sanitizeTenantResponse(d.getTenantManager().GetTenant(id)))
@@ -82,9 +92,10 @@ func (d *Dashboard) handleTenantDeleteCompat(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if err := d.getTenantManager().DeleteTenant(r.PathValue("id")); err != nil {
-		writeError(w, http.StatusNotFound, sanitizeErr(err))
+		writeError(w, tenantMutationStatus(err, http.StatusNotFound), sanitizeErr(err))
 		return
 	}
+	d.syncTenantAPIKeys(d.getTenantManager())
 	writeJSON(w, http.StatusNoContent, nil)
 }
 
@@ -113,7 +124,7 @@ func (d *Dashboard) handleTenantConfigUpdateCompat(w http.ResponseWriter, r *htt
 	}
 	id := r.PathValue("id")
 	if err := d.getTenantManager().UpdateTenant(id, map[string]any{"waf_config": cfg}); err != nil {
-		writeError(w, http.StatusNotFound, sanitizeErr(err))
+		writeError(w, tenantMutationStatus(err, http.StatusNotFound), sanitizeErr(err))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
@@ -160,9 +171,10 @@ func (d *Dashboard) handleTenantAPIKeyCompat(w http.ResponseWriter, r *http.Requ
 	}
 	apiKey, err := d.getTenantManager().RegenerateAPIKey(r.PathValue("id"))
 	if err != nil {
-		writeError(w, http.StatusNotFound, sanitizeErr(err))
+		writeError(w, tenantMutationStatus(err, http.StatusNotFound), sanitizeErr(err))
 		return
 	}
+	d.syncTenantAPIKeys(d.getTenantManager())
 	writeJSON(w, http.StatusOK, map[string]any{"api_key": apiKey})
 }
 
@@ -184,4 +196,17 @@ func writeTenantDisabled(w http.ResponseWriter) {
 		"error":   "multi-tenant mode not enabled",
 		"enabled": false,
 	})
+}
+
+// tenantMutationStatus keeps validation and storage failures distinct from a
+// missing resource without coupling the dashboard to a concrete manager type.
+func tenantMutationStatus(err error, fallback int) int {
+	var status interface{ HTTPStatusCode() int }
+	if errors.As(err, &status) {
+		code := status.HTTPStatusCode()
+		if code == http.StatusBadRequest || code == http.StatusInternalServerError {
+			return code
+		}
+	}
+	return fallback
 }

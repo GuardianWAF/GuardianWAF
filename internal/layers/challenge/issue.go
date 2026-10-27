@@ -62,6 +62,10 @@ func (rs *redeemedSet) redeem(id string, now, expiry int64) bool {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
 
+	if now >= expiry {
+		return false
+	}
+
 	if exp, ok := rs.spent[id]; ok && exp > now {
 		return false
 	}
@@ -132,7 +136,7 @@ func (s *Service) verifyChallengeToken(token, clientIP string) (id string, expir
 
 	now := timeNow().Unix()
 	expiry = issuedAt + int64(challengeTTL.Seconds())
-	if now > expiry {
+	if now >= expiry {
 		return "", 0, fmt.Errorf("challenge expired")
 	}
 	// Reject tokens stamped in the future beyond trivial clock jitter.

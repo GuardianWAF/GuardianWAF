@@ -65,7 +65,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: ['1.26.6']
+        go-version: ['1.26.10']
       fail-fast: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -108,7 +108,7 @@ jobs:
           go build -tags http3 -o guardianwaf-http3 ./cmd/guardianwaf
 
       - name: Upload coverage
-        if: matrix.go-version == '1.26.6'
+        if: matrix.go-version == '1.26.10'
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           files: ./coverage.txt
@@ -199,7 +199,7 @@ jobs:
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           # v2.12 is built with go1.26; older v2.2 (go1.24) refuses to analyze a
-          # go1.26.6 module ("build Go version lower than targeted").
+          # go1.26.10 module ("build Go version lower than targeted").
           version: v2.12
 
   deadcode:
@@ -255,15 +255,8 @@ jobs:
       - name: Check build prerequisites
         run: ./scripts/check-prereqs.sh
 
-      - name: gofmt check (gofmt -s -l . must be empty)
-        run: |
-          out="$(gofmt -s -l .)"
-          if [ -n "$out" ]; then
-            echo "::error::gofmt check failed — the following files need reformatting (run 'make fmt'):"
-            echo "$out"
-            exit 1
-          fi
-          echo "gofmt check passed."
+      - name: Check Go source formatting
+        run: ./scripts/check-gofmt.sh
 
   docker-compose-integration:
     runs-on: ubuntu-latest
@@ -447,7 +440,7 @@ jobs:
 
       - name: Run benchmarks
         run: |
-          go test -bench=. -benchmem -run=^$ -count=3 ./... 2>&1 | tee benchmark-new.txt
+          go test -bench=. -benchmem -run=^$ -count=6 -benchtime=200ms ./... 2>&1 | tee benchmark-new.txt
 
       - name: Compare with base branch
         if: github.event_name == 'pull_request'
@@ -456,18 +449,16 @@ jobs:
         run: |
           git stash
           git checkout "origin/${BASE_REF}"
-          go test -bench=. -benchmem -run=^$ -count=3 ./... 2>&1 | tee benchmark-base.txt || true
+          go test -bench=. -benchmem -run=^$ -count=6 -benchtime=200ms ./... 2>&1 | tee benchmark-base.txt || true
           git checkout -
           git stash pop || true
           if [ -f benchmark-base.txt ] && [ -s benchmark-base.txt ]; then
             go install golang.org/x/perf/cmd/benchstat@v0.0.0-20260610192853-712aea8b4705
             benchstat benchmark-base.txt benchmark-new.txt > benchstat-output.txt 2>&1 || true
             cat benchstat-output.txt
-            # Fail if any benchmark shows a >=10% regression. benchstat prints a
-            # "+N%" delta in the "vs base" column for a slowdown (and "~" for no
-            # significant change); match a positive delta whose integer part is
-            # two or more digits (>=10%).
-            if grep -qE '\+[1-9][0-9]+(\.[0-9]+)?%' benchstat-output.txt; then
+            # Fail on a statistically significant >=10% regression (higher
+            # cost, or lower B/s throughput); see the script for the rules.
+            if ! ./scripts/bench-regressions.sh benchstat-output.txt; then
               echo "::error::Benchmark regression detected (>=10% slowdown)"
               exit 1
             fi
@@ -625,7 +616,7 @@ jobs:
           --severity HIGH,CRITICAL \
           --exit-code 1 \
           --no-progress \
-          golang:1.26.6-alpine
+          golang:1.26.10-alpine
     - name: Scan Dockerfile and manifests for misconfigs
       run: |
         # Gate on HIGH,CRITICAL — same threshold as the base-image scan above.

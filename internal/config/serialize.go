@@ -74,7 +74,13 @@ func marshalStruct(b *strings.Builder, v reflect.Value, t reflect.Type, indent i
 			continue
 		}
 
-		marshalField(b, prefix, tag, fv, indent)
+		if fv.Type() == reflect.TypeOf(time.Duration(0)) {
+			// Full config saves retain explicit zero durations as overrides.
+			b.WriteString(prefix)
+			marshalInlineField(b, tag, fv, indent)
+		} else {
+			marshalField(b, prefix, tag, fv, indent)
+		}
 	}
 }
 
@@ -345,10 +351,10 @@ func marshalMap(b *strings.Builder, fv reflect.Value, indent int) {
 	}
 }
 
-// False overrides a true default on reload, so retain booleans and their
-// containing sections even when every field has its zero value.
+// Zero scalars override defaults on reload, so retain booleans, numbers and
+// their containing sections even when every field has its zero value.
 func omitYAMLValue(v reflect.Value) bool {
-	if v.Kind() == reflect.Bool {
+	if v.Kind() == reflect.Bool || v.Kind() == reflect.Int || v.Kind() == reflect.Int64 || v.Kind() == reflect.Float64 {
 		return false
 	}
 	if v.Kind() == reflect.Struct {

@@ -98,7 +98,12 @@ func New(cfg Config) (*Gossip, error) {
 	if err != nil {
 		return nil, err
 	}
-	return NewWithTransport(cfg, tr)
+	g, err := NewWithTransport(cfg, tr)
+	if err != nil {
+		_ = tr.Close()
+		return nil, err
+	}
+	return g, nil
 }
 
 // NewWithTransport creates a Gossip with a custom Transport (for testing).
@@ -220,11 +225,13 @@ func (g *Gossip) UpdateMember(m Member) {
 	prev, existed := g.members.Get(m.ID)
 	wasNew := !existed
 	g.members.Add(m)
-	g.enqueuePiggyback(m)
 
 	// Transition-based callbacks — see applyPiggyback.
 	cur, _ := g.members.Get(m.ID)
 	applied := wasNew || cur.Incarnation != prev.Incarnation || cur.State != prev.State
+	if applied {
+		g.enqueuePiggyback(cur)
+	}
 	if g.onJoin != nil && applied && m.State == StateAlive && (wasNew || prev.State != StateAlive) {
 		g.onJoin(m.ID, m.Addr)
 	}
@@ -243,15 +250,17 @@ func (g *Gossip) PurgeDead() {
 // then disseminates the state to peers.
 func (g *Gossip) Leave() {
 	inc := g.incarnation.Add(1)
-	g.members.MarkDead(g.config.NodeID)
-	g.enqueuePiggyback(Member{
+	m := Member{
 		ID:            g.config.NodeID,
 		Addr:          g.transport.LocalAddr(),
 		RaftAddr:      g.config.RaftAddr,
 		DashboardAddr: g.config.DashboardAddr,
+		Tags:          g.LocalMember().Tags,
 		Incarnation:   inc,
 		State:         StateDead,
-	})
+	}
+	g.members.Add(m)
+	g.enqueuePiggyback(m)
 }
 
 // Join attempts to contact known peers and exchange state.

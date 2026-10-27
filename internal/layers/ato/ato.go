@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
+	"github.com/guardianwaf/guardianwaf/internal/layers/sanitizer"
 )
 
 // Config holds the configuration for the ATO Protection layer.
@@ -114,8 +115,22 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
-	// Only check login paths
-	if !l.isLoginPath(ctx.Path) {
+	// Only check login paths. The regex is matched against the raw wire path
+	// AND against the canonical path — the one the upstream actually resolves.
+	// ctx.Path is r.URL.Path: net/url resolves percent-escapes but never
+	// dot-segments, so "/x/../login" and "//login" reach the backend as
+	// "/login" (the reverse proxy cleans the path before forwarding it,
+	// internal/proxy/router.go:101,108), while the raw-path regex does not
+	// match them. The alternate spelling therefore reached the real login
+	// endpoint with every ATO protection — brute force, credential stuffing,
+	// password spray, impossible travel — skipped.
+	//
+	// The canonical value cannot simply be read from ctx.NormalizedPath: this
+	// layer runs at engine.OrderATO (250) and the sanitizer that populates
+	// that field runs at engine.OrderSanitizer (300), so on every live
+	// request it is still empty here. Canonicalize on demand, preferring the
+	// field when a caller has already populated it.
+	if !l.isLoginPath(ctx.Path) && !l.isLoginPath(l.canonicalPath(ctx)) {
 		return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 	}
 
@@ -182,13 +197,13 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	// Record the attempt.
 	//
 	// Password MUST be carried here: checkPasswordSpray above reads the
-	// tracker's passwordHashes map (via GetPasswordUsesInWindow /
-	// GetPasswordUseCount), and that map is only ever written by
-	// RecordAttempt when LoginAttempt.Password is non-empty. Omitting it
-	// left the map permanently empty, so the windowed count was always 0 and
-	// password_spray.enabled could never reach its configured threshold —
-	// the detector was dead in serve mode regardless of operator config.
-	// The plaintext is not stored: tracker hashes it (sha256) on arrival.
+	// tracker's passwordHashes map (via GetPasswordAccountCount), and that
+	// map is only ever written by RecordAttempt when LoginAttempt.Password
+	// is non-empty. Omitting it left the map permanently empty, so the
+	// windowed count was always 0 and password_spray.enabled could never
+	// reach its configured threshold — the detector was dead in serve mode
+	// regardless of operator config. The plaintext is not stored: tracker
+	// hashes it (sha256) on arrival.
 	password := l.extractPassword(ctx.BodyString)
 	l.tracker.RecordAttempt(&LoginAttempt{
 		IP:       ctx.ClientIP,
@@ -203,12 +218,17 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 	// and record the travel state (see recordLoginSuccess). The closure captures
 	// the values it needs, never ctx: the context returns to the pool before the
 	// upstream call and would otherwise retain the request body.
+	//
+	// Register through AddPostResponseHook, not by assigning the field: bot
+	// detection (order 500) also needs the outcome, and a plain assignment here
+	// would be overwritten by it — the ATO hook would then never run and a
+	// successful login would not clear the failed-attempt counter.
 	loginIP, loginEmail := ctx.ClientIP, email
-	ctx.PostResponseHook = func(success bool) {
+	ctx.AddPostResponseHook(func(success bool) {
 		if success {
 			l.recordLoginSuccess(loginIP, loginEmail)
 		}
-	}
+	})
 
 	return engine.LayerResult{Action: engine.ActionPass, Duration: time.Since(start)}
 }
@@ -249,6 +269,22 @@ func (l *Layer) isLoginPath(path string) bool {
 	return false
 }
 
+// canonicalPath returns the path the upstream actually resolves, for the
+// login-path match. ctx.Path is r.URL.Path: net/url decodes percent-escapes
+// but never resolves dot-segments, so "/login" and "/x/../login" reach the
+// backend as the same route. The canonical value is computed ON DEMAND rather
+// than read from ctx.NormalizedPath alone: the sanitizer that populates that
+// field runs at order 300, AFTER this layer's order 250, so in the real
+// pipeline it is still empty here. When it IS populated — a caller that ran
+// the sanitizer first, a tenant/direct-construction path, or a future ordering
+// change — that value is used directly.
+func (l *Layer) canonicalPath(ctx *engine.RequestContext) string {
+	if ctx.NormalizedPath != "" {
+		return ctx.NormalizedPath
+	}
+	return sanitizer.NormalizeAll(ctx.Path)
+}
+
 func (l *Layer) checkBruteForce(ctx *engine.RequestContext, email string) engine.LayerResult {
 	cfg := l.config.BruteForce
 
@@ -256,7 +292,9 @@ func (l *Layer) checkBruteForce(ctx *engine.RequestContext, email string) engine
 	ipAttempts := l.tracker.GetIPAttempts(ctx.ClientIP, cfg.Window)
 	if ipAttempts >= cfg.MaxAttemptsPerIP {
 		// Block the IP
-		l.tracker.BlockIP(ctx.ClientIP, time.Now().Add(cfg.BlockDuration), "brute_force")
+		if !ctx.ObserveOnly {
+			l.tracker.BlockIP(ctx.ClientIP, time.Now().Add(cfg.BlockDuration), "brute_force")
+		}
 		return l.blockResult(ctx, "brute_force", "too many attempts from IP", 80)
 	}
 
@@ -264,7 +302,9 @@ func (l *Layer) checkBruteForce(ctx *engine.RequestContext, email string) engine
 	emailAttempts := l.tracker.GetEmailAttempts(email, cfg.Window)
 	if emailAttempts >= cfg.MaxAttemptsPerEmail {
 		// Block the email
-		l.tracker.BlockEmail(email, time.Now().Add(cfg.BlockDuration), "brute_force")
+		if !ctx.ObserveOnly {
+			l.tracker.BlockEmail(email, time.Now().Add(cfg.BlockDuration), "brute_force")
+		}
 		return l.blockResult(ctx, "brute_force", "too many attempts for email", 80)
 	}
 
@@ -284,7 +324,9 @@ func (l *Layer) checkCredentialStuffing(ctx *engine.RequestContext, email string
 	uniqueIPs := l.tracker.GetUniqueIPsForEmail(email, cfg.Window)
 	if uniqueIPs >= cfg.DistributedThreshold {
 		// Block the email
-		l.tracker.BlockEmail(email, time.Now().Add(cfg.BlockDuration), "credential_stuffing")
+		if !ctx.ObserveOnly {
+			l.tracker.BlockEmail(email, time.Now().Add(cfg.BlockDuration), "credential_stuffing")
+		}
 		return l.blockResult(ctx, "credential_stuffing", "distributed attack detected", 85)
 	}
 
@@ -294,20 +336,21 @@ func (l *Layer) checkCredentialStuffing(ctx *engine.RequestContext, email string
 func (l *Layer) checkPasswordSpray(ctx *engine.RequestContext, password string) engine.LayerResult {
 	cfg := l.config.PasswordSpray
 
-	// Count only the uses inside the operator's spray window. The previous
-	// check compared the ALL-TIME Count, so a password whose count crossed
-	// the threshold at any point in the past kept blocking every later
-	// source IP that submitted it — and the configured Window was silently
-	// ignored. An unset window (<= 0) keeps the legacy all-time behavior.
-	var useCount int
-	if cfg.Window > 0 {
-		useCount = l.tracker.GetPasswordUsesInWindow(password, cfg.Window)
-	} else {
-		useCount = l.tracker.GetPasswordUseCount(password)
-	}
-	if useCount >= cfg.Threshold {
+	// Count the distinct ACCOUNTS that used this password inside the
+	// operator's spray window, not the raw number of submissions. ADR 0030
+	// defines a spray as "the same password hash seen against threshold+
+	// different accounts" — the account is the unit of the detection. The
+	// previous check counted USES, so one account submitting the same
+	// password repeatedly (a user fumbling their own password) tripped the
+	// threshold and their IP was blocked with a "common password attack"
+	// verdict, although no second account was ever targeted. The configured
+	// Window is honoured here exactly as it was for the use count.
+	accountCount := l.tracker.GetPasswordAccountCount(password, cfg.Window)
+	if accountCount >= cfg.Threshold {
 		// Block the IP
-		l.tracker.BlockIP(ctx.ClientIP, time.Now().Add(cfg.BlockDuration), "password_spray")
+		if !ctx.ObserveOnly {
+			l.tracker.BlockIP(ctx.ClientIP, time.Now().Add(cfg.BlockDuration), "password_spray")
+		}
 		return l.blockResult(ctx, "password_spray", "common password attack", 75)
 	}
 
@@ -351,7 +394,9 @@ func (l *Layer) checkImpossibleTravel(ctx *engine.RequestContext, email string) 
 		speed := distance / timeDiff // km/h
 		// If speed > 1000 km/h (roughly speed of sound), it's impossible
 		if speed > 1000 && distance > cfg.MaxDistanceKm {
-			l.tracker.BlockIP(ctx.ClientIP, time.Now().Add(cfg.BlockDuration), "impossible_travel")
+			if !ctx.ObserveOnly {
+				l.tracker.BlockIP(ctx.ClientIP, time.Now().Add(cfg.BlockDuration), "impossible_travel")
+			}
 			return l.blockResult(ctx, "impossible_travel",
 				fmt.Sprintf("travel of %.0f km in %.1f hours is impossible", distance, timeDiff), 90)
 		}

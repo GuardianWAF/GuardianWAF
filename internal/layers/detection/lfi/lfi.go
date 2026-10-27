@@ -3,6 +3,7 @@ package lfi
 import (
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/layers/sanitizer"
@@ -172,9 +173,12 @@ func Detect(input, location string) []engine.Finding {
 
 // makeFinding creates a Finding with standard LFI fields.
 func makeFinding(score int, severity engine.Severity, desc, matched, location string, confidence float64) engine.Finding {
-	if len(matched) > 200 {
-		matched = matched[:197] + "..."
-	}
+	// TruncateEvidence is the shared, rune-safe evidence truncation: the cut
+	// never splits a multi-byte UTF-8 rune. Every current caller passes an
+	// extractContext window (already capped at 200 bytes), so this is a
+	// behaviour-preserving change that removes the raw byte slice at
+	// matched[:197] should a future caller pass a longer value.
+	matched = engine.TruncateEvidence(matched, 200)
 	return engine.Finding{
 		DetectorName: "lfi",
 		Category:     "lfi",
@@ -371,6 +375,15 @@ func checkBypassPatterns(lower, location string) []engine.Finding {
 }
 
 // extractContext extracts a context window around the matched pattern.
+//
+// The window edges are rune-safe: multi-byte UTF-8 runes are never split, so
+// MatchedValue stays valid UTF-8 (mirrors the landed xxe fix and the ssrf /
+// cmdi siblings). The truncation points were already rune-safe (safeTruncate),
+// but the two window edges (idx-20 and idx+len(pattern)+20) were byte-aligned:
+// a multi-byte rune straddling an edge was cut in half. Every LFI finding
+// passes this window straight through as its matched value, so the split rune
+// reached the event stream, where encoding/json silently rewrote it to U+FFFD
+// — corrupted evidence in the stored event.
 func extractContext(input, pattern string) string {
 	idx := strings.Index(input, pattern)
 	if idx < 0 {
@@ -381,6 +394,14 @@ func extractContext(input, pattern string) string {
 	}
 	start := max(idx-20, 0)
 	end := min(idx+len(pattern)+20, len(input))
+	// Align the window edges onto rune starts so multi-byte runes at the
+	// edges are never split mid-sequence.
+	for start < end && !utf8.RuneStart(input[start]) {
+		start++
+	}
+	for end > start && end < len(input) && !utf8.RuneStart(input[end]) {
+		end--
+	}
 	result := input[start:end]
 	if len(result) > 200 {
 		return safeTruncate(result, 197) + "..."

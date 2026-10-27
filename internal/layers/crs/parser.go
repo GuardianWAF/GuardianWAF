@@ -21,6 +21,12 @@ func NewParser() *Parser {
 
 // ParseFile parses a CRS rule file and returns the extracted rules.
 func (p *Parser) ParseFile(content string) ([]*Rule, error) {
+	// Each call returns only THIS file's rules. The layer reuses one Parser
+	// for every .conf in a rule directory; accumulating into p.rules across
+	// calls re-returned files 1..N-1 on file N's load, and loadRuleFile
+	// appended them again — duplicated rules, double-counted anomaly scores
+	// and duplicate findings (F185).
+	p.rules = []*Rule{}
 	lines := strings.Split(content, "\n")
 	var pendingChainRule *Rule
 

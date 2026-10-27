@@ -1266,6 +1266,7 @@ func populateAPIValidation(av *APIValidationConfig, n *Node) error {
 			var s SchemaSourceConfig
 			nodeStringField(child, "path", &s.Path)
 			nodeStringField(child, "type", &s.Type)
+			nodeStringField(child, "name", &s.Name)
 			fe.boolField(child, "auto_learn", "", &s.AutoLearn)
 			av.Schemas = append(av.Schemas, s)
 		}

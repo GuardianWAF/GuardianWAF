@@ -8,7 +8,7 @@
 #   guardianwaf-0.guardianwaf-cluster.default.svc.cluster.local:7947
 #
 # The ConfigMap at cluster-configmap.yaml references these DNS names as
-# seed peers. Gossip discovers additional peers automatically.
+# the complete fixed voting set; gossip tracks liveness only.
 #
 # Apply (ConfigMap first, then StatefulSet):
 #   kubectl apply -f contrib/k8s/cluster-configmap.yaml
@@ -30,6 +30,7 @@ metadata:
     app: guardianwaf
     component: cluster
 spec:
+  publishNotReadyAddresses: true
   clusterIP: None  # headless
   selector:
     app: guardianwaf
@@ -61,6 +62,7 @@ metadata:
   labels:
     app: guardianwaf
 spec:
+  podManagementPolicy: Parallel
   serviceName: guardianwaf-cluster  # must match the headless Service name
   replicas: 3
   selector:
@@ -112,6 +114,10 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
             - name: GWAF_DASHBOARD_API_KEY
               valueFrom:
                 secretKeyRef:

@@ -130,7 +130,7 @@ func TestAuthorizationPollingErrorPaths(t *testing.T) {
 		body io.Reader
 		want string
 	}{
-		{name: "read", body: failingReader{}, want: "failed to decode authorization response"},
+		{name: "read", body: failingReader{}, want: "failed to read authorization response"},
 		{name: "decode", body: strings.NewReader("not json"), want: "failed to decode authorization response"},
 	}
 	for _, tt := range tests {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/flate"
 	"compress/gzip"
+	"compress/zlib"
 	"crypto/rand"
 	"encoding/hex"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -37,6 +39,89 @@ var (
 type replayReadCloser struct {
 	io.Reader
 	io.Closer
+}
+
+// maxStackedContentEncodings bounds how many request content-codings are
+// unwrapped for inspection; deeper stacks are treated as uninspectable.
+const maxStackedContentEncodings = 3
+
+// Decoded request bodies may expand to at most maxDecodeRatio times their
+// wire size (but always to decodeFloorBytes, and never past the inspection
+// budget). Inspection costs CPU per decoded byte, so without this a few KiB
+// of gzip would buy megabytes of detector work. Bodies that expand further
+// are blocked as over budget, never forwarded uninspected.
+const (
+	maxDecodeRatio   = 100
+	decodeFloorBytes = 256 << 10
+)
+
+// decodedBodyLimit returns the decoded-size budget for a compressed body.
+func decodedBodyLimit(wireSize int, inspectLimit int64) int64 {
+	return min(inspectLimit, max(int64(wireSize)*maxDecodeRatio, decodeFloorBytes))
+}
+
+// decodeRequestBody reverses the request content-codings (listed in the order
+// they were applied) so detectors inspect what the backend will see. Output
+// is capped at the decoded budget plus one byte per stage; exceeded reports a
+// body over that budget. A non-empty reason means the body could not be
+// decoded and must not be forwarded on raw-byte inspection.
+func decodeRequestBody(raw []byte, headerValues []string, inspectLimit int64) (data []byte, exceeded bool, reason string) {
+	var codings []string
+	for _, v := range headerValues {
+		for c := range strings.SplitSeq(v, ",") {
+			if c = strings.ToLower(strings.TrimSpace(c)); c != "" && c != "identity" {
+				codings = append(codings, c)
+			}
+		}
+	}
+	if len(codings) == 0 || len(raw) == 0 {
+		return raw, false, ""
+	}
+	if len(codings) > maxStackedContentEncodings {
+		return raw, false, "too many stacked request content-codings"
+	}
+	limit := decodedBodyLimit(len(raw), inspectLimit)
+	data = raw
+	for i := len(codings) - 1; i >= 0; i-- {
+		var err error
+		switch codings[i] {
+		case "gzip", "x-gzip":
+			var gr *gzip.Reader
+			if gr, err = gzip.NewReader(bytes.NewReader(data)); err == nil {
+				data, err = drainDecoder(gr, limit)
+			}
+		case "deflate":
+			// RFC 9110 "deflate" is zlib-wrapped; some clients send raw DEFLATE.
+			var zr io.ReadCloser
+			if zr, err = zlib.NewReader(bytes.NewReader(data)); err == nil {
+				var decoded []byte
+				if decoded, err = drainDecoder(zr, limit); err == nil {
+					data = decoded
+				}
+			}
+			if err != nil {
+				data, err = drainDecoder(flate.NewReader(bytes.NewReader(data)), limit)
+			}
+		default:
+			return raw, false, "unsupported request content-coding " + strconv.Quote(codings[i])
+		}
+		if err != nil {
+			return raw, false, "malformed " + codings[i] + " request body"
+		}
+		if int64(len(data)) > limit {
+			// Over budget: the caller blocks on the size limit, and decoding a
+			// truncated stream further would only report a spurious error.
+			return data, true, ""
+		}
+	}
+	return data, false, ""
+}
+
+// drainDecoder reads a decompressor up to limit+1 bytes. Hitting the cap is
+// not an error: the size limit is enforced by the caller.
+func drainDecoder(r io.ReadCloser, limit int64) ([]byte, error) {
+	defer r.Close() // #nosec G104 -- decompressor close; data already consumed
+	return io.ReadAll(io.LimitReader(r, limit+1))
 }
 
 // SetTrustedProxies configures the list of trusted proxy CIDRs.
@@ -148,6 +233,17 @@ type RequestContext struct {
 	Headers     map[string][]string
 	Cookies     map[string][]string
 	Body        []byte
+	// BodyLimitExceeded records a truncated inspection view, including a
+	// decompressed body that exceeds the inspection budget. Enforcing engines
+	// must not forward an uninspected tail based only on detector scores.
+	BodyLimitExceeded bool
+	// BodyUninspectable is a non-empty reason when the request body could not
+	// be read or decoded for inspection (unsupported or malformed
+	// Content-Encoding). Enforcing engines block such requests.
+	BodyUninspectable string
+	// ObserveOnly lets layers collect evidence without creating bans or
+	// publishing enforcement state while the engine is in monitor mode.
+	ObserveOnly bool
 	BodyString  string // Lazy: populated on first access via GetBodyString(). Allocated to avoid per-request string([]byte) if no body.
 	ContentType string
 
@@ -197,10 +293,15 @@ type RequestContext struct {
 	ClientsideBodyXform func([]byte, string) ([]byte, bool) // body transform (clientside layer)
 	DLPBodyXform        func([]byte, string) ([]byte, bool) // body transform (dlp layer)
 
-	// PostResponseHook is registered by layers that need the upstream outcome,
-	// which is only known after the request has been served: the ATO layer
+	// PostResponseHook is the composed post-response outcome hook. Layers must
+	// register through AddPostResponseHook, never by assigning this field
+	// directly: more than one layer needs the upstream outcome, which is only
+	// known after the request has been served — the ATO layer (order 250)
 	// clears a successful login's failed attempts and records its travel state,
-	// and bot detection counts a failed request for its error-rate analysis.
+	// and bot detection (order 500) counts a failed request for its error-rate
+	// analysis. A direct assignment from the later layer therefore discarded
+	// the earlier layer's hook.
+	//
 	// The engine captures the hook before the context returns to the pool and
 	// invokes it once with success = upstream status < 400. It is NOT invoked
 	// when the WAF answered the request itself (block/challenge) — that is not
@@ -218,6 +319,33 @@ type RequestContext struct {
 
 	// Internal
 	bodyRead bool
+}
+
+// AddPostResponseHook registers fn to be invoked with the upstream outcome,
+// composing it with any hook already registered by another layer.
+//
+// The outcome channel serves more than one layer — the ATO layer clears a
+// successful login's failed attempts, bot detection counts upstream errors —
+// and the pipeline runs them in order, so a plain assignment from the later
+// layer silently discarded the earlier layer's hook. Composing the hooks keeps
+// every registrant alive: the engine still invokes one hook, and that hook
+// runs each registered callback in registration order.
+//
+// The composed closure captures prev and fn, never the context: the context is
+// pooled and reused by the next request the moment it is released.
+func (ctx *RequestContext) AddPostResponseHook(fn func(success bool)) {
+	if fn == nil {
+		return
+	}
+	prev := ctx.PostResponseHook
+	if prev == nil {
+		ctx.PostResponseHook = fn
+		return
+	}
+	ctx.PostResponseHook = func(success bool) {
+		prev(success)
+		fn(success)
+	}
 }
 
 // contextPool is the package-level sync.Pool for RequestContext reuse.
@@ -299,6 +427,7 @@ func AcquireContext(r *http.Request, paranoiaLevel int, maxBodySize int64) *Requ
 		}
 		limited := io.LimitReader(r.Body, inspectLimit+1)
 		rawData, err := io.ReadAll(limited)
+		ctx.BodyLimitExceeded = int64(len(rawData)) > inspectLimit
 		// A failed read can still consume bytes. Replay them along with the
 		// unread portion so inspection never discards downstream body data.
 		r.Body = &replayReadCloser{
@@ -306,30 +435,26 @@ func AcquireContext(r *http.Request, paranoiaLevel int, maxBodySize int64) *Requ
 			Closer: r.Body,
 		}
 
-		if err == nil {
-			// Decompress for WAF inspection based on Content-Encoding.
-			// Rejects decompression bombs (ratio > 100:1).
-			inspectData := rawData
-			switch strings.ToLower(r.Header.Get("Content-Encoding")) {
-			case "gzip":
-				if gr, err := gzip.NewReader(bytes.NewReader(rawData)); err == nil {
-					if decompressed, err := io.ReadAll(io.LimitReader(gr, inspectLimit+1)); err == nil {
-						if len(rawData) > 0 && len(decompressed) <= len(rawData)*100 {
-							inspectData = decompressed
-						}
-					}
-					gr.Close() // #nosec G104 -- decompression close; error irrelevant — reader already consumed
-				}
-			case "deflate":
-				fr := flate.NewReader(bytes.NewReader(rawData))
-				if decompressed, err := io.ReadAll(io.LimitReader(fr, inspectLimit+1)); err == nil {
-					if len(rawData) > 0 && len(decompressed) <= len(rawData)*100 {
-						inspectData = decompressed
-					}
-				}
-				fr.Close() // #nosec G104 -- decompression close; error irrelevant — reader already consumed
+		switch {
+		case err != nil:
+			ctx.BodyUninspectable = "request body could not be read"
+		case ctx.BodyLimitExceeded:
+			// The raw stream is already over budget and will be blocked;
+			// decoding a truncated compressed prefix would only produce errors.
+			ctx.Body = rawData
+			ctx.BodyString = string(rawData)
+		default:
+			// Decode for WAF inspection based on Content-Encoding. A body the
+			// WAF cannot decode is never forwarded on raw-byte scores alone:
+			// backends that decompress request bodies would execute a payload
+			// the detectors only saw as compressed noise. Expansion beyond the
+			// decoded budget is blocked as over-size (see decodedBodyLimit).
+			inspectData, exceeded, reason := decodeRequestBody(rawData, r.Header.Values("Content-Encoding"), inspectLimit)
+			if reason != "" {
+				ctx.BodyUninspectable = reason
+				inspectData = rawData
 			}
-
+			ctx.BodyLimitExceeded = exceeded
 			ctx.Body = inspectData
 			if len(inspectData) > 0 {
 				ctx.BodyString = string(inspectData)
@@ -508,6 +633,9 @@ func ReleaseContext(ctx *RequestContext) {
 	ctx.CORSExposeHeaders = ""
 
 	ctx.bodyRead = false
+	ctx.BodyLimitExceeded = false
+	ctx.BodyUninspectable = ""
+	ctx.ObserveOnly = false
 
 	contextPool.Put(ctx)
 }
@@ -541,6 +669,22 @@ func extractClientIP(r *http.Request) net.IP {
 	return extractClientIPWithTrustedProxies(r, cidrs)
 }
 
+// parseForwardedIP parses one X-Forwarded-For entry. Some proxies (e.g. Azure
+// Application Gateway) append "ip:port" or "[v6]:port" rather than a bare IP.
+func parseForwardedIP(entry string) net.IP {
+	entry = strings.TrimSpace(entry)
+	if ip := net.ParseIP(entry); ip != nil {
+		return ip
+	}
+	if host, _, err := net.SplitHostPort(entry); err == nil {
+		return net.ParseIP(host)
+	}
+	if strings.HasPrefix(entry, "[") && strings.HasSuffix(entry, "]") {
+		return net.ParseIP(entry[1 : len(entry)-1])
+	}
+	return nil
+}
+
 func extractClientIPWithTrustedProxies(r *http.Request, trustedCIDRs []*net.IPNet) net.IP {
 	remoteIP := parseRemoteAddr(r.RemoteAddr)
 	if remoteIP == nil {
@@ -561,18 +705,26 @@ func extractClientIPWithTrustedProxies(r *http.Request, trustedCIDRs []*net.IPNe
 	// attacker-orderable line decide the client IP while the
 	// proxy-appended entry lived in a later line (same family as the
 	// ctx.Cookies / multi-value header capture fixes).
+	//
+	// An entry that cannot be parsed ends the walk: everything to its left
+	// was not vouched for by a trusted hop, so skipping it would let a
+	// client-forged entry win. The last trusted hop is returned instead. An
+	// all-trusted chain resolves to RemoteAddr; X-Real-IP is not consulted
+	// once X-Forwarded-For is present because it may be client-supplied.
 	if xffLines := r.Header.Values("X-Forwarded-For"); len(xffLines) > 0 {
 		parts := strings.Split(strings.Join(xffLines, ","), ",")
+		lastTrusted := remoteIP
 		for i := len(parts) - 1; i >= 0; i-- {
-			ipStr := strings.TrimSpace(parts[i])
-			ip := net.ParseIP(ipStr)
+			ip := parseForwardedIP(parts[i])
 			if ip == nil {
-				continue
+				return lastTrusted
 			}
 			if !isTrustedProxyIn(ip, trustedCIDRs) {
 				return ip
 			}
+			lastTrusted = ip
 		}
+		return remoteIP
 	}
 
 	// Check X-Real-IP

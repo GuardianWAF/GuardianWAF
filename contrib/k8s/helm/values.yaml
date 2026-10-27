@@ -79,6 +79,11 @@ service:
 tls:
   enabled: false
   secretName: guardianwaf-certs
+  port: 8443
+  servicePort: 443
+  # Keep the HTTP listener available for probes and ingress TLS termination.
+  # Direct clients can use servicePort for end-to-end TLS.
+  httpRedirect: false
   # certManager:
   #   enabled: true
   #   issuerRef:
@@ -270,6 +275,15 @@ istio:
 cluster:
   enabled: false
 
+  # Shared peer authentication credential. An existing Secret is recommended;
+  # otherwise the chart generates and reuses a 64-character secret.
+  secret:
+    existingSecret: ""
+    existingSecretKey: cluster-secret
+    value: "" # If supplied, must contain at least 32 bytes.
+
+  # Fixed voting membership; autoscaling is unsupported. Use 3 or 5 replicas.
+  # Changing this count requires a planned cluster reconfiguration.
   # Number of cluster replicas. Must be odd (3 or 5) for Raft quorum.
   replicas: 3
 

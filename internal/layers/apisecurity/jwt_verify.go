@@ -209,16 +209,23 @@ func verifyECDSASignature(key crypto.PublicKey, hashAlg crypto.Hash, data string
 	h := hashAlg.New()
 	h.Write([]byte(data))
 	hashed := h.Sum(nil)
+	// F156: JWS ECDSA signatures are raw R||S (RFC 7518 §3.4). Try that form
+	// first: about 1 in 20k genuine raw signatures also parse under the
+	// lenient DER decoder, which then yielded garbage R/S and rejected a
+	// correctly signed token. DER stays as a fallback for compatibility.
+	width := (ecdsaKey.Curve.Params().BitSize + 7) / 8
+	if len(sig) == 2*width &&
+		ecdsa.Verify(ecdsaKey, hashed, new(big.Int).SetBytes(sig[:width]), new(big.Int).SetBytes(sig[width:])) {
+		return nil
+	}
 	var esig struct {
 		R, S *big.Int
 	}
 	if err := asn1Unmarshal(sig, &esig); err != nil {
-		if len(sig) == 64 {
-			esig.R = new(big.Int).SetBytes(sig[:32])
-			esig.S = new(big.Int).SetBytes(sig[32:])
-		} else {
-			return fmt.Errorf("invalid ECDSA signature format")
+		if len(sig) == 2*width {
+			return fmt.Errorf("ECDSA verification failed")
 		}
+		return fmt.Errorf("invalid ECDSA signature format")
 	}
 	if !ecdsa.Verify(ecdsaKey, hashed, esig.R, esig.S) {
 		return fmt.Errorf("ECDSA verification failed")

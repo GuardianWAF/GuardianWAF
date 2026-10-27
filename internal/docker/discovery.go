@@ -1,7 +1,7 @@
 package docker
 
 import (
-	"fmt"
+	"net"
 	"slices"
 	"strconv"
 	"time"
@@ -36,7 +36,7 @@ func (s *DiscoveredService) TargetURL() string {
 	if s.TLS == "manual" || s.TLS == "auto" {
 		scheme = "https"
 	}
-	return fmt.Sprintf("%s://%s:%d", scheme, s.IPAddress, s.Port)
+	return scheme + "://" + net.JoinHostPort(s.IPAddress, strconv.Itoa(s.Port))
 }
 
 // ParseLabels extracts a DiscoveredService from Docker container labels.

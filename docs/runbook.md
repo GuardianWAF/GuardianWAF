@@ -251,7 +251,7 @@ curl -s -H "X-API-Key: $GWAF_DASHBOARD_ADMIN_KEY" http://localhost:9443/metrics 
 
 # Inspect recent blocked events
 curl -s "http://localhost:9443/api/v1/events?action=block&limit=50" \
-  -H "Authorization: Bearer $GWAF_DASHBOARD_API_KEY" | jq '.events[] | {path, score, findings}'
+  -H "X-API-Key: $GWAF_DASHBOARD_API_KEY" | jq '.events[] | {path, score, findings}'
 
 # Check recent deploy/config changes
 guardianwaf validate -config /etc/guardianwaf/guardianwaf.yaml
@@ -273,7 +273,7 @@ kubectl rollout history deploy/guardianwaf
 # Identify current config and blocked evidence
 guardianwaf validate -config /etc/guardianwaf/guardianwaf.yaml
 curl -s "http://localhost:9443/api/v1/events?action=block&limit=20" \
-  -H "Authorization: Bearer $GWAF_DASHBOARD_API_KEY" | jq .
+  -H "X-API-Key: $GWAF_DASHBOARD_API_KEY" | jq .
 ```
 
 **Resolution**:
@@ -293,11 +293,19 @@ curl -i http://localhost:9443/api/v1/health
 
 # Stats should reject missing key and accept the configured key
 curl -i http://localhost:9443/api/v1/stats
-curl -i http://localhost:9443/api/v1/stats -H "Authorization: Bearer $GWAF_DASHBOARD_API_KEY"
+curl -i http://localhost:9443/api/v1/stats -H "X-API-Key: $GWAF_DASHBOARD_API_KEY"
 ```
+
+Five failed key attempts from one IP within 5 minutes — via the login form, the
+`X-API-Key` header, or the MCP SSE endpoints — lock that IP out for 15 minutes
+(HTTP 429). A valid dashboard key used on an admin-only route does not count.
 
 **Resolution**:
 - Rotate `GWAF_DASHBOARD_API_KEY` in the secret manager and restart/reload the deployment.
+- `POST /api/v1/rotate-key` swaps the key at runtime and revokes every dashboard
+  session; the previous key stays valid for API clients for 60 seconds. The new
+  key is not persisted — update the secret before the next restart, or the old
+  key becomes active again.
 - Set `GWAF_DASHBOARD_ADMIN_KEY` only when tenant-admin APIs are required.
 - Keep dashboard bound to loopback or an internal network and expose it through an authenticated TLS proxy.
 - Confirm the startup log no longer says tenant admin APIs are disabled if admin APIs are expected.
@@ -310,7 +318,7 @@ curl -i http://localhost:9443/api/v1/stats -H "Authorization: Bearer $GWAF_DASHB
 ```bash
 # Check event config and current event count
 guardianwaf validate -config /etc/guardianwaf/guardianwaf.yaml
-curl -s http://localhost:9443/api/v1/stats -H "Authorization: Bearer $GWAF_DASHBOARD_API_KEY" | jq '.events_stored'
+curl -s http://localhost:9443/api/v1/stats -H "X-API-Key: $GWAF_DASHBOARD_API_KEY" | jq '.events_stored'
 
 # Check bounded overload signals
 curl -s -H "X-API-Key: $GWAF_DASHBOARD_ADMIN_KEY" http://localhost:9443/metrics | grep -E 'guardianwaf_event_store_dropped_total|guardianwaf_event_bus_dropped_total|guardianwaf_event_bus_rejected_subscriptions_total|guardianwaf_alert_manager_dropped_total|guardianwaf_ai_pending_events'
@@ -401,7 +409,7 @@ guardianwaf check -config /etc/guardianwaf/guardianwaf.yaml \
 
 # Export recent related events
 curl -s "http://localhost:9443/api/v1/events?limit=100" \
-  -H "Authorization: Bearer $GWAF_DASHBOARD_API_KEY" > bypass-events.json
+  -H "X-API-Key: $GWAF_DASHBOARD_API_KEY" > bypass-events.json
 ```
 
 **Resolution**:
@@ -423,7 +431,7 @@ curl -s -H "X-API-Key: $GWAF_DASHBOARD_ADMIN_KEY" http://localhost:9443/metrics 
 
 # Event export
 curl -s "http://localhost:9443/api/v1/events?limit=1000" \
-  -H "Authorization: Bearer $GWAF_DASHBOARD_API_KEY" > incident-export/events.json
+  -H "X-API-Key: $GWAF_DASHBOARD_API_KEY" > incident-export/events.json
 
 # Config snapshot with secrets redacted manually before sharing
 cp /etc/guardianwaf/guardianwaf.yaml incident-export/guardianwaf.yaml
@@ -433,7 +441,7 @@ kubectl logs -l app=guardianwaf --since=24h > incident-export/guardianwaf.log
 
 # Audit-chain integrity snapshot for external anchoring
 curl -s http://localhost:9443/api/v1/compliance/audit-chain \
-  -H "Authorization: Bearer $GWAF_DASHBOARD_API_KEY" > incident-export/audit-chain.json
+  -H "X-API-Key: $GWAF_DASHBOARD_API_KEY" > incident-export/audit-chain.json
 ```
 
 **Verification**:
@@ -528,7 +536,7 @@ export GWAF_MODE=disabled
 
 ```bash
 curl -X DELETE http://localhost:9443/api/v1/bans \
-  -H "Authorization: Bearer YOUR_API_KEY"
+  -H "X-API-Key: YOUR_API_KEY"
 ```
 
 ### Force Config Reload

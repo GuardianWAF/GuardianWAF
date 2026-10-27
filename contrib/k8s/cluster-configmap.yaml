@@ -1,6 +1,6 @@
 # GuardianWAF Cluster ConfigMap
 #
-# Cluster-mode configuration with dynamic peer discovery via gossip.
+# Cluster-mode configuration with fixed Raft voters and gossip liveness.
 # Each pod uses its StatefulSet ordinal as its node_id (e.g., "guardianwaf-0").
 # The POD_NAME env var is injected via the Kubernetes downward API.
 #
@@ -38,18 +38,18 @@ data:
       node_id: "${POD_NAME}"
 
       # Raft TCP — leader election + log replication.
-      bind_addr: "0.0.0.0:7947"
+      bind_addr: "[${POD_IP}]:7947"
 
       # Gossip UDP — membership + peer discovery.
-      gossip_addr: "0.0.0.0:7946"
+      gossip_addr: "[${POD_IP}]:7946"
 
       # REQUIRED shared peer-authentication key (>= 32 bytes, identical on
       # every node). Supplied from the guardianwaf-cluster Secret via the
       # GWAF_CLUSTER_SECRET environment variable — never inline it here.
       secret: "${GWAF_CLUSTER_SECRET}"
 
-      # Seed peers — the other StatefulSet pods.
-      # Only one reachable seed is needed; gossip discovers the rest.
+      # Complete fixed voting set; runtime excludes this pod itself.
+      # Gossip liveness never changes these voters.
       # The headless Service DNS resolves each pod individually.
       peers:
         - id: "guardianwaf-0"

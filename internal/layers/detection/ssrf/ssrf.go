@@ -340,12 +340,12 @@ func checkPrivateIPs(lower, location string) []engine.Finding {
 				break
 			}
 
-			// Extract host portion (up to /, ?, #, or end; the port ':' and
-			// any userinfo are split by authorityHost below).
+			// Extract host portion, stopping at URL delimiters or a JSON quote.
+			// The port ':' and any userinfo are split by authorityHost below.
 			hostEnd := hostStart
 			for hostEnd < len(lower) {
 				c := lower[hostEnd]
-				if c == '/' || c == '?' || c == '#' || c == ' ' {
+				if isHostDelimiter(c) {
 					break
 				}
 				hostEnd++
@@ -410,7 +410,7 @@ func checkPrivateIPs(lower, location string) []engine.Finding {
 			hostEnd := hostStart
 			for hostEnd < len(lower) {
 				c := lower[hostEnd]
-				if c == '/' || c == '?' || c == '#' || c == ' ' {
+				if isHostDelimiter(c) {
 					break
 				}
 				hostEnd++
@@ -482,7 +482,7 @@ func checkEncodedIPs(lower, location string) []engine.Finding {
 			hostEnd := hostStart
 			for hostEnd < len(lower) {
 				c := lower[hostEnd]
-				if c == '/' || c == '?' || c == '#' || c == ' ' {
+				if isHostDelimiter(c) {
 					break
 				}
 				hostEnd++
@@ -700,6 +700,25 @@ func authorityEnd(s string) int {
 	return len(s)
 }
 
+// isHostDelimiter reports whether c ends the host extracted after a URL
+// prefix. Besides the RFC 3986 delimiters ('/', '?', '#') it stops at every
+// character that cannot occur in a host but routinely follows an embedded URL:
+// markup ('<', '>', quotes), form separators ('&', '='), list punctuation and
+// whitespace, and '\' (a path separator to WHATWG parsers). Stopping only at
+// '/', '?', '#', ' ' and '"' (F195) kept the trailing markup in the "host" of
+// "<url>http://10.0.0.5</url>" or a decoded form body
+// "url=http://10.0.0.5&x=1", so every IP parse failed and the private-range
+// and encoded-IP classifiers scored 0. Brackets are NOT delimiters here: they
+// enclose IPv6 literals.
+func isHostDelimiter(c byte) bool {
+	switch c {
+	case '/', '?', '#', '"', '\'', '`', ',', ';', '<', '>', '{', '}',
+		'|', '\\', '&', '=', ' ', '\t', '\n', '\r':
+		return true
+	}
+	return false
+}
+
 // authorityHost returns the host portion of an extracted URL authority.
 // RFC 3986 splits userinfo at the LAST '@' — everything before it is
 // credentials, not the host ("http://a@10.0.0.5/" dials 10.0.0.5) — so the
@@ -718,7 +737,15 @@ func authorityHost(authority string) string {
 		return authority
 	}
 	if colon := strings.IndexByte(authority, ':'); colon >= 0 {
-		return authority[:colon]
+		authority = authority[:colon]
+	}
+	// A single trailing dot is the DNS root label: WHATWG parsers drop it
+	// before IPv4 parsing, so "10.0.0.5." and "2130706433." dial the same
+	// address as the undotted forms (isHostBoundary already treats
+	// "127.0.0.1." as loopback). Leaving it attached made every IPv4/encoded
+	// parse fail (F196).
+	if len(authority) > 1 && authority[len(authority)-1] == '.' && authority[len(authority)-2] != '.' {
+		authority = authority[:len(authority)-1]
 	}
 	return authority
 }

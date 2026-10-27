@@ -99,11 +99,13 @@ func (w *Watcher) Stop() {
 
 // StopWithContext gracefully stops the watcher without waiting past ctx.
 func (w *Watcher) StopWithContext(ctx context.Context) error {
+	w.mu.Lock()
 	select {
 	case <-w.stopCh:
 	default:
 		close(w.stopCh)
 	}
+	w.mu.Unlock()
 	done := make(chan struct{})
 	go func() {
 		w.wg.Wait()
@@ -278,10 +280,24 @@ func (w *Watcher) handleEvent(event Event) {
 // sync fetches the current container list and updates the services map.
 // Returns true if services changed.
 func (w *Watcher) sync() bool {
+	select {
+	case <-w.stopCh:
+		return false
+	default:
+	}
 	containers, err := w.client.ListContainers(w.labelPrefix)
+	w.mu.Lock()
+	// Enumeration can finish after Stop, including during the initial sync.
+	select {
+	case <-w.stopCh:
+		w.mu.Unlock()
+		return false
+	default:
+	}
 	if err != nil {
 		w.lastSyncOK.Store(false)
 		w.syncFailures.Add(1)
+		w.mu.Unlock()
 		w.safeLog("warn", "Docker: list containers failed: "+err.Error())
 		return false
 	}
@@ -289,20 +305,18 @@ func (w *Watcher) sync() bool {
 
 	services := DiscoverFromContainers(containers, w.labelPrefix, w.network)
 
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
 	// Check if services actually changed
 	if len(services) == len(w.services) {
 		changed := false
 		for _, svc := range services {
 			existing, ok := w.services[svc.ContainerID]
-			if !ok || existing.TargetURL() != svc.TargetURL() || existing.Host != svc.Host {
+			if !ok || *existing != svc {
 				changed = true
 				break
 			}
 		}
 		if !changed {
+			w.mu.Unlock()
 			return false
 		}
 	}
@@ -312,6 +326,7 @@ func (w *Watcher) sync() bool {
 	for i := range services {
 		w.services[services[i].ContainerID] = &services[i]
 	}
+	w.mu.Unlock()
 
 	w.safeLog("info", "Docker: discovered "+itoa(len(services))+" services")
 	return true

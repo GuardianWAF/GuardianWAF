@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 )
@@ -172,9 +173,12 @@ func Detect(input, location string) []engine.Finding {
 
 // makeFinding creates a Finding with standard CMDi fields.
 func makeFinding(score int, severity engine.Severity, desc, matched, location string, confidence float64) engine.Finding {
-	if len(matched) > 200 {
-		matched = matched[:197] + "..."
-	}
+	// TruncateEvidence is the shared, rune-safe evidence truncation: the cut
+	// never splits a multi-byte UTF-8 rune, so MatchedValue (attacker-
+	// controlled request content that flows into events, the dashboard and
+	// SIEM exports) stays valid UTF-8. A raw byte slice at matched[:197]
+	// stored a split rune when a multi-byte character straddled the cut.
+	matched = engine.TruncateEvidence(matched, 200)
 	return engine.Finding{
 		DetectorName: "cmdi",
 		Category:     "cmdi",
@@ -272,16 +276,26 @@ func checkShellMetachars(_, lower, location string) []engine.Finding {
 }
 
 // checkCommandSubstitution detects $(...) and backtick command substitution.
-func checkCommandSubstitution(input, lower, location string) []engine.Finding {
+func checkCommandSubstitution(_, lower, location string) []engine.Finding {
 	var findings []engine.Finding
 
 	// $( ... ) pattern
 	idx := strings.Index(lower, "$(")
-	if idx >= 0 {
+	firstCandidate := true
+	for idx >= 0 {
 		contentStart := idx + 2
+		next := strings.Index(lower[contentStart:], "$(")
+		if next >= 0 {
+			next += contentStart
+		}
 		contentEnd := len(lower)
-		if end := strings.Index(lower[idx:], ")"); end > 2 {
-			contentEnd = idx + end
+		// Preserve the first candidate's interpretation. Later candidates use
+		// disjoint spans so nested starts are checked without quadratic rescans.
+		if !firstCandidate && next >= 0 {
+			contentEnd = next
+		}
+		if end := strings.IndexByte(lower[contentStart:contentEnd], ')'); end > 0 {
+			contentEnd = contentStart + end
 		}
 		content := ""
 		if contentStart < contentEnd {
@@ -295,16 +309,23 @@ func checkCommandSubstitution(input, lower, location string) []engine.Finding {
 				desc = "Command substitution $(" + cmd + ") detected"
 			}
 			findings = append(findings, makeFinding(score, engine.SeverityCritical,
-				desc, extractContext(lower, "$("), location, 0.90))
+				desc, extractContextAt(lower, idx, 2), location, 0.90))
+			break
 		}
+		firstCandidate = false
+		idx = next
 	}
 
 	// Backtick pattern
-	firstBt := strings.Index(input, "`")
-	if firstBt >= 0 {
-		secondBt := strings.Index(input[firstBt+1:], "`")
+	for offset := 0; offset < len(lower); {
+		firstBt := strings.IndexByte(lower[offset:], '`')
+		if firstBt < 0 {
+			break
+		}
+		firstBt += offset
+		secondBt := strings.IndexByte(lower[firstBt+1:], '`')
 		if secondBt >= 0 {
-			content := strings.TrimSpace(strings.ToLower(input[firstBt+1 : firstBt+1+secondBt]))
+			content := strings.TrimSpace(lower[firstBt+1 : firstBt+1+secondBt])
 			cmd := extractFirstWord(content)
 			if IsCommand(cmd) || containsShellExecutionSignal(content) {
 				score := 80
@@ -313,8 +334,12 @@ func checkCommandSubstitution(input, lower, location string) []engine.Finding {
 					desc = "Backtick command substitution with " + cmd + " detected"
 				}
 				findings = append(findings, makeFinding(score, engine.SeverityCritical,
-					desc, extractContext(lower, "`"), location, 0.90))
+					desc, extractContextAt(lower, firstBt, 1), location, 0.90))
+				break
 			}
+			offset = firstBt + secondBt + 2
+		} else {
+			break
 		}
 	}
 
@@ -624,17 +649,48 @@ func extractContext(input, pattern string) string {
 	idx := strings.Index(input, pattern)
 	if idx < 0 {
 		if len(input) > 100 {
-			return input[:100]
+			return safeTruncate(input, 100)
 		}
 		return input
 	}
+	return extractContextAt(input, idx, len(pattern))
+}
+
+// extractContextAt extracts the context window around a match at idx.
+//
+// Truncation points and window edges are rune-safe: multi-byte UTF-8 runes
+// are never split, so MatchedValue stays valid UTF-8 (mirrors the landed xxe
+// fix and the ssrf sibling). A byte-aligned window edge split a rune that
+// straddled it, and the 197-byte cut did the same, storing invalid UTF-8 in
+// the evidence that flows into events, the dashboard and SIEM exports.
+func extractContextAt(input string, idx, patternLen int) string {
 	start := max(idx-20, 0)
-	end := min(idx+len(pattern)+30, len(input))
+	end := min(idx+patternLen+30, len(input))
+	// Align the window edges onto rune starts so multi-byte runes at the
+	// edges are never split mid-sequence.
+	for start < end && !utf8.RuneStart(input[start]) {
+		start++
+	}
+	for end > start && end < len(input) && !utf8.RuneStart(input[end]) {
+		end--
+	}
 	result := input[start:end]
 	if len(result) > 200 {
-		result = result[:197] + "..."
+		result = safeTruncate(result, 197) + "..."
 	}
 	return result
+}
+
+// safeTruncate truncates a string to at most maxBytes bytes without splitting
+// a multi-byte UTF-8 rune. If truncation occurs, it returns the valid prefix.
+func safeTruncate(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	for maxBytes > 0 && s[maxBytes]&0xC0 == 0x80 {
+		maxBytes--
+	}
+	return s[:maxBytes]
 }
 
 // hasCommandArguments reports whether the text after a command name looks like

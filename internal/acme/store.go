@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -31,8 +32,12 @@ type CertDiskStore struct {
 	domains  [][]string // groups of domains to obtain certs for
 	log      *slog.Logger
 
-	mu    sync.RWMutex
-	certs map[string]*tls.Certificate // domain -> loaded cert
+	mu               sync.RWMutex
+	certs            map[string]*tls.Certificate // domain -> loaded cert
+	onCertificate    func([]string, *tls.Certificate)
+	issuerMu         sync.Mutex
+	initializeIssuer func() error
+	issuerReady      bool
 
 	stopCh   chan struct{}
 	stopOnce sync.Once
@@ -51,10 +56,43 @@ func NewCertDiskStore(cacheDir string, client *Client, handler *HTTP01Handler) *
 	}
 }
 
+// SetCertificateListener publishes every successfully loaded or renewed
+// certificate to the active TLS server. Register before starting provisioning.
+// The callback runs without the store mutex held.
+func (s *CertDiskStore) SetCertificateListener(listener func([]string, *tls.Certificate)) {
+	s.mu.Lock()
+	s.onCertificate = listener
+	s.mu.Unlock()
+}
+
+// SetIssuerInitializer defers CA account initialization until a certificate
+// actually needs issuance. Valid cached certificates remain available during a
+// CA outage. Failed initialization is retried on the next issuance attempt.
+// Configure this before starting provisioning or the renewal loop.
+func (s *CertDiskStore) SetIssuerInitializer(initialize func() error) {
+	s.issuerMu.Lock()
+	s.initializeIssuer = initialize
+	s.issuerReady = false
+	s.issuerMu.Unlock()
+}
+
+func (s *CertDiskStore) prepareIssuer() error {
+	s.issuerMu.Lock()
+	defer s.issuerMu.Unlock()
+	if s.initializeIssuer == nil || s.issuerReady {
+		return nil
+	}
+	if err := s.initializeIssuer(); err != nil {
+		return err
+	}
+	s.issuerReady = true
+	return nil
+}
+
 // AddDomains registers a group of domains for certificate management.
 func (s *CertDiskStore) AddDomains(domains []string) {
 	s.mu.Lock()
-	s.domains = append(s.domains, domains)
+	s.domains = append(s.domains, slices.Clone(domains))
 	s.mu.Unlock()
 }
 
@@ -104,6 +142,9 @@ func (s *CertDiskStore) loadOrObtain(domains []string, forceRenew bool) (*tls.Ce
 	// branch above still serves valid cached certs when the client is nil.
 	if s.client == nil {
 		return nil, fmt.Errorf("ACME client not configured; cannot obtain certificate for %v", domains)
+	}
+	if err := s.prepareIssuer(); err != nil {
+		return nil, fmt.Errorf("initializing ACME issuer: %w", err)
 	}
 	certPEM, keyPEM, err := obtainCertificate(s.client, domains, s.handler)
 	if err != nil {
@@ -213,7 +254,7 @@ func (s *CertDiskStore) CertStatus() map[string]any {
 
 		certs = append(certs, map[string]any{
 			"domain":        domain,
-			"dns_names":     dnsNames,
+			"dns_names":     slices.Clone(dnsNames),
 			"not_after":     notAfter.Format(time.RFC3339),
 			"days_left":     daysLeft,
 			"issuer_cn":     issuerCN,
@@ -222,10 +263,14 @@ func (s *CertDiskStore) CertStatus() map[string]any {
 		})
 	}
 
+	domains := slices.Clone(s.domains)
+	for i := range domains {
+		domains[i] = slices.Clone(domains[i])
+	}
 	return map[string]any{
 		"enabled":   true,
 		"cache_dir": s.cacheDir,
-		"domains":   s.domains,
+		"domains":   domains,
 		"certs":     certs,
 	}
 }
@@ -307,9 +352,13 @@ func waitForRenewalLoop(ctx context.Context, wg *sync.WaitGroup) error {
 
 func (s *CertDiskStore) storeCert(domains []string, cert *tls.Certificate) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	for _, d := range domains {
 		s.certs[strings.ToLower(d)] = cert
+	}
+	listener := s.onCertificate
+	s.mu.Unlock()
+	if listener != nil {
+		listener(slices.Clone(domains), cert)
 	}
 }
 
@@ -347,6 +396,9 @@ func (s *CertDiskStore) renewIfNeeded() {
 
 		cert, err := loadX509KeyPair(certFile, s.keyPath(primary))
 		if err != nil {
+			if _, err := s.loadOrObtain(domains, true); err != nil {
+				s.log.Warn("failed to replace invalid ACME cert", "domain", primary, "err", err)
+			}
 			continue
 		}
 

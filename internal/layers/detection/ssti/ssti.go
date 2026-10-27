@@ -151,6 +151,15 @@ var exploitGadgets = []string{
 	// Ruby ERB
 	"<%= system",
 	"<%=system",
+	// Ruby ERB / Java JSP — the CODE tag "<% ... %>" is the sibling of the
+	// output tag "<%= ... %>" and evaluates the same expression (ERB runs it
+	// for its side effects, JSP runs it as a scriptlet). Only the output
+	// spelling was listed, so "<% system('id') %>" — the form real ERB
+	// payloads use — was invisible to the detector while its "<%=" twin was
+	// reported. The two spellings are disjoint ("<%=" never contains
+	// "<% system"), so listing both cannot double-score one payload.
+	"<% system",
+	"<%system",
 	"io.popen",
 	// PHP: Twig / Smarty
 	"_self.env",
@@ -195,7 +204,15 @@ func checkTemplateDirectives(lower, location string) []engine.Finding {
 }
 
 // delimiters are the opening tokens of template expressions across engines.
-var delimiters = []string{"{{", "${", "#{", "<%=", "*{", "~{"}
+// The list is ordered: the more specific spelling comes first, so "<%= 7*7 %>
+// is still reported against "<%=" and not against the shorter "<%" that is
+// also a prefix of it.
+//
+// "<%" is the ERB/JSP CODE tag ("<% 7*7 %>", "<% out.println(7*7) %>") — the
+// sibling of the ERB output tag "<%=", and the form JSP scriptlets use. It was
+// missing while "<%=" was listed, so an expression in a code tag was neither
+// probed for the arithmetic signature nor checked for engine-internal access.
+var delimiters = []string{"{{", "${", "#{", "<%=", "*{", "~{", "<%"}
 
 // checkProbeExpressions detects the canonical SSTI detection probe: a template
 // expression wrapping a numeric-literal multiplication (e.g. {{7*7}}, ${7*7},
@@ -279,13 +296,20 @@ func checkEngineInternals(lower, location string) []engine.Finding {
 			// Otherwise require an engine context object *and* an access on it,
 			// so plain words like {{username}} or {{ request }} do not match.
 			for _, name := range engineInternals {
-				if idx := indexIdentifier(body, name); idx >= 0 {
+				for offset := 0; offset < len(body); {
+					idx := indexIdentifier(body[offset:], name)
+					if idx < 0 {
+						break
+					}
+					idx += offset
 					rest := body[idx+len(name):]
 					if strings.HasPrefix(rest, ".") || strings.HasPrefix(rest, "[") || strings.HasPrefix(rest, "(") {
 						return []engine.Finding{makeFinding(65, engine.SeverityHigh,
 							"SSTI template-context object access detected", name,
 							extractContext(lower, open), location, 0.80)}
 					}
+					// A plain occurrence must not hide a later access.
+					offset = idx + len(name)
 				}
 			}
 			from = start

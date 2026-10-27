@@ -14,6 +14,7 @@ import (
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/layers/ipacl"
+	"github.com/guardianwaf/guardianwaf/internal/layers/sanitizer"
 )
 
 // Config holds the configuration for the Threat Intelligence layer.
@@ -58,6 +59,7 @@ type Layer struct {
 	cidrEntries map[string]*ThreatInfo
 	feeds       []*FeedManager
 	mu          sync.RWMutex
+	lifecycleMu sync.Mutex // serializes Start/Stop without blocking feed callbacks
 	started     bool
 }
 
@@ -106,8 +108,8 @@ func (l *Layer) Order() int   { return engine.OrderThreatIntel }
 
 // Start begins feed refresh loops.
 func (l *Layer) Start() {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	l.lifecycleMu.Lock()
+	defer l.lifecycleMu.Unlock()
 
 	if l.started {
 		return
@@ -126,8 +128,8 @@ func (l *Layer) Stop() {
 
 // StopWithContext stops all feed refresh loops without waiting past ctx.
 func (l *Layer) StopWithContext(ctx context.Context) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	l.lifecycleMu.Lock()
+	defer l.lifecycleMu.Unlock()
 
 	var firstErr error
 	for _, fm := range l.feeds {
@@ -194,7 +196,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		host := getHost(ctx.Headers)
 		if host != "" {
 			if info, ok := l.checkDomain(host); ok {
-				if l.config.DomainRep.BlockMalicious && info.Score >= 70 {
+				if l.domainMustBlock(info) {
 					// Mirror the IP path: BlockMalicious must actually block,
 					// not just log a finding the pipeline scores as a pass.
 					return engine.LayerResult{
@@ -221,6 +223,49 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 					Description:  fmt.Sprintf("Domain suspicious: %s", info.Type),
 					MatchedValue: host,
 					Location:     "header:Host",
+				})
+				totalScore += info.Score / 2
+			}
+		}
+
+		// ADR 0034 check_redirects: the request body is scanned for URLs and
+		// their hostnames are checked too — a form submission that POSTs to a
+		// known phishing domain must trigger the alert (and the block, when
+		// block_malicious is set). The Host above was already checked, so it is
+		// skipped here; the same policy applies to every body URL host.
+		if l.config.DomainRep.CheckRedirects {
+			for _, domain := range bodyURLCandidates(ctx.BodyString) {
+				if domain == host {
+					continue
+				}
+				info, ok := l.checkDomain(domain)
+				if !ok {
+					continue
+				}
+				if l.domainMustBlock(info) {
+					return engine.LayerResult{
+						Action: engine.ActionBlock,
+						Findings: []engine.Finding{{
+							DetectorName: "threat_intel",
+							Category:     "reputation",
+							Severity:     engine.SeverityHigh,
+							Score:        info.Score,
+							Description:  fmt.Sprintf("Domain flagged in request body: %s", info.Type),
+							MatchedValue: domain,
+							Location:     "body:url",
+						}},
+						Score:    info.Score,
+						Duration: time.Since(start),
+					}
+				}
+				findings = append(findings, engine.Finding{
+					DetectorName: "threat_intel",
+					Category:     "reputation",
+					Severity:     engine.SeverityMedium,
+					Score:        info.Score / 2,
+					Description:  fmt.Sprintf("Domain suspicious in request body: %s", info.Type),
+					MatchedValue: domain,
+					Location:     "body:url",
 				})
 				totalScore += info.Score / 2
 			}
@@ -348,6 +393,159 @@ func (l *Layer) Stats() map[string]int {
 		"domain_cache_size": l.domainCache.Len(),
 		"cidr_entries":      l.cidrTree.Load().Len(),
 	}
+}
+
+// domainBlockScore is the feed score at which a domain match blocks when
+// block_malicious is set. The IP path has its own operator-tunable threshold;
+// the domain bar is fixed (see ADR 0034).
+const domainBlockScore = 70
+
+// domainMustBlock reports whether a feed match on a domain must block rather
+// than only be reported. Shared by the Host check and the check_redirects body
+// scan so the two paths cannot drift apart.
+func (l *Layer) domainMustBlock(info *ThreatInfo) bool {
+	return l.config.DomainRep.BlockMalicious && info.Score >= domainBlockScore
+}
+
+// maxBodyURLHosts bounds how many distinct body URL hostnames one request may
+// add to the reputation lookup, so a body full of links cannot turn a single
+// request into unbounded cache work.
+const maxBodyURLHosts = 32
+
+// bodyURLHosts returns the distinct hostnames of the http(s) URLs found in a
+// request body, in first-seen order. check_redirects (ADR 0034) uses it to
+// extend domain reputation to URLs carried in the body. A bracketed IPv6
+// literal keeps its brackets and trailing sentence punctuation is trimmed, so
+// "see https://evil.example." still yields the domain.
+func bodyURLHosts(body string) []string {
+	if body == "" {
+		return nil
+	}
+	var hosts []string
+	seen := make(map[string]struct{}, 8)
+
+	for idx := 0; idx < len(body); {
+		start := indexHTTP(body, idx)
+		if start < 0 {
+			break
+		}
+
+		var authorityStart int
+		switch {
+		case len(body)-start >= len("https://") && strings.EqualFold(body[start:start+len("https://")], "https://"):
+			authorityStart = start + len("https://")
+		case len(body)-start >= len("http://") && strings.EqualFold(body[start:start+len("http://")], "http://"):
+			authorityStart = start + len("http://")
+		default:
+			idx = start + 1
+			continue
+		}
+
+		end := urlAuthorityEnd(body, authorityStart)
+		idx = end
+		host := urlHost(strings.ToLower(body[authorityStart:end]))
+		if host == "" {
+			continue
+		}
+		if _, dup := seen[host]; dup {
+			continue
+		}
+		seen[host] = struct{}{}
+		hosts = append(hosts, host)
+		if len(hosts) >= maxBodyURLHosts {
+			return hosts
+		}
+	}
+	return hosts
+}
+
+// indexHTTP returns the index of the next 'h'/'H' at or after from — the only
+// byte an http(s) scheme can start with — or -1 when there is none. Searching
+// byte-wise keeps the scan case-insensitive without copying the body.
+func indexHTTP(s string, from int) int {
+	for i := from; i < len(s); i++ {
+		if s[i] == 'h' || s[i] == 'H' {
+			return i
+		}
+	}
+	return -1
+}
+
+// bodyURLCandidates returns the distinct body-URL hostnames to check, from the
+// raw body and from its percent-decoded form: a form submission carries the URL
+// encoded (ADR 0034's example is exactly that), and this layer runs at order 125,
+// before the sanitizer populates the Normalized* views, so the raw body is the
+// only available input. The union is bounded by maxBodyURLHosts.
+func bodyURLCandidates(body string) []string {
+	hosts := bodyURLHosts(body)
+	if len(hosts) >= maxBodyURLHosts {
+		return hosts[:maxBodyURLHosts]
+	}
+
+	seen := make(map[string]struct{}, len(hosts))
+	for _, h := range hosts {
+		seen[h] = struct{}{}
+	}
+	// The decoded view must survive a malformed escape ANYWHERE in the body.
+	// url.QueryUnescape is all-or-nothing: one invalid escape makes it return
+	// ("", err), so the whole decoded view was discarded — and with it the
+	// only view that can see a percent-encoded URL (a form submission). A
+	// stray "%" in an unrelated field ("note=100%") therefore silenced the
+	// phishing check for the entire request. sanitizer.DecodeURLRecursive is
+	// the repo's canonical decoder: it keeps an invalid escape literal
+	// instead of failing the whole body, and it reaches the fixed point, so a
+	// double-encoded URL is seen too. This layer runs at order 125, before
+	// the sanitizer layer populates the Normalized* views, so the body is
+	// normalized on demand here — the same pattern rules.go uses for the
+	// canonical path.
+	decoded := sanitizer.DecodeURLRecursive(body)
+	if decoded == body {
+		return hosts
+	}
+	for _, h := range bodyURLHosts(decoded) {
+		if _, dup := seen[h]; dup {
+			continue
+		}
+		seen[h] = struct{}{}
+		hosts = append(hosts, h)
+		if len(hosts) >= maxBodyURLHosts {
+			break
+		}
+	}
+	return hosts
+}
+
+// urlAuthorityEnd returns the end of a URL authority (host[:port]) inside s,
+// starting at from: it stops at the first character that cannot be part of an
+// authority in prose or in a query string.
+func urlAuthorityEnd(s string, from int) int {
+	for i := from; i < len(s); i++ {
+		switch s[i] {
+		case '/', '?', '#', ' ', '\t', '\r', '\n', '"', '\'', '<', '>', '(', ')',
+			'{', '}', ',', ';', '&', '\\', '*', '|', '^', '`':
+			return i
+		}
+	}
+	return len(s)
+}
+
+// urlHost reduces a URL authority to its hostname: userinfo and port are
+// dropped, a bracketed IPv6 literal keeps its brackets, and trailing sentence
+// punctuation is trimmed.
+func urlHost(authority string) string {
+	if at := strings.LastIndexByte(authority, '@'); at >= 0 {
+		authority = authority[at+1:]
+	}
+	if strings.HasPrefix(authority, "[") {
+		if end := strings.IndexByte(authority, ']'); end >= 0 {
+			return authority[:end+1]
+		}
+		return ""
+	}
+	if colon := strings.IndexByte(authority, ':'); colon >= 0 {
+		authority = authority[:colon]
+	}
+	return strings.TrimRight(authority, ".")
 }
 
 // Helper function

@@ -35,7 +35,7 @@
 //     spawning a goroutine.
 //
 // Residual: Go regexp has no cancellation, so timed-out goroutines
-// continue to completion (up to PerRegex ceiling). A future migration
+// continue to completion while holding their semaphore slot. A future migration
 // to regexp2 (NFA-based, cancellable) would eliminate this.
 package regexsafe
 
@@ -45,7 +45,7 @@ import (
 	"time"
 )
 
-// PerRegex is the maximum time any single regex match may consume.
+// PerRegex is the maximum time a caller waits for an individual regex match.
 // Mirrors internal/layers/rules/rules.go's regexMatchTimeout.
 const PerRegex = 500 * time.Millisecond
 
@@ -152,21 +152,24 @@ func Match(re *regexp.Regexp, s string, d *Deadline) bool {
 	if !acquireSem(d) {
 		return true
 	}
-	defer releaseSem()
-
 	per := PerRegex
 	if rem := d.Remaining(); rem < per {
 		per = rem
 	}
 	if per == 0 {
+		releaseSem()
 		return true
 	}
 
 	activeGoroutines.Add(1)
-	defer activeGoroutines.Add(-1)
 
 	done := make(chan bool, 1)
-	go func() { done <- re.MatchString(s) }()
+	go func() {
+		// Abandoning the wait must not free capacity while regex work continues.
+		defer releaseSem()
+		defer activeGoroutines.Add(-1)
+		done <- re.MatchString(s)
+	}()
 	select {
 	case matched := <-done:
 		return matched
@@ -198,21 +201,23 @@ func FindSubmatch(re *regexp.Regexp, s string, d *Deadline) []string {
 	if !acquireSem(d) {
 		return nil
 	}
-	defer releaseSem()
-
 	per := PerRegex
 	if rem := d.Remaining(); rem < per {
 		per = rem
 	}
 	if per == 0 {
+		releaseSem()
 		return nil
 	}
 
 	activeGoroutines.Add(1)
-	defer activeGoroutines.Add(-1)
 
 	done := make(chan []string, 1)
-	go func() { done <- re.FindStringSubmatch(s) }()
+	go func() {
+		defer releaseSem()
+		defer activeGoroutines.Add(-1)
+		done <- re.FindStringSubmatch(s)
+	}()
 	select {
 	case matches := <-done:
 		return matches

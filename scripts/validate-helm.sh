@@ -148,11 +148,45 @@ helm_cmd lint contrib/k8s/helm
 helm_cmd template guardianwaf "${CHART_DIR}" > "${TMPDIR}/default.yaml"
 helm_cmd template guardianwaf "${CHART_DIR}" -f "${TMPDIR#${ROOT_DIR}/}/production-values.yaml" > "${TMPDIR}/production.yaml"
 
-"${KUBECONFORM_BIN}" -strict -ignore-missing-schemas -summary "${TMPDIR}/default.yaml" "${TMPDIR}/production.yaml"
+# Cluster renders exercise the StatefulSet path as well as all credential sources.
+helm_cmd template guardianwaf "${CHART_DIR}" --set cluster.enabled=true --set env.GWAF_MODE=enforce --set networkPolicy.enabled=true --set podDisruptionBudget.enabled=true --set tls.enabled=true > "${TMPDIR}/cluster.yaml"
+helm_cmd template guardianwaf "${CHART_DIR}" --set cluster.enabled=true --set apiKey.value=inline-api-key --set adminKey.value=inline-admin-key --set cluster.secret.value=0123456789abcdef0123456789abcdef > "${TMPDIR}/cluster-inline.yaml"
+helm_cmd template guardianwaf "${CHART_DIR}" --set cluster.enabled=true --set apiKey.existingSecret=external-api --set adminKey.existingSecret=external-admin --set cluster.secret.existingSecret=external-cluster > "${TMPDIR}/cluster-existing.yaml"
+
+"${KUBECONFORM_BIN}" -strict -ignore-missing-schemas -summary "${TMPDIR}/default.yaml" "${TMPDIR}/production.yaml" "${TMPDIR}/cluster.yaml" "${TMPDIR}/cluster-inline.yaml" "${TMPDIR}/cluster-existing.yaml"
+
+if ! grep -q 'targetPort: https$' "${TMPDIR}/cluster.yaml"; then
+    echo "TLS-enabled cluster has no HTTPS service target" >&2
+    exit 1
+fi
+
+if grep -q '^kind: Deployment$' "${TMPDIR}/cluster.yaml" || [ "$(grep -c '^kind: StatefulSet$' "${TMPDIR}/cluster.yaml")" -ne 1 ] || [ "$(grep -c '^kind: PodDisruptionBudget$' "${TMPDIR}/cluster.yaml")" -ne 1 ]; then
+    echo "cluster mode must render one StatefulSet, no Deployment and one PDB" >&2
+    exit 1
+fi
+for variant in cluster cluster-inline cluster-existing; do
+    # Credential names must be injected by the workload, not merely mentioned
+    # in ConfigMap placeholders or Secret data.
+    for key in GWAF_DASHBOARD_API_KEY GWAF_DASHBOARD_ADMIN_KEY GWAF_CLUSTER_SECRET POD_IP; do
+        if ! grep -q "name: ${key}$" "${TMPDIR}/${variant}.yaml"; then
+            echo "${variant} is missing workload credential/address env ${key}" >&2
+            exit 1
+        fi
+    done
+done
+for invalid in 'autoscaling.enabled=true' 'cluster.replicas=2' 'cluster.secret.value=short'; do
+    if helm_cmd template guardianwaf "${CHART_DIR}" --set cluster.enabled=true --set "${invalid}" > /dev/null 2>&1; then
+        echo "unsafe cluster configuration was accepted: ${invalid}" >&2
+        exit 1
+    fi
+done
 
 extract_config "${TMPDIR}/default.yaml" "${TMPDIR}/default-guardianwaf.yaml"
 extract_config "${TMPDIR}/production.yaml" "${TMPDIR}/production-guardianwaf.yaml"
 validate_guardianwaf_config "${TMPDIR}/default-guardianwaf.yaml" >/dev/null
 validate_guardianwaf_config "${TMPDIR}/production-guardianwaf.yaml" >/dev/null
+extract_config "${TMPDIR}/cluster.yaml" "${TMPDIR}/cluster-guardianwaf.yaml"
+# Downward API and Secret placeholders are expanded by GuardianWAF at startup.
+POD_NAME=guardianwaf-0 POD_IP=10.0.0.1 GWAF_CLUSTER_SECRET=0123456789abcdef0123456789abcdef validate_guardianwaf_config "${TMPDIR}/cluster-guardianwaf.yaml" >/dev/null
 
 echo "Helm chart validation passed"

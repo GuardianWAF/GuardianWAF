@@ -44,10 +44,14 @@ cluster:
   node_id: "guardian-01"
 
   # Raft TCP listen address — used for leader election and log replication.
-  bind_addr: "0.0.0.0:7947"
+  # Must be an address peers can DIAL, not a bind wildcard: it is advertised
+  # to the other nodes. Use this node's own routable IP (or a DNS name that
+  # resolves to it).
+  bind_addr: "10.0.0.1:7947"
 
   # Gossip UDP listen address — used for membership and peer discovery.
-  gossip_addr: "0.0.0.0:7946"
+  # Advertised to peers as well, so it must be routable too.
+  gossip_addr: "10.0.0.1:7946"
 
   # REQUIRED. Shared secret authenticating every Raft RPC frame and gossip
   # datagram. Must be at least 32 bytes of high-entropy material and IDENTICAL
@@ -56,9 +60,8 @@ cluster:
   # Generate with: openssl rand -hex 32
   secret: "${GWAF_CLUSTER_SECRET}"
 
-  # Seed peers for bootstrapping. After initial discovery via gossip,
-  # the cluster maintains its own peer list dynamically.
-  # Only ONE seed peer is needed to discover the entire cluster.
+  # Complete, fixed set of remote voters. Configure every node with the
+  # same voting membership, excluding itself. Gossip never changes quorum.
   peers:
     - id: "guardian-02"
       addr: "10.0.0.2:7947"
@@ -78,10 +81,10 @@ When `cluster.enabled: true`, these fields are **required** — config validatio
 | Field | Purpose | Example |
 |---|---|---|
 | `node_id` | Unique node identifier | `guardian-01` |
-| `bind_addr` | Raft TCP listen address | `0.0.0.0:7947` |
-| `gossip_addr` | Gossip UDP listen address | `0.0.0.0:7946` |
+| `bind_addr` | Raft TCP listen address (must be dialable by peers) | `10.0.0.1:7947` |
+| `gossip_addr` | Gossip UDP listen address (must be dialable by peers) | `10.0.0.1:7946` |
 | `secret` | Shared peer-authentication key, >= 32 bytes, identical on every node | `${GWAF_CLUSTER_SECRET}` |
-| `peers` | At least one seed peer (or self for single-node bootstrap) | See above |
+| `peers` | Complete remote voting set (or self for single-node bootstrap) | See above |
 
 > **Security.** `secret` is what stops an arbitrary host from joining the
 > cluster. Raft frames and gossip datagrams are authenticated with HMAC-SHA256
@@ -97,14 +100,14 @@ When `cluster.enabled: true`, these fields are **required** — config validatio
 
 ### Static Configuration (Simple)
 
-List all peers in YAML. Each node must know at least one other node's Raft TCP address.
+List every remote voter in YAML. Every node must use the same voting set, excluding itself. A chart may include the full set: runtime excludes its own ID before constructing Raft.
 
 ```yaml
 cluster:
   enabled: true
   node_id: "node-1"
-  bind_addr: "0.0.0.0:7947"
-  gossip_addr: "0.0.0.0:7946"
+  bind_addr: "10.0.0.1:7947"
+  gossip_addr: "10.0.0.1:7946"
   peers:
     - id: "node-2"
       addr: "10.0.0.2:7947"
@@ -112,21 +115,23 @@ cluster:
       addr: "10.0.0.3:7947"
 ```
 
-### Dynamic Discovery via Gossip (Recommended)
+### Gossip Liveness and Fixed Voting Membership
 
-Gossip automatically discovers all cluster members and propagates them to Raft. You only need **one seed peer** in the config — gossip finds the rest.
+Gossip discovers member liveness and dashboard addresses. It **does not add or
+remove Raft voters**. A failed probe or network partition must not reduce the
+majority required to elect a leader or commit a mutation.
 
-**How it works:**
+1. Each node announces its gossip, Raft and dashboard addresses.
+2. SWIM probes report joins, failures and recovery for observability.
+3. PeerSyncBridge records these transitions without replacing the configured
+   voting set. Unreachable voters remain in the majority calculation.
+4. Raft continues contacting its configured peers and can elect a new leader
+   only with a majority of that fixed set.
 
-1. Each node starts a gossip member (UDP port 7946) and announces itself with its Raft address and dashboard URL.
-2. The gossip protocol (SWIM-based) probes members and detects joins/leaves/failures.
-3. The [`PeerSyncBridge`](https://github.com/guardianwaf/guardianwaf/blob/main/internal/cluster/peersync/bridge.go) watches gossip events and calls `raft.UpdatePeers()` when the membership changes.
-4. The Raft leader immediately starts replicating to new peers or stops replicating to departed ones.
-
-**Benefits:**
-- Add/remove nodes without restarting the cluster or editing YAML on every node.
-- Automatic failover — dead nodes are removed from the Raft peer list.
-- Each node learns every other node's dashboard URL (for leader redirects).
+Dynamic consensus membership and automatic scaling are unsupported. Supply the
+complete voting configuration on every node before starting a cluster. Plan a
+maintenance window and state backup/recovery procedure for membership changes;
+do not attempt a live rolling change between different voting sets.
 
 **Wire format fields propagated via gossip:**
 
@@ -303,10 +308,10 @@ services:
       - "7947"        # Raft
       - "7946"        # Gossip
     environment:
-      GUARDIANWAF_CLUSTER_ENABLED: "true"
-      GUARDIANWAF_CLUSTER_NODE_ID: "guardian-01"
-      GUARDIANWAF_CLUSTER_BIND_ADDR: "0.0.0.0:7947"
-      GUARDIANWAF_CLUSTER_GOSSIP_ADDR: "0.0.0.0:7946"
+      GWAF_CLUSTER_ENABLED: "true"
+      GWAF_CLUSTER_NODE_ID: "guardian-01"
+      GWAF_CLUSTER_BIND_ADDR: "guardian-01:7947"
+      GWAF_CLUSTER_GOSSIP_ADDR: "guardian-01:7946"
     # ... (WAF config omitted for brevity)
 
   guardian-02:
@@ -316,12 +321,12 @@ services:
       - "7947"
       - "7946"
     environment:
-      GUARDIANWAF_CLUSTER_ENABLED: "true"
-      GUARDIANWAF_CLUSTER_NODE_ID: "guardian-02"
-      GUARDIANWAF_CLUSTER_BIND_ADDR: "0.0.0.0:7947"
-      GUARDIANWAF_CLUSTER_GOSSIP_ADDR: "0.0.0.0:7946"
-    # Seed peer points to guardian-01
-    # Only one seed needed — gossip discovers the rest
+      GWAF_CLUSTER_ENABLED: "true"
+      GWAF_CLUSTER_NODE_ID: "guardian-02"
+      GWAF_CLUSTER_BIND_ADDR: "guardian-02:7947"
+      GWAF_CLUSTER_GOSSIP_ADDR: "guardian-02:7946"
+    # Supply a mounted config listing the complete fixed voting set.
+    # Environment variables above do not replace cluster.peers.
 ```
 
 ### Kubernetes
@@ -340,7 +345,7 @@ kubectl apply -f contrib/k8s/cluster-statefulset.yaml
 
 **Pod DNS pattern**: `guardianwaf-0.guardianwaf-cluster.default.svc.cluster.local`
 
-The ConfigMap references these DNS names as seed peers. Each pod uses the Kubernetes downward API (`metadata.name`) as its `node_id`. Gossip discovers additional peers automatically after bootstrap.
+The ConfigMap references these DNS names as seed peers. Each pod uses the Kubernetes downward API (`metadata.name`) as its `node_id`. Gossip tracks liveness; all voters must already be present in the configured peer list.
 
 **Port reference:**
 
@@ -361,6 +366,21 @@ helm install guardianwaf contrib/k8s/helm \
 ```
 
 The Helm chart automatically deploys the StatefulSet, headless Service, and a PodDisruptionBudget (prevents simultaneous evictions from breaking Raft quorum). Set `cluster.enabled: true` in `values.yaml` to switch from a Deployment to a StatefulSet.
+
+The chart injects each pod's IP via the downward API and binds Raft/gossip to
+that address. Pods start in parallel and the headless Service publishes DNS
+before readiness, so initial quorum formation does not depend on an already
+healthy cluster. A generated, shared peer secret is reused across upgrades;
+set `cluster.secret.existingSecret` to use a managed Secret instead. API and
+admin credentials support generated, inline, or existing-Secret sources in both
+Deployment and StatefulSet modes.
+
+When `tls.enabled=true`, the main Service exposes `tls.servicePort` (443 by
+default) to the container's `tls.port` (8443). HTTP remains available for probes
+and ingress TLS termination (`tls.httpRedirect=false` by default). Mount a
+valid certificate Secret using `tls.secretName`; use the HTTPS service port
+for clients that require TLS through to GuardianWAF.
+
 
 ---
 
@@ -605,12 +625,12 @@ initContainers:
 
 ### Network partition (split-brain)
 
-A network partition isolates one or more nodes from the rest of the cluster. GuardianWAF's Raft implementation guarantees that **only the majority partition can commit entries** — the minority cannot accept bans, unban, or rule changes.
+A network partition isolates one or more nodes from the rest of the cluster. **Only a majority can commit cluster-replicated entries.** Gossip liveness never removes configured voters. This does not make an accepted proposal a committed write: the ban API can still apply a node-local ban and return HTTP 200 while its replication proposal remains uncommitted. Verify the replicated ban list and commit/applied indexes before treating a change as fleet-wide.
 
 **Symptoms:**
 
 - One or more nodes report `not ready` on `/readyz` (gossip isolation detected).
-- Bans sent to a minority node fail — the node is either not the leader or cannot reach the majority.
+- Cluster changes sent to a minority node cannot commit. A non-leader can reject or redirect them; an isolated leader can retain an uncommitted proposal. A successful node-local ban response is not proof of replication.
 - The `guardianwaf_cluster_member_count` metric drops on partitioned nodes.
 
 **Diagnosis:**
@@ -633,7 +653,7 @@ If a node shows `Member Count: 1` (only itself) while others show 3, that node i
 |---|---|---|---|
 | 3 nodes | 1 isolated | 2 of 3 | Majority continues serving. Isolated node goes `not ready`. |
 | 5 nodes | 2 isolated | 3 of 5 | Majority continues serving. Isolated nodes go `not ready`. |
-| 3 nodes | 2 isolated | 1 of 3 | **No quorum** — cluster stops accepting writes until healed. |
+| 3 nodes | 2 isolated | 1 of 3 | **No quorum** — no new replicated commits until healed; node-local bans can still be accepted. |
 
 **Recovery:**
 
@@ -663,7 +683,7 @@ No manual intervention is needed for healing. The cluster was tested with:
 |---|---|
 | `internal/cluster/raft/` | Raft consensus: leader election, log replication, RPC |
 | `internal/cluster/gossip/` | SWIM membership: failure detection, peer discovery |
-| `internal/cluster/peersync/` | Bridge: gossip events → Raft `UpdatePeers()` |
+| `internal/cluster/peersync/` | Bridge: gossip liveness observation; fixed Raft voters |
 | `internal/clustersync/` | Replicated state machine: bans, rules, counters + API |
 | `cmd/guardianwaf/cluster_runtime.go` | Wiring: creates gossip + Raft + bridge at startup |
 | `cmd/guardianwaf/cluster_status_provider.go` | Dashboard adapter: `ClusterStatusProvider` implementation |
@@ -730,7 +750,7 @@ Items marked **[limitation]** describe known constraints with recommended mitiga
 
 ### Persistence & Backup
 
-- **Raft log persistence via WAL.** When `cluster.data_dir` is set, the Raft log, current term, and vote are persisted to a write-ahead log (`raft-wal.log`) in the data directory. Every state mutation (term change, vote, log append, log truncation) is fsync'd before the in-memory state is updated. On restart, the WAL is replayed to restore the full log and consensus state. Without `data_dir`, the Raft log is in-memory only (existing behavior, for backward compatibility).
+- **Raft log persistence via WAL.** When `cluster.data_dir` is set, the Raft log, current term, and vote are persisted to a write-ahead log (`raft.wal`) in the data directory. The WAL writer fsyncs appended records; validate disk-error behavior before relying on this runtime for strict durability under storage failures. On restart, the WAL is replayed to restore the full log and consensus state. Without `data_dir`, the Raft log is in-memory only (existing behavior, for backward compatibility).
 
   - **Export the ban list before maintenance.** Use the API to dump all active bans, then re-apply them after restart:
 
@@ -749,9 +769,8 @@ Items marked **[limitation]** describe known constraints with recommended mitiga
 
   - **For planned full-cluster restarts**, drain the ban list to a file first (above), then re-apply after restart.
 
-  - **Persisted Raft log (WAL) is planned** — the `PersistentState` API is already designed with locking so a WAL layer can be added without changing callers.
 
-- **[limitation] No log compaction or snapshots.** The Raft log grows unboundedly during the lifetime of a node. For long-running deployments, restart nodes periodically (one at a time, maintaining quorum) to reset their log. Snapshot/log-compaction support is planned.
+- **[limitation] No state-machine snapshot or log prefix truncation.** WAL compaction rewrites the term, vote, and all surviving log entries into one record; it does not discard applied command history. The in-memory log and persisted command history therefore grow with writes. Restarting a node with persistent WAL replays that history and does not reset its size. Monitor memory, WAL size, and compaction errors. Do not treat the current cluster mode as suitable for an indefinitely growing write history; state-machine snapshots, prefix truncation, and follower snapshot transfer remain necessary for that deployment pattern.
 
 ### Resource Sizing
 
@@ -777,18 +796,14 @@ The replicated store (bans, rules, counters) is small — typically a few MB eve
 1. Restart one node at a time, waiting for it to rejoin and `/readyz` to return 200 before proceeding to the next.
 2. Verify quorum is maintained: `guardianwaf cluster status` should show 2+ members alive during the restart.
 
-**Scaling up (3 → 5 nodes):**
+**Changing cluster size:**
 
-1. Deploy the 2 new nodes with the same cluster config.
-2. Gossip discovers them automatically — no manual peer configuration needed.
-3. Raft includes them in the quorum once they're reachable.
-4. Verify with `guardianwaf cluster status` — member count should increase.
-
-**Scaling down (5 → 3 nodes):**
-
-1. Remove one node at a time.
-2. Wait for gossip to mark it dead and Raft to adjust quorum.
-3. Never remove 2 nodes simultaneously from a 5-node cluster — you'll lose quorum.
+Live voting-membership changes are unsupported. Do not scale the StatefulSet or
+use HPA to add/remove voters: this would leave nodes with incompatible quorum
+configurations. Back up the replicated state and plan an offline reconfiguration
+of the complete voting set on every node before restarting the cluster. The
+Helm chart rejects HPA in cluster mode and requires an odd replica count of at
+least three.
 
 **Leader failover:**
 

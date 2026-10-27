@@ -107,7 +107,7 @@ export const docContents: DocContent[] = [
     title: 'Getting Started',
     content: [
       { type: 'paragraph', text: 'GuardianWAF is a production-grade Web Application Firewall written in pure Go with zero external dependencies. This guide will walk you through installation and your first deployment.' },
-      { type: 'callout', variant: 'info', text: 'GuardianWAF requires Go 1.22+ if building from source. Pre-built binaries are available for Linux, macOS, and Windows.' },
+      { type: 'callout', variant: 'info', text: 'GuardianWAF requires Go 1.26.10+ if building from source. Pre-built binaries are available for Linux, macOS, and Windows.' },
       { type: 'heading', level: 2, text: 'Installation', id: 'installation' },
       { type: 'heading', level: 3, text: 'Pre-built Binaries' },
       { type: 'paragraph', text: 'Download the latest release for your platform:' },

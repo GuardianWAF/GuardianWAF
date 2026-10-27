@@ -83,12 +83,17 @@ func TestComposeMountedConfigFixturesValidate(t *testing.T) {
 	root := filepath.Join("..", "..")
 	fixtures := map[string][]string{
 		"docker-compose.yml":      {"guardianwaf.yaml"},
-		"docker-compose.prod.yml": {"guardianwaf.yaml"},
+		"docker-compose.prod.yml": {"guardianwaf.production.yaml"},
 		"docker-compose.test.yml": {"testdata/docker-test.yaml"},
 	}
 
 	for fixture, expected := range fixtures {
 		t.Run(fixture, func(t *testing.T) {
+			if fixture == "docker-compose.prod.yml" {
+				t.Setenv("GWAF_UPSTREAM_URL", "https://origin.example.com")
+				t.Setenv("GWAF_DASHBOARD_API_KEY", "fixture-api-key-0123456789")
+				t.Setenv("GWAF_DASHBOARD_ADMIN_KEY", "fixture-admin-key")
+			}
 			data, err := os.ReadFile(filepath.Join(root, fixture))
 			if err != nil {
 				t.Fatalf("ReadFile() error = %v", err)

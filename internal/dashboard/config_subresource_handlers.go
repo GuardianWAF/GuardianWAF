@@ -137,7 +137,10 @@ func (d *Dashboard) handleUpdateBotConfig(w http.ResponseWriter, r *http.Request
 	// Keep the pre-update copy for the persistence rollback below.
 	oldCfg := deepCopyConfig(d.engine.Config())
 	cfg := deepCopyConfig(d.engine.Config())
-	applyWAFPatch(cfg, map[string]any{"bot_detection": patch})
+	if err := applyWAFPatch(cfg, map[string]any{"bot_detection": patch}); err != nil {
+		writeError(w, http.StatusBadRequest, sanitizeErr(err))
+		return
+	}
 	// engine.Reload rebuilds the layer pipeline from the updated config (the
 	// same mechanism the CRS, API-validation, and rate-limit config handlers
 	// rely on), so the bot-detection changes apply at runtime. The former

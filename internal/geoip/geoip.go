@@ -8,6 +8,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/binary"
+	"encoding/csv"
 	"fmt"
 	"io"
 	"log/slog"
@@ -108,6 +109,16 @@ func LoadCSV(path string) (*DB, error) {
 		}
 
 		parts := strings.Split(line, ",")
+		if strings.ContainsRune(line, '"') {
+			reader := csv.NewReader(strings.NewReader(line))
+			reader.TrimLeadingSpace = true
+			reader.FieldsPerRecord = -1
+			var err error
+			parts, err = reader.Read()
+			if err != nil {
+				continue
+			}
+		}
 		if len(parts) < 2 {
 			continue
 		}
@@ -121,6 +132,9 @@ func LoadCSV(path string) (*DB, error) {
 			// Format: CIDR,country
 			cidr := parts[0]
 			country := strings.ToUpper(parts[1])
+			if len(country) != 2 {
+				continue
+			}
 			start, end, err := cidrToRange(cidr)
 			if err != nil {
 				continue // skip invalid
@@ -174,6 +188,10 @@ func LoadCSV(path string) (*DB, error) {
 
 	// Sort by start IP for binary search
 	sort.Slice(db.ranges, func(i, j int) bool {
+		if db.ranges[i].start == db.ranges[j].start {
+			// Lookup walks backward, so narrower same-start ranges go last.
+			return db.ranges[i].end > db.ranges[j].end
+		}
 		return db.ranges[i].start < db.ranges[j].start
 	})
 
@@ -529,7 +547,15 @@ func downloadDB(downloadURL, path string) error {
 	reader := limitGeoIPDownloadReader(resp.Body, maxGeoIPDownloadSize)
 
 	// Auto-detect gzip by URL suffix or Content-Type
-	if strings.HasSuffix(downloadURL, ".gz") || strings.Contains(resp.Header.Get("Content-Type"), "gzip") {
+	needsGzip := strings.HasSuffix(downloadURL, ".gz") || strings.Contains(resp.Header.Get("Content-Type"), "gzip")
+	if needsGzip && resp.Uncompressed {
+		// HTTP may have decoded the only gzip layer; inspect what remains.
+		buffered := bufio.NewReader(reader)
+		magic, _ := buffered.Peek(2)
+		reader = buffered
+		needsGzip = len(magic) == 2 && magic[0] == 0x1f && magic[1] == 0x8b
+	}
+	if needsGzip {
 		gz, gzErr := gzip.NewReader(reader)
 		if gzErr != nil {
 			cleanupTmp()

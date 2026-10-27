@@ -678,8 +678,8 @@ func TestUpdateConfigEndpoint_TLS(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := authenticatedRequest("PUT", "/api/v1/config", body, "k")
 	d.Handler().ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d, body: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusConflict {
+		t.Errorf("expected 409 for startup-only TLS settings, got %d, body: %s", w.Code, w.Body.String())
 	}
 }
 

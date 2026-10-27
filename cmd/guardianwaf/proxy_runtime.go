@@ -30,6 +30,7 @@ func buildReverseProxyStrict(cfg *config.Config) (http.Handler, []*proxy.HealthC
 func buildReverseProxyWithMode(cfg *config.Config, strict bool) (http.Handler, []*proxy.HealthChecker, error) {
 	targetPolicy := proxy.TargetPolicy{
 		AllowPrivateTargets: cfg.AllowPrivateUpstreams != nil && *cfg.AllowPrivateUpstreams,
+		TrustedProxies:      proxy.ParseTrustedProxies(cfg.TrustedProxies),
 	}
 	allowedCIDRs, err := proxy.ParseAllowedUpstreamCIDRs(cfg.AllowedUpstreamCIDRs)
 	if err != nil {

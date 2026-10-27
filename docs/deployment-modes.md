@@ -154,6 +154,20 @@ func main() {
 
 ### Loading from YAML File
 
+Library mode uses the standalone registry builders for IP ACL, rate limiting,
+API security, sanitizer, detection, bot detection, and response protection.
+All 11 detectors are enabled by default in both programmatic and YAML
+constructors. API security is opt-in through `waf.api_security` in YAML.
+Per-path body limits, normalization settings, and IP ban persistence use the
+same field mappings as standalone mode. Call `Close` to flush persisted bans
+and stop JWKS refresh workers.
+
+Other enabled registry layers are rejected at construction with an explicit
+library-support error. Use `guardianwaf serve` for threat intelligence, CORS,
+custom rules, ATO, API validation, CRS, virtual patches, DLP, and client-side
+protection. Library mode does not start dashboard, proxy listeners, Docker
+discovery, AI, SIEM, or cluster runtime services from a standalone YAML file.
+
 ```go
 waf, err := guardianwaf.NewFromFile("guardianwaf.yaml")
 if err != nil {

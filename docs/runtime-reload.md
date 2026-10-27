@@ -19,6 +19,14 @@ GuardianWAF supports targeted runtime updates, but not every configuration field
 
 ## Restart Required
 
+The general dashboard configuration form displays restart-only settings as
+read-only. Its Save & Apply action changes mode, detection thresholds, and the
+maximum request body size. IP lists and temporary bans use their dedicated
+live controls. Edit the YAML file and restart for the read-only settings below.
+The generic config API rejects changed TLS/ACME, Docker, AI-analysis, alerting
+enablement, and challenge-service settings with `409` before reloading or saving.
+Unchanged startup fields returned by GET may still accompany supported live edits.
+
 Restart GuardianWAF for changes that affect listeners, process-level background services, or startup-only dependencies:
 
 - `listen`, `tls.listen`, HTTP/3/QUIC listener settings, and dashboard listen address.
@@ -26,6 +34,7 @@ Restart GuardianWAF for changes that affect listeners, process-level background 
 - Enabling or disabling Docker discovery itself, changing Docker socket/network settings, or changing poll interval.
 - Enabling or disabling AI analysis, alerting manager, tenant runtime, MCP transport, tracing, compliance engine, SIEM exporter, cluster sync, or other startup-owned background services.
 - Event store mode or event file path.
+- Challenge service enablement, difficulty, signing key, and cookie settings.
 - GeoIP auto-download settings or DB path when the GeoIP layer must be mandatory for the deployment profile.
 - WAF layer topology or layer-instance configuration, including layer `enabled` flags, detector enabled flags/multipliers, rate-limit rules, sanitizer URL/header/cookie limits, bot-detection settings, CORS policy, threat-intel feeds, API-security settings, CRS paths, virtual-patch settings, DLP settings, client-side protection settings, and response-layer settings.
 - Any other change that needs new layer construction rather than changing values read by an already-running layer.

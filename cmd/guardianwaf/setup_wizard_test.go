@@ -15,7 +15,6 @@ func TestSetupWizard_BuildConfig_Basic(t *testing.T) {
 	w.hcConfig = ""
 	w.targets = []string{`      - url: "http://localhost:3000"
         weight: 1`}
-	w.routeHost = "*"
 	w.routePath = "/"
 	w.blockThresh = "50"
 	w.logThresh = "25"

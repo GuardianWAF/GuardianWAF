@@ -32,7 +32,12 @@ func setupAIRuntime(
 		aiStore.SetEncryptionKey(cfg.Dashboard.APIKey)
 	}
 
-	aiAnalyzer := ai.NewAnalyzer(aiAnalyzerConfig(cfg), aiStore, cfg.WAF.AIAnalysis.CatalogURL)
+	analyzerConfig := aiAnalyzerConfig(cfg)
+	analyzerConfig.EnforcementAllowed = func() bool {
+		mode := eng.Config().Mode
+		return mode == "" || mode == "enforce"
+	}
+	aiAnalyzer := ai.NewAnalyzer(analyzerConfig, aiStore, cfg.WAF.AIAnalysis.CatalogURL)
 	aiAnalyzer.SetLogger(eng.Logs.Add)
 
 	if ipaclL := eng.FindLayer("ipacl"); ipaclL != nil {

@@ -223,7 +223,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		// IncrementCounter performs the increment and returns the
 		// post-increment value in a single atomic call.
 		clusterExceeded := false
-		if clusterStore != nil {
+		if clusterStore != nil && !ctx.ObserveOnly {
 			clusterVal := clusterStore.IncrementCounter(key, windowEpoch)
 			if clusterVal > int64(rule.Limit) {
 				clusterExceeded = true
@@ -248,7 +248,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 			}
 
 			// Track violations for auto-ban
-			if rule.AutoBanAfter > 0 {
+			if rule.AutoBanAfter > 0 && !ctx.ObserveOnly {
 				l.trackViolation(tenantID, ip, rule)
 			}
 		}

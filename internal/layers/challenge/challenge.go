@@ -125,6 +125,27 @@ func (s *Service) ServeChallengePage(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(page)) // nolint:errcheck // challenge page write; error means client disconnected
 }
 
+// ServeChallengeVerify handles a request addressed to the challenge
+// verification endpoint (VerifyPath) and reports whether it did. The
+// service owns the endpoint path, so the engine does not have to know it:
+// the engine asks the service, which answers "not mine" for every other
+// path.
+//
+// The endpoint is a WAF control endpoint, not application traffic — the
+// challenge page the WAF itself serves embeds an absolute form action
+// pointing at it. Serve mode registers the path on its mux ahead of the
+// proxy route; library and sidecar mode have no such mux, so the engine
+// (which serves the challenge page) must own the endpoint too. Without it
+// the solution POST falls through to the application, no clearance cookie
+// is ever issued, and the client is challenged forever.
+func (s *Service) ServeChallengeVerify(w http.ResponseWriter, r *http.Request) bool {
+	if r.URL.Path != VerifyPath {
+		return false
+	}
+	s.VerifyHandler().ServeHTTP(w, r)
+	return true
+}
+
 // VerifyHandler returns an http.Handler for the challenge verification endpoint.
 // POST /__guardianwaf/challenge/verify
 // Form fields: challenge, nonce, redirect

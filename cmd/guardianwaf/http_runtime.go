@@ -9,6 +9,24 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/netutil"
 )
 
+func buildStartupHTTPHandler(cfg *config.Config, serveMux *http.ServeMux, handler http.Handler, ready func() bool) http.Handler {
+	readyHandler := buildHTTPHandler(cfg, serveMux, handler)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !ready() {
+			// A matching prefix is insufficient before the ACME handler is
+			// registered: ServeMux would otherwise fall through to the app.
+			challenge, pattern := serveMux.Handler(r)
+			if strings.HasPrefix(r.URL.Path, "/.well-known/acme-challenge/") && pattern == "/.well-known/acme-challenge/" {
+				challenge.ServeHTTP(w, r)
+			} else {
+				http.Error(w, "service initializing", http.StatusServiceUnavailable)
+			}
+			return
+		}
+		readyHandler.ServeHTTP(w, r)
+	})
+}
+
 func buildHTTPHandler(cfg *config.Config, serveMux *http.ServeMux, handler http.Handler) http.Handler {
 	if !cfg.TLS.Enabled || !cfg.TLS.HTTPRedirect {
 		return handler

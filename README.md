@@ -516,8 +516,8 @@ docker pull ghcr.io/guardianwaf/guardianwaf:latest
 
 Prerequisites:
 
-- Go 1.26.6 or newer
-- Node.js 20.19.0 or newer
+- Go 1.26.10 or newer
+- Node.js 22.22.2+ (22.x), 24.15.0+ (24.x), or 26+
 - npm 10.x or newer
 - `git`
 
@@ -640,12 +640,12 @@ GuardianWAF includes a built-in web dashboard accessible on the configured liste
 - Upstream management: add/remove backends, set load balancing strategy and weights
 - Virtual host management: add/remove domains, configure per-domain routing
 - Route management: path-to-upstream mapping with prefix stripping
-- WAF settings: toggle detectors, adjust thresholds and multipliers
-- JS Challenge: enable/disable, set difficulty
-- Bot detection: mode, scanner blocking, behavioral thresholds
+- WAF settings: inspect detectors and multipliers; apply detection thresholds live
+- JS Challenge: inspect settings; edit YAML and restart to change them
+- Bot detection: inspect mode, scanner blocking, and behavioral thresholds; changes require YAML and restart
 - IP ACL: add/remove whitelist and blacklist entries in real-time
-- Rate limiting, sanitizer, response protection toggles
-- All configuration changes apply at runtime **and persist to disk automatically** — a failed save rolls the runtime back to the previous state instead of leaving it diverged
+- Inspect rate limiting and response protection; apply the sanitizer maximum body size live
+- Supported live changes persist to disk automatically; a failed save rolls runtime back. Restart-only settings are read-only in the panel: edit YAML and restart. See [Runtime Reload](docs/runtime-reload.md) for the exact boundary.
 
 **Routing (`/routing`)**
 - **Topology Graph** -- interactive React Flow visualization of the full request path: Clients -> WAF -> VHosts -> Routes -> Upstreams -> Targets, with TLS/SSL indicators, ports, health status, circuit breaker state
@@ -816,7 +816,7 @@ Design choices for performance:
 - Radix tree for IP lookups (O(k) where k = address bits)
 - Token bucket rate limiter (O(1) per check)
 - State-machine tokenizer (no regex on the hot path)
-- Circuit breaker with atomic state transitions (lock-free)
+- Circuit breaker with serialized admission/result transitions and atomic state reads
 
 ---
 
