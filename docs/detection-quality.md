@@ -153,6 +153,7 @@ placements in a `# placement:` header:
 - `query`: `?q=`
 - `form`: urlencoded body
 - `multipart`: a multipart/form-data field next to a PNG upload
+- `cookie_raw`: a real-world cookie (`name=value`) as browsers send it
 - `json`: the whole body
 - `path`
 - `redirect`: `?next=`
@@ -164,15 +165,16 @@ placements in a `# placement:` header:
 | names, companies, addresses, emails, phones | 231 | 0 |
 | JSON API bodies | 78 | 0 |
 | passwords, tokens, identifiers | 110 | 0 |
+| cookies: analytics, consent, signed sessions, preferences | 45 | 0 |
 | URL paths and slugs | 51 | 0 |
 | URLs as parameters | 20 | 0 |
 | same-site redirect targets | 17 | 0 |
-| **General benign** | **1149** | **0 (0.00%)** — budget 1% |
+| **General benign** | **1194** | **0 (0.00%)** — budget 1% |
 | developer posts quoting code (`technical_*`) | 120 | 0 (0.00%) — budget 5% |
 
 Attacks reuse `testdata/attacks/`, placed where each class is delivered:
 
-- SQLi, XSS, CMDi, SSTI, NoSQLi: query, form and multipart.
+- SQLi, XSS, CMDi, SSTI, NoSQLi: query, form, multipart and a URL-encoded cookie.
 - LFI: `file=` and query.
 - SSRF: `url=` and query.
 - Open redirect: `next=`.
@@ -180,7 +182,7 @@ Attacks reuse `testdata/attacks/`, placed where each class is delivered:
 - GraphQL: `/graphql`.
 
 Every class must be blocked at least 85% of the time. Current result:
-1071/1094 (97.9%), with SQLi at 97.1% and CMDi at 98.0%.
+1343/1371 (98.0%), with SQLi at 97.1% and CMDi at 98.0%.
 
 Building this gate exposed defects that the layer-only corpus could not see.
 They are now fixed and pinned by tests:
@@ -214,6 +216,10 @@ They are now fixed and pinned by tests:
   textual bodies only, and a body that is binary under a binary media type
   skips text inspection (text sent as `application/octet-stream` is still
   inspected).
+- **Cookies.** Cookie values were judged only as transmitted, so
+  `pref=%27+OR+1%3D1+--`, which PHP, Express and Rails hand the application as
+  `' OR 1=1 --`, scored 0 (SQLi in cookies: 2/105 blocked). Detectors now also
+  scan the URL-decoded and normalized forms (`RequestContext.CookieViews`).
 - **Windows paths in prose.** "the path is C:\Users\me\AppData" scored 55. A
   drive path a space into prose now only logs (25); one that is the value or
   follows `=`, `/` or a quote still scores 55, and sensitive targets such as
@@ -231,5 +237,5 @@ The corpus gate also locks recent SSRF bypass fixes:
 
 ## Remaining Work
 
-- Grow the end-to-end corpora with anonymized production traffic, and add cookie and header placements.
+- Grow the end-to-end corpora with anonymized production traffic, and add header placements.
 - Expand the detector-specific benign corpora with real production traffic once anonymized logs are available.

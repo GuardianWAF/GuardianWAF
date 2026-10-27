@@ -89,10 +89,8 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 	scanInputs("body", ctx.BodyViews()...)
 
 	// 4. Cookie values
-	for _, vals := range ctx.Cookies {
-		for _, v := range vals {
-			allFindings = append(allFindings, Detect(v, "cookie")...)
-		}
+	for _, v := range ctx.CookieViews() {
+		allFindings = append(allFindings, Detect(v, "cookie")...)
 	}
 
 	// 5. Referer header
