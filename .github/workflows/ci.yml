@@ -109,7 +109,7 @@ jobs:
 
       - name: Upload coverage
         if: matrix.go-version == '1.26.10'
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           files: ./coverage.txt
           fail_ci_if_error: false
@@ -588,7 +588,7 @@ jobs:
       run: ./scripts/check-prereqs.sh
 
     - name: Scan for secrets
-      uses: trufflesecurity/trufflehog@d03d0879a3d03548a000f6eb2640307f0815c3b3 # main, pinned 2026-06-11
+      uses: trufflesecurity/trufflehog@288a8a8643a2c5a36b81d231c550dccfa0beeb64 # main, pinned 2026-06-11
       with:
         extra_args: --only-verified
 
