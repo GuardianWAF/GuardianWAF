@@ -11,8 +11,20 @@ type Set struct {
 	out      [][]int32    // pattern indices ending at each state
 }
 
-// New builds a Set. Empty patterns never match.
+// maxStates bounds the automaton so state numbers always fit in int32. The
+// detector pattern lists are a few hundred bytes; this only rejects misuse.
+const maxStates = 1 << 20
+
+// New builds a Set. Empty patterns never match. It panics if the patterns
+// need more than maxStates states, which only a programming error can cause.
 func New(patterns []string) *Set {
+	total := 1
+	for _, p := range patterns {
+		total += len(p)
+	}
+	if total > maxStates {
+		panic("textmatch: pattern set too large")
+	}
 	s := &Set{patterns: patterns, goTo: [][256]int32{{}}, out: [][]int32{nil}}
 	for i, p := range patterns {
 		if p == "" {
@@ -25,7 +37,7 @@ func New(patterns []string) *Set {
 			if next == 0 {
 				s.goTo = append(s.goTo, [256]int32{})
 				s.out = append(s.out, nil)
-				next = int32(len(s.goTo) - 1)
+				next = int32(len(s.goTo) - 1) // #nosec G115 -- len(s.goTo) <= maxStates (checked above)
 				s.goTo[state][c] = next
 			}
 			state = next
@@ -106,6 +118,3 @@ func (s *Set) Contains(input string) bool {
 	}
 	return false
 }
-
-// Patterns returns the pattern list the Set was built from.
-func (s *Set) Patterns() []string { return s.patterns }
