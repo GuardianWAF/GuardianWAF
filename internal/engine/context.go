@@ -45,11 +45,27 @@ type replayReadCloser struct {
 // unwrapped for inspection; deeper stacks are treated as uninspectable.
 const maxStackedContentEncodings = 3
 
+// Decoded request bodies may expand to at most maxDecodeRatio times their
+// wire size (but always to decodeFloorBytes, and never past the inspection
+// budget). Inspection costs CPU per decoded byte, so without this a few KiB
+// of gzip would buy megabytes of detector work. Bodies that expand further
+// are blocked as over budget, never forwarded uninspected.
+const (
+	maxDecodeRatio   = 100
+	decodeFloorBytes = 256 << 10
+)
+
+// decodedBodyLimit returns the decoded-size budget for a compressed body.
+func decodedBodyLimit(wireSize int, inspectLimit int64) int64 {
+	return min(inspectLimit, max(int64(wireSize)*maxDecodeRatio, decodeFloorBytes))
+}
+
 // decodeRequestBody reverses the request content-codings (listed in the order
 // they were applied) so detectors inspect what the backend will see. Output
-// is capped at limit+1 bytes per stage. A non-empty reason means the body
-// could not be decoded and must not be forwarded on raw-byte inspection.
-func decodeRequestBody(raw []byte, headerValues []string, limit int64) ([]byte, string) {
+// is capped at the decoded budget plus one byte per stage; exceeded reports a
+// body over that budget. A non-empty reason means the body could not be
+// decoded and must not be forwarded on raw-byte inspection.
+func decodeRequestBody(raw []byte, headerValues []string, inspectLimit int64) (data []byte, exceeded bool, reason string) {
 	var codings []string
 	for _, v := range headerValues {
 		for c := range strings.SplitSeq(v, ",") {
@@ -59,12 +75,13 @@ func decodeRequestBody(raw []byte, headerValues []string, limit int64) ([]byte, 
 		}
 	}
 	if len(codings) == 0 || len(raw) == 0 {
-		return raw, ""
+		return raw, false, ""
 	}
 	if len(codings) > maxStackedContentEncodings {
-		return raw, "too many stacked request content-codings"
+		return raw, false, "too many stacked request content-codings"
 	}
-	data := raw
+	limit := decodedBodyLimit(len(raw), inspectLimit)
+	data = raw
 	for i := len(codings) - 1; i >= 0; i-- {
 		var err error
 		switch codings[i] {
@@ -86,18 +103,18 @@ func decodeRequestBody(raw []byte, headerValues []string, limit int64) ([]byte, 
 				data, err = drainDecoder(flate.NewReader(bytes.NewReader(data)), limit)
 			}
 		default:
-			return raw, "unsupported request content-coding " + strconv.Quote(codings[i])
+			return raw, false, "unsupported request content-coding " + strconv.Quote(codings[i])
 		}
 		if err != nil {
-			return raw, "malformed " + codings[i] + " request body"
+			return raw, false, "malformed " + codings[i] + " request body"
 		}
 		if int64(len(data)) > limit {
 			// Over budget: the caller blocks on the size limit, and decoding a
 			// truncated stream further would only report a spurious error.
-			return data, ""
+			return data, true, ""
 		}
 	}
-	return data, ""
+	return data, false, ""
 }
 
 // drainDecoder reads a decompressor up to limit+1 bytes. Hitting the cap is
@@ -430,14 +447,14 @@ func AcquireContext(r *http.Request, paranoiaLevel int, maxBodySize int64) *Requ
 			// Decode for WAF inspection based on Content-Encoding. A body the
 			// WAF cannot decode is never forwarded on raw-byte scores alone:
 			// backends that decompress request bodies would execute a payload
-			// the detectors only saw as compressed noise. Decompression bombs
-			// are bounded by the inspection budget, not by a ratio heuristic.
-			inspectData, reason := decodeRequestBody(rawData, r.Header.Values("Content-Encoding"), inspectLimit)
+			// the detectors only saw as compressed noise. Expansion beyond the
+			// decoded budget is blocked as over-size (see decodedBodyLimit).
+			inspectData, exceeded, reason := decodeRequestBody(rawData, r.Header.Values("Content-Encoding"), inspectLimit)
 			if reason != "" {
 				ctx.BodyUninspectable = reason
 				inspectData = rawData
 			}
-			ctx.BodyLimitExceeded = int64(len(inspectData)) > inspectLimit
+			ctx.BodyLimitExceeded = exceeded
 			ctx.Body = inspectData
 			if len(inspectData) > 0 {
 				ctx.BodyString = string(inspectData)

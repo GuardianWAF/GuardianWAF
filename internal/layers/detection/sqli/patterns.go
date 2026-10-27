@@ -9,10 +9,13 @@ import (
 
 // AnalyzeTokens examines a token sequence and returns findings with scores.
 func AnalyzeTokens(tokens []Token, location string) []engine.Finding {
-	var findings []engine.Finding
-
 	// Filter out whitespace for analysis
-	significant := filterSignificant(tokens)
+	return analyzeSignificant(filterSignificant(tokens), location)
+}
+
+// analyzeSignificant runs the pattern checks over whitespace-free tokens.
+func analyzeSignificant(significant []Token, location string) []engine.Finding {
+	var findings []engine.Finding
 
 	// 1. UNION + SELECT pattern
 	if f, ok := checkUnionSelect(significant, location); ok {
@@ -80,8 +83,16 @@ func Detect(input, location string) []engine.Finding {
 	if input == "" {
 		return nil
 	}
+	// Detect owns the token slice, so whitespace is dropped in place instead
+	// of copying it: large bodies tokenize into tens of thousands of tokens.
 	tokens := Tokenize(input)
-	return AnalyzeTokens(tokens, location)
+	significant := tokens[:0]
+	for _, t := range tokens {
+		if t.Type != TokenWhitespace {
+			significant = append(significant, t)
+		}
+	}
+	return analyzeSignificant(significant, location)
 }
 
 // filterSignificant returns tokens with whitespace removed.

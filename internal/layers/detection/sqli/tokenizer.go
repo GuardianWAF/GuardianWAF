@@ -66,7 +66,9 @@ type Token struct {
 // It operates as a state machine: read char, classify, emit token, repeat.
 // No regex is used on the hot path.
 func Tokenize(input string) []Token {
-	tokens := make([]Token, 0, 32)
+	// Typical input averages several bytes per token; sizing up front avoids
+	// repeated slice doubling on large bodies (the dominant allocation).
+	tokens := make([]Token, 0, min(32+len(input)/6, 1<<16))
 	i := 0
 	n := len(input)
 

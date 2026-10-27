@@ -113,11 +113,52 @@ func TestRequestBodyDecodeMonitorModeForwards(t *testing.T) {
 
 func TestDecodeRequestBodyOverBudgetStopsUnwrapping(t *testing.T) {
 	inner := bytes.Repeat([]byte("A"), 4096)
-	out, reason := decodeRequestBody(gzipBytes(t, gzipBytes(t, inner)), []string{"gzip, gzip"}, 64)
-	if reason != "" {
-		t.Fatalf("over-budget stacked body reported %q; the size limit must decide", reason)
+	out, exceeded, reason := decodeRequestBody(gzipBytes(t, gzipBytes(t, inner)), []string{"gzip, gzip"}, 64)
+	if reason != "" || !exceeded {
+		t.Fatalf("over-budget stacked body: exceeded=%v reason=%q; the size limit must decide", exceeded, reason)
 	}
 	if len(out) != 65 {
 		t.Fatalf("decoded output = %d bytes, want capped at limit+1", len(out))
+	}
+}
+
+// A small compressed body may not buy unbounded detector work: expansion
+// past max(100x wire size, 256 KiB) is blocked as over budget (413) rather
+// than inspected — and never forwarded uninspected.
+func TestRequestBodyDecodeExpansionBudget(t *testing.T) {
+	bomb := gzipBytes(t, bytes.Repeat([]byte("A"), 4<<20)) // ~4 KiB on the wire
+	if limit := decodedBodyLimit(len(bomb), 10<<20); limit >= 4<<20 {
+		t.Fatalf("decoded limit = %d for a %d-byte body; the fixture must exceed it", limit, len(bomb))
+	}
+	if got := decodedBodyLimit(10, 10<<20); got != decodeFloorBytes {
+		t.Fatalf("decoded limit = %d, want floor %d", got, decodeFloorBytes)
+	}
+	if got := decodedBodyLimit(1<<20, 10<<20); got != 10<<20 {
+		t.Fatalf("decoded limit = %d, want inspection budget cap", got)
+	}
+
+	cfg := config.DefaultConfig()
+	e, _, _ := testEngineWithConfig(t, cfg)
+	defer e.Close()
+	reached := false
+	h := e.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { reached = true }))
+
+	req := httptest.NewRequest("POST", "/api", bytes.NewReader(bomb))
+	req.Header.Set("Content-Encoding", "gzip")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusRequestEntityTooLarge || reached {
+		t.Fatalf("status=%d reached=%v, want 413 and not forwarded", rr.Code, reached)
+	}
+
+	// Ordinary compressed JSON well inside the floor still passes.
+	ok := gzipBytes(t, []byte(strings.Repeat(`{"q":"hello"}`, 1000)))
+	req = httptest.NewRequest("POST", "/api", bytes.NewReader(ok))
+	req.Header.Set("Content-Encoding", "gzip")
+	reached = false
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK || !reached {
+		t.Fatalf("benign gzip JSON: status=%d reached=%v", rr.Code, reached)
 	}
 }
