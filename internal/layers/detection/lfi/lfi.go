@@ -99,8 +99,10 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 	}
 
 	// 3. Body (raw + normalized)
-	scan(ctx.BodyString, "body")
-	scan(ctx.NormalizedBody, "body")
+	// Decoded fields of a structured (JSON/form) body, else the whole body.
+	for _, view := range ctx.BodyViews() {
+		scan(view, "body")
+	}
 
 	// 4. Cookie values
 	for _, vals := range ctx.Cookies {
@@ -265,6 +267,8 @@ func checkSensitivePaths(lower, location string) []engine.Finding {
 	return sensitiveTrie.checkWithTrie(lower, location)
 }
 
+func isSpaceByte(c byte) bool { return c == ' ' || c == '\t' || c == '\r' || c == '\n' }
+
 // checkWindowsPaths detects Windows path traversal and sensitive file access.
 func checkWindowsPaths(lower, location string) []engine.Finding {
 	var findings []engine.Finding
@@ -274,14 +278,23 @@ func checkWindowsPaths(lower, location string) []engine.Finding {
 	for i := 0; i < len(lower)-2; i++ {
 		if lower[i] >= 'a' && lower[i] <= 'z' && lower[i+1] == ':' &&
 			(lower[i+2] == '\\' || lower[i+2] == '/') {
-			atStart := i == 0
+			atStart := strings.TrimLeft(lower[:i], " \t\r\n") == ""
 			atBoundary := !atStart &&
 				((lower[i-1] < 'a' || lower[i-1] > 'z') &&
 					(lower[i-1] < 'A' || lower[i-1] > 'Z'))
 			if atStart || atBoundary {
-				findings = append(findings, makeFinding(55, engine.SeverityHigh,
+				// A drive path that is the value, or follows a delimiter such
+				// as "=" or "/", is a file target. One a space into prose
+				// ("on Windows the path is C:\Users\...") is usually an
+				// explanation, so it only logs; sensitive targets (win.ini,
+				// SAM, system32) still score through their own checks.
+				score, sev, conf := 55, engine.SeverityHigh, 0.75
+				if !atStart && isSpaceByte(lower[i-1]) {
+					score, sev, conf = 25, engine.SeverityLow, 0.40
+				}
+				findings = append(findings, makeFinding(score, sev,
 					"Windows drive letter path detected",
-					extractContext(lower, lower[i:i+3]), location, 0.75))
+					extractContext(lower, lower[i:i+3]), location, conf))
 				break
 			}
 		}

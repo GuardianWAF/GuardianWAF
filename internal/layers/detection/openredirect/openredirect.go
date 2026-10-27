@@ -268,6 +268,24 @@ func (d *Detector) checkValue(rawVal, location, reqHost string) *engine.Finding 
 	// zero-slash form keeps its original unconditional flag (a same-host
 	// non-canonical spelling is attacker-shaped, never produced by
 	// legitimate clients).
+	//
+	// In the sanitizer's normalized view ("nquery:"), CanonicalizePath has
+	// collapsed "https://host" to "https:/host". Judging that artifact flagged
+	// every absolute same-site redirect (next=https://example.com/cart) as
+	// external, so the one-slash form is restored to "://" there and left to
+	// the same-host classification below. That still catches encoded external
+	// targets such as "https%3A%2F%2Fevil.com", which only the normalized view
+	// sees decoded. Client-supplied non-canonical forms are judged on the raw
+	// value, which is always checked as well.
+	if strings.HasPrefix(location, "nquery:") {
+		lower := strings.ToLower(val)
+		for _, scheme := range []string{"https:/", "http:/"} {
+			if strings.HasPrefix(lower, scheme) && !strings.HasPrefix(lower, scheme+"/") {
+				val = val[:len(scheme)] + "/" + val[len(scheme):]
+				break
+			}
+		}
+	}
 	if idx := strings.Index(val, ":"); idx > 0 && idx < 15 {
 		prefix := strings.ToLower(val[:idx])
 		if prefix == "http" || prefix == "https" {

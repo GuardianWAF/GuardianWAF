@@ -248,10 +248,17 @@ type RequestContext struct {
 	ContentType string
 
 	// Normalized versions (populated by sanitizer layer)
-	NormalizedPath    string
-	NormalizedQuery   map[string][]string
-	NormalizedBody    string
-	NormalizedHeaders map[string][]string
+	NormalizedPath  string
+	NormalizedQuery map[string][]string
+	NormalizedBody  string
+	// BodyFields and NormalizedBodyFields are the decoded string leaves of a
+	// structured body (JSON keys and string values, form names and values),
+	// set by the sanitizer. Text detectors scan them via BodyViews instead of
+	// the raw body, whose JSON or form syntax hides payload quotes and
+	// operators. Nil when the body is unstructured or could not be parsed.
+	BodyFields           []string
+	NormalizedBodyFields []string
+	NormalizedHeaders    map[string][]string
 
 	// Scoring
 	Accumulator *ScoreAccumulator
@@ -594,6 +601,8 @@ func ReleaseContext(ctx *RequestContext) {
 	ctx.NormalizedPath = ""
 	ctx.NormalizedQuery = nil
 	ctx.NormalizedBody = ""
+	ctx.BodyFields = nil
+	ctx.NormalizedBodyFields = nil
 	ctx.NormalizedHeaders = nil
 
 	ctx.Accumulator = nil
@@ -768,4 +777,16 @@ func generateRequestID() string {
 	buf[23] = '-'
 	hex.Encode(buf[24:36], b[10:16])
 	return string(buf[:])
+}
+
+// BodyViews returns the body inputs a text detector scans: the decoded
+// fields of a structured body (raw, then normalized) when the sanitizer
+// extracted them, otherwise the whole raw and normalized body.
+func (ctx *RequestContext) BodyViews() []string {
+	if len(ctx.BodyFields) == 0 {
+		return []string{ctx.BodyString, ctx.NormalizedBody}
+	}
+	views := make([]string, 0, len(ctx.BodyFields)+len(ctx.NormalizedBodyFields))
+	views = append(views, ctx.BodyFields...)
+	return append(views, ctx.NormalizedBodyFields...)
 }

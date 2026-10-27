@@ -919,11 +919,13 @@ func TestRedirectionTargetShapes(t *testing.T) {
 // enforced.
 //
 // Unambiguous commands and corroborated invocations are unaffected, which
-// TestAmbiguousBareCommand_CorroboratedStillBlocks pins.
+// TestAmbiguousBareCommand_CorroboratedStillBlocks pins. A value that is only
+// "<separator><command>" or "<host><separator><command>" is not ambiguous —
+// TestAmbiguousBareCommand_WholeValueInjectionBlocks pins that.
 func TestAmbiguousBareCommand_LogsWithoutBlocking(t *testing.T) {
 	const blockThreshold, logThreshold = 50, 25
 
-	for _, input := range []string{"| id", "test || id", "; id", "| ls", "; head"} {
+	for _, input := range []string{"| id | name |", "test || id", "Price | id", "see id; ls", "a | ls | b"} {
 		t.Run(input, func(t *testing.T) {
 			total := 0
 			for _, f := range Detect(input, "query") {
@@ -936,6 +938,23 @@ func TestAmbiguousBareCommand_LogsWithoutBlocking(t *testing.T) {
 				t.Fatalf("input %q scored %d — it must still be logged, not silently dropped", input, total)
 			}
 		})
+	}
+}
+
+// TestAmbiguousBareCommand_WholeValueInjectionBlocks: an input that consists of
+// nothing but a separator and an ambiguous command (optionally behind a host or
+// IP, the ping-form shape) is the canonical payload, never prose or a table.
+// Downgrading it let ";id", "| id" and "127.0.0.1;id" through end to end.
+func TestAmbiguousBareCommand_WholeValueInjectionBlocks(t *testing.T) {
+	const blockThreshold = 50
+	for _, input := range []string{";id", "| id", "&& id", "|| id", "; head", "127.0.0.1;id", "example.com|ls", "::1 && id"} {
+		total := 0
+		for _, f := range Detect(input, "query") {
+			total += f.Score
+		}
+		if total < blockThreshold {
+			t.Errorf("input %q scored %d, want >= %d", input, total, blockThreshold)
+		}
 	}
 }
 

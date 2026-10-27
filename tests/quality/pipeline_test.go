@@ -5,6 +5,8 @@
 package quality
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -25,7 +27,11 @@ import (
 //	form   POST /comments with comment=<sample> (urlencoded)
 //	json   POST /api/items with the sample as the JSON body
 //	path   GET  /<sample>
-//	xml    POST /api/import with the sample as an XML body
+//	xml      POST /api/import with the sample as an XML body
+//	redirect GET  /login?next=<sample>
+//	file     GET  /download?file=<sample>
+//	fetch    GET  /preview?url=<sample>
+//	graphql  POST /graphql with {"query": <sample>}
 var placements = map[string]func(sample string) *http.Request{
 	"query": func(s string) *http.Request {
 		return httptest.NewRequest(http.MethodGet, "/search?q="+url.QueryEscape(s), nil)
@@ -43,11 +49,42 @@ var placements = map[string]func(sample string) *http.Request{
 	"path": func(s string) *http.Request {
 		return httptest.NewRequest(http.MethodGet, "/"+strings.TrimPrefix(s, "/"), nil)
 	},
+	"redirect": func(s string) *http.Request {
+		return httptest.NewRequest(http.MethodGet, "/login?next="+url.QueryEscape(s), nil)
+	},
+	"file": func(s string) *http.Request {
+		return httptest.NewRequest(http.MethodGet, "/download?file="+url.QueryEscape(s), nil)
+	},
+	"fetch": func(s string) *http.Request {
+		return httptest.NewRequest(http.MethodGet, "/preview?url="+url.QueryEscape(s), nil)
+	},
+	"graphql": func(s string) *http.Request {
+		body, _ := json.Marshal(map[string]string{"query": s})
+		r := httptest.NewRequest(http.MethodPost, "/graphql", bytes.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		return r
+	},
+	"jsonfield": func(s string) *http.Request {
+		body, _ := json.Marshal(map[string]string{"username": s, "comment": "hello"})
+		r := httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		return r
+	},
 	"xml": func(s string) *http.Request {
 		r := httptest.NewRequest(http.MethodPost, "/api/import", strings.NewReader(s))
 		r.Header.Set("Content-Type", "application/xml")
 		return r
 	},
+}
+
+// attackPlacements places the shared attack corpora (testdata/attacks, which
+// predate placement headers) where each attack class is delivered.
+var attackPlacements = map[string][]string{
+	"xxe":          {"xml"},
+	"graphql":      {"graphql"},
+	"openredirect": {"redirect"},
+	"lfi":          {"file", "query"},
+	"ssrf":         {"fetch", "query"},
 }
 
 // browserHeaders makes requests look like a real browser so bot detection

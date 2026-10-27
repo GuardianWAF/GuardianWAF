@@ -1,0 +1,22 @@
+# Same-site redirect targets, share links and referrers passed as parameters.
+# placement: query
+/account/orders
+/checkout/payment?step=2
+/products/42#reviews
+https://shop.example.com/cart
+https://shop.example.com/products/42?utm_source=newsletter&utm_medium=email
+https://www.example.com/blog/how-to-select-a-database
+https://example.com/search?q=o%27neill
+https://m.example.com/en/help
+https://docs.example.com/api/v2/orders#list
+https://www.google.com/search?q=guardianwaf
+https://www.youtube.com/watch?v=dQw4w9WgXcQ
+https://youtu.be/dQw4w9WgXcQ?t=42
+https://twitter.com/example/status/1234567890
+https://www.linkedin.com/in/john-obrien
+https://github.com/guardianwaf/guardianwaf/issues/123
+https://en.wikipedia.org/wiki/SQL
+https://en.wikipedia.org/wiki/Cross-site_scripting
+https://tr.wikipedia.org/wiki/İstanbul
+mailto:support@example.com
+tel:+15551234567

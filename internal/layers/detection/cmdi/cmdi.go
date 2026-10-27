@@ -88,8 +88,10 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 	}
 
 	// 3. Body (raw + normalized)
-	scan(ctx.BodyString, "body")
-	scan(ctx.NormalizedBody, "body")
+	// Decoded fields of a structured (JSON/form) body, else the whole body.
+	for _, view := range ctx.BodyViews() {
+		scan(view, "body")
+	}
 
 	// 4. Cookie values
 	for _, vals := range ctx.Cookies {
@@ -237,7 +239,14 @@ func checkShellMetachars(_, lower, location string) []engine.Finding {
 			// invocation is corroborated by real arguments. Applies to every
 			// branch below — "id" is classified as a recon command, so guarding
 			// only the generic branch left the markdown table blocking.
-			downgrade := isAmbiguousCommand(cmd) && !hasCommandArguments(trimmed, cmd)
+			//
+			// The downgrade does not apply when the whole value is an
+			// injection: "<sep><cmd>" (";id", "| id", "&& id") or
+			// "<host><sep><cmd>" ("127.0.0.1;id"), with the separator used
+			// once and no further pipe — prose and table rows are never
+			// shaped like that, while those are the canonical payloads.
+			wholeValue := len(parts) == 2 && !strings.Contains(trimmed, "|") && isInjectionPrefix(parts[0])
+			downgrade := isAmbiguousCommand(cmd) && !hasCommandArguments(trimmed, cmd) && !wholeValue
 
 			if isReconCommand(cmd) || isNetworkCommand(cmd) || IsCommand(cmd) {
 				reported[cmd] = true
@@ -619,6 +628,8 @@ func redirectionTargetLooksLikeFileOrFD(rest string) bool {
 	if idx := strings.IndexAny(word, " \t\r\n&|;"); idx >= 0 {
 		word = word[:idx]
 	}
+	// Sentence punctuation is not an extension: "coffee > tea." compares.
+	word = strings.TrimRight(word, ".,!?)")
 	return strings.ContainsAny(word, "/\\") || strings.Contains(word, ".")
 }
 
@@ -699,6 +710,27 @@ func safeTruncate(s string, maxBytes int) string {
 // next cell of a markdown table. It is what upgrades an ambiguous command name
 // back to a blocking score: ";cat /etc/passwd" corroborates, "| id | name |"
 // does not.
+// isInjectionPrefix reports whether the text before a separator is empty or a
+// single host/IP-like token ("127.0.0.1", "example.com", "::1"), i.e. what an
+// injected value looks like in front of its separator. A bare word ("Price",
+// "test") is not enough: "Price | id" is a two-column table row.
+func isInjectionPrefix(prefix string) bool {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		return true
+	}
+	if len(prefix) > 253 || !strings.ContainsAny(prefix, ".:") {
+		return false
+	}
+	for i := 0; i < len(prefix); i++ {
+		c := prefix[i]
+		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '.' || c == '-' || c == ':' || c == '_') {
+			return false
+		}
+	}
+	return true
+}
+
 func hasCommandArguments(trimmed, cmd string) bool {
 	rest := strings.TrimSpace(strings.TrimPrefix(trimmed, cmd))
 	if rest == "" {

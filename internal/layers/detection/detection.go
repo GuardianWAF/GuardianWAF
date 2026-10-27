@@ -174,7 +174,15 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 
 		result := det.Process(ctx)
 		allFindings = append(allFindings, result.Findings...)
-		totalScore += result.Score
+	}
+
+	// Detectors scan each input in several views (raw and normalized, and
+	// both forms of every structured-body field). The same rule matching the
+	// same location in two views is one signal, not two: summing them made a
+	// 30-point "possible" finding on "O'Connor" score 60 and block.
+	allFindings = dedupeFindings(allFindings)
+	for _, f := range allFindings {
+		totalScore += f.Score
 	}
 
 	action := engine.ActionPass
@@ -225,4 +233,27 @@ func (l *Layer) isExcludedWithTenant(detectorName, path string, exclusions []Exc
 		}
 	}
 	return false
+}
+
+// dedupeFindings keeps one finding per (detector, rule, location), with the
+// highest score. Order of first occurrence is preserved.
+func dedupeFindings(findings []engine.Finding) []engine.Finding {
+	if len(findings) < 2 {
+		return findings
+	}
+	type key struct{ detector, description, location string }
+	index := make(map[key]int, len(findings))
+	out := findings[:0:0]
+	for _, f := range findings {
+		k := key{f.DetectorName, f.Description, f.Location}
+		if i, ok := index[k]; ok {
+			if f.Score > out[i].Score {
+				out[i] = f
+			}
+			continue
+		}
+		index[k] = len(out)
+		out = append(out, f)
+	}
+	return out
 }

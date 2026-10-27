@@ -1,0 +1,79 @@
+# Names, companies, addresses, emails and phone numbers as entered in forms.
+# placement: query,form
+John O'Brien
+Mary-Kate O'Neill
+D'Angelo Russell
+Zoë Saldaña
+José Álvarez
+François Müller
+Ørjan Øvrebø
+Siobhán Ní Bhriain
+Jean-Luc d'Aubigné
+Mc'Kenzie Smith
+O'Reilly Media
+Ben & Jerry's
+Smith & Sons Ltd.
+AT&T Inc.
+Procter & Gamble
+Marks & Spencer
+Barnes & Noble
+Johnson & Johnson
+Toys "R" Us
+Yahoo!
+E*Trade
+Macy's
+McDonald's
+Dunkin' Donuts
+Ahmet Yılmaz
+Ayşe Öztürk
+Mehmet Çelik
+Şükrü Güneş
+İsmail Doğan
+Gülşen Şahin
+Çağla Kaya
+Ömer Faruk Aydın
+Müge Ağar
+Erdoğan Altıntaş
+Kılıç İnşaat A.Ş.
+Öz Gıda San. ve Tic. Ltd. Şti.
+123 Main St., Apt #4B
+221B Baker Street, London NW1 6XE
+1600 Amphitheatre Pkwy, Mountain View, CA 94043
+350 Fifth Avenue, Suite 5300, New York, NY 10118
+10 Downing St, Westminster, London SW1A 2AA
+Unit 7/23 King's Road, Sydney NSW 2000
+Rue de l'Église 12, 75001 Paris
+Calle de Alcalá, 48, 28014 Madrid
+Bağdat Cad. No:123 D:5 Kadıköy/İstanbul
+Atatürk Bulvarı No: 45/7 Çankaya, Ankara
+Cumhuriyet Mah. 1453 Sok. No:8 Karşıyaka/İzmir
+P.O. Box 1234, Anchorage, AK 99510
+c/o Jane Doe, 42 Elm St
+St. John's, NL A1C 5M2
+john.doe@example.com
+mary.o'neill@example.org
+first.last+newsletter@gmail.com
+user_name-123@sub.domain.co.uk
+ayse.ozturk@firma.com.tr
+info@şirket.com.tr
+support@example.io
++1 (555) 123-4567
++44 20 7946 0958
++90 532 123 45 67
+0532 123 45 67
+(0212) 555 66 77
++49 30 123456-78
+555.123.4567
+ext. 1234
+Dr. Jane Smith, Ph.D.
+Prof. Dr. Ali Veli
+Mr. & Mrs. Johnson
+Sr. Director, R&D
+VP, Sales & Marketing
+Head of IT / Security
+C-level (CEO/CTO/CFO)
+Senior Software Engineer - Backend (Go)
+Customer Success Manager (EMEA)
+Data Scientist @ ACME
+Ünvan: Satış Müdürü
+Departman: İnsan Kaynakları

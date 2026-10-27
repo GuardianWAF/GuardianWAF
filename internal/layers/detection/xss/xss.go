@@ -85,7 +85,8 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 	scanInputs("query", queryForms...)
 
 	// 3. Body (if present)
-	scanInputs("body", ctx.BodyString, ctx.NormalizedBody)
+	// Decoded fields of a structured (JSON/form) body, else the whole body.
+	scanInputs("body", ctx.BodyViews()...)
 
 	// 4. Cookie values
 	for _, vals := range ctx.Cookies {
