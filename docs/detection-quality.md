@@ -163,7 +163,7 @@ placements in a `# placement:` header:
 | Corpus | Requests | Blocked |
 |---|---:|---:|
 | search queries (EN/TR/DE/ES/FR), also as a header | 548 | 0 |
-| comments, reviews, support tickets | 368 | 0 |
+| comments, reviews, support tickets | 382 | 0 |
 | names, companies, addresses, emails, phones, also as a header | 308 | 0 |
 | JSON API bodies | 78 | 0 |
 | passwords, tokens, identifiers, also as a header | 165 | 0 |
@@ -172,7 +172,7 @@ placements in a `# placement:` header:
 | URL paths and slugs | 51 | 0 |
 | URLs as parameters | 20 | 0 |
 | same-site redirect targets | 17 | 0 |
-| **General benign** | **1702** | **0 (0.00%)** — budget 1% |
+| **General benign** | **1716** | **0 (0.00%)** — budget 1% |
 | developer posts quoting code (`technical_*`) | 120 | 0 (0.00%) — budget 5% |
 
 Attacks reuse `testdata/attacks/`, placed where each class is delivered:
@@ -234,6 +234,15 @@ They are now fixed and pinned by tests:
   drive path a space into prose now only logs (25); one that is the value or
   follows `=`, `/` or a quote still scores 55, and sensitive targets such as
   `win.ini` and `system32` score through their own rules.
+- **Quoted prose with dashes.** "Don't say 'no' and leave -- please" scored 90
+  and "Mark's 'draft' and 'final' versions -- both attached" 125: the quote
+  closing a quoted word read as a breakout quote, and a string before AND plus
+  a comment after a string added up past the threshold. The breakout and
+  boolean rules now require an SQL operand after AND/OR (a literal, constant,
+  function, comparison or sub-expression, not a bare English word), and the
+  60-point "literal then comment" rule needs a bare quote (`admin'--`).
+  Prose that is token-for-token identical to an attack (`it's 'a' and "b" --`
+  vs `x' and 'x' --`) still blocks.
 - **"exec" as a word.** `exec office chair` scored 80.
 
 ## Known Bypass Coverage
