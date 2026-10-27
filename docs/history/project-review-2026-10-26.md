@@ -14,7 +14,7 @@ Kapsam, kullanıcının tüm proje talebi doğrultusunda depo genelidir: kök Go
 
 Başlangıçta 293 değiştirilmiş veya yeni dosyanın içerik özeti alındı; izlenen 172 dosyanın mevcut diff’i 4.642 ekleme ve 1.856 silme içeriyordu. Bu nedenle bulgular yalnızca son commit’in değil, diskteki güncel halin bulgularıdır. Ürün koduna düzeltme uygulanmadı. Rapor, kanıt programları ve test çıktıları oluşturuldu; frontend derlemeleri üretim çıktıları üretti.
 
-Kanıt dizini: [çalıştırma çıktıları](../.temp_files/project_review_20261026/). Başlangıç diff’i, dosya hash’leri ve modül envanteri aynı dizinde tutuluyor. `.temp_files` Git tarafından dışlandığı için rapor paylaşılırken kanıt dizini ayrıca arşivlenmeli.
+Kanıt dizini: [çalıştırma çıktıları](../../.temp_files/project_review_20261026/). Başlangıç diff’i, dosya hash’leri ve modül envanteri aynı dizinde tutuluyor. `.temp_files` Git tarafından dışlandığı için rapor paylaşılırken kanıt dizini ayrıca arşivlenmeli.
 
 Bulgular üç sınıfta sunuluyor: çalıştırılarak doğrulanmış kusurlar; kodda açıkça görülen destek sınırları; mimari değerlendirme ve öneriler. Birbirinin yerine kullanılmıyorlar.
 
@@ -34,7 +34,7 @@ Backend modülü Go `1.26.10` kullanıyor; `go.mod` içinde dış bağımlılık
 
 Standalone registry’deki 16 katmanın sırası: IP ACL → Threat Intel → CORS → Custom Rules → Rate Limit → ATO → API Security → API Validation → Sanitizer → CRS → Detection → Virtual Patch → DLP → Bot Detection → Client Side → Response. Custom Rules sırası kodda **155**; bazı belgelerde hâlâ 150 yazıyor. Challenge ayrı bir servis olarak bağlanıyor. WebSocket, SIEM, cluster ve tracing de registry tablosunun dışında bağlanan runtime bileşenleri; bunların tabloda görünmemesi uygulanmadıkları anlamına gelmiyor.
 
-Kaynak: [registry](../internal/runtime/layerregistry/registry.go), [CLI katman kurulumu](../cmd/guardianwaf/layers.go), [motor](../internal/engine/engine.go), [pipeline](../internal/engine/pipeline.go).
+Kaynak: [registry](../../internal/runtime/layerregistry/registry.go), [CLI katman kurulumu](../../cmd/guardianwaf/layers.go), [motor](../../internal/engine/engine.go), [pipeline](../../internal/engine/pipeline.go).
 
 ## Modüllerin durumu
 
@@ -86,13 +86,13 @@ Tablodaki kapsam oranları ilk `-race -cover` koşusundaki statement coverage de
 
 **Öncelik: P1. Etki: yüksek; koşul, uygulamanın kimlik doğrulamayı WAF’a devretmiş olması.** Backend kendi kimlik doğrulamasını yapıyorsa onun ayrıca aşılmış olduğu iddia edilmiyor.
 
-`NewFromFile`, `waf.api_security.enabled=true` ve API key doğrulaması açık bir dosyayı hatasız kabul ediyor. Ancak [addDefaultLayers](../guardianwaf.go) yalnızca altı temel katmanı kuruyor; API security katmanını kurmuyor.
+`NewFromFile`, `waf.api_security.enabled=true` ve API key doğrulaması açık bir dosyayı hatasız kabul ediyor. Ancak [addDefaultLayers](../../guardianwaf.go) yalnızca altı temel katmanı kuruyor; API security katmanını kurmuyor.
 
 Kontrol: aynı yapılandırmadan standalone registry ile oluşturulan API security katmanı, anahtarsız `/private` isteğini `block` olarak değerlendirdi. Kütüphane middleware’ine aynı anahtarsız istek gönderildiğinde backend’e ulaşıldı ve **204** döndü.
 
 Beklenen davranış: API security uygulanmalı veya kurucu, desteklemediği açık güvenlik yapılandırmasını anlaşılır bir hatayla reddetmeli. Sessiz kabul, yapılandırmaya güvenen kullanıcıya gerçekte olmayan koruma gösteriyor.
 
-Kanıt: [program](../.temp_files/prove_F217_library_ignored_api_auth.go), [çıktı](../.temp_files/project_review_20261026/F217.log). Komut: `go run .temp_files/prove_F217_library_ignored_api_auth.go`; sonuç `PROBLEM CONFIRMED`, exit 1.
+Kanıt: [program](../../.temp_files/prove_F217_library_ignored_api_auth.go), [çıktı](../../.temp_files/project_review_20261026/F217.log). Komut: `go run .temp_files/prove_F217_library_ignored_api_auth.go`; sonuç `PROBLEM CONFIRMED`, exit 1.
 
 Çözüm: kurulum yollarını ortak builder’a taşıyın veya library için açık destek matrisiyle başlangıç doğrulaması ekleyin. Aynı kontrol, YAML’da etkinleştirilip library tarafından bağlanmayan diğer güvenlik katmanlarına da uygulanmalı. Bu turda diğerlerinin her biri için ayrı bypass kanıtı üretilmedi.
 
@@ -107,9 +107,9 @@ Yapılandırmada global `max_body_size: 1024`, `/admin` için `path_overrides.ma
 | `/public`, 64 bayt | 204 | 204 |
 | `/admin`, 64 bayt | **413** | **204** |
 
-Neden: [library sanitizer kurulumu](../guardianwaf.go) `PathOverrides` alanını aktarmıyor; [standalone builder](../internal/runtime/layerregistry/registry.go) aktarıyor. İlgili katmanın kendi testleri ve %99,4 kapsamı bu montaj farkını yakalamıyor.
+Neden: [library sanitizer kurulumu](../../guardianwaf.go) `PathOverrides` alanını aktarmıyor; [standalone builder](../../internal/runtime/layerregistry/registry.go) aktarıyor. İlgili katmanın kendi testleri ve %99,4 kapsamı bu montaj farkını yakalamıyor.
 
-Kanıt: [program](../.temp_files/prove_F218_library_path_body_limit.go), [çıktı](../.temp_files/project_review_20261026/F218.log). Komut: `go run .temp_files/prove_F218_library_path_body_limit.go`; sonuç `PROBLEM CONFIRMED`, exit 1.
+Kanıt: [program](../../.temp_files/prove_F218_library_path_body_limit.go), [çıktı](../../.temp_files/project_review_20261026/F218.log). Komut: `go run .temp_files/prove_F218_library_path_body_limit.go`; sonuç `PROBLEM CONFIRMED`, exit 1.
 
 Çözüm: aynı sanitizer builder’ını kullanın; küçük/büyük yol limitlerini, sınırda eşit gövdeyi ve normalizasyon açık/kapalı durumlarını her kurucudan geçirerek doğrulayın.
 
@@ -117,7 +117,7 @@ Kanıt: [program](../.temp_files/prove_F218_library_path_body_limit.go), [çıkt
 
 **Öncelik: P1. Etki: yüksek koruma kapsamı farkı; her örneğin her uygulamada exploit olduğu iddia edilmiyor.**
 
-[convertConfig](../guardianwaf.go), varsayılan yapılandırmanın 11 dedektörlü map’ini altı elemanlı map ile değiştiriyor: SQLi, XSS, LFI, CMDi, XXE ve SSRF. SSTI, NoSQLi, smuggling, open redirect ve GraphQL eklenmiyor. Public `DetectionConfig` de yalnızca eski altı dedektörü modelliyor. YAML’dan oluşturulan motor ise varsayılan 11 dedektörü koruyor.
+[convertConfig](../../guardianwaf.go), varsayılan yapılandırmanın 11 dedektörlü map’ini altı elemanlı map ile değiştiriyor: SQLi, XSS, LFI, CMDi, XXE ve SSRF. SSTI, NoSQLi, smuggling, open redirect ve GraphQL eklenmiyor. Public `DetectionConfig` de yalnızca eski altı dedektörü modelliyor. YAML’dan oluşturulan motor ise varsayılan 11 dedektörü koruyor.
 
 İlk kanıtta SQLi kontrolü iki kurucuda da `block/85`; `{{7*7}}` için YAML kurucusunda `ssti` bulgusu varken programatik kurucuda yok. Bu örnek programatik tarafta XSS tarafından da engellendiği için buradan “tamamen geçti” sonucu çıkarılmamalı.
 
@@ -129,7 +129,7 @@ Ek davranış karşılaştırması farkın sonucunu gösterdi:
 | `$where` | **pass / 0** | **block / 90** |
 | `<#assign x=7*7>` | log / 45 | block / 115 |
 
-Kanıt: [program](../.temp_files/prove_F216_library_detector_parity.go), [çıktı](../.temp_files/project_review_20261026/F216.log), [ek karşılaştırma](../.temp_files/project_review_20261026/library-payloads.log). Ana komut `go run .temp_files/prove_F216_library_detector_parity.go`; sonuç `PROBLEM CONFIRMED`, exit 1.
+Kanıt: [program](../../.temp_files/prove_F216_library_detector_parity.go), [çıktı](../../.temp_files/project_review_20261026/F216.log), [ek karşılaştırma](../../.temp_files/project_review_20261026/library-payloads.log). Ana komut `go run .temp_files/prove_F216_library_detector_parity.go`; sonuç `PROBLEM CONFIRMED`, exit 1.
 
 Çözüm: varsayılan map’i koruyup yalnızca kullanıcının override ettiği değerleri güncelleyin. Public API’nin desteklediği dedektörleri güncelleyin. Programatik/YAML kurucularının her dedektörde aynı varsayılan yeteneğe sahip olduğunu doğrulayan testler ekleyin.
 
@@ -137,15 +137,15 @@ Kanıt: [program](../.temp_files/prove_F216_library_detector_parity.go), [çıkt
 
 ### Büyük ve stream yanıtlar eksiksiz maskelenmiyor
 
-[maskingResponseWriter](../internal/engine/response_writer.go), `maxMaskingBufferSize = 1 << 20` sınırı aşıldığında biriktirdiği veriyi maskesiz yazar ve passthrough’a geçer. `Flush` da streaming için maskesiz geçiş yapar. Desteklenmeyen content encoding’ler ayrıca capture dışında kalır. Bu mevcut tasarım davranışıdır; yeni keşfedilmiş belirsiz bir bypass varsayımı değildir.
+[maskingResponseWriter](../../internal/engine/response_writer.go), `maxMaskingBufferSize = 1 << 20` sınırı aşıldığında biriktirdiği veriyi maskesiz yazar ve passthrough’a geçer. `Flush` da streaming için maskesiz geçiş yapar. Desteklenmeyen content encoding’ler ayrıca capture dışında kalır. Bu mevcut tasarım davranışıdır; yeni keşfedilmiş belirsiz bir bypass varsayımı değildir.
 
-Public middleware ile yapılan kontrolde 100 bayt dolgu içeren yanıttaki test kartı gizlendi; 1.048.600 bayt dolgu içeren yanıtta **aynı kart açık kaldı**, iki yanıt da 200 döndü. [Kontrol çıktısı](../.temp_files/project_review_20261026/masking-boundary.log).
+Public middleware ile yapılan kontrolde 100 bayt dolgu içeren yanıttaki test kartı gizlendi; 1.048.600 bayt dolgu içeren yanıtta **aynı kart açık kaldı**, iki yanıt da 200 döndü. [Kontrol çıktısı](../../.temp_files/project_review_20261026/masking-boundary.log).
 
 Yapılması gereken: hangi boyut/encoding/stream türlerinde maskeleme uygulanmadığını belgeleyin ve ölçülebilir kılın. DLP bir dağıtımın zorunlu veri çıkış politikasıysa, limit aşımında geçir/engelle seçimini açık bir policy’ye bağlayın. Streaming masking ayrı algoritma ve protokol tasarımı gerektirir; yalnızca buffer’ı büyütmek çözüm değildir.
 
 ### Cluster snapshot yaklaşımı uzun ömürlü logu sınırlamıyor
 
-[PersistentState.Snapshot](../internal/cluster/raft/state.go) bütün log girdilerini tek WAL kaydında yeniden yazar. Bu, tekrar eden WAL kayıtlarını toplar; uygulanmış tarihçeyi state-machine snapshot’a dönüştürüp logun eski prefix’ini atmaz. [LogStore](../internal/cluster/raft/log.go) da indeksleri bellekteki tüm entries üzerinden tutuyor. [Cluster belgesi](clustering.md) hâlâ “snapshot yok” diyor; gerçekte WAL snapshot var, fakat uzun ömürlü logu sınırlayan mekanizma eksik.
+[PersistentState.Snapshot](../../internal/cluster/raft/state.go) bütün log girdilerini tek WAL kaydında yeniden yazar. Bu, tekrar eden WAL kayıtlarını toplar; uygulanmış tarihçeyi state-machine snapshot’a dönüştürüp logun eski prefix’ini atmaz. [LogStore](../../internal/cluster/raft/log.go) da indeksleri bellekteki tüm entries üzerinden tutuyor. [Cluster belgesi](../clustering.md) hâlâ “snapshot yok” diyor; gerçekte WAL snapshot var, fakat uzun ömürlü logu sınırlayan mekanizma eksik.
 
 Sonuç: düğüm ömrü boyunca komut geçmişi büyümesini sınırlandıran bir tasarım bu koddan çıkmıyor. Restart önerisi de WAL persistence açıkken tarihçenin replay edilmesiyle birlikte değerlendirilmelidir. Bu turda uzun süreli kaynak tüketimi veya 32 MiB snapshot sınırında hizmet kesintisi çalıştırılarak kanıtlanmadı; bunlar takip incelemesidir.
 
@@ -153,11 +153,11 @@ Yapılması gereken: state-machine snapshot, last-included index/term, log prefi
 
 ### Dashboard TLS eksik ama güvenli biçimde reddediliyor
 
-`dashboard.tls=true`, [validator](../internal/config/validate.go) ve [runtime](../cmd/guardianwaf/dashboard_runtime.go) tarafından desteklenmediği açıklanarak reddediliyor. Bu alanın bulunması yerleşik dashboard TLS’in uygulanmış olduğu anlamına gelmiyor. Ingress/reverse proxy ile TLS sonlandırma mevcut dağıtım yoludur. Burada sessiz HTTP downgrade bulunduğu iddia edilmiyor.
+`dashboard.tls=true`, [validator](../../internal/config/validate.go) ve [runtime](../../cmd/guardianwaf/dashboard_runtime.go) tarafından desteklenmediği açıklanarak reddediliyor. Bu alanın bulunması yerleşik dashboard TLS’in uygulanmış olduğu anlamına gelmiyor. Ingress/reverse proxy ile TLS sonlandırma mevcut dağıtım yoludur. Burada sessiz HTTP downgrade bulunduğu iddia edilmiyor.
 
 ### Tracing exporter kapsamı dar
 
-[Tracing](../internal/tracing/tracing.go) API’si mevcut; hazır config seçenekleri `stdout` ve `noop`. OTLP gönderimi için hazır exporter bulunmuyor. Ürün iddiası buna göre dar tutulmalı veya gerçek collector entegrasyonu eklenmeli.
+[Tracing](../../internal/tracing/tracing.go) API’si mevcut; hazır config seçenekleri `stdout` ve `noop`. OTLP gönderimi için hazır exporter bulunmuyor. Ürün iddiası buna göre dar tutulmalı veya gerçek collector entegrasyonu eklenmeli.
 
 ### Özel protokol ve parser implementasyonlarının uyumluluk sınırları belgelenmeli
 
@@ -182,7 +182,7 @@ Mevcut corpus testi yeniden çalıştırıldı ve geçti. Fakat bu başarı doğ
 
 Benign corpus’ta **8/211, %3,8** örnek varsayılan block skoruna ulaştı. Bunlar gerçek trafik oranına genellenemez; küçük, seçilmiş bir corpus’un sonucudur. Buna rağmen meşru Windows dosya yolu, localhost URL’si ve MongoDB dokümanından `$where` içeren log satırı gibi kullanım biçimlerinin yanlış pozitif üretebildiğini gösteriyor. Testin izin verdiği üst sınır %6.
 
-Kaynak: [test](../internal/layers/detection/detection_test.go), [çıktı](../.temp_files/project_review_20261026/corpus.log). Mevcut [kalite belgesi](detection-quality.md) bazı eski sayıları taşıyor: örneğin SQLi 95/105, SSTI 22/23, birleşik benign 9/211. Güncellenmeli.
+Kaynak: [test](../../internal/layers/detection/detection_test.go), [çıktı](../../.temp_files/project_review_20261026/corpus.log). Mevcut [kalite belgesi](../detection-quality.md) bazı eski sayıları taşıyor: örneğin SQLi 95/105, SSTI 22/23, birleşik benign 9/211. Güncellenmeli.
 
 Yapılması gerekenler:
 
@@ -193,7 +193,7 @@ Yapılması gerekenler:
 
 ## Panel ve dokümantasyon arasındaki tutarsızlıklar
 
-README panel bölümünde dedektör toggle’ları, multiplier, bot/rate-limit/sanitizer/response ayarlarının runtime’da uygulanıp kaydedildiği belirtiliyor. Gerçekte [validateRuntimeReloadableConfig](../internal/dashboard/config_handlers.go), katman topolojisi değişikliklerini ve çoğu katman ayarını reddediyor. [Runtime reload belgesi](runtime-reload.md) bu sınırlamayı doğru açıklıyor. Panelde ise [config formu](../internal/dashboard/ui/src/pages/config.tsx) çok sayıda bu tür alanı düzenletiyor ve ortak Save akışını kullanıyor.
+README panel bölümünde dedektör toggle’ları, multiplier, bot/rate-limit/sanitizer/response ayarlarının runtime’da uygulanıp kaydedildiği belirtiliyor. Gerçekte [validateRuntimeReloadableConfig](../../internal/dashboard/config_handlers.go), katman topolojisi değişikliklerini ve çoğu katman ayarını reddediyor. [Runtime reload belgesi](../runtime-reload.md) bu sınırlamayı doğru açıklıyor. Panelde ise [config formu](../../internal/dashboard/ui/src/pages/config.tsx) çok sayıda bu tür alanı düzenletiyor ve ortak Save akışını kullanıyor.
 
 Bu, güvenli bir backend reddinin üstüne kurulmuş eksik ürün deneyimi. Kullanıcı ayarı değiştirebileceğini düşünüp formu dolduruyor, sonunda genel bir restart hatası alıyor. İki tutarlı çözüm var: desteklenmeyen alanları açıkça restart gerektiriyor olarak göstermek veya “şimdi uygula” ve “diske kaydet, restart sonrası uygula” işlemlerini ayrı sözleşmelerle sunmak. İkinci seçenek ayrı pending-config tasarımı gerektirir.
 
@@ -201,7 +201,7 @@ Diğer somut belge sapmaları:
 
 - `scripts/check-prereqs.sh` ve README Node `20.19.0+` kabul ediyor. Lockfile’daki `react-router@8.3.0` Node `>=22.22.0`, `jsdom@30.0.1` ise `^22.22.2 || ^24.15.0 || >=26.0.0` istiyor. Ön kontrolün kabul ettiği her Node sürümü kurulu bağımlılıkların destek aralığında değil. Docker Node 24.15.0 kullanarak doğru aralığa geçmiş.
 - CONTRIBUTING hâlâ “stdlib + quic-go” ve Vite 6 / ESLint 9 diyor. Backend’de quic-go bağımlılığı yok; panel package.json Vite 8 / ESLint 10 kullanıyor.
-- README circuit breaker’ı lock-free olarak tarif ediyor; güncel [CircuitBreaker](../internal/proxy/circuit.go) geçişleri mutex ile seri hale getiriyor. Bu bir performans kusuru kanıtı değildir; açıklamanın kodla uyuşmamasıdır.
+- README circuit breaker’ı lock-free olarak tarif ediyor; güncel [CircuitBreaker](../../internal/proxy/circuit.go) geçişleri mutex ile seri hale getiriyor. Bu bir performans kusuru kanıtı değildir; açıklamanın kodla uyuşmamasıdır.
 - CLAUDE.md, kütüphanede daha fazla katman için internal engine’e erişilip `AddLayer` çağrılmasını öneriyor. Public `Engine` içindeki motor alanı dışarı açılmıyor; dış uygulamalar Go `internal` paketlerini doğrudan import edemez. Öneri mevcut public API ile uygulanabilir değil.
 - Eski production-readiness raporu temiz çalışma ağacı ve o tarihteki başarılı kontrolleri anlatıyor. Bugünkü 293 dosyalık değişiklik setine otomatik kanıt sayılmamalı.
 - ADR ve roadmap dosyalarında kaldırılmış modüller hâlâ tasarım olarak listeleniyor. Tarihçe ile aktif yetenekler ayrı başlıklarda ve açık durum etiketleriyle gösterilmeli.
@@ -294,4 +294,4 @@ Proje önemli miktarda çalışan kod ve güçlü bir regresyon tabanı içeriyo
 
 Bu çalışmanın somut çıktısı üç açık kusur, yeniden çalıştırılmış kalite ölçümleri, modül bazlı durum tablosu ve önceliklendirilmiş uygulama listesidir. Ürün kodu değiştirilmedi; kusurlar açık olarak bırakıldı.
 
-Son içerik karşılaştırmasında başlangıçta kaydedilen 293 dosyanın hash’leri aynı kaldı. Git durumuna yeni rapor dosyası eklendi. [İçerik koruma sonucu](../.temp_files/project_review_20261026/preservation-check.json) ve [ayrıntılı evidence ledger](../.temp_files/ledger_project_review_20261026.md) inceleme kayıtlarıyla birlikte saklanıyor.
+Son içerik karşılaştırmasında başlangıçta kaydedilen 293 dosyanın hash’leri aynı kaldı. Git durumuna yeni rapor dosyası eklendi. [İçerik koruma sonucu](../../.temp_files/project_review_20261026/preservation-check.json) ve [ayrıntılı evidence ledger](../../.temp_files/ledger_project_review_20261026.md) inceleme kayıtlarıyla birlikte saklanıyor.

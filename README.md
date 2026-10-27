@@ -827,6 +827,7 @@ Design choices for performance:
 | [Getting Started](docs/getting-started.md) | Installation and first deployment |
 | [Configuration Reference](docs/configuration.md) | Full YAML schema with every field |
 | [Production Config Profiles](docs/config-profiles.md) | Validated profile configs and rollout runbooks |
+| [Production Readiness](docs/production-readiness.md) | What is stable, known limits, remaining roadmap |
 | [Production Deployment](docs/production-deployment.md) | Production hardening, security, monitoring |
 | [Kubernetes and Helm Deployment](docs/kubernetes-helm.md) | Secret, persistence, and ingress examples for cluster deployments |
 | [Health Probes](docs/health-probes.md) | Liveness, readiness, and legacy health endpoint semantics |

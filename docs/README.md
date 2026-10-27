@@ -18,6 +18,7 @@ Complete documentation index for GuardianWAF — the zero-dependency, embeddable
 
 | Document | Description |
 |----------|-------------|
+| [Production Readiness](production-readiness.md) | What is stable, known limits, remaining roadmap and release exit criteria |
 | [Production Deployment](production-deployment.md) | Production best practices, reverse proxy integration, TLS |
 | [Clustering & HA](clustering.md) | Multi-node cluster setup, gossip peer discovery, Raft replication, leader redirect, observability |
 | [Metrics & Monitoring](metrics.md) | Prometheus metrics reference, scraping config, tracing setup |
