@@ -25,6 +25,11 @@ func analyzeSignificant(significant []Token, location string) []engine.Finding {
 	// 2. String literal + OR/AND keyword (with tautology check)
 	findings = append(findings, checkBooleanInjection(significant, location)...)
 
+	// 2b. Quote breakout followed by boolean logic and a comment or tautology
+	if f, ok := checkQuoteBreakoutLogic(significant, location); ok {
+		findings = append(findings, f)
+	}
+
 	// 3. SEMICOLON + dangerous keyword (stacked queries)
 	if f, ok := checkStackedQuery(significant, location); ok {
 		findings = append(findings, f)
@@ -481,7 +486,13 @@ func checkExecString(tokens []Token, location string) (engine.Finding, bool) {
 					if tokens[j].Type == TokenParenOpen {
 						continue
 					}
-					if tokens[j].Type == TokenStringLiteral || tokens[j].Type == TokenOther || tokens[j].Type == TokenFunction {
+					// A bare identifier counts only when it is shaped like an
+					// executable target — a system/stored procedure (xp_, sp_),
+					// a schema-qualified name (master..xp_cmdshell, dbo.proc) or
+					// a variable (@sql). Any word used to match, so ordinary
+					// text such as "exec office chair" scored 80 and blocked.
+					if tokens[j].Type == TokenStringLiteral || tokens[j].Type == TokenFunction ||
+						tokens[j].Type == TokenOther && looksLikeExecTarget(tokens[j].Value) {
 						matched := extractRange(tokens, i, min(len(tokens)-1, j+2))
 						return makeFinding(80, engine.SeverityHigh,
 							"EXEC/EXECUTE with dynamic argument",
@@ -493,6 +504,76 @@ func checkExecString(tokens []Token, location string) (engine.Finding, bool) {
 		}
 	}
 	return engine.Finding{}, false
+}
+
+// checkQuoteBreakoutLogic detects the canonical injection shape: a bare quote
+// that closes the application's string literal, optional closing parens, a
+// boolean operator, and then either a comment that discards the rest of the
+// query (`' OR 1 --`, `' HAVING 1=1 --`, `'||1=1 --`) or a literal comparison
+// that re-balances the trailing quote (`' OR ''='`, `') OR ('1'='1`).
+//
+// Natural text never puts OR/AND/||/&& directly after an apostrophe — "it's",
+// "O'Brien or" and "rock 'n' roll" all continue with a word — so the shape is
+// scored above the block threshold on its own.
+func checkQuoteBreakoutLogic(tokens []Token, location string) (engine.Finding, bool) {
+	for i := 0; i < len(tokens); i++ {
+		if tokens[i].Type != TokenStringLiteral || (tokens[i].Value != "'" && tokens[i].Value != `"`) {
+			continue
+		}
+		j := i + 1
+		for j < len(tokens) && tokens[j].Type == TokenParenClose {
+			j++
+		}
+		if j >= len(tokens) {
+			continue
+		}
+		logic := false
+		switch {
+		case tokens[j].Type == TokenKeyword:
+			switch tokenUpperValue(tokens[j]) {
+			case "OR", "AND", "XOR", "HAVING":
+				logic = true
+			case "GROUP", "ORDER": // ' ORDER BY 1-- (column-count probe)
+				logic = j+1 < len(tokens) && tokenUpperValue(tokens[j+1]) == "BY"
+			}
+		case j+1 < len(tokens) && tokens[j].Value == "|" && tokens[j+1].Value == "|",
+			j+1 < len(tokens) && tokens[j].Value == "&" && tokens[j+1].Value == "&",
+			tokens[j].Value == "||", tokens[j].Value == "&&":
+			logic = true
+		}
+		if !logic {
+			continue
+		}
+		comparison := false
+		for k := j + 1; k < len(tokens); k++ {
+			switch {
+			case tokens[k].Type == TokenComment:
+				return makeFinding(60, engine.SeverityHigh,
+					"Quote breakout with boolean logic and the remainder commented out",
+					extractRange(tokens, i, k), location, 0.90), true
+			case tokens[k].Type == TokenOperator && (tokens[k].Value == "=" || tokens[k].Value == "<>" || tokens[k].Value == "!="):
+				comparison = true
+			case comparison && k >= len(tokens)-2 && tokens[k].Type == TokenStringLiteral &&
+				(tokens[k].Value == "'" || tokens[k].Value == `"`):
+				// The comparison ends in a bare quote (optionally followed by
+				// one literal) that the application's own closing quote
+				// completes: `' OR ''='`, `') OR ('1'='1`.
+				return makeFinding(60, engine.SeverityHigh,
+					"Quote breakout with boolean tautology balancing the closing quote",
+					extractRange(tokens, i, k), location, 0.85), true
+			}
+		}
+	}
+	return engine.Finding{}, false
+}
+
+// looksLikeExecTarget reports whether an identifier after EXEC/EXECUTE names
+// something executable rather than being an ordinary word.
+func looksLikeExecTarget(ident string) bool {
+	lower := strings.ToLower(ident)
+	return strings.HasPrefix(lower, "xp_") || strings.HasPrefix(lower, "sp_") ||
+		strings.HasPrefix(lower, "@") || strings.Contains(lower, ".") ||
+		strings.Contains(lower, "_")
 }
 
 // checkCharConcat checks for CHAR/CONCAT with parentheses (obfuscation pattern).
