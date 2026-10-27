@@ -272,15 +272,6 @@ func DefaultConfig() *Config {
 				RetryDelay:         5 * time.Second,
 				Clusters:           []ClusterMembership{},
 			},
-			Cluster: ClusterConfig{
-				Enabled:            false,
-				NodeID:             "",
-				BindAddr:           "",
-				Peers:              nil,
-				ElectionTimeoutMin: 500 * time.Millisecond,
-				ElectionTimeoutMax: 1000 * time.Millisecond,
-				HeartbeatInterval:  100 * time.Millisecond,
-			},
 			Remediation: RemediationConfig{
 				Enabled:             false,
 				AutoApply:           false,
@@ -357,6 +348,14 @@ func DefaultConfig() *Config {
 			Storage:   "memory",
 			MaxEvents: 100000,
 			FilePath:  "/var/log/guardianwaf/events.jsonl",
+		},
+		// Raft timings for the top-level cluster block that cluster_runtime
+		// reads (docs/clustering.md). They previously sat on the removed
+		// waf.cluster block, leaving these zero.
+		Cluster: ClusterConfig{
+			ElectionTimeoutMin: 2 * time.Second,
+			ElectionTimeoutMax: 4 * time.Second,
+			HeartbeatInterval:  50 * time.Millisecond,
 		},
 	}
 }
