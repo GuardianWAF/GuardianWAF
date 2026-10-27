@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -71,6 +72,33 @@ type Target struct {
 type TargetPolicy struct {
 	AllowPrivateTargets bool
 	AllowedCIDRs        []*net.IPNet
+	// TrustedProxies are direct peers whose X-Forwarded-For chain and
+	// X-Forwarded-Proto are passed upstream. Any other peer's forwarding
+	// headers are client-controlled and replaced.
+	TrustedProxies []*net.IPNet
+}
+
+// ParseTrustedProxies parses trusted-proxy CIDRs or single IPs. Entries are
+// validated at config load; unparsable ones are skipped here.
+func ParseTrustedProxies(entries []string) []*net.IPNet {
+	var out []*net.IPNet
+	for _, e := range entries {
+		e = strings.TrimSpace(e)
+		if ip := net.ParseIP(e); ip != nil {
+			bits := 128
+			if ip4 := ip.To4(); ip4 != nil {
+				ip, bits = ip4, 32
+			}
+			out = append(out, &net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)})
+		} else if _, cidr, err := net.ParseCIDR(e); err == nil {
+			out = append(out, cidr)
+		}
+	}
+	return out
+}
+
+func (p TargetPolicy) trustsPeer(ip net.IP) bool {
+	return ip != nil && slices.ContainsFunc(p.TrustedProxies, func(c *net.IPNet) bool { return c.Contains(ip) })
 }
 
 // IsPrivateOrReservedIP checks if a host resolves to a private, loopback,
@@ -364,22 +392,40 @@ func NewTargetWithPolicy(rawURL string, weight int, policy TargetPolicy) (*Targe
 			pr.SetURL(u)             // route to target scheme/host/base-path
 			pr.Out.Host = pr.In.Host // preserve the inbound Host header upstream
 
-			// Append the immediate peer IP to X-Forwarded-For. Director mode did
-			// this automatically in ServeHTTP; Rewrite mode does not — and it also
-			// strips the inbound chain from pr.Out — so read the prior chain from
-			// pr.In and replicate the append (SetXForwarded would drop the chain).
-			if clientIP, _, err := net.SplitHostPort(pr.In.RemoteAddr); err == nil {
-				if prior := pr.In.Header.Values("X-Forwarded-For"); len(prior) > 0 {
-					clientIP = strings.Join(prior, ", ") + ", " + clientIP
+			// Append the immediate peer IP to X-Forwarded-For. Rewrite mode
+			// strips the inbound chain from pr.Out, so the prior chain is read
+			// from pr.In — but only a trusted proxy's chain is kept: from any
+			// other peer it is client-forged, and backends reading the leftmost
+			// entry would log, rate-limit or authorize the forged address.
+			peerTrusted := false
+			if peer, _, err := net.SplitHostPort(pr.In.RemoteAddr); err == nil {
+				peerTrusted = policy.trustsPeer(net.ParseIP(peer))
+				chain := peer
+				if prior := pr.In.Header.Values("X-Forwarded-For"); peerTrusted && len(prior) > 0 {
+					chain = strings.Join(prior, ", ") + ", " + peer
 				}
-				pr.Out.Header.Set("X-Forwarded-For", clientIP)
+				pr.Out.Header.Set("X-Forwarded-For", chain)
 			}
 
+			// X-Forwarded-Proto reflects the client-facing scheme: a trusted
+			// TLS-terminating proxy's value is kept, otherwise it comes from
+			// this hop. Backends rely on it for redirects and Secure cookies.
+			// (Rewrite strips the inbound value from pr.Out, so it is set here.)
+			proto := pr.In.Header.Get("X-Forwarded-Proto")
+			if !peerTrusted || proto == "" {
+				proto = "http"
+				if pr.In.TLS != nil {
+					proto = "https"
+				}
+			}
+			pr.Out.Header.Set("X-Forwarded-Proto", proto)
+
 			// Strip client-injected forwarding headers (defense-in-depth): clients
-			// can set non-standard ones like X-Forwarded-Host to confuse backends.
+			// can set non-standard ones like X-Forwarded-Host, or an RFC 7239
+			// Forwarded header, to confuse backends.
 			pr.Out.Header.Del("X-Forwarded-Host")
-			pr.Out.Header.Del("X-Forwarded-Proto")
 			pr.Out.Header.Del("X-Real-IP")
+			pr.Out.Header.Del("Forwarded")
 
 			// Propagate correlation ID across hops; preserve an existing one.
 			if pr.Out.Header.Get("X-Correlation-ID") == "" {

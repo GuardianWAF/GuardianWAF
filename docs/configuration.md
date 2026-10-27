@@ -35,6 +35,10 @@ listen: ":8088"                  # Default: :8088
 # Leave empty when GuardianWAF is directly internet-facing. Configure only the
 # actual load balancer, ingress, or reverse proxy addresses that connect to
 # GuardianWAF; never trust broad client networks.
+# Upstreams receive X-Forwarded-For with the client chain kept only when the
+# direct peer is trusted (otherwise just the peer IP), and X-Forwarded-Proto
+# from a trusted peer or from this hop's TLS state. Forwarded, X-Forwarded-Host
+# and X-Real-IP are always stripped.
 trusted_proxies: []              # Example: ["10.0.0.10", "192.0.2.0/24"]
 
 # Private/reserved upstreams are blocked by default. Prefer a narrow allowlist
