@@ -67,15 +67,18 @@ func (ms *MemoryStore) Store(event engine.Event) error {
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
 
+	slot := ms.slot(ms.head)
 	// If buffer is full, remove the old event at head from the index
 	if ms.count == ms.capacity {
-		oldID := ms.at(ms.head).ID
-		if ms.index[oldID] == ms.head {
-			delete(ms.index, oldID)
+		if ms.index[slot.ID] == ms.head {
+			delete(ms.index, slot.ID)
 		}
 	}
 
-	*ms.slot(ms.head) = cloneEvent(event)
+	// Copy in place rather than through cloneEvent's return value: an Event
+	// is 440 bytes, and this is the per-request write path.
+	*slot = event
+	slot.Findings = slices.Clone(event.Findings)
 	ms.index[event.ID] = ms.head
 
 	ms.head = (ms.head + 1) % ms.capacity
