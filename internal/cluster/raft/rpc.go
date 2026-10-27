@@ -107,3 +107,27 @@ func DecodeAppendEntriesResp(data []byte) (AppendEntriesResponse, error) {
 	err := json.Unmarshal(data, &resp)
 	return resp, err
 }
+
+// EncodeInstallSnapshot encodes an InstallSnapshotRequest as JSON.
+func EncodeInstallSnapshot(req InstallSnapshotRequest) ([]byte, error) {
+	return json.Marshal(req)
+}
+
+// DecodeInstallSnapshot decodes an InstallSnapshotRequest from JSON.
+func DecodeInstallSnapshot(data []byte) (InstallSnapshotRequest, error) {
+	var req InstallSnapshotRequest
+	err := json.Unmarshal(data, &req)
+	return req, err
+}
+
+// EncodeInstallSnapshotResp encodes an InstallSnapshotResponse as JSON.
+func EncodeInstallSnapshotResp(resp InstallSnapshotResponse) ([]byte, error) {
+	return json.Marshal(resp)
+}
+
+// DecodeInstallSnapshotResp decodes an InstallSnapshotResponse from JSON.
+func DecodeInstallSnapshotResp(data []byte) (InstallSnapshotResponse, error) {
+	var resp InstallSnapshotResponse
+	err := json.Unmarshal(data, &resp)
+	return resp, err
+}
