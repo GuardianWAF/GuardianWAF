@@ -4,10 +4,12 @@
 package config
 
 import (
+	"maps"
 	"strings"
 	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/netutil"
+	"github.com/guardianwaf/guardianwaf/internal/tracing"
 )
 
 // Config is the top-level configuration for GuardianWAF.
@@ -998,10 +1000,22 @@ type SchemaSourceConfig struct {
 
 // TracingConfig controls built-in distributed tracing.
 type TracingConfig struct {
-	Enabled      bool    `yaml:"enabled"`
-	ServiceName  string  `yaml:"service_name"`
-	SamplingRate float64 `yaml:"sampling_rate"` // 0.0-1.0
-	ExporterType string  `yaml:"exporter_type"` // "stdout", "noop"
+	Enabled      bool              `yaml:"enabled"`
+	ServiceName  string            `yaml:"service_name"`
+	SamplingRate float64           `yaml:"sampling_rate"` // 0.0-1.0
+	ExporterType string            `yaml:"exporter_type"` // "noop", "stdout", "otlp"
+	OTLP         TracingOTLPConfig `yaml:"otlp"`
+}
+
+// TracingOTLPConfig configures the OTLP/HTTP (JSON) exporter used when
+// exporter_type is "otlp". Zero values select the exporter defaults.
+type TracingOTLPConfig struct {
+	Endpoint      string            `yaml:"endpoint"`       // default http://localhost:4318/v1/traces
+	Headers       map[string]string `yaml:"headers"`        // e.g. Authorization for a hosted collector
+	Timeout       time.Duration     `yaml:"timeout"`        // per request; default 10s
+	BatchSize     int               `yaml:"batch_size"`     // spans per request; default 512
+	FlushInterval time.Duration     `yaml:"flush_interval"` // default 5s
+	QueueSize     int               `yaml:"queue_size"`     // buffered spans before dropping; default 2048
 }
 
 // ComplianceConfig controls compliance reporting (PCI DSS, GDPR, SOC 2, ISO 27001).
@@ -1090,4 +1104,16 @@ func FindVirtualHost(vhosts []VirtualHostConfig, host string) *VirtualHostConfig
 // stripHostPort removes the port suffix from a host string, handling IPv6 brackets.
 func stripHostPort(host string) string {
 	return netutil.StripPort(host)
+}
+
+// ToTracing converts the YAML block to the tracing package's exporter config.
+func (c TracingOTLPConfig) ToTracing() tracing.OTLPConfig {
+	return tracing.OTLPConfig{
+		Endpoint:      c.Endpoint,
+		Headers:       maps.Clone(c.Headers),
+		Timeout:       c.Timeout,
+		BatchSize:     c.BatchSize,
+		FlushInterval: c.FlushInterval,
+		QueueSize:     c.QueueSize,
+	}
 }

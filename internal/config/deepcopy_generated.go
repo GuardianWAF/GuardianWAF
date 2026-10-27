@@ -1638,6 +1638,27 @@ func (in *TracingConfig) DeepCopy() *TracingConfig {
 	out.ServiceName = in.ServiceName
 	out.SamplingRate = in.SamplingRate
 	out.ExporterType = in.ExporterType
+	out.OTLP = *((in.OTLP).DeepCopy())
+	return &out
+}
+func (in *TracingOTLPConfig) DeepCopy() *TracingOTLPConfig {
+	if in == nil {
+		return nil
+	}
+	out := *in // shallow copy of scalar fields
+	out.Endpoint = in.Endpoint
+	if in.Headers != nil {
+		out.Headers = make(map[string]string, len(in.Headers))
+		for k0, v0 := range in.Headers {
+			copy0 := v0
+			copy0 = v0
+			(out.Headers)[k0] = copy0
+		}
+	}
+	out.Timeout = in.Timeout
+	out.BatchSize = in.BatchSize
+	out.FlushInterval = in.FlushInterval
+	out.QueueSize = in.QueueSize
 	return &out
 }
 func (in *ComplianceConfig) DeepCopy() *ComplianceConfig {

@@ -394,12 +394,49 @@ tracing:
 ```
 
 `sampling_rate` must be a finite value from `0` to `1`. The built-in exporter
-types are `noop` and `stdout`; unsupported values fail config validation.
-`stdout` emits one JSON line synchronously per completed span and is intended
-for controlled diagnostics with sampling. GuardianWAF does not currently ship
-an OTLP/Jaeger network exporter or W3C trace-context propagation; do not use
-design-era OTLP fields such as `endpoint` or `export_interval` in production
-config.
+types are `noop`, `stdout` and `otlp`; unsupported values fail config
+validation. `stdout` emits one JSON line synchronously per completed span and is
+intended for controlled diagnostics with sampling.
+
+### OTLP export
+
+`exporter_type: otlp` sends spans to an OpenTelemetry collector (or any
+backend that accepts OTLP/HTTP, such as Tempo, Jaeger 1.35+ or a hosted
+service) using OTLP/HTTP with JSON encoding:
+
+<!-- guardianwaf-config:validate -->
+```yaml
+tracing:
+  enabled: true
+  service_name: guardianwaf
+  sampling_rate: 0.05
+  exporter_type: otlp
+  otlp:
+    endpoint: http://otel-collector:4318/v1/traces  # default http://localhost:4318/v1/traces
+    headers:                                         # optional, e.g. a hosted-backend token
+      x-api-key: ${OTLP_API_KEY}
+    timeout: 10s          # per request (default 10s)
+    batch_size: 512       # spans per request (default 512)
+    flush_interval: 5s    # longest a span waits before sending (default 5s)
+    queue_size: 2048      # spans buffered while sending (default 2048)
+```
+
+- `endpoint` is the full traces URL, including `/v1/traces`. It must be
+  `http` or `https`, with no credentials, query or fragment. Put tokens in
+  `headers`, ideally through a `${PLACEHOLDER}` or `GWAF_TRACING_OTLP_HEADERS`.
+  Private and loopback collectors are allowed because the collector is
+  operator-controlled.
+- Export never blocks a request. Spans are copied into a bounded queue and sent
+  in batches by one background goroutine. When the queue is full, or a batch
+  cannot be delivered, spans are dropped and counted in
+  `guardianwaf_tracing_spans_dropped_total`.
+- `429`, `502`, `503`, `504` and network errors are retried up to three times
+  with backoff. Other non-2xx responses drop the batch. Redirects are not
+  followed, so the headers are never sent to another origin.
+- Config reload and shutdown flush queued spans, bounded by `timeout`.
+- The gRPC transport (port 4317) and protobuf encoding are not supported.
+  Incoming W3C `traceparent` headers are not yet joined and not propagated
+  upstream, so each request starts a new trace.
 
 ---
 
@@ -484,7 +521,9 @@ of silently retaining a default.
 | `GWAF_TRACING_ENABLED` | `tracing.enabled` | `true` |
 | `GWAF_TRACING_SERVICE_NAME` | `tracing.service_name` | `guardianwaf` |
 | `GWAF_TRACING_SAMPLING_RATE` | `tracing.sampling_rate` | `0.1` |
-| `GWAF_TRACING_EXPORTER_TYPE` | `tracing.exporter_type` | `stdout` |
+| `GWAF_TRACING_EXPORTER_TYPE` | `tracing.exporter_type` | `otlp` |
+| `GWAF_TRACING_OTLP_ENDPOINT` | `tracing.otlp.endpoint` | `https://otel-collector:4318/v1/traces` |
+| `GWAF_TRACING_OTLP_HEADERS` | `tracing.otlp.headers` (`k=v,k2=v2`; values may be percent-encoded) | `x-api-key=abc123` |
 | `GWAF_LOGGING_MAX_SIZE_MB` | `logging.max_size_mb` | `100` |
 | `GWAF_LOGGING_MAX_BACKUPS` | `logging.max_backups` | `5` |
 | `GWAF_LOGGING_MAX_AGE_DAYS` | `logging.max_age_days` | `30` |

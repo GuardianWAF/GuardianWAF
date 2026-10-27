@@ -52,6 +52,7 @@ GuardianWAF exposes Prometheus-compatible text metrics at `/metrics` on the **da
 | `guardianwaf_tracing_enabled` | gauge | none | `1` when the engine-local tracing runtime is enabled, otherwise `0`. |
 | `guardianwaf_tracing_spans_created_total` | counter | none | Tracing spans created by the engine. |
 | `guardianwaf_tracing_spans_exported_total` | counter | none | Tracing spans handed to the configured exporter. |
+| `guardianwaf_tracing_spans_dropped_total` | counter | none | Tracing spans the exporter dropped because its queue was full or delivery failed (OTLP). |
 | `guardianwaf_cluster_member_count` | gauge | none | Number of nodes in the cluster (peers + self). Only emitted when cluster mode is active. |
 | `guardianwaf_cluster_is_leader` | gauge | none | `1` if this node is the Raft leader, `0` otherwise. |
 | `guardianwaf_cluster_raft_term` | gauge | none | Current Raft term number. |
