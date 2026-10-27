@@ -10,19 +10,25 @@ import (
 // A large-capacity store must not allocate its full ring up front: the
 // default 100,000-event capacity used to cost ~44 MB per engine at startup.
 func TestMemoryStoreAllocatesLazily(t *testing.T) {
-	allocated := testing.AllocsPerRun(1, func() { _ = NewMemoryStore(100000) })
 	ms := NewMemoryStore(100000)
-	if c := cap(ms.buffer); c > memoryStoreInitialSize {
-		t.Fatalf("NewMemoryStore(100000) preallocated %d slots, want at most %d", c, memoryStoreInitialSize)
+	for i, c := range ms.chunks {
+		if c != nil {
+			t.Fatalf("chunk %d allocated before any event was stored", i)
+		}
 	}
-	if allocated > 10 {
-		t.Fatalf("NewMemoryStore made %v allocations", allocated)
+	_ = ms.Store(engine.Event{ID: "first"})
+	allocated := 0
+	for _, c := range ms.chunks {
+		allocated += len(c)
+	}
+	if allocated != memoryChunkSize {
+		t.Fatalf("one stored event allocated %d slots, want one chunk (%d)", allocated, memoryChunkSize)
 	}
 }
 
 // Ring semantics are unchanged across the grow-then-wrap transition.
 func TestMemoryStoreLazyRingSemantics(t *testing.T) {
-	const capacity = memoryStoreInitialSize*2 + 7
+	const capacity = memoryChunkSize*2 + 7 // partial last chunk
 	ms := NewMemoryStore(capacity)
 	total := capacity*2 + 3
 	for i := range total {
@@ -47,8 +53,12 @@ func TestMemoryStoreLazyRingSemantics(t *testing.T) {
 			}
 		}
 	}
-	if len(ms.buffer) != capacity {
-		t.Fatalf("buffer length %d, want capacity %d once full", len(ms.buffer), capacity)
+	slots := 0
+	for _, c := range ms.chunks {
+		slots += len(c)
+	}
+	if slots != capacity {
+		t.Fatalf("allocated %d slots once full, want exactly capacity %d", slots, capacity)
 	}
 	if _, err := ms.Get("e0"); err == nil {
 		t.Fatal("overwritten event is still retrievable")

@@ -1,7 +1,6 @@
 package tenant
 
 import (
-	"os"
 	"strings"
 	"testing"
 )
@@ -11,12 +10,11 @@ import (
 // exactly as in production.
 const testAPIKeyHashIterations = 1000
 
-func TestMain(m *testing.M) {
+func init() {
 	apiKeyHashIterations = testAPIKeyHashIterations
-	os.Exit(m.Run())
 }
 
-// Guards the production cost: lowering it in TestMain must never leak into
+// Guards the production cost: lowering it in tests must never leak into
 // the shipped default.
 func TestAPIKeyHashProductionCost(t *testing.T) {
 	if apiKeyHashIterationsDefault < 600000 {
