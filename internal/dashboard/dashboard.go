@@ -111,8 +111,8 @@ type Dashboard struct {
 	loginBuckets sync.Map // map[string]*loginBucket
 	// sessionsNotBefore (unix seconds): sessions created earlier are revoked.
 	sessionsNotBefore atomic.Int64
-	loginStopCh  chan struct{}
-	cleanupWG    sync.WaitGroup
+	loginStopCh       chan struct{}
+	cleanupWG         sync.WaitGroup
 
 	// API rate limiting: per-IP token buckets for authenticated endpoints
 	apiBuckets sync.Map // map[string]*apiBucket
