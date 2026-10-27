@@ -652,6 +652,22 @@ func extractClientIP(r *http.Request) net.IP {
 	return extractClientIPWithTrustedProxies(r, cidrs)
 }
 
+// parseForwardedIP parses one X-Forwarded-For entry. Some proxies (e.g. Azure
+// Application Gateway) append "ip:port" or "[v6]:port" rather than a bare IP.
+func parseForwardedIP(entry string) net.IP {
+	entry = strings.TrimSpace(entry)
+	if ip := net.ParseIP(entry); ip != nil {
+		return ip
+	}
+	if host, _, err := net.SplitHostPort(entry); err == nil {
+		return net.ParseIP(host)
+	}
+	if strings.HasPrefix(entry, "[") && strings.HasSuffix(entry, "]") {
+		return net.ParseIP(entry[1 : len(entry)-1])
+	}
+	return nil
+}
+
 func extractClientIPWithTrustedProxies(r *http.Request, trustedCIDRs []*net.IPNet) net.IP {
 	remoteIP := parseRemoteAddr(r.RemoteAddr)
 	if remoteIP == nil {
@@ -672,18 +688,26 @@ func extractClientIPWithTrustedProxies(r *http.Request, trustedCIDRs []*net.IPNe
 	// attacker-orderable line decide the client IP while the
 	// proxy-appended entry lived in a later line (same family as the
 	// ctx.Cookies / multi-value header capture fixes).
+	//
+	// An entry that cannot be parsed ends the walk: everything to its left
+	// was not vouched for by a trusted hop, so skipping it would let a
+	// client-forged entry win. The last trusted hop is returned instead. An
+	// all-trusted chain resolves to RemoteAddr; X-Real-IP is not consulted
+	// once X-Forwarded-For is present because it may be client-supplied.
 	if xffLines := r.Header.Values("X-Forwarded-For"); len(xffLines) > 0 {
 		parts := strings.Split(strings.Join(xffLines, ","), ",")
+		lastTrusted := remoteIP
 		for i := len(parts) - 1; i >= 0; i-- {
-			ipStr := strings.TrimSpace(parts[i])
-			ip := net.ParseIP(ipStr)
+			ip := parseForwardedIP(parts[i])
 			if ip == nil {
-				continue
+				return lastTrusted
 			}
 			if !isTrustedProxyIn(ip, trustedCIDRs) {
 				return ip
 			}
+			lastTrusted = ip
 		}
+		return remoteIP
 	}
 
 	// Check X-Real-IP
