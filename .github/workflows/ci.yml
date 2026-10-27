@@ -440,7 +440,7 @@ jobs:
 
       - name: Run benchmarks
         run: |
-          go test -bench=. -benchmem -run=^$ -count=3 ./... 2>&1 | tee benchmark-new.txt
+          go test -bench=. -benchmem -run=^$ -count=6 -benchtime=200ms ./... 2>&1 | tee benchmark-new.txt
 
       - name: Compare with base branch
         if: github.event_name == 'pull_request'
@@ -449,18 +449,18 @@ jobs:
         run: |
           git stash
           git checkout "origin/${BASE_REF}"
-          go test -bench=. -benchmem -run=^$ -count=3 ./... 2>&1 | tee benchmark-base.txt || true
+          go test -bench=. -benchmem -run=^$ -count=6 -benchtime=200ms ./... 2>&1 | tee benchmark-base.txt || true
           git checkout -
           git stash pop || true
           if [ -f benchmark-base.txt ] && [ -s benchmark-base.txt ]; then
             go install golang.org/x/perf/cmd/benchstat@v0.0.0-20260610192853-712aea8b4705
             benchstat benchmark-base.txt benchmark-new.txt > benchstat-output.txt 2>&1 || true
             cat benchstat-output.txt
-            # Fail if any benchmark shows a >=10% regression. benchstat prints a
-            # "+N%" delta in the "vs base" column for a slowdown (and "~" for no
-            # significant change); match a positive delta whose integer part is
-            # two or more digits (>=10%).
-            if grep -qE '\+[1-9][0-9]+(\.[0-9]+)?%' benchstat-output.txt; then
+            # Fail if any benchmark shows a statistically significant >=10%
+            # regression. benchstat prints "+N% (p=… n=…)" for a significant
+            # slowdown and "~" otherwise; geomean rows carry no significance
+            # test, so only deltas followed by a p-value count.
+            if grep -qE '\+[1-9][0-9]+(\.[0-9]+)?% \(p=' benchstat-output.txt; then
               echo "::error::Benchmark regression detected (>=10% slowdown)"
               exit 1
             fi

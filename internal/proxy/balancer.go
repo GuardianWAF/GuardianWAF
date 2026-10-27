@@ -107,7 +107,7 @@ func (b *Balancer) Strategy() string {
 func (b *Balancer) healthyTargets() []*Target {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	var result []*Target
+	result := make([]*Target, 0, len(b.targets))
 	for _, t := range b.targets {
 		if t.Closed() {
 			continue
