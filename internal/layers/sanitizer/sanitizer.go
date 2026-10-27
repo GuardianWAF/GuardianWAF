@@ -114,6 +114,20 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 			}
 		}
 
+		// Cookies are normalized after form-style decoding ("+" as space),
+		// mirroring query values, which net/url has already decoded.
+		ctx.NormalizedCookies = make(map[string][]string, len(ctx.Cookies))
+		for k, vs := range ctx.Cookies {
+			normalized := make([]string, len(vs))
+			for i, v := range vs {
+				if d, err := url.QueryUnescape(v); err == nil {
+					v = d
+				}
+				normalized[i] = NormalizeAll(v)
+			}
+			ctx.NormalizedCookies[k] = normalized
+		}
+
 		// Normalize headers
 		ctx.NormalizedHeaders = make(map[string][]string, len(ctx.Headers))
 		for k, vs := range ctx.Headers {

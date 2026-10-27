@@ -29,6 +29,8 @@ import (
 //	multipart POST /profile: multipart/form-data with comment=<sample> beside
 //	         a text field and a PNG upload
 //	json   POST /api/items with the sample as the JSON body
+//	cookie GET /account with Cookie: pref=<URL-encoded sample>
+//	cookie_raw GET /account with the sample line (name=value) as a cookie
 //	path   GET  /<sample>
 //	xml      POST /api/import with the sample as an XML body
 //	redirect GET  /login?next=<sample>
@@ -54,6 +56,16 @@ var placements = map[string]func(sample string) *http.Request{
 		_ = w.Close()
 		r := httptest.NewRequest(http.MethodPost, "/profile", &buf)
 		r.Header.Set("Content-Type", w.FormDataContentType())
+		return r
+	},
+	"cookie": func(s string) *http.Request {
+		r := httptest.NewRequest(http.MethodGet, "/account", nil)
+		r.Header.Set("Cookie", "theme=dark; pref="+url.QueryEscape(s))
+		return r
+	},
+	"cookie_raw": func(s string) *http.Request {
+		r := httptest.NewRequest(http.MethodGet, "/account", nil)
+		r.Header.Set("Cookie", "theme=dark; "+s)
 		return r
 	},
 	"json": func(s string) *http.Request {

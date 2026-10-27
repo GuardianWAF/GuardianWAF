@@ -1,0 +1,49 @@
+# Real-world cookie shapes (anonymized): analytics, consent managers, signed
+# sessions, framework sessions and app preferences, as browsers send them.
+# Each line is one name=value pair added to the Cookie header.
+# placement: cookie_raw
+_ga=GA1.2.1234567890.1698400000
+_gid=GA1.2.987654321.1698400000
+_ga_ABC123XYZ=GS1.1.1698400000.3.1.1698400123.0.0.0
+_fbp=fb.1.1698400000000.1234567890
+_gcl_au=1.1.1234567890.1698400000
+OptanonConsent=isGpcEnabled=0&datestamp=Tue+Oct+27+2026+10%3A32%3A11+GMT%2B0300+(GMT%2B03%3A00)&version=202310.1.0&browserGpcFlag=0&isIABGlobal=false&hosts=&consentId=8f14e45f-ceea-467f-a1d5-6f2c2d9ab8a1&interactionCount=1&landingPath=NotLandingPage&groups=C0001%3A1%2CC0002%3A0%2CC0003%3A1%2CC0004%3A0
+OptanonAlertBoxClosed=2026-10-27T07:32:11.123Z
+CookieConsent={stamp:%27-1%27%2Cnecessary:true%2Cpreferences:true%2Cstatistics:true%2Cmarketing:false%2Cmethod:%27explicit%27%2Cver:1%2Cutc:1698400000000%2Cregion:%27tr%27}
+euconsent-v2=CPzABCDPzABCDAKAhBENDECgAP_AAH_AAAqIHJNd_X__bX9n-_7_6ft0eY1f9_r37uQzDhfNs-8F3L_W_LwX32E7NF36tq4KmR4ku1bBIQNtHMnUDUmxaolVrzHsak2cpyNKJ_BkknsZe2dYGF9vm5tj-QKZ7_5_d3f52T_9_9v-39z33913v3d9f-_1-Pjde_5f_e7_ft_ft_P_9_8vV9_
+connect.sid=s%3AaBcDeFgHiJkLmNoPqRsTuVwXyZ012345.R7aK8nM2pQ4sT6vX8zB1dF3hJ5lN7pR9tV1xZ3bD5fH
+cart=j%3A%7B%22items%22%3A%5B%7B%22id%22%3A12%2C%22qty%22%3A2%7D%2C%7B%22id%22%3A45%2C%22qty%22%3A1%7D%5D%7D
+PHPSESSID=8l2k4j5h6g7f8d9s0a1q2w3e4r
+JSESSIONID=0F8A1B2C3D4E5F60718293A4B5C6D7E8.node01
+ASP.NET_SessionId=y2kq3vzgx1mfp0wnbu4r5ajc
+csrftoken=Zx8Qw2Er4Ty6Ui8Op0As2Df4Gh6Jk8Lz
+XSRF-TOKEN=eyJpdiI6IlV3cDJ1Q0x5VjJOd1E9PSIsInZhbHVlIjoiN1d3a0x4In0%3D
+laravel_session=eyJpdiI6IkFCQ0RFRkdISUpLTE1OT1A9PSIsInZhbHVlIjoiMTIzNDU2Nzg5MCIsIm1hYyI6ImFiY2RlZjEyMzQ1NiJ9
+remember_web_59ba36addc2b2f9401580f014c7f58ea4e30989d=eyJpdiI6IlpYaz0iLCJ2YWx1ZSI6IjEyMyIsIm1hYyI6IjQ1NiJ9
+_myapp_session=Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5MA%3D%3D--3f2a1b4c5d6e7f8091a2b3c4d5e6f70812345678
+wordpress_logged_in_5c1d3e2f4a6b8c0d=jane%7C1698400000%7CAbCdEfGhIjKlMnOpQrStUvWxYz0123456789%7C9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+wp-settings-1=libraryContent%3Dbrowse%26editor%3Dtinymce%26mfold%3Do
+__Secure-next-auth.session-token=eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2R0NNIn0..aBcDeFgHiJkLmNoP.qRsTuVwXyZ0123456789.AbCdEfGhIjKlMnOp
+__Host-session=v1.MTY5ODQwMDAwMHxEdi1CQkFFQ180SUFBUkFCRUFBQV8tPXw
+AWSALB=9KZ8Lq2Wn4Er6Ty8Ui0Op2As4Df6Gh8Jk0Lz2Xc4Vb6Nm8Qw0Er2Ty4Ui6Op8As0Df2Gh4Jk6Lz8Xc0Vb2Nm4Q
+AWSALBCORS=9KZ8Lq2Wn4Er6Ty8Ui0Op2As4Df6Gh8Jk0Lz2Xc4Vb6Nm8Qw0Er2Ty4Ui6Op8As0Df2Gh4Jk6Lz8Xc0Vb2Nm4Q
+cf_clearance=aBcDeFgHiJkLmNoPqRsTuVwXyZ.0123456789-1698400000-0-150
+__cf_bm=AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-1698400000-0-AbCdEf/GhIjKl+MnOpQr=
+lang=tr-TR
+theme=dark
+currency=EUR
+tz=Europe%2FIstanbul
+recently_viewed=12%2C45%2C78%2C103
+search_history=red+shoes%7Cwinter+jacket%7Cl%27oreal+shampoo
+last_search=O%27Reilly+books
+utm=%7B%22source%22%3A%22google%22%2C%22medium%22%3A%22cpc%22%2C%22campaign%22%3A%22black-friday%22%7D
+ab_test=checkout_v2%3Dvariant_b%3Bsearch_ranking%3Dcontrol
+user_prefs=%7B%22notifications%22%3Atrue%2C%22layout%22%3A%22grid%22%2C%22pageSize%22%3A48%7D
+display_name=Mary+O%27Neill
+returnTo=%2Faccount%2Forders%3Fpage%3D2
+flash=Your+order+has+been+placed.+We%27ll+email+you+when+it+ships%21
+intercom-session-abc123=OWJmNzE1ZmUtYjI4Ny00ZDk1LWE4NmItMDFlMmMzNGY1Njc4
+hubspotutk=8f14e45fceea467fa1d56f2c2d9ab8a1
+__hstc=123456789.8f14e45fceea467fa1d56f2c2d9ab8a1.1698400000000.1698400000000.1698400000000.1
+ajs_anonymous_id=%228f14e45f-ceea-467f-a1d5-6f2c2d9ab8a1%22
+mp_abc123_mixpanel=%7B%22distinct_id%22%3A%20%2218b6c0d2e3f%22%2C%22%24device_id%22%3A%20%2218b6c0d2e3f%22%2C%22%24initial_referrer%22%3A%20%22%24direct%22%7D

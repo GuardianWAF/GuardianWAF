@@ -78,10 +78,8 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 	for _, view := range ctx.BodyViews() {
 		scan(view, "body")
 	}
-	for _, vals := range ctx.Cookies {
-		for _, v := range vals {
-			scan(v, "cookie")
-		}
+	for _, v := range ctx.CookieViews() {
+		scan(v, "cookie")
 	}
 	if refs, ok := ctx.Headers["Referer"]; ok {
 		for _, v := range refs {
