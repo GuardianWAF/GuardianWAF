@@ -67,10 +67,15 @@ func startDashboard(cfg *config.Config, eng *engine.Engine) (*http.Server, *dash
 			return nil, nil, nil
 		}
 		cfg.Dashboard.APIKey = apiKey
-		fmt.Printf("[WARN] Dashboard API key not set - a new one has been generated.\n")
-		fmt.Printf("[WARN] The generated key is NOT shown here for security reasons.\n")
-		fmt.Printf("[WARN] To set a known key, set 'dashboard.api_key' in your config file.\n")
-		fmt.Printf("[WARN] Access dashboard at http://%s and use the generated API key, or place it behind TLS.\n", cfg.Dashboard.Listen)
+		fmt.Fprintln(os.Stderr, "[WARN] Dashboard API key not set - a new one has been generated for this run.")
+		// Show the key only on an interactive terminal: otherwise the dashboard
+		// would be unusable, while a non-TTY stderr usually lands in shared logs.
+		if isTerminal(os.Stderr) {
+			fmt.Fprintf(os.Stderr, "[WARN] Generated dashboard API key (shown once, not persisted): %s\n", apiKey)
+		} else {
+			fmt.Fprintln(os.Stderr, "[WARN] The generated key is not logged because stderr is not a terminal; the dashboard is unusable until a key is configured.")
+		}
+		fmt.Fprintln(os.Stderr, "[WARN] Set dashboard.api_key (or GWAF_DASHBOARD_API_KEY) to use a stable key.")
 		slog.Warn("dashboard API key was auto-generated; set dashboard.api_key in config to use a known key")
 	}
 
@@ -128,4 +133,10 @@ func startDashboard(cfg *config.Config, eng *engine.Engine) (*http.Server, *dash
 	}()
 
 	return srv, dash.SSE(), dash
+}
+
+// isTerminal reports whether f is an interactive character device.
+func isTerminal(f *os.File) bool {
+	info, err := f.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }

@@ -30,6 +30,8 @@ waf:
 
 dashboard:
   enabled: true
+  # All interfaces inside the container; publish it only on a private or
+  # loopback host address (the Compose files do not expose it publicly).
   listen: ":9443"
   api_key: "${GWAF_DASHBOARD_API_KEY}"
   admin_key: "${GWAF_DASHBOARD_ADMIN_KEY}"
