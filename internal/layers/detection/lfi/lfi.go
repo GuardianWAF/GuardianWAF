@@ -165,6 +165,7 @@ func Detect(input, location string) []engine.Finding {
 
 	// 3. Sensitive file paths
 	findings = append(findings, checkSensitivePaths(lower, location)...)
+	findings = append(findings, checkHomeSecrets(lower, location)...)
 
 	// 4. Windows paths
 	findings = append(findings, checkWindowsPaths(lower, location)...)

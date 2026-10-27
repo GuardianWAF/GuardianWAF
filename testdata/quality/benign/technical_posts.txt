@@ -61,3 +61,7 @@ We use feature flags to roll out the change to 10% of users.
 Blue-green deployment lets us switch traffic back instantly.
 Our SLO is 99.9% availability per 30 days.
 Postmortem: the outage was caused by a misconfigured load balancer.
+Add your public key to ~/.ssh/authorized_keys on the server, then chmod 600 it.
+aws configure stores the access key in ~/.aws/credentials by default.
+Run kubectl config view; it reads ~/.kube/config unless KUBECONFIG is set.
+If the build hangs, clear ~/.bash_history and re-run the provisioning script.
