@@ -110,6 +110,12 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 		}
 	}
 
+	// Application-defined headers (X-Original-URL, X-Api-Key, ...) are read
+	// by backends as data; see engine.CustomHeaderViews for what is skipped.
+	for _, v := range ctx.CustomHeaderViews() {
+		scan(v, "header")
+	}
+
 	// Apply multiplier
 	// Collapse the same finding discovered in more than one representation of
 	// the same field. Every input is scanned raw AND normalized, and when

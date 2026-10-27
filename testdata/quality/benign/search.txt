@@ -1,6 +1,6 @@
 # Realistic site and product search queries (EN/TR/DE/ES/FR), including words
 # and punctuation that resemble attack syntax.
-# placement: query
+# placement: query,header
 running shoes
 wireless headphones under $100
 iphone 15 pro max case

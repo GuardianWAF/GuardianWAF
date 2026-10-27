@@ -1,0 +1,106 @@
+# Application-defined request headers as real clients, SDKs, CDNs and webhook
+# senders send them (values anonymized). Each line is one "Name: value"
+# header added to an otherwise plain API request.
+# placement: header_raw
+X-Api-Key: key_EXAMPLE_notARealKey_0000000000000000
+X-Api-Key: EXAMPLE-api-key-9tSrke72PouQMnMX-a7eZSW0jkFMBWY
+X-Auth-Token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c
+X-Access-Token: gh_example_token_16C7e42F292c6912E7710c838
+X-Csrf-Token: 6d0f2c1e-8a4b-4e2d-9f1a-3b5c7d9e1f20
+X-Xsrf-Token: eyJpdiI6IjZ3V2hIbm9wQ0Y5RTlWQkZ3dzJ1Nmc9PSIsInZhbHVlIjoiY1dqT1grT2t6In0=
+X-Tenant-Id: acme-corp
+X-Tenant: tenant_7f3a9c
+X-Org-Id: org_2NFhX4b9yP0qQx1
+X-Workspace: marketing-team
+X-User-Id: 4f9d2c1a-77be-4b2e-9a13-0c5e8d2f6a91
+X-Account-Id: 123456789012
+X-Client-Version: 4.12.3 (build 20261020.1)
+X-App-Version: 2.31.0
+X-Platform: iOS 18.1; iPhone15,3
+X-Device-Id: 9C6E2F14-5B3A-4D8E-A1F7-0B2C4D6E8F10
+X-Client-Data: CIa2yQEIpbbJAQipncoBCLKKywEIk6HLAQiFoM0BCNy9zQEI3cTNAQ==
+X-Session-Id: s%3Aj9f8Kx2LmN0pQ.r4T6vW8yZ1bC3dE5fG7hI9jK
+X-Locale: tr-TR
+X-Timezone: Europe/Istanbul
+X-Currency: EUR
+X-Country: DE
+X-Forwarded-Host: shop.example.com
+X-Forwarded-Prefix: /api/v2
+X-Original-URL: /products/blue-widget?color=blue&size=m
+X-Rewrite-URL: /en/catalog/shoes
+X-Original-Forwarded-For: 203.0.113.7
+X-Envoy-External-Address: 198.51.100.23
+X-Envoy-Attempt-Count: 1
+X-Request-Start: t=1698400000123
+X-Queue-Start: t=1698400000.123
+X-Cloud-Trace-Context: 105445aa7843bc8bf206b12000100000/1;o=1
+X-Datadog-Trace-Id: 1234567890123456789
+X-Datadog-Parent-Id: 9876543210987654321
+X-Datadog-Sampling-Priority: 1
+X-Amz-Date: 20261027T120000Z
+X-Amz-Content-Sha256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+X-Amz-Security-Token: EXAMPLEb3JpZ2luX2VjEJr//////////wEaCXVzLWVhc3Qt+example/token+with/slashes==
+X-Amz-User-Agent: aws-sdk-js/3.450.0
+X-Amz-Target: DynamoDB_20120810.GetItem
+X-Goog-Api-Client: gl-node/20.10.0 gccl/7.7.0
+X-Goog-Request-Params: name=projects%2Fmy-proj%2Flocations%2Fus-central1
+X-Ms-Client-Request-Id: 2d9e1b7c-4a3f-4c8e-b6d0-1f2a3b4c5d6e
+X-Ms-Version: 2021-08-06
+Stripe-Signature: t=1698400000,v1=5257a869e7ecebeda32affa62cdca3fa51cad7e77a0e56ff536d0ce8e108d8bd
+X-Hub-Signature-256: sha256=757107ea0eb2509fc211221cce984b8a37570b6d7586c22c46f4379c8b043e17
+X-GitHub-Event: pull_request
+X-GitHub-Delivery: 72d3162e-cc78-11e3-81ab-4c9367dc0958
+X-Gitlab-Event: Merge Request Hook
+X-Shopify-Hmac-Sha256: XWmrwMey6OsLMeiZKwP4FppHH3cmAiiJJAweH5Jo4bM=
+X-Shopify-Shop-Domain: johns-apparel.myshopify.com
+X-Slack-Signature: v0=a2114d57b48eac39b9ad189dd8316235a7b4a8d21a10bd27519666489c69b503
+X-Slack-Request-Timestamp: 1531420618
+X-Twilio-Signature: 0/KCTR6DLpKmkAf8muzZqo1nDgQ=
+Svix-Id: msg_p5jXN8AQM9LWM0D4loKWxJek
+Svix-Signature: v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=
+X-Idempotency-Key: 8e03978e-40d5-43e8-bc93-6894a57f9324
+Idempotency-Key: order-2026-10-27-000123
+X-Signature: 3f1c9b0e7a5d...truncated
+X-Hmac: Rm9vQmFyQmF6UXV4
+X-Debug: false
+X-Feature-Flags: new-checkout,dark-mode;beta=1
+X-Experiment: checkout_v2=treatment
+X-Page-Title: Order history - My account
+X-Search-Query: blue running shoes size 42
+X-Search-Query: select a plan and update your billing details
+X-Filter: status=active&sort=-created_at
+X-Fields: id,name,email,created_at
+X-Sort: -updated_at
+X-Total-Count: 1342
+X-Page: 3
+X-Per-Page: 50
+X-Cursor: eyJpZCI6MTIzNDV9
+X-File-Name: Q3 report (final).pdf
+X-File-Path: uploads/2026/10/invoice-1042.pdf
+X-Upload-Content-Type: image/png
+X-Upload-Content-Length: 482113
+X-Checksum-Sha1: 2fd4e1c67a2d28fced849ee1bb76e7391b93eb12
+X-Content-Hash: sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=
+X-Referrer-Policy: strict-origin-when-cross-origin
+X-Frame-Origin: https://partner.example.org
+X-Callback-Url: https://hooks.example.com/payments/notify
+X-Return-To: /account/orders?page=2
+X-Origin-Region: eu-west-1
+X-Edge-Location: FRA56-P3
+X-Cache-Key: /products/42?v=3
+X-Purge-Key: product-42 category-7
+X-Real-Path: /var/www/html/index.php
+X-Script-Name: /index.php
+X-Http-Method-Override: PATCH
+X-Mobile-Model: SM-S918B
+X-Network-Type: wifi
+X-Battery-Level: 0.82
+X-Geo: lat=41.0082;lon=28.9784
+X-Note: Customer asked us to "please call before delivery" - door code 1234#
+X-Comment: It's fine; we'll update it tomorrow (see ticket #4521)
+X-Customer-Name: O'Brien, Siobhán
+X-Customer-Name: Zoë D'Angelo-Smith
+X-Address: 221B Baker St, London NW1 6XE
+X-Message: Can you select the best option & drop me a line?
+X-Order-Notes: 2 x size M; 1 x size L -- gift wrap please
+X-Product-Name: 1/2" drill bit set <stainless>

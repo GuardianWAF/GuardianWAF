@@ -105,7 +105,7 @@ After tokenization, pattern analysis checks for:
 | Multiple dangerous keywords | 30 | Bonus for 3+ SQL keywords |
 | Isolated dangerous keyword | 10 | Single keyword (low confidence) |
 
-**Scanned locations:** URL path, query parameters, request body, cookies, Referer header, User-Agent (at 50% weight).
+**Scanned locations:** URL path, query parameters, request body, cookies, Referer header, application-defined headers, User-Agent (at 50% weight).
 
 ### 2. Cross-Site Scripting (xss)
 
@@ -250,10 +250,19 @@ Each detector scans multiple parts of the request:
 | URL path | All detectors |
 | Query parameters | All detectors |
 | Request body | All detectors |
-| Cookie values | SQLi, XSS |
-| Referer header | SQLi, XSS |
-| User-Agent | SQLi (at 50% weight) |
+| Cookie values (raw, URL-decoded, normalized) | SQLi, XSS, CMDi, LFI, NoSQLi, SSRF, SSTI |
+| Referer header | SQLi, XSS, CMDi, LFI, NoSQLi, SSRF, SSTI |
+| Application-defined headers (`X-Api-Key`, `X-Original-URL`, `X-Tenant-Id`, ...) | SQLi, XSS, CMDi, LFI, NoSQLi, SSTI |
+| `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Original-URL`, `X-Rewrite-URL` | SSRF |
+| User-Agent | SQLi, XSS, SSRF (at 50% weight) |
 | Content-Type | XXE |
+
+Headers that are not free text are never scanned as such: protocol and framing
+headers (`Accept*`, `Content-*`, `If-*`, `Host`, `Transfer-Encoding`, ...),
+credentials (`Authorization`), client-IP chains (`X-Forwarded-For`,
+`X-Real-IP`), tracing (`traceparent`, `X-B3-*`, `X-Request-ID`), and
+browser-controlled `Sec-*` headers. See `headerScanSkip` in
+`internal/engine/header_views.go`.
 
 ---
 

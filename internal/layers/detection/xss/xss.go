@@ -111,6 +111,12 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 		}
 	}
 
+	// 7. Application-defined headers (X-Original-URL, X-Api-Key, ...) are
+	// read by backends as data; see engine.CustomHeaderViews.
+	for _, v := range ctx.CustomHeaderViews() {
+		allFindings = append(allFindings, Detect(v, "header")...)
+	}
+
 	// Apply multiplier to all findings
 	engine.ApplyMultiplier(allFindings, d.multiplier)
 
