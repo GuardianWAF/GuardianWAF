@@ -14,7 +14,6 @@ const breadcrumbMap: Record<string, string> = {
   '/logs': 'Logs',
   '/analytics': 'Analytics',
   '/docker': 'Docker',
-  '/compliance': 'Compliance',
   '/tenants': 'Tenants',
   '/tenants/new': 'New Tenant',
   '/clusters': 'Clusters',

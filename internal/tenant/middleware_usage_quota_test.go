@@ -8,7 +8,7 @@ import (
 
 // Regression: the tenant middleware performed quota checks but never called
 // RecordUsage — the sole writer feeding the per-minute quota window
-// (rateLimiter.Record), usage counters, request billing, and quota alerts.
+// (rateLimiter.Record), usage counters, and quota alerts.
 // CheckQuota is read-only (Count() < limit), so the window stayed empty and
 // Check always allowed: an operator's max_requests_per_minute quota silently
 // never fired and usage metrics stayed at zero.

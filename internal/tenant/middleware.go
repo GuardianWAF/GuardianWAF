@@ -86,7 +86,7 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		next.ServeHTTP(wrapped, r.WithContext(ctx))
 
 		// Record usage for the completed request. This is the sole writer
-		// feeding the per-minute quota window, usage counters, billing, and
+		// feeding the per-minute quota window, usage counters, and
 		// quota alerts; without it CheckQuota's window stays empty and every
 		// request is allowed regardless of the configured limits.
 		m.manager.RecordUsage(tenant, wrapped.bytesWritten)
@@ -131,10 +131,8 @@ func (w *tenantResponseWriter) WriteHeader(statusCode int) {
 	// and :671 — and the engine keeps its own precise blockedRequests counter
 	// for exactly this event. Matching on ">= 400" instead conflated every
 	// origin application error (404 not found, 400 bad request, 500) with an
-	// attack, so RecordBlocked billed PerBlockedAttackCost for ordinary
-	// upstream failures: billing.go:33 documents that cost as "security
-	// value" and BlockedAttacks is surfaced to the dashboard as
-	// BlockedRequests.
+	// attack and inflated BlockedCount, which the dashboard surfaces as
+	// blocked requests.
 	//
 	// Residual: an upstream that legitimately answers 403 (its own auth) is
 	// still counted, since the status is the only signal reaching this

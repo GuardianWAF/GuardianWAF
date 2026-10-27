@@ -781,43 +781,6 @@ func TestTenantAdminHandler_HandleStats(t *testing.T) {
 	}
 }
 
-func TestTenantAdminHandler_HandleBilling(t *testing.T) {
-	_, h := newTestTenantDashboard2(t)
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/admin/billing", nil)
-	req.Header.Set("X-API-Key", "admin-key")
-	h.handleBilling(rr, req)
-	// BillingManager returns nil, so expect 503
-	if rr.Code != http.StatusServiceUnavailable {
-		t.Logf("Got code %d", rr.Code)
-	}
-}
-
-func TestTenantAdminHandler_HandleBilling_MethodNotAllowed(t *testing.T) {
-	_, h := newTestTenantDashboard2(t)
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/api/admin/billing", nil)
-	req.Header.Set("X-API-Key", "admin-key")
-	h.handleBilling(rr, req)
-	// mockTenantManager.BillingManager() returns nil, so 503 comes first
-	if rr.Code != http.StatusServiceUnavailable {
-		t.Logf("Got code %d (expected 503 due to nil billing mgr)", rr.Code)
-	}
-}
-
-func TestTenantAdminHandler_HandleBillingDetail_EmptyID(t *testing.T) {
-	_, h := newTestTenantDashboard2(t)
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/admin/billing/", nil)
-	req.Header.Set("X-API-Key", "admin-key")
-	h.handleBillingDetail(rr, req)
-	// mockTenantManager.BillingManager() returns nil, so the disabled-billing
-	// guard comes first — mirroring handleBilling's 503-first contract.
-	if rr.Code != http.StatusServiceUnavailable {
-		t.Errorf("expected 503, got %d", rr.Code)
-	}
-}
-
 func TestTenantAdminHandler_HandleAllUsage(t *testing.T) {
 	_, h := newTestTenantDashboard2(t)
 	rr := httptest.NewRecorder()
@@ -1088,7 +1051,6 @@ func TestSanitizeTenantResponseAddsDashboardFields(t *testing.T) {
 		"RequestCount":  float64(42),
 		"BlockedCount":  float64(3),
 		"api_key_hash":  "secret",
-		"billing_plan":  "pro",
 		"domains":       []any{"example.com"},
 		"nested_secret": map[string]any{"api_key": "secret"},
 	}).(map[string]any)
@@ -1099,8 +1061,8 @@ func TestSanitizeTenantResponseAddsDashboardFields(t *testing.T) {
 	if body["status"] != "active" {
 		t.Fatalf("expected active status, got %#v", body["status"])
 	}
-	if body["plan"] != "pro" {
-		t.Fatalf("expected plan alias, got %#v", body["plan"])
+	if _, ok := body["plan"]; ok {
+		t.Fatalf("billing plans were removed; plan must not be synthesized: %#v", body["plan"])
 	}
 	if body["email"] != "" {
 		t.Fatalf("expected default email, got %#v", body["email"])
@@ -1155,21 +1117,6 @@ func TestAuthWrap_TenantKeyBlockedFromAdminEndpoints(t *testing.T) {
 
 	// The authWrap checks for admin endpoints and blocks tenant keys
 	_ = rr.Code
-}
-
-// --- BillingDetail method coverage ---
-
-func TestTenantAdminHandler_BillingDetail_MethodNotAllowed(t *testing.T) {
-	_, h := newTestTenantDashboard2(t)
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest("DELETE", "/api/admin/billing/test-id", nil)
-	req.Header.Set("X-API-Key", "admin-key")
-	h.handleBillingDetail(rr, req)
-	// mockTenantManager.BillingManager() returns nil, so the disabled-billing
-	// guard comes first — mirroring handleBilling's 503-first contract.
-	if rr.Code != http.StatusServiceUnavailable {
-		t.Errorf("expected 503, got %d", rr.Code)
-	}
 }
 
 // --- CRS config PUT test ---
@@ -1305,14 +1252,7 @@ func TestPprofWrap_NoDebugKeyConfigured(t *testing.T) {
 	}
 }
 
-// --- BillingManager and AlertManager interface nil checks ---
-
-func TestBillingManagerInterface_Nil(t *testing.T) {
-	var bm BillingManagerInterface
-	if bm != nil {
-		t.Error("expected nil")
-	}
-}
+// --- AlertManager interface nil checks ---
 
 func TestAlertManagerInterface_Nil(t *testing.T) {
 	var am AlertManagerInterface

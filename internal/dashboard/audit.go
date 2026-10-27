@@ -309,8 +309,6 @@ func classifyMutation(method, path string) string {
 		return "admin_tenant_rule_mutation"
 	case strings.HasPrefix(path, "/api/admin/tenants"):
 		return "admin_tenant_mutation"
-	case method == http.MethodPost && strings.HasPrefix(path, "/api/admin/billing/"):
-		return "generate_invoice"
 	case strings.HasPrefix(path, "/api/crs/"):
 		return "crs_mutation"
 	case strings.HasPrefix(path, "/api/dlp/"):

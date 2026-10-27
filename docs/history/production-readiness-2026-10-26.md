@@ -17,9 +17,9 @@
 
 Library kapanışı IP ban persistence ve JWKS arka plan kaynaklarını durduruyor. Kurucu hata yolları da kurulmuş kaynakları temizliyor. `Close` eşzamanlı ve tekrar çağrılabilir; banların kapanışta kaydedilip yeni instance tarafından okunması regresyonla sınanıyor.
 
-Public API’ye beş dedektör alanı eklenmesi F216’nın API yüzeyindeki eksikliğini giderir. Kütüphanede daha önce sessizce yok sayılan etkin registry katmanlarının artık hata vermesi kasıtlı bir uyumluluk değişikliğidir: koruma beklenen bir yapılandırmayla korumasız devam edilmez. Ayrıntılar [dağıtım modlarında](deployment-modes.md).
+Public API’ye beş dedektör alanı eklenmesi F216’nın API yüzeyindeki eksikliğini giderir. Kütüphanede daha önce sessizce yok sayılan etkin registry katmanlarının artık hata vermesi kasıtlı bir uyumluluk değişikliğidir: koruma beklenen bir yapılandırmayla korumasız devam edilmez. Ayrıntılar [dağıtım modlarında](../deployment-modes.md).
 
-README, CONTRIBUTING, Node ön koşulları, library desteği ve [runtime reload sözleşmesi](runtime-reload.md) güncellendi. Cluster belgesindeki WAL dosya adı ve “restart log büyümesini çözer” önerisi düzeltildi. [Yanıt maskelemesinin boyut ve streaming sınırları](production-deployment.md#response-masking-boundaries) ayrıca açıklandı.
+README, CONTRIBUTING, Node ön koşulları, library desteği ve [runtime reload sözleşmesi](../runtime-reload.md) güncellendi. Cluster belgesindeki WAL dosya adı ve “restart log büyümesini çözer” önerisi düzeltildi. [Yanıt maskelemesinin boyut ve streaming sınırları](../production-deployment.md#response-masking-boundaries) ayrıca açıklandı.
 
 ## Kanıt ve testler
 
@@ -42,7 +42,7 @@ Her özgün `prove_F216`–`prove_F221` programı düzeltmeden önce hatayı ür
 
 Container image kimliği: `sha256:88f385410b1444e427042af304b41756a73e84a7140593c32d036aaa6d893806`, yerel tag `guardianwaf:readiness-20261026`. Bu yerel image kimliği, yayımlanmış ve imzalanmış release digest’i yerine geçmez.
 
-Çıktılar: [.temp_files/production_ready_20261026](../.temp_files/production_ready_20261026/). Ayrıntılı komutlar ve önce/sonra kayıtları [evidence ledger](../.temp_files/ledger_project_review_20261026.md) içindedir. Bu dizin Git tarafından dışlanır; release kanıtı olarak kullanılacaksa ayrıca arşivlenmelidir.
+Çıktılar: [.temp_files/production_ready_20261026](../../.temp_files/production_ready_20261026/). Ayrıntılı komutlar ve önce/sonra kayıtları [evidence ledger](../../.temp_files/ledger_project_review_20261026.md) içindedir. Bu dizin Git tarafından dışlanır; release kanıtı olarak kullanılacaksa ayrıca arşivlenmelidir.
 
 ## Üretim kullanımının sınırları
 

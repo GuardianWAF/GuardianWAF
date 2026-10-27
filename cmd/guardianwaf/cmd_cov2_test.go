@@ -10,13 +10,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/guardianwaf/guardianwaf/internal/alerting"
-	"github.com/guardianwaf/guardianwaf/internal/compliance"
 	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/events"
@@ -421,66 +419,6 @@ func TestAddLayers_RateLimitAutoBan(t *testing.T) {
 }
 
 // --- startDashboard with compliance enabled ---
-
-func TestStartDashboard_ComplianceEnabled(t *testing.T) {
-	cfg := config.DefaultConfig()
-	cfg.Dashboard.Enabled = true
-	cfg.Dashboard.Listen = "127.0.0.1:0"
-	cfg.Dashboard.APIKey = "test-key-compliance"
-	cfg.Compliance.Enabled = true
-	cfg.Compliance.Frameworks = []string{"pci_dss", "gdpr"}
-
-	store := events.NewMemoryStore(100)
-	bus := events.NewEventBus()
-	eng, err := engine.NewEngine(cfg, store, bus)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer eng.Close()
-
-	srv, sse, d := startDashboard(cfg, eng)
-	if srv == nil {
-		t.Error("expected non-nil server")
-	} else {
-		defer srv.Close()
-	}
-	_ = sse
-	_ = d
-}
-
-func TestStartDashboard_ComplianceAuditPersistenceError(t *testing.T) {
-	parentFile := filepath.Join(t.TempDir(), "not-a-dir")
-	if err := os.WriteFile(parentFile, []byte("x"), 0o600); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-
-	cfg := config.DefaultConfig()
-	cfg.Dashboard.Enabled = true
-	cfg.Dashboard.Listen = "127.0.0.1:0"
-	cfg.Dashboard.APIKey = "test-key-compliance"
-	cfg.Compliance.Enabled = true
-	cfg.Compliance.AuditTrail.Enabled = true
-	cfg.Compliance.AuditTrail.PersistPath = filepath.Join(parentFile, "audit.jsonl")
-
-	store := events.NewMemoryStore(100)
-	bus := events.NewEventBus()
-	eng, err := engine.NewEngine(cfg, store, bus)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer eng.Close()
-
-	srv, sse, d := startDashboard(cfg, eng)
-	if srv != nil || sse != nil || d != nil {
-		if srv != nil {
-			_ = srv.Close()
-		}
-		if d != nil {
-			d.Close()
-		}
-		t.Fatal("expected dashboard startup to fail on invalid compliance audit persistence path")
-	}
-}
 
 // --- startDashboard without API key (triggers generateDashboardPassword) ---
 
@@ -976,22 +914,6 @@ func TestTenantManagerAdapter_UpdateTenant_WithJSONMapAliases(t *testing.T) {
 	}
 }
 
-// --- billingManagerAdapter: with tenant that has invoices ---
-
-func TestBillingManagerAdapter_WithInvoices(t *testing.T) {
-	mgr := tenant.NewManager(100)
-	bm := mgr.BillingManager()
-	a := &billingManagerAdapter{bm: bm}
-
-	mgr.CreateTenant("billed-tenant", "Billed", []string{"example.com"}, nil)
-
-	invoices := a.GetAllInvoices()
-	_ = invoices
-
-	invoices = a.GetInvoices("billed-tenant")
-	_ = invoices
-}
-
 // --- alertManagerAdapter: with alerts after creating tenant ---
 
 func TestAlertManagerAdapter_WithTenant(t *testing.T) {
@@ -1006,17 +928,6 @@ func TestAlertManagerAdapter_WithTenant(t *testing.T) {
 }
 
 // --- compliance.NewEngine coverage ---
-
-func TestComplianceEngine_NewEngine(t *testing.T) {
-	cfg := config.DefaultConfig()
-	cfg.Compliance.Enabled = true
-	cfg.Compliance.Frameworks = []string{"pci_dss", "gdpr"}
-
-	compEngine := compliance.NewEngine(cfg.Compliance)
-	if compEngine == nil {
-		t.Error("expected non-nil compliance engine")
-	}
-}
 
 // --- runMain help command paths ---
 
@@ -1072,32 +983,6 @@ func TestAccessLog_TextFormatCoverage(t *testing.T) {
 }
 
 // --- loadConfig with compliance framework in config ---
-
-func TestLoadConfig_ComplianceConfig(t *testing.T) {
-	tmpFile, err := os.CreateTemp("", "guardianwaf-compliance-*.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(tmpFile.Name())
-
-	configContent := `
-mode: enforce
-listen: "127.0.0.1:0"
-`
-	if _, err := tmpFile.WriteString(configContent); err != nil {
-		t.Fatal(err)
-	}
-	tmpFile.Close()
-
-	oldExit := osExit
-	osExit = func(code int) { t.Fatalf("unexpected os.Exit(%d)", code) }
-	defer func() { osExit = oldExit }()
-
-	cfg := loadConfig(tmpFile.Name(), true)
-	if cfg == nil {
-		t.Fatal("expected non-nil config")
-	}
-}
 
 // --- MCP adapter: GetEvents with full query params ---
 

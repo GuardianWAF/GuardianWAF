@@ -224,7 +224,7 @@ func TestProductionDocsDistinguishPlannedAdvancedRuntimePackages(t *testing.T) {
 	detectionEngine := readOutboundPolicyFixture(t, filepath.Join(root, "docs/detection-engine.md"))
 	designSpecification := readOutboundPolicyFixture(t, filepath.Join(root, "docs/design/SPECIFICATION.md"))
 	marketComparison := readOutboundPolicyFixture(t, filepath.Join(root, "docs/market-comparison.md"))
-	roadmap := readOutboundPolicyFixture(t, filepath.Join(root, "docs/production-readiness-roadmap.md"))
+	roadmap := readOutboundPolicyFixture(t, filepath.Join(root, "docs/history/production-readiness-roadmap.md"))
 	threatModel := readOutboundPolicyFixture(t, filepath.Join(root, "docs/threat-model.md"))
 	grpcADR := readOutboundPolicyFixture(t, filepath.Join(root, "docs/adr/0019-grpc-protocol-support.md"))
 	mcpDocs := readOutboundPolicyFixture(t, filepath.Join(root, "docs/mcp-integration.md"))
@@ -422,7 +422,7 @@ func TestProductionDocsDistinguishPlannedAdvancedRuntimePackages(t *testing.T) {
 		"| [0018](./0018-enhanced-bot-management.md) | 500 | Enhanced Bot Management | Withdrawn — runtime bot baseline lives in `internal/layers/botdetect` |",
 		"| [0021](./0021-client-side-protection.md) | 590 | Client-Side Protection (RASP-lite) | Implemented baseline — browser agent planned |",
 		"| [0020](./0020-advanced-dlp.md) | Advanced DLP Pattern Engine | Implemented baseline — advanced pattern engine planned |",
-		"| [0022](./0022-compliance-reporting.md) | Compliance & Reporting Framework | Implemented baseline — scheduled reports and retention enforcement planned |",
+		"| [0022](./0022-compliance-reporting.md) | Compliance & Reporting Framework | Removed in v0.7.0 — `internal/compliance` deleted |",
 		"| [0026](./0026-response-caching-layer.md) | 140 | Response Cache | Proposed — not registered in pipeline |",
 	} {
 		if !strings.Contains(adrIndex, want) {
@@ -483,19 +483,18 @@ func TestProductionDocsDistinguishPlannedAdvancedRuntimePackages(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"**Status:** Implemented baseline; scheduled reports and retention enforcement planned",
-		"current baseline provides built-in controls",
-		"hash-chained audit entries with optional JSONL persistence",
-		"Scheduled report execution, PDF rendering, retention enforcement",
-		"`internal/compliance/` exists and implements the baseline engine",
+		"**Status:** Removed in v0.7.0 — `internal/compliance/` was deleted",
+		"`compliance:` config section and `GWAF_COMPLIANCE_*` variables are now",
 	} {
 		if !strings.Contains(complianceADR, want) {
-			t.Fatalf("compliance ADR missing baseline-vs-planned qualifier %q", want)
+			t.Fatalf("compliance ADR missing removal note %q", want)
 		}
 	}
+	if _, err := os.Stat(filepath.Join(root, "internal", "compliance")); !os.IsNotExist(err) {
+		t.Fatalf("internal/compliance must stay removed (stat err = %v)", err)
+	}
 	for _, stale := range []string{
-		"`internal/compliance/` does not exist yet",
-		"all files below are planned",
+		"**Status:** Implemented baseline; scheduled reports and retention enforcement planned",
 	} {
 		if strings.Contains(complianceADR, stale) {
 			t.Fatalf("compliance ADR still contains stale implementation claim %q", stale)

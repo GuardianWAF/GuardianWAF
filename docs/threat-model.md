@@ -12,7 +12,7 @@ In scope:
 - Docker socket and remote Docker discovery.
 - AI provider integrations and generated analysis.
 - Tenant isolation and tenant-scoped runtime state.
-- Event, log, audit, compliance, and replay storage.
+- Event, log, audit, and replay storage.
 - Generated rules, virtual patches, and remediation output.
 - Container, Kubernetes, Helm, and release supply-chain controls.
 
@@ -29,7 +29,7 @@ Primary assets:
 - Protected backend availability and request integrity.
 - Dashboard API keys, admin keys, session cookies, TLS keys, ACME account keys, AI provider keys, webhook credentials, SMTP credentials, and Docker credentials.
 - Tenant configuration, tenant isolation rules, and tenant-scoped events.
-- Security events, replay samples, audit logs, compliance exports, and runtime logs.
+- Security events, replay samples, audit logs, evidence exports, and runtime logs.
 - Dynamic routing configuration, Docker-discovered upstreams, generated rules, remediation output, and virtual patches.
 - Container image provenance, SBOM, signatures, release artifacts, and deployment manifests.
 
@@ -173,7 +173,7 @@ Threats:
 Mitigations and evidence:
 
 - AI provider usage metrics expose enabled state, request/token counters, and estimated cost.
-- Events and compliance paths preserve redacted findings instead of raw pipeline data where configured.
+- Events and evidence exports preserve redacted findings instead of raw pipeline data where configured.
 - Generated outputs should be treated as recommendations until human-reviewed and validated.
 - Runtime config validation and reload guards prevent unsupported hot changes.
 - Auto-generated virtual patches start disabled with `review_status=pending_review` and provenance metadata; explicit enable/apply transitions record reviewer/apply actor metadata and emit structured virtual-patch audit logs.
@@ -205,7 +205,7 @@ Mitigations and evidence:
 Flow:
 
 1. Pipeline and runtime components emit events and audit records.
-2. Data is held in memory, appended to JSONL files, or exported for compliance.
+2. Data is held in memory, appended to JSONL files, or exported to a SIEM or evidence store.
 3. Operators query, download, back up, or restore evidence.
 
 Threats:
@@ -214,7 +214,7 @@ Threats:
 - Log injection or malformed JSONL breaks downstream ingestion.
 - Disk exhaustion or slow storage causes drops or startup failures.
 - Audit trail cannot be trusted if writes silently fail.
-- Compliance export leaks secrets or unredacted payloads.
+- Evidence or SIEM export leaks secrets or unredacted payloads.
 
 Mitigations and evidence:
 
@@ -222,7 +222,7 @@ Mitigations and evidence:
 - Strict persistence paths fail startup when configured durable audit storage cannot be opened.
 - State persistence and runbook docs identify backup/restore paths and evidence retention notes.
 - Metrics and runbooks cover event store pressure and drop investigation.
-- Compliance audit records are SHA-256 hash chained, `/api/v1/compliance/audit-chain` verifies chain integrity and exposes the current `head_hash`, and the incident export runbook requires storing that head hash in an approved write-once evidence system for later truncation/tamper checks.
+- Residual risk: the dashboard management audit log is append-only JSONL, not hash-chained, so a host-level attacker can truncate or edit it undetected. The incident evidence runbook requires fingerprinting exports into write-once storage, and SIEM export provides the off-host, append-only copy that tamper checks should rely on.
 
 ### Generated Rules, Virtual Patches, and Remediation
 
@@ -276,7 +276,7 @@ Mitigations and evidence:
 |---|---|---|
 | Spoofing | Client IP spoofing, stolen dashboard key, forged Docker event source | Trusted proxy config, dashboard key validation, Docker TLS guidance, separate admin key |
 | Tampering | Config/rule changes, event log modification, poisoned generated rules | Config validation, reload guards, audit persistence, human review for generated output |
-| Repudiation | Missing audit trail for admin/MCP/generated-rule actions | Dashboard audit persistence, compliance export, MCP mutating-tool audit classes, generated virtual-patch transition logs |
+| Repudiation | Missing audit trail for admin/MCP/generated-rule actions | Dashboard audit persistence, SIEM export, MCP mutating-tool audit classes, generated virtual-patch transition logs |
 | Information disclosure | Event payloads to AI, API keys in URLs/logs, cross-tenant reads | Redaction, query-key rejection, tenant scoping, persistence guidance |
 | Denial of service | Request body/decompression pressure, SSE connections, event-store pressure, upstream health churn | Bounded body config, metrics, backpressure roadmap, health-check cleanup |
 | Elevation of privilege | Dashboard admin misuse, Docker socket compromise, unsafe dynamic rules | Admin key gate, deployment hardening, Docker privilege warnings, restart-required config classes |
@@ -291,7 +291,7 @@ Mitigations and evidence:
 | Deployment hardening | `internal/config/deployment_hardening_test.go` | Confirm in a live Kubernetes restricted-policy cluster |
 | Release supply chain | `internal/config/release_supply_chain_test.go` | Confirm real hosted-runner release artifacts |
 | Dashboard API contract | `internal/dashboard/openapi_contract_test.go` | Add method/body/response-shape contract coverage |
-| Event/audit persistence | Event store and compliance tests | Add tamper-evident audit trail guidance |
+| Event/audit persistence | Event store and dashboard audit tests | Hash-chain the dashboard audit log (currently fingerprint-and-SIEM guidance only) |
 | Detection quality | Detector tests and bounded fuzz smoke | Build measured benign/attack corpus reporting |
 | MCP safety | Authenticated SSE and structured tools | Add per-tool authorization/audit matrix |
 | HTTP/3/QUIC | Tagged command compatibility tests and planned-runtime docs | Add a concrete QUIC listener plus QUIC client E2E before production support claim |
@@ -303,6 +303,6 @@ Update this threat model when any of the following changes:
 - A new listener, protocol, or proxy path is added.
 - Dashboard, admin, MCP, tenant, or Docker APIs gain mutating capabilities.
 - A new outbound integration is added.
-- Event, audit, replay, compliance, or AI data retention changes.
+- Event, audit, replay, or AI data retention changes.
 - Runtime reload supports a new config class.
 - Release signing, SBOM, provenance, or deployment hardening changes.

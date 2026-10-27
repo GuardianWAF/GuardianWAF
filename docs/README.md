@@ -18,6 +18,7 @@ Complete documentation index for GuardianWAF — the zero-dependency, embeddable
 
 | Document | Description |
 |----------|-------------|
+| [Production Readiness](production-readiness.md) | What is stable, known limits, remaining roadmap and release exit criteria |
 | [Production Deployment](production-deployment.md) | Production best practices, reverse proxy integration, TLS |
 | [Clustering & HA](clustering.md) | Multi-node cluster setup, gossip peer discovery, Raft replication, leader redirect, observability |
 | [Metrics & Monitoring](metrics.md) | Prometheus metrics reference, scraping config, tracing setup |
@@ -86,7 +87,7 @@ Complete documentation index for GuardianWAF — the zero-dependency, embeddable
 | [0016](adr/0016-ml-anomaly-detection.md) | Real-Time ML Anomaly Detection |
 | [0017](adr/0017-api-discovery-schema-validation.md) | API Discovery & Schema Validation |
 | [0020](adr/0020-advanced-dlp.md) | Advanced Data Loss Prevention (DLP) |
-| [0022](adr/0022-compliance-reporting.md) | Compliance & Reporting Framework |
+| [0022](adr/0022-compliance-reporting.md) | Compliance & Reporting Framework (removed in v0.7.0) |
 | [0032](adr/0032-owasp-crs-integration.md) | OWASP Core Rule Set Integration |
 | [0033](adr/0033-request-sanitizer.md) | Request Sanitizer |
 | [0034](adr/0034-threat-intelligence.md) | Threat Intelligence Layer |

@@ -108,7 +108,6 @@ them as absent:
 | Clustering (gossip, Raft, peer sync) | `internal/cluster/{gossip,raft,peersync}`, `internal/clustersync` | `cluster_runtime.go`, top-level `cluster:` |
 | WebSocket frame inspection | `internal/layers/websocket` | `websocket_runtime.go` → `eng.SetWebSocketInterceptor`, `waf.websocket.enabled` |
 | Distributed tracing | `internal/tracing` | `observability_runtime.go`, `tracing.enabled` |
-| Compliance reporting | `internal/compliance` | dashboard API |
 
 **Pipeline layer catalogue** (all 16 wired in serve mode; JS Challenge at order 430 is
 provided by the challenge service rather than the registry):
@@ -152,7 +151,7 @@ The `serve` command (`cmd/guardianwaf/main.go` → `cmd/guardianwaf/layers.go`) 
 `internal/tenant/` provides full tenant isolation:
 - Per-tenant WAF config overrides via `RequestContext.TenantWAFConfig` (read directly by each layer, race-free)
 - Tenant middleware sets `TenantContext` in request context
-- Separate rate tracking, rules, alerts, and billing per tenant
+- Separate rate tracking, quotas, rules, and alerts per tenant
 - Domain-based tenant resolution via virtual hosts
 
 ### Configuration Layering
@@ -217,16 +216,15 @@ Key config files:
 - `internal/docker/` — Docker auto-discovery (Unix socket/CLI, label-based routing, event watcher)
 - `internal/geoip/` — GeoIP database with auto-refresh
 - `internal/acme/` — ACME/Let's Encrypt auto-certificate (HTTP-01)
-- `internal/tenant/` — Multi-tenant management (isolation, billing, rate limits, per-tenant rules)
+- `internal/tenant/` — Multi-tenant management (isolation, quotas/rate limits, per-tenant rules)
 - `internal/alerting/` — Webhook and email alerting (Slack, Discord, PagerDuty, SMTP)
-- `internal/compliance/` — Compliance reporting (PCI DSS, GDPR, SOC 2, ISO 27001 control registry, evaluator, reports, audit chain)
 - `internal/tracing/` — Zero-dependency distributed tracing (OpenTelemetry-compatible API, sampling, exporters)
 - `tests/reliability/` — Flaky test detection (JSONL-based pass/fail tracking across CI runs)
 - `guardianwaf.go` + `options.go` — Public library API
 
 ## Architecture Decision Records
 
-`docs/adr/` contains 43 ADRs — every significant design decision has a corresponding ADR. See `docs/adr/` for the full list. Key themes: zero-dependencies, pipeline architecture, multi-tenancy, ML/AI detection, gRPC, DLP, SIEM, Zero Trust, caching, virtual patching, HA/Raft, compliance, all individual WAF layers.
+`docs/adr/` contains 43 ADRs — every significant design decision has a corresponding ADR. See `docs/adr/` for the full list. Key themes: zero-dependencies, pipeline architecture, multi-tenancy, ML/AI detection, gRPC, DLP, SIEM, Zero Trust, caching, virtual patching, HA/Raft, all individual WAF layers. ADRs for removed features (ML anomaly, gRPC, Zero Trust, caching, compliance) are kept as history.
 
 ## Docker Auto-Discovery
 

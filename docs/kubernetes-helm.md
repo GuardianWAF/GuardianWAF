@@ -44,7 +44,7 @@ kubectl create secret tls guardianwaf-tls \
 
 ## Persistent State
 
-Use persistent storage whenever you enable file-backed events, ACME cache, replay captures, tenant data, remediation state, analytics, or compliance audit persistence. The Helm chart mounts one state volume at both `/var/lib/guardianwaf` and `/var/log/guardianwaf`.
+Use persistent storage whenever you enable file-backed events, ACME cache, replay captures, tenant data, or the dashboard audit log. The Helm chart mounts one state volume at both `/var/lib/guardianwaf` and `/var/log/guardianwaf`.
 
 Single-replica or per-pod state:
 

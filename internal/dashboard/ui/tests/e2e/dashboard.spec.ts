@@ -89,7 +89,6 @@ const dashboardRoutes = [
   ['/logs', 'Application Logs'],
   ['/analytics', 'Analytics'],
   ['/docker', 'Docker Discovery'],
-  ['/compliance', 'Compliance'],
   ['/tenants', 'Tenant Management'],
   ['/clusters', 'Cluster Sync'],
 ] as const

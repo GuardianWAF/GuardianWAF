@@ -15,7 +15,6 @@ import {
   Shield,
   Globe,
   BarChart3,
-  DollarSign,
   AlertTriangle,
   Calendar,
   Clock,
@@ -39,29 +38,6 @@ interface UsageHistory {
   requests: number
   blocked: number
   bandwidth_gb: number
-}
-
-interface BillingEstimate {
-  plan_cost: number
-  overage_cost: number
-  total_cost: number
-  currency: string
-  breakdown: {
-    requests_overages: number
-    bandwidth_overages: number
-  }
-}
-
-const PLAN_PRICES: Record<string, number> = {
-  free: 0,
-  basic: 49,
-  pro: 199,
-  enterprise: 0 // Custom pricing
-}
-
-const OVERAGE_RATES = {
-  requests_per_million: 5, // $5 per million requests over quota
-  bandwidth_per_gb: 0.10   // $0.10 per GB over quota
 }
 
 function tenantUsageFromSummary(tenant: AdminTenantDetail): TenantUsageType {
@@ -146,7 +122,6 @@ export default function TenantAnalyticsPage() {
         name: tenant.name,
         description: tenant.description,
         domains: tenant.domains,
-        plan: tenant.plan,
         created_at: tenant.created_at
       },
       usage: {
@@ -158,7 +133,6 @@ export default function TenantAnalyticsPage() {
         quota_percentage: usage.quota_percentage,
         quota_status: usage.quota_status
       },
-      billing: calculateBilling(),
       exported_at: new Date().toISOString()
     }
 
@@ -171,40 +145,6 @@ export default function TenantAnalyticsPage() {
     URL.revokeObjectURL(url)
 
     toast({ title: 'Exported', description: 'Analytics data downloaded' })
-  }
-
-  const calculateBilling = (): BillingEstimate => {
-    if (!tenant || !usage) {
-      return { plan_cost: 0, overage_cost: 0, total_cost: 0, currency: 'USD', breakdown: { requests_overages: 0, bandwidth_overages: 0 } }
-    }
-
-    const planCost = PLAN_PRICES[tenant.plan] || 0
-
-    // Calculate overages
-    const monthlyRequests = usage.total_requests
-    const monthlyBandwidthGB = usage.bytes_transferred / (1024 * 1024 * 1024)
-
-    // Assume monthly quota limits (simplified)
-    const quota = getQuota(tenant)
-    const monthlyRequestQuota = quota.max_requests_per_minute * 60 * 24 * 30 // per month
-    const monthlyBandwidthQuota = quota.max_bandwidth_mbps * 60 * 60 * 24 * 30 / 8000 // convert to GB/month roughly
-
-    const requestOverages = Math.max(0, monthlyRequests - monthlyRequestQuota)
-    const bandwidthOverages = Math.max(0, monthlyBandwidthGB - monthlyBandwidthQuota)
-
-    const requestOverageCost = (requestOverages / 1000000) * OVERAGE_RATES.requests_per_million
-    const bandwidthOverageCost = bandwidthOverages * OVERAGE_RATES.bandwidth_per_gb
-
-    return {
-      plan_cost: planCost,
-      overage_cost: requestOverageCost + bandwidthOverageCost,
-      total_cost: planCost + requestOverageCost + bandwidthOverageCost,
-      currency: 'USD',
-      breakdown: {
-        requests_overages: requestOverageCost,
-        bandwidth_overages: bandwidthOverageCost
-      }
-    }
   }
 
   usePollingLoad(loadData, 30000) // Refresh every 30s
@@ -240,7 +180,6 @@ export default function TenantAnalyticsPage() {
     )
   }
 
-  const billing = calculateBilling()
   const blockedPercentage = usage.total_requests > 0
     ? (usage.blocked_requests / usage.total_requests * 100).toFixed(1)
     : '0'
@@ -281,11 +220,10 @@ export default function TenantAnalyticsPage() {
           <div>
             <h1 className="text-3xl font-bold">{tenant.name}</h1>
             <div className="flex items-center gap-2 text-sm text-gray-500">
-              <span>Usage Analytics & Billing</span>
+              <span>Usage Analytics</span>
               <Badge variant={tenant.status === 'active' ? 'default' : 'secondary'}>
                 {tenant.status}
               </Badge>
-              <Badge variant="outline">{tenant.plan}</Badge>
             </div>
           </div>
         </div>
@@ -339,15 +277,15 @@ export default function TenantAnalyticsPage() {
             </div>
             <div className="text-sm text-gray-600 dark:text-gray-400">
               {usage.quota_status === 'exceeded'
-                ? 'This tenant has exceeded their rate limit quota. Consider upgrading their plan.'
+                ? 'This tenant has exceeded its rate limit quota. Requests over the limit are rejected with 429; raise the quota if the traffic is legitimate.'
                 : usage.quota_status === 'warning'
                 ? `${usage.quota_percentage.toFixed(1)}% of quota used. Monitor closely.`
                 : 'Usage is within normal parameters.'}
             </div>
           </div>
           {usage.quota_status !== 'ok' && (
-            <Button size="sm" variant="default">
-              Upgrade Plan
+            <Button size="sm" variant="default" onClick={() => navigate(`/tenants/${tenant.id}`)}>
+              Edit Quota
             </Button>
           )}
         </div>
@@ -430,65 +368,6 @@ export default function TenantAnalyticsPage() {
           </CardContent>
         </Card>
       </div>
-
-      {/* Billing Overview */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <DollarSign className="w-5 h-5" />
-            Billing Overview
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="space-y-4">
-              <div className="text-sm text-gray-500">Current Plan</div>
-              <div className="text-2xl font-bold capitalize">{tenant.plan}</div>
-              <div className="text-3xl font-bold text-accent">
-                ${billing.plan_cost}
-                <span className="text-sm text-gray-500 font-normal">/month</span>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div className="text-sm text-gray-500">Overages</div>
-              <div className="space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span>Request overages</span>
-                  <span>${billing.breakdown.requests_overages.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span>Bandwidth overages</span>
-                  <span>${billing.breakdown.bandwidth_overages.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between font-medium pt-2 border-t">
-                  <span>Total overages</span>
-                  <span className={billing.overage_cost > 0 ? 'text-red-600' : ''}>
-                    ${billing.overage_cost.toFixed(2)}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div className="text-sm text-gray-500">Estimated Total</div>
-              <div className={`text-4xl font-bold ${billing.overage_cost > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                ${billing.total_cost.toFixed(2)}
-              </div>
-              <div className="text-sm text-gray-500">Current month projection</div>
-            </div>
-          </div>
-
-          {billing.overage_cost > 0 && (
-            <div className="mt-6 p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg flex items-center gap-3">
-              <AlertTriangle className="w-5 h-5 text-yellow-600" />
-              <div className="text-sm">
-                <strong>Overage charges detected.</strong> Consider upgrading to a higher plan to save costs.
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Quota Usage */}

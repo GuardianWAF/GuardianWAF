@@ -42,8 +42,6 @@ tags:
     description: Webhook and email alerting
   - name: Docker
     description: Docker auto-discovery
-  - name: Compliance
-    description: Compliance controls, reports, and audit chain
   - name: Analytics
     description: Traffic analytics and reporting
   - name: Cluster
@@ -1256,73 +1254,6 @@ paths:
                     items:
                       $ref: '#/components/schemas/DockerEvent'
 
-  # ── Compliance ────────────────────────────────────────
-  /api/v1/compliance/controls:
-    get:
-      tags: [Compliance]
-      summary: List compliance controls
-      parameters:
-        - name: framework
-          in: query
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Compliance controls
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  controls:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/ComplianceControl'
-                  frameworks:
-                    type: array
-                    items:
-                      type: string
-
-  /api/v1/compliance/report/{framework}:
-    get:
-      tags: [Compliance]
-      summary: Generate a compliance report
-      parameters:
-        - name: framework
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: from
-          in: query
-          schema:
-            type: string
-            format: date-time
-        - name: to
-          in: query
-          schema:
-            type: string
-            format: date-time
-      responses:
-        '200':
-          description: Compliance report
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ComplianceReport'
-
-  /api/v1/compliance/audit-chain:
-    get:
-      tags: [Compliance]
-      summary: Get compliance audit chain
-      responses:
-        '200':
-          description: Audit chain entries
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AuditChainResponse'
-
   # ── Analytics ─────────────────────────────────────────
   /api/v1/analytics/dashboard:
     get:
@@ -2077,46 +2008,6 @@ paths:
         '200':
           description: Platform statistics
 
-  /api/admin/billing:
-    get:
-      tags: [Tenants]
-      summary: List all invoices
-      security:
-        - AdminKeyAuth: []
-      responses:
-        '200':
-          description: Invoice list
-
-  /api/admin/billing/{tenantID}:
-    get:
-      tags: [Tenants]
-      summary: Get tenant invoices
-      security:
-        - AdminKeyAuth: []
-      parameters:
-        - name: tenantID
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Tenant invoices and usage
-    post:
-      tags: [Tenants]
-      summary: Generate tenant invoice
-      security:
-        - AdminKeyAuth: []
-      parameters:
-        - name: tenantID
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Invoice generated
-
   /api/admin/alerts:
     get:
       tags: [Tenants]
@@ -2745,112 +2636,6 @@ components:
         message:
           type: string
 
-    ComplianceControl:
-      type: object
-      properties:
-        id:
-          type: string
-        name:
-          type: string
-        frameworks:
-          type: array
-          items:
-            type: string
-        evidence:
-          type: array
-          items:
-            type: object
-            properties:
-              type:
-                type: string
-              description:
-                type: string
-        passing_criteria:
-          type: array
-          items:
-            type: object
-            properties:
-              metric:
-                type: string
-              operator:
-                type: string
-              threshold:
-                type: number
-
-    ComplianceControlResult:
-      type: object
-      properties:
-        id:
-          type: string
-        name:
-          type: string
-        status:
-          type: string
-          enum: [passing, failing, not_applicable, no_evidence]
-        evidence:
-          type: object
-          additionalProperties: true
-
-    ComplianceReportSummary:
-      type: object
-      properties:
-        controls_passing:
-          type: integer
-        controls_failing:
-          type: integer
-        controls_not_applicable:
-          type: integer
-        overall_status:
-          type: string
-          enum: [passing, partial, failing]
-
-    ComplianceReport:
-      type: object
-      properties:
-        report_id:
-          type: string
-        generated_at:
-          type: string
-          format: date-time
-        period:
-          type: object
-          properties:
-            from:
-              type: string
-              format: date-time
-            to:
-              type: string
-              format: date-time
-        tenant_id:
-          type: string
-        framework:
-          type: string
-        summary:
-          $ref: '#/components/schemas/ComplianceReportSummary'
-        controls:
-          type: array
-          items:
-            $ref: '#/components/schemas/ComplianceControlResult'
-        chain_hash:
-          type: string
-
-    AuditChainResponse:
-      type: object
-      properties:
-        valid:
-          type: integer
-        length:
-          type: integer
-        errors:
-          type: array
-          items:
-            type: string
-        integrity:
-          type: boolean
-        head_hash:
-          type: string
-          description: Current audit-chain head hash for external write-once anchoring.
-
     IPACLResponse:
       type: object
       properties:
@@ -2993,8 +2778,6 @@ components:
         updated_at:
           type: string
           format: date-time
-        plan:
-          type: string
         quota:
           $ref: '#/components/schemas/ResourceQuota'
 
@@ -3009,10 +2792,7 @@ components:
           type: string
         status:
           type: string
-          enum: [active, suspended, trial, expired]
-        plan:
-          type: string
-          enum: [free, basic, pro, enterprise]
+          enum: [active, suspended]
         domains:
           type: array
           items:

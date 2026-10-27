@@ -68,7 +68,6 @@ func (in *Config) DeepCopy() *Config {
 			(out.Features)[k0] = copy0
 		}
 	}
-	out.Compliance = *((in.Compliance).DeepCopy())
 	out.Cluster = *((in.Cluster).DeepCopy())
 	return &out
 }
@@ -1638,75 +1637,6 @@ func (in *TracingConfig) DeepCopy() *TracingConfig {
 	out.ServiceName = in.ServiceName
 	out.SamplingRate = in.SamplingRate
 	out.ExporterType = in.ExporterType
-	return &out
-}
-func (in *ComplianceConfig) DeepCopy() *ComplianceConfig {
-	if in == nil {
-		return nil
-	}
-	out := *in // shallow copy of scalar fields
-	out.Enabled = in.Enabled
-	if in.Frameworks != nil {
-		out.Frameworks = make([]string, len(in.Frameworks))
-		for i0 := range in.Frameworks {
-			(out.Frameworks)[i0] = (in.Frameworks)[i0]
-		}
-	}
-	out.ReportDir = in.ReportDir
-	out.AuditTrail = *((in.AuditTrail).DeepCopy())
-	out.Retention = *((in.Retention).DeepCopy())
-	if in.ScheduledReports != nil {
-		out.ScheduledReports = make([]ScheduledReportConfig, len(in.ScheduledReports))
-		for i0 := range in.ScheduledReports {
-			(out.ScheduledReports)[i0] = *(((in.ScheduledReports)[i0]).DeepCopy())
-		}
-	}
-	return &out
-}
-func (in *AuditTrailConfig) DeepCopy() *AuditTrailConfig {
-	if in == nil {
-		return nil
-	}
-	out := *in // shallow copy of scalar fields
-	out.Enabled = in.Enabled
-	out.HashAlgorithm = in.HashAlgorithm
-	out.PersistPath = in.PersistPath
-	return &out
-}
-func (in *RetentionConfig) DeepCopy() *RetentionConfig {
-	if in == nil {
-		return nil
-	}
-	out := *in // shallow copy of scalar fields
-	out.DefaultDays = in.DefaultDays
-	if in.PerFramework != nil {
-		out.PerFramework = make(map[string]int, len(in.PerFramework))
-		for k0, v0 := range in.PerFramework {
-			copy0 := v0
-			copy0 = v0
-			(out.PerFramework)[k0] = copy0
-		}
-	}
-	out.AutoDelete = in.AutoDelete
-	out.ArchivePath = in.ArchivePath
-	return &out
-}
-func (in *ScheduledReportConfig) DeepCopy() *ScheduledReportConfig {
-	if in == nil {
-		return nil
-	}
-	out := *in // shallow copy of scalar fields
-	out.ID = in.ID
-	out.Framework = in.Framework
-	out.Schedule = in.Schedule
-	if in.Format != nil {
-		out.Format = make([]string, len(in.Format))
-		for i0 := range in.Format {
-			(out.Format)[i0] = (in.Format)[i0]
-		}
-	}
-	out.TenantID = in.TenantID
-	out.OutputDir = in.OutputDir
 	return &out
 }
 func (in *CRSConfig) DeepCopy() *CRSConfig {

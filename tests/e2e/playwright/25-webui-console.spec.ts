@@ -14,7 +14,6 @@ const routes = [
   '/ai',
   '/ssl',
   '/analytics',
-  '/compliance',
   '/tenants',
   '/tenants/e2e-missing-tenant',
   '/tenants/e2e-missing-tenant/analytics',

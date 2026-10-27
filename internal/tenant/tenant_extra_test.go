@@ -1283,20 +1283,10 @@ func TestStore_DeleteTenant_NonExistent(t *testing.T) {
 }
 
 // =====================================================================
-// Billing edge cases
 // =====================================================================
 
-func TestBillingManager_SetBillingStorePath(t *testing.T) {
+func TestManager_Accessors(t *testing.T) {
 	m := NewManager(10)
-	// Should not panic
-	m.SetBillingStorePath("/some/path")
-}
-
-func TestManager_BillingManager_Accessors(t *testing.T) {
-	m := NewManager(10)
-	if m.BillingManager() == nil {
-		t.Error("expected non-nil BillingManager")
-	}
 	if m.AlertManager() == nil {
 		t.Error("expected non-nil AlertManager")
 	}

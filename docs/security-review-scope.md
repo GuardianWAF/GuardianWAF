@@ -57,7 +57,7 @@ Required attacker models:
 Review:
 
 - tenant lookup and domain routing,
-- tenant-scoped event, stats, billing, rate-limit, and quota state,
+- tenant-scoped event, stats, rate-limit, and quota state,
 - tenant admin list/get/create/update/delete responses,
 - response sanitization for tenant credential fields.
 
@@ -108,7 +108,7 @@ Review:
 - event evidence redaction,
 - log and trace redaction,
 - dashboard/API response schemas and OpenAPI contract tests,
-- AI, alerting, MCP, compliance, and SSE data paths,
+- AI, alerting, MCP, and SSE data paths,
 - download/export paths for logs, reports, and audit evidence.
 
 Required attacker models:

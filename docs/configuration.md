@@ -488,10 +488,6 @@ of silently retaining a default.
 | `GWAF_LOGGING_MAX_SIZE_MB` | `logging.max_size_mb` | `100` |
 | `GWAF_LOGGING_MAX_BACKUPS` | `logging.max_backups` | `5` |
 | `GWAF_LOGGING_MAX_AGE_DAYS` | `logging.max_age_days` | `30` |
-| `GWAF_COMPLIANCE_ENABLED` | `compliance.enabled` | `true` |
-| `GWAF_COMPLIANCE_FRAMEWORKS` | `compliance.frameworks` | `pci_dss,gdpr` |
-| `GWAF_COMPLIANCE_REPORT_DIR` | `compliance.report_dir` | `/var/lib/guardianwaf/reports` |
-| `GWAF_COMPLIANCE_AUDIT_TRAIL_ENABLED` | `compliance.audit_trail.enabled` | `true` |
 
 Example:
 
@@ -512,6 +508,14 @@ GuardianWAF does not silently accept legacy or design-era top-level keys. Unknow
 | `proxy.upstreams` | `upstreams` |
 | `proxy.routes` | `routes` |
 | `security.waf` | `waf` |
+
+### Removed sections
+
+Removed features are rejected rather than ignored, so a config never claims a capability the binary no longer has:
+
+| Removed key | Action |
+|---|---|
+| `compliance` (and `GWAF_COMPLIANCE_*`) | Delete the section. Compliance reporting (PCI DSS/GDPR/SOC 2/ISO 27001 control mapping and its report hash chain) was removed in v0.7.0. Use `dashboard.audit_path` for the management audit log and export events to your SIEM for retention and reporting. |
 
 Run `guardianwaf validate -c guardianwaf.yaml` after migration. Public GuardianWAF YAML snippets in this repository must be preceded by `<!-- guardianwaf-config:validate -->` so CI parses them against `internal/config.Config`.
 

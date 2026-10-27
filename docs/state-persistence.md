@@ -39,12 +39,7 @@ The JSONL file is append-oriented. For operational retention, rotate or archive 
 | Replay captures | `waf.replay.storage_path` | `data/replay` | Stores captured traffic according to replay retention settings. Treat captures as sensitive. |
 | Analytics | `waf.analytics.storage_path` | `data/analytics` | Stores analytics time-series snapshots when analytics persistence is active. |
 | AI remediation rules | `waf.remediation.storage_path` | `data/remediation` | Stores generated remediation rules. |
-| Compliance report output | `compliance.report_dir` and scheduled-report `output_dir` | No default path unless configured | Stores generated report exports when operators configure report output. |
-| Compliance audit trail | `compliance.audit_trail.persist_path` | No default path unless configured | JSONL hash-chain persistence for compliance audit records. |
-| Compliance report archive | `compliance.retention.archive_path` | No default path unless configured | Optional archive target for compliance retention. |
 | Access/application logs | `logging.output` | `stdout` | File output is rotated by GuardianWAF when configured as a file path. |
-
-Compliance audit persistence is strict in dashboard runtime: when `compliance.enabled` and `compliance.audit_trail.persist_path` are configured, GuardianWAF creates the parent directory with mode `0700` and fails dashboard startup if the JSONL file cannot be opened. Report generation surfaces durable append failures and does not advance the in-memory audit chain after a failed file append. Shutdown surfaces audit file `Sync`/`Close` failures instead of hiding them. This prevents a configured audit chain from silently running in memory only, reporting a persisted compliance report after a failed append, or reporting a clean close after a durability failure.
 
 File-backed event persistence records runtime `Flush`/`Sync`, rotation, and rotated-file cleanup failures in the event-store drop counter, drains queued async writes on close, and returns final `Flush`/`Sync`/`Close` failures to the caller. Treat those shutdown errors as durability failures for the local event log, even when request handling had already accepted the event into the bounded in-process queue. JSONL replay compaction also fails startup if the rewrite cannot be durably written and committed, instead of silently replacing or ignoring the persistence file.
 
@@ -77,7 +72,6 @@ Recommended volume ownership and permissions:
 | IP auto-ban persistence | `0700` | `0600` | Medium to high, contains operational block state and IP addresses. |
 | Replay captures | `0700` | `0600` | Critical, may contain request/response data. |
 | Analytics/API discovery | `0700` | `0600` | Medium to high, can expose traffic shape and endpoint inventory. |
-| Compliance audit/report output | `0700` | `0600` | High, contains compliance evidence and audit chain data. |
 
 Avoid sharing these volumes with sidecars that do not need direct access. If using Kubernetes, set `securityContext.fsGroup` or an init container so the GuardianWAF runtime user can create and write the mounted directories without broadening permissions to world-readable paths.
 
@@ -135,7 +129,7 @@ Restore verifies the sidecar, archive paths/types, per-file hashes, schema, and 
 
 - **RPO:** 1 hour (`3600s`). Schedule a successful off-host snapshot at least hourly and alert when `time() - guardianwaf_backup_last_success_timestamp_seconds > 3600`.
 - **RTO:** 5 minutes (`300s`) from approved restore start to validated config/state plus successful liveness/readiness. Run `make backup-restore-smoke` after backup code changes and a real staging restore drill at least quarterly.
-- **Ownership:** the on-call SRE owns backup freshness and restore execution; the GuardianWAF service owner validates event, tenant, certificate, audit-chain, and dashboard-audit replay before accepting traffic.
+- **Ownership:** the on-call SRE owns backup freshness and restore execution; the GuardianWAF service owner validates event, tenant, certificate, and dashboard-audit replay before accepting traffic.
 
 The supplied script snapshots one config file, the complete configured state root, and an optional separate event JSONL. Durable paths configured outside those roots must either be moved beneath the state root or captured by an environment-specific volume snapshot with the same quiesce and integrity requirements.
 
@@ -151,7 +145,6 @@ Back up these paths before upgrading, replacing nodes, or migrating clusters:
 - `waf.replay.storage_path`, only when replay captures are intentionally retained.
 - `waf.analytics.storage_path`, when analytics snapshots are retained locally.
 - `waf.remediation.storage_path`, if generated remediation rules are part of operations.
-- `compliance.audit_trail.persist_path`, `compliance.report_dir`, scheduled report output directories, and `compliance.retention.archive_path`, when compliance features are enabled.
 
 Restore order should be:
 

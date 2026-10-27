@@ -41,7 +41,7 @@ func (h *TenantAdminHandler) getManager() tenantManagerInterface {
 // RegisterRoutes registers tenant admin routes.
 // All admin routes require the system admin API key (X-API-Key header) via
 // isAdminAuthenticated. This is separate from per-tenant API key auth and grants
-// exclusive access to cross-tenant management operations (tenant CRUD, billing,
+// exclusive access to cross-tenant management operations (tenant CRUD, quotas,
 // system stats). The admin key is set via Dashboard.SetAdminKey().
 func (h *TenantAdminHandler) RegisterRoutes(mux *http.ServeMux) {
 	auth := h.dashboard.adminAuthAuditWrap
@@ -50,8 +50,6 @@ func (h *TenantAdminHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/admin/tenants", auth(h.handleTenants))
 	mux.HandleFunc("/api/admin/tenants/", auth(h.handleTenantDetail))
 	mux.HandleFunc("/api/admin/stats", auth(h.handleStats))
-	mux.HandleFunc("/api/admin/billing", auth(h.handleBilling))
-	mux.HandleFunc("/api/admin/billing/", auth(h.handleBillingDetail))
 	mux.HandleFunc("/api/admin/alerts", auth(h.handleAlerts))
 	mux.HandleFunc("/api/admin/usage", auth(h.handleAllUsage))
 	mux.HandleFunc("/api/admin/usage/", auth(h.handleUsageDetail))
@@ -205,9 +203,9 @@ func (h *TenantAdminHandler) updateTenant(w http.ResponseWriter, r *http.Request
 	// Validate that update contains only known fields
 	allowedKeys := map[string]bool{
 		"name": true, "description": true, "domains": true,
-		"enabled": true, "billing_plan": true, "quota": true,
+		"enabled": true, "quota": true,
 		"waf_config": true, "rate_limits": true,
-		"active": true, "status": true, "plan": true,
+		"active": true, "status": true,
 		"email": true,
 	}
 	for k := range update {
@@ -242,27 +240,6 @@ func (h *TenantAdminHandler) deleteTenant(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusNoContent, nil)
 }
 
-// tenantToJSONMap converts a tenant value from the tenantManagerInterface seam
-// into a plain map via its JSON tags. Production managers return a
-// *tenant.Tenant struct while tests and integrations may return
-// map[string]any, so a bare map type-assertion is not a valid check — the same
-// round-trip decodeTenantAuthRecord and sanitizeTenantResponse already rely on.
-// ok is false only when tenant cannot be represented as a JSON object.
-func tenantToJSONMap(tenant any) (map[string]any, bool) {
-	if tenant == nil {
-		return nil, false
-	}
-	data, err := json.Marshal(tenant)
-	if err != nil {
-		return nil, false
-	}
-	var m map[string]any
-	if err := json.Unmarshal(data, &m); err != nil || m == nil {
-		return nil, false
-	}
-	return m, true
-}
-
 // sanitizeTenantResponse strips sensitive fields from a tenant object before it
 // is returned from admin APIs. Tenant API keys are returned only by explicit
 // create/regenerate-key responses, never embedded in tenant objects.
@@ -293,8 +270,6 @@ func normalizeTenantAdminUpdate(update map[string]any) map[string]any {
 			if status, ok := v.(string); ok {
 				normalized["active"] = status == "active" || status == "trial"
 			}
-		case "plan":
-			normalized["billing_plan"] = v
 		default:
 			normalized[k] = v
 		}
@@ -337,13 +312,6 @@ func sanitizeTenantMap(m map[string]any) map[string]any {
 			m["status"] = "active"
 		} else {
 			m["status"] = "suspended"
-		}
-	}
-	if _, ok := m["plan"]; !ok {
-		if plan, ok := m["billing_plan"].(string); ok && plan != "" {
-			m["plan"] = plan
-		} else {
-			m["plan"] = "basic"
 		}
 	}
 	if _, ok := m["email"]; !ok {
@@ -405,107 +373,6 @@ func (h *TenantAdminHandler) handleStats(w http.ResponseWriter, r *http.Request)
 		"enabled": true,
 		"stats":   stats,
 	})
-}
-
-func (h *TenantAdminHandler) handleBilling(w http.ResponseWriter, r *http.Request) {
-	if h.getManager() == nil || h.getManager().BillingManager() == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
-			"error": "billing not enabled",
-		})
-		return
-	}
-
-	// GET - List all invoices
-	if r.Method == http.MethodGet {
-		invoices := h.getManager().BillingManager().GetAllInvoices()
-		writeJSON(w, http.StatusOK, map[string]any{
-			"invoices": invoices,
-		})
-		return
-	}
-
-	writeError(w, http.StatusMethodNotAllowed, "method not allowed")
-}
-
-func (h *TenantAdminHandler) handleBillingDetail(w http.ResponseWriter, r *http.Request) {
-	// Same guard as handleBilling: multi-tenant mode may be enabled while
-	// billing is disabled (BillingManager() returns nil) — dereferencing it
-	// here would panic the handler goroutine on every billing-detail request.
-	if h.getManager() == nil || h.getManager().BillingManager() == nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
-			"error": "billing not enabled",
-		})
-		return
-	}
-
-	path := strings.TrimPrefix(r.URL.Path, "/api/admin/billing/")
-	if path == "" {
-		writeError(w, http.StatusBadRequest, "tenant ID required")
-		return
-	}
-
-	parts := strings.Split(path, "/")
-	tenantID := parts[0]
-
-	// GET - Get tenant invoices and current usage
-	if r.Method == http.MethodGet {
-		invoices := h.getManager().BillingManager().GetInvoices(tenantID)
-		usage := h.getManager().BillingManager().GetCurrentUsage(tenantID)
-
-		writeJSON(w, http.StatusOK, map[string]any{
-			"tenant_id":     tenantID,
-			"invoices":      invoices,
-			"current_usage": usage,
-		})
-		return
-	}
-
-	// POST - Generate new invoice
-	if r.Method == http.MethodPost {
-		tenant := h.getManager().GetTenant(tenantID)
-		if tenant == nil {
-			writeError(w, http.StatusNotFound, "tenant not found")
-			return
-		}
-
-		// Extract tenant data across the JSON-tagged adapter boundary.
-		// Production managers return *tenant.Tenant STRUCTS while tests and
-		// integrations may return maps, so a bare map type-assertion rejected
-		// every real tenant and made invoice generation unreachable in
-		// production (always 500 "invalid tenant data"). Round-trip through
-		// JSON so both shapes work — the same approach createTenant's
-		// decodeTenantAuthRecord already uses just above.
-		tenantMap, ok := tenantToJSONMap(tenant)
-		if !ok {
-			writeError(w, http.StatusInternalServerError, "invalid tenant data")
-			return
-		}
-
-		// Default to basic plan
-		plan := "basic"
-		if p, ok := tenantMap["billing_plan"].(string); ok && p != "" {
-			plan = p
-		}
-
-		tenantName, _ := tenantMap["name"].(string)
-
-		invoice, err := h.getManager().BillingManager().GenerateInvoice(
-			tenantID,
-			tenantName,
-			plan,
-			time.Now().AddDate(0, -1, 0), // Last month
-			time.Now(),
-		)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, sanitizeErr(err))
-			return
-		}
-
-		writeJSON(w, http.StatusCreated, invoice)
-		return
-	}
-
-	writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 }
 
 func (h *TenantAdminHandler) handleAllUsage(w http.ResponseWriter, r *http.Request) {

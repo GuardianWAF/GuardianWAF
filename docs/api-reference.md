@@ -219,7 +219,7 @@ curl -X POST http://localhost:9443/api/v1/config/reload \
 }
 ```
 
-Use a rolling restart for listener, TLS/ACME, event store, Docker watcher, AI, alerting, tenant, MCP, tracing, compliance, SIEM, cluster, WAF layer topology/configuration, or other startup-owned service changes.
+Use a rolling restart for listener, TLS/ACME, event store, Docker watcher, AI, alerting, tenant, MCP, tracing, SIEM, cluster, WAF layer topology/configuration, or other startup-owned service changes.
 
 ---
 
