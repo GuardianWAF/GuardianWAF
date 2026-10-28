@@ -609,7 +609,7 @@ jobs:
       run: ./scripts/check-prereqs.sh
 
     - name: Scan for secrets
-      uses: trufflesecurity/trufflehog@288a8a8643a2c5a36b81d231c550dccfa0beeb64 # main, pinned 2026-06-11
+      uses: trufflesecurity/trufflehog@0301dc36bd6762d2a20a8317ae00375eb5ba90a9 # main, pinned 2026-06-11
       with:
         extra_args: --only-verified
 
