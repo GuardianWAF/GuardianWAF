@@ -31,6 +31,10 @@ updates:
     groups:
       dev-dependencies:
         dependency-type: development
+    ignore:
+      # TypeScript 7 hard-fails typescript-eslint; stay on 6 until it supports 7.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: npm
     directory: /website
@@ -38,6 +42,13 @@ updates:
       interval: monthly
     commit-message:
       prefix: "deps(website)"
+    ignore:
+      # TypeScript 7 hard-fails typescript-eslint; stay on 5.9 until it supports 7.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
+      # lucide-react 1.x removed the brand icons (Github) the site imports.
+      - dependency-name: lucide-react
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: npm
     directory: /tests/e2e/playwright
