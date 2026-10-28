@@ -216,3 +216,39 @@ func TestDetect_SingleQuotedKeyAuthBypass(t *testing.T) {
 		}
 	}
 }
+
+func TestServerSideJS_ProseMentionOnlyLogs(t *testing.T) {
+	operators := []string{
+		`{"$where":"sleep(5000)"}`,
+		`{$where: function() { return true }}`,
+		`{'$function': {body: 'x'}}`,
+		`profile[$where]=this.isAdmin`,
+		`$where=1`,
+		`$where`,
+		`$accumulator ( init )`,
+	}
+	for _, in := range operators {
+		if score := totalScore(Detect(in, "query")); score < 50 {
+			t.Errorf("Detect(%q) score = %d, want block-level", in, score)
+		}
+	}
+
+	prose := []string{
+		`Mongo docs link references $where but execution is disabled`,
+		`we removed every $function usage last sprint`,
+		`the $accumulator operator is deprecated`,
+	}
+	for _, in := range prose {
+		if score := totalScore(Detect(in, "body")); score >= 25 {
+			t.Errorf("Detect(%q) score = %d, want below log threshold", in, score)
+		}
+	}
+}
+
+func totalScore(findings []engine.Finding) int {
+	total := 0
+	for _, f := range findings {
+		total += f.Score
+	}
+	return total
+}
