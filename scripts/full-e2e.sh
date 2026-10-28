@@ -32,7 +32,7 @@ API_KEY="${E2E_API_KEY:-guardianwaf-full-e2e-api-key}"
 ADMIN_KEY="${E2E_ADMIN_KEY:-guardianwaf-full-e2e-admin-key}"
 E2E_PROJECTS="${E2E_PROJECTS:-chromium}"
 E2E_PLAYWRIGHT_DOCKER="${E2E_PLAYWRIGHT_DOCKER:-false}"
-PLAYWRIGHT_DOCKER_IMAGE="${PLAYWRIGHT_DOCKER_IMAGE:-mcr.microsoft.com/playwright:v1.60.0-noble@sha256:9bd26ad900bb5e0f4dee75839e957a89ae89c2b7ab1e76050e559790e946b948}"
+PLAYWRIGHT_DOCKER_IMAGE="${PLAYWRIGHT_DOCKER_IMAGE:-mcr.microsoft.com/playwright:v1.64.1-noble@sha256:47b510dd9230bf0b9bfc9b20102241e577ea7a99334ab4c3ca19f19770e9b8ea}"
 
 case "${E2E_PLAYWRIGHT_DOCKER}" in
   true|false) ;;
