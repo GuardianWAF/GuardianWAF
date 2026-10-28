@@ -128,7 +128,6 @@ func Detect(input, location string) []engine.Finding {
 }
 
 // serverSideJS are MongoDB server-side JavaScript-execution operators (RCE/DoS).
-// The "$"-prefixed names are unambiguous, so a bare substring match is safe.
 var serverSideJS = []string{"$where", "$function", "$accumulator"}
 
 // checkServerSideJS flags MongoDB server-side JavaScript execution.
@@ -141,9 +140,16 @@ var serverSideJS = []string{"$where", "$function", "$accumulator"}
 func checkServerSideJS(lower, location string) []engine.Finding {
 	var findings []engine.Finding
 	for _, op := range serverSideJS {
-		if strings.Contains(lower, op) {
+		switch {
+		case hasOperatorSyntax(lower, op):
 			findings = append(findings, makeFinding(90, engine.SeverityCritical,
 				"NoSQL server-side JavaScript operator detected", op, location, 0.90))
+		case strings.Contains(lower, op):
+			// The operator name inside prose ("the docs mention $where but
+			// execution is disabled") is not a query. Scoring it 90 blocked
+			// log shipping and support text, so a mention only logs.
+			findings = append(findings, makeFinding(20, engine.SeverityLow,
+				"NoSQL server-side JavaScript operator mentioned in text", op, location, 0.40))
 		}
 	}
 	if hasMapReduceCommand(lower) {
@@ -151,6 +157,26 @@ func checkServerSideJS(lower, location string) []engine.Finding {
 			"NoSQL server-side JavaScript operator detected", "mapreduce", location, 0.90))
 	}
 	return findings
+}
+
+// hasOperatorSyntax reports whether some occurrence of op is used as a query
+// operator: a key followed by ':' or '=' (JSON, JS object literal, query
+// string), a call '(', or the bare operator at the end of the value, as when
+// it arrives as a parameter name. A closing quote or bracket may sit between
+// the operator and that syntax.
+func hasOperatorSyntax(lower, op string) bool {
+	for idx := 0; ; {
+		i := strings.Index(lower[idx:], op)
+		if i < 0 {
+			return false
+		}
+		end := idx + i + len(op)
+		rest := strings.TrimLeft(lower[end:], "\"'] \t\r\n")
+		if rest == "" || rest[0] == ':' || rest[0] == '=' || rest[0] == '(' {
+			return true
+		}
+		idx = end
+	}
 }
 
 // bracketOperators are MongoDB operators injected via query-string object syntax
