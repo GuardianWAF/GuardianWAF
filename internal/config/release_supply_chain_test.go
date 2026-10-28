@@ -430,7 +430,7 @@ func TestCIWorkflowPinsActionsToolsAndReleaseGates(t *testing.T) {
 		"gosec -include=G705 -severity=medium -confidence=medium ./internal/mcp ./internal/dashboard ./examples/backend",
 		"gosec -include=G204 -severity=medium -confidence=medium ./internal/docker",
 		"gosec -no-fail ./...",
-		"trufflesecurity/trufflehog@288a8a8643a2c5a36b81d231c550dccfa0beeb64",
+		"trufflesecurity/trufflehog@0301dc36bd6762d2a20a8317ae00375eb5ba90a9",
 	} {
 		if !strings.Contains(ci, want) {
 			t.Fatalf("ci workflow missing %q", want)
