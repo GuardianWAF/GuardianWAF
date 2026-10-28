@@ -42,6 +42,10 @@ test.describe('AI Configuration', () => {
   })
 
   test('AI providers API returns a provider list or explicit catalog error', async ({ request }) => {
+    // The server bounds the models.dev catalog fetch at 30s, the same as the
+    // default test timeout, so a slow catalog failed the test just before the
+    // server's own 502 arrived.
+    test.setTimeout(60_000)
     const resp = await request.get(`${BASE_URL}/api/v1/ai/providers`, {
       headers: { 'X-API-Key': API_KEY },
     })
