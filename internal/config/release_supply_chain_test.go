@@ -580,13 +580,13 @@ func TestPatchedGoToolchainIsAlignedAcrossBuildPaths(t *testing.T) {
 		"tools/deepcopy/go.mod":               {"go 1.26.10"},
 		"website/go.mod":                      {"go 1.26.10"},
 		"internal/dashboard/ui/go.mod":        {"go 1.26.10"},
-		"Dockerfile":                          {"golang:1.27.2-alpine AS builder"},
-		"docker-compose.yml":                  {"golang:1.27.2-alpine"},
-		"docker-compose.test.yml":             {"golang:1.27.2-alpine"},
-		"examples/sidecar/Dockerfile":         {"golang:1.27.2-alpine AS builder"},
-		"examples/sidecar/docker-compose.yml": {"golang:1.27.2-alpine"},
+		"Dockerfile":                          {"golang:1.27.3-alpine AS builder"},
+		"docker-compose.yml":                  {"golang:1.27.3-alpine"},
+		"docker-compose.test.yml":             {"golang:1.27.3-alpine"},
+		"examples/sidecar/Dockerfile":         {"golang:1.27.3-alpine AS builder"},
+		"examples/sidecar/docker-compose.yml": {"golang:1.27.3-alpine"},
 		"scripts/check-prereqs.sh":            {`MIN_GO="1.26.10"`},
-		".github/workflows/ci.yml":            {"go-version: ['1.26.10', '1.27.2']", "golang:1.27.2-alpine"},
+		".github/workflows/ci.yml":            {"go-version: ['1.26.10', '1.27.3']", "golang:1.27.3-alpine"},
 	}
 
 	for name, required := range files {
