@@ -86,7 +86,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: ['1.26.10', '1.27.2']
+        go-version: ['1.26.10', '1.27.3']
       fail-fast: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -637,7 +637,7 @@ jobs:
           --severity HIGH,CRITICAL \
           --exit-code 1 \
           --no-progress \
-          golang:1.27.2-alpine
+          golang:1.27.3-alpine
     - name: Scan Dockerfile and manifests for misconfigs
       run: |
         # Gate on HIGH,CRITICAL — same threshold as the base-image scan above.
