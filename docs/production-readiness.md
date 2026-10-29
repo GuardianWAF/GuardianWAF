@@ -111,7 +111,7 @@ Library mode:
 | Priority | Item | Done when |
 |---|---|---|
 | P1 | Raft wall-clock soak | A multi-day run on release hardware with real network latency. The write-volume soak passes: `TestSoakBoundedWALAndRestart` (`GWAF_RAFT_SOAK=1`) pushed 2,000,000 entries through a 3-node cluster at the default threshold with the WAL flat at ~0.4 MiB (398 KiB after 100k, 417 KiB after 2M), the snapshot under 0.1 MiB, a 59 ms restart from disk and a 51 MB process peak |
-| P1 | Detection evidence | The CI gate (block FP < 1% general, < 5% technical, attacks >= 85% per class) is in place; remaining: gotestwaf / CRS regression results published, corpora grown with anonymized production traffic |
+| P1 | Detection evidence | The CI gate (block FP < 1% general, < 5% technical, attacks >= 85% per class) is in place; measured on the in-repo corpora (`tests/quality`): 1627/1648 attacks blocked (98.7%), 0/1724 general and 0/138 technical benign false blocks. These are our own corpora, not an independent benchmark. Remaining: gotestwaf / CRS regression results published, corpora grown with anonymized production traffic |
 | P1 | Large-body inspection throughput | `BenchmarkEngine_LargeBody` p99 within the [performance budget](performance-budget.md) on release hardware |
 | P2 | Test suite consolidation | Per-bug regression files consolidated by theme |
 
