@@ -82,7 +82,7 @@ jobs:
         run: ./scripts/check-prereqs.sh
 
       - name: Download dashboard assets
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: dashboard-dist
           path: internal/dashboard/dist/
@@ -129,7 +129,7 @@ jobs:
           go-version-file: 'go.mod'
 
       - name: Download dashboard assets
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: dashboard-dist
           path: internal/dashboard/dist/
@@ -191,7 +191,7 @@ jobs:
         run: ./scripts/check-prereqs.sh
 
       - name: Download dashboard assets
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: dashboard-dist
           path: internal/dashboard/dist/
@@ -221,7 +221,7 @@ jobs:
         run: ./scripts/check-prereqs.sh
 
       - name: Download dashboard assets
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: dashboard-dist
           path: internal/dashboard/dist/
@@ -303,7 +303,7 @@ jobs:
         run: ./scripts/check-prereqs.sh
 
       - name: Download dashboard assets
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: dashboard-dist
           path: internal/dashboard/dist/
@@ -406,7 +406,7 @@ jobs:
         run: ./scripts/check-prereqs.sh
 
       - name: Download dashboard assets
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: dashboard-dist
           path: internal/dashboard/dist/
@@ -434,7 +434,7 @@ jobs:
         run: ./scripts/check-prereqs.sh
 
       - name: Download dashboard assets
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: dashboard-dist
           path: internal/dashboard/dist/
