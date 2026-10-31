@@ -1822,3 +1822,29 @@ func TestLoad_DashboardAPIRateLimitYAMLAndEnv(t *testing.T) {
 		t.Fatal("expected an error for a non-integer GWAF_DASHBOARD_API_RATE_LIMIT")
 	}
 }
+
+// dashboard.insecure was declared and documented as the acknowledgement that
+// silences the plain-HTTP startup warning, but the YAML loader never read it,
+// so setting it had no effect.
+func TestLoad_DashboardInsecureIsRead(t *testing.T) {
+	for _, tc := range []struct {
+		yaml string
+		want bool
+	}{
+		{"dashboard:\n  insecure: true\n", true},
+		{"dashboard:\n  insecure: false\n", false},
+		{"dashboard:\n  enabled: true\n", false},
+	} {
+		path := filepath.Join(t.TempDir(), "guardianwaf.yaml")
+		if err := os.WriteFile(path, []byte(tc.yaml), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := LoadFile(path)
+		if err != nil {
+			t.Fatalf("%q: %v", tc.yaml, err)
+		}
+		if cfg.Dashboard.Insecure != tc.want {
+			t.Fatalf("%q: Insecure = %v, want %v", tc.yaml, cfg.Dashboard.Insecure, tc.want)
+		}
+	}
+}
