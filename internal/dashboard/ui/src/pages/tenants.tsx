@@ -88,7 +88,7 @@ export default function TenantsPage() {
     switch (status) {
       case 'active': return 'bg-green-500'
       case 'suspended': return 'bg-yellow-500'
-      default: return 'bg-gray-500'
+      default: return 'bg-muted'
     }
   }
 
@@ -110,7 +110,7 @@ export default function TenantsPage() {
         <CardHeader>
           <div className="flex items-center gap-4">
             <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
                 placeholder="Search tenants or domains..."
                 value={search}
@@ -118,7 +118,7 @@ export default function TenantsPage() {
                 className="pl-10"
               />
             </div>
-            <div className="text-sm text-gray-500">
+            <div className="text-sm text-muted-foreground">
               {tenants.length} tenants
             </div>
           </div>
@@ -131,7 +131,7 @@ export default function TenantsPage() {
               <table className="w-full">
                 <caption className="sr-only">List of tenants with name, domains, status, usage, and actions columns</caption>
                 <thead>
-                  <tr className="border-b border-gray-200 dark:border-gray-700">
+                  <tr className="border-b border-border">
                     <th scope="col" className="text-left py-3 px-4 font-medium">Tenant</th>
                     <th scope="col" className="text-left py-3 px-4 font-medium">Domains</th>
                     <th scope="col" className="text-left py-3 px-4 font-medium">Status</th>
@@ -143,13 +143,13 @@ export default function TenantsPage() {
                   {filteredTenants.map((tenant) => (
                     <tr
                       key={tenant.id}
-                      className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800"
+                      className="border-b border-border hover:bg-muted/10"
                     >
                       <td className="py-3 px-4">
                         <div>
                           <div className="font-medium">{tenant.name}</div>
-                          <div className="text-sm text-gray-500">{tenant.email}</div>
-                          <div className="text-xs text-gray-400">ID: {tenant.id}</div>
+                          <div className="text-sm text-muted-foreground">{tenant.email}</div>
+                          <div className="text-xs text-muted-foreground">ID: {tenant.id}</div>
                         </div>
                       </td>
                       <td className="py-3 px-4">

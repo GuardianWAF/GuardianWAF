@@ -142,7 +142,7 @@ export default function ClusterDetailPage() {
       case 'tenants': return 'bg-blue-500'
       case 'rules': return 'bg-purple-500'
       case 'config': return 'bg-orange-500'
-      default: return 'bg-gray-500'
+      default: return 'bg-muted'
     }
   }
 
@@ -177,7 +177,7 @@ export default function ClusterDetailPage() {
           </Button>
           <div>
             <h1 className="text-3xl font-bold">{cluster.name}</h1>
-            <div className="text-sm text-gray-500">ID: {cluster.id}</div>
+            <div className="text-sm text-muted-foreground">ID: {cluster.id}</div>
           </div>
         </div>
         <Button variant="outline" onClick={handleRefresh}>
@@ -193,7 +193,7 @@ export default function ClusterDetailPage() {
             <div className="flex items-center gap-3">
               <Activity className="w-5 h-5 text-blue-500" />
               <div>
-                <div className="text-sm text-gray-500">Sync Scope</div>
+                <div className="text-sm text-muted-foreground">Sync Scope</div>
                 <Badge className={getScopeColor(cluster.sync_scope)}>
                   {cluster.sync_scope}
                 </Badge>
@@ -207,7 +207,7 @@ export default function ClusterDetailPage() {
             <div className="flex items-center gap-3">
               <Server className="w-5 h-5 text-green-500" />
               <div>
-                <div className="text-sm text-gray-500">Total Nodes</div>
+                <div className="text-sm text-muted-foreground">Total Nodes</div>
                 <div className="text-xl font-bold">{nodes.length}</div>
               </div>
             </div>
@@ -219,7 +219,7 @@ export default function ClusterDetailPage() {
             <div className="flex items-center gap-3">
               <CheckCircle className="w-5 h-5 text-green-500" />
               <div>
-                <div className="text-sm text-gray-500">Healthy Nodes</div>
+                <div className="text-sm text-muted-foreground">Healthy Nodes</div>
                 <div className="text-xl font-bold">
                   {nodes.filter(n => n.healthy).length} / {nodes.length}
                 </div>
@@ -236,7 +236,7 @@ export default function ClusterDetailPage() {
             <CardTitle>Description</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-gray-600 dark:text-gray-300">{cluster.description}</p>
+            <p className="text-muted-foreground ">{cluster.description}</p>
           </CardContent>
         </Card>
       )}
@@ -254,7 +254,7 @@ export default function ClusterDetailPage() {
         </CardHeader>
         <CardContent>
           {nodes.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
+            <div className="text-center py-8 text-muted-foreground">
               No nodes in this cluster yet.
             </div>
           ) : (
@@ -262,7 +262,7 @@ export default function ClusterDetailPage() {
               <table className="w-full">
                 <caption className="sr-only">Cluster nodes with name, address, health status, version, last seen time, and actions columns</caption>
                 <thead>
-                  <tr className="border-b border-gray-200 dark:border-gray-700">
+                  <tr className="border-b border-border">
                     <th scope="col" className="text-left py-3 px-4 font-medium">Node</th>
                     <th scope="col" className="text-left py-3 px-4 font-medium">Address</th>
                     <th scope="col" className="text-left py-3 px-4 font-medium">Status</th>
@@ -275,14 +275,14 @@ export default function ClusterDetailPage() {
                   {nodes.map((node) => (
                     <tr
                       key={node.id}
-                      className="border-b border-gray-100 dark:border-gray-800"
+                      className="border-b border-border"
                     >
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-2">
-                          <Server className="w-4 h-4 text-gray-400" />
+                          <Server className="w-4 h-4 text-muted-foreground" />
                           <div>
                             <div className="font-medium">{node.name}</div>
-                            <div className="text-xs text-gray-400 font-mono">{node.id}</div>
+                            <div className="text-xs text-muted-foreground font-mono">{node.id}</div>
                             {node.is_local && (
                               <Badge variant="outline" className="text-xs mt-1">Local</Badge>
                             )}
@@ -290,7 +290,7 @@ export default function ClusterDetailPage() {
                         </div>
                       </td>
                       <td className="py-3 px-4">
-                        <code className="text-sm bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">
+                        <code className="text-sm bg-muted/15 px-2 py-1 rounded">
                           {node.address}
                         </code>
                       </td>
@@ -310,7 +310,7 @@ export default function ClusterDetailPage() {
                       <td className="py-3 px-4 text-sm">
                         {node.version || 'Unknown'}
                       </td>
-                      <td className="py-3 px-4 text-sm text-gray-500">
+                      <td className="py-3 px-4 text-sm text-muted-foreground">
                         {node.last_seen
                           ? new Date(node.last_seen).toLocaleString()
                           : 'Never'}
@@ -396,7 +396,7 @@ export default function ClusterDetailPage() {
             <table className="w-full">
               <caption className="sr-only">All known nodes with name, address, health status, and cluster membership columns</caption>
               <thead>
-                <tr className="border-b border-gray-200 dark:border-gray-700">
+                <tr className="border-b border-border">
                   <th scope="col" className="text-left py-3 px-4 font-medium">Node</th>
                   <th scope="col" className="text-left py-3 px-4 font-medium">Address</th>
                   <th scope="col" className="text-left py-3 px-4 font-medium">Status</th>
@@ -409,14 +409,14 @@ export default function ClusterDetailPage() {
                   return (
                     <tr
                       key={node.id}
-                      className="border-b border-gray-100 dark:border-gray-800"
+                      className="border-b border-border"
                     >
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-2">
-                          <Server className="w-4 h-4 text-gray-400" />
+                          <Server className="w-4 h-4 text-muted-foreground" />
                           <div>
                             <div className="font-medium">{node.name}</div>
-                            <div className="text-xs text-gray-400 font-mono">{node.id}</div>
+                            <div className="text-xs text-muted-foreground font-mono">{node.id}</div>
                             {node.is_local && (
                               <Badge variant="outline" className="text-xs mt-1">Local</Badge>
                             )}
@@ -424,7 +424,7 @@ export default function ClusterDetailPage() {
                         </div>
                       </td>
                       <td className="py-3 px-4">
-                        <code className="text-sm bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">
+                        <code className="text-sm bg-muted/15 px-2 py-1 rounded">
                           {node.address}
                         </code>
                       </td>

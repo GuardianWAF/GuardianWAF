@@ -366,7 +366,7 @@ export default function RoutingPage() {
                     <div className="flex items-center gap-3 px-3 py-2 bg-muted/20">
                       <Server size={14} className={u.healthy_count === u.total_count ? 'text-cyan-400' : 'text-red-400'} />
                       <span className="text-sm font-medium text-foreground">{u.name}</span>
-                      <span className="text-[10px] px-1.5 rounded bg-slate-800 text-slate-400">{u.strategy}</span>
+                      <span className="text-[10px] px-1.5 rounded bg-muted/20 text-muted-foreground">{u.strategy}</span>
                       <span className={cn('text-[10px] font-medium', u.healthy_count === u.total_count ? 'text-cyan-400' : 'text-red-400')}>
                         {u.healthy_count}/{u.total_count} healthy
                       </span>

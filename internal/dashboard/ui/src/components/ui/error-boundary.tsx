@@ -23,15 +23,15 @@ export class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="flex min-h-screen items-center justify-center bg-zinc-950 text-zinc-100">
-          <div className="mx-4 max-w-md rounded-lg border border-zinc-800 bg-zinc-900 p-8 text-center">
+        <div className="flex min-h-screen items-center justify-center bg-background text-foreground">
+          <div className="mx-4 max-w-md rounded-lg border border-border bg-card p-8 text-center">
             <div className="mb-4 text-4xl">&#9888;</div>
             <h1 className="mb-2 text-xl font-semibold">Something went wrong</h1>
-            <p className="mb-1 text-sm text-zinc-400">
+            <p className="mb-1 text-sm text-muted-foreground">
               An unexpected error occurred in the dashboard.
             </p>
             {this.state.error && (
-              <pre className="mb-4 max-h-32 overflow-auto rounded bg-zinc-950 p-2 text-left text-xs text-red-400">
+              <pre className="mb-4 max-h-32 overflow-auto rounded bg-background p-2 text-left text-xs text-red-400">
                 {this.state.error.message}
               </pre>
             )}
