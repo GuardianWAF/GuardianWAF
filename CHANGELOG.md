@@ -1,3 +1,13 @@
+## [Unreleased]
+
+### Breaking Changes
+
+- **eb3c8fa** remove compliance reporting
+- **14d50fa** remove tenant billing plans and invoices
+- **60ff8bc** remove the website; it no longer lives in this repo
+
+See [docs/v0.7.0-release-notes.md](docs/v0.7.0-release-notes.md) for the full range.
+
 ## [v0.6.0] - 2026-09-12
 
 
