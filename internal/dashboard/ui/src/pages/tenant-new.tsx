@@ -256,7 +256,7 @@ export default function TenantNewPage() {
               className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-colors ${
                 step >= s
                   ? 'bg-accent text-white'
-                  : 'bg-gray-200 dark:bg-gray-700 text-gray-500'
+                  : 'bg-border  text-muted-foreground'
               } ${step === s ? 'ring-2 ring-accent/30' : ''}`}
             >
               {step > s && s !== 5 ? <Check className="w-4 h-4" /> : s}
@@ -264,7 +264,7 @@ export default function TenantNewPage() {
             {i < 4 && (
               <div
                 className={`w-12 h-1 mx-2 transition-colors ${
-                  step > s ? 'bg-accent' : 'bg-gray-200 dark:bg-gray-700'
+                  step > s ? 'bg-accent' : 'bg-border '
                 }`}
               />
             )}
@@ -281,14 +281,14 @@ export default function TenantNewPage() {
           <div className="space-y-6">
             <div className="text-center mb-6">
               <h2 className="text-2xl font-bold">Company Information</h2>
-              <p className="text-gray-500">Tell us about your organization</p>
+              <p className="text-muted-foreground">Tell us about your organization</p>
             </div>
 
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="name">Company/Organization Name *</Label>
                 <div className="relative">
-                  <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <Input
                     id="name"
                     value={form.name}
@@ -330,14 +330,14 @@ export default function TenantNewPage() {
           <div className="space-y-6">
             <div className="text-center mb-6">
               <h2 className="text-2xl font-bold">Domain Configuration</h2>
-              <p className="text-gray-500">Add domains you want to protect ({form.domains.filter(d => d.trim()).length}/{selectedPreset.quota.max_domains || 1})</p>
+              <p className="text-muted-foreground">Add domains you want to protect ({form.domains.filter(d => d.trim()).length}/{selectedPreset.quota.max_domains || 1})</p>
             </div>
 
             <div className="space-y-4">
               {form.domains.map((domain, index) => (
                 <div key={index} className="flex items-center gap-2">
                   <div className="relative flex-1">
-                    <Globe className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <Globe className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <Input
                       value={domain}
                       onChange={(e) => updateDomain(index, e.target.value)}
@@ -381,7 +381,7 @@ export default function TenantNewPage() {
           <div className="space-y-6">
             <div className="text-center mb-6">
               <h2 className="text-2xl font-bold">Resource Limits</h2>
-              <p className="text-gray-500">Pick a preset for the tenant's rate limits and quotas, or customize them below</p>
+              <p className="text-muted-foreground">Pick a preset for the tenant's rate limits and quotas, or customize them below</p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -395,7 +395,7 @@ export default function TenantNewPage() {
                     className={`cursor-pointer transition-all ${
                       isSelected
                         ? 'border-accent ring-2 ring-accent/20'
-                        : 'hover:border-gray-300 dark:hover:border-gray-600'
+                        : 'hover:border-muted'
                     } ${preset.recommended ? 'relative' : ''}`}
                     onClick={() => handlePresetSelect(preset.id)}
                   >
@@ -408,12 +408,12 @@ export default function TenantNewPage() {
                     )}
                     <CardContent className="p-6">
                       <div className="flex items-start gap-4">
-                        <div className={`p-3 rounded-lg ${isSelected ? 'bg-accent/10' : 'bg-gray-100 dark:bg-gray-800'}`}>
-                          <Icon className={`w-6 h-6 ${isSelected ? 'text-accent' : 'text-gray-500'}`} />
+                        <div className={`p-3 rounded-lg ${isSelected ? 'bg-accent/10' : 'bg-muted/15'}`}>
+                          <Icon className={`w-6 h-6 ${isSelected ? 'text-accent' : 'text-muted-foreground'}`} />
                         </div>
                         <div className="flex-1">
                           <h3 className="font-semibold text-lg">{preset.name}</h3>
-                          <p className="text-sm text-gray-500 mt-1">{preset.description}</p>
+                          <p className="text-sm text-muted-foreground mt-1">{preset.description}</p>
                           <ul className="mt-4 space-y-2">
                             {presetSummary(preset.quota).map((feature, i) => (
                               <li key={i} className="text-sm flex items-center gap-2">
@@ -430,13 +430,13 @@ export default function TenantNewPage() {
               })}
             </div>
 
-            <div className="flex items-center gap-2 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+            <div className="flex items-center gap-2 p-4 bg-muted/10 rounded-lg">
               <input
                 type="checkbox"
                 id="customConfig"
                 checked={form.customConfig}
                 onChange={(e) => setForm({ ...form, customConfig: e.target.checked })}
-                className="rounded border-gray-300"
+                className="rounded border-border"
               />
               <Label htmlFor="customConfig" className="text-sm cursor-pointer">
                 I want to customize resource quotas manually
@@ -508,7 +508,7 @@ export default function TenantNewPage() {
           <div className="space-y-6">
             <div className="text-center mb-6">
               <h2 className="text-2xl font-bold">Review & Create</h2>
-              <p className="text-gray-500">Verify everything looks good</p>
+              <p className="text-muted-foreground">Verify everything looks good</p>
             </div>
 
             <div className="space-y-4">
@@ -521,16 +521,16 @@ export default function TenantNewPage() {
                 </CardHeader>
                 <CardContent className="space-y-2 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-gray-500">Name</span>
+                    <span className="text-muted-foreground">Name</span>
                     <span className="font-medium">{form.name}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-500">Email</span>
+                    <span className="text-muted-foreground">Email</span>
                     <span className="font-medium">{form.email}</span>
                   </div>
                   {form.description && (
                     <div className="flex justify-between">
-                      <span className="text-gray-500">Description</span>
+                      <span className="text-muted-foreground">Description</span>
                       <span className="font-medium">{form.description}</span>
                     </div>
                   )}
@@ -547,7 +547,7 @@ export default function TenantNewPage() {
                 <CardContent>
                   <div className="flex flex-wrap gap-2">
                     {form.domains.filter(d => d.trim()).map((domain, i) => (
-                      <span key={i} className="px-2 py-1 bg-gray-100 dark:bg-gray-800 rounded text-sm">
+                      <span key={i} className="px-2 py-1 bg-muted/15 rounded text-sm">
                         {domain}
                       </span>
                     ))}
@@ -564,20 +564,20 @@ export default function TenantNewPage() {
                 </CardHeader>
                 <CardContent className="space-y-2 text-sm">
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded">
-                      <div className="text-gray-500">Max Domains</div>
+                    <div className="p-2 bg-muted/10 rounded">
+                      <div className="text-muted-foreground">Max Domains</div>
                       <div className="font-medium">{(form.customConfig ? customQuota : selectedPreset.quota).max_domains}</div>
                     </div>
-                    <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded">
-                      <div className="text-gray-500">Max Rules</div>
+                    <div className="p-2 bg-muted/10 rounded">
+                      <div className="text-muted-foreground">Max Rules</div>
                       <div className="font-medium">{(form.customConfig ? customQuota : selectedPreset.quota).max_rules}</div>
                     </div>
-                    <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded">
-                      <div className="text-gray-500">Requests/Min</div>
+                    <div className="p-2 bg-muted/10 rounded">
+                      <div className="text-muted-foreground">Requests/Min</div>
                       <div className="font-medium">{(form.customConfig ? customQuota : selectedPreset.quota).max_requests_per_minute.toLocaleString()}</div>
                     </div>
-                    <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded">
-                      <div className="text-gray-500">Bandwidth</div>
+                    <div className="p-2 bg-muted/10 rounded">
+                      <div className="text-muted-foreground">Bandwidth</div>
                       <div className="font-medium">{(form.customConfig ? customQuota : selectedPreset.quota).max_bandwidth_mbps} Mbps</div>
                     </div>
                   </div>
@@ -595,7 +595,7 @@ export default function TenantNewPage() {
                 <Check className="w-8 h-8 text-green-600" />
               </div>
               <h2 className="text-2xl font-bold text-green-600">Tenant Created Successfully!</h2>
-              <p className="text-gray-500 mt-2">Your tenant is ready to use</p>
+              <p className="text-muted-foreground mt-2">Your tenant is ready to use</p>
             </div>
 
             <Card className="border-yellow-200 dark:border-yellow-800 bg-yellow-50/50 dark:bg-yellow-900/10">
@@ -626,15 +626,15 @@ export default function TenantNewPage() {
               </CardHeader>
               <CardContent className="space-y-2 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Tenant ID</span>
-                  <code className="font-mono bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">{tenantId}</code>
+                  <span className="text-muted-foreground">Tenant ID</span>
+                  <code className="font-mono bg-muted/15 px-2 py-0.5 rounded">{tenantId}</code>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Name</span>
+                  <span className="text-muted-foreground">Name</span>
                   <span>{form.name}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-500">Limits</span>
+                  <span className="text-muted-foreground">Limits</span>
                   <span>{form.customConfig ? 'Custom' : selectedPreset.name}</span>
                 </div>
               </CardContent>

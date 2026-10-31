@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* `dark:` follows the app's own theme switch (data-theme on <html>), not the
+   operating system's prefers-color-scheme; otherwise dark mode on a light OS
+   showed the light variants. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
 @theme {
   --color-background: #09090b;
   --color-foreground: #fafafa;
@@ -22,7 +27,13 @@
   --radius-lg: 0.75rem;
 }
 
+:root {
+  /* Native controls (select popups, scrollbars, date pickers) follow the theme. */
+  color-scheme: dark;
+}
+
 [data-theme="light"] {
+  color-scheme: light;
   --color-background: #fafafa;
   --color-foreground: #09090b;
   --color-card: #ffffff;

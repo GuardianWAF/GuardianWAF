@@ -189,7 +189,7 @@ export default function TenantAnalyticsPage() {
       case 'ok': return 'bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800'
       case 'warning': return 'bg-yellow-50 border-yellow-200 dark:bg-yellow-900/20 dark:border-yellow-800'
       case 'exceeded': return 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800'
-      default: return 'bg-gray-50 border-gray-200'
+      default: return 'bg-muted/10 border-border'
     }
   }
 
@@ -219,7 +219,7 @@ export default function TenantAnalyticsPage() {
           </Button>
           <div>
             <h1 className="text-3xl font-bold">{tenant.name}</h1>
-            <div className="flex items-center gap-2 text-sm text-gray-500">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <span>Usage Analytics</span>
               <Badge variant={tenant.status === 'active' ? 'default' : 'secondary'}>
                 {tenant.status}
@@ -228,15 +228,15 @@ export default function TenantAnalyticsPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
+          <div className="flex items-center bg-muted/15 rounded-lg p-1">
             {(['24h', '7d', '30d'] as const).map((range) => (
               <button
                 key={range}
                 onClick={() => setTimeRange(range)}
                 className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
                   timeRange === range
-                    ? 'bg-white dark:bg-gray-700 shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700'
+                    ? 'bg-card shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
                 {range === '24h' ? '24 Hours' : range === '7d' ? '7 Days' : '30 Days'}
@@ -275,7 +275,7 @@ export default function TenantAnalyticsPage() {
                 ? 'Approaching Quota Limit'
                 : 'All Systems Operational'}
             </div>
-            <div className="text-sm text-gray-600 dark:text-gray-400">
+            <div className="text-sm text-muted-foreground">
               {usage.quota_status === 'exceeded'
                 ? 'This tenant has exceeded its rate limit quota. Requests over the limit are rejected with 429; raise the quota if the traffic is legitimate.'
                 : usage.quota_status === 'warning'
@@ -295,17 +295,17 @@ export default function TenantAnalyticsPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-500 flex items-center gap-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
               <Activity className="w-4 h-4" />
               Requests/min
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold">{usage.requests_per_minute.toLocaleString()}</div>
-            <div className="text-sm text-gray-500">
+            <div className="text-sm text-muted-foreground">
               Limit: {quota.max_requests_per_minute > 0 ? quota.max_requests_per_minute.toLocaleString() : '∞'}
             </div>
-            <div className="mt-2 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+            <div className="mt-2 h-1.5 bg-border rounded-full overflow-hidden">
               <div
                 className={`h-full rounded-full ${usage.quota_percentage > 90 ? 'bg-red-500' : usage.quota_percentage > 70 ? 'bg-yellow-500' : 'bg-green-500'}`}
                 style={{ width: `${Math.min(usage.quota_percentage, 100)}%` }}
@@ -316,17 +316,17 @@ export default function TenantAnalyticsPage() {
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-500 flex items-center gap-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
               <BarChart3 className="w-4 h-4" />
               Total Requests ({timeRange})
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold">{totalRequestsInRange.toLocaleString()}</div>
-            <div className="text-sm text-gray-500">
+            <div className="text-sm text-muted-foreground">
               {blockedPercentage}% blocked
             </div>
-            <div className="mt-2 text-sm text-gray-500">
+            <div className="mt-2 text-sm text-muted-foreground">
               {usage.total_requests.toLocaleString()} all-time total
             </div>
           </CardContent>
@@ -334,17 +334,17 @@ export default function TenantAnalyticsPage() {
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-500 flex items-center gap-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
               <Shield className="w-4 h-4" />
               Threats Blocked
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold text-red-600">{totalBlockedInRange.toLocaleString()}</div>
-            <div className="text-sm text-gray-500">
+            <div className="text-sm text-muted-foreground">
               {usage.blocked_requests.toLocaleString()} all-time
             </div>
-            <div className="mt-2 text-sm text-gray-500">
+            <div className="mt-2 text-sm text-muted-foreground">
               {((totalBlockedInRange / (totalRequestsInRange || 1)) * 100).toFixed(1)}% block rate
             </div>
           </CardContent>
@@ -352,17 +352,17 @@ export default function TenantAnalyticsPage() {
 
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-gray-500 flex items-center gap-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
               <Globe className="w-4 h-4" />
               Bandwidth
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold">{totalBandwidthInRange.toFixed(2)} GB</div>
-            <div className="text-sm text-gray-500">
+            <div className="text-sm text-muted-foreground">
               Current: {usage.bandwidth_mbps.toFixed(2)} Mbps
             </div>
-            <div className="mt-2 text-sm text-gray-500">
+            <div className="mt-2 text-sm text-muted-foreground">
               Limit: {quota.max_bandwidth_mbps > 0 ? `${quota.max_bandwidth_mbps} Mbps` : 'Unlimited'}
             </div>
           </CardContent>
@@ -386,7 +386,7 @@ export default function TenantAnalyticsPage() {
                   {usage.quota_percentage.toFixed(1)}%
                 </span>
               </div>
-              <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
+              <div className="h-3 bg-border rounded-full overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all duration-500 ${
                     usage.quota_percentage > 90 ? 'bg-red-500' : usage.quota_percentage > 70 ? 'bg-yellow-500' : 'bg-green-500'
@@ -394,7 +394,7 @@ export default function TenantAnalyticsPage() {
                   style={{ width: `${Math.min(usage.quota_percentage, 100)}%` }}
                 />
               </div>
-              <div className="text-xs text-gray-500 mt-1">
+              <div className="text-xs text-muted-foreground mt-1">
                 {usage.requests_per_minute.toLocaleString()} / {quota.max_requests_per_minute > 0 ? quota.max_requests_per_minute.toLocaleString() : '∞'} requests
               </div>
             </div>
@@ -406,41 +406,41 @@ export default function TenantAnalyticsPage() {
                   Bandwidth
                 </span>
               </div>
-              <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
+              <div className="h-3 bg-border rounded-full overflow-hidden">
                 <div
                   className="h-full rounded-full bg-blue-500 transition-all duration-500"
                   style={{ width: `${bandwidthPercent}%` }}
                 />
               </div>
-              <div className="text-xs text-gray-500 mt-1">
+              <div className="text-xs text-muted-foreground mt-1">
                 {usage.bandwidth_mbps.toFixed(2)} / {quota.max_bandwidth_mbps > 0 ? quota.max_bandwidth_mbps : '∞'} Mbps
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4 pt-4 border-t">
-              <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded">
-                <div className="text-sm text-gray-500 flex items-center gap-1">
+              <div className="p-3 bg-muted/10 rounded">
+                <div className="text-sm text-muted-foreground flex items-center gap-1">
                   <Shield className="w-3 h-3" />
                   Rules
                 </div>
                 <div className="text-lg font-semibold">0 / {getQuota(tenant).max_rules || '∞'}</div>
               </div>
-              <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded">
-                <div className="text-sm text-gray-500 flex items-center gap-1">
+              <div className="p-3 bg-muted/10 rounded">
+                <div className="text-sm text-muted-foreground flex items-center gap-1">
                   <Ban className="w-3 h-3" />
                   IP ACLs
                 </div>
                 <div className="text-lg font-semibold">0 / {getQuota(tenant).max_ip_acls || '∞'}</div>
               </div>
-              <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded">
-                <div className="text-sm text-gray-500 flex items-center gap-1">
+              <div className="p-3 bg-muted/10 rounded">
+                <div className="text-sm text-muted-foreground flex items-center gap-1">
                   <Clock className="w-3 h-3" />
                   Rate Limits
                 </div>
                 <div className="text-lg font-semibold">0 / {getQuota(tenant).max_rate_limit_rules || '∞'}</div>
               </div>
-              <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded">
-                <div className="text-sm text-gray-500 flex items-center gap-1">
+              <div className="p-3 bg-muted/10 rounded">
+                <div className="text-sm text-muted-foreground flex items-center gap-1">
                   <Globe className="w-3 h-3" />
                   Domains
                 </div>
@@ -458,7 +458,7 @@ export default function TenantAnalyticsPage() {
           <CardContent>
             <div className="space-y-4">
               {history.length === 0 && (
-                <div className="text-center py-8 text-gray-500">
+                <div className="text-center py-8 text-muted-foreground">
                   <BarChart3 className="w-8 h-8 mx-auto mb-2 opacity-50" />
                   <p className="text-sm">Usage history will appear as traffic is processed.</p>
                   <p className="text-xs mt-1">Data is aggregated per time window and refreshed automatically.</p>
@@ -466,13 +466,13 @@ export default function TenantAnalyticsPage() {
               )}
               {history.map((item, index) => (
                 <div key={index} className="flex items-center gap-4">
-                  <div className="w-16 text-xs text-gray-500">
+                  <div className="w-16 text-xs text-muted-foreground">
                     {timeRange === '24h'
                       ? new Date(item.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                       : new Date(item.date).toLocaleDateString([], { month: 'short', day: 'numeric' })}
                   </div>
                   <div className="flex-1">
-                    <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                    <div className="h-2 bg-border rounded-full overflow-hidden">
                       <div
                         className="h-full bg-accent rounded-full"
                         style={{ width: `${Math.min((item.requests / 20000) * 100, 100)}%` }}
@@ -488,7 +488,7 @@ export default function TenantAnalyticsPage() {
                 </div>
               ))}
             </div>
-            <div className="flex justify-between mt-4 pt-4 border-t text-sm text-gray-500">
+            <div className="flex justify-between mt-4 pt-4 border-t text-sm text-muted-foreground">
               <span>Total: {totalRequestsInRange.toLocaleString()} requests</span>
               <span>{totalBlockedInRange.toLocaleString()} blocked</span>
             </div>
@@ -517,7 +517,7 @@ export default function TenantAnalyticsPage() {
       </Card>
 
       {/* Footer */}
-      <div className="flex items-center justify-between text-sm text-gray-500">
+      <div className="flex items-center justify-between text-sm text-muted-foreground">
         <div className="flex items-center gap-2">
           <Calendar className="w-4 h-4" />
           Created: {new Date(tenant.created_at).toLocaleDateString()}

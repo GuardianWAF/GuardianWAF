@@ -641,7 +641,7 @@ export default function TenantDetailPage() {
 
               <Label>Tenant ID</Label>
 
-              <code className="block p-2 bg-gray-100 dark:bg-gray-800 rounded font-mono text-sm">
+              <code className="block p-2 bg-muted/15 rounded font-mono text-sm">
 
                 {tenant.id}
 
@@ -659,7 +659,7 @@ export default function TenantDetailPage() {
 
                 <div className="flex-1 relative">
 
-                  <code className="block p-2 bg-gray-100 dark:bg-gray-800 rounded font-mono text-sm truncate">
+                  <code className="block p-2 bg-muted/15 rounded font-mono text-sm truncate">
 
                     {showApiKey ? tenant.api_key || '***hidden***' : '••••••••••••••••••••••••••••••••'}
 
@@ -695,7 +695,7 @@ export default function TenantDetailPage() {
 
             <div className="border-t pt-4 space-y-4">
 
-              <p className="text-sm text-gray-500">Rotate this key manually when access changes or a key is exposed.</p>
+              <p className="text-sm text-muted-foreground">Rotate this key manually when access changes or a key is exposed.</p>
 
               <Button
 
@@ -749,7 +749,7 @@ export default function TenantDetailPage() {
 
               <thead>
 
-                <tr className="border-b border-gray-200 dark:border-gray-700">
+                <tr className="border-b border-border">
 
                   <th scope="col" className="text-left py-3 px-4 font-medium">Key ID</th>
 
@@ -767,7 +767,7 @@ export default function TenantDetailPage() {
 
                 {rotationHistory.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="py-8 text-center text-gray-500">
+                    <td colSpan={4} className="py-8 text-center text-muted-foreground">
                       No rotations in this session. This list resets when the page is reloaded.
                     </td>
                   </tr>
@@ -776,7 +776,7 @@ export default function TenantDetailPage() {
 
                   return (
 
-                    <tr key={key.id} className="border-b border-gray-100 dark:border-gray-800">
+                    <tr key={key.id} className="border-b border-border">
 
                       <td className="py-3 px-4 font-mono text-sm">{key.id}</td>
 
@@ -812,7 +812,7 @@ export default function TenantDetailPage() {
 
                       </td>
 
-                      <td className="py-3 px-4 text-sm text-gray-600">
+                      <td className="py-3 px-4 text-sm text-muted-foreground">
 
                         {key.rotation_reason || 'Manual rotation'}
 
@@ -914,31 +914,31 @@ export default function TenantDetailPage() {
 
           <div className="grid grid-cols-3 md:grid-cols-6 gap-4 text-center">
 
-            <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded">
+            <div className="p-4 bg-muted/10 rounded">
 
               <div className="text-2xl font-bold">{tenant.quota?.max_domains || 0}</div>
 
-              <div className="text-sm text-gray-500">Domains</div>
+              <div className="text-sm text-muted-foreground">Domains</div>
 
             </div>
 
-            <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded">
+            <div className="p-4 bg-muted/10 rounded">
 
               <div className="text-2xl font-bold">{tenant.quota?.max_rules || 0}</div>
 
-              <div className="text-sm text-gray-500">Rules</div>
+              <div className="text-sm text-muted-foreground">Rules</div>
 
             </div>
 
-            <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded">
+            <div className="p-4 bg-muted/10 rounded">
 
               <div className="text-2xl font-bold">{tenant.quota?.max_rate_limit_rules || 0}</div>
 
-              <div className="text-sm text-gray-500">Rate Limits</div>
+              <div className="text-sm text-muted-foreground">Rate Limits</div>
 
             </div>
 
-            <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded">
+            <div className="p-4 bg-muted/10 rounded">
 
               <div className="text-2xl font-bold">
 
@@ -946,23 +946,23 @@ export default function TenantDetailPage() {
 
               </div>
 
-              <div className="text-sm text-gray-500">Reqs/Min</div>
+              <div className="text-sm text-muted-foreground">Reqs/Min</div>
 
             </div>
 
-            <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded">
+            <div className="p-4 bg-muted/10 rounded">
 
               <div className="text-2xl font-bold">{tenant.quota?.max_bandwidth_mbps || 0}</div>
 
-              <div className="text-sm text-gray-500">Mbps</div>
+              <div className="text-sm text-muted-foreground">Mbps</div>
 
             </div>
 
-            <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded">
+            <div className="p-4 bg-muted/10 rounded">
 
               <div className="text-2xl font-bold">{tenant.quota?.max_ip_acls || 0}</div>
 
-              <div className="text-sm text-gray-500">IP ACLs</div>
+              <div className="text-sm text-muted-foreground">IP ACLs</div>
 
             </div>
 
@@ -996,7 +996,7 @@ export default function TenantDetailPage() {
 
               </div>
 
-              <div className="text-sm text-gray-500">Requests This Month</div>
+              <div className="text-sm text-muted-foreground">Requests This Month</div>
 
             </div>
 
@@ -1008,7 +1008,7 @@ export default function TenantDetailPage() {
 
               </div>
 
-              <div className="text-sm text-gray-500">Blocked Requests</div>
+              <div className="text-sm text-muted-foreground">Blocked Requests</div>
 
             </div>
 
@@ -1064,7 +1064,7 @@ export default function TenantDetailPage() {
 
             <CardContent className="space-y-4">
 
-              <p className="text-sm text-gray-600 dark:text-gray-400">
+              <p className="text-sm text-muted-foreground">
 
                 This will generate a new API key and invalidate the current one.
 
