@@ -101,6 +101,7 @@ export default function TenantsPage() {
           New Tenant
         </Button>
       </div>
+      <p className="-mt-4 text-sm text-muted-foreground">Tenants keep customers apart: each has its own domains, rules, rate limits and quotas. Off by default; turn it on with tenant.enabled in the YAML file.</p>
 
       <AdminKeyGate locked={!adminReady} onLocked={() => setAdminReady(false)} onUnlocked={() => {
         setAdminReady(true)
