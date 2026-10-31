@@ -450,8 +450,11 @@ func TestCIWorkflowPinsActionsToolsAndReleaseGates(t *testing.T) {
 		"name: release-verification-${{ github.run_id }}",
 		"name: release-promotion-${{ github.run_id }}",
 		"./scripts/promote-release.sh \\",
+		"anchore/syft/a033ae525f6c7ef937c6f49513e3403f07a1d6c0/install.sh",
 		"-b /usr/local/bin v1.38.0",
 		"trivy_0.73.0_Linux-64bit",
+		"2edd39da482bb4e9831962487b68f68e3928ec3137794757f54d00383d79547b  trivy.tar.gz",
+		"sha256sum -c -",
 		"--no-progress",
 	} {
 		if !strings.Contains(release, want) {
@@ -465,6 +468,8 @@ func TestCIWorkflowPinsActionsToolsAndReleaseGates(t *testing.T) {
 			"@master",
 			"@latest",
 			"version: latest",
+			"/main/install.sh",
+			"/master/install.sh",
 		} {
 			if strings.Contains(workflow, forbidden) {
 				t.Fatalf("%s contains unpinned workflow/tool reference %q", name, forbidden)
