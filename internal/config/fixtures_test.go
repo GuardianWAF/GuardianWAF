@@ -193,106 +193,6 @@ func TestMarkdownGuardianWAFConfigSnippetsValidate(t *testing.T) {
 	}
 }
 
-func TestWebsiteGuardianWAFConfigSnippetsValidate(t *testing.T) {
-	root := filepath.Join("..", "..")
-	fixture := filepath.Join("website", "src", "content", "docs.ts")
-	data, err := os.ReadFile(filepath.Join(root, fixture))
-	if err != nil {
-		t.Fatalf("ReadFile() error = %v", err)
-	}
-	snippets, err := extractWebsiteGuardianWAFConfigs(string(data))
-	if err != nil {
-		t.Fatalf("extract website configs: %v", err)
-	}
-	for i, snippet := range snippets {
-		t.Run("website#"+strconv.Itoa(i+1), func(t *testing.T) {
-			cfg, err := loadConfigBytes([]byte(snippet))
-			if err != nil {
-				t.Fatalf("loadConfigBytes() error = %v\n%s", err, snippet)
-			}
-			if err := Validate(cfg); err != nil {
-				t.Fatalf("Validate() error = %v\n%s", err, snippet)
-			}
-		})
-	}
-}
-
-func TestWebsiteRuntimeExamplesUseCurrentCLIAndEnvContract(t *testing.T) {
-	path := filepath.Join("..", "..", "website", "src", "content", "docs.ts")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("ReadFile() error = %v", err)
-	}
-	content := string(data)
-
-	for _, forbidden := range []string{
-		"GUARDIANWAF_",
-		"serve --listen :8088 --upstream",
-		"serve --dry-run",
-		"--block-score",
-		"--log-score",
-	} {
-		if strings.Contains(content, forbidden) {
-			t.Fatalf("%s contains stale runtime example %q", path, forbidden)
-		}
-	}
-	for _, want := range []string{
-		"GWAF_ prefix",
-		"GWAF_WAF_DETECTION_THRESHOLD_BLOCK",
-		"guardianwaf serve",
-		"guardianwaf sidecar",
-		"--mode monitor",
-	} {
-		if !strings.Contains(content, want) {
-			t.Fatalf("%s missing current runtime example %q", path, want)
-		}
-	}
-}
-
-func TestWebsiteGoAPIExamplesUseCurrentPublicPackageContract(t *testing.T) {
-	path := filepath.Join("..", "..", "website", "src", "content", "docs.ts")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("ReadFile() error = %v", err)
-	}
-	content := string(data)
-
-	for _, forbidden := range []string{
-		"(*WAF, error)",
-		"*WAF)",
-		"func (w *WAF)",
-		"HandlerFunc",
-		"Analyze(",
-		"BlockScore",
-		"LogScore",
-		"DryRun",
-		"ModeProxy",
-		"ModeLibrary",
-		"ModeSidecar",
-		"DetectorID",
-		"WeightConfig",
-		"waf.Handler(",
-	} {
-		if strings.Contains(content, forbidden) {
-			t.Fatalf("%s contains stale Go API example %q", path, forbidden)
-		}
-	}
-	for _, want := range []string{
-		"func New(config Config, opts ...Option) (*Engine, error)",
-		"func NewFromFile(path string, opts ...Option) (*Engine, error)",
-		"func (e *Engine) Middleware(next http.Handler) http.Handler",
-		"func (e *Engine) Check(r *http.Request) Result",
-		"func (e *Engine) OnEvent(fn func(Event))",
-		"func (e *Engine) Stats() Stats",
-		"ModeEnforce, ModeMonitor, ModeDisabled",
-		"waf.Middleware(mux)",
-	} {
-		if !strings.Contains(content, want) {
-			t.Fatalf("%s missing current Go API example %q", path, want)
-		}
-	}
-}
-
 func TestPublicMarkdownGuardianWAFConfigBlocksAreMarked(t *testing.T) {
 	root := filepath.Join("..", "..")
 	fixtures := []string{
@@ -370,28 +270,6 @@ func TestInvalidConfigFixtureFailsValidation(t *testing.T) {
 	if err := Validate(cfg); err == nil {
 		t.Fatal("Validate() error = nil, want validation failure")
 	}
-}
-
-func extractWebsiteGuardianWAFConfigs(data string) ([]string, error) {
-	const marker = "language: 'yaml', filename: 'guardianwaf.yaml', code: `"
-	var configs []string
-	for offset := 0; ; {
-		idx := strings.Index(data[offset:], marker)
-		if idx < 0 {
-			break
-		}
-		start := offset + idx + len(marker)
-		end := strings.Index(data[start:], "` }")
-		if end < 0 {
-			return nil, os.ErrInvalid
-		}
-		configs = append(configs, strings.TrimSpace(data[start:start+end])+"\n")
-		offset = start + end + len("` }")
-	}
-	if len(configs) == 0 {
-		return nil, os.ErrNotExist
-	}
-	return configs, nil
 }
 
 func extractMarkedMarkdownConfigs(data string) ([]string, error) {

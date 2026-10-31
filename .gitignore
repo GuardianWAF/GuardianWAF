@@ -129,8 +129,6 @@ internal/geoip/*.csv.gz
 
 # Node dependencies (root + per-package installs)
 node_modules/
-website/node_modules/
-website/dist/
 
 # Playwright MCP
 .playwright-mcp/
