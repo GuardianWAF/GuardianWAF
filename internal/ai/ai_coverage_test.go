@@ -725,9 +725,9 @@ func TestNewCatalogCache_EmptyURL_Cov(t *testing.T) {
 
 func TestFetchCatalog_LargeResponse_Cov(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Send > 5MB response
+		// Send a response one byte over the cap
 		w.WriteHeader(http.StatusOK)
-		large := make([]byte, 6*1024*1024)
+		large := make([]byte, maxCatalogBytes+1)
 		for i := range large {
 			large[i] = 'a'
 		}
@@ -738,6 +738,26 @@ func TestFetchCatalog_LargeResponse_Cov(t *testing.T) {
 	_, err := FetchCatalog(srv.URL)
 	if err == nil {
 		t.Error("expected error for oversized response")
+	}
+}
+
+// The live models.dev catalog outgrew the former 5 MiB cap (about 6 MB), which
+// made the dashboard's provider list fail with a bare 502.
+func TestFetchCatalogAcceptsCatalogLargerThanFiveMiB(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"test-provider":{"id":"test-provider","name":"Test Provider","doc":"`))
+		_, _ = w.Write([]byte(strings.Repeat("x", 6*1024*1024)))
+		_, _ = w.Write([]byte(`","models":{}}}`))
+	}))
+	defer srv.Close()
+
+	cat, err := FetchCatalog(srv.URL)
+	if err != nil {
+		t.Fatalf("a ~6 MiB catalog must be accepted: %v", err)
+	}
+	if _, ok := cat.Providers["test-provider"]; !ok {
+		t.Fatal("provider missing from the parsed catalog")
 	}
 }
 
