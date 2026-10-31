@@ -30,7 +30,10 @@ var aiLogger = logging.NewLogger("ai")
 const (
 	defaultCatalogURL = "https://models.dev/api.json"
 	catalogCacheTTL   = 24 * time.Hour
-	maxCatalogBytes   = 5 * 1024 * 1024
+	// maxCatalogBytes bounds the models.dev catalog download. The live catalog
+	// was ~6 MB in 2026-10 and keeps growing, so leave headroom while still
+	// refusing an unbounded remote body.
+	maxCatalogBytes = 16 * 1024 * 1024
 )
 
 // ProviderInfo describes an AI provider from the models.dev catalog.

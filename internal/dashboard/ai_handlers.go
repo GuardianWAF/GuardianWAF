@@ -3,6 +3,7 @@ package dashboard
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -57,6 +58,7 @@ func (d *Dashboard) handleAIProviders(w http.ResponseWriter, r *http.Request) {
 		// Get from analyzer (shares cache)
 		providers, err := d.getAIAnalyzer().GetCatalog()
 		if err != nil {
+			slog.Warn("AI provider catalog fetch failed", "error", err)
 			writeError(w, http.StatusBadGateway, "failed to fetch providers")
 			return
 		}
@@ -67,6 +69,7 @@ func (d *Dashboard) handleAIProviders(w http.ResponseWriter, r *http.Request) {
 	// Standalone fetch — AI not enabled but we still show providers
 	providers, err := catalogCache.Summaries()
 	if err != nil {
+		slog.Warn("AI provider catalog fetch failed", "error", err)
 		writeError(w, http.StatusBadGateway, "failed to fetch catalog")
 		return
 	}
