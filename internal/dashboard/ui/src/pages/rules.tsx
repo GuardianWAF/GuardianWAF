@@ -271,6 +271,7 @@ export default function RulesPage() {
           </button>
         </div>
       </div>
+      <p className="-mt-2 text-sm text-muted-foreground">Your own rules, checked before the built-in detectors. Each rule matches on things like path, country or header and then takes an action such as block or log.</p>
 
       {/* Templates Panel */}
       {showTemplates && (

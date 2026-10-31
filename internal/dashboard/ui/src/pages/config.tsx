@@ -186,9 +186,9 @@ export default function ConfigPage() {
       )}
 
       {/* General */}
-      <Section title="General" defaultOpen>
+      <Section title="General" description="Choose how the WAF reacts to a request it considers an attack." defaultOpen>
         <div className="space-y-4">
-          <FieldRow label="WAF Mode" live>
+          <FieldRow label="WAF Mode" live hint="Enforce blocks attacks. Monitor only logs what it would block, so start there when rolling out. Disabled skips inspection.">
             <Select
               value={val('mode', 'enforce') as string}
               onChange={(e) => update('mode', e.target.value)}
@@ -205,6 +205,7 @@ export default function ConfigPage() {
       {/* TLS / SSL */}
       <Section
         title="TLS / SSL"
+        description="HTTPS for the proxy listener, with optional automatic Let’s Encrypt certificates. Edit in the YAML file; changes need a restart."
         badge={{ on: val('tls.enabled', false) as boolean }}
       >
         <div className="space-y-4">
@@ -280,6 +281,7 @@ export default function ConfigPage() {
       {/* Detection Engine */}
       <Section
         title="Detection Engine"
+        description="Scores every request across the attack detectors (SQL injection, XSS, path traversal and more). A request is blocked when its total score reaches the block threshold."
         badge={{ on: val('detection.enabled', true) as boolean }}
         defaultOpen
       >
@@ -290,7 +292,7 @@ export default function ConfigPage() {
               onCheckedChange={(v) => update('detection.enabled', v)}
             />
           </FieldRow>
-          <FieldRow label="Block Threshold" live>
+          <FieldRow label="Block Threshold" live hint="A request whose total score reaches this is blocked. Lower is stricter. Default 50.">
             <Input
               type="number"
               value={val('detection.threshold.block', 50) as number}
@@ -300,7 +302,7 @@ export default function ConfigPage() {
               max={100}
             />
           </FieldRow>
-          <FieldRow label="Log Threshold" live>
+          <FieldRow label="Log Threshold" live hint="Scores from here up to the block threshold are logged but allowed. Default 25.">
             <Input
               type="number"
               value={val('detection.threshold.log', 25) as number}
@@ -334,7 +336,7 @@ export default function ConfigPage() {
                       }
                     />
                   </div>
-                  <FieldRow label="Multiplier">
+                  <FieldRow label="Multiplier" hint="1 is normal. Below 1 makes this detector less sensitive, above 1 more.">
                     <Input
                       type="number"
                       value={val(`detection.detectors.${key}.multiplier`, 1.0) as number}
@@ -360,6 +362,7 @@ export default function ConfigPage() {
       {/* Bot Detection */}
       <Section
         title="Bot Detection"
+        description="Spots automated clients using TLS fingerprints, user agents and request behaviour."
         badge={{ on: val('bot_detection.enabled', false) as boolean }}
       >
         <div className="space-y-4">
@@ -424,6 +427,7 @@ export default function ConfigPage() {
       {/* JS Challenge */}
       <Section
         title="JS Challenge (PoW)"
+        description="Asks suspicious clients to solve a small proof-of-work puzzle in the browser instead of blocking them outright."
         badge={{ on: val('challenge.enabled', false) as boolean }}
       >
         <div className="space-y-4">
@@ -451,6 +455,7 @@ export default function ConfigPage() {
       {/* Rate Limiting */}
       <Section
         title="Rate Limiting"
+        description="Limits how many requests one client can send in a time window."
         badge={{ on: val('rate_limit.enabled', false) as boolean }}
       >
         <div className="space-y-4">
@@ -466,6 +471,7 @@ export default function ConfigPage() {
       {/* IP Access Control */}
       <Section
         title="IP Access Control"
+        description="Always-allow and always-block lists of IPs and CIDR ranges, plus temporary automatic bans."
         badge={{ on: val('ip_acl.enabled', false) as boolean }}
       >
         <div className="space-y-6">
@@ -637,6 +643,7 @@ export default function ConfigPage() {
       {/* Request Sanitizer */}
       <Section
         title="Request Sanitizer"
+        description="Normalizes and sanity-checks every request (encoding tricks, oversized URLs and bodies, null bytes) before detection runs."
         badge={{ on: val('sanitizer.enabled', false) as boolean }}
       >
         <div className="space-y-4">
@@ -646,7 +653,7 @@ export default function ConfigPage() {
               onCheckedChange={(v) => update('sanitizer.enabled', v)}
             />
           </FieldRow>
-          <FieldRow label="Max URL Length">
+          <FieldRow label="Max URL Length" hint="URLs longer than this are rejected. Default 8192 bytes.">
             <Input
               type="number"
               value={val('sanitizer.max_url_length', 2048) as number}
@@ -657,7 +664,7 @@ export default function ConfigPage() {
               min={256}
             />
           </FieldRow>
-          <FieldRow label="Max Body Size" live>
+          <FieldRow label="Max Body Size" hint="Requests with a larger body are rejected with 413. Default 10 MB." live>
             <Input
               type="number"
               value={val('sanitizer.max_body_size', 1048576) as number}
@@ -674,6 +681,7 @@ export default function ConfigPage() {
       {/* Response Protection */}
       <Section
         title="Response Protection"
+        description="Adds security headers and hides sensitive data in responses sent back to clients."
         badge={{ on: val('response.security_headers.enabled', false) as boolean }}
       >
         <div className="space-y-4">
@@ -719,6 +727,7 @@ export default function ConfigPage() {
       {/* CORS Security */}
       <Section
         title="CORS Security"
+        description="Controls which other websites may call your API from a browser."
         badge={{ on: val('cors.enabled', false) as boolean }}
       >
         <div className="space-y-4">
@@ -749,6 +758,7 @@ export default function ConfigPage() {
       {/* Threat Intelligence */}
       <Section
         title="Threat Intelligence"
+        description="Blocks IPs and domains that appear in reputation feeds."
         badge={{ on: val('threat_intel.enabled', false) as boolean }}
       >
         <div className="space-y-4">
@@ -814,6 +824,7 @@ export default function ConfigPage() {
       {/* ATO Protection */}
       <Section
         title="ATO Protection"
+        description="Account-takeover defence: brute force, credential stuffing, password spraying and impossible travel on login endpoints."
         badge={{ on: val('ato_protection.enabled', false) as boolean }}
       >
         <div className="space-y-4">
@@ -907,6 +918,7 @@ export default function ConfigPage() {
       {/* API Security */}
       <Section
         title="API Security"
+        description="Checks JWTs and API keys on API requests."
         badge={{ on: val('api_security.enabled', false) as boolean }}
       >
         <div className="space-y-4">
@@ -975,7 +987,7 @@ export default function ConfigPage() {
       </Section>
 
       {/* Docker Auto-Discovery */}
-      <Section title="Docker Auto-Discovery">
+      <Section title="Docker Auto-Discovery" description="Finds backends automatically from running containers labelled gwaf.*.">
         <div className="space-y-3">
           <FieldRow label="Enable Docker Discovery">
             <Switch
@@ -1023,7 +1035,7 @@ export default function ConfigPage() {
       </Section>
 
       {/* AI Threat Analysis */}
-      <Section title="AI Threat Analysis">
+      <Section title="AI Threat Analysis" description="Optional background review of blocked traffic by an AI model. It never sits in the request path.">
         <div className="space-y-3">
           <FieldRow label="Enable AI Analysis">
             <Switch
@@ -1068,7 +1080,7 @@ export default function ConfigPage() {
       </Section>
 
       {/* Alerting / Webhooks */}
-      <Section title="Alerting / Webhooks">
+      <Section title="Alerting / Webhooks" description="Sends notifications to Slack, Discord, PagerDuty, email or any webhook when attacks are detected.">
         <div className="space-y-3">
           <FieldRow label="Enable Alerting">
             <Switch
@@ -1109,20 +1121,26 @@ export default function ConfigPage() {
 
 function FieldRow({
   label,
+  hint,
   children,
   live = false,
 }: {
   label: string
+  /** Plain-language explanation shown under the label. */
+  hint?: string
   children: React.ReactNode
   live?: boolean
 }) {
   return (
     <fieldset disabled={!live} aria-label={label} className="min-w-0">
       <div className="flex items-center justify-between gap-4">
-        <span className="text-sm text-foreground whitespace-nowrap">
-          {label}
-          {!live && <span className="ml-2 text-xs text-muted-foreground">Restart required</span>}
-        </span>
+        <div className="min-w-0">
+          <span className="text-sm text-foreground whitespace-nowrap">
+            {label}
+            {!live && <span className="ml-2 text-xs text-muted-foreground">Restart required</span>}
+          </span>
+          {hint && <p className="mt-0.5 max-w-xl text-xs text-muted-foreground">{hint}</p>}
+        </div>
         {children}
       </div>
     </fieldset>

@@ -135,6 +135,7 @@ export default function ClustersPage() {
           </Button>
         </div>
       </div>
+      <p className="-mt-4 text-sm text-muted-foreground">Several GuardianWAF nodes sharing bans, rules and counters over Raft. Turn it on with cluster.enabled in the YAML file.</p>
 
       {/* Sync Stats Cards */}
       {syncStats && (

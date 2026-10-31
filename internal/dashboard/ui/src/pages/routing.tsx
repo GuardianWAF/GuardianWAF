@@ -321,6 +321,7 @@ export default function RoutingPage() {
           </button>
         </div>
       </div>
+      <p className="-mt-2 text-sm text-muted-foreground">Which hostnames and paths are forwarded to which backend, and how traffic is balanced between them.</p>
 
       {error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">

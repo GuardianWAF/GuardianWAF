@@ -152,6 +152,7 @@ export default function AIPage() {
           )}
         </div>
       </div>
+      <p className="-mt-2 text-sm text-muted-foreground">An AI model reviews batches of blocked and suspicious requests in the background. It never delays live traffic.</p>
 
       {error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive flex items-center gap-2">

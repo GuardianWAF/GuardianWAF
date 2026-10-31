@@ -69,6 +69,7 @@ export default function AnalyticsPage() {
           </select>
         </label>
       </div>
+      <p className="-mt-2 text-sm text-muted-foreground">Attack and traffic trends over the selected period.</p>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Metric icon={Activity} label="Requests" value={stats?.total_requests ?? 0} />
