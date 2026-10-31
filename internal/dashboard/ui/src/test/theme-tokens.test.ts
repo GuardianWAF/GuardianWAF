@@ -1,5 +1,3 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs'
-import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 // The theme is driven by CSS variables (bg-card, text-muted-foreground, ...).
@@ -10,33 +8,31 @@ const FORBIDDEN = /\b(?:bg|border|divide|ring)-(?:gray|slate|zinc|neutral|stone)
 // Files that intentionally keep a fixed palette.
 const ALLOWED_FILES = new Set([
   // Always-dark topology canvas.
-  'components/routing/routing-graph.tsx',
+  '../components/routing/routing-graph.tsx',
 ])
 // Fixed-colour widgets: toggle knobs are white in both themes.
 const ALLOWED_LINES = [/rounded-full bg-white/]
 
-function sourceFiles(dir: string, base = dir): string[] {
-  return readdirSync(dir).flatMap((name) => {
-    const path = join(dir, name)
-    if (statSync(path).isDirectory()) return sourceFiles(path, base)
-    if (!/\.tsx?$/.test(name) || /\.test\.tsx?$/.test(name)) return []
-    return [path.slice(base.length + 1)]
-  })
-}
+const sources = import.meta.glob(['../**/*.{ts,tsx}', '!../**/*.test.{ts,tsx}', '!../test/**'], {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+}) as Record<string, string>
 
 describe('theme tokens', () => {
+  it('scans the source tree', () => {
+    expect(Object.keys(sources).length).toBeGreaterThan(20)
+  })
+
   it('uses theme tokens instead of fixed light palette classes', () => {
-    const root = join(__dirname, '..')
     const offenders: string[] = []
-    for (const file of sourceFiles(root)) {
+    for (const [file, text] of Object.entries(sources)) {
       if (ALLOWED_FILES.has(file)) continue
-      readFileSync(join(root, file), 'utf8')
-        .split('\n')
-        .forEach((line, i) => {
-          if (FORBIDDEN.test(line) && !ALLOWED_LINES.some((re) => re.test(line))) {
-            offenders.push(`${file}:${i + 1}: ${line.trim().slice(0, 100)}`)
-          }
-        })
+      text.split('\n').forEach((line, i) => {
+        if (FORBIDDEN.test(line) && !ALLOWED_LINES.some((re) => re.test(line))) {
+          offenders.push(`${file}:${i + 1}: ${line.trim().slice(0, 100)}`)
+        }
+      })
     }
     expect(offenders).toEqual([])
   })
