@@ -181,7 +181,8 @@ jobs:
 
       - name: Install syft
         run: |
-          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
+          # Installer script pinned to the commit behind the v1.38.0 tag, not `main`.
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/a033ae525f6c7ef937c6f49513e3403f07a1d6c0/install.sh \
             | sh -s -- -b /usr/local/bin v1.38.0
 
       - name: Generate staged image SBOM
@@ -191,8 +192,10 @@ jobs:
 
       - name: Install trivy
         run: |
-          curl -sfL "https://github.com/aquasecurity/trivy/releases/download/v0.73.0/trivy_0.73.0_Linux-64bit.tar.gz" \
-            | tar xz -C /usr/local/bin trivy
+          curl -sfL -o trivy.tar.gz "https://github.com/aquasecurity/trivy/releases/download/v0.73.0/trivy_0.73.0_Linux-64bit.tar.gz"
+          echo "2edd39da482bb4e9831962487b68f68e3928ec3137794757f54d00383d79547b  trivy.tar.gz" | sha256sum -c -
+          tar xzf trivy.tar.gz -C /usr/local/bin trivy
+          rm trivy.tar.gz
 
       - name: Scan staged image
         run: |
