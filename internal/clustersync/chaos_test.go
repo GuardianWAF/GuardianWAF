@@ -64,6 +64,22 @@ func waitForNewLeader(t *testing.T, nodes map[string]*e2eNode, killedID string, 
 	return ""
 }
 
+// banViaFollowerOnceLeaderKnown retries banViaFollower while the follower still
+// answers 503. Right after a failover the new leader is elected before every
+// follower has heard its first heartbeat; until then a follower has no leader
+// to redirect to and correctly refuses with 503 ("retry"). The test wants the
+// redirect path, so it waits for the follower to learn the leader.
+func banViaFollowerOnceLeaderKnown(node *e2eNode, ip string, timeout time.Duration) (int, error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		status, _, err := banViaFollower(node, ip)
+		if err != nil || status != http.StatusServiceUnavailable || time.Now().After(deadline) {
+			return status, err
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
 // banDirect sends a ban request directly to the given node (no redirect
 // following). Returns the HTTP status code and error.
 func banDirect(node *e2eNode, ip string) (int, error) {
@@ -334,7 +350,7 @@ func TestChaos_FollowerBanRedirectAfterFailover(t *testing.T) {
 
 	// Send ban via the follower — should redirect to the new leader.
 	targetIP := "203.0.113.99"
-	status, _, err := banViaFollower(follower, targetIP)
+	status, err := banViaFollowerOnceLeaderKnown(follower, targetIP, 5*time.Second)
 	if err != nil {
 		t.Fatalf("banViaFollower after failover: %v", err)
 	}
