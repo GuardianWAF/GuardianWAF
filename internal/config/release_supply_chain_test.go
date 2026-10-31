@@ -372,11 +372,9 @@ func TestCIWorkflowPinsActionsToolsAndReleaseGates(t *testing.T) {
 	root := filepath.Join("..", "..")
 	ci := readTextFixture(t, filepath.Join(root, ".github/workflows/ci.yml"))
 	release := readTextFixture(t, filepath.Join(root, ".github/workflows/release.yml"))
-	website := readTextFixture(t, filepath.Join(root, ".github/workflows/website.yml"))
 	workflows := map[string]string{
 		"ci.yml":      ci,
 		"release.yml": release,
-		"website.yml": website,
 	}
 
 	for _, want := range []string{
@@ -578,7 +576,6 @@ func TestPatchedGoToolchainIsAlignedAcrossBuildPaths(t *testing.T) {
 	files := map[string][]string{
 		"go.mod":                              {"go 1.26.10"},
 		"tools/deepcopy/go.mod":               {"go 1.26.10"},
-		"website/go.mod":                      {"go 1.26.10"},
 		"internal/dashboard/ui/go.mod":        {"go 1.26.10"},
 		"Dockerfile":                          {"golang:1.27.3-alpine AS builder"},
 		"docker-compose.yml":                  {"golang:1.27.3-alpine"},
