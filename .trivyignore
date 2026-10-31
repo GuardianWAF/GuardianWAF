@@ -10,5 +10,10 @@
 # KSV-0109 findings repo-wide. Acceptable while the only finding is this
 # template; re-evaluate if new ConfigMaps appear.
 #
-# EXPIRES: 2026-10-31
+# Re-reviewed 2026-10-31: every ConfigMap that matches (contrib/k8s/cluster-
+# configmap.yaml, the Helm configmap template, the examples) carries only
+# ${GWAF_*} placeholders for secret/api_key values; no literal secret is
+# inlined. Extended by 90 days.
+#
+# EXPIRES: 2027-01-29
 AVD-KSV-0109

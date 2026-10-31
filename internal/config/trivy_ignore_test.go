@@ -33,7 +33,7 @@ func TestTrivyIgnoreEntriesNotExpired(t *testing.T) {
 			t.Fatalf("unparseable EXPIRES date %q in .trivyignore: %v", m[1], err)
 		}
 		if time.Now().After(deadline) {
-			t.Errorf(".trivyignore ignore entry expired on %s — re-scan the affected images (expect openssl >= 3.5.8-r0 for CVE-2026-14456) and remove the entry, or consciously extend the date with fresh justification", m[1])
+			t.Errorf(".trivyignore ignore entry expired on %s — re-run trivy on the manifests and remove the entry if the finding is gone, or consciously extend the date with fresh justification", m[1])
 		}
 	}
 	if found == 0 {
