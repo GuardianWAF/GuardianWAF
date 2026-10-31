@@ -253,6 +253,8 @@ dashboard:
   api_key: ""                    # Empty generates a strong random key at startup
   admin_key: ""                  # Required for tenant-admin endpoints and /metrics scraping; empty disables both
   tls: false                     # Dashboard TLS is not terminated in-process; use ingress/reverse proxy TLS
+  insecure: false                # true acknowledges plain-HTTP on a non-loopback bind (TLS terminated upstream) and silences the startup warning
+  api_rate_limit: 0              # Per-IP requests/minute for key-authenticated /api/v1/ calls; 0 = built-in 120 (env GWAF_DASHBOARD_API_RATE_LIMIT)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MCP Server (Model Context Protocol)
@@ -522,6 +524,7 @@ of silently retaining a default.
 | `GWAF_DASHBOARD_LISTEN` | `dashboard.listen` | `:8443` |
 | `GWAF_DASHBOARD_API_KEY` | `dashboard.api_key` | `my-secret-key` |
 | `GWAF_DASHBOARD_ADMIN_KEY` | `dashboard.admin_key` | `my-admin-secret-key` |
+| `GWAF_DASHBOARD_API_RATE_LIMIT` | `dashboard.api_rate_limit` | `600` |
 | `GWAF_MCP_ENABLED` | `mcp.enabled` | `false` |
 | `GWAF_MCP_TRANSPORT` | `mcp.transport` | `stdio` |
 | `GWAF_DOCKER_ENABLED` | `docker.enabled` | `false` |

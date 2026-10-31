@@ -811,6 +811,11 @@ type DashboardConfig struct {
 	// that the operator has verified. Session cookies are sent without the
 	// Secure flag over plain HTTP, making them vulnerable to interception.
 	Insecure bool `yaml:"insecure"`
+	// APIRateLimit is the per-client-IP request budget per minute for
+	// key-authenticated /api/v1/ calls. 0 keeps the built-in 120. Raise it for
+	// automation that polls the API; session-authenticated dashboard traffic is
+	// not counted.
+	APIRateLimit int `yaml:"api_rate_limit"`
 }
 
 // MCPConfig controls the Model Context Protocol server.

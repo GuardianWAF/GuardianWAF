@@ -93,6 +93,7 @@ func startDashboard(cfg *config.Config, eng *engine.Engine) (*http.Server, *dash
 		dash.SetAuditLog(auditLog)
 	}
 	dash.SetTrustedProxies(cfg.TrustedProxies)
+	dash.SetAPIRateLimit(cfg.Dashboard.APIRateLimit)
 	dash.SetBuildInfo(version, commit, date)
 
 	if cfg.Dashboard.AdminKey != "" {

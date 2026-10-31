@@ -1773,3 +1773,78 @@ func TestCleartextFetchURLsRejected(t *testing.T) {
 		}
 	})
 }
+
+func TestValidate_DashboardAPIRateLimit(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		limit   int
+		wantErr bool
+	}{
+		{"zero uses the built-in default", 0, false},
+		{"typical", 600, false},
+		{"upper bound", maxDashboardAPIRateLimit, false},
+		{"negative", -1, true},
+		{"above the cap", maxDashboardAPIRateLimit + 1, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			cfg.Dashboard.Enabled = true
+			cfg.Dashboard.APIRateLimit = tc.limit
+			err := Validate(cfg)
+			if tc.wantErr != (err != nil && strings.Contains(err.Error(), "dashboard.api_rate_limit")) {
+				t.Fatalf("limit %d: err = %v, wantErr %v", tc.limit, err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestLoad_DashboardAPIRateLimitYAMLAndEnv(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "guardianwaf.yaml")
+	if err := os.WriteFile(path, []byte("dashboard:\n  api_rate_limit: 900\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Dashboard.APIRateLimit != 900 {
+		t.Fatalf("yaml api_rate_limit = %d, want 900", cfg.Dashboard.APIRateLimit)
+	}
+	t.Setenv("GWAF_DASHBOARD_API_RATE_LIMIT", "1200")
+	if err := LoadEnv(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Dashboard.APIRateLimit != 1200 {
+		t.Fatalf("env api_rate_limit = %d, want 1200", cfg.Dashboard.APIRateLimit)
+	}
+	t.Setenv("GWAF_DASHBOARD_API_RATE_LIMIT", "many")
+	if err := LoadEnv(DefaultConfig()); err == nil {
+		t.Fatal("expected an error for a non-integer GWAF_DASHBOARD_API_RATE_LIMIT")
+	}
+}
+
+// dashboard.insecure was declared and documented as the acknowledgement that
+// silences the plain-HTTP startup warning, but the YAML loader never read it,
+// so setting it had no effect.
+func TestLoad_DashboardInsecureIsRead(t *testing.T) {
+	for _, tc := range []struct {
+		yaml string
+		want bool
+	}{
+		{"dashboard:\n  insecure: true\n", true},
+		{"dashboard:\n  insecure: false\n", false},
+		{"dashboard:\n  enabled: true\n", false},
+	} {
+		path := filepath.Join(t.TempDir(), "guardianwaf.yaml")
+		if err := os.WriteFile(path, []byte(tc.yaml), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := LoadFile(path)
+		if err != nil {
+			t.Fatalf("%q: %v", tc.yaml, err)
+		}
+		if cfg.Dashboard.Insecure != tc.want {
+			t.Fatalf("%q: Insecure = %v, want %v", tc.yaml, cfg.Dashboard.Insecure, tc.want)
+		}
+	}
+}

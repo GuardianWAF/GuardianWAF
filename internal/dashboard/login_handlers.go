@@ -42,7 +42,7 @@ type apiBucket struct {
 // Each IP gets a token bucket of apiRateLimit tokens per apiRateWindow.
 // Burst tokens (apiRateBurst) are available immediately, refill continuously.
 func (d *Dashboard) apiBucketAllow(clientIP string) bool {
-	val, _ := d.apiBuckets.LoadOrStore(clientIP, newAPIBucket())
+	val, _ := d.apiBuckets.LoadOrStore(clientIP, d.newAPIBucket())
 	b := val.(*apiBucket)
 
 	b.mu.Lock()
@@ -61,11 +61,16 @@ func (d *Dashboard) apiBucketAllow(clientIP string) bool {
 }
 
 // newAPIBucket creates a fresh token bucket for an IP.
-func newAPIBucket() *apiBucket {
-	refillRate := float64(apiRateLimit) / apiRateWindow.Seconds()
+func (d *Dashboard) newAPIBucket() *apiBucket {
+	limit := apiRateLimit
+	if o := int(d.apiRateLimitOverride.Load()); o > 0 {
+		limit = o
+	}
+	burst := max(apiRateBurst, limit/6)
+	refillRate := float64(limit) / apiRateWindow.Seconds()
 	return &apiBucket{
-		tokens:     float64(apiRateBurst),
-		maxTokens:  float64(apiRateBurst),
+		tokens:     float64(burst),
+		maxTokens:  float64(burst),
 		refillRate: refillRate,
 		lastRefill: time.Now(),
 	}
