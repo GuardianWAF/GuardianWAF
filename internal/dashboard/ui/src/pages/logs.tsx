@@ -108,6 +108,7 @@ export default function LogsPage() {
           <span className="text-xs text-muted">{total} total</span>
         </div>
       </div>
+      <p className="-mt-2 text-sm text-muted-foreground">Messages the WAF writes about its own operation. Blocked requests appear in the live event feed on the Dashboard.</p>
 
       {/* Log entries */}
       <div className="rounded-lg border border-border bg-card overflow-hidden">

@@ -16,4 +16,16 @@ describe('Section', () => {
     expect(trigger).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByText('Configuration form')).toBeVisible()
   })
+
+  it('shows its description without changing the button name', () => {
+    render(
+      <Section title="Rate Limiting" description="Limits how many requests one client can send.">
+        <div>Rules</div>
+      </Section>,
+    )
+
+    const trigger = screen.getByRole('button', { name: 'Rate Limiting' })
+    expect(screen.getByText('Limits how many requests one client can send.')).toBeVisible()
+    expect(trigger).toHaveAccessibleDescription('Limits how many requests one client can send.')
+  })
 })

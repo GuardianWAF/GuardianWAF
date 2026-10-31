@@ -1,21 +1,49 @@
 import { useEffect, useState } from 'react'
 import { NavLink } from 'react-router'
-import { LayoutDashboard, Globe, Settings, ScrollText, Shield, ShieldCheck, PanelLeftClose, PanelLeft, Brain, Bell, Users, Network, KeyRound, BarChart3, Container } from 'lucide-react'
+import { LayoutDashboard, Globe, Settings, ScrollText, Shield, ShieldCheck, PanelLeftClose, PanelLeft, Brain, Bell, Users, Network, KeyRound, BarChart3, Container, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-const navItems = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/routing', label: 'Routing', icon: Globe },
-  { to: '/rules', label: 'Rules', icon: ShieldCheck },
-  { to: '/ssl', label: 'SSL/TLS', icon: KeyRound },
-  { to: '/config', label: 'WAF Config', icon: Settings },
-  { to: '/alerting', label: 'Alerting', icon: Bell },
-  { to: '/ai', label: 'AI Analysis', icon: Brain },
-  { to: '/logs', label: 'Logs', icon: ScrollText },
-  { to: '/analytics', label: 'Analytics', icon: BarChart3 },
-  { to: '/docker', label: 'Docker', icon: Container },
-  { to: '/tenants', label: 'Tenants', icon: Users },
-  { to: '/clusters', label: 'Clusters', icon: Network },
+interface NavItem {
+  to: string
+  label: string
+  icon: LucideIcon
+  /** One line shown as a tooltip: what this page is for. */
+  description: string
+}
+
+const navGroups: { heading: string; items: NavItem[] }[] = [
+  {
+    heading: 'Monitor',
+    items: [
+      { to: '/', label: 'Dashboard', icon: LayoutDashboard, description: 'Live traffic, blocked attacks and system health' },
+      { to: '/logs', label: 'Logs', icon: ScrollText, description: 'Application log messages from the WAF itself' },
+      { to: '/analytics', label: 'Analytics', icon: BarChart3, description: 'Attack trends and the busiest clients over time' },
+    ],
+  },
+  {
+    heading: 'Protect',
+    items: [
+      { to: '/rules', label: 'Rules', icon: ShieldCheck, description: 'Your own allow and block rules, such as blocking a country or path' },
+      { to: '/config', label: 'WAF Config', icon: Settings, description: 'Detection mode, thresholds and the individual protections' },
+      { to: '/routing', label: 'Routing', icon: Globe, description: 'Which hostnames and paths go to which backend' },
+      { to: '/ssl', label: 'SSL/TLS', icon: KeyRound, description: 'HTTPS certificates and automatic renewal' },
+    ],
+  },
+  {
+    heading: 'Integrations',
+    items: [
+      { to: '/alerting', label: 'Alerting', icon: Bell, description: 'Slack, email and webhook notifications for attacks' },
+      { to: '/ai', label: 'AI Analysis', icon: Brain, description: 'Optional AI review of suspicious traffic' },
+      { to: '/docker', label: 'Docker', icon: Container, description: 'Backends discovered from labelled containers' },
+    ],
+  },
+  {
+    heading: 'Scale',
+    items: [
+      { to: '/tenants', label: 'Tenants', icon: Users, description: 'Separate customers, each with their own rules and limits' },
+      { to: '/clusters', label: 'Clusters', icon: Network, description: 'Several WAF nodes sharing bans and rules' },
+    ],
+  },
 ]
 
 interface SidebarProps {
@@ -74,26 +102,42 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 py-3 px-2 space-y-1 overflow-y-auto">
-        {navItems.map(({ to, label, icon: Icon }) => (
-          <NavLink
-            key={to}
-            to={to}
-            end={to === '/'}
-            className={({ isActive }) =>
-              cn(
-                'flex items-center gap-3 rounded-[var(--radius)] px-3 py-2 text-sm transition-colors',
-                collapsed && 'md:justify-center md:px-0',
-                isActive
-                  ? 'bg-accent/10 text-accent font-medium'
-                  : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-foreground',
-              )
-            }
-            onClick={onMobileClose}
-          >
-            <Icon className="h-4 w-4 shrink-0" />
-            <span className={cn(collapsed && 'md:hidden')}>{label}</span>
-          </NavLink>
+      <nav className="flex-1 py-3 px-2 overflow-y-auto" aria-label="Pages">
+        {navGroups.map(({ heading, items }) => (
+          <div key={heading} className="mb-3 last:mb-0">
+            <div
+              className={cn(
+                'px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground',
+                collapsed && 'md:hidden',
+              )}
+            >
+              {heading}
+            </div>
+            {collapsed && <div className="mx-2 mb-2 hidden border-t border-border md:block" />}
+            <div className="space-y-1">
+              {items.map(({ to, label, icon: Icon, description }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  end={to === '/'}
+                  title={`${label}: ${description}`}
+                  className={({ isActive }) =>
+                    cn(
+                      'flex items-center gap-3 rounded-[var(--radius)] px-3 py-2 text-sm transition-colors',
+                      collapsed && 'md:justify-center md:px-0',
+                      isActive
+                        ? 'bg-accent/10 text-accent font-medium'
+                        : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-foreground',
+                    )
+                  }
+                  onClick={onMobileClose}
+                >
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <span className={cn(collapsed && 'md:hidden')}>{label}</span>
+                </NavLink>
+              ))}
+            </div>
+          </div>
         ))}
       </nav>
 
