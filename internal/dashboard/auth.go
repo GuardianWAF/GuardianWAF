@@ -551,6 +551,16 @@ func (d *Dashboard) isAuthenticated(r *http.Request) (*http.Request, bool) {
 
 // SetTrustedProxies configures direct proxy CIDRs whose forwarded TLS headers
 // may influence dashboard browser cookie security decisions.
+// SetAPIRateLimit sets the per-client-IP requests-per-minute budget for
+// key-authenticated /api/v1/ calls. A value <= 0 restores the built-in default.
+// Call it before serving: buckets that already exist keep their old budget.
+func (d *Dashboard) SetAPIRateLimit(perMinute int) {
+	if d == nil {
+		return
+	}
+	d.apiRateLimitOverride.Store(int64(max(perMinute, 0)))
+}
+
 func (d *Dashboard) SetTrustedProxies(proxies []string) {
 	if d == nil {
 		return

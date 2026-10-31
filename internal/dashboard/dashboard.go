@@ -106,6 +106,9 @@ type Dashboard struct {
 	// API rate limiting: per-IP token buckets for authenticated endpoints
 	apiBuckets sync.Map // map[string]*apiBucket
 	apiStopCh  chan struct{}
+	// apiRateLimitOverride replaces the per-IP requests-per-minute budget; 0 means
+	// the built-in apiRateLimit.
+	apiRateLimitOverride atomic.Int64
 
 	// Layer references for dashboard handlers
 	crsLayer              *crs.Layer

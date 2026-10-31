@@ -1337,6 +1337,7 @@ func (in *DashboardConfig) DeepCopy() *DashboardConfig {
 	out.AuditPath = in.AuditPath
 	out.TLS = in.TLS
 	out.Insecure = in.Insecure
+	out.APIRateLimit = in.APIRateLimit
 	return &out
 }
 func (in *MCPConfig) DeepCopy() *MCPConfig {

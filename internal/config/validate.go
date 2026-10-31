@@ -925,6 +925,7 @@ func LoadEnv(cfg *Config) error {
 	for _, key := range []string{
 		"GWAF_WAF_DETECTION_THRESHOLD_BLOCK",
 		"GWAF_WAF_DETECTION_THRESHOLD_LOG",
+		"GWAF_DASHBOARD_API_RATE_LIMIT",
 		"GWAF_EVENTS_MAX_EVENTS",
 		"GWAF_LOGGING_MAX_SIZE_MB",
 		"GWAF_LOGGING_MAX_BACKUPS",
@@ -980,6 +981,11 @@ func LoadEnv(cfg *Config) error {
 		"GWAF_DASHBOARD_API_KEY": func(v string) { cfg.Dashboard.APIKey = v },
 		"GWAF_DASHBOARD_ADMIN_KEY": func(v string) {
 			cfg.Dashboard.AdminKey = v
+		},
+		"GWAF_DASHBOARD_API_RATE_LIMIT": func(v string) {
+			if i, err := strconv.Atoi(v); err == nil {
+				cfg.Dashboard.APIRateLimit = i
+			}
 		},
 		"GWAF_DASHBOARD_ENABLED": func(v string) {
 			if b, err := strconv.ParseBool(v); err == nil {
@@ -1639,6 +1645,10 @@ func validateSanitizer(san *SanitizerConfig, ve *ValidationError) {
 	}
 }
 
+// maxDashboardAPIRateLimit bounds dashboard.api_rate_limit so a typo cannot
+// effectively disable the limiter.
+const maxDashboardAPIRateLimit = 100000
+
 func validateDashboard(dash *DashboardConfig, ve *ValidationError) {
 	if !dash.Enabled {
 		return
@@ -1651,6 +1661,9 @@ func validateDashboard(dash *DashboardConfig, ve *ValidationError) {
 	}
 	validateDashboardSecret("dashboard.api_key", dash.APIKey, ve)
 	validateDashboardSecret("dashboard.admin_key", dash.AdminKey, ve)
+	if dash.APIRateLimit < 0 || dash.APIRateLimit > maxDashboardAPIRateLimit {
+		ve.addError("dashboard.api_rate_limit", fmt.Sprintf("must be between 0 (built-in default) and %d requests per minute", maxDashboardAPIRateLimit))
+	}
 	if dash.AuditPath != "" && !strings.Contains(dash.AuditPath, "${") && !filepath.IsAbs(dash.AuditPath) {
 		ve.addError("dashboard.audit_path", "must be an absolute path so restart durability does not depend on the process working directory")
 	}
