@@ -4,7 +4,7 @@ The single, maintained statement of what is production-ready, what is not, and
 what remains. Dated reports and earlier roadmaps live in [history](history/README.md)
 and are not kept current.
 
-**As of:** 2026-10-27 · **Version line:** 0.6.x → 0.7.0
+**As of:** 2026-10-27 · **Version line:** 0.7.0 (release candidate; not yet tagged)
 
 ## Verdict
 
