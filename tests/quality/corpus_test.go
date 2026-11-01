@@ -18,6 +18,14 @@ type corpus struct {
 	samples    []string
 }
 
+// unescapeSample expands the escapes a "# escapes: true" corpus uses to write
+// control characters on one line: \r, \n, \t and \\.
+var sampleEscapes = strings.NewReplacer(`\\`, "\x00", `\r`, "\r", `\n`, "\n", `\t`, "\t")
+
+func unescapeSample(s string) string {
+	return strings.ReplaceAll(sampleEscapes.Replace(s), "\x00", `\`)
+}
+
 func readCorpus(t testing.TB, path string, defaultPlacements ...string) corpus {
 	t.Helper()
 	f, err := os.Open(path)
@@ -26,6 +34,7 @@ func readCorpus(t testing.TB, path string, defaultPlacements ...string) corpus {
 	}
 	defer f.Close()
 	c := corpus{name: strings.TrimSuffix(filepath.Base(path), ".txt")}
+	escapes := false
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64<<10), 1<<20)
 	for sc.Scan() {
@@ -36,8 +45,15 @@ func readCorpus(t testing.TB, path string, defaultPlacements ...string) corpus {
 			}
 			continue
 		}
+		if v, ok := strings.CutPrefix(line, "# escapes:"); ok {
+			escapes = strings.TrimSpace(v) == "true"
+			continue
+		}
 		if strings.TrimSpace(line) == "" || strings.HasPrefix(line, "#") {
 			continue
+		}
+		if escapes {
+			line = unescapeSample(line)
 		}
 		c.samples = append(c.samples, line)
 	}

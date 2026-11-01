@@ -26,7 +26,7 @@ func WithThreshold(block, log int) Option {
 
 // WithDetector enables or disables a specific detector with the given multiplier.
 // Valid detector names: "sqli", "xss", "lfi", "cmdi", "xxe", "ssrf",
-// "ssti", "nosqli", "smuggling", "openredirect", "graphql".
+// "ssti", "nosqli", "smuggling", "openredirect", "graphql", "crlf", "ldapi".
 func WithDetector(name string, enabled bool, multiplier float64) Option {
 	return func(cfg *config.Config) {
 		if cfg.WAF.Detection.Detectors == nil {

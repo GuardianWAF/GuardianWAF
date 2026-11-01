@@ -124,7 +124,7 @@ provided by the challenge service rather than the registry):
 | 280 | API Validation | Request/response schema validation (YAML-defined schemas) |
 | 300 | Sanitizer | Normalize + validate requests |
 | 350 | CRS | OWASP ModSecurity Core Rule Set parser and executor |
-| 400 | Detection | 11 detectors: sqli, xss, lfi, cmdi, xxe, ssrf, ssti, nosqli, smuggling, openredirect, graphql (each in own subdirectory) |
+| 400 | Detection | 13 detectors: sqli, xss, lfi, cmdi, xxe, ssrf, ssti, nosqli, smuggling, openredirect, graphql, crlf, ldapi (each in own subdirectory) |
 | 430 | JS Challenge | Bot proof-of-work challenge (SHA-256 PoW) — wired via the challenge service |
 | 450 | Virtual Patch | Virtual patching layer |
 | 475 | DLP | Data Loss Prevention (credit cards, SSNs, API keys, PII) |
@@ -144,7 +144,7 @@ provided by the challenge service rather than the registry):
 
 ### Layer vs Library Mode
 
-The `serve` command (`cmd/guardianwaf/main.go` → `cmd/guardianwaf/layers.go`) wires all **16** layers above via `layerregistry`, plus the JS-challenge service and the runtime subsystems listed in the table above. The Go library API (`guardianwaf.go`) supports the seven layers listed above; API Security is opt-in through YAML. Detection includes all 11 detectors by default. Unsupported enabled registry layers fail construction; use standalone mode for those capabilities. The internal engine is not exposed through the public API.
+The `serve` command (`cmd/guardianwaf/main.go` → `cmd/guardianwaf/layers.go`) wires all **16** layers above via `layerregistry`, plus the JS-challenge service and the runtime subsystems listed in the table above. The Go library API (`guardianwaf.go`) supports the seven layers listed above; API Security is opt-in through YAML. Detection includes all 13 detectors by default. Unsupported enabled registry layers fail construction; use standalone mode for those capabilities. The internal engine is not exposed through the public API.
 
 ### Multi-Tenancy
 

@@ -1,0 +1,21 @@
+# Ordinary multi-line user text and mail-like content. A line break in a field
+# is normal here; none of these should be read as header or command injection.
+# escapes: true
+# placement: form,multipart,jsonfield
+Hello team,\n\nPlease find the notes below.\n\nThanks,\nAda
+Dear support,\r\nMy order has not arrived.\r\nOrder number: 10234\r\nRegards, Sam
+Subject: lunch on Friday\nTo be decided: pizza or sushi?\nLet me know.
+Name: Ada Lovelace\nLocation: Berlin\nRole: engineer
+Title: Quarterly review\nDate: 2026-03-14\nSummary: all targets met
+Agenda\n1. Intro\n2. Budget\n3. Questions\n\nPlease QUIT any other meetings.
+Step 1: install the package\nStep 2: run the tests\nStep 3: open a pull request
+Ingredients:\n2 eggs\n1 cup flour\nMix well, then bake for 20 minutes.
+Address:\n12 Example Street\nSpringfield 12345\nPhone: (555) 123-4567
+Roses are red,\nviolets are blue,\nthe build is green,\nand so are you.
+To: the whole team\nFrom: management\nThe office is closed on Monday.
+Reminder: content-type negotiation is covered in chapter 4.\nSee also: caching.
+I wrote "Set-Cookie" in my notes, but only as a reminder to read the RFC.
+Q: What does the Location header do?\nA: It tells the client where to go next.
+DATA\nnotes from the workshop, see slides
+Re: question about the invoice\nHi, I paid it yesterday (reference 8872).\nBest
+note to self (see below)\n(a) buy milk\n(b) call mum

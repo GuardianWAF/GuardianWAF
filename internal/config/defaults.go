@@ -75,6 +75,8 @@ func DefaultConfig() *Config {
 					"smuggling":    {Enabled: true, Multiplier: 1.0},
 					"openredirect": {Enabled: true, Multiplier: 1.0},
 					"graphql":      {Enabled: true, Multiplier: 1.0},
+					"crlf":         {Enabled: true, Multiplier: 1.0},
+					"ldapi":        {Enabled: true, Multiplier: 1.0},
 				},
 			},
 			BotDetection: BotDetectionConfig{
