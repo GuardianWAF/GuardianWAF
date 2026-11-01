@@ -90,7 +90,8 @@ func Detect(input, location string) []engine.Finding {
 	}
 	// The analysis ignores whitespace, so it is never emitted: large bodies
 	// tokenize into tens of thousands of tokens, about half of them spaces.
-	return analyzeSignificant(tokenize(input, false), location)
+	findings := analyzeSignificant(tokenize(input, false), location)
+	return append(findings, checkCatalogRecon(input, location)...)
 }
 
 // filterSignificant returns tokens with whitespace removed.

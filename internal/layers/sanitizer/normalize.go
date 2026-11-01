@@ -501,6 +501,7 @@ func NormalizeAll(s string) string {
 // normalizeOnce runs one full normalization pass over s.
 func normalizeOnce(s string) string {
 	s = DecodeURLRecursive(s)
+	s = DecodeOverlongUTF8(s)
 	s = RemoveNullBytes(s)
 	s = CanonicalizePath(s)
 	s = NormalizeUnicode(s)
@@ -508,4 +509,53 @@ func normalizeOnce(s string) string {
 	s = NormalizeWhitespace(s)
 	s = NormalizeBackslashes(s)
 	return s
+}
+
+// DecodeOverlongUTF8 rewrites overlong UTF-8 encodings of ASCII ("%c0%ae" is
+// ".", "%c0%af" is "/", "%c1%9c" is "\\"). A strict decoder rejects them, but
+// older servers and some CGI stacks accept them, which is how
+// "%c0%ae%c0%ae%c0%afetc%c0%afpasswd" reaches a backend as "../etc/passwd".
+// Only two-, three- and four-byte forms of code points below 0x80 are
+// rewritten; everything else is left alone.
+func DecodeOverlongUTF8(s string) string {
+	if !hasOverlongLead(s) {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); {
+		c := s[i]
+		switch {
+		case (c == 0xC0 || c == 0xC1) && i+1 < len(s) && s[i+1]&0xC0 == 0x80:
+			b.WriteByte(c&0x1F<<6 | s[i+1]&0x3F)
+			i += 2
+		case c == 0xE0 && i+2 < len(s) && s[i+1]&0xE0 == 0x80 && s[i+2]&0xC0 == 0x80:
+			if cp := rune(c&0x0F)<<12 | rune(s[i+1]&0x3F)<<6 | rune(s[i+2]&0x3F); cp < 0x80 {
+				b.WriteByte(byte(cp))
+			} else {
+				b.WriteRune(cp)
+			}
+			i += 3
+		case c == 0xF0 && i+3 < len(s) && s[i+1]&0xF0 == 0x80 && s[i+2]&0xC0 == 0x80 && s[i+3]&0xC0 == 0x80:
+			if cp := rune(s[i+1]&0x3F)<<12 | rune(s[i+2]&0x3F)<<6 | rune(s[i+3]&0x3F); cp < 0x80 {
+				b.WriteByte(byte(cp))
+			} else {
+				b.WriteRune(cp)
+			}
+			i += 4
+		default:
+			b.WriteByte(c)
+			i++
+		}
+	}
+	return b.String()
+}
+
+func hasOverlongLead(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] == 0xC0 || s[i] == 0xC1 || s[i] == 0xE0 || s[i] == 0xF0 {
+			return true
+		}
+	}
+	return false
 }

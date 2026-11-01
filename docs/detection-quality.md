@@ -96,6 +96,23 @@ would otherwise reach the detectors in pieces. Findings are located at
 `query-string` or `body-string`. Ordinary `a=1&b=2` queries are not joined, so
 parameter names such as `select` and `from` never read as SQL.
 
+### Coverage added after the GoTestWAF run
+
+Each rule below closed a payload GoTestWAF got through. All are pinned by unit
+tests with both attack and look-alike benign cases, and by the end-to-end
+corpora.
+
+| Detector | Rule |
+|---|---|
+| `xss` | Sinks reached without a plain call (`alert.call(`, `.apply(`, `alert?.(`, `(alert)(1)`); `alert(document.domain)`; `document["cookie"]` and `window['eval']`; `.constructor('code')()`; pseudo tags threaded through a keyword (`o<x>nfocus=alert<x>(1)`). `javascript:` followed by a space now needs code after it, so the title `JavaScript: Basics of JavaScript Language` no longer blocks. |
+| `nosqli` | Unquoted logical operators in an object literal (`', $or: [`); time-based JavaScript busy loops; data-changing Mongo shell commands (`db.x.insert(`, `db.dropDatabase()`); prototype pollution (`__proto__[x]=`, `constructor.prototype`). JSON fields written with `\uXXXX` escapes are now scanned decoded. |
+| `cmdi` | `$IFS`, `${IFS}` and `$IFS$9` read as spaces; `getent`; YAML object tags (`!!python/object`, `!!javax.`); Java and PHP serialized objects; PHP and ASP execution of request data; VBScript assembled from string pieces. `>url=/pi?mode=<;>` (a `key=value`) is no longer read as a file redirection. |
+| `lfi` | Overlong UTF-8 (`%c0%ae%c0%af`) for `.`, `/` and `\`, also in the normalized view; UNC administrative shares (`\\host\c$\`) and loopback UNC paths; `ntuser.dat`. |
+| `sqli` | `SELECT ... FROM` against a system catalog (`information_schema`, `sqlite_master`, `sysobjects`, `mysql.user`, `pg_catalog`). |
+| `ssrf` | Log4Shell lookups, including nested-lookup obfuscation, and out-of-band callback domains (`burpcollaborator.net`, `oast.*`, `interact.sh`, ...). Neither is halved in the `User-Agent` header, where they are the point of the attack. |
+| `xxe` | An XML prolog declaring UTF-7 and UTF-7 markup (`+ADwAIQ-`); `xs:include`/`xs:import` fetching an external URL; an `xsi:schemaLocation` holding a single external URL. |
+| bot detection | More scanner `User-Agent`s, including ffuf's literal `Fuzz Faster U Fool` and Nessus plugin names (`.nasl`). |
+
 ### CR/LF and Mail Injection (`crlf-detector`)
 
 Finds line breaks that split an HTTP response or reach a mail server. The
@@ -240,7 +257,8 @@ placements in a `# placement:` header:
 | same-site redirect targets | 17 | 0 |
 | multi-line user text and mail-like content | 51 | 0 |
 | parenthesised text that resembles filter syntax | 85 | 0 |
-| **General benign** | **2055** | **0 (0.00%)** — budget 1% |
+| text that borrows the shape of an attack (titles, quoted queries, shell/database vocabulary, UNC paths to ordinary shares) | 170 | 0 |
+| **General benign** | **2225** | **0 (0.00%)** — budget 1% |
 | developer posts quoting code (`technical_*`) | 138 | 0 (0.00%) — budget 5% |
 
 Attacks reuse `testdata/attacks/`, placed where each class is delivered:
@@ -261,7 +279,7 @@ Attacks reuse `testdata/attacks/`, placed where each class is delivered:
 - GraphQL: `/graphql`.
 
 Every class must be blocked at least 85% of the time. Current result:
-2134/2158 (98.9%), with SQLi at 97.1%, CMDi at 98.0%, and LFI, XSS, GraphQL, CR/LF, LDAP and base64 at or near 100%.
+2372/2396 (99.0%), with SQLi at 97.3%, CMDi at 98.4%, LFI at 98.3%, and XSS, NoSQLi, SSRF, GraphQL, CR/LF, LDAP and base64 at or near 100%.
 
 Building this gate exposed defects that the layer-only corpus could not see.
 They are now fixed and pinned by tests:

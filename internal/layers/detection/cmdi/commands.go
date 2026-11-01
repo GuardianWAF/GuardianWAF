@@ -75,6 +75,7 @@ var commandDatabase = map[string]bool{
 	"nslookup": true,
 	"dig":      true,
 	"host":     true,
+	"getent":   true,
 
 	// Interpreters / shells
 	"python":     true,

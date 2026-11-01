@@ -141,7 +141,7 @@ func Detect(input, location string) []engine.Finding {
 	// "jav&#x0a;ascript:" (post-decode) reach the browser as "javascript:".
 	// Spaces are NOT stripped by browsers and stay breaking.
 	protocolLower := stripURLWhitespace(analysisLower)
-	if strings.Contains(protocolLower, "javascript:") && !hasFindingDesc(findings, "JavaScript protocol") {
+	if strings.Contains(protocolLower, "javascript:") && jsProtocolIsCode(protocolLower) && !hasFindingDesc(findings, "JavaScript protocol") {
 		findings = append(findings, makeFinding(80, engine.SeverityHigh,
 			"JavaScript protocol detected",
 			truncateMatch(analysisStr), location, 0.90))
@@ -217,6 +217,30 @@ func Detect(input, location string) []engine.Finding {
 		findings = append(findings, makeFinding(70, engine.SeverityHigh,
 			"JavaScript string breakout into a script sink detected",
 			truncateMatch(analysisStr), location, 0.85))
+	}
+
+	// 15. Sinks reached without a plain call, bracket access to browser
+	// objects, and the Function constructor — score 65.
+	for _, desc := range indirectSinkFindings(analysisLower) {
+		findings = append(findings, makeFinding(65, engine.SeverityHigh,
+			desc, truncateMatch(analysisStr), location, 0.80))
+	}
+
+	// 16. Pseudo tags threaded through a keyword ("o<x>nfocus=alert<x>(1)"):
+	// judge the text a tag-stripping sanitizer would leave behind.
+	if squeezed, ok := squeezeJunkTags(analysisLower); ok {
+		if containsEventHandler(squeezed) {
+			findings = append(findings, makeFinding(70, engine.SeverityHigh,
+				"Event handler hidden by pseudo tags", truncateMatch(analysisStr), location, 0.80))
+		}
+		for _, desc := range indirectSinkFindings(squeezed) {
+			findings = append(findings, makeFinding(65, engine.SeverityHigh,
+				desc+" (hidden by pseudo tags)", truncateMatch(analysisStr), location, 0.75))
+		}
+		if isFollowedBy(squeezed, "alert", '(') || isFollowedBy(squeezed, "prompt", '(') || isFollowedBy(squeezed, "confirm", '(') {
+			findings = append(findings, makeFinding(60, engine.SeverityHigh,
+				"Dialog sink call hidden by pseudo tags", truncateMatch(analysisStr), location, 0.75))
+		}
 	}
 
 	// 13. Encoded < bonus: +20 to existing scores

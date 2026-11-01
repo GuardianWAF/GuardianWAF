@@ -1,0 +1,38 @@
+# Ordinary text that borrows the shape of an attack: titles with a colon after
+# a language name, quoted query strings, shell and database vocabulary in prose,
+# UNC paths to ordinary shares, and sentences about the attacks themselves.
+# placement: query,form,multipart,jsonfield,cookie
+JavaScript: Basics of JavaScript Language
+Learn JavaScript: the good parts
+JavaScript: Tips (part 1) for beginners
+>url=/pi?mode=<;>
+> url=/x?a=1&b=2
+please alert the team and call the manager
+the prompt is shown to users before the dialog closes
+confirm that the order was received
+use document.title for the page heading
+array.call is not a function in this version
+IFS is a shell variable, the internal field separator
+the getent command looks up entries in the name service databases
+use constructor injection instead of setters
+the __proto__ property is deprecated in favour of Object.getPrototypeOf
+while waiting for the date to be confirmed we planned the trip
+do the dishes while the time allows
+information_schema documentation for MySQL 8
+the sqlite_master table stores the schema
+select your plan from the menu below
+mysql.user is a table in the mysql database
+\\fileserver\shared\docs\report.docx
+\\nas01\public\photos
+see //example.com/path for details
+https://example.com/c$/docs
+join me at example.com or oast-fan.net
+my interact.shop sells things
+price: ${price} per unit
+${user.name} is the display name
+O:5 ratio of oxygen to nitrogen
+Order O:123 shipped yesterday
+eval is risky: never run eval on request data
+She said "hello" & "goodbye" in the speech
+Tom & Jerry, "A" & "B"
+a, or: either one is fine

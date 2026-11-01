@@ -1,6 +1,7 @@
 package sanitizer
 
 import (
+	"strings"
 	"testing"
 	"unicode/utf8"
 )
@@ -670,5 +671,25 @@ func TestDecodeHTMLEntities_NumericEntityLargeValue(t *testing.T) {
 func TestEntityRune_OutOfRange(t *testing.T) {
 	if got := entityRune(utf8.MaxRune + 1); got != utf8.RuneError {
 		t.Errorf("entityRune(out of range) = %q, want %q", got, utf8.RuneError)
+	}
+}
+
+func TestDecodeOverlongUTF8(t *testing.T) {
+	cases := map[string]string{
+		"\xc0\xae\xc0\xae\xc0\xafetc\xc0\xafpasswd": "../etc/passwd",
+		"\xc1\x9c":                 "\\",
+		"\xe0\x80\xae\xe0\x80\xaf": "./",
+		"\xf0\x80\x80\xae":         ".",
+		"plain text":               "plain text",
+		"caf\xc3\xa9":              "caf\xc3\xa9", // a valid two-byte rune stays
+		"\xc0":                     "\xc0",        // truncated lead byte stays
+	}
+	for in, want := range cases {
+		if got := DecodeOverlongUTF8(in); got != want {
+			t.Errorf("DecodeOverlongUTF8(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if got := NormalizeAll("%C0%AE%C0%AE%C0%AFetc%C0%AFpasswd"); !strings.Contains(got, "etc/passwd") || strings.Contains(got, "\xc0") {
+		t.Errorf("NormalizeAll overlong = %q", got)
 	}
 }

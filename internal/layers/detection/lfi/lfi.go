@@ -155,7 +155,9 @@ func Detect(input, location string) []engine.Finding {
 	}
 
 	var findings []engine.Finding
-	lower := strings.ToLower(input)
+	// Overlong UTF-8 spellings of '.', '/' and '\\' ("\xc0\xae") are traversal to a
+	// lenient backend; the normalized view has them rewritten, the raw one needs it here.
+	lower := strings.ToLower(sanitizer.DecodeOverlongUTF8(input))
 
 	// 1. Encoded traversal patterns (check before decoding)
 	findings = append(findings, checkEncodedTraversal(lower, location)...)
@@ -169,6 +171,7 @@ func Detect(input, location string) []engine.Finding {
 
 	// 4. Windows paths
 	findings = append(findings, checkWindowsPaths(lower, location)...)
+	findings = append(findings, checkUNCPaths(lower, location)...)
 
 	// 5. Wrapper/scheme patterns
 	findings = append(findings, checkWrapperSchemes(lower, location)...)
