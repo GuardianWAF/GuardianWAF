@@ -10,6 +10,12 @@ var knownScanners = []string{
 	"dirbuster", "gobuster", "ffuf", "wfuzz", "burpsuite",
 	"acunetix", "nessus", "openvas", "w3af", "zap",
 	"arachni", "skipfish", "whatweb", "wafw00f",
+	// ffuf's default User-Agent spells its name out.
+	"fuzz faster u fool", "feroxbuster", "dirb/", "hydra", "wpscan",
+	"joomscan", "commix", "xsstrike", "dalfox", "netsparker", "appscan",
+	"jaeles", "sqlninja", "havij",
+	// Nessus plugins send their own file name (e.g. "x_sql_injection.nasl").
+	".nasl",
 }
 
 // knownGoodBots lists User-Agent substrings for legitimate crawlers.

@@ -161,6 +161,11 @@ func TestEntityAmpersandJoinsQueryString(t *testing.T) {
 		"/?q=a&b;c":                               false, // one letter before ';'
 		"/?x=%26lt%3Bscript%26gt%3B":              true,  // &lt;script&gt; once decoded
 		"/?q=R&D;":                                false,
+		"/?a=&lt%3Bsvg%2Fonload&equals%3Balert%281%29&gt%3B": true, // semicolon percent-encoded, & raw
+		"/?a=100%25&b=2":            false,
+		`/?a=Eval("Ex"&"e"&"cute("`: true, // VBScript string joiner
+		"/?a=%22Ex%22%26%22e%22":    true,
+		"/?a=rock&roll=1&q='x'":     false,
 	}
 	for uri, want := range cases {
 		ctx := &engine.RequestContext{URI: uri}
@@ -187,5 +192,19 @@ func TestEntityAmpersandJoinsFormBody(t *testing.T) {
 	}
 	if !got {
 		t.Error("form body with an entity ampersand was not joined")
+	}
+}
+
+func TestBase64NulEvasionIsDecodedAndCleaned(t *testing.T) {
+	enc := base64.StdEncoding.EncodeToString([]byte("<<scr\x00ipt/src=http://x.example/x.js></script"))
+	ctx := &engine.RequestContext{QueryParams: map[string][]string{"q": {enc}}}
+	got := decodedTexts(ctx, false)
+	if len(got) != 1 || !strings.Contains(got[0], "<<script/src=") {
+		t.Errorf("decoded = %q, want the NUL removed", got)
+	}
+	// Binary data stays out: many control bytes.
+	bin := base64.StdEncoding.EncodeToString([]byte("ab\x00\x01\x02\x03\x04\x05cd\x06\x07\x08efgh"))
+	if got := decodedTexts(&engine.RequestContext{QueryParams: map[string][]string{"q": {bin}}}, false); len(got) != 0 {
+		t.Errorf("binary decoded: %q", got)
 	}
 }

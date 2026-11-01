@@ -1,0 +1,134 @@
+# Ordinary text that borrows the shape of an attack: titles with a colon after
+# a language name, quoted query strings, shell and database vocabulary in prose,
+# UNC paths to ordinary shares, and sentences about the attacks themselves.
+# placement: query,form,multipart,jsonfield,cookie
+JavaScript: Basics of JavaScript Language
+Learn JavaScript: the good parts
+JavaScript: Tips (part 1) for beginners
+>url=/pi?mode=<;>
+> url=/x?a=1&b=2
+please alert the team and call the manager
+the prompt is shown to users before the dialog closes
+confirm that the order was received
+use document.title for the page heading
+array.call is not a function in this version
+IFS is a shell variable, the internal field separator
+the getent command looks up entries in the name service databases
+use constructor injection instead of setters
+the __proto__ property is deprecated in favour of Object.getPrototypeOf
+while waiting for the date to be confirmed we planned the trip
+do the dishes while the time allows
+information_schema documentation for MySQL 8
+the sqlite_master table stores the schema
+select your plan from the menu below
+mysql.user is a table in the mysql database
+\\fileserver\shared\docs\report.docx
+\\nas01\public\photos
+see //example.com/path for details
+https://example.com/c$/docs
+join me at example.com or oast-fan.net
+my interact.shop sells things
+price: ${price} per unit
+${user.name} is the display name
+O:5 ratio of oxygen to nitrogen
+Order O:123 shipped yesterday
+eval is risky: never run eval on request data
+She said "hello" & "goodbye" in the speech
+Tom & Jerry, "A" & "B"
+a, or: either one is fine
+# --- Held-out benign sample (written after the fixes, then used to tune the last rules) ---
+O'Brien & Sons Ltd.
+Select a size from the list, then press continue
+Where can I find the best pizza in town?
+I need to update my address and drop off a package
+Union Station parking: row 1 or row 2?
+How do I delete my account and order history?
+We're open Mon-Fri 9-5; closed on public holidays
+Cats & dogs: a guide (2nd edition)
+price > $100 and rating >= 4 stars
+5 < 10 && 10 > 3 is true in most languages
+https://example.com/search?q=shoes&sort=price&page=2
+user@example.com
++1 (555) 010-9999
+C:\Program Files\App\config.ini is where the settings live
+/usr/local/bin/python3 is the interpreter path on my laptop
+Run `npm install` and then `npm start` to launch the app
+The ls command lists files; cat prints them; pwd shows the folder
+git commit -m "fix: typo" && git push origin main
+He said: "It's fine," and left the room.
+<3 you all! see you at the party :)
+Thanks!!! ;) talk soon
+{"name": "Ada", "role": "admin", "active": true}
+[1, 2, 3].map(x => x * 2)
+SELECT is a SQL keyword that retrieves rows from a table
+DROP the idea; it was never going to work
+Tom and Jerry or Mickey and Minnie? OR maybe neither.
+1 + 1 = 2 and 2 * 3 = 6
+The ratio is 3:1 (three to one) in our favour
+Order #12345 shipped via UPS; tracking: 1Z999AA10123456784
+Meeting at 10:30 in room B-12; bring your laptop
+Reset code: 482913 (valid for 10 minutes)
+rgb(255, 0, 0) is red; #00ff00 is green
+<p>Hello, <b>world</b>!</p> is valid HTML
+Use the <strong> tag for important text and <em> for emphasis
+a href is the attribute that holds a link target
+function add(a, b) { return a + b; }
+if (x > 0 && y < 10) { run(); }
+for i in range(10): print(i)
+The script was written in Python; the style sheet in CSS
+Eval is discouraged; prefer parsing the data explicitly
+Click the alert icon to see notifications
+Please confirm your email address to continue
+prompt: enter your name
+window and door installation, free quote
+document your code and write tests
+She wrote about cookies, both the baked kind and browser ones
+Why is localhost refusing connections on port 3000?
+The server at 192.168.1.10 is our printer
+Our VPN gateway is 10.0.0.1 and the DNS is 10.0.0.2
+curl is a command-line tool for transferring data
+wget downloads files; ping checks reachability
+The passwd file stores account info, so be careful editing it
+etc is short for et cetera, as in "apples, pears, etc."
+Windows system32 folder explained for beginners
+The shadow of the old tree fell across the road
+John's home directory has a .ssh folder with keys (keep them private)
+A UNION of two sets contains all elements of both
+Looking for a 2-bedroom flat; budget < 1500, near the station
+50% off today only! Use code SAVE50 at checkout
+Q&A: what is the difference between == and ===?
+Pros & cons of electric cars: cost, range, charging
+Café Müller — Königstraße 12, 70173 Stuttgart
+日本語のテキストも問題なく送れます
+Ünïcödé tëxt with àccents and emoji 😀
+The quick brown fox jumps over the lazy dog 0123456789
+"Quoted text" and 'single quoted text' with -- dashes -- and # hashes
+sum(a) / count(b) as ratio in the report
+admin@company.com asked to be removed from the list
+The user table in our database has 3 columns
+Password must be at least 8 characters (letters & digits)
+Escape the ampersand as &amp; and the less-than as &lt; in HTML
+Use &copy; for the copyright sign and &nbsp; for a space
+AT&T and Procter & Gamble are brand names
+R&D budget: 2.5M; M&A pipeline: 3 deals
+x = y || z is a short-circuit idiom in JavaScript
+In Perl, `$_` is the default variable
+${HOME} expands to your home directory in most shells
+Template syntax like {{ name }} appears in many frameworks
+Use #{value} for interpolation in Ruby strings
+<%= title %> is the ERB output tag
+The $ne and $gt operators exist in MongoDB's query language
+db.collection.find() is the shell way to query documents
+The `__proto__` accessor is legacy; use Object.getPrototypeOf
+See RFC 3986 for the generic URI syntax
+Expires: Wed, 21 Oct 2026 07:28:00 GMT
+Content-Type: application/json; charset=utf-8
+GET /index.html HTTP/1.1 is a request line
+Set-Cookie is the header servers use to set cookies
+Location: Berlin, Germany
+Subject: Re: lunch plans
+The (a=b) clause and the (c=d) clause are separate
+Use (&) for and and (|) for or in this notation
+uid=1000(ada) gid=1000(ada) groups=1000(ada)
+cn=Ada Lovelace,ou=People,dc=example,dc=com
+mail: ada@example.com

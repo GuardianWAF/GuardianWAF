@@ -31,3 +31,10 @@ x\r\nVRFY root
 \nV100 CAPABILITY\nV101 FETCH 4791 BODY[]
 x\nA001 LOGIN user pass
 x\nA002 SELECT INBOX
+
+# === Held-out sample: written after the GoTestWAF fixes, then used to tune the last rules ===
+test%0d%0aSet-Cookie:x=y
+a\r\nLocation: http://evil.example
+x%0d%0a%0d%0a<script>alert(1)</script>
+%0aContent-Length:0%0d%0a%0d%0aHTTP/1.1 200 OK
+user@x.com\nBcc: a@evil.example

@@ -155,7 +155,9 @@ func Detect(input, location string) []engine.Finding {
 	}
 
 	var findings []engine.Finding
-	lower := strings.ToLower(input)
+	// Overlong UTF-8 spellings of '.', '/' and '\\' ("\xc0\xae") are traversal to a
+	// lenient backend; the normalized view has them rewritten, the raw one needs it here.
+	lower := strings.ToLower(sanitizer.DecodeOverlongUTF8(input))
 
 	// 1. Encoded traversal patterns (check before decoding)
 	findings = append(findings, checkEncodedTraversal(lower, location)...)
@@ -169,6 +171,7 @@ func Detect(input, location string) []engine.Finding {
 
 	// 4. Windows paths
 	findings = append(findings, checkWindowsPaths(lower, location)...)
+	findings = append(findings, checkUNCPaths(lower, location)...)
 
 	// 5. Wrapper/scheme patterns
 	findings = append(findings, checkWrapperSchemes(lower, location)...)
@@ -295,7 +298,7 @@ func checkWindowsPaths(lower, location string) []engine.Finding {
 				// explanation, so it only logs; sensitive targets (win.ini,
 				// SAM, system32) still score through their own checks.
 				score, sev, conf := 55, engine.SeverityHigh, 0.75
-				if !atStart && isSpaceByte(lower[i-1]) {
+				if (!atStart && isSpaceByte(lower[i-1])) || isProseAroundPath(lower) {
 					score, sev, conf = 25, engine.SeverityLow, 0.40
 				}
 				findings = append(findings, makeFinding(score, sev,

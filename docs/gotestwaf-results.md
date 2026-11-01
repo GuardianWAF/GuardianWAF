@@ -1,19 +1,21 @@
 # GoTestWAF results
 
-An independent attack simulation, run against a stock `guardianwaf serve`. These
-numbers are lower than our own corpora ([detection quality](detection-quality.md))
-because GoTestWAF covers attack classes and encodings that GuardianWAF does not
-inspect today. They are published as measured, not tuned for.
+An attack simulation run against a stock `guardianwaf serve`, and what it
+changed.
+
+**Read the second result with care.** The first run found the gaps and the
+detectors were then fixed until the suite passed, so the 100% below is not an
+independent measurement. It shows that the gaps GoTestWAF can see are closed,
+not how GuardianWAF scores on payloads nobody has tried yet. Re-measure on a
+newer GoTestWAF version or another suite before quoting it.
 
 ## Setup
 
 | | |
 |---|---|
-| Date | 2026-11-01 |
 | Tool | [GoTestWAF](https://github.com/wallarm/gotestwaf) v0.5.11, bundled test cases |
-| Target | `guardianwaf serve` built from `main` at the v0.7.0 preparation point |
-| Mode | `enforce`, default thresholds (block 50, log 25), all default layers |
-| Changed from defaults | `rate_limit` and `ip_acl.auto_ban` disabled (so one blocked probe does not ban the client and inflate results), dashboard disabled |
+| Target | `guardianwaf serve`, `enforce` mode, default thresholds (block 50, log 25), all default layers |
+| Changed from defaults | `rate_limit` and `ip_acl.auto_ban` off (so one blocked probe does not ban the client and inflate results), dashboard off |
 | Backend | a stub that returns `200` to every method |
 | Classification | block = `403`, pass = `200` |
 
@@ -21,45 +23,64 @@ Rerun: start a backend that answers `200` to everything, start `guardianwaf serv
 with the changes above, then run
 `gotestwaf --url http://127.0.0.1:PORT/ --blockStatusCodes 403 --passStatusCodes 200 --sendDelay 0 --randomDelay 1 --skipWAFIdentification`
 from a directory containing GoTestWAF's `config.yaml` and `testcases/`.
+(`--randomDelay 0` panics GoTestWAF 0.5.11; use 1.)
 
-## Result
+## Results
 
-| | Blocked / sent | Rate |
+| | First run, 2026-11-01 | After the fixes, 2026-11-01 |
 |---|---|---|
-| True-positive (attacks blocked) | 288 / 672 | **42.9%** |
-| True-positive, excluding flat base64 payloads | 288 / 437 | **65.9%** |
-| True-negative (benign passed) | 137 / 141 | **97.2%** |
-| GoTestWAF overall score | | 63.5% |
+| Attacks blocked | 288 / 672, **42.9%** | 672 / 672, **100%** |
+| Benign requests passed | 137 / 141, **97.2%** | 141 / 141, **100%** |
+| GoTestWAF score | 63.5% | 100% |
 
-3 raw-request cases came back `400` and are counted as unresolved.
+Three raw-request cases are answered `400` by the WAF and counted by GoTestWAF
+as unresolved in both runs.
 
-### Where the misses are
+### What the first run showed
 
-- **Flat base64 payloads: 0 of 235 blocked.** The whole parameter value is base64.
-  GuardianWAF does not decode base64 before detection. This accounts for 235 of
-  the 384 bypasses.
-- **No detector for these classes** (0% blocked, URL-encoded and plain forms):
-  CRLF injection (0/7), LDAP injection (0/12), mail-header injection (0/12).
-- **Weak coverage:** NoSQL injection 4/25, server-side includes 3/12,
-  command injection via URL parameter 3/9, shell injection 8/16, path traversal
-  5/10, SOAP 2/5, User-Agent payloads 4/9.
-- **Placeholders (all encodings, base64 included):** blocked share is lowest for
-  the URL path (30%) and URL parameters (39%) and higher for headers (64%) and
-  XML (67%).
-- **Reasonable, excluding base64:** XSS 76/112 (owasp) and 94/104 (community),
-  SQL injection 32/36, plain remote code execution 13/13 (`rce`, `rce-urlpath`,
-  `community-rce`). RCE in URL parameters is weak (3/9, listed above).
+- **Flat base64 payloads: 0 of 235 blocked.** The whole value is base64 and the
+  WAF did not decode it. Values that decode to text are now scanned as that
+  text.
+- **Missing detectors:** CRLF injection (0/7), LDAP injection (0/12) and
+  mail-header and SMTP/IMAP injection (0/12) now have detectors; Server Side
+  Includes are caught by the template detector.
+- **Weak coverage:** NoSQL injection (4/25), URL-parameter RCE (3/9), shell
+  injection (8/16), path traversal (5/10), SOAP, `User-Agent` payloads and XML
+  injection. Each missed payload became a rule; see
+  [detection quality](detection-quality.md#coverage-added-after-the-gotestwaf-run).
+- **Splitting by a raw `&`.** GoTestWAF percent-encodes everything except `&`,
+  so a payload containing an HTML entity or a VBScript `"&"` arrives as
+  several parameters. A query string or form body is now also read across its
+  parameters when an `&` starts an entity.
+- **False positives (4 of 141):** the title `JavaScript: Basics of JavaScript
+  Language` (read as a `javascript:` URL) and the quoted query string
+  `>url=/pi?mode=<;>` (read as a file redirection). Both are fixed.
 
-### False positives (4 of 141)
+## A fresh sample
 
-`JavaScript: Basics of JavaScript Language` (URL-encoded, in a URL parameter, an
-HTML form and a multipart form) and one multipart body containing `>url=/pi?mode=<;>`.
+To check how well the fixes generalise, a new set of payloads was written after
+the GoTestWAF fixes and before any of them was tuned against it: 130 attacks
+across XSS, SQL injection, command injection, path traversal, SSRF, template,
+NoSQL, XXE, LDAP and CR/LF injection (355 requests across placements), and 96
+benign phrases chosen to look like attacks (288 requests).
+
+| | First pass | After the last round of fixes |
+|---|---|---|
+| Attack requests blocked | 331 / 355, **93.2%** | 352 / 355, 99.2% |
+| Benign requests passed | 279 / 288, **96.9%** | 288 / 288, 100% |
+
+The first-pass column is the honest estimate: about 7% of fresh attacks passed
+and 3 of 96 look-alike phrases blocked (a Windows path inside a sentence, `;
+ping` inside a sentence, and `==` / `===` read as a tautology). The second column
+is tuned on the same sample and no longer independent. Its three unblocked
+requests were one payload, `{"$or":[{},{"a":"a"}]}`, sent in three placements;
+an empty clause in `$or` is now blocked as well. Both sets are part of the
+end-to-end corpora as regression cases.
 
 ## What this means
 
-Treat GuardianWAF as a first line that catches common injection, XSS, traversal
-and RCE in plain and URL-encoded form. It does not replace application-level
-input validation for LDAP, mail headers, CRLF, NoSQL operators or encoded
-payloads. Closing these gaps is tracked in
-[production readiness](production-readiness.md); each detector added must keep
-the in-repo false-positive gates green.
+The fixes are general rules, each tested against look-alike benign text, and the
+in-repo end-to-end gate (0 false blocks on 2225 benign requests) held throughout.
+But the rules were chosen because this suite missed them. Treat the first run as
+the honest baseline, the second as proof the known gaps are closed, and keep
+sending GuardianWAF payloads it has not seen.

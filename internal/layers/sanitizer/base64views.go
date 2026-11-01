@@ -165,16 +165,27 @@ func decodeBase64Text(tok string) (string, bool) {
 			}
 		}
 	}
-	letters := 0
+	letters, controls := 0, 0
 	for _, r := range string(raw) {
 		switch {
 		case r == '\t' || r == '\r' || r == '\n':
-		case r < 0x20 || r == 0x7f || r == utf8.RuneError:
+		case r < 0x20 || r == 0x7f:
+			controls++
+		case r == utf8.RuneError:
 			return "", false
 		}
 		if r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' {
 			letters++
 		}
+	}
+	// A few stray control bytes are an evasion trick ("<scr\x00ipt"), not
+	// binary data: allow up to 4 and 3% of the length, and drop them so the
+	// text reads the way a parser that skips them would see it.
+	if controls > 0 {
+		if controls > 4 || controls*33 > len(raw) {
+			return "", false
+		}
+		raw = stripControls(raw)
 	}
 	// Text carries letters or syntax characters; digits and spaces alone are
 	// not worth rescanning ("${7*7}" and "{{7*7}}" have no letters at all).
@@ -254,13 +265,19 @@ func (c *decodeCollector) joined(source, raw string) {
 	c.views = append(c.views, engine.DecodedView{Source: source, Raw: text, Normalized: norm})
 }
 
-// hasEntityAmpersand reports an '&' that opens an HTML entity: "&#...", or
-// "&" plus 2-10 letters and ';' (also after one level of percent-encoding).
+// hasEntityAmpersand reports an '&' that opens an HTML entity ("&#...", or "&"
+// plus 2-10 letters and ';') or sits between two quotes, also after one level
+// of percent-encoding.
 func hasEntityAmpersand(s string) bool {
-	if strings.Contains(s, "%26") || strings.Contains(s, "%23") {
+	if strings.Contains(s, "%") {
 		if d, err := url.QueryUnescape(s); err == nil {
 			s = d
 		}
+	}
+	// VBScript joins strings with '&' between quotes: "Ex"&"e"&"cute(". A raw
+	// quote-ampersand-quote splits that payload into fragments the same way.
+	if strings.Contains(s, `"&"`) || strings.Contains(s, "'&'") || strings.Contains(s, `" & "`) {
+		return true
 	}
 	for i := 0; i < len(s); i++ {
 		if s[i] != '&' || i+1 >= len(s) {
@@ -278,4 +295,15 @@ func hasEntityAmpersand(s string) bool {
 		}
 	}
 	return false
+}
+
+// stripControls removes control bytes other than tab, CR and LF.
+func stripControls(b []byte) []byte {
+	out := b[:0:0]
+	for _, c := range b {
+		if c >= 0x20 && c != 0x7f || c == '\t' || c == '\r' || c == '\n' {
+			out = append(out, c)
+		}
+	}
+	return out
 }

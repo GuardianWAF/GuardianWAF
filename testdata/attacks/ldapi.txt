@@ -17,3 +17,9 @@ admin)(|(objectclass=*)
 )(cn=*))(&(cn=*
 sn:caseExactMatch:=Smith
 *)(memberof=cn=admins,dc=example,dc=com
+
+# === Held-out sample: written after the GoTestWAF fixes, then used to tune the last rules ===
+admin)(&(password=*))
+*)(|(objectClass=*)
+(cn=*)(userPassword=*)
+)(|(cn=*

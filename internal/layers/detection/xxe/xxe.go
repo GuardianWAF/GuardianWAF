@@ -160,6 +160,9 @@ func Detect(input, location string) []engine.Finding {
 	// 8. CDATA with suspicious content
 	checkSuspiciousCDATA(lower, location, &findings)
 
+	// 9. UTF-7 evasion and external schema fetches
+	checkEncodingEvasion(lower, location, &findings)
+
 	return findings
 }
 

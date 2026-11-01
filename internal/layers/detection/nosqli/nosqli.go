@@ -79,6 +79,12 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 	}
 	scan(ctx.BodyString, "body")
 	scan(ctx.NormalizedBody, "body")
+	// The decoded fields of a structured body: a JSON string written with
+	// \uXXXX escapes only reads as text once the body is parsed. The whole
+	// body above stays, since "$ne": null is a key and value together.
+	for _, v := range ctx.BodyViews() {
+		scan(v, "body")
+	}
 	for _, v := range ctx.CookieViews() {
 		scan(v, "cookie")
 	}
@@ -124,6 +130,7 @@ func Detect(input, location string) []engine.Finding {
 	findings = append(findings, checkBracketOperators(lower, location)...)
 	findings = append(findings, checkAuthBypass(lower, location)...)
 	findings = append(findings, checkInjectionOperators(lower, location)...)
+	findings = append(findings, checkJSInjection(lower, location)...)
 	return findings
 }
 
