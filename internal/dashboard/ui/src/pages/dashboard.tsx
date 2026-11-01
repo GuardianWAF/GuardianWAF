@@ -11,15 +11,12 @@ import { Button } from '@/components/ui/button'
 import { useToast } from '@/components/ui/toast'
 import { useEventsContext } from '@/hooks/use-events'
 import {
-  Activity,
   AlertTriangle,
   CheckCircle,
   RefreshCw,
   Wifi,
   WifiOff,
-  Shield,
-  Zap,
-  BarChart3
+  Shield
 } from 'lucide-react'
 
 interface SystemHealth {
@@ -221,51 +218,6 @@ export default function DashboardPage() {
           </Button>
         </div>
       )}
-
-      {/* Quick Stats Row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-accent/10 rounded-lg p-4 flex items-center gap-3">
-          <div className="p-2 bg-accent/20 rounded-lg">
-            <Activity className="w-5 h-5 text-accent" />
-          </div>
-          <div>
-            <div className="text-2xl font-bold">{stats.total_requests.toLocaleString()}</div>
-            <div className="text-xs text-muted-foreground">Total Requests</div>
-          </div>
-        </div>
-
-        <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-4 flex items-center gap-3">
-          <div className="p-2 bg-red-100 dark:bg-red-800 rounded-lg">
-            <Shield className="w-5 h-5 text-red-600" />
-          </div>
-          <div>
-            <div className="text-2xl font-bold text-red-600">{stats.blocked_requests.toLocaleString()}</div>
-            <div className="text-xs text-muted-foreground">Blocked</div>
-          </div>
-        </div>
-
-        <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-4 flex items-center gap-3">
-          <div className="p-2 bg-yellow-100 dark:bg-yellow-800 rounded-lg">
-            <Zap className="w-5 h-5 text-yellow-600" />
-          </div>
-          <div>
-            <div className="text-2xl font-bold text-yellow-600">{stats.challenged_requests.toLocaleString()}</div>
-            <div className="text-xs text-muted-foreground">Challenged</div>
-          </div>
-        </div>
-
-        <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 flex items-center gap-3">
-          <div className="p-2 bg-blue-100 dark:bg-blue-800 rounded-lg">
-            <BarChart3 className="w-5 h-5 text-blue-600" />
-          </div>
-          <div>
-            <div className="text-2xl font-bold text-blue-600">
-              {stats.avg_latency_us > 0 ? `${(stats.avg_latency_us / 1000).toFixed(2)}ms` : '-'}
-            </div>
-            <div className="text-xs text-muted-foreground">Avg Latency</div>
-          </div>
-        </div>
-      </div>
 
       <StatsCards stats={stats} />
       <TrafficChart events={events} minutes={30} />
