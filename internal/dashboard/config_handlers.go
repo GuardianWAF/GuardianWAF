@@ -65,6 +65,7 @@ func (d *Dashboard) handleGetConfig(w http.ResponseWriter, r *http.Request) {
 				"max_cookie_size":    cfg.WAF.Sanitizer.MaxCookieSize,
 				"block_null_bytes":   cfg.WAF.Sanitizer.BlockNullBytes,
 				"normalize_encoding": cfg.WAF.Sanitizer.NormalizeEncoding,
+				"decode_base64":      cfg.WAF.Sanitizer.DecodeBase64,
 			},
 			"detection": map[string]any{
 				"enabled": cfg.WAF.Detection.Enabled,

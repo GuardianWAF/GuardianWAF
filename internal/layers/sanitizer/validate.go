@@ -29,6 +29,9 @@ type Config struct {
 	// decoded for them: the documented operator trade-off of
 	// normalize_encoding: false.
 	SkipNormalization bool
+	// SkipBase64Decoding turns off the base64 text views handed to the
+	// detection layer (ctx.DecodedViews). The zero value decodes.
+	SkipBase64Decoding bool
 	// PathOverrides customises MaxBodySize per request-path prefix
 	// (longest matching prefix wins; no match falls back to MaxBodySize).
 	PathOverrides []PathOverride

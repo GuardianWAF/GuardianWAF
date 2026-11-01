@@ -64,6 +64,38 @@ Inspects HTTP framing headers for desync attacks that bypass WAF inspection by m
 
 Config: `waf.detection.detectors.smuggling` (enabled, multiplier). Tests: 15 unit cases + `FuzzSmugglingDetector`.
 
+### Base64 and whole-query-string views
+
+A base64 value is opaque to every detector: `JyBPUiAxPTEtLQ==` is `' OR 1=1--`
+only after the backend decodes it. The sanitizer therefore decodes values that
+decode to **text** (valid UTF-8, no control characters, letters or syntax
+characters present, at least 6 bytes) and the detection layer scans that text
+with the content detectors (not smuggling, open redirect or GraphQL, which judge
+request structure). Where it looks: whole values of query parameters, form,
+multipart and JSON fields, cookies, application headers, `User-Agent`,
+`Referer` and path segments, plus base64 runs of at least 24 characters inside
+other text such as an XML body. Standard and URL-safe alphabets, padded or not,
+and one further level of base64 are followed. Hashes, UUIDs, random tokens,
+keys and binary data decode to bytes that are not text and are ignored. Against
+an English word list 0.08% of candidate words decode to text, and those are
+short gibberish that no detector matches.
+
+Findings from decoded text carry the location `base64:<source>`. A rule that
+matches the same decoded text through several views counts once, and
+per-path detector exclusions apply.
+
+Trade-off: an application that legitimately carries markup or code as base64
+(a rich-text editor that posts base64 HTML, say) is judged as if it had posted
+that text in the clear. Exclude that path for the affected detector, or set
+`waf.sanitizer.decode_base64: false`.
+
+The sanitizer also reads a whole query string or urlencoded form body across its
+parameters when an `&` starts an HTML entity (`&#`, `&lt;`, `&equals;`). A raw
+`&` splits a value into separate parameters, so `<svg/onload&equals;alert(1)>`
+would otherwise reach the detectors in pieces. Findings are located at
+`query-string` or `body-string`. Ordinary `a=1&b=2` queries are not joined, so
+parameter names such as `select` and `from` never read as SQL.
+
 ### CR/LF and Mail Injection (`crlf-detector`)
 
 Finds line breaks that split an HTTP response or reach a mail server. The
@@ -199,7 +231,8 @@ placements in a `# placement:` header:
 | comments, reviews, support tickets | 386 | 0 |
 | names, companies, addresses, emails, phones, also as a header | 308 | 0 |
 | JSON API bodies | 78 | 0 |
-| passwords, tokens, identifiers, also as a header | 165 | 0 |
+| passwords, tokens, identifiers, also as a header | 162 | 0 |
+| base64 values that are ordinary: encoded prose, tokens, hashes, keys, JWTs | 198 | 0 |
 | cookies: analytics, consent, signed sessions, preferences | 45 | 0 |
 | custom headers: API keys, tenants, cloud SDK, webhook signatures, tracing | 102 | 0 |
 | URL paths and slugs | 51 | 0 |
@@ -207,11 +240,14 @@ placements in a `# placement:` header:
 | same-site redirect targets | 17 | 0 |
 | multi-line user text and mail-like content | 51 | 0 |
 | parenthesised text that resembles filter syntax | 85 | 0 |
-| **General benign** | **1860** | **0 (0.00%)** — budget 1% |
+| **General benign** | **2055** | **0 (0.00%)** — budget 1% |
 | developer posts quoting code (`technical_*`) | 138 | 0 (0.00%) — budget 5% |
 
 Attacks reuse `testdata/attacks/`, placed where each class is delivered:
 
+- Base64-encoded attacks: query, form, multipart, a JSON field, a cookie and
+  an application header, in the standard, URL-safe and unpadded alphabets and
+  doubly encoded.
 - CR/LF injection: query, form, multipart, a JSON field and a URL-encoded
   cookie (line breaks written as escapes in the corpus).
 - LDAP injection: query, form, multipart, a URL-encoded cookie and an
@@ -225,7 +261,7 @@ Attacks reuse `testdata/attacks/`, placed where each class is delivered:
 - GraphQL: `/graphql`.
 
 Every class must be blocked at least 85% of the time. Current result:
-1627/1648 (98.7%), with SQLi at 97.1%, CMDi at 98.0%, and LFI, XSS and GraphQL at 100%.
+2134/2158 (98.9%), with SQLi at 97.1%, CMDi at 98.0%, and LFI, XSS, GraphQL, CR/LF, LDAP and base64 at or near 100%.
 
 Building this gate exposed defects that the layer-only corpus could not see.
 They are now fixed and pinned by tests:
