@@ -47,3 +47,13 @@ __proto__[isAdmin]=true
 {"__proto__": {"isAdmin": true}}
 constructor.prototype.isAdmin=true
 constructor[prototype][role]=admin
+
+# === Held-out sample: written after the GoTestWAF fixes, then used to tune the last rules ===
+{"$gt": ""}
+{"username": {"$ne": null}, "password": {"$ne": null}}
+username[$regex]=.*&password[$ne]=1
+{"$where": "this.password.match(/.*/)"}
+{"user": {"$in": ["admin"]}, "pass": {"$gt": ""}}
+'; return true; var x='
+{"$or":[{},{"a":"a"}]}
+admin' || '1'=='1

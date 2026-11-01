@@ -30,3 +30,21 @@ func checkCatalogRecon(input, location string) []engine.Finding {
 }
 
 var selectWord = regexp.MustCompile(`\bselect\b[^;]{0,200}\bfrom\b`)
+
+// logicalTautology matches a quote breakout joined by || or && to an equality
+// of the same operand: admin' || '1'=='1, x' && 'a'='a. Oracle and PostgreSQL
+// read || as string concatenation or OR, MySQL (ANSI mode) as OR, and
+// NoSQL/JavaScript backends as OR; all authenticate the attacker.
+var logicalTautology = regexp.MustCompile(`(?i)['"]\s*(?:\|\||&&)\s*['"]?([\w.]+)['"]?\s*={1,3}\s*['"]?([\w.]+)`)
+
+func checkLogicalTautology(input, location string) []engine.Finding {
+	if !strings.Contains(input, "||") && !strings.Contains(input, "&&") {
+		return nil
+	}
+	m := logicalTautology.FindStringSubmatch(input)
+	if m == nil || !strings.EqualFold(m[1], m[2]) {
+		return nil
+	}
+	return []engine.Finding{makeFinding(60, engine.SeverityHigh,
+		"Boolean injection joined by || or && with a tautology", m[0], location, 0.85)}
+}

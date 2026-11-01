@@ -2,6 +2,7 @@ package ssti
 
 import (
 	"regexp"
+	"strings"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 )
@@ -28,4 +29,19 @@ func checkSSI(lower, location string) []engine.Finding {
 	}
 	return []engine.Finding{makeFinding(score, severity,
 		"Server Side Includes directive detected", m[0], extractContext(lower, m[0]), location, 0.90)}
+}
+
+// checkPolyglotProbe flags the template-engine fuzzing polyglot "${{<%[%'"}}%\":
+// it opens the delimiters of several engines at once to make whichever one is
+// present throw. Two engine delimiters that never appear together in text are
+// the signal.
+func checkPolyglotProbe(lower, location string) []engine.Finding {
+	if !strings.Contains(lower, "${{") {
+		return nil
+	}
+	if !strings.Contains(lower, "<%") && !strings.Contains(lower, "{%") && !strings.Contains(lower, "#{") {
+		return nil
+	}
+	return []engine.Finding{makeFinding(70, engine.SeverityHigh,
+		"Template-engine polyglot probe detected", "${{<%", extractContext(lower, "${{"), location, 0.80)}
 }

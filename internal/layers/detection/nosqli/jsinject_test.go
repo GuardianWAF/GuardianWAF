@@ -30,6 +30,12 @@ func TestJSInjectionAttacks(t *testing.T) {
 		`constructor.prototype.isAdmin=true`,
 		`constructor[prototype][x]=1`,
 		`__proto__[v-if]=_c.constructor('alert(1)')()`,
+		`'; return true; var x='`,
+		`";return false;//`,
+		`x'; var a = 1; '`,
+		`'; while(true){}; '`,
+		`{"$or":[{},{"a":"a"}]}`,
+		`{"$nor": [ {} ]}`,
 	} {
 		if got := jsScore(a); got < 50 {
 			t.Errorf("Detect(%q) = %d, want >= 50", a, got)
@@ -49,6 +55,10 @@ func TestJSInjectionBenign(t *testing.T) {
 		`we ran "db" in the lab and inserted samples`,
 		`Date.now() is a monotonic-ish clock`,
 		`a, or: either one`,
+		`He said 'hello'; return to base`,
+		`it's done'; return policy applies`,
+		`'quoted'; var is short for variable`,
+		`step one'; function of the tool`,
 	} {
 		if got := jsScore(b); got >= 50 {
 			t.Errorf("Detect(%q) = %d, want < 50", b, got)

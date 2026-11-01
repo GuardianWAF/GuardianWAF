@@ -127,6 +127,7 @@ func Detect(input, location string) []engine.Finding {
 	if strings.Contains(lower, "<!--") {
 		findings = append(findings, checkSSI(lower, location)...)
 	}
+	findings = append(findings, checkPolyglotProbe(lower, location)...)
 	return findings
 }
 

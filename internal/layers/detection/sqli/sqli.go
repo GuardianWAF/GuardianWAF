@@ -153,11 +153,27 @@ func (d *Detector) Process(ctx *engine.RequestContext) engine.LayerResult {
 // despite not triggering a high score (e.g., "admin OR 1=1" without delimiters).
 func isSQLishPattern(s string) bool {
 	upper := strings.ToUpper(s)
-	patterns := []string{" OR ", " AND ", " OR'1", " OR\"1", " OR 1", " AND 1",
+	patterns := []string{" OR'1", " OR\"1", " OR 1", " AND 1",
 		"1=1", "1'='1", "1\"=\"1", "UNION SELECT", " OR -", " AND -"}
 	for _, p := range patterns {
 		if strings.Contains(upper, p) {
 			return true
+		}
+	}
+	// A bare " OR " or " AND " is the word in "salt and pepper"; it only
+	// suggests injection when an operand of SQL shape follows: a digit, a
+	// quote, a parenthesis, a minus sign or a variable.
+	for _, kw := range []string{" OR ", " AND "} {
+		for from := 0; ; {
+			i := strings.Index(upper[from:], kw)
+			if i < 0 {
+				break
+			}
+			end := from + i + len(kw)
+			if end < len(upper) && strings.IndexByte("0123456789'\"(-@", upper[end]) >= 0 {
+				return true
+			}
+			from = end
 		}
 	}
 	return false

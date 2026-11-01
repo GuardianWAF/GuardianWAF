@@ -58,3 +58,13 @@ http://abc123.burpcollaborator.net/x
 https://x.oastify.com/6.17.0.RELEASE
 abc.oast.me
 h.interact.sh
+
+# === Held-out sample: written after the GoTestWAF fixes, then used to tune the last rules ===
+http://127.0.0.1:8080/admin
+http://localhost:6379/
+http://[::1]/
+http://0.0.0.0:22
+gopher://127.0.0.1:6379/_INFO
+http://2130706433/
+http://10.0.0.1/internal
+file:///etc/hosts

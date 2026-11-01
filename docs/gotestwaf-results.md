@@ -56,6 +56,27 @@ as unresolved in both runs.
   Language` (read as a `javascript:` URL) and the quoted query string
   `>url=/pi?mode=<;>` (read as a file redirection). Both are fixed.
 
+## A fresh sample
+
+To check how well the fixes generalise, a new set of payloads was written after
+the GoTestWAF fixes and before any of them was tuned against it: 130 attacks
+across XSS, SQL injection, command injection, path traversal, SSRF, template,
+NoSQL, XXE, LDAP and CR/LF injection (355 requests across placements), and 96
+benign phrases chosen to look like attacks (288 requests).
+
+| | First pass | After the last round of fixes |
+|---|---|---|
+| Attack requests blocked | 331 / 355, **93.2%** | 352 / 355, 99.2% |
+| Benign requests passed | 279 / 288, **96.9%** | 288 / 288, 100% |
+
+The first-pass column is the honest estimate: about 7% of fresh attacks passed
+and 3 of 96 look-alike phrases blocked (a Windows path inside a sentence, `;
+ping` inside a sentence, and `==` / `===` read as a tautology). The second column
+is tuned on the same sample and no longer independent. Its three unblocked
+requests were one payload, `{"$or":[{},{"a":"a"}]}`, sent in three placements;
+an empty clause in `$or` is now blocked as well. Both sets are part of the
+end-to-end corpora as regression cases.
+
 ## What this means
 
 The fixes are general rules, each tested against look-alike benign text, and the

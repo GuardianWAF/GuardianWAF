@@ -47,3 +47,19 @@ func TestOverlongRawTraversal(t *testing.T) {
 		}
 	}
 }
+
+func TestDrivePathInProse(t *testing.T) {
+	for _, b := range []string{
+		`C:\Program Files\App\config.ini is where the settings live`,
+		`D:\backup\2026 holds the files that we copied last week`,
+	} {
+		if got := lfiTotal(b); got >= 50 {
+			t.Errorf("Detect(%q) = %d, want < 50", b, got)
+		}
+	}
+	for _, a := range []string{`C:\Program Files\App\config.ini`, `C:\boot.ini`, `c:\users\bob\ntuser.dat`, `C:\windows\win.ini&x=1`} {
+		if got := lfiTotal(a); got < 50 {
+			t.Errorf("Detect(%q) = %d, want >= 50", a, got)
+		}
+	}
+}

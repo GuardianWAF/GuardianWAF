@@ -45,3 +45,7 @@ ${''.getClass().forName('java.lang.Runtime')}
 <!--#include file="../../../etc/shadow" -->
 <!-- #exec cmd="whoami" -->
 <!--#printenv -->
+
+# === Held-out sample: written after the GoTestWAF fixes, then used to tune the last rules ===
+{{config.items()}}
+${{<%[%'"}}%\

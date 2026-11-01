@@ -298,7 +298,7 @@ func checkWindowsPaths(lower, location string) []engine.Finding {
 				// explanation, so it only logs; sensitive targets (win.ini,
 				// SAM, system32) still score through their own checks.
 				score, sev, conf := 55, engine.SeverityHigh, 0.75
-				if !atStart && isSpaceByte(lower[i-1]) {
+				if (!atStart && isSpaceByte(lower[i-1])) || isProseAroundPath(lower) {
 					score, sev, conf = 25, engine.SeverityLow, 0.40
 				}
 				findings = append(findings, makeFinding(score, sev,

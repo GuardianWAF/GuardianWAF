@@ -37,3 +37,47 @@ func TestCatalogRecon(t *testing.T) {
 		}
 	}
 }
+
+func TestSubqueryAndLogicalForms(t *testing.T) {
+	for _, a := range []string{
+		`1' || (SELECT 1 FROM dual)||'`,
+		`1' RLIKE (SELECT (CASE WHEN (1=1) THEN 1 ELSE 0x28 END))--`,
+		`1 AND 1=(SELECT COUNT(*) FROM tablenames); --`,
+		`admin' || '1'=='1`,
+		`x' && 'a'='a`,
+		`' || 1==1 --`,
+	} {
+		if got := catalogTotal(a); got < 50 {
+			t.Errorf("Detect(%q) = %d, want >= 50", a, got)
+		}
+	}
+	for _, b := range []string{
+		`Q&A: what is the difference between == and ===?`,
+		`== and === differ in type coercion`,
+		`(select your plan from the menu)`,
+		`please (select a size from the list) before continuing`,
+		`x = y || z is a short-circuit idiom in JavaScript`,
+		`use && and || to combine conditions`,
+		`Tom's 'cat' || 'dog' debate`,
+	} {
+		if got := catalogTotal(b); got >= 50 {
+			t.Errorf("Detect(%q) = %d, want < 50", b, got)
+		}
+	}
+}
+
+func TestCookieProseKeepsLowScore(t *testing.T) {
+	for _, b := range []string{
+		`I need to update my address and drop off a package`,
+		`salt and pepper, then update the recipe and drop the garlic`,
+	} {
+		if !(isSQLishPattern(b) == false) {
+			t.Errorf("isSQLishPattern(%q) = true, want false", b)
+		}
+	}
+	for _, a := range []string{`admin OR 1=1`, `x AND 1`, `a OR 'b'='b`, `x AND (select 1)`, `1 UNION SELECT 1`, `a OR -1=-1`} {
+		if !isSQLishPattern(a) {
+			t.Errorf("isSQLishPattern(%q) = false, want true", a)
+		}
+	}
+}

@@ -93,8 +93,8 @@ Library mode:
   newest entries is not unless the chain head was recorded off the host
   ([runbook §17](runbook.md)). SIEM export remains the off-host copy.
 - **Detection quality** is measured on curated corpora, not production traffic.
-  The end-to-end gate blocks 0 of 2225 benign requests and 0 of 138 developer
-  posts quoting code, and 99.0% of 2396 attack requests
+  The end-to-end gate blocks 0 of 2703 benign requests and 0 of 138 developer
+  posts quoting code, and 99.2% of 2857 attack requests
   ([detection quality](detection-quality.md)). Real applications differ: deploy
   in monitor mode and tune per application before enforcing.
 - **Independent benchmark.** GoTestWAF first blocked 42.9% of its attacks and
@@ -117,7 +117,7 @@ Library mode:
 | Priority | Item | Done when |
 |---|---|---|
 | P1 | Raft wall-clock soak | A multi-day run on release hardware with real network latency. The write-volume soak passes: `TestSoakBoundedWALAndRestart` (`GWAF_RAFT_SOAK=1`) pushed 2,000,000 entries through a 3-node cluster at the default threshold with the WAL flat at ~0.4 MiB (398 KiB after 100k, 417 KiB after 2M), the snapshot under 0.1 MiB, a 59 ms restart from disk and a 51 MB process peak |
-| P1 | Detection evidence | The CI gate (block FP < 1% general, < 5% technical, attacks >= 85% per class) is in place; measured on the in-repo corpora (`tests/quality`): 2372/2396 attacks blocked (99.0%), 0/2225 general and 0/138 technical benign false blocks. These are our own corpora, not an independent benchmark. GoTestWAF first measured 42.9% of attacks blocked; the gaps it showed are closed and it now scores 100%, but that run is not independent any more because the fixes were made against it ([results](gotestwaf-results.md)). Remaining: an independent re-measure on payloads we have not seen, OWASP CRS regression results, corpora grown with anonymized production traffic |
+| P1 | Detection evidence | The CI gate (block FP < 1% general, < 5% technical, attacks >= 85% per class) is in place; measured on the in-repo corpora (`tests/quality`): 2833/2857 attacks blocked (99.2%), 0/2703 general and 0/138 technical benign false blocks. These are our own corpora, not an independent benchmark. GoTestWAF first measured 42.9% of attacks blocked; the gaps it showed are closed and it now scores 100%, but that run is not independent any more because the fixes were made against it ([results](gotestwaf-results.md)). Remaining: an independent re-measure on payloads we have not seen, OWASP CRS regression results, corpora grown with anonymized production traffic |
 | P1 | Large-body inspection throughput | `BenchmarkEngine_LargeBody` p99 within the [performance budget](performance-budget.md) on release hardware |
 | P1 | Release pipeline proof | No tag has gone through the whole workflow to a published release since v0.4.0. The v0.5.0 run staged and verified everything, then `promote-release` refused to overwrite the v0.5.0 release that already existed. The v0.6.0 run failed on the gofmt gate (since fixed), so v0.6.0 has a tag but no GitHub release. Done when a fresh tag produces a published release with checksums, SBOM and provenance and `verify-release` passes. Draft notes: [v0.7.0](v0.7.0-release-notes.md) |
 | P2 | Test suite consolidation | Per-bug regression files consolidated by theme |

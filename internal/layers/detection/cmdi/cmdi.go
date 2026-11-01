@@ -177,6 +177,9 @@ func Detect(input, location string) []engine.Finding {
 	// 8. Server-side code and deserialization payloads
 	findings = append(findings, checkScriptExec(input, lower, location)...)
 
+	// 9. cmd.exe's single-ampersand separator
+	findings = append(findings, checkAmpersandCommand(lower, location)...)
+
 	return findings
 }
 
@@ -254,6 +257,12 @@ func checkShellMetachars(_, lower, location string) []engine.Finding {
 			// shaped like that, while those are the canonical payloads.
 			wholeValue := len(parts) == 2 && !strings.Contains(trimmed, "|") && isInjectionPrefix(parts[0])
 			downgrade := isAmbiguousCommand(cmd) && !hasCommandArguments(trimmed, cmd) && !wholeValue
+			// A sentence on both sides of the separator is prose that uses
+			// ';' or '|' as punctuation: "wget downloads files; ping checks
+			// reachability".
+			if !downgrade && !wholeValue && isProseSentence(parts[0], trimmed) {
+				downgrade = true
+			}
 
 			if isReconCommand(cmd) || isNetworkCommand(cmd) || IsCommand(cmd) {
 				reported[cmd] = true

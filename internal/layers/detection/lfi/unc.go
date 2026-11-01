@@ -2,6 +2,7 @@ package lfi
 
 import (
 	"regexp"
+	"strings"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
 )
@@ -44,4 +45,34 @@ func uncMatch(re *regexp.Regexp, s string) string {
 		return s[loc[0]:loc[1]]
 	}
 	return ""
+}
+
+// isProseAroundPath reports a value that is a sentence with a path in it:
+// at least six words, of which at least four are plain letters-only words
+// ("C:\Program Files\App\config.ini is where the settings live"). A path
+// alone, or a path with a short argument, has none of those.
+func isProseAroundPath(lower string) bool {
+	// Cookies and form values reach this unrewritten, with '+' for spaces.
+	fields := strings.Fields(strings.ReplaceAll(lower, "+", " "))
+	if len(fields) < 6 {
+		return false
+	}
+	plain := 0
+	for _, f := range fields {
+		f = strings.TrimRight(f, ",.!?:;")
+		if f == "" {
+			continue
+		}
+		ok := true
+		for i := 0; i < len(f); i++ {
+			if c := f[i]; !(c >= 'a' && c <= 'z' || c == '\'' || c == '-') {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			plain++
+		}
+	}
+	return plain >= 4
 }

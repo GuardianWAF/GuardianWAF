@@ -530,18 +530,11 @@ func DecodeOverlongUTF8(s string) string {
 			b.WriteByte(c&0x1F<<6 | s[i+1]&0x3F)
 			i += 2
 		case c == 0xE0 && i+2 < len(s) && s[i+1]&0xE0 == 0x80 && s[i+2]&0xC0 == 0x80:
-			if cp := rune(c&0x0F)<<12 | rune(s[i+1]&0x3F)<<6 | rune(s[i+2]&0x3F); cp < 0x80 {
-				b.WriteByte(byte(cp))
-			} else {
-				b.WriteRune(cp)
-			}
+			// A code point below 0x80 is written as the single ASCII byte.
+			b.WriteRune(rune(c&0x0F)<<12 | rune(s[i+1]&0x3F)<<6 | rune(s[i+2]&0x3F))
 			i += 3
 		case c == 0xF0 && i+3 < len(s) && s[i+1]&0xF0 == 0x80 && s[i+2]&0xC0 == 0x80 && s[i+3]&0xC0 == 0x80:
-			if cp := rune(s[i+1]&0x3F)<<12 | rune(s[i+2]&0x3F)<<6 | rune(s[i+3]&0x3F); cp < 0x80 {
-				b.WriteByte(byte(cp))
-			} else {
-				b.WriteRune(cp)
-			}
+			b.WriteRune(rune(s[i+1]&0x3F)<<12 | rune(s[i+2]&0x3F)<<6 | rune(s[i+3]&0x3F))
 			i += 4
 		default:
 			b.WriteByte(c)

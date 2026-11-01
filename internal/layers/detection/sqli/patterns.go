@@ -91,7 +91,9 @@ func Detect(input, location string) []engine.Finding {
 	// The analysis ignores whitespace, so it is never emitted: large bodies
 	// tokenize into tens of thousands of tokens, about half of them spaces.
 	findings := analyzeSignificant(tokenize(input, false), location)
-	return append(findings, checkCatalogRecon(input, location)...)
+	findings = append(findings, breakoutView(input, location)...)
+	findings = append(findings, checkCatalogRecon(input, location)...)
+	return append(findings, checkLogicalTautology(input, location)...)
 }
 
 // filterSignificant returns tokens with whitespace removed.
@@ -270,8 +272,9 @@ func hasTautology(tokens []Token, startIdx int) bool {
 		return true
 	}
 
-	// Keyword/Other tautology: true=true, null=null
-	if left.Type == right.Type && leftVal == rightVal {
+	// Keyword/Other tautology: true=true, null=null. An operator is not an
+	// operand: "== and ===" in a sentence about JavaScript reads "AND = = =".
+	if left.Type == right.Type && leftVal == rightVal && left.Type != TokenOperator && left.Type != TokenParenOpen && left.Type != TokenParenClose {
 		return true
 	}
 
@@ -769,6 +772,19 @@ func checkSubquery(tokens []Token, location string) (engine.Finding, bool) {
 					}
 				}
 				matched := extractRange(tokens, i, end)
+				// "end" stops at the first ")", which COUNT(*) closes early;
+				// the FROM check needs the parenthesis that really matches.
+				match := matchingClose(tokens, i)
+				// A subquery compared against, concatenated with, or fed to a
+				// boolean or set operator ("1=(SELECT COUNT(*) FROM t)",
+				// "|| (SELECT 1 FROM dual)", "RLIKE (SELECT ...)") is the shape
+				// of blind injection; a parenthesised "(select your plan from
+				// the menu)" in prose has no such operator before it.
+				if subqueryInOperatorContext(tokens, i) && hasFromAfter(tokens, j, match) {
+					return makeFinding(55, engine.SeverityHigh,
+						"Subquery in operator position: (SELECT ... FROM ...)",
+						matched, location, 0.80), true
+				}
 				return makeFinding(25, engine.SeverityMedium,
 					"Subquery injection pattern: (SELECT ...)",
 					matched, location, 0.70), true
@@ -918,4 +934,88 @@ func isProseWord(tokens []Token, k int) bool {
 		}
 	}
 	return true
+}
+
+// subqueryOperators are the keywords after which a "(" opens a subquery whose
+// result is compared or tested.
+var subqueryOperators = map[string]bool{
+	"AND": true, "OR": true, "NOT": true, "IN": true, "LIKE": true, "RLIKE": true,
+	"REGEXP": true, "EXISTS": true, "ANY": true, "ALL": true, "WHERE": true,
+	"HAVING": true, "WHEN": true, "THEN": true, "ELSE": true,
+}
+
+// subqueryInOperatorContext reports a comparison or boolean operator, or an
+// operator keyword, directly before the "(" at tokens[open].
+func subqueryInOperatorContext(tokens []Token, open int) bool {
+	for k := open - 1; k >= 0; k-- {
+		if tokens[k].Type == TokenComment {
+			continue
+		}
+		switch tokens[k].Type {
+		case TokenOperator:
+			return true
+		case TokenKeyword:
+			return subqueryOperators[tokenUpperValue(tokens[k])]
+		case TokenOther:
+			// The tokenizer leaves "|" and "&" (halves of || and &&) and
+			// operator words such as RLIKE as plain words.
+			v := tokenUpperValue(tokens[k])
+			return v == "|" || v == "&" || subqueryOperators[v]
+		}
+		return false
+	}
+	return false
+}
+
+// hasFromAfter reports a FROM or CASE between tokens[from] and tokens[to]: a
+// subquery that reads a table, or one that branches on a condition, as blind
+// injection does.
+func hasFromAfter(tokens []Token, from, to int) bool {
+	for k := from; k <= to && k < len(tokens); k++ {
+		if tokens[k].Type == TokenKeyword {
+			if v := tokenUpperValue(tokens[k]); v == "FROM" || v == "CASE" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// matchingClose returns the index of the ")" that closes the "(" at
+// tokens[open], or the last token when it never closes (an injected tail).
+func matchingClose(tokens []Token, open int) int {
+	depth := 0
+	for k := open; k < len(tokens); k++ {
+		switch tokens[k].Type {
+		case TokenParenOpen:
+			depth++
+		case TokenParenClose:
+			depth--
+			if depth == 0 {
+				return k
+			}
+		}
+	}
+	return len(tokens) - 1
+}
+
+// breakoutView analyses the input as if its first quote had closed a string the
+// application opened. "1' || (SELECT 1 FROM dual)||'" reads as one string
+// literal from the first quote to the last, hiding the SELECT, while the
+// database sees the first quote end the application's value. Only findings
+// strong enough to block on their own are kept, so a quoted phrase in prose
+// adds nothing.
+func breakoutView(input, location string) []engine.Finding {
+	i := strings.IndexByte(input, '\'')
+	if i < 0 || i == len(input)-1 {
+		return nil
+	}
+	var out []engine.Finding
+	for _, f := range analyzeSignificant(tokenize(input[i+1:], false), location) {
+		if f.Score >= 50 {
+			f.Description += " (after quote breakout)"
+			out = append(out, f)
+		}
+	}
+	return out
 }
