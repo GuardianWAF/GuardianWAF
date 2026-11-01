@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+Prepared as v0.7.0; the date is set in the tag commit.
+
 ### Breaking Changes
 
 - **eb3c8fa** remove compliance reporting
