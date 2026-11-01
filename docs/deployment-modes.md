@@ -156,7 +156,7 @@ func main() {
 
 Library mode uses the standalone registry builders for IP ACL, rate limiting,
 API security, sanitizer, detection, bot detection, and response protection.
-All 11 detectors are enabled by default in both programmatic and YAML
+All 13 detectors are enabled by default in both programmatic and YAML
 constructors. API security is opt-in through `waf.api_security` in YAML.
 Per-path body limits, normalization settings, and IP ban persistence use the
 same field mappings as standalone mode. Call `Close` to flush persisted bans

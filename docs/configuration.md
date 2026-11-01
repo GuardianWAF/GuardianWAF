@@ -194,6 +194,8 @@ waf:
       ssrf:
         enabled: true
         multiplier: 1.0
+      # Also available, same shape: ssti, nosqli, smuggling, openredirect,
+      # graphql, crlf (CR/LF and mail injection), ldapi (LDAP injection).
     exclusions:                  # Skip detectors for specific paths
       - path: /api/webhook
         detectors: [sqli, xss]

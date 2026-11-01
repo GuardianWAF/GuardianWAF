@@ -64,6 +64,39 @@ Inspects HTTP framing headers for desync attacks that bypass WAF inspection by m
 
 Config: `waf.detection.detectors.smuggling` (enabled, multiplier). Tests: 15 unit cases + `FuzzSmugglingDetector`.
 
+### CR/LF and Mail Injection (`crlf-detector`)
+
+Finds line breaks that split an HTTP response or reach a mail server. The
+sanitizer collapses line breaks to spaces, so this detector decodes each raw
+value itself (percent-encoding up to three rounds, `\u000d`/`\x0d` escapes, and
+U+560A/U+560D, which backends that truncate runes to bytes turn into LF/CR) and
+keeps the breaks.
+
+| Vector | Example | Severity |
+|---|---|---:|
+| Injected `Set-Cookie` | `x%0d%0aSet-Cookie: a=b` | High |
+| Injected status line or body | `x\r\n\r\nHTTP/1.1 200 OK` | High |
+| Injected `Location`, `Content-Type`, `Content-Length`, `Refresh`, CORS/CSP headers | `x\r\nLocation: https://evil.example` | High |
+| Mail headers with an address | `a@b.c\r\nBcc: v@example.net` | High |
+| SMTP commands | `\nRCPT TO: x@evil.com` | High |
+| IMAP tagged commands | `\nV100 CAPABILITY` | High |
+
+A long multi-line value (more than 6 lines, or a long first line) is ordinary
+prose or a pasted document: there only `Set-Cookie` and status lines still
+block, and the rest log.
+
+Config: `waf.detection.detectors.crlf` (enabled, multiplier).
+
+### LDAP Injection (`ldapi-detector`)
+
+Finds input that closes the application's LDAP filter and adds its own:
+boolean clauses with an attribute assertion (`(&(uid=admin)(...`), a closed
+clause followed by a new one (`*)(uid=*))(|(uid=*`), the absolute filters
+`(&)` and `(|)`, extensible-match assertions (`userPassword:2.5.13.18:=x`) and
+wildcard presence clauses (`(objectclass=*)`).
+
+Config: `waf.detection.detectors.ldapi` (enabled, multiplier).
+
 ### Open Redirect (`openredirect-detector`)
 
 Inspects redirect-type parameters and headers for untrusted external URLs that enable phishing via open-redirect vulnerabilities.
@@ -172,11 +205,17 @@ placements in a `# placement:` header:
 | URL paths and slugs | 51 | 0 |
 | URLs as parameters | 20 | 0 |
 | same-site redirect targets | 17 | 0 |
-| **General benign** | **1724** | **0 (0.00%)** — budget 1% |
+| multi-line user text and mail-like content | 51 | 0 |
+| parenthesised text that resembles filter syntax | 85 | 0 |
+| **General benign** | **1860** | **0 (0.00%)** — budget 1% |
 | developer posts quoting code (`technical_*`) | 138 | 0 (0.00%) — budget 5% |
 
 Attacks reuse `testdata/attacks/`, placed where each class is delivered:
 
+- CR/LF injection: query, form, multipart, a JSON field and a URL-encoded
+  cookie (line breaks written as escapes in the corpus).
+- LDAP injection: query, form, multipart, a URL-encoded cookie and an
+  application header.
 - SQLi, XSS, CMDi, SSTI, NoSQLi: query, form, multipart, a URL-encoded cookie
   and an application header.
 - LFI: `file=` and query.

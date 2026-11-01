@@ -124,6 +124,9 @@ func Detect(input, location string) []engine.Finding {
 	findings = append(findings, checkTemplateDirectives(lower, location)...)
 	findings = append(findings, checkEngineInternals(lower, location)...)
 	findings = append(findings, checkProbeExpressions(lower, location)...)
+	if strings.Contains(lower, "<!--") {
+		findings = append(findings, checkSSI(lower, location)...)
+	}
 	return findings
 }
 

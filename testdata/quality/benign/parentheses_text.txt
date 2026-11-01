@@ -1,0 +1,19 @@
+# Parenthesised and punctuated text that merely resembles filter syntax.
+# placement: query,form,multipart,jsonfield,cookie
+The result (see figure 2) was (surprisingly) stable.
+f(x) = (a+b)(c+d)
+Call us on (555) 123-4567 or (555) 987-6543.
+sum = (a=b) and (c=d) are two assignments in the notes
+Total: $5 (was $6) (tax included)
+(1) first point (2) second point (3) third point
+Use the && operator, not (&) or the pipe | character.
+if (x == 1) (y = 2) is not valid in this language
+smile :) and then (: another one
+Items (in stock): apples, pears (organic), plums
+Meeting (room 4) starts at 10:00 (sharp)
+a:=b is the assignment syntax in Pascal
+key:value:=assigned in the config notes
+The wildcard * matches anything, e.g. *.txt
+Search for names like Smith* or *son
+username=jsmith
+cn=John Smith, ou=People (directory entry in the docs)

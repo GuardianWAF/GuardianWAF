@@ -79,7 +79,7 @@ Observability:
 Library mode:
 
 - Library mode builds layers through the standalone registry builders, so it
-  runs the same 11 detectors, API security and per-path body limits.
+  runs the same 13 detectors, API security and per-path body limits.
 - The event ring buffer allocates as events arrive instead of reserving
   ~44 MB for the default 100,000-event capacity at startup.
 
