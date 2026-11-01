@@ -33,11 +33,13 @@ var (
 // that do not use a $-prefixed key.
 func checkJSInjection(lower, location string) []engine.Finding {
 	var findings []engine.Finding
-	if m := bareLogicalOperator.FindString(lower); m != "" {
-		findings = append(findings, makeFinding(70, engine.SeverityHigh,
-			"NoSQL logical operator injected into an object literal", strings.TrimSpace(m), location, 0.85))
+	if strings.Contains(lower, "$or") || strings.Contains(lower, "$and") || strings.Contains(lower, "$nor") {
+		if m := bareLogicalOperator.FindString(lower); m != "" {
+			findings = append(findings, makeFinding(70, engine.SeverityHigh,
+				"NoSQL logical operator injected into an object literal", strings.TrimSpace(m), location, 0.85))
+		}
 	}
-	if strings.Contains(lower, "$") {
+	if strings.Contains(lower, "$or") || strings.Contains(lower, "$nor") {
 		if m := emptyClause.FindString(lower); m != "" {
 			findings = append(findings, makeFinding(60, engine.SeverityHigh,
 				"NoSQL always-true clause: empty object in $or", m, location, 0.80))
@@ -55,7 +57,7 @@ func checkJSInjection(lower, location string) []engine.Finding {
 				"Mongo shell data-changing command in user input", m, location, 0.80))
 		}
 	}
-	if strings.Contains(lower, ";") {
+	if hasJSAfterQuoteAnchor(lower) {
 		if m := jsAfterQuote.FindString(lower); m != "" {
 			findings = append(findings, makeFinding(70, engine.SeverityHigh,
 				"JavaScript statements after a closed string (server-side JS injection)", m, location, 0.80))
@@ -68,4 +70,34 @@ func checkJSInjection(lower, location string) []engine.Finding {
 		}
 	}
 	return findings
+}
+
+// jsStatementWords are the first words that make "'; <word>" a JavaScript
+// statement rather than prose.
+var jsStatementWords = []string{"return ", "var ", "let ", "const ", "function", "while", "for"}
+
+// hasJSAfterQuoteAnchor reports a quote followed by ';' and one of the JS
+// statement words, so the regular expression above runs only on candidates.
+func hasJSAfterQuoteAnchor(lower string) bool {
+	for from := 0; ; {
+		j := strings.IndexByte(lower[from:], ';')
+		if j < 0 {
+			return false
+		}
+		i := from + j
+		from = i + 1
+		k := i
+		for k > 0 && (lower[k-1] == ' ' || lower[k-1] == '\t') {
+			k--
+		}
+		if k == 0 || (lower[k-1] != '\'' && lower[k-1] != '"') {
+			continue
+		}
+		rest := strings.TrimLeft(lower[i+1:], " \t")
+		for _, w := range jsStatementWords {
+			if strings.HasPrefix(rest, w) {
+				return true
+			}
+		}
+	}
 }

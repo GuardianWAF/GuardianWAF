@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
+	"github.com/guardianwaf/guardianwaf/internal/textmatch"
 )
 
 // sysCatalog matches a database system catalog that application queries never
@@ -17,6 +18,10 @@ var sysCatalog = regexp.MustCompile(`\b(?:information_schema\s*\.\s*(?:tables|co
 // sentence that names a catalog (documentation, a question about
 // information_schema) does not block.
 func checkCatalogRecon(input, location string) []engine.Finding {
+	// Gate on the raw input, ignoring case, before paying for a lowercased copy.
+	if !catalogGate.ContainsFold(input) {
+		return nil
+	}
 	lower := strings.ToLower(input)
 	if !strings.Contains(lower, "select") {
 		return nil
@@ -29,6 +34,15 @@ func checkCatalogRecon(input, location string) []engine.Finding {
 		"SELECT against a database system catalog (schema discovery)", m, location, 0.85)}
 }
 
+// catalogGate holds the literals every catalog name contains, so the expression
+// below runs only on inputs that mention one.
+var catalogGate = textmatch.New([]string{
+	"information_schema", "sqlite_master", "sqlite_schema", "sys.objects", "sys.columns",
+	"sys.tables", "sys.databases", "sys.sql_logins", "sysobjects", "syscolumns",
+	"sysdatabases", "all_tab_columns", "all_tables", "user_tables", "dba_users",
+	"mysql.user", "pg_catalog", "pg_tables", "pg_shadow", "pg_user",
+})
+
 var selectWord = regexp.MustCompile(`\bselect\b[^;]{0,200}\bfrom\b`)
 
 // logicalTautology matches a quote breakout joined by || or && to an equality
@@ -38,7 +52,8 @@ var selectWord = regexp.MustCompile(`\bselect\b[^;]{0,200}\bfrom\b`)
 var logicalTautology = regexp.MustCompile(`(?i)['"]\s*(?:\|\||&&)\s*['"]?([\w.]+)['"]?\s*={1,3}\s*['"]?([\w.]+)`)
 
 func checkLogicalTautology(input, location string) []engine.Finding {
-	if !strings.Contains(input, "||") && !strings.Contains(input, "&&") {
+	if (!strings.Contains(input, "||") && !strings.Contains(input, "&&")) ||
+		(!strings.Contains(input, "'") && !strings.Contains(input, `"`)) {
 		return nil
 	}
 	m := logicalTautology.FindStringSubmatch(input)
