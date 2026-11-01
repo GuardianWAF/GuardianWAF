@@ -156,6 +156,9 @@ waf:
     max_cookie_size: 4096        # Default: 4096 bytes
     block_null_bytes: true       # Default: true
     normalize_encoding: true     # Default: true (URL-decode, normalize)
+    decode_base64: true          # Default: true. Values that decode to text (not tokens,
+                                 # hashes or binary) are also scanned as decoded text.
+                                 # Set false if your API carries base64 text you trust.
     strip_hop_by_hop: true       # Default: true
     allowed_methods:             # Default: common HTTP methods
       - GET

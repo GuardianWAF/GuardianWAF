@@ -860,6 +860,7 @@ func (in *SanitizerConfig) DeepCopy() *SanitizerConfig {
 	out.MaxCookieSize = in.MaxCookieSize
 	out.BlockNullBytes = in.BlockNullBytes
 	out.NormalizeEncoding = in.NormalizeEncoding
+	out.DecodeBase64 = in.DecodeBase64
 	out.StripHopByHop = in.StripHopByHop
 	if in.AllowedMethods != nil {
 		out.AllowedMethods = make([]string, len(in.AllowedMethods))

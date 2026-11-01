@@ -313,16 +313,17 @@ func buildSanitizer(cfg *config.Config) (engine.Layer, error) {
 		overrides = append(overrides, sanitizer.PathOverride{Path: po.Path, MaxBodySize: po.MaxBodySize})
 	}
 	return sanitizer.NewLayer(&sanitizer.Config{
-		MaxURLLength:      cfg.WAF.Sanitizer.MaxURLLength,
-		MaxHeaderSize:     cfg.WAF.Sanitizer.MaxHeaderSize,
-		MaxHeaderCount:    cfg.WAF.Sanitizer.MaxHeaderCount,
-		MaxBodySize:       cfg.WAF.Sanitizer.MaxBodySize,
-		MaxCookieSize:     cfg.WAF.Sanitizer.MaxCookieSize,
-		AllowedMethods:    cfg.WAF.Sanitizer.AllowedMethods,
-		BlockNullBytes:    cfg.WAF.Sanitizer.BlockNullBytes,
-		StripHopByHop:     cfg.WAF.Sanitizer.StripHopByHop,
-		SkipNormalization: !cfg.WAF.Sanitizer.NormalizeEncoding,
-		PathOverrides:     overrides,
+		MaxURLLength:       cfg.WAF.Sanitizer.MaxURLLength,
+		MaxHeaderSize:      cfg.WAF.Sanitizer.MaxHeaderSize,
+		MaxHeaderCount:     cfg.WAF.Sanitizer.MaxHeaderCount,
+		MaxBodySize:        cfg.WAF.Sanitizer.MaxBodySize,
+		MaxCookieSize:      cfg.WAF.Sanitizer.MaxCookieSize,
+		AllowedMethods:     cfg.WAF.Sanitizer.AllowedMethods,
+		BlockNullBytes:     cfg.WAF.Sanitizer.BlockNullBytes,
+		StripHopByHop:      cfg.WAF.Sanitizer.StripHopByHop,
+		SkipNormalization:  !cfg.WAF.Sanitizer.NormalizeEncoding,
+		SkipBase64Decoding: !cfg.WAF.Sanitizer.DecodeBase64,
+		PathOverrides:      overrides,
 	}), nil
 }
 

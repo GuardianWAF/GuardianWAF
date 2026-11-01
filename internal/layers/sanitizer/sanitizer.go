@@ -156,6 +156,11 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 
 	ctx.BodyBinary = isBinaryMediaType(ctx.ContentType) && looksBinary(ctx.BodyString)
 
+	// Base64 text views for the detection layer; see base64views.go.
+	if !l.config.SkipBase64Decoding {
+		ctx.DecodedViews = collectDecodedViews(ctx, !l.config.SkipNormalization)
+	}
+
 	// Step 2: Validate
 	validationConfig := l.config
 	validationConfig.MaxBodySize = l.InspectionBodyLimit(ctx.Path, ctx.TenantWAFConfig)

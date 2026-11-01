@@ -267,6 +267,10 @@ type RequestContext struct {
 	// NormalizedCookies holds the sanitizer's normalized cookie values, in
 	// the same order as Cookies. See CookieViews.
 	NormalizedCookies map[string][]string
+	// DecodedViews holds text the per-parameter views miss (base64-decoded
+	// values, a whole query string or form body), found by the sanitizer. The
+	// detection layer scans each one as a lone input.
+	DecodedViews []DecodedView
 
 	// Scoring
 	Accumulator *ScoreAccumulator
@@ -614,6 +618,7 @@ func ReleaseContext(ctx *RequestContext) {
 	ctx.BodyBinary = false
 	ctx.NormalizedCookies = nil
 	ctx.NormalizedHeaders = nil
+	ctx.DecodedViews = nil
 
 	ctx.Accumulator = nil
 	ctx.Action = ActionPass

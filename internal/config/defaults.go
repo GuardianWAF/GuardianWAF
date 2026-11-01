@@ -54,6 +54,7 @@ func DefaultConfig() *Config {
 				MaxCookieSize:     4096,
 				BlockNullBytes:    true,
 				NormalizeEncoding: true,
+				DecodeBase64:      true,
 				StripHopByHop:     true,
 				AllowedMethods:    []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"},
 			},
@@ -1591,6 +1592,9 @@ func populateSanitizer(san *SanitizerConfig, n *Node) error {
 		return err
 	}
 	if err := nodeBoolField(n, "normalize_encoding", "", &san.NormalizeEncoding); err != nil {
+		return err
+	}
+	if err := nodeBoolField(n, "decode_base64", "", &san.DecodeBase64); err != nil {
 		return err
 	}
 	if err := nodeBoolField(n, "strip_hop_by_hop", "", &san.StripHopByHop); err != nil {

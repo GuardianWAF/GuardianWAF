@@ -550,6 +550,7 @@ type SanitizerConfig struct {
 	MaxCookieSize     int            `yaml:"max_cookie_size"`
 	BlockNullBytes    bool           `yaml:"block_null_bytes"`
 	NormalizeEncoding bool           `yaml:"normalize_encoding"`
+	DecodeBase64      bool           `yaml:"decode_base64"`
 	StripHopByHop     bool           `yaml:"strip_hop_by_hop"`
 	AllowedMethods    []string       `yaml:"allowed_methods"`
 	PathOverrides     []PathOverride `yaml:"path_overrides"`

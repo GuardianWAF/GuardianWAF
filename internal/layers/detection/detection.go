@@ -183,6 +183,7 @@ func (l *Layer) Process(ctx *engine.RequestContext) engine.LayerResult {
 		result := det.Process(ctx)
 		allFindings = append(allFindings, result.Findings...)
 	}
+	allFindings = append(allFindings, l.scanDecodedViews(ctx, exclusionPath, exclusions)...)
 
 	// Detectors scan each input in several views (raw and normalized, and
 	// both forms of every structured-body field). The same rule matching the
@@ -262,6 +263,49 @@ func dedupeFindings(findings []engine.Finding) []engine.Finding {
 		}
 		index[k] = len(out)
 		out = append(out, f)
+	}
+	return out
+}
+
+// decodedSkip lists detectors that judge request structure (headers, path,
+// parameter names) rather than text, so they have nothing to say about a
+// decoded view.
+var decodedSkip = map[string]bool{"smuggling": true, "openredirect": true, "graphql": true}
+
+// scanDecodedViews runs the text detectors over what base64 values decode to
+// (ctx.DecodedViews): base64-decoded values and whole query strings, read as
+// if that text had arrived in the clear. Each view is presented as a lone
+// query parameter and body, and its findings are relocated to the view's
+// Source so a rule that matches the same text through several views counts
+// once.
+func (l *Layer) scanDecodedViews(ctx *engine.RequestContext, exclusionPath string, exclusions []Exclusion) []engine.Finding {
+	if len(ctx.DecodedViews) == 0 {
+		return nil
+	}
+	var out []engine.Finding
+	for _, v := range ctx.DecodedViews {
+		shadow := &engine.RequestContext{
+			Method:          ctx.Method,
+			Path:            "/",
+			NormalizedPath:  "/",
+			QueryParams:     map[string][]string{"b64": {v.Raw}},
+			NormalizedQuery: map[string][]string{"b64": {v.Normalized}},
+			BodyString:      v.Raw,
+			NormalizedBody:  v.Normalized,
+		}
+		for _, det := range l.detectors {
+			name := det.DetectorName()
+			if decodedSkip[name] || l.isExcludedWithTenant(name, exclusionPath, exclusions) {
+				continue
+			}
+			for _, f := range det.Process(shadow).Findings {
+				if f.Score <= 0 {
+					continue
+				}
+				f.Location = v.Source
+				out = append(out, f)
+			}
+		}
 	}
 	return out
 }
