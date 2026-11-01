@@ -21,6 +21,22 @@ var (
 const jndiDescription = "JNDI lookup (Log4Shell)"
 const oastDescription = "Out-of-band callback domain"
 
+// oastWords are the distinctive parts of the callback domains below. The
+// expression runs only when one appears in the lowercased input; strings.Contains
+// is vectorized, and an automaton over every byte of a large body is not.
+var oastWords = []string{
+	"collaborator", "oastify", "oast.", "interact", "dnslog", "ceye", "requestrepo",
+}
+
+func hasOASTWord(lower string) bool {
+	for _, w := range oastWords {
+		if strings.Contains(lower, w) {
+			return true
+		}
+	}
+	return false
+}
+
 func checkOutOfBand(lower, location string) []engine.Finding {
 	var findings []engine.Finding
 	if strings.Contains(lower, "${") {
@@ -29,7 +45,7 @@ func checkOutOfBand(lower, location string) []engine.Finding {
 				jndiDescription, m, location, 0.95))
 		}
 	}
-	if strings.Contains(lower, ".") {
+	if hasOASTWord(lower) {
 		if m := oastDomain.FindString(lower); m != "" {
 			findings = append(findings, makeFinding(65, engine.SeverityHigh,
 				oastDescription, strings.TrimLeft(m, "^"), location, 0.90))

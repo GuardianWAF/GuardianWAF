@@ -19,18 +19,47 @@ var (
 
 func checkUNCPaths(lower, location string) []engine.Finding {
 	var findings []engine.Finding
-	if m := uncMatch(uncAdminShare, lower); m != "" {
+	// Each regular expression runs only where its rare literal occurs: an
+	// unanchored match over a whole large body costs milliseconds per
+	// megabyte. The admin-share form needs a '$', so only a window before
+	// each '$' is searched.
+	if m := adminShareNear(lower); m != "" {
 		findings = append(findings, makeFinding(70, engine.SeverityHigh,
 			"Windows administrative share path detected", m, location, 0.85))
-	} else if m := uncMatch(uncLoopback, lower); m != "" {
-		findings = append(findings, makeFinding(60, engine.SeverityHigh,
-			"UNC path to the local machine detected", m, location, 0.80))
+	} else if strings.Contains(lower, "localhost") || strings.Contains(lower, "127.") || strings.Contains(lower, "::1") {
+		if m := uncMatch(uncLoopback, lower); m != "" {
+			findings = append(findings, makeFinding(60, engine.SeverityHigh,
+				"UNC path to the local machine detected", m, location, 0.80))
+		}
 	}
-	if m := ntuserHive.FindString(lower); m != "" {
-		findings = append(findings, makeFinding(60, engine.SeverityHigh,
-			"Windows user registry hive path detected", m, location, 0.80))
+	if strings.Contains(lower, "ntuser") {
+		if m := ntuserHive.FindString(lower); m != "" {
+			findings = append(findings, makeFinding(60, engine.SeverityHigh,
+				"Windows user registry hive path detected", m, location, 0.80))
+		}
 	}
 	return findings
+}
+
+// adminShareNear searches a window ahead of each '$' (at most eight) for an
+// administrative share path.
+func adminShareNear(lower string) string {
+	seen := 0
+	for from := 0; seen < 8; {
+		j := strings.IndexByte(lower[from:], '$')
+		if j < 0 {
+			return ""
+		}
+		i := from + j
+		from = i + 1
+		seen++
+		lo := max(0, i-260)
+		hi := min(len(lower), i+3)
+		if m := uncMatch(uncAdminShare, lower[lo:hi]); m != "" {
+			return m
+		}
+	}
+	return ""
 }
 
 // uncMatch returns the first match of re that begins a path, not one inside a

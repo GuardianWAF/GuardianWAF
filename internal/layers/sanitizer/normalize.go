@@ -545,10 +545,8 @@ func DecodeOverlongUTF8(s string) string {
 }
 
 func hasOverlongLead(s string) bool {
-	for i := 0; i < len(s); i++ {
-		if s[i] == 0xC0 || s[i] == 0xC1 || s[i] == 0xE0 || s[i] == 0xF0 {
-			return true
-		}
-	}
-	return false
+	// IndexByte is vectorized; a byte loop over every normalization round of a
+	// large body showed up in profiles.
+	return strings.IndexByte(s, 0xC0) >= 0 || strings.IndexByte(s, 0xC1) >= 0 ||
+		strings.IndexByte(s, 0xE0) >= 0 || strings.IndexByte(s, 0xF0) >= 0
 }

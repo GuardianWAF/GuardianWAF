@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/guardianwaf/guardianwaf/internal/engine"
+	"github.com/guardianwaf/guardianwaf/internal/textmatch"
 )
 
 // AnalyzeTokens examines a token sequence and returns findings with scores.
@@ -90,9 +91,14 @@ func Detect(input, location string) []engine.Finding {
 	}
 	// The analysis ignores whitespace, so it is never emitted: large bodies
 	// tokenize into tens of thousands of tokens, about half of them spaces.
-	findings := analyzeSignificant(tokenize(input, false), location)
+	tokens := tokenize(input, false)
+	findings := analyzeSignificant(tokens, location)
 	findings = append(findings, breakoutView(input, location)...)
-	findings = append(findings, checkCatalogRecon(input, location)...)
+	// The catalog rule needs a SELECT, which the tokenizer has already found
+	// when there is one; most inputs skip the rule without another scan.
+	if hasSelectKeyword(tokens) {
+		findings = append(findings, checkCatalogRecon(input, location)...)
+	}
 	return append(findings, checkLogicalTautology(input, location)...)
 }
 
@@ -1007,7 +1013,12 @@ func matchingClose(tokens []Token, open int) int {
 // adds nothing.
 func breakoutView(input, location string) []engine.Finding {
 	i := strings.IndexByte(input, '\'')
-	if i < 0 || i == len(input)-1 {
+	if i < 0 || i == len(input)-1 || len(input) > breakoutMaxLen {
+		return nil
+	}
+	// A second tokenization is worth it only when the input holds something a
+	// quote could be hiding.
+	if !breakoutGate.ContainsFold(input) {
 		return nil
 	}
 	var out []engine.Finding
@@ -1018,4 +1029,25 @@ func breakoutView(input, location string) []engine.Finding {
 		}
 	}
 	return out
+}
+
+// breakoutMaxLen bounds the second pass: an injected value is short, a long
+// body is a document.
+const breakoutMaxLen = 4096
+
+// breakoutGate lists the SQL words and operators that make the second view
+// worth building.
+var breakoutGate = textmatch.New([]string{
+	"select", "union", "insert", "update", "delete", "drop", "sleep(", "benchmark(",
+	"waitfor", "having", "order by", "group by", "exec", "||", "&&", " or ", " and ",
+})
+
+// hasSelectKeyword reports a SELECT keyword token.
+func hasSelectKeyword(tokens []Token) bool {
+	for _, t := range tokens {
+		if t.Type == TokenKeyword && tokenUpperValue(t) == "SELECT" {
+			return true
+		}
+	}
+	return false
 }

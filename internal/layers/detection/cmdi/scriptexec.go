@@ -31,17 +31,17 @@ func checkScriptExec(input, lower, location string) []engine.Finding {
 	add := func(score int, sev engine.Severity, desc, matched string) {
 		findings = append(findings, makeFinding(score, sev, desc, matched, location, 0.85))
 	}
-	if strings.Contains(lower, "!") {
+	if strings.Contains(lower, "!") && (strings.Contains(lower, "python/") || strings.Contains(lower, "java") || strings.Contains(lower, "ruby/")) {
 		if m := yamlObjectTag.FindString(lower); m != "" {
 			add(90, engine.SeverityCritical, "YAML object tag (deserialization RCE)", m)
 		}
 	}
-	if len(lower) >= 8 {
+	if strings.Contains(lower, "aced0005") || strings.Contains(lower, "ro0ab") {
 		if m := javaSerialized.FindString(lower); m != "" {
 			add(75, engine.SeverityHigh, "Java serialized object", strings.TrimSpace(m))
 		}
 	}
-	if strings.Contains(lower, "o:") {
+	if strings.Contains(lower, ":{") && strings.Contains(lower, "o:") {
 		if m := phpSerialized.FindString(lower); m != "" {
 			add(70, engine.SeverityHigh, "PHP serialized object", m)
 		}
@@ -51,14 +51,14 @@ func checkScriptExec(input, lower, location string) []engine.Finding {
 			add(90, engine.SeverityCritical, "PHP code execution on request data", m)
 		}
 	}
-	if strings.Contains(lower, "request") {
+	if strings.Contains(lower, "request") && (strings.Contains(lower, "eval") || strings.Contains(lower, "execute")) {
 		if m := aspRequestExec.FindString(lower); m != "" {
 			add(90, engine.SeverityCritical, "ASP code execution on request data", m)
 		}
 	}
 	// VBScript builds function names from string pieces to dodge filters:
 	// join them and look for execution primitives.
-	if strings.Contains(lower, `"`) && strings.Contains(lower, "&") {
+	if strings.Contains(lower, `"&`) || strings.Contains(lower, `" &`) {
 		joined := vbConcat.ReplaceAllString(lower, "")
 		compact := strings.ReplaceAll(joined, " ", "")
 		if strings.Contains(compact, "execute(") || strings.Contains(compact, "eval(") {

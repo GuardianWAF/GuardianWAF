@@ -107,7 +107,11 @@ Library mode:
   and 75 ms per MB of text on one core (a 6 MB text body: ≈450 ms), and is
   faster on forms. Bodies over 256 KiB share inspection slots (half
   the CPUs) and get `503` when saturated, so they cannot starve small requests.
-  Keep `waf.sanitizer.max_body_size` and per-path overrides as small as each
+  The detection added for 0.7.0 (base64 views, new detectors, more rules) makes
+  large bodies about 30% slower: on one machine the large-JSON pipeline benchmark
+  went from 66 to 83 ms per MB, the large-text one from 86 to 114 ms per MB, and
+  `BenchmarkEngine_LargeBody` from 8.8 to 10.0 ms. Ordinary requests are within
+  3% (a benign request 25.8 to 26.2 µs). Keep `waf.sanitizer.max_body_size` and per-path overrides as small as each
   endpoint allows.
 - **CRS and OpenAPI support are subsets.** Neither is full ModSecurity or full
   OpenAPI/JSON Schema compatibility.

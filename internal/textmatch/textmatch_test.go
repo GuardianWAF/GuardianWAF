@@ -84,3 +84,20 @@ func BenchmarkFindVsContains(b *testing.B) {
 		}
 	})
 }
+
+func TestContainsFold(t *testing.T) {
+	s := New([]string{"information_schema", "sysobjects"})
+	for in, want := range map[string]bool{
+		"select * from INFORMATION_SCHEMA.tables": true,
+		"SysObjects":   true,
+		"nothing here": false,
+		"":             false,
+	} {
+		if got := s.ContainsFold(in); got != want {
+			t.Errorf("ContainsFold(%q) = %v, want %v", in, got, want)
+		}
+	}
+	if s.Contains("INFORMATION_SCHEMA") {
+		t.Error("Contains must stay case-sensitive")
+	}
+}

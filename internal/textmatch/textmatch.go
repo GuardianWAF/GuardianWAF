@@ -118,3 +118,21 @@ func (s *Set) Contains(input string) bool {
 	}
 	return false
 }
+
+// ContainsFold reports whether any pattern occurs in input, ignoring ASCII
+// case. The patterns must already be lowercase. It spares the allocation of a
+// lowercased copy of a large input just to run a gate over it.
+func (s *Set) ContainsFold(input string) bool {
+	state := int32(0)
+	for i := range len(input) {
+		c := input[i]
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		state = s.goTo[state][c]
+		if len(s.out[state]) > 0 {
+			return true
+		}
+	}
+	return false
+}
